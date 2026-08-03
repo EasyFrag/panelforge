@@ -104,6 +104,12 @@ def validate_png(content: bytes) -> None:
         raise ValueError("downloaded output is not a PNG image")
 
 
+def save_output(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("xb") as output_file:
+        output_file.write(content)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Submit a ComfyUI API workflow and download its first image."
@@ -137,6 +143,12 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="History polling interval in seconds (default: %(default)s)",
     )
+    parser.add_argument(
+        "--save-output",
+        type=Path,
+        default=None,
+        help="Optional local PNG path; fails rather than overwriting an existing file",
+    )
     return parser.parse_args()
 
 
@@ -167,12 +179,16 @@ def run_smoke(args: argparse.Namespace) -> int:
     )
 
     validate_png(content)
+    if args.save_output is not None:
+        save_output(args.save_output, content)
 
     print(
         f"Downloaded node={node_id} filename={image['filename']!r} "
         f"bytes={len(content)} format=PNG",
         flush=True,
     )
+    if args.save_output is not None:
+        print(f"Saved local copy to {args.save_output}", flush=True)
     return 0
 
 

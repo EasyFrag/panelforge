@@ -1,0 +1,1 @@
+<sks> {azimuth} {elevation} {shot_size}

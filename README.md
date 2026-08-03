@@ -4,7 +4,7 @@ PanelForge construit des personnages visuels cohérents, leurs références et d
 
 ## État
 
-Le projet est volontairement limité à un squelette architectural. Aucun framework UI, moteur de jobs, stockage complexe ou pipeline narratif n'est encore choisi.
+Le projet reste volontairement minimal : aucun framework UI, moteur de jobs, stockage complexe ou pipeline narratif n'est encore choisi. Le transport ComfyUI de base est opérationnel et une première recette expérimentale `character.change_view` est intégrée.
 
 ## Principes
 
@@ -32,6 +32,10 @@ fiche personnage manuelle
 - `src/panelforge/infrastructure`: adapters ComfyUI, presets et stockage.
 - `workflows`: workflows ComfyUI validés manuellement et versionnés.
 - `workspace`: données locales générées, ignorées par Git.
+
+## Première opération cataloguée
+
+`character.change_view` transforme trois valeurs métier fermées (`azimuth`, `elevation`, `shot_size`) en prompt Qwen Multiple Angles déterministe. Son trigger et son ordre ne passent jamais par un rewriter LLM. La recette reste expérimentale jusqu'à validation humaine de sa matrice visuelle.
 
 ## Vérification
 

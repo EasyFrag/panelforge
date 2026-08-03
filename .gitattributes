@@ -1,0 +1,3 @@
+# Immutable workflow snapshots are hashed byte-for-byte and stay reviewable.
+workflows/**/workflow_api.json text eol=lf
+workflows/**/prompt.txt text eol=lf

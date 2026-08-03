@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "recipe_id": "qwen-edit-2511-multiple-angles",
+  "recipe_version": "0.1.0",
+  "status": "pending",
+  "controls": {
+    "same_source_asset": true,
+    "seed": 151020854543467,
+    "change_one_dimension_at_a_time": true
+  },
+  "review_criteria": [
+    "requested_angle",
+    "identity",
+    "outfit_and_accessories",
+    "pose_and_anatomy",
+    "hidden_details_invented",
+    "framing",
+    "background"
+  ],
+  "cases": [
+    {
+      "id": "baseline",
+      "azimuth": "front",
+      "elevation": "eye_level",
+      "shot_size": "medium",
+      "verdict": null,
+      "notes": ""
+    },
+    {
+      "id": "front_right_quarter",
+      "azimuth": "front_right_quarter",
+      "elevation": "eye_level",
+      "shot_size": "medium",
+      "verdict": null,
+      "notes": ""
+    },
+    {
+      "id": "right_side",
+      "azimuth": "right_side",
+      "elevation": "eye_level",
+      "shot_size": "medium",
+      "verdict": null,
+      "notes": ""
+    },
+    {
+      "id": "back",
+      "azimuth": "back",
+      "elevation": "eye_level",
+      "shot_size": "medium",
+      "verdict": null,
+      "notes": ""
+    },
+    {
+      "id": "elevated_quarter",
+      "azimuth": "front_left_quarter",
+      "elevation": "elevated",
+      "shot_size": "medium",
+      "verdict": null,
+      "notes": ""
+    },
+    {
+      "id": "low",
+      "azimuth": "front",
+      "elevation": "low",
+      "shot_size": "medium",
+      "verdict": null,
+      "notes": ""
+    },
+    {
+      "id": "high",
+      "azimuth": "front",
+      "elevation": "high",
+      "shot_size": "medium",
+      "verdict": null,
+      "notes": ""
+    },
+    {
+      "id": "close_up",
+      "azimuth": "front",
+      "elevation": "eye_level",
+      "shot_size": "close_up",
+      "verdict": null,
+      "notes": ""
+    },
+    {
+      "id": "wide",
+      "azimuth": "front",
+      "elevation": "eye_level",
+      "shot_size": "wide",
+      "verdict": null,
+      "notes": ""
+    }
+  ]
+}

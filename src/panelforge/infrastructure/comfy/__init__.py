@@ -1,5 +1,5 @@
 """ComfyUI transport adapter."""
 
-from .client import ComfyHttpClient
+from .client import ComfyHttpClient, ComfyImageRef
 
-__all__ = ["ComfyHttpClient"]
+__all__ = ["ComfyHttpClient", "ComfyImageRef"]

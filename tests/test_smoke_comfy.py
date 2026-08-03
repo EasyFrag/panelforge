@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -7,7 +8,12 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.smoke_comfy import find_first_image, validate_png, wait_for_history
+from scripts.smoke_comfy import (
+    find_first_image,
+    save_output,
+    validate_png,
+    wait_for_history,
+)
 
 
 class FakeHistoryClient:
@@ -95,6 +101,16 @@ class SmokeComfyTest(unittest.TestCase):
     def test_validate_png_rejects_non_png_content(self):
         with self.assertRaisesRegex(ValueError, "not a PNG"):
             validate_png(b"not-an-image")
+
+    def test_save_output_writes_once_without_overwriting(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_path = Path(temporary_directory) / "candidate.png"
+
+            save_output(output_path, b"image-content")
+
+            self.assertEqual(output_path.read_bytes(), b"image-content")
+            with self.assertRaises(FileExistsError):
+                save_output(output_path, b"replacement")
 
 
 if __name__ == "__main__":

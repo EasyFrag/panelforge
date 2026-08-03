@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "operation": "character.change_view",
+  "recipe_id": "qwen-edit-2511-multiple-angles",
+  "version": "0.1.0",
+  "status": "experimental",
+  "scope": {
+    "source_image_count": 1,
+    "recommended_subjects": 1,
+    "recommended_background": "simple",
+    "derived_output_requires_manual_approval": true
+  },
+  "workflow": {
+    "file": "workflow_api.json",
+    "sha256": "20557d27c6c08e569521f5bcddff95ddd44e7040428835403d8a957725de607a"
+  },
+  "prompt": {
+    "template_file": "prompt.txt",
+    "sha256": "bc7546a8d0cf87abbcd741556b5c9f9c072e93af1f84d436376677ad855630b0",
+    "rewriter_policy": "forbidden",
+    "negative": "",
+    "phrases": {
+      "azimuth": {
+        "front": "front view",
+        "front_right_quarter": "front-right quarter view",
+        "right_side": "right side view",
+        "back_right_quarter": "back-right quarter view",
+        "back": "back view",
+        "back_left_quarter": "back-left quarter view",
+        "left_side": "left side view",
+        "front_left_quarter": "front-left quarter view"
+      },
+      "elevation": {
+        "low": "low-angle shot",
+        "eye_level": "eye-level shot",
+        "elevated": "elevated shot",
+        "high": "high-angle shot"
+      },
+      "shot_size": {
+        "close_up": "close-up",
+        "medium": "medium shot",
+        "wide": "wide shot"
+      }
+    }
+  },
+  "bindings": {
+    "source_image": {
+      "node_id": "41",
+      "input": "image"
+    },
+    "positive_prompt": {
+      "node_id": "104",
+      "input": "prompt"
+    },
+    "negative_prompt": {
+      "node_id": "101",
+      "input": "prompt"
+    },
+    "seed": {
+      "node_id": "108",
+      "input": "seed"
+    },
+    "output_image": {
+      "node_id": "9",
+      "history_field": "images"
+    }
+  },
+  "resource_provenance": {
+    "multiple_angles_lora": {
+      "workflow_assertion_id": "multiple_angles_lora",
+      "civitai_model_id": 2300308,
+      "civitai_model_version_id": 2588352,
+      "air": "urn:air:qwen:lora:civitai:2300308@2588352",
+      "civitai_sha256": "42426ded4e25fd22879d9e198b857556445ef4ca56e8da3246d0345155bb6765",
+      "local_hash_verified": false
+    }
+  },
+  "workflow_assertions": [
+    {
+      "id": "unet",
+      "node_id": "96",
+      "input": "unet_name",
+      "equals": "qwen_image_edit_2511_bf16.safetensors"
+    },
+    {
+      "id": "clip",
+      "node_id": "93",
+      "input": "clip_name",
+      "equals": "qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    },
+    {
+      "id": "clip_type",
+      "node_id": "93",
+      "input": "type",
+      "equals": "qwen_image"
+    },
+    {
+      "id": "vae",
+      "node_id": "95",
+      "input": "vae_name",
+      "equals": "qwen_image_vae.safetensors"
+    },
+    {
+      "id": "lightning_lora",
+      "node_id": "115",
+      "input": "lora_3",
+      "equals": {
+        "on": true,
+        "lora": "qwen/Qwen-Image-Edit-2511-Lightning-8steps-V1.0-bf16.safetensors",
+        "strength": 1
+      }
+    },
+    {
+      "id": "multiple_angles_lora",
+      "node_id": "115",
+      "input": "lora_6",
+      "equals": {
+        "on": true,
+        "lora": "qwen/qwen-image-edit-2511-multiple-angles-lora.safetensors",
+        "strength": 1
+      }
+    },
+    {
+      "id": "steps",
+      "node_id": "108",
+      "input": "steps",
+      "equals": 8
+    },
+    {
+      "id": "cfg",
+      "node_id": "108",
+      "input": "cfg",
+      "equals": 4
+    },
+    {
+      "id": "sampler",
+      "node_id": "108",
+      "input": "sampler_name",
+      "equals": "euler"
+    },
+    {
+      "id": "scheduler",
+      "node_id": "108",
+      "input": "scheduler",
+      "equals": "simple"
+    },
+    {
+      "id": "denoise",
+      "node_id": "108",
+      "input": "denoise",
+      "equals": 1
+    },
+    {
+      "id": "sampling_shift",
+      "node_id": "94",
+      "input": "shift",
+      "equals": 3
+    },
+    {
+      "id": "cfg_norm_strength",
+      "node_id": "99",
+      "input": "strength",
+      "equals": 1
+    },
+    {
+      "id": "cfg_norm_pre_cfg",
+      "node_id": "99",
+      "input": "pre_cfg",
+      "equals": false
+    },
+    {
+      "id": "negative_reference_method",
+      "node_id": "97",
+      "input": "reference_latents_method",
+      "equals": "index_timestep_zero"
+    },
+    {
+      "id": "positive_reference_method",
+      "node_id": "98",
+      "input": "reference_latents_method",
+      "equals": "index_timestep_zero"
+    }
+  ],
+  "provenance": {
+    "source": "manual_comfyui_discovery",
+    "source_url": "https://civitai.com/models/2300308/qwen-image-edit-2511-multiple-angles-lora?modelVersionId=2588352",
+    "captured_on": "2026-08-03",
+    "validated_prompt": "<sks> back view low-angle shot wide shot",
+    "civitai_permissions_snapshot": {
+      "allowNoCredit": true,
+      "allowCommercialUse": "{Image}",
+      "allowDerivatives": false,
+      "allowDifferentLicense": true
+    }
+  },
+  "known_limits": [
+    "Hidden surfaces are reconstructed rather than geometrically recovered.",
+    "A generated view remains a candidate until manual approval.",
+    "This version is scoped to one clear subject and is not a full-scene camera operation.",
+    "The workflow snapshot still contains disabled LoRA slots from manual discovery."
+  ]
+}
