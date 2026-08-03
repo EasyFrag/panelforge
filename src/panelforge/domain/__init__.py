@@ -1,0 +1,1 @@
+"""Pure PanelForge domain concepts."""
