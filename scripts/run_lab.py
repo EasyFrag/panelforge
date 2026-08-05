@@ -1,0 +1,92 @@
+"""Launch the local PanelForge Lab against one ComfyUI server."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+from uuid import uuid4
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+sys.path.insert(0, str(SRC_ROOT))
+
+from panelforge.application import ChangeViewRunner
+from panelforge.features.lab.web import create_app
+from panelforge.infrastructure.comfy import ComfyHttpClient
+from panelforge.infrastructure.presets import (
+    ChangeViewPresetRecipe,
+    load_change_view_preset,
+)
+from panelforge.infrastructure.storage import LocalAssetStore, LocalRunStore
+
+
+PRESET_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "character.change_view"
+    / "qwen-edit-2511-multiple-angles"
+    / "0.2.0"
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Launch PanelForge Lab.")
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get(
+            "PANELFORGE_COMFY_URL",
+            "http://192.168.1.72:8188",
+        ),
+        help="ComfyUI base URL (default: %(default)s)",
+    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--http-timeout", type=float, default=30.0)
+    parser.add_argument("--run-timeout", type=float, default=600.0)
+    parser.add_argument("--poll-interval", type=float, default=1.0)
+    parser.add_argument(
+        "--workspace",
+        type=Path,
+        default=PROJECT_ROOT / "workspace",
+    )
+    return parser.parse_args()
+
+
+def build_app(args: argparse.Namespace):
+    recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
+    assets = LocalAssetStore(args.workspace)
+    runs = LocalRunStore(args.workspace)
+    comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-lab-{uuid4().hex}",
+        timeout=args.http_timeout,
+    )
+    runner = ChangeViewRunner(
+        recipe=recipe,
+        comfy=comfy,
+        assets=assets,
+        runs=runs,
+        run_timeout=args.run_timeout,
+        poll_interval=args.poll_interval,
+    )
+    return create_app(runner)
+
+
+def main() -> int:
+    args = parse_args()
+    import uvicorn
+
+    uvicorn.run(
+        build_app(args),
+        host=args.host,
+        port=args.port,
+        log_level="info",
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

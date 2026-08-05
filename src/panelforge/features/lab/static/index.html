@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PanelForge Lab</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <script src="/static/lab.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
+    <div class="recipe">character.change_view <span id="recipe-version">…</span></div>
+  </header>
+
+  <main>
+    <aside class="controls">
+      <div class="title-row">
+        <div><small>OPÉRATION</small><h1>Changer la vue</h1></div>
+        <span class="experimental">● Experimental</span>
+      </div>
+      <p class="muted">Explorez un angle sans remplacer l’image canonique.</p>
+
+      <form id="run-form">
+        <section>
+          <div class="section-title"><h2>1. Image source</h2><small id="source-kind">Aucune</small></div>
+          <label id="dropzone" class="dropzone" for="source-image">
+            <input id="source-image" type="file" accept="image/png,image/jpeg,image/webp">
+            <span id="drop-empty"><b>＋</b>Déposer une image<small>PNG, JPEG ou WebP</small></span>
+            <span id="drop-preview" hidden><img id="source-thumb" alt="Aperçu source"><i>Remplacer</i></span>
+          </label>
+          <p id="source-name" class="caption"></p>
+        </section>
+
+        <section>
+          <h2>2. Angle de caméra</h2>
+          <fieldset><legend class="sr-only">Azimut</legend><div id="azimuths" class="azimuths"></div></fieldset>
+        </section>
+
+        <section>
+          <h2>3. Point de vue</h2>
+          <div class="selects">
+            <label>Élévation<select id="elevation" name="elevation"></select></label>
+            <label>Cadrage<select id="shot-size" name="shot_size"></select></label>
+          </div>
+        </section>
+
+        <section>
+          <div class="section-title"><div><h2>4. LoRA d’angle</h2><small>Force du changement de vue</small></div><output id="lora-value">1,00</output></div>
+          <input id="lora-strength" type="range" name="lora_strength" min="0" max="2" step="0.05" value="1">
+          <div class="scale"><span>0</span><span>1 recommandé</span><span>2</span></div>
+          <p id="lora-warning" class="warning" hidden>Ce réglage est un override expérimental.</p>
+        </section>
+
+        <details>
+          <summary>Réglages avancés</summary>
+          <label class="seed-label">Seed
+            <input id="seed" type="text" name="seed" inputmode="numeric" pattern="[0-9]+" maxlength="20" required>
+          </label>
+          <small>La seed reste une chaîne : aucun chiffre n’est arrondi.</small>
+        </details>
+
+        <section class="prompt">
+          <div class="section-title"><label for="compiled-prompt">Prompt compilé</label><small>● Verrouillé</small></div>
+          <textarea id="compiled-prompt" rows="3" readonly></textarea>
+        </section>
+
+        <p id="form-error" class="error" role="alert" hidden></p>
+        <button id="generate" class="primary" type="submit" disabled>Générer la vue</button>
+      </form>
+    </aside>
+
+    <div class="content">
+      <section class="results">
+        <div class="result-head">
+          <div><small>COMPARAISON</small><h2>Source et résultat</h2></div>
+          <span id="run-status" class="run-status">● Prêt</span>
+        </div>
+        <div class="comparison">
+          <figure>
+            <figcaption>Source <small id="source-caption">En attente</small></figcaption>
+            <div class="stage"><p id="source-empty">Votre référence apparaîtra ici</p><img id="source-large" alt="Image source" hidden></div>
+          </figure>
+          <figure>
+            <figcaption>Résultat <small id="result-caption">Aucun run</small></figcaption>
+            <div class="stage">
+              <p id="result-empty">Le candidat apparaîtra ici</p>
+              <p id="result-loading" class="loading" hidden><i></i>Génération en cours…</p>
+              <img id="result-image" alt="Vue générée" hidden>
+            </div>
+          </figure>
+        </div>
+        <p id="run-message" class="message" aria-live="polite"></p>
+        <div class="actions">
+          <button id="keep" type="button" disabled>Conserver</button>
+          <button id="reject" type="button" disabled>Rejeter</button>
+          <button id="reuse" type="button" disabled>Utiliser comme source</button>
+        </div>
+      </section>
+
+      <section class="history">
+        <div class="result-head"><div><small>RUNS RÉCENTS</small><h2>Historique</h2></div><button id="refresh" type="button" aria-label="Actualiser">↻</button></div>
+        <p id="history-empty" class="muted">Aucun run enregistré.</p>
+        <ul id="history-list"></ul>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

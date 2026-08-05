@@ -7,7 +7,11 @@ from typing import Any
 
 from panelforge.domain.character import ChangeView
 
-from .change_view_manifest import PresetValidationError, ValidatedChangeViewPreset
+from .change_view_manifest import (
+    MULTIPLE_ANGLES_LORA_STRENGTH,
+    PresetValidationError,
+    ValidatedChangeViewPreset,
+)
 
 
 JsonObject = dict[str, Any]
@@ -33,6 +37,7 @@ def build_change_view_workflow(
     *,
     source_image: str,
     seed: int,
+    multiple_angles_lora_strength: float | None = None,
 ) -> JsonObject:
     """Build one isolated workflow with this run's explicit inputs."""
     if not isinstance(source_image, str) or not source_image.strip():
@@ -54,4 +59,30 @@ def build_change_view_workflow(
                 f"binding {binding_name!r} is not a workflow input"
             )
         workflow[binding.node_id]["inputs"][binding.input_name] = value
+
+    control = preset.controls.get(MULTIPLE_ANGLES_LORA_STRENGTH)
+    if control is None:
+        if multiple_angles_lora_strength is not None:
+            raise ValueError(
+                "this preset does not expose multiple_angles_lora_strength"
+            )
+        return workflow
+
+    strength = control.validate_value(
+        control.default
+        if multiple_angles_lora_strength is None
+        else multiple_angles_lora_strength
+    )
+    target: Any = workflow[control.node_id]["inputs"][control.input_name]
+    for path_part in control.value_path[:-1]:
+        if not isinstance(target, dict):
+            raise PresetValidationError(
+                f"control {control.control_id!r} target is not an object"
+            )
+        target = target[path_part]
+    if not isinstance(target, dict):
+        raise PresetValidationError(
+            f"control {control.control_id!r} target is not an object"
+        )
+    target[control.value_path[-1]] = strength
     return workflow
