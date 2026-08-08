@@ -1,0 +1,1 @@
+Analyse cette référence intitulée « {label} », utilisée avec le rôle « {role} ». Produis la fiche factuelle demandée et distingue explicitement les incertitudes.

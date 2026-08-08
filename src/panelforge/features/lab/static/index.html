@@ -6,14 +6,19 @@
   <title>PanelForge Lab</title>
   <link rel="stylesheet" href="/static/lab.css">
   <script src="/static/lab.js" defer></script>
+  <script src="/static/prompt-lab.js" defer></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
-    <div class="recipe">character.change_view <span id="recipe-version">…</span></div>
+    <nav class="lab-nav" aria-label="Ateliers">
+      <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
+      <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
+    </nav>
+    <div id="recipe-badge" class="recipe">character.change_view <span id="recipe-version">…</span></div>
   </header>
 
-  <main>
+  <main id="change-view-workspace">
     <aside class="controls">
       <div class="title-row">
         <div><small>OPÉRATION</small><h1>Changer la vue</h1></div>
@@ -102,6 +107,102 @@
         <div class="result-head"><div><small>RUNS RÉCENTS</small><h2>Historique</h2></div><button id="refresh" type="button" aria-label="Actualiser">↻</button></div>
         <p id="history-empty" class="muted">Aucun run enregistré.</p>
         <ul id="history-list"></ul>
+      </section>
+    </div>
+  </main>
+
+  <main id="prompt-lab-workspace" class="prompt-workspace" hidden>
+    <aside class="controls prompt-setup">
+      <div class="title-row">
+        <div><small>PROMPT LAB · ÉTAPE 1</small><h1>Comprendre les références</h1></div>
+        <span class="experimental">● Experimental</span>
+      </div>
+      <p class="muted">Créez une session, puis analysez et validez chaque image séparément. Rien ne part à l’étape suivante sans votre accord.</p>
+
+      <form id="prompt-session-form">
+        <section>
+          <div class="section-title"><h2>1. Modèle vision</h2><button id="prompt-refresh-models" class="text-button" type="button">Actualiser</button></div>
+          <label class="field-label">Modèle servi par llama.swap
+            <select id="prompt-model" required><option value="">Chargement…</option></select>
+          </label>
+        </section>
+        <section>
+          <h2>2. Recette de prompting</h2>
+          <label class="field-label">Profil versionné
+            <select id="prompt-profile" required><option value="">Chargement…</option></select>
+          </label>
+        </section>
+        <section>
+          <div class="section-title"><h2>3. Images de référence</h2><small>1 à 8 images</small></div>
+          <label class="prompt-upload" for="prompt-images">
+            <input id="prompt-images" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+            <b>＋ Ajouter des références</b><small>Personnages, décor, objets…</small>
+          </label>
+          <div id="pending-references" class="pending-references"></div>
+        </section>
+        <p id="prompt-setup-error" class="error" role="alert" hidden></p>
+        <button id="create-prompt-session" class="primary" type="submit" disabled>Créer la session</button>
+      </form>
+
+      <section class="recent-sessions">
+        <div class="section-title"><h2>Sessions récentes</h2><button id="prompt-refresh-sessions" class="text-button" type="button">↻</button></div>
+        <div id="prompt-session-list"><p class="muted">Aucune session chargée.</p></div>
+      </section>
+    </aside>
+
+    <div class="prompt-content">
+      <section class="prompt-stagebar">
+        <div class="stage-chip active"><b>1</b><span>Références<small>Analyse supervisée</small></span></div>
+        <i></i>
+        <div class="stage-chip future"><b>2</b><span>Brief<small>À venir</small></span></div>
+        <i></i>
+        <div class="stage-chip future"><b>3</b><span>Prompt avancé<small>À venir</small></span></div>
+      </section>
+
+      <section id="prompt-empty" class="prompt-empty">
+        <b>Une fiche par image, sous votre contrôle</b>
+        <p>Ajoutez vos références à gauche. Vous pourrez relancer une seule analyse, corriger le texte directement ou demander une modification ciblée au modèle.</p>
+      </section>
+
+      <section id="prompt-editor" class="prompt-editor" hidden>
+        <div class="prompt-editor-head">
+          <div><small>SESSION</small><h2 id="prompt-session-title">Références</h2></div>
+          <span id="prompt-session-progress" class="run-status">0 / 0 validée</span>
+        </div>
+
+        <div id="reference-rail" class="reference-rail" aria-label="Références de la session"></div>
+
+        <div class="reference-workbench">
+          <figure class="reference-visual">
+            <figcaption><span id="reference-label">Image</span><small id="reference-role">Rôle</small></figcaption>
+            <div class="reference-image-stage"><img id="reference-image" alt="Référence sélectionnée"></div>
+          </figure>
+
+          <div class="analysis-panel">
+            <div class="section-title">
+              <div><small>FICHE VISUELLE</small><h2 id="analysis-title">Analyse non lancée</h2></div>
+              <span id="analysis-review" class="review-pill pending">À valider</span>
+            </div>
+            <textarea id="analysis-content" rows="19" placeholder="Lancez l’analyse de cette image. Vous pourrez ensuite modifier directement le résultat."></textarea>
+            <div class="analysis-actions">
+              <button id="analyze-reference" class="primary compact" type="button">Analyser cette image</button>
+              <button id="save-analysis" type="button" disabled>Enregistrer ma correction</button>
+              <button id="approve-analysis" type="button" disabled>Valider la fiche</button>
+            </div>
+            <p id="analysis-message" class="message" aria-live="polite"></p>
+
+            <div class="rewrite-box">
+              <label for="rewrite-instruction">Demander une modification ciblée au modèle</label>
+              <div><input id="rewrite-instruction" type="text" placeholder="Ex. Ne déduis pas son âge, précise seulement la couleur du manteau."><button id="rewrite-analysis" type="button" disabled>Proposer</button></div>
+              <small>Une nouvelle révision est créée ; l’ancienne reste dans l’historique.</small>
+            </div>
+
+            <details class="revision-history">
+              <summary>Historique des révisions <span id="revision-count">0</span></summary>
+              <ol id="revision-list"></ol>
+            </details>
+          </div>
+        </div>
       </section>
     </div>
   </main>

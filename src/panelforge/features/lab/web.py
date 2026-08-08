@@ -18,8 +18,13 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from panelforge.application import ChangeViewRunRequest, ChangeViewRunner
-from panelforge.domain import ControlKind, RunRecord, RunReview
+from panelforge.application import (
+    ChangeViewRunRequest,
+    ChangeViewRunner,
+    NewReference,
+    PromptLabService,
+)
+from panelforge.domain import ControlKind, PromptLabSession, RunRecord, RunReview
 from panelforge.domain.character import (
     CameraAzimuth,
     CameraElevation,
@@ -29,6 +34,7 @@ from panelforge.domain.character import (
 
 
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
+MAX_PROMPT_REFERENCES = 8
 _STATIC_DIRECTORY = Path(__file__).with_name("static")
 
 _AZIMUTH_LABELS = {
@@ -64,9 +70,18 @@ class ReviewBody(BaseModel):
     decision: str
 
 
+class PromptEditBody(BaseModel):
+    content: str
+
+
+class PromptRevisionBody(BaseModel):
+    instruction: str
+
+
 def create_app(
     runner: ChangeViewRunner,
     *,
+    prompt_lab: PromptLabService | None = None,
     static_directory: Path | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
@@ -267,6 +282,154 @@ def create_app(
             headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
 
+    @app.get("/api/prompt-lab/spec")
+    def prompt_lab_spec() -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return {
+            "max_references": MAX_PROMPT_REFERENCES,
+            "max_image_bytes": MAX_IMAGE_BYTES,
+            "profiles": [
+                {
+                    "id": profile.profile_id,
+                    "version": profile.version,
+                    "display_name": profile.display_name,
+                    "target_model_family": profile.target_model_family,
+                }
+                for profile in service.list_profiles()
+            ],
+        }
+
+    @app.get("/api/prompt-lab/models")
+    def prompt_lab_models() -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return {
+            "models": [
+                {"id": model.model_id}
+                for model in service.list_models()
+            ]
+        }
+
+    @app.post("/api/prompt-lab/sessions", status_code=status.HTTP_201_CREATED)
+    async def create_prompt_lab_session(
+        images: Annotated[list[UploadFile], File()],
+        roles: Annotated[list[str], Form()],
+        model_id: Annotated[str, Form()],
+        profile_id: Annotated[str, Form()],
+        profile_version: Annotated[str, Form()],
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        if not images or len(images) > MAX_PROMPT_REFERENCES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"provide between 1 and {MAX_PROMPT_REFERENCES} images",
+            )
+        if len(images) != len(roles):
+            raise HTTPException(
+                status_code=422,
+                detail="provide exactly one role for each image",
+            )
+
+        uploaded: list[tuple[bytes, str, str, str]] = []
+        try:
+            service.get_profile(profile_id, profile_version)
+            for index, (image, role) in enumerate(zip(images, roles, strict=True), 1):
+                content = await image.read(MAX_IMAGE_BYTES + 1)
+                await image.close()
+                if len(content) > MAX_IMAGE_BYTES:
+                    raise ValueError(f"image {index} exceeds the 25 MiB limit")
+                media_type = detect_image_media_type(content)
+                label = (image.filename or "").strip() or f"Image {index}"
+                uploaded.append((content, media_type, role, label))
+
+            references = tuple(
+                NewReference(
+                    asset_id=service.create_asset(content, media_type).asset_id,
+                    role=role,
+                    label=label,
+                )
+                for content, media_type, role, label in uploaded
+            )
+            session = service.create_session(
+                model_id=model_id,
+                profile_id=profile_id,
+                profile_version=profile_version,
+                references=references,
+            )
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="prompt profile not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return serialize_prompt_session(session)
+
+    @app.get("/api/prompt-lab/sessions")
+    def list_prompt_lab_sessions(limit: int = 20) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        try:
+            sessions = service.list_sessions(limit)
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {
+            "sessions": [serialize_prompt_session(session) for session in sessions]
+        }
+
+    @app.get("/api/prompt-lab/sessions/{session_id}")
+    def get_prompt_lab_session(session_id: str) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        try:
+            return serialize_prompt_session(service.get_session(session_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="prompt session not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/analyze"
+    )
+    def analyze_prompt_reference(session_id: str, reference_id: str) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.analyze_reference(session_id, reference_id)
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/edit"
+    )
+    def edit_prompt_reference(
+        session_id: str,
+        reference_id: str,
+        body: PromptEditBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.edit_reference(session_id, reference_id, body.content)
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/revise"
+    )
+    def revise_prompt_reference(
+        session_id: str,
+        reference_id: str,
+        body: PromptRevisionBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.revise_reference(
+                session_id,
+                reference_id,
+                body.instruction,
+            )
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/approve"
+    )
+    def approve_prompt_reference(session_id: str, reference_id: str) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.approve_reference(session_id, reference_id)
+        )
+
     return app
 
 
@@ -319,6 +482,64 @@ def detect_image_media_type(content: bytes) -> str:
     ):
         return "image/webp"
     raise ValueError("source must be a PNG, JPEG or WebP image")
+
+
+def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
+    return {
+        "id": session.session_id,
+        "session_id": session.session_id,
+        "model_id": session.model_id,
+        "profile": {
+            "id": session.profile_id,
+            "version": session.profile_version,
+        },
+        "analysis_complete": session.analysis_complete,
+        "references": [
+            {
+                "id": reference.reference_id,
+                "reference_id": reference.reference_id,
+                "asset_id": reference.asset_id,
+                "content_url": f"/api/assets/{reference.asset_id}/content",
+                "role": reference.role,
+                "label": reference.label,
+                "review_status": reference.review_status.value,
+                "active_revision_id": reference.active_revision_id,
+                "approved_revision_id": reference.approved_revision_id,
+                "active_content": (
+                    reference.active_revision.content
+                    if reference.active_revision is not None
+                    else None
+                ),
+                "revisions": [
+                    {
+                        "id": revision.revision_id,
+                        "revision_id": revision.revision_id,
+                        "content": revision.content,
+                        "origin": revision.origin.value,
+                        "parent_revision_id": revision.parent_revision_id,
+                        "instruction": revision.instruction,
+                    }
+                    for revision in reference.revisions
+                ],
+            }
+            for reference in session.references
+        ],
+    }
+
+
+def _require_prompt_lab(value: PromptLabService | None) -> PromptLabService:
+    if value is None:
+        raise HTTPException(status_code=503, detail="Prompt Lab is not configured")
+    return value
+
+
+def _prompt_action(action) -> dict[str, object]:
+    try:
+        return serialize_prompt_session(action())
+    except (KeyError, FileNotFoundError) as error:
+        raise HTTPException(status_code=404, detail="prompt session or reference not found") from error
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 def _choice_options(control_id: str) -> list[dict[str, str]]:

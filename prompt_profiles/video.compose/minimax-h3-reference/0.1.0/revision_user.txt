@@ -1,0 +1,7 @@
+Rôle de la référence : {role}
+
+FICHE ACTUELLE
+{current_analysis}
+
+MODIFICATION DEMANDÉE
+{instruction}

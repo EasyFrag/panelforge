@@ -13,14 +13,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
-from panelforge.application import ChangeViewRunner
+from panelforge.application import ChangeViewRunner, PromptLabService
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.comfy import ComfyHttpClient
+from panelforge.infrastructure.llm import OpenAICompatibleGateway
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
     load_change_view_preset,
 )
-from panelforge.infrastructure.storage import LocalAssetStore, LocalRunStore
+from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
+from panelforge.infrastructure.storage import (
+    LocalAssetStore,
+    LocalPromptSessionStore,
+    LocalRunStore,
+)
 
 
 PRESET_DIRECTORY = (
@@ -48,6 +54,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-timeout", type=float, default=600.0)
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument(
+        "--llm-base-url",
+        default=os.environ.get(
+            "PANELFORGE_LLM_URL",
+            "http://bucket:8083/v1",
+        ),
+        help="OpenAI-compatible llama.swap URL (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--llm-api-key",
+        default=os.environ.get("PANELFORGE_LLM_API_KEY", "panelforge-local"),
+        help="API key sent to the local OpenAI-compatible server",
+    )
+    parser.add_argument("--llm-timeout", type=float, default=300.0)
+    parser.add_argument(
         "--workspace",
         type=Path,
         default=PROJECT_ROOT / "workspace",
@@ -59,6 +79,7 @@ def build_app(args: argparse.Namespace):
     recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
     assets = LocalAssetStore(args.workspace)
     runs = LocalRunStore(args.workspace)
+    prompt_sessions = LocalPromptSessionStore(args.workspace)
     comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-lab-{uuid4().hex}",
@@ -72,7 +93,17 @@ def build_app(args: argparse.Namespace):
         run_timeout=args.run_timeout,
         poll_interval=args.poll_interval,
     )
-    return create_app(runner)
+    prompt_lab = PromptLabService(
+        gateway=OpenAICompatibleGateway(
+            args.llm_base_url,
+            api_key=args.llm_api_key,
+            timeout=args.llm_timeout,
+        ),
+        profiles=LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles"),
+        assets=assets,
+        sessions=prompt_sessions,
+    )
+    return create_app(runner, prompt_lab=prompt_lab)
 
 
 def main() -> int:
