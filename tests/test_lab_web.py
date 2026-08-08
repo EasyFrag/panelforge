@@ -89,10 +89,13 @@ class LabWebTest(unittest.TestCase):
 
     def test_serves_page_and_curated_recipe_spec(self):
         page = self.client.get("/")
+        script = self.client.get("/static/lab.js")
         spec = self.client.get("/api/change-view/spec")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("PanelForge", page.text)
+        self.assertEqual(script.status_code, 200)
+        self.assertIn("/api/change-view/preview", script.text)
         self.assertEqual(spec.status_code, 200)
         payload = spec.json()
         self.assertEqual(payload["recipe"]["version"], "0.2.0")
