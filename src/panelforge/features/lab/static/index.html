@@ -152,16 +152,18 @@
 
     <div class="prompt-content">
       <section class="prompt-stagebar">
-        <div class="stage-chip active"><b>1</b><span>Références<small>Analyse supervisée</small></span></div>
+        <div class="stage-chip active"><b>1</b><span>Observation<small>Preuves visuelles</small></span></div>
         <i></i>
-        <div class="stage-chip future"><b>2</b><span>Brief<small>À venir</small></span></div>
+        <div class="stage-chip active"><b>2</b><span>Interprétation<small>Rôles MiniMax</small></span></div>
         <i></i>
-        <div class="stage-chip future"><b>3</b><span>Prompt avancé<small>À venir</small></span></div>
+        <div class="stage-chip future"><b>3</b><span>Brief<small>À venir</small></span></div>
+        <i></i>
+        <div class="stage-chip future"><b>4</b><span>Prompt avancé<small>À venir</small></span></div>
       </section>
 
       <section id="prompt-empty" class="prompt-empty">
-        <b>Une fiche par image, sous votre contrôle</b>
-        <p>Ajoutez vos références à gauche. Vous pourrez relancer une seule analyse, corriger le texte directement ou demander une modification ciblée au modèle.</p>
+        <b>Deux passes explicites par image</b>
+        <p>Validez d’abord les preuves visuelles, puis leur interprétation selon les rôles MiniMax. Chaque résultat reste éditable et possède son propre historique.</p>
       </section>
 
       <section id="prompt-editor" class="prompt-editor" hidden>
@@ -202,6 +204,38 @@
               <ol id="revision-list"></ol>
             </details>
           </div>
+
+          <section class="interpretation-panel">
+            <div class="section-title">
+              <div><small>INTERPRÉTATION MINIMAX</small><h2 id="interpretation-title">En attente de l’observation validée</h2></div>
+              <span id="interpretation-review" class="review-pill pending">À générer</span>
+            </div>
+
+            <div class="reference-uses-editor">
+              <div><b>Usages de cette image</b><small>Une image peut cumuler plusieurs rôles.</small></div>
+              <div id="reference-uses" class="usage-options"></div>
+              <button id="save-reference-uses" type="button" disabled>Enregistrer les usages</button>
+            </div>
+
+            <textarea id="interpretation-content" rows="16" placeholder="Après validation de l’observation, transformez-la en interprétation orientée MiniMax H3."></textarea>
+            <div class="analysis-actions">
+              <button id="interpret-reference" class="primary compact" type="button" disabled>Interpréter pour MiniMax</button>
+              <button id="save-interpretation" type="button" disabled>Enregistrer ma correction</button>
+              <button id="approve-interpretation" type="button" disabled>Valider l’interprétation</button>
+            </div>
+            <p id="interpretation-message" class="message" aria-live="polite"></p>
+
+            <div class="rewrite-box">
+              <label for="interpretation-rewrite-instruction">Demander une modification de l’interprétation</label>
+              <div><input id="interpretation-rewrite-instruction" type="text" placeholder="Ex. Traite cette image comme la première frame et insiste sur les appuis du joueur."><button id="rewrite-interpretation" type="button" disabled>Proposer</button></div>
+              <small>Cette passe ne revoit pas l’image : l’observation approuvée reste sa source factuelle.</small>
+            </div>
+
+            <details class="revision-history">
+              <summary>Historique des interprétations <span id="interpretation-revision-count">0</span></summary>
+              <ol id="interpretation-revision-list"></ol>
+            </details>
+          </section>
         </div>
       </section>
     </div>

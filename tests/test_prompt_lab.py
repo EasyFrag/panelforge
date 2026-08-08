@@ -298,11 +298,15 @@ class PromptProfileCatalogTest(unittest.TestCase):
     def test_loads_first_versioned_minimax_profile(self):
         catalog = LocalPromptProfileCatalog(PROFILE_ROOT)
         profile = catalog.get("minimax.h3.reference", "0.1.0")
+        enriched = catalog.get("minimax.h3.reference", "0.2.0")
 
         self.assertEqual(profile.target_model_family, "MiniMax H3")
         self.assertIn("{role}", profile.analysis_user_prompt)
         self.assertIn("{current_analysis}", profile.revision_user_prompt)
-        self.assertEqual(catalog.list(), (profile,))
+        self.assertIsNone(profile.interpretation_system_prompt)
+        self.assertIn("ACTIONS ET INTERACTIONS", enriched.analysis_system_prompt)
+        self.assertIn("{uses}", enriched.interpretation_user_prompt)
+        self.assertEqual(catalog.list(), (profile, enriched))
 
 
 if __name__ == "__main__":

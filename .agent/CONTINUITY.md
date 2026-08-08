@@ -8,12 +8,14 @@
 
 - Works:
   - `character.change_view@0.2.0` exécute asset → ComfyUI → candidat persistant avec provenance, contrôles, review et historique dans l’Image Lab.
-  - Le Prompt Lab découvre les modèles llama.swap, charge `minimax.h3.reference@0.1.0` et gère 1–8 références : analyse séparée, relance, correction, réécriture ciblée, révisions et approbation par image.
+  - Le Prompt Lab découvre les modèles llama.swap et gère 1–8 références avec analyses, corrections, révisions et approbations par image.
+  - `minimax.h3.reference@0.2.0` sépare observation visuelle riche et interprétation textuelle selon les usages MiniMax (`subject`, `first_frame`, `keyframe`, etc.) ; une modification amont invalide l’approbation dérivée sans effacer l’historique.
+  - L’ajout d’images dans l’UI est cumulatif, avec dédoublonnage, suppression et usages multiples par image.
   - Sessions et images sont persistées ; le domaine reste immuable et indépendant de FastAPI, OpenAI et ComfyUI.
   - L’adaptateur OpenAI-compatible est validé en réel sur le MoE Qwen : 18 modèles listés et inférence image réussie. ComfyUI est joignable via Tailscale.
-  - Le venv inclut le SDK `openai` validé ; 85 tests passent. Détails réseau : `docs/local-services.md`.
+  - Le venv inclut le SDK `openai` validé. La dernière base vérifiée comptait 85 tests verts ; les changements `0.2.0` n’ont volontairement pas été exécutés pendant la maintenance du serveur. Détails réseau : `docs/local-services.md`.
 - Broken / missing:
-  - Le Prompt Lab s’arrête après les fiches visuelles : brief français, liberté créative, composition et prompt MiniMax final restent à implémenter.
+  - Le Prompt Lab s’arrête après l’interprétation des références : brief français, liberté créative, labels globaux, composition et prompt MiniMax final restent à implémenter.
   - `Qwen3.6-27B` dense n’est pas encore qualifié ; l’UI le préfère dès qu’un ID correspondant apparaît, sinon elle utilise le MoE testé.
   - Le smoke applicatif ComfyUI `character.change_view@0.2.0` n’a pas été rejoué ; la force LoRA `1.0` reste la seule valeur qualifiée.
 
@@ -27,8 +29,8 @@
 ## Next steps
 
 1. Qualifier `Qwen3.6-27B` dense avec les probes texte, UTF-8, JSON et multi-image.
-2. Ajouter brief → découpage → direction → prompt final, chacun éditable et approuvable, avec une politique explicite de liberté créative.
-3. Rejouer le smoke ComfyUI `character.change_view@0.2.0`, puis reprendre `character.bootstrap`.
+2. Vérifier localement la migration des sessions, l’ajout cumulatif et les deux portes observation/interprétation lorsque le serveur est stable.
+3. Ajouter brief → découpage → direction → prompt final, chacun éditable et approuvable, avec une politique explicite de liberté créative.
 
 ## Risks / open questions
 

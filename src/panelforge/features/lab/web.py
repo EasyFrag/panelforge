@@ -24,7 +24,13 @@ from panelforge.application import (
     NewReference,
     PromptLabService,
 )
-from panelforge.domain import ControlKind, PromptLabSession, RunRecord, RunReview
+from panelforge.domain import (
+    ControlKind,
+    PromptLabSession,
+    ReferenceUse,
+    RunRecord,
+    RunReview,
+)
 from panelforge.domain.character import (
     CameraAzimuth,
     CameraElevation,
@@ -76,6 +82,10 @@ class PromptEditBody(BaseModel):
 
 class PromptRevisionBody(BaseModel):
     instruction: str
+
+
+class ReferenceUsesBody(BaseModel):
+    uses: list[str]
 
 
 def create_app(
@@ -294,6 +304,9 @@ def create_app(
                     "version": profile.version,
                     "display_name": profile.display_name,
                     "target_model_family": profile.target_model_family,
+                    "supports_interpretation": (
+                        profile.interpretation_system_prompt is not None
+                    ),
                 }
                 for profile in service.list_profiles()
             ],
@@ -316,6 +329,7 @@ def create_app(
         model_id: Annotated[str, Form()],
         profile_id: Annotated[str, Form()],
         profile_version: Annotated[str, Form()],
+        usages: Annotated[list[str] | None, Form()] = None,
     ) -> dict[str, object]:
         service = _require_prompt_lab(prompt_lab)
         if not images or len(images) > MAX_PROMPT_REFERENCES:
@@ -328,26 +342,40 @@ def create_app(
                 status_code=422,
                 detail="provide exactly one role for each image",
             )
+        if usages is not None and len(images) != len(usages):
+            raise HTTPException(
+                status_code=422,
+                detail="provide exactly one usage set for each image",
+            )
 
-        uploaded: list[tuple[bytes, str, str, str]] = []
+        uploaded: list[
+            tuple[bytes, str, str, str, tuple[ReferenceUse, ...]]
+        ] = []
         try:
             service.get_profile(profile_id, profile_version)
-            for index, (image, role) in enumerate(zip(images, roles, strict=True), 1):
+            usage_values = usages or [ReferenceUse.SUBJECT.value] * len(images)
+            for index, (image, role, raw_uses) in enumerate(
+                zip(images, roles, usage_values, strict=True),
+                1,
+            ):
                 content = await image.read(MAX_IMAGE_BYTES + 1)
                 await image.close()
                 if len(content) > MAX_IMAGE_BYTES:
                     raise ValueError(f"image {index} exceeds the 25 MiB limit")
                 media_type = detect_image_media_type(content)
                 label = (image.filename or "").strip() or f"Image {index}"
-                uploaded.append((content, media_type, role, label))
+                uploaded.append(
+                    (content, media_type, role, label, _parse_reference_uses(raw_uses))
+                )
 
             references = tuple(
                 NewReference(
                     asset_id=service.create_asset(content, media_type).asset_id,
                     role=role,
                     label=label,
+                    uses=reference_uses,
                 )
-                for content, media_type, role, label in uploaded
+                for content, media_type, role, label, reference_uses in uploaded
             )
             session = service.create_session(
                 model_id=model_id,
@@ -430,6 +458,81 @@ def create_app(
             lambda: service.approve_reference(session_id, reference_id)
         )
 
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/uses"
+    )
+    def set_prompt_reference_uses(
+        session_id: str,
+        reference_id: str,
+        body: ReferenceUsesBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.set_reference_uses(
+                session_id,
+                reference_id,
+                tuple(ReferenceUse(value) for value in body.uses),
+            )
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpret"
+    )
+    def interpret_prompt_reference(
+        session_id: str,
+        reference_id: str,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.interpret_reference(session_id, reference_id)
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/edit"
+    )
+    def edit_prompt_interpretation(
+        session_id: str,
+        reference_id: str,
+        body: PromptEditBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.edit_interpretation(
+                session_id,
+                reference_id,
+                body.content,
+            )
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/revise"
+    )
+    def revise_prompt_interpretation(
+        session_id: str,
+        reference_id: str,
+        body: PromptRevisionBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.revise_interpretation(
+                session_id,
+                reference_id,
+                body.instruction,
+            )
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/approve"
+    )
+    def approve_prompt_interpretation(
+        session_id: str,
+        reference_id: str,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.approve_interpretation(session_id, reference_id)
+        )
+
     return app
 
 
@@ -494,6 +597,7 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
             "version": session.profile_version,
         },
         "analysis_complete": session.analysis_complete,
+        "interpretation_complete": session.interpretation_complete,
         "references": [
             {
                 "id": reference.reference_id,
@@ -503,6 +607,7 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
                 "role": reference.role,
                 "label": reference.label,
                 "review_status": reference.review_status.value,
+                "uses": [use.value for use in reference.uses],
                 "active_revision_id": reference.active_revision_id,
                 "approved_revision_id": reference.approved_revision_id,
                 "active_content": (
@@ -520,6 +625,34 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
                         "instruction": revision.instruction,
                     }
                     for revision in reference.revisions
+                ],
+                "interpretation_review_status": (
+                    reference.interpretation_review_status.value
+                ),
+                "interpretation_is_stale": reference.interpretation_is_stale,
+                "active_interpretation_id": reference.active_interpretation_id,
+                "approved_interpretation_id": (
+                    reference.approved_interpretation_id
+                ),
+                "active_interpretation": (
+                    reference.active_interpretation.content
+                    if reference.active_interpretation is not None
+                    else None
+                ),
+                "interpretations": [
+                    {
+                        "id": interpretation.revision_id,
+                        "revision_id": interpretation.revision_id,
+                        "content": interpretation.content,
+                        "origin": interpretation.origin.value,
+                        "source_analysis_revision_id": (
+                            interpretation.source_analysis_revision_id
+                        ),
+                        "uses": [use.value for use in interpretation.uses],
+                        "parent_revision_id": interpretation.parent_revision_id,
+                        "instruction": interpretation.instruction,
+                    }
+                    for interpretation in reference.interpretations
                 ],
             }
             for reference in session.references
@@ -540,6 +673,15 @@ def _prompt_action(action) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="prompt session or reference not found") from error
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+def _parse_reference_uses(value: str) -> tuple[ReferenceUse, ...]:
+    if not isinstance(value, str):
+        raise TypeError("reference uses must be a string")
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        raise ValueError("reference uses must not be empty")
+    return tuple(ReferenceUse(part) for part in parts)
 
 
 def _choice_options(control_id: str) -> list[dict[str, str]]:

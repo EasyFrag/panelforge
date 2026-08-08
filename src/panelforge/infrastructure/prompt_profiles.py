@@ -18,11 +18,17 @@ _MANIFEST_KEYS = {
     "prompts",
     "status",
 }
-_PROMPT_KEYS = {
+_PROMPT_KEYS_V1 = {
     "analysis_system",
     "analysis_user",
     "revision_system",
     "revision_user",
+}
+_PROMPT_KEYS_V2 = _PROMPT_KEYS_V1 | {
+    "interpretation_system",
+    "interpretation_user",
+    "interpretation_revision_system",
+    "interpretation_revision_user",
 }
 
 
@@ -50,10 +56,15 @@ class LocalPromptProfileCatalog:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not isinstance(data, dict) or set(data) != _MANIFEST_KEYS:
                 raise ValueError(f"invalid prompt profile manifest: {manifest_path}")
-            if data["schema_version"] != 1:
+            if data["schema_version"] not in {1, 2}:
                 raise ValueError("unsupported prompt profile schema")
             prompts = data["prompts"]
-            if not isinstance(prompts, dict) or set(prompts) != _PROMPT_KEYS:
+            expected_prompt_keys = (
+                _PROMPT_KEYS_V1
+                if data["schema_version"] == 1
+                else _PROMPT_KEYS_V2
+            )
+            if not isinstance(prompts, dict) or set(prompts) != expected_prompt_keys:
                 raise ValueError("invalid prompt profile prompt bindings")
             directory = manifest_path.parent.resolve()
 
@@ -77,6 +88,26 @@ class LocalPromptProfileCatalog:
                 analysis_user_prompt=read_prompt("analysis_user"),
                 revision_system_prompt=read_prompt("revision_system"),
                 revision_user_prompt=read_prompt("revision_user"),
+                interpretation_system_prompt=(
+                    read_prompt("interpretation_system")
+                    if data["schema_version"] == 2
+                    else None
+                ),
+                interpretation_user_prompt=(
+                    read_prompt("interpretation_user")
+                    if data["schema_version"] == 2
+                    else None
+                ),
+                interpretation_revision_system_prompt=(
+                    read_prompt("interpretation_revision_system")
+                    if data["schema_version"] == 2
+                    else None
+                ),
+                interpretation_revision_user_prompt=(
+                    read_prompt("interpretation_revision_user")
+                    if data["schema_version"] == 2
+                    else None
+                ),
             )
             key = (profile.profile_id, profile.version)
             if key in profiles:

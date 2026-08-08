@@ -8,8 +8,10 @@ from uuid import uuid4
 
 from panelforge.domain import (
     AnalysisRevision,
+    InterpretationRevision,
     PromptLabSession,
     PromptReference,
+    ReferenceUse,
     RevisionOrigin,
 )
 
@@ -54,6 +56,10 @@ class PromptProfile:
     analysis_user_prompt: str
     revision_system_prompt: str
     revision_user_prompt: str
+    interpretation_system_prompt: str | None = None
+    interpretation_user_prompt: str | None = None
+    interpretation_revision_system_prompt: str | None = None
+    interpretation_revision_user_prompt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +67,7 @@ class NewReference:
     asset_id: str
     role: str
     label: str
+    uses: tuple[ReferenceUse, ...] = (ReferenceUse.SUBJECT,)
 
 
 class MultimodalGateway(Protocol):
@@ -145,6 +152,7 @@ class PromptLabService:
                     asset_id=item.asset_id,
                     role=item.role,
                     label=item.label,
+                    uses=item.uses,
                 )
                 for item in references
             ),
@@ -166,6 +174,7 @@ class PromptLabService:
                 user_prompt=profile.analysis_user_prompt.format(
                     role=reference.role,
                     label=reference.label,
+                    uses=", ".join(use.value for use in reference.uses),
                 ),
                 images=(self._image(reference),),
             )
@@ -233,6 +242,112 @@ class PromptLabService:
         updated = session.update_reference(session.reference(reference_id).approve())
         return self.sessions.save(updated)
 
+    def set_reference_uses(
+        self,
+        session_id: str,
+        reference_id: str,
+        uses: tuple[ReferenceUse, ...],
+    ) -> PromptLabSession:
+        session = self.sessions.get(session_id)
+        updated = session.update_reference(
+            session.reference(reference_id).set_uses(uses)
+        )
+        return self.sessions.save(updated)
+
+    def interpret_reference(
+        self,
+        session_id: str,
+        reference_id: str,
+    ) -> PromptLabSession:
+        session = self.sessions.get(session_id)
+        reference = session.reference(reference_id)
+        analysis = reference.active_revision
+        if analysis is None or reference.approved_revision_id != analysis.revision_id:
+            raise ValueError("approve the visual analysis before interpreting it")
+        profile = self._profile(session)
+        system_prompt, user_prompt = _interpretation_prompts(profile)
+        result = self.gateway.complete(
+            CompletionRequest(
+                model_id=session.model_id,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt.format(
+                    role=reference.role,
+                    label=reference.label,
+                    uses=", ".join(use.value for use in reference.uses),
+                    current_analysis=analysis.content,
+                ),
+                images=(),
+            )
+        )
+        return self._append_interpretation(
+            session,
+            reference,
+            content=result.content,
+            origin=RevisionOrigin.MODEL,
+        )
+
+    def edit_interpretation(
+        self,
+        session_id: str,
+        reference_id: str,
+        content: str,
+    ) -> PromptLabSession:
+        session = self.sessions.get(session_id)
+        reference = session.reference(reference_id)
+        return self._append_interpretation(
+            session,
+            reference,
+            content=content,
+            origin=RevisionOrigin.MANUAL,
+        )
+
+    def revise_interpretation(
+        self,
+        session_id: str,
+        reference_id: str,
+        instruction: str,
+    ) -> PromptLabSession:
+        session = self.sessions.get(session_id)
+        reference = session.reference(reference_id)
+        analysis = reference.active_revision
+        current = reference.active_interpretation
+        if analysis is None or current is None or reference.interpretation_is_stale:
+            raise ValueError("generate a current interpretation before revising it")
+        profile = self._profile(session)
+        system_prompt, user_prompt = _interpretation_revision_prompts(profile)
+        result = self.gateway.complete(
+            CompletionRequest(
+                model_id=session.model_id,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt.format(
+                    role=reference.role,
+                    uses=", ".join(use.value for use in reference.uses),
+                    current_analysis=analysis.content,
+                    current_interpretation=current.content,
+                    instruction=instruction,
+                ),
+                images=(),
+            )
+        )
+        return self._append_interpretation(
+            session,
+            reference,
+            content=result.content,
+            origin=RevisionOrigin.REWRITE,
+            instruction=instruction,
+        )
+
+    def approve_interpretation(
+        self,
+        session_id: str,
+        reference_id: str,
+    ) -> PromptLabSession:
+        session = self.sessions.get(session_id)
+        updated = session.update_reference(
+            session.reference(reference_id).approve_interpretation()
+        )
+        return self.sessions.save(updated)
+
     def _profile(self, session: PromptLabSession) -> PromptProfile:
         return self.profiles.get(session.profile_id, session.profile_version)
 
@@ -262,3 +377,49 @@ class PromptLabService:
         )
         updated = session.update_reference(reference.add_revision(revision))
         return self.sessions.save(updated)
+
+    def _append_interpretation(
+        self,
+        session: PromptLabSession,
+        reference: PromptReference,
+        *,
+        content: str,
+        origin: RevisionOrigin,
+        instruction: str | None = None,
+    ) -> PromptLabSession:
+        if reference.active_revision_id is None:
+            raise ValueError("analyze the reference before interpreting it")
+        interpretation = InterpretationRevision(
+            revision_id=f"interpretation-{uuid4().hex}",
+            content=content,
+            origin=origin,
+            source_analysis_revision_id=reference.active_revision_id,
+            uses=reference.uses,
+            parent_revision_id=reference.active_interpretation_id,
+            instruction=instruction,
+        )
+        updated = session.update_reference(
+            reference.add_interpretation(interpretation)
+        )
+        return self.sessions.save(updated)
+
+
+def _interpretation_prompts(profile: PromptProfile) -> tuple[str, str]:
+    if (
+        profile.interpretation_system_prompt is None
+        or profile.interpretation_user_prompt is None
+    ):
+        raise ValueError("this prompt profile does not support reference interpretation")
+    return profile.interpretation_system_prompt, profile.interpretation_user_prompt
+
+
+def _interpretation_revision_prompts(profile: PromptProfile) -> tuple[str, str]:
+    if (
+        profile.interpretation_revision_system_prompt is None
+        or profile.interpretation_revision_user_prompt is None
+    ):
+        raise ValueError("this prompt profile does not support interpretation revision")
+    return (
+        profile.interpretation_revision_system_prompt,
+        profile.interpretation_revision_user_prompt,
+    )

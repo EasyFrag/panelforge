@@ -8,8 +8,10 @@ from pathlib import Path
 
 from panelforge.domain import (
     AnalysisRevision,
+    InterpretationRevision,
     PromptLabSession,
     PromptReference,
+    ReferenceUse,
     RevisionOrigin,
 )
 
@@ -27,7 +29,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _SESSION_KEYS = {
     "schema_version",
     "created_at",
@@ -38,7 +40,7 @@ _SESSION_KEYS = {
     "profile_version",
     "references",
 }
-_REFERENCE_KEYS = {
+_REFERENCE_KEYS_V1 = {
     "reference_id",
     "asset_id",
     "role",
@@ -47,12 +49,22 @@ _REFERENCE_KEYS = {
     "active_revision_id",
     "approved_revision_id",
 }
+_REFERENCE_KEYS_V2 = _REFERENCE_KEYS_V1 | {
+    "uses",
+    "interpretations",
+    "active_interpretation_id",
+    "approved_interpretation_id",
+}
 _REVISION_KEYS = {
     "revision_id",
     "content",
     "origin",
     "parent_revision_id",
     "instruction",
+}
+_INTERPRETATION_KEYS = _REVISION_KEYS | {
+    "source_analysis_revision_id",
+    "uses",
 }
 
 
@@ -153,14 +165,15 @@ class LocalPromptSessionStore:
             raise StorageCorruptionError(
                 f"invalid prompt session fields for {expected_id!r}"
             )
-        if data.get("schema_version") != _SCHEMA_VERSION:
+        schema_version = data.get("schema_version")
+        if schema_version not in {1, _SCHEMA_VERSION}:
             raise StorageCorruptionError(
                 f"unsupported prompt session schema for {expected_id!r}"
             )
         created_at = _require_timestamp(data.get("created_at"), "created_at")
         updated_at = _require_timestamp(data.get("updated_at"), "updated_at")
         try:
-            session = _session_from_dict(data)
+            session = _session_from_dict(data, schema_version=schema_version)
         except (KeyError, TypeError, ValueError) as error:
             raise StorageCorruptionError(
                 f"invalid prompt session metadata for {expected_id!r}"
@@ -215,19 +228,46 @@ def _session_to_dict(
                 ],
                 "active_revision_id": reference.active_revision_id,
                 "approved_revision_id": reference.approved_revision_id,
+                "uses": [use.value for use in reference.uses],
+                "interpretations": [
+                    {
+                        "revision_id": interpretation.revision_id,
+                        "content": interpretation.content,
+                        "origin": interpretation.origin.value,
+                        "source_analysis_revision_id": (
+                            interpretation.source_analysis_revision_id
+                        ),
+                        "uses": [use.value for use in interpretation.uses],
+                        "parent_revision_id": interpretation.parent_revision_id,
+                        "instruction": interpretation.instruction,
+                    }
+                    for interpretation in reference.interpretations
+                ],
+                "active_interpretation_id": reference.active_interpretation_id,
+                "approved_interpretation_id": reference.approved_interpretation_id,
             }
             for reference in session.references
         ],
     }
 
 
-def _session_from_dict(data: dict[str, object]) -> PromptLabSession:
+def _session_from_dict(
+    data: dict[str, object],
+    *,
+    schema_version: int,
+) -> PromptLabSession:
     raw_references = data["references"]
     if not isinstance(raw_references, list):
         raise TypeError("references must be a list")
     references: list[PromptReference] = []
     for raw_reference in raw_references:
-        if not isinstance(raw_reference, dict) or set(raw_reference) != _REFERENCE_KEYS:
+        expected_reference_keys = (
+            _REFERENCE_KEYS_V1 if schema_version == 1 else _REFERENCE_KEYS_V2
+        )
+        if (
+            not isinstance(raw_reference, dict)
+            or set(raw_reference) != expected_reference_keys
+        ):
             raise ValueError("reference contains invalid fields")
         raw_revisions = raw_reference["revisions"]
         if not isinstance(raw_revisions, list):
@@ -245,6 +285,38 @@ def _session_from_dict(data: dict[str, object]) -> PromptLabSession:
                     instruction=raw_revision["instruction"],
                 )
             )
+        interpretations: list[InterpretationRevision] = []
+        if schema_version == 2:
+            raw_interpretations = raw_reference["interpretations"]
+            if not isinstance(raw_interpretations, list):
+                raise TypeError("interpretations must be a list")
+            for raw_interpretation in raw_interpretations:
+                if (
+                    not isinstance(raw_interpretation, dict)
+                    or set(raw_interpretation) != _INTERPRETATION_KEYS
+                ):
+                    raise ValueError("interpretation contains invalid fields")
+                raw_uses = raw_interpretation["uses"]
+                if not isinstance(raw_uses, list):
+                    raise TypeError("interpretation uses must be a list")
+                interpretations.append(
+                    InterpretationRevision(
+                        revision_id=raw_interpretation["revision_id"],
+                        content=raw_interpretation["content"],
+                        origin=RevisionOrigin(raw_interpretation["origin"]),
+                        source_analysis_revision_id=raw_interpretation[
+                            "source_analysis_revision_id"
+                        ],
+                        uses=tuple(ReferenceUse(value) for value in raw_uses),
+                        parent_revision_id=raw_interpretation["parent_revision_id"],
+                        instruction=raw_interpretation["instruction"],
+                    )
+                )
+        uses = (
+            tuple(ReferenceUse(value) for value in raw_reference["uses"])
+            if schema_version == 2
+            else (ReferenceUse.SUBJECT,)
+        )
         references.append(
             PromptReference(
                 reference_id=raw_reference["reference_id"],
@@ -254,6 +326,18 @@ def _session_from_dict(data: dict[str, object]) -> PromptLabSession:
                 revisions=tuple(revisions),
                 active_revision_id=raw_reference["active_revision_id"],
                 approved_revision_id=raw_reference["approved_revision_id"],
+                uses=uses,
+                interpretations=tuple(interpretations),
+                active_interpretation_id=(
+                    raw_reference["active_interpretation_id"]
+                    if schema_version == 2
+                    else None
+                ),
+                approved_interpretation_id=(
+                    raw_reference["approved_interpretation_id"]
+                    if schema_version == 2
+                    else None
+                ),
             )
         )
     return PromptLabSession(

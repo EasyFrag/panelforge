@@ -36,14 +36,15 @@ image source
 Le premier jalon du générateur de prompt est également disponible :
 
 - catalogue de modèles découvert dynamiquement via llama.swap ;
-- profils de prompting immuables et versionnés, avec une première recette `minimax.h3.reference@0.1.0` ;
-- import de une à huit images avec un rôle libre par référence ;
-- analyse vision lancée séparément pour chaque image ;
+- profils de prompting immuables et versionnés ; `minimax.h3.reference@0.2.0` sépare observation et interprétation ;
+- import cumulatif de une à huit images, suppression individuelle, rôle libre et usages multiples (`subject`, `first_frame`, `keyframe`, etc.) ;
+- observation vision lancée séparément pour chaque image, avec action, interactions, état initial et composition ;
 - relance, correction manuelle ou demande de modification ciblée en langage naturel ;
-- historique linéaire des révisions et approbation indépendante de chaque fiche ;
+- interprétation textuelle MiniMax à partir de l’observation approuvée, sans second appel vision ;
+- historiques et approbations indépendants pour l’observation et l’interprétation ;
 - sessions et images persistées localement.
 
-Ce jalon s’arrête volontairement après la validation des fiches visuelles. Le brief français, le degré de liberté créative et la compilation du prompt vidéo avancé constituent le jalon suivant.
+Ce jalon s’arrête volontairement après l’interprétation des références. Le brief français, le degré de liberté créative, la résolution des labels globaux `<Subject N>` / `<Picture N>` et la compilation du prompt vidéo avancé constituent le jalon suivant.
 
 ## Lancer le Lab
 

@@ -14,15 +14,18 @@ from .recipes import (
 from .runs import RunRecord, RunReview, RunStatus
 from .prompt_lab import (
     AnalysisRevision,
+    InterpretationRevision,
     PromptLabSession,
     PromptReference,
     ReferenceReview,
+    ReferenceUse,
     RevisionOrigin,
 )
 
 __all__ = [
     "Asset",
     "AnalysisRevision",
+    "InterpretationRevision",
     "ControlKind",
     "ControlSpec",
     "ControlValue",
@@ -32,6 +35,7 @@ __all__ = [
     "PromptSnapshot",
     "RecipeRef",
     "ReferenceReview",
+    "ReferenceUse",
     "RevisionOrigin",
     "RunRecord",
     "RunReview",
