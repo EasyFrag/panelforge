@@ -1,0 +1,196 @@
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+from fastapi.testclient import TestClient
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+sys.path.insert(0, str(SRC_ROOT))
+
+from panelforge.application import ChangeViewRunner, PromptCompositionService
+from panelforge.features.lab.web import create_app
+from panelforge.infrastructure.presets import (
+    ChangeViewPresetRecipe,
+    load_change_view_preset,
+)
+from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
+from panelforge.infrastructure.storage import (
+    LocalAssetStore,
+    LocalPromptCompositionStore,
+    LocalPromptSessionStore,
+    LocalRunStore,
+)
+from tests.test_prompt_composition import FakeGateway, approved_session
+
+
+PRESET_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "character.change_view"
+    / "qwen-edit-2511-multiple-angles"
+    / "0.2.0"
+)
+
+
+class UnusedComfy:
+    pass
+
+
+def sse_payloads(response):
+    values = []
+    for block in response.text.replace("\r\n", "\n").split("\n\n"):
+        data = "\n".join(
+            line[5:].lstrip()
+            for line in block.splitlines()
+            if line.startswith("data:")
+        )
+        if data:
+            values.append(json.loads(data))
+    return values
+
+
+class PromptCompositionWebTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        assets = LocalAssetStore(self.directory.name)
+        sessions = LocalPromptSessionStore(self.directory.name)
+        sessions.create(approved_session())
+        runner = ChangeViewRunner(
+            recipe=ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY)),
+            comfy=UnusedComfy(),
+            assets=assets,
+            runs=LocalRunStore(self.directory.name),
+        )
+        service = PromptCompositionService(
+            gateway=FakeGateway(),
+            cookbooks=LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks"),
+            sessions=sessions,
+            compositions=LocalPromptCompositionStore(self.directory.name),
+        )
+        self.client = TestClient(
+            create_app(runner, prompt_composition=service)
+        )
+
+    def tearDown(self):
+        self.client.close()
+        self.directory.cleanup()
+
+    def configure(self):
+        return self.client.post(
+            "/api/prompt-lab/sessions/session-1/composition",
+            json={
+                "cookbook_id": "fighter.arcade_versus",
+                "cookbook_version": "0.1.0",
+                "bindings": {
+                    "fighter_a": ["reference-1"],
+                    "fighter_b": ["reference-2"],
+                    "arena": ["reference-3"],
+                },
+            },
+        )
+
+    def stream_stage(self, stage):
+        return self.client.post(
+            f"/api/prompt-lab/sessions/session-1/{stage}/generate/stream"
+        )
+
+    def approve_stage(self, stage):
+        return self.client.post(
+            f"/api/prompt-lab/sessions/session-1/{stage}/approve"
+        )
+
+    def test_exposes_cookbook_and_runs_all_three_supervised_routes(self):
+        catalog = self.client.get("/api/prompt-lab/cookbooks")
+        self.assertEqual(catalog.status_code, 200)
+        self.assertEqual(catalog.json()["cookbooks"][0]["id"], "fighter.arcade_versus")
+        self.assertEqual(
+            catalog.json()["cookbooks"][0]["slots"][0]["required_uses"],
+            ["subject"],
+        )
+        configured = self.configure()
+        self.assertEqual(configured.status_code, 200)
+        self.assertEqual(
+            configured.json()["composition"]["picture_mapping"],
+            [
+                {"reference_id": "reference-1", "picture_number": 1},
+                {"reference_id": "reference-2", "picture_number": 2},
+                {"reference_id": "reference-3", "picture_number": 3},
+            ],
+        )
+
+        for stage in ("reference-plan", "beat-sheet", "final-prompt"):
+            generated = self.stream_stage(stage)
+            self.assertEqual(generated.status_code, 200, generated.text)
+            payloads = sse_payloads(generated)
+            self.assertEqual(payloads[-1]["kind"], "completed")
+            self.assertIn("composition", payloads[-1])
+            approved = self.approve_stage(stage)
+            self.assertEqual(approved.status_code, 200, approved.text)
+
+        loaded = self.client.get(
+            "/api/prompt-lab/sessions/session-1/composition"
+        ).json()["composition"]
+        self.assertTrue(loaded["documents"]["reference_plan"]["complete"])
+        self.assertTrue(loaded["documents"]["beat_sheet"]["complete"])
+        self.assertTrue(loaded["documents"]["final_prompt"]["complete"])
+        self.assertIn(
+            "subject_definitions:",
+            loaded["documents"]["final_prompt"]["active_content"],
+        )
+
+    def test_serves_the_modular_prompt_composition_frontend(self):
+        page = self.client.get("/")
+        script = self.client.get("/static/prompt-composition.js")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("prompt-composition.js", page.text)
+        self.assertEqual(script.status_code, 200)
+        self.assertIn("required_uses", script.text)
+
+    def test_rejects_duplicate_fighter_assignments(self):
+        response = self.client.post(
+            "/api/prompt-lab/sessions/session-1/composition",
+            json={
+                "cookbook_id": "fighter.arcade_versus",
+                "cookbook_version": "0.1.0",
+                "bindings": {
+                    "fighter_a": ["reference-1"],
+                    "fighter_b": ["reference-1"],
+                    "arena": ["reference-3"],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("distinct references", response.json()["detail"])
+
+    def test_unknown_stage_is_not_silently_accepted(self):
+        response = self.client.post(
+            "/api/prompt-lab/sessions/session-1/transition/generate/stream"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_invalid_bindings_and_blocked_stream_are_client_errors(self):
+        invalid_bindings = self.client.post(
+            "/api/prompt-lab/sessions/session-1/composition",
+            json={
+                "cookbook_id": "fighter.arcade_versus",
+                "cookbook_version": "0.1.0",
+                "bindings": {"fighter_a": []},
+            },
+        )
+        self.assertEqual(invalid_bindings.status_code, 422)
+
+        self.assertEqual(self.configure().status_code, 200)
+        blocked = self.stream_stage("beat-sheet")
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn("approve a current reference_plan", blocked.json()["detail"])
+
+
+if __name__ == "__main__":
+    unittest.main()

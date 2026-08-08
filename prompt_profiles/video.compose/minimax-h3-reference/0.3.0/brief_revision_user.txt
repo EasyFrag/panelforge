@@ -1,0 +1,14 @@
+NIVEAU DE LIBERTÉ CRÉATIVE : {creative_freedom}/100
+POLITIQUE ASSOCIÉE : {creative_policy}
+
+RÉFÉRENCES ET OBSERVATIONS APPROUVÉES
+{reference_context}
+
+INTENTION UTILISATEUR D'ORIGINE
+{source_text}
+
+BRIEF ACTUEL
+{current_brief}
+
+MODIFICATION DEMANDÉE
+{instruction}

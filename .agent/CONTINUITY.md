@@ -2,38 +2,35 @@
 
 ## Goal
 
-- Construire PanelForge comme un atelier de canon visuel et de recettes ComfyUI versionnées, réutilisable ensuite par une Forge narrative de panels.
+- Construire PanelForge comme atelier local de canon visuel et de recettes versionnées, puis réutiliser ces briques dans une Forge narrative de panels.
 
 ## Current state
 
 - Works:
-  - `character.change_view@0.2.0` exécute asset → ComfyUI → candidat persistant avec provenance, contrôles, review et historique dans l’Image Lab.
-  - Le Prompt Lab découvre les modèles llama.swap et gère 1–8 références avec analyses, corrections, révisions et approbations par image.
-  - `minimax.h3.reference@0.2.0` sépare observation visuelle riche et interprétation textuelle selon les usages MiniMax (`subject`, `first_frame`, `keyframe`, etc.) ; une modification amont invalide l’approbation dérivée sans effacer l’historique.
-  - L’ajout d’images dans l’UI est cumulatif, avec dédoublonnage, suppression et usages multiples par image.
-  - Sessions et images sont persistées ; le domaine reste immuable et indépendant de FastAPI, OpenAI et ComfyUI.
-  - L’adaptateur OpenAI-compatible est validé en réel sur le MoE Qwen : 18 modèles listés et inférence image réussie. ComfyUI est joignable via Tailscale.
-  - Le venv inclut le SDK `openai` validé. La dernière base vérifiée comptait 85 tests verts ; les changements `0.2.0` n’ont volontairement pas été exécutés pendant la maintenance du serveur. Détails réseau : `docs/local-services.md`.
+  - Image Lab : `character.change_view@0.2.0` exécute asset → ComfyUI → candidat persistant, avec provenance, contrôles, review et historique.
+  - Prompt Lab : 1–8 images → observations approuvées → Brief `minimax.h3.reference@0.3.0`, avec streaming, édition, révision, invalidation et journal borné des appels LLM.
+  - `fighter.arcade_versus@0.1.0/readable-v1` ajoute un flux Ref2VA supervisé : affectations structurées → plan de références → beat sheet → prompt H3 final, chaque étape étant persistée, révisable et approuvable.
+  - Les définitions approuvées sont compilées sans régénération ; summary/rétention sont écrits après la beat sheet. Mapping Picture local, usages requis, linter H3, snapshots et sauvegarde CAS sont couverts.
+  - llama.swap garde la responsabilité GPU ; ComfyUI et LLM restent des services distants. Suite complète : 121 tests verts.
 - Broken / missing:
-  - Le Prompt Lab s’arrête après l’interprétation des références : brief français, liberté créative, labels globaux, composition et prompt MiniMax final restent à implémenter.
-  - `Qwen3.6-27B` dense n’est pas encore qualifié ; l’UI le préfère dès qu’un ID correspondant apparaît, sinon elle utilise le MoE testé.
-  - Le smoke applicatif ComfyUI `character.change_view@0.2.0` n’a pas été rejoué ; la force LoRA `1.0` reste la seule valeur qualifiée.
+  - Fighter V1 n’a pas encore été qualifié visuellement de bout en bout avec le LLM local puis MiniMax H3 ; ses paramètres sont encore fixes.
+  - Une session ne porte qu’une composition ; comparaison de versions/forks à ajouter avant Transition. `Qwen3.6-27B` dense et les variantes LoRA hors `1.0` ne sont pas qualifiés.
 
 ## Decisions
 
-- PanelForge appelle des APIs ; llama.swap et ComfyUI restent responsables des modèles et du GPU.
-- Chaque étape et chaque image ont une action, une révision et une approbation explicites ; aucune chaîne d’agents autonome en V1.
-- Workflows et profils de prompt sont des recettes immuables versionnées ; les adapters fournisseur restent en infrastructure.
-- UI native FastAPI + HTML/CSS/JS, sans Gradio, Node, base SQL ni framework agentique pour ce jalon.
+- Les profils décrivent le travail LLM ; les cookbooks décrivent un type de vidéo et ses slots. Ils sont versionnés séparément.
+- Fighter est le premier cas visible ; le socle Ref2VA commun reste générique. Transition utilisera ensuite son propre contrat T2VA/FL2VA.
+- Chaque étape reste déclenchable, éditable et approuvable ; pas de chaîne d’agents autonome en V1.
+- Les labels et dépendances sont structurés ; le LLM rédige les documents mais ne décide ni des affectations ni de leur numérotation.
 
 ## Next steps
 
-1. Qualifier `Qwen3.6-27B` dense avec les probes texte, UTF-8, JSON et multi-image.
-2. Vérifier localement la migration des sessions, l’ajout cumulatif et les deux portes observation/interprétation lorsque le serveur est stable.
-3. Ajouter brief → découpage → direction → prompt final, chacun éditable et approuvable, avec une politique explicite de liberté créative.
+1. Tester manuellement Fighter V1 sur le serveur local et examiner chaque document intermédiaire.
+2. Versionner les corrections de recette/linter issues des sorties H3 réelles.
+3. Ajouter plusieurs compositions par session, puis Transition comme deuxième cookbook.
 
 ## Risks / open questions
 
-- `/v1/models` ne déclare pas fiablement les capacités vision ; conserver un registre de qualifications observées.
-- Une révision LLM peut dériver malgré les instructions : approbation humaine et historique restent obligatoires.
-- Les sessions et runs en cours ne sont pas repris automatiquement après redémarrage.
+- Les contraintes de forme ne garantissent pas la qualité vidéo ; les tests H3 réels restent la source de qualification.
+- Le navigateur n’a pas encore de test automatisé ; l’API et les contrats sont couverts, mais le parcours UI doit être smoke-testé manuellement.
+- llama.swap ne fournit pas de vrai pourcentage de chargement ; un stream interrompu ne reprend pas après redémarrage.

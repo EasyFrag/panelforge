@@ -77,6 +77,61 @@ class InterpretationRevision:
 
 
 @dataclass(frozen=True, slots=True)
+class BriefReferenceSnapshot:
+    reference_id: str
+    analysis_revision_id: str
+    uses: tuple[ReferenceUse, ...]
+
+    def __post_init__(self) -> None:
+        _require_text(self.reference_id, "reference_id")
+        _require_text(self.analysis_revision_id, "analysis_revision_id")
+        _require_uses(self.uses)
+
+
+@dataclass(frozen=True, slots=True)
+class BriefRevision:
+    revision_id: str
+    source_text: str
+    content: str
+    creative_freedom: int
+    origin: RevisionOrigin
+    references: tuple[BriefReferenceSnapshot, ...]
+    parent_revision_id: str | None = None
+    instruction: str | None = None
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.revision_id, "revision_id"),
+            (self.source_text, "source_text"),
+            (self.content, "content"),
+        ):
+            _require_text(value, name)
+        if (
+            isinstance(self.creative_freedom, bool)
+            or not isinstance(self.creative_freedom, int)
+            or not 0 <= self.creative_freedom <= 100
+        ):
+            raise ValueError("creative_freedom must be between 0 and 100")
+        if not isinstance(self.origin, RevisionOrigin):
+            raise TypeError("origin must be a RevisionOrigin")
+        if not isinstance(self.references, tuple) or not self.references:
+            raise ValueError("references must be a non-empty tuple")
+        reference_ids: set[str] = set()
+        for reference in self.references:
+            if not isinstance(reference, BriefReferenceSnapshot):
+                raise TypeError("references must contain BriefReferenceSnapshot values")
+            if reference.reference_id in reference_ids:
+                raise ValueError("brief references must have unique IDs")
+            reference_ids.add(reference.reference_id)
+        if self.parent_revision_id is not None:
+            _require_text(self.parent_revision_id, "parent_revision_id")
+            if self.parent_revision_id == self.revision_id:
+                raise ValueError("a brief revision cannot be its own parent")
+        if self.instruction is not None:
+            _require_text(self.instruction, "instruction")
+
+
+@dataclass(frozen=True, slots=True)
 class PromptReference:
     reference_id: str
     asset_id: str
@@ -268,6 +323,9 @@ class PromptLabSession:
     profile_id: str
     profile_version: str
     references: tuple[PromptReference, ...]
+    brief_revisions: tuple[BriefRevision, ...] = ()
+    active_brief_revision_id: str | None = None
+    approved_brief_revision_id: str | None = None
 
     @property
     def analysis_complete(self) -> bool:
@@ -283,6 +341,41 @@ class PromptLabSession:
             for reference in self.references
         )
 
+    @property
+    def active_brief_revision(self) -> BriefRevision | None:
+        if self.active_brief_revision_id is None:
+            return None
+        return next(
+            revision
+            for revision in self.brief_revisions
+            if revision.revision_id == self.active_brief_revision_id
+        )
+
+    @property
+    def brief_is_stale(self) -> bool:
+        revision = self.active_brief_revision
+        if revision is None:
+            return False
+        snapshots = {item.reference_id: item for item in revision.references}
+        if set(snapshots) != {reference.reference_id for reference in self.references}:
+            return True
+        for reference in self.references:
+            snapshot = snapshots[reference.reference_id]
+            if (
+                reference.approved_revision_id != reference.active_revision_id
+                or snapshot.analysis_revision_id != reference.active_revision_id
+                or set(snapshot.uses) != set(reference.uses)
+            ):
+                return True
+        return False
+
+    @property
+    def brief_complete(self) -> bool:
+        return (
+            self.approved_brief_revision_id is not None
+            and not self.brief_is_stale
+        )
+
     def reference(self, reference_id: str) -> PromptReference:
         _require_text(reference_id, "reference_id")
         for reference in self.references:
@@ -296,12 +389,60 @@ class PromptLabSession:
         current = self.reference(updated.reference_id)
         if current.asset_id != updated.asset_id:
             raise ValueError("a reference asset cannot be replaced in place")
+        if current == updated:
+            return self
         return replace(
             self,
             references=tuple(
                 updated if item.reference_id == updated.reference_id else item
                 for item in self.references
             ),
+            approved_brief_revision_id=None,
+        )
+
+    def add_brief_revision(self, revision: BriefRevision) -> PromptLabSession:
+        if not isinstance(revision, BriefRevision):
+            raise TypeError("revision must be a BriefRevision")
+        if not self.analysis_complete:
+            raise ValueError("approve every visual analysis before structuring the brief")
+        if revision.parent_revision_id != self.active_brief_revision_id:
+            raise ValueError("brief revision parent must be the active revision")
+        expected = {
+            reference.reference_id: (
+                reference.active_revision_id,
+                set(reference.uses),
+            )
+            for reference in self.references
+        }
+        actual = {
+            reference.reference_id: (
+                reference.analysis_revision_id,
+                set(reference.uses),
+            )
+            for reference in revision.references
+        }
+        if actual != expected:
+            raise ValueError("brief revision must snapshot current approved references")
+        if any(
+            item.revision_id == revision.revision_id
+            for item in self.brief_revisions
+        ):
+            raise ValueError("brief revision_id already exists")
+        return replace(
+            self,
+            brief_revisions=(*self.brief_revisions, revision),
+            active_brief_revision_id=revision.revision_id,
+            approved_brief_revision_id=None,
+        )
+
+    def approve_brief(self) -> PromptLabSession:
+        if self.active_brief_revision_id is None:
+            raise ValueError("cannot approve a missing structured brief")
+        if self.brief_is_stale:
+            raise ValueError("cannot approve a stale structured brief")
+        return replace(
+            self,
+            approved_brief_revision_id=self.active_brief_revision_id,
         )
 
     def __post_init__(self) -> None:
@@ -323,6 +464,32 @@ class PromptLabSession:
             if reference.reference_id in reference_ids:
                 raise ValueError("references must have unique IDs")
             reference_ids.add(reference.reference_id)
+        if not isinstance(self.brief_revisions, tuple):
+            raise TypeError("brief_revisions must be a tuple")
+        brief_revision_ids: set[str] = set()
+        for index, revision in enumerate(self.brief_revisions):
+            if not isinstance(revision, BriefRevision):
+                raise TypeError("brief_revisions must contain BriefRevision values")
+            if revision.revision_id in brief_revision_ids:
+                raise ValueError("brief revisions must have unique IDs")
+            brief_revision_ids.add(revision.revision_id)
+            expected_parent = (
+                self.brief_revisions[index - 1].revision_id if index else None
+            )
+            if revision.parent_revision_id != expected_parent:
+                raise ValueError("brief revisions must form one linear history")
+        if self.active_brief_revision_id is None:
+            if self.brief_revisions:
+                raise ValueError("a brief history requires an active revision")
+        elif self.active_brief_revision_id not in brief_revision_ids:
+            raise ValueError("active_brief_revision_id is not in brief_revisions")
+        elif self.brief_revisions[-1].revision_id != self.active_brief_revision_id:
+            raise ValueError("the active brief revision must be the latest")
+        if self.approved_brief_revision_id is not None:
+            if self.approved_brief_revision_id != self.active_brief_revision_id:
+                raise ValueError("only the active brief revision can be approved")
+            if self.brief_is_stale:
+                raise ValueError("a stale brief cannot be approved")
 
 
 def _require_text(value: object, name: str) -> str:

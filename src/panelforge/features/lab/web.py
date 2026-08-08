@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -14,18 +16,25 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from panelforge.application import (
     ChangeViewRunRequest,
     ChangeViewRunner,
+    CompositionStreamEvent,
     NewReference,
+    PromptCompositionService,
     PromptLabService,
+    PromptLabStreamEvent,
+    composition_picture_mapping,
 )
 from panelforge.domain import (
+    CompositionStage,
     ControlKind,
+    CookbookBinding,
+    PromptComposition,
     PromptLabSession,
     ReferenceUse,
     RunRecord,
@@ -88,10 +97,22 @@ class ReferenceUsesBody(BaseModel):
     uses: list[str]
 
 
+class BriefStructureBody(BaseModel):
+    source_text: str
+    creative_freedom: int
+
+
+class CompositionConfigureBody(BaseModel):
+    cookbook_id: str
+    cookbook_version: str
+    bindings: dict[str, list[str]]
+
+
 def create_app(
     runner: ChangeViewRunner,
     *,
     prompt_lab: PromptLabService | None = None,
+    prompt_composition: PromptCompositionService | None = None,
     static_directory: Path | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
@@ -307,6 +328,7 @@ def create_app(
                     "supports_interpretation": (
                         profile.interpretation_system_prompt is not None
                     ),
+                    "supports_brief": profile.brief_system_prompt is not None,
                 }
                 for profile in service.list_profiles()
             ],
@@ -420,6 +442,18 @@ def create_app(
         )
 
     @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/analyze/stream"
+    )
+    def stream_prompt_reference_analysis(
+        session_id: str,
+        reference_id: str,
+    ) -> StreamingResponse:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_stream_response(
+            service.stream_analyze_reference(session_id, reference_id)
+        )
+
+    @app.post(
         "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/edit"
     )
     def edit_prompt_reference(
@@ -443,6 +477,23 @@ def create_app(
         service = _require_prompt_lab(prompt_lab)
         return _prompt_action(
             lambda: service.revise_reference(
+                session_id,
+                reference_id,
+                body.instruction,
+            )
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/revise/stream"
+    )
+    def stream_prompt_reference_revision(
+        session_id: str,
+        reference_id: str,
+        body: PromptRevisionBody,
+    ) -> StreamingResponse:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_stream_response(
+            service.stream_revise_reference(
                 session_id,
                 reference_id,
                 body.instruction,
@@ -488,6 +539,18 @@ def create_app(
         )
 
     @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpret/stream"
+    )
+    def stream_prompt_reference_interpretation(
+        session_id: str,
+        reference_id: str,
+    ) -> StreamingResponse:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_stream_response(
+            service.stream_interpret_reference(session_id, reference_id)
+        )
+
+    @app.post(
         "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/edit"
     )
     def edit_prompt_interpretation(
@@ -522,6 +585,23 @@ def create_app(
         )
 
     @app.post(
+        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/revise/stream"
+    )
+    def stream_prompt_interpretation_revision(
+        session_id: str,
+        reference_id: str,
+        body: PromptRevisionBody,
+    ) -> StreamingResponse:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_stream_response(
+            service.stream_revise_interpretation(
+                session_id,
+                reference_id,
+                body.instruction,
+            )
+        )
+
+    @app.post(
         "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/approve"
     )
     def approve_prompt_interpretation(
@@ -531,6 +611,188 @@ def create_app(
         service = _require_prompt_lab(prompt_lab)
         return _prompt_action(
             lambda: service.approve_interpretation(session_id, reference_id)
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/brief/structure")
+    def structure_prompt_brief(
+        session_id: str,
+        body: BriefStructureBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.structure_brief(
+                session_id,
+                body.source_text,
+                body.creative_freedom,
+            )
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/brief/structure/stream")
+    def stream_prompt_brief(
+        session_id: str,
+        body: BriefStructureBody,
+    ) -> StreamingResponse:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_stream_response(
+            service.stream_structure_brief(
+                session_id,
+                body.source_text,
+                body.creative_freedom,
+            )
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/brief/edit")
+    def edit_prompt_brief(
+        session_id: str,
+        body: PromptEditBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(lambda: service.edit_brief(session_id, body.content))
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/brief/revise")
+    def revise_prompt_brief(
+        session_id: str,
+        body: PromptRevisionBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(
+            lambda: service.revise_brief(session_id, body.instruction)
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/brief/revise/stream")
+    def stream_prompt_brief_revision(
+        session_id: str,
+        body: PromptRevisionBody,
+    ) -> StreamingResponse:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_stream_response(
+            service.stream_revise_brief(session_id, body.instruction)
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/brief/approve")
+    def approve_prompt_brief(session_id: str) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        return _prompt_action(lambda: service.approve_brief(session_id))
+
+    @app.get("/api/prompt-lab/cookbooks")
+    def list_prompt_cookbooks() -> dict[str, object]:
+        service = _require_prompt_composition(prompt_composition)
+        return {
+            "cookbooks": [
+                {
+                    "id": cookbook.reference.cookbook_id,
+                    "version": cookbook.reference.version,
+                    "display_name": cookbook.display_name,
+                    "description": cookbook.description,
+                    "target_mode": cookbook.target_mode,
+                    "preset": cookbook.preset,
+                    "sources": list(cookbook.sources),
+                    "engine_contract": {
+                        "id": cookbook.reference.engine_contract_id,
+                        "version": cookbook.reference.engine_contract_version,
+                    },
+                    "slots": [
+                        {
+                            "id": slot.slot_id,
+                            "label": slot.label,
+                            "description": slot.description,
+                            "subject_label": slot.subject_label,
+                            "accepted_uses": list(slot.accepted_uses),
+                            "required_uses": list(slot.required_uses),
+                            "required_shots": list(slot.required_shots),
+                            "minimum_references": slot.minimum_references,
+                            "maximum_references": slot.maximum_references,
+                        }
+                        for slot in cookbook.slots
+                    ],
+                }
+                for cookbook in service.list_cookbooks()
+            ]
+        }
+
+    @app.get("/api/prompt-lab/sessions/{session_id}/composition")
+    def get_prompt_composition(session_id: str) -> dict[str, object]:
+        service = _require_prompt_composition(prompt_composition)
+        try:
+            composition = service.get(session_id)
+        except (KeyError, FileNotFoundError):
+            return {"composition": None}
+        return {"composition": serialize_prompt_composition(composition, service)}
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/composition")
+    def configure_prompt_composition(
+        session_id: str,
+        body: CompositionConfigureBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_composition(prompt_composition)
+        return _composition_action(
+            service,
+            lambda: service.configure(
+                session_id,
+                body.cookbook_id,
+                body.cookbook_version,
+                tuple(
+                    CookbookBinding(
+                        slot_id=slot_id,
+                        reference_ids=tuple(reference_ids),
+                    )
+                    for slot_id, reference_ids in body.bindings.items()
+                ),
+            ),
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/{stage}/generate/stream")
+    def stream_composition_generation(
+        session_id: str,
+        stage: str,
+    ) -> StreamingResponse:
+        service = _require_prompt_composition(prompt_composition)
+        composition_stage = _parse_composition_stage(stage)
+        return _composition_stream_action(
+            service,
+            lambda: service.stream_generate(session_id, composition_stage),
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/{stage}/edit")
+    def edit_composition_stage(
+        session_id: str,
+        stage: str,
+        body: PromptEditBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_composition(prompt_composition)
+        composition_stage = _parse_composition_stage(stage)
+        return _composition_action(
+            service,
+            lambda: service.edit(session_id, composition_stage, body.content),
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/{stage}/revise/stream")
+    def stream_composition_revision(
+        session_id: str,
+        stage: str,
+        body: PromptRevisionBody,
+    ) -> StreamingResponse:
+        service = _require_prompt_composition(prompt_composition)
+        composition_stage = _parse_composition_stage(stage)
+        return _composition_stream_action(
+            service,
+            lambda: service.stream_revise(
+                session_id,
+                composition_stage,
+                body.instruction,
+            ),
+        )
+
+    @app.post("/api/prompt-lab/sessions/{session_id}/{stage}/approve")
+    def approve_composition_stage(
+        session_id: str,
+        stage: str,
+    ) -> dict[str, object]:
+        service = _require_prompt_composition(prompt_composition)
+        composition_stage = _parse_composition_stage(stage)
+        return _composition_action(
+            service,
+            lambda: service.approve(session_id, composition_stage),
         )
 
     return app
@@ -598,6 +860,49 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
         },
         "analysis_complete": session.analysis_complete,
         "interpretation_complete": session.interpretation_complete,
+        "brief_complete": session.brief_complete,
+        "brief_is_stale": session.brief_is_stale,
+        "active_brief_revision_id": session.active_brief_revision_id,
+        "approved_brief_revision_id": session.approved_brief_revision_id,
+        "active_brief": (
+            {
+                "id": session.active_brief_revision.revision_id,
+                "revision_id": session.active_brief_revision.revision_id,
+                "source_text": session.active_brief_revision.source_text,
+                "content": session.active_brief_revision.content,
+                "creative_freedom": (
+                    session.active_brief_revision.creative_freedom
+                ),
+                "origin": session.active_brief_revision.origin.value,
+                "parent_revision_id": (
+                    session.active_brief_revision.parent_revision_id
+                ),
+                "instruction": session.active_brief_revision.instruction,
+            }
+            if session.active_brief_revision is not None
+            else None
+        ),
+        "brief_revisions": [
+            {
+                "id": revision.revision_id,
+                "revision_id": revision.revision_id,
+                "source_text": revision.source_text,
+                "content": revision.content,
+                "creative_freedom": revision.creative_freedom,
+                "origin": revision.origin.value,
+                "parent_revision_id": revision.parent_revision_id,
+                "instruction": revision.instruction,
+                "references": [
+                    {
+                        "reference_id": reference.reference_id,
+                        "analysis_revision_id": reference.analysis_revision_id,
+                        "uses": [use.value for use in reference.uses],
+                    }
+                    for reference in revision.references
+                ],
+            }
+            for revision in session.brief_revisions
+        ],
         "references": [
             {
                 "id": reference.reference_id,
@@ -660,9 +965,78 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
     }
 
 
+def serialize_prompt_composition(
+    composition: PromptComposition,
+    service: PromptCompositionService,
+) -> dict[str, object]:
+    statuses = {status.stage: status for status in service.status(composition)}
+    documents: dict[str, object] = {}
+    for stage in CompositionStage:
+        document = composition.document(stage)
+        stage_status = statuses[stage]
+        documents[stage.value] = {
+            "stage": stage.value,
+            "active_revision_id": document.active_revision_id,
+            "approved_revision_id": document.approved_revision_id,
+            "stale": stage_status.stale,
+            "complete": stage_status.complete,
+            "blocked_reason": stage_status.blocked_reason,
+            "validation_errors": list(stage_status.validation_errors),
+            "validation_warnings": list(stage_status.validation_warnings),
+            "active_content": (
+                document.active_revision.content
+                if document.active_revision is not None
+                else None
+            ),
+            "revisions": [
+                {
+                    "id": revision.revision_id,
+                    "revision_id": revision.revision_id,
+                    "content": revision.content,
+                    "origin": revision.origin.value,
+                    "source_ids": list(revision.source_ids),
+                    "parent_revision_id": revision.parent_revision_id,
+                    "instruction": revision.instruction,
+                }
+                for revision in document.revisions
+            ],
+        }
+    return {
+        "source_session_id": composition.source_session_id,
+        "cookbook": {
+            "id": composition.cookbook.cookbook_id,
+            "version": composition.cookbook.version,
+            "engine_contract": {
+                "id": composition.cookbook.engine_contract_id,
+                "version": composition.cookbook.engine_contract_version,
+            },
+        },
+        "bindings": {
+            binding.slot_id: list(binding.reference_ids)
+            for binding in composition.bindings
+        },
+        "picture_mapping": [
+            {"reference_id": reference_id, "picture_number": picture_number}
+            for reference_id, picture_number in composition_picture_mapping(composition)
+        ],
+        "documents": documents,
+    }
+
+
 def _require_prompt_lab(value: PromptLabService | None) -> PromptLabService:
     if value is None:
         raise HTTPException(status_code=503, detail="Prompt Lab is not configured")
+    return value
+
+
+def _require_prompt_composition(
+    value: PromptCompositionService | None,
+) -> PromptCompositionService:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Prompt composition is not configured",
+        )
     return value
 
 
@@ -673,6 +1047,127 @@ def _prompt_action(action) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="prompt session or reference not found") from error
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+def _prompt_stream_response(
+    events: Iterator[PromptLabStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                    "finish_reason": event.finish_reason,
+                    "max_tokens": event.max_tokens,
+                }
+                if event.session is not None:
+                    payload["session"] = serialize_prompt_session(event.session)
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {
+                    "kind": "error",
+                    "phase": "failed",
+                    "message": str(error),
+                },
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _composition_action(service: PromptCompositionService, action) -> dict[str, object]:
+    try:
+        composition = action()
+        return {"composition": serialize_prompt_composition(composition, service)}
+    except (KeyError, FileNotFoundError) as error:
+        raise HTTPException(
+            status_code=404,
+            detail="prompt session, composition or cookbook not found",
+        ) from error
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+def _composition_stream_response(
+    service: PromptCompositionService,
+    events: Iterator[CompositionStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                    "finish_reason": event.finish_reason,
+                    "max_tokens": event.max_tokens,
+                }
+                if event.composition is not None:
+                    payload["composition"] = serialize_prompt_composition(
+                        event.composition,
+                        service,
+                    )
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {
+                    "kind": "error",
+                    "phase": "failed",
+                    "message": str(error),
+                },
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _composition_stream_action(
+    service: PromptCompositionService,
+    action,
+) -> StreamingResponse:
+    try:
+        events = action()
+    except (KeyError, FileNotFoundError) as error:
+        raise HTTPException(
+            status_code=404,
+            detail="prompt session, composition or cookbook not found",
+        ) from error
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return _composition_stream_response(service, events)
+
+
+def _parse_composition_stage(value: str) -> CompositionStage:
+    try:
+        return CompositionStage(value.replace("-", "_"))
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="composition stage not found") from error
+
+
+def _encode_sse(event: str, payload: dict[str, object]) -> str:
+    return (
+        f"event: {event}\n"
+        f"data: {json.dumps(payload, ensure_ascii=False, allow_nan=False)}\n\n"
+    )
 
 
 def _parse_reference_uses(value: str) -> tuple[ReferenceUse, ...]:

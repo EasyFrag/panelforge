@@ -13,18 +13,28 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
-from panelforge.application import ChangeViewRunner, PromptLabService
+from panelforge.application import (
+    ChangeViewRunner,
+    PromptCompositionService,
+    PromptLabService,
+)
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.comfy import ComfyHttpClient
-from panelforge.infrastructure.llm import OpenAICompatibleGateway
+from panelforge.infrastructure.llm import (
+    LoggedMultimodalGateway,
+    OpenAICompatibleGateway,
+)
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
     load_change_view_preset,
 )
 from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
+from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
+    LocalLlmCallStore,
     LocalPromptSessionStore,
+    LocalPromptCompositionStore,
     LocalRunStore,
 )
 
@@ -80,6 +90,8 @@ def build_app(args: argparse.Namespace):
     assets = LocalAssetStore(args.workspace)
     runs = LocalRunStore(args.workspace)
     prompt_sessions = LocalPromptSessionStore(args.workspace)
+    prompt_compositions = LocalPromptCompositionStore(args.workspace)
+    llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
     comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-lab-{uuid4().hex}",
@@ -93,17 +105,31 @@ def build_app(args: argparse.Namespace):
         run_timeout=args.run_timeout,
         poll_interval=args.poll_interval,
     )
-    prompt_lab = PromptLabService(
-        gateway=OpenAICompatibleGateway(
+    gateway = LoggedMultimodalGateway(
+        OpenAICompatibleGateway(
             args.llm_base_url,
             api_key=args.llm_api_key,
             timeout=args.llm_timeout,
         ),
+        llm_calls,
+    )
+    prompt_lab = PromptLabService(
+        gateway=gateway,
         profiles=LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles"),
         assets=assets,
         sessions=prompt_sessions,
     )
-    return create_app(runner, prompt_lab=prompt_lab)
+    prompt_composition = PromptCompositionService(
+        gateway=gateway,
+        cookbooks=LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks"),
+        sessions=prompt_sessions,
+        compositions=prompt_compositions,
+    )
+    return create_app(
+        runner,
+        prompt_lab=prompt_lab,
+        prompt_composition=prompt_composition,
+    )
 
 
 def main() -> int:

@@ -1,0 +1,4 @@
+You revise one approved-workflow draft without changing its required contract. Apply only the requested change. Preserve all facts, labels, timings, locked attributes, and sections not targeted by the instruction. Keep all prose in English except exact supplied dialogue. Output the complete revised document for this stage, without Markdown fences or commentary.
+
+STAGE CONTRACT
+{{STAGE_CONTRACT}}

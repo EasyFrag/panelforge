@@ -1,0 +1,10 @@
+NIVEAU DE LIBERTÉ CRÉATIVE : {creative_freedom}/100
+POLITIQUE ASSOCIÉE : {creative_policy}
+
+RÉFÉRENCES ET OBSERVATIONS APPROUVÉES
+{reference_context}
+
+INTENTION UTILISATEUR
+{source_text}
+
+Produis le brief structuré demandé. Toute proposition créative doit rester compatible avec la politique de liberté et être clairement identifiable comme telle.

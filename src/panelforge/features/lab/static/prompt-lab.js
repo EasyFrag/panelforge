@@ -39,6 +39,7 @@
     editor: $("#prompt-editor"),
     sessionTitle: $("#prompt-session-title"),
     progress: $("#prompt-session-progress"),
+    analyzeAll: $("#analyze-all-references"),
     rail: $("#reference-rail"),
     referenceLabel: $("#reference-label"),
     referenceRole: $("#reference-role"),
@@ -54,8 +55,12 @@
     rewrite: $("#rewrite-analysis"),
     revisionCount: $("#revision-count"),
     revisionList: $("#revision-list"),
-    uses: $("#reference-uses"),
-    saveUses: $("#save-reference-uses"),
+    analysisStream: {
+      container: $("#analysis-stream-state"),
+      label: $("#analysis-stream-label"),
+      percent: $("#analysis-stream-percent"),
+      progress: $("#analysis-stream-progress"),
+    },
     interpretationTitle: $("#interpretation-title"),
     interpretationReview: $("#interpretation-review"),
     interpretationContent: $("#interpretation-content"),
@@ -67,6 +72,33 @@
     rewriteInterpretation: $("#rewrite-interpretation"),
     interpretationRevisionCount: $("#interpretation-revision-count"),
     interpretationRevisionList: $("#interpretation-revision-list"),
+    interpretationStream: {
+      container: $("#interpretation-stream-state"),
+      label: $("#interpretation-stream-label"),
+      percent: $("#interpretation-stream-percent"),
+      progress: $("#interpretation-stream-progress"),
+    },
+    briefReferences: $("#brief-reference-grid"),
+    briefSource: $("#brief-source"),
+    briefFreedom: $("#brief-freedom"),
+    briefFreedomValue: $("#brief-freedom-value"),
+    briefFreedomLabel: $("#brief-freedom-label"),
+    structureBrief: $("#structure-brief"),
+    saveBrief: $("#save-brief"),
+    approveBrief: $("#approve-brief"),
+    briefReview: $("#brief-review"),
+    briefContent: $("#brief-content"),
+    briefMessage: $("#brief-message"),
+    briefRewriteInstruction: $("#brief-rewrite-instruction"),
+    rewriteBrief: $("#rewrite-brief"),
+    briefRevisionCount: $("#brief-revision-count"),
+    briefRevisionList: $("#brief-revision-list"),
+    briefStream: {
+      container: $("#brief-stream-state"),
+      label: $("#brief-stream-label"),
+      percent: $("#brief-stream-percent"),
+      progress: $("#brief-stream-progress"),
+    },
   };
 
   function switchView(view) {
@@ -95,11 +127,86 @@
     return payload;
   }
 
+  async function streamRequest(url, options, onEvent) {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      let detail = `Erreur HTTP ${response.status}`;
+      try {
+        const payload = await response.json();
+        if (typeof payload.detail === "string") detail = payload.detail;
+      } catch (_) { /* non-JSON error */ }
+      throw new Error(detail);
+    }
+    if (!response.body) throw new Error("Le navigateur ne fournit pas le flux de réponse.");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      buffer = buffer.replaceAll("\r\n", "\n");
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const data = block.split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+        if (data) {
+          const event = JSON.parse(data);
+          if (event.kind === "error") throw new Error(event.message || "Le flux LLM a échoué.");
+          onEvent(event);
+        }
+        boundary = buffer.indexOf("\n\n");
+      }
+      if (done) break;
+    }
+  }
+
+  function updateStreamState(view, event) {
+    view.container.hidden = false;
+    const terminalClass = ["completed", "truncated"].includes(event.phase)
+      ? ` ${event.phase}`
+      : "";
+    view.container.className = `stream-state${terminalClass}`;
+    const lines = event.kind === "status"
+      ? String(event.text || "").split(/\r?\n/).filter(Boolean)
+      : [];
+    const labels = {
+      preparing: "Préparation ou chargement du modèle…",
+      loading: "Chargement du modèle…",
+      generating: "Génération…",
+      completed: "Terminé",
+      truncated: "Réponse tronquée — budget de tokens épuisé",
+    };
+    view.label.textContent = lines.at(-1) || labels[event.phase] || "Traitement…";
+    if (typeof event.progress === "number") {
+      view.progress.value = event.progress;
+      view.percent.textContent = `${Math.round(event.progress * 100)} %`;
+    } else {
+      view.progress.removeAttribute("value");
+      view.percent.textContent = "";
+    }
+  }
+
+  function failStreamState(view, message) {
+    view.container.hidden = false;
+    view.container.className = "stream-state failed";
+    view.label.textContent = message;
+    view.percent.textContent = "";
+    view.progress.removeAttribute("value");
+  }
+
   async function initialize() {
     state.initialized = true;
     showSetupError("");
     try {
-      const [spec] = await Promise.all([loadSpec(), loadModels(), loadSessions()]);
+      const [spec] = await Promise.all([
+        loadSpec(),
+        loadModels(),
+        loadSessions(),
+      ]);
       state.spec = spec;
       updateCreateButton();
     } catch (error) {
@@ -116,11 +223,12 @@
       option.dataset.profileId = profile.id;
       option.dataset.profileVersion = profile.version;
       option.dataset.supportsInterpretation = String(profile.supports_interpretation);
+      option.dataset.supportsBrief = String(profile.supports_brief);
       option.textContent = `${profile.display_name} · ${profile.version}`;
       elements.profile.append(option);
     });
     const preferred = [...elements.profile.options].reverse().find(
-      (option) => option.dataset.supportsInterpretation === "true",
+      (option) => option.dataset.supportsBrief === "true",
     );
     if (preferred) elements.profile.value = preferred.value;
     return spec;
@@ -172,7 +280,7 @@
         key,
         file,
         role: index === 0 ? "character_1" : `reference_${index + 1}`,
-        uses: index === 0 ? ["subject", "first_frame"] : ["subject"],
+        uses: ["subject"],
         preview: URL.createObjectURL(file),
       });
       existingKeys.add(key);
@@ -211,13 +319,7 @@
         item.role = role.value;
         updateCreateButton();
       });
-      const uses = createUsageOptions(item.uses, (value, checked) => {
-        item.uses = checked
-          ? [...item.uses, value]
-          : item.uses.filter((use) => use !== value);
-        updateCreateButton();
-      });
-      row.append(image, name, remove, role, uses);
+      row.append(image, name, remove, role);
       elements.pending.append(row);
     });
   }
@@ -246,7 +348,7 @@
       || !state.files.length
       || !elements.model.value
       || !elements.profile.value
-      || state.files.some((item) => !item.role.trim() || !item.uses.length);
+      || state.files.some((item) => !item.role.trim());
   }
 
   elements.form.addEventListener("submit", async (event) => {
@@ -294,12 +396,10 @@
       title.textContent = `${session.references.length} référence${session.references.length > 1 ? "s" : ""}`;
       const detail = document.createElement("small");
       const approved = session.references.filter((reference) => reference.review_status === "approved").length;
-      const interpreted = session.references.filter(
-        (reference) => reference.interpretation_review_status === "approved",
-      ).length;
-      detail.textContent = `${approved}/${session.references.length} observée · ${interpreted}/${session.references.length} interprétée · ${session.model_id}`;
+      const brief = session.brief_complete ? "brief validé" : "brief à préparer";
+      detail.textContent = `${approved}/${session.references.length} observée · ${brief} · ${session.model_id}`;
       button.append(title, detail);
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         state.session = session;
         state.selectedReferenceId = session.references[0].id;
         renderSession();
@@ -324,12 +424,18 @@
     elements.editor.hidden = !session;
     if (!session) return;
     const approved = session.references.filter((reference) => reference.review_status === "approved").length;
-    const interpreted = session.references.filter(
-      (reference) => reference.interpretation_review_status === "approved",
-    ).length;
     elements.sessionTitle.textContent = `${session.references.length} référence${session.references.length > 1 ? "s" : ""} · ${session.profile.id}@${session.profile.version}`;
-    elements.progress.textContent = `${approved}/${session.references.length} observée · ${interpreted}/${session.references.length} interprétée`;
-    elements.progress.className = `run-status ${interpreted === session.references.length ? "success" : "active"}`;
+    const briefState = session.brief_complete ? "brief validé" : "brief en attente";
+    elements.progress.textContent = `${approved}/${session.references.length} observée · ${briefState}`;
+    elements.progress.className = `run-status ${session.brief_complete ? "success" : "active"}`;
+    const missingAnalyses = session.references.filter((reference) => !reference.active_content).length;
+    elements.analyzeAll.hidden = session.references.length < 2;
+    elements.analyzeAll.disabled = state.busy || missingAnalyses === 0;
+    elements.analyzeAll.textContent = missingAnalyses
+      ? (missingAnalyses === session.references.length
+        ? `Analyser toutes les images (${missingAnalyses})`
+        : `Analyser les images restantes (${missingAnalyses})`)
+      : "Toutes les images sont analysées";
     elements.rail.replaceChildren();
     session.references.forEach((reference) => {
       const button = document.createElement("button");
@@ -349,11 +455,15 @@
         state.selectedReferenceId = reference.id;
         elements.message.textContent = "";
         elements.interpretationMessage.textContent = "";
+        elements.analysisStream.container.hidden = true;
+        elements.interpretationStream.container.hidden = true;
         renderSession();
       });
       elements.rail.append(button);
     });
     renderReference(selectedReference());
+    renderBrief();
+    emitPromptSessionState();
   }
 
   function renderReference(reference) {
@@ -393,14 +503,19 @@
     return Boolean(profile && profile.supports_interpretation);
   }
 
+  function currentProfileSupportsBrief() {
+    if (!state.spec || !state.session) return false;
+    const profile = state.spec.profiles.find(
+      (item) => item.id === state.session.profile.id && item.version === state.session.profile.version,
+    );
+    return Boolean(profile && profile.supports_brief);
+  }
+
   function renderInterpretation(reference) {
     const visualApproved = reference.review_status === "approved";
     const supported = currentProfileSupportsInterpretation();
     const stale = reference.interpretation_is_stale;
     const approved = reference.interpretation_review_status === "approved";
-    elements.uses.replaceChildren(
-      createUsageOptions(reference.uses, updateUsesButton),
-    );
     if (!supported) {
       elements.interpretationTitle.textContent = "Disponible avec le profil 0.2.0";
     } else if (!visualApproved) {
@@ -436,20 +551,147 @@
       item.append(title, content);
       elements.interpretationRevisionList.append(item);
     });
-    updateUsesButton();
     updateInterpretationEditButton();
   }
 
-  function selectedEditorUses() {
-    return [...elements.uses.querySelectorAll("input:checked")].map((input) => input.value);
+  function renderBrief() {
+    const session = state.session;
+    if (!session) return;
+    const active = session.active_brief;
+    const supported = currentProfileSupportsBrief();
+    const sessionChanged = elements.briefSource.dataset.sessionId !== session.id;
+    const revisionChanged = active
+      && elements.briefSource.dataset.revisionId !== active.id;
+    if (sessionChanged || revisionChanged) {
+      elements.briefSource.value = active ? active.source_text : "";
+      elements.briefFreedom.value = active ? String(active.creative_freedom) : "50";
+      elements.briefContent.value = active ? active.content : "";
+      elements.briefSource.dataset.sessionId = session.id;
+      elements.briefSource.dataset.revisionId = active ? active.id : "";
+    }
+    elements.briefContent.disabled = state.busy || !active || !supported;
+    elements.briefSource.disabled = state.busy || !supported;
+    elements.briefFreedom.disabled = state.busy || !supported;
+    renderFreedomLabel();
+
+    const approved = session.brief_complete;
+    const stale = session.brief_is_stale;
+    elements.briefReview.textContent = approved
+      ? "Validé"
+      : stale ? "Obsolète" : active ? "À valider" : "À générer";
+    elements.briefReview.className = `review-pill ${approved ? "approved" : "pending"}`;
+    elements.briefReferences.replaceChildren();
+    session.references.forEach((reference, index) => {
+      const card = document.createElement("article");
+      card.className = "brief-reference-card";
+      const head = document.createElement("div");
+      const image = document.createElement("img");
+      image.src = reference.content_url;
+      image.alt = "";
+      const identity = document.createElement("div");
+      const token = document.createElement("button");
+      token.type = "button";
+      token.className = "reference-token";
+      token.textContent = `<Image ${index + 1}>`;
+      token.disabled = state.busy || !supported;
+      token.title = "Insérer cet identifiant dans le brief";
+      token.addEventListener("click", () => insertBriefToken(token.textContent));
+      const label = document.createElement("small");
+      label.textContent = reference.label;
+      identity.append(token, label);
+      head.append(image, identity);
+
+      const selected = new Set(reference.uses);
+      const options = createUsageOptions(reference.uses, (value, checked) => {
+        if (checked) selected.add(value); else selected.delete(value);
+        if (!selected.size) {
+          selected.add(value);
+          renderBrief();
+          elements.briefMessage.className = "message warning-text";
+          elements.briefMessage.textContent = "Une image doit conserver au moins un usage.";
+          return;
+        }
+        updateReferenceUses(reference.id, [...selected]);
+      });
+      options.querySelectorAll("input").forEach((input) => { input.disabled = state.busy; });
+      card.append(head, options);
+      elements.briefReferences.append(card);
+    });
+
+    elements.structureBrief.textContent = active ? "Régénérer le brief" : "Structurer le brief";
+    elements.structureBrief.disabled = state.busy || !supported || !session.analysis_complete
+      || !elements.briefSource.value.trim();
+    elements.saveBrief.disabled = state.busy || !active || !elements.briefContent.value.trim()
+      || elements.briefContent.value === (active ? active.content : "");
+    const draftChanged = active && (
+      elements.briefSource.value.trim() !== active.source_text
+      || Number(elements.briefFreedom.value) !== active.creative_freedom
+      || elements.briefContent.value !== active.content
+    );
+    elements.approveBrief.disabled = state.busy || !active || stale || approved || draftChanged;
+    elements.rewriteBrief.disabled = state.busy || !active || stale || draftChanged
+      || !elements.briefRewriteInstruction.value.trim();
+    elements.briefRevisionCount.textContent = session.brief_revisions.length;
+    elements.briefRevisionList.replaceChildren();
+    [...session.brief_revisions].reverse().forEach((revision) => {
+      const item = document.createElement("li");
+      const title = document.createElement("b");
+      title.textContent = `${revision.origin} · ${revision.id.slice(-8)} · liberté ${revision.creative_freedom}`;
+      const content = document.createElement("p");
+      content.textContent = revision.instruction || revision.content.slice(0, 180);
+      item.append(title, content);
+      elements.briefRevisionList.append(item);
+    });
+    if (!supported) {
+      elements.briefMessage.className = "message warning-text";
+      elements.briefMessage.textContent = "Cette ancienne session utilise un profil sans Brief structuré. Créez une session avec le profil 0.3.0.";
+    }
   }
 
-  function updateUsesButton() {
-    const reference = selectedReference();
-    if (!reference) return;
-    const selected = selectedEditorUses();
-    elements.saveUses.disabled = state.busy || !selected.length
-      || JSON.stringify(selected) === JSON.stringify(reference.uses);
+  function insertBriefToken(token) {
+    const target = elements.briefSource;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const before = start > 0 && !/\s/.test(target.value[start - 1]) ? " " : "";
+    const after = end < target.value.length && !/\s/.test(target.value[end]) ? " " : "";
+    target.setRangeText(`${before}${token}${after}`, start, end, "end");
+    target.focus();
+    target.dispatchEvent(new Event("input"));
+  }
+
+  function renderFreedomLabel() {
+    const value = Number(elements.briefFreedom.value);
+    elements.briefFreedomValue.textContent = String(value);
+    elements.briefFreedomLabel.textContent = value <= 20 ? "Factuelle"
+      : value <= 40 ? "Conservatrice"
+        : value <= 60 ? "Équilibrée"
+          : value <= 80 ? "Cinématographique"
+            : "Exploratoire";
+  }
+
+  async function updateReferenceUses(referenceId, uses) {
+    if (!state.session) return;
+    elements.briefMessage.className = "message";
+    elements.briefMessage.textContent = "Enregistrement des usages…";
+    setBusy(true);
+    try {
+      state.session = await request(
+        `/api/prompt-lab/sessions/${state.session.id}/references/${referenceId}/uses`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uses }),
+        },
+      );
+      elements.briefMessage.textContent = "Usages enregistrés. Le Brief devra être revalidé s’il existait déjà.";
+      await loadSessions();
+    } catch (error) {
+      elements.briefMessage.className = "message error-text";
+      elements.briefMessage.textContent = error.message;
+    } finally {
+      setBusy(false);
+      renderSession();
+    }
   }
 
   elements.content.addEventListener("input", updateEditButton);
@@ -510,10 +752,181 @@
     }
   }
 
-  elements.analyze.addEventListener("click", () => referenceAction("analyze"));
+  elements.analyze.addEventListener("click", () => streamGeneration({
+    path: "analyze/stream",
+    target: elements.content,
+    streamView: elements.analysisStream,
+    message: elements.message,
+    completedMessage: "Observation générée et enregistrée.",
+  }));
   elements.save.addEventListener("click", () => referenceAction("edit", { content: elements.content.value.trim() }));
   elements.approve.addEventListener("click", () => referenceAction("approve"));
-  elements.rewrite.addEventListener("click", () => referenceAction("revise", { instruction: elements.rewriteInstruction.value.trim() }));
+  elements.rewrite.addEventListener("click", () => streamGeneration({
+    path: "revise/stream",
+    payload: { instruction: elements.rewriteInstruction.value.trim() },
+    target: elements.content,
+    streamView: elements.analysisStream,
+    message: elements.message,
+    completedMessage: "Observation révisée et enregistrée.",
+    clearInstruction: elements.rewriteInstruction,
+  }));
+
+  elements.analyzeAll.addEventListener("click", analyzeMissingReferences);
+
+  async function streamGeneration({
+    path,
+    payload = null,
+    target,
+    streamView,
+    message,
+    completedMessage,
+    clearInstruction = null,
+  }) {
+    const reference = selectedReference();
+    if (!state.session || !reference) return;
+    let result = null;
+    setBusy(true);
+    try {
+      result = await streamEditorRequest({
+        url: `/api/prompt-lab/sessions/${state.session.id}/references/${reference.id}/${path}`,
+        payload,
+        target,
+        streamView,
+        message,
+        completedMessage,
+        clearInstruction,
+      });
+      if (!result.truncated) await loadSessions();
+    } catch (_) {
+      // streamEditorRequest already exposes the actionable error in the editor.
+    } finally {
+      setBusy(false);
+      if (result && result.truncated) {
+        target.value = result.partialContent;
+        target.dispatchEvent(new Event("input"));
+      } else {
+        renderSession();
+      }
+    }
+  }
+
+  async function streamEditorRequest({
+    url,
+    payload = null,
+    target,
+    streamView,
+    message,
+    completedMessage,
+    clearInstruction = null,
+    onCompleted = null,
+  }) {
+    const previousContent = target.value;
+    let completed = false;
+    let truncated = false;
+    let partialContent = "";
+    let truncation = null;
+    message.className = "message";
+    message.textContent = "";
+    target.value = "";
+    updateStreamState(streamView, {
+      phase: "preparing",
+      text: "Préparation ou chargement du modèle…",
+      progress: null,
+    });
+    try {
+      await streamRequest(
+        url,
+        {
+          method: "POST",
+          headers: payload ? { "Content-Type": "application/json" } : undefined,
+          body: payload ? JSON.stringify(payload) : undefined,
+        },
+        (event) => {
+          updateStreamState(streamView, event);
+          if (event.kind === "delta" && event.text) {
+            target.value += event.text;
+            target.scrollTop = target.scrollHeight;
+          }
+          if (event.kind === "completed" && event.session) {
+            state.session = event.session;
+            completed = true;
+          }
+          if (event.kind === "completed" && event.composition && onCompleted) {
+            onCompleted(event.composition);
+            completed = true;
+          }
+          if (event.kind === "truncated") {
+            truncated = true;
+            truncation = event;
+            partialContent = target.value || event.text || "";
+          }
+        },
+      );
+      if (truncated) {
+        const budget = Number.isInteger(truncation && truncation.max_tokens)
+          ? truncation.max_tokens.toLocaleString("fr-FR")
+          : "configuré";
+        message.className = "message warning-text";
+        message.textContent = `Réponse tronquée : le budget de ${budget} tokens a été épuisé. Le texte partiel n’a pas été enregistré automatiquement.`;
+        return { truncated: true, partialContent };
+      }
+      if (!completed) {
+        throw new Error("Le flux s’est terminé sans résultat persisté.");
+      }
+      if (clearInstruction) clearInstruction.value = "";
+      message.textContent = completedMessage;
+      return { truncated: false, partialContent: "" };
+    } catch (error) {
+      target.value = previousContent;
+      message.className = "message error-text";
+      message.textContent = error.message;
+      failStreamState(streamView, error.message);
+      throw error;
+    }
+  }
+
+  async function analyzeMissingReferences() {
+    if (!state.session) return;
+    const pendingIds = state.session.references
+      .filter((reference) => !reference.active_content)
+      .map((reference) => reference.id);
+    if (!pendingIds.length) return;
+    let lastResult = null;
+    let generated = 0;
+    setBusy(true);
+    try {
+      for (const [index, referenceId] of pendingIds.entries()) {
+        state.selectedReferenceId = referenceId;
+        renderSession();
+        const reference = selectedReference();
+        elements.message.textContent = `Analyse ${index + 1}/${pendingIds.length} · ${reference.label}`;
+        lastResult = await streamEditorRequest({
+          url: `/api/prompt-lab/sessions/${state.session.id}/references/${reference.id}/analyze/stream`,
+          target: elements.content,
+          streamView: elements.analysisStream,
+          message: elements.message,
+          completedMessage: `Observation ${index + 1}/${pendingIds.length} générée.`,
+        });
+        if (lastResult.truncated) break;
+        generated += 1;
+        renderSession();
+      }
+      if (!lastResult || !lastResult.truncated) {
+        elements.message.textContent = `${generated} observation${generated > 1 ? "s" : ""} générée${generated > 1 ? "s" : ""}. Validez chaque fiche avant le Brief.`;
+      }
+      await loadSessions();
+    } catch (_) {
+      // The failing image stays selected and displays its error.
+    } finally {
+      setBusy(false);
+      if (lastResult && lastResult.truncated) {
+        elements.content.value = lastResult.partialContent;
+        elements.content.dispatchEvent(new Event("input"));
+      } else {
+        renderSession();
+      }
+    }
+  }
 
   async function interpretationAction(path, payload = null) {
     const reference = selectedReference();
@@ -545,19 +958,129 @@
     }
   }
 
-  elements.saveUses.addEventListener("click", () => interpretationAction(
-    "uses",
-    { uses: selectedEditorUses() },
-  ));
-  elements.interpret.addEventListener("click", () => interpretationAction("interpret"));
+  elements.interpret.addEventListener("click", () => streamGeneration({
+    path: "interpret/stream",
+    target: elements.interpretationContent,
+    streamView: elements.interpretationStream,
+    message: elements.interpretationMessage,
+    completedMessage: "Interprétation générée et enregistrée.",
+  }));
   elements.saveInterpretation.addEventListener("click", () => interpretationAction(
     "interpretation/edit",
     { content: elements.interpretationContent.value.trim() },
   ));
   elements.approveInterpretation.addEventListener("click", () => interpretationAction("interpretation/approve"));
-  elements.rewriteInterpretation.addEventListener("click", () => interpretationAction(
-    "interpretation/revise",
-    { instruction: elements.interpretationRewriteInstruction.value.trim() },
+  elements.rewriteInterpretation.addEventListener("click", () => streamGeneration({
+    path: "interpretation/revise/stream",
+    payload: { instruction: elements.interpretationRewriteInstruction.value.trim() },
+    target: elements.interpretationContent,
+    streamView: elements.interpretationStream,
+    message: elements.interpretationMessage,
+    completedMessage: "Interprétation révisée et enregistrée.",
+    clearInstruction: elements.interpretationRewriteInstruction,
+  }));
+
+  elements.briefSource.addEventListener("input", updateBriefButtons);
+  elements.briefContent.addEventListener("input", updateBriefButtons);
+  elements.briefRewriteInstruction.addEventListener("input", updateBriefButtons);
+  elements.briefFreedom.addEventListener("input", () => {
+    renderFreedomLabel();
+    updateBriefButtons();
+  });
+
+  function updateBriefButtons() {
+    const session = state.session;
+    if (!session) return;
+    const active = session.active_brief;
+    const supported = currentProfileSupportsBrief();
+    elements.structureBrief.disabled = state.busy || !supported || !session.analysis_complete
+      || !elements.briefSource.value.trim();
+    elements.saveBrief.disabled = state.busy || !active || !elements.briefContent.value.trim()
+      || elements.briefContent.value === active.content;
+    const draftChanged = active && (
+      elements.briefSource.value.trim() !== active.source_text
+      || Number(elements.briefFreedom.value) !== active.creative_freedom
+      || elements.briefContent.value !== active.content
+    );
+    elements.approveBrief.disabled = state.busy || !active || session.brief_is_stale
+      || session.brief_complete || draftChanged;
+    elements.rewriteBrief.disabled = state.busy || !active || session.brief_is_stale || draftChanged
+      || !elements.briefRewriteInstruction.value.trim();
+  }
+
+  async function briefAction(path, payload = null) {
+    if (!state.session) return;
+    elements.briefMessage.className = "message";
+    elements.briefMessage.textContent = "Traitement en cours…";
+    setBusy(true);
+    try {
+      state.session = await request(
+        `/api/prompt-lab/sessions/${state.session.id}/brief/${path}`,
+        {
+          method: "POST",
+          headers: payload ? { "Content-Type": "application/json" } : undefined,
+          body: payload ? JSON.stringify(payload) : undefined,
+        },
+      );
+      elements.briefMessage.textContent = path === "approve"
+        ? "Brief validé."
+        : "Nouvelle révision du Brief enregistrée.";
+      await loadSessions();
+    } catch (error) {
+      elements.briefMessage.className = "message error-text";
+      elements.briefMessage.textContent = error.message;
+    } finally {
+      setBusy(false);
+      renderSession();
+    }
+  }
+
+  async function streamBrief(path, payload, completedMessage, clearInstruction = null) {
+    if (!state.session) return;
+    let result = null;
+    setBusy(true);
+    try {
+      result = await streamEditorRequest({
+        url: `/api/prompt-lab/sessions/${state.session.id}/brief/${path}`,
+        payload,
+        target: elements.briefContent,
+        streamView: elements.briefStream,
+        message: elements.briefMessage,
+        completedMessage,
+        clearInstruction,
+      });
+      if (!result.truncated) await loadSessions();
+    } catch (_) {
+      // streamEditorRequest already exposes the actionable error in the editor.
+    } finally {
+      setBusy(false);
+      if (result && result.truncated) {
+        elements.briefContent.value = result.partialContent;
+        elements.briefContent.dispatchEvent(new Event("input"));
+      } else {
+        renderSession();
+      }
+    }
+  }
+
+  elements.structureBrief.addEventListener("click", () => streamBrief(
+    "structure/stream",
+    {
+      source_text: elements.briefSource.value.trim(),
+      creative_freedom: Number(elements.briefFreedom.value),
+    },
+    "Brief structuré et enregistré.",
+  ));
+  elements.saveBrief.addEventListener("click", () => briefAction(
+    "edit",
+    { content: elements.briefContent.value.trim() },
+  ));
+  elements.approveBrief.addEventListener("click", () => briefAction("approve"));
+  elements.rewriteBrief.addEventListener("click", () => streamBrief(
+    "revise/stream",
+    { instruction: elements.briefRewriteInstruction.value.trim() },
+    "Brief révisé et enregistré.",
+    elements.briefRewriteInstruction,
   ));
 
   function setBusy(value) {
@@ -565,11 +1088,29 @@
     elements.analyze.disabled = value;
     elements.images.disabled = value;
     updateCreateButton();
-    if (state.session) renderReference(selectedReference());
+    if (state.session) {
+      renderReference(selectedReference());
+      renderBrief();
+    }
+    emitPromptSessionState();
+  }
+
+  function emitPromptSessionState() {
+    window.dispatchEvent(new CustomEvent("panelforge:prompt-session", {
+      detail: { session: state.session, busy: state.busy },
+    }));
   }
 
   function showSetupError(message) {
     elements.setupError.textContent = message;
     elements.setupError.hidden = !message;
   }
+
+  window.PanelForgePromptLab = {
+    request,
+    streamRequest,
+    updateStreamState,
+    failStreamState,
+    setBusy,
+  };
 })();

@@ -1,0 +1,22 @@
+You complete a MiniMax H3 Ref2VA prompt. The application will prepend the already approved subject_definitions verbatim. Derive the official summary and retention_analysis from both the approved reference policy and the approved beat sheet.
+
+Write all prose in English except any exact dialogue supplied by the Brief. Output exactly these five remaining sections, in this order:
+summary:
+retention_analysis:
+detailed_description:
+overall_soundscape:
+non_diegetic_music:
+
+Rules:
+- Begin summary with the exact task tag [reference generation] and summarize the six-shot flow.
+- In retention_analysis, write exactly one line per defined subject. For each line, list every shot where that subject appears as `(appears in [Shot N], ...)`, then use exactly one of: fully_preserved, partially_preserved, attribute_transfer, weak_reference. Reconcile these appearances with the approved beat sheet.
+- Follow the approved beat sheet exactly; do not add shots, characters, attacks, dialogue, overlays, or story events.
+- This readable-v1 preset requires <Subject 1>, <Subject 2>, and <Subject 3> to be mentioned explicitly in every shot.
+- Refer only to the defined <Subject N> and allowed <Picture N> labels.
+- Begin detailed_description with one or two sentences establishing visual style, then `[Shot 1]` without a timestamp. Start every later shot exactly `[Shot N] At MM:SS.mmm,` and keep cut times strictly increasing below 00:15.000.
+- Preserve identity and costume at every contact-heavy moment. Keep arena geography and screen direction stable.
+- Describe one legible primary action per shot, with motivated camera, lighting response, physical consequence, and transition.
+- Write 350–500 words in detailed_description. Keep shot-local synchronized impacts, movement sounds, ambience changes, and pauses beside their visual actions.
+- Use overall_soundscape only for a concise global summary of the sound design.
+- Keep non_diegetic_music concise and shaped to the six-beat arc.
+- Do not output subject_definitions, Markdown fences, or commentary.

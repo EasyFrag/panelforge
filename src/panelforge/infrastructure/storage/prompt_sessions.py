@@ -8,6 +8,8 @@ from pathlib import Path
 
 from panelforge.domain import (
     AnalysisRevision,
+    BriefReferenceSnapshot,
+    BriefRevision,
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
@@ -29,8 +31,8 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 2
-_SESSION_KEYS = {
+_SCHEMA_VERSION = 3
+_SESSION_KEYS_V1_V2 = {
     "schema_version",
     "created_at",
     "updated_at",
@@ -39,6 +41,11 @@ _SESSION_KEYS = {
     "profile_id",
     "profile_version",
     "references",
+}
+_SESSION_KEYS_V3 = _SESSION_KEYS_V1_V2 | {
+    "brief_revisions",
+    "active_brief_revision_id",
+    "approved_brief_revision_id",
 }
 _REFERENCE_KEYS_V1 = {
     "reference_id",
@@ -64,6 +71,16 @@ _REVISION_KEYS = {
 }
 _INTERPRETATION_KEYS = _REVISION_KEYS | {
     "source_analysis_revision_id",
+    "uses",
+}
+_BRIEF_REVISION_KEYS = _REVISION_KEYS | {
+    "source_text",
+    "creative_freedom",
+    "references",
+}
+_BRIEF_REFERENCE_KEYS = {
+    "reference_id",
+    "analysis_revision_id",
     "uses",
 }
 
@@ -161,14 +178,19 @@ class LocalPromptSessionStore:
     ) -> tuple[PromptLabSession, str, str]:
         _require_regular_file(path)
         data = _read_json_object(path)
-        if set(data) != _SESSION_KEYS:
-            raise StorageCorruptionError(
-                f"invalid prompt session fields for {expected_id!r}"
-            )
         schema_version = data.get("schema_version")
-        if schema_version not in {1, _SCHEMA_VERSION}:
+        if schema_version not in {1, 2, _SCHEMA_VERSION}:
             raise StorageCorruptionError(
                 f"unsupported prompt session schema for {expected_id!r}"
+            )
+        expected_keys = (
+            _SESSION_KEYS_V3
+            if schema_version == _SCHEMA_VERSION
+            else _SESSION_KEYS_V1_V2
+        )
+        if set(data) != expected_keys:
+            raise StorageCorruptionError(
+                f"invalid prompt session fields for {expected_id!r}"
             )
         created_at = _require_timestamp(data.get("created_at"), "created_at")
         updated_at = _require_timestamp(data.get("updated_at"), "updated_at")
@@ -210,6 +232,28 @@ def _session_to_dict(
         "model_id": session.model_id,
         "profile_id": session.profile_id,
         "profile_version": session.profile_version,
+        "brief_revisions": [
+            {
+                "revision_id": revision.revision_id,
+                "source_text": revision.source_text,
+                "content": revision.content,
+                "creative_freedom": revision.creative_freedom,
+                "origin": revision.origin.value,
+                "references": [
+                    {
+                        "reference_id": reference.reference_id,
+                        "analysis_revision_id": reference.analysis_revision_id,
+                        "uses": [use.value for use in reference.uses],
+                    }
+                    for reference in revision.references
+                ],
+                "parent_revision_id": revision.parent_revision_id,
+                "instruction": revision.instruction,
+            }
+            for revision in session.brief_revisions
+        ],
+        "active_brief_revision_id": session.active_brief_revision_id,
+        "approved_brief_revision_id": session.approved_brief_revision_id,
         "references": [
             {
                 "reference_id": reference.reference_id,
@@ -286,7 +330,7 @@ def _session_from_dict(
                 )
             )
         interpretations: list[InterpretationRevision] = []
-        if schema_version == 2:
+        if schema_version >= 2:
             raw_interpretations = raw_reference["interpretations"]
             if not isinstance(raw_interpretations, list):
                 raise TypeError("interpretations must be a list")
@@ -314,7 +358,7 @@ def _session_from_dict(
                 )
         uses = (
             tuple(ReferenceUse(value) for value in raw_reference["uses"])
-            if schema_version == 2
+            if schema_version >= 2
             else (ReferenceUse.SUBJECT,)
         )
         references.append(
@@ -330,20 +374,72 @@ def _session_from_dict(
                 interpretations=tuple(interpretations),
                 active_interpretation_id=(
                     raw_reference["active_interpretation_id"]
-                    if schema_version == 2
+                    if schema_version >= 2
                     else None
                 ),
                 approved_interpretation_id=(
                     raw_reference["approved_interpretation_id"]
-                    if schema_version == 2
+                    if schema_version >= 2
                     else None
                 ),
             )
         )
+    brief_revisions: list[BriefRevision] = []
+    if schema_version >= 3:
+        raw_brief_revisions = data["brief_revisions"]
+        if not isinstance(raw_brief_revisions, list):
+            raise TypeError("brief_revisions must be a list")
+        for raw_revision in raw_brief_revisions:
+            if (
+                not isinstance(raw_revision, dict)
+                or set(raw_revision) != _BRIEF_REVISION_KEYS
+            ):
+                raise ValueError("brief revision contains invalid fields")
+            raw_brief_references = raw_revision["references"]
+            if not isinstance(raw_brief_references, list):
+                raise TypeError("brief references must be a list")
+            brief_references: list[BriefReferenceSnapshot] = []
+            for raw_reference in raw_brief_references:
+                if (
+                    not isinstance(raw_reference, dict)
+                    or set(raw_reference) != _BRIEF_REFERENCE_KEYS
+                ):
+                    raise ValueError("brief reference contains invalid fields")
+                raw_uses = raw_reference["uses"]
+                if not isinstance(raw_uses, list):
+                    raise TypeError("brief reference uses must be a list")
+                brief_references.append(
+                    BriefReferenceSnapshot(
+                        reference_id=raw_reference["reference_id"],
+                        analysis_revision_id=raw_reference[
+                            "analysis_revision_id"
+                        ],
+                        uses=tuple(ReferenceUse(value) for value in raw_uses),
+                    )
+                )
+            brief_revisions.append(
+                BriefRevision(
+                    revision_id=raw_revision["revision_id"],
+                    source_text=raw_revision["source_text"],
+                    content=raw_revision["content"],
+                    creative_freedom=raw_revision["creative_freedom"],
+                    origin=RevisionOrigin(raw_revision["origin"]),
+                    references=tuple(brief_references),
+                    parent_revision_id=raw_revision["parent_revision_id"],
+                    instruction=raw_revision["instruction"],
+                )
+            )
     return PromptLabSession(
         session_id=data["session_id"],
         model_id=data["model_id"],
         profile_id=data["profile_id"],
         profile_version=data["profile_version"],
         references=tuple(references),
+        brief_revisions=tuple(brief_revisions),
+        active_brief_revision_id=(
+            data["active_brief_revision_id"] if schema_version >= 3 else None
+        ),
+        approved_brief_revision_id=(
+            data["approved_brief_revision_id"] if schema_version >= 3 else None
+        ),
     )

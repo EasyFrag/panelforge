@@ -1,0 +1,10 @@
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+APPROVED REFERENCE PLAN
+{{REFERENCE_PLAN}}
+
+APPROVED BEAT SHEET
+{{BEAT_SHEET}}
+
+Write the final five Ref2VA sections now. Reconcile summary and retention_analysis with the approved beat sheet.

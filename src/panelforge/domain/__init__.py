@@ -14,6 +14,8 @@ from .recipes import (
 from .runs import RunRecord, RunReview, RunStatus
 from .prompt_lab import (
     AnalysisRevision,
+    BriefReferenceSnapshot,
+    BriefRevision,
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
@@ -21,16 +23,31 @@ from .prompt_lab import (
     ReferenceUse,
     RevisionOrigin,
 )
+from .prompt_composition import (
+    CompositionRevision,
+    CompositionStage,
+    CookbookBinding,
+    CookbookRef,
+    PromptComposition,
+    StageDocument,
+)
 
 __all__ = [
     "Asset",
     "AnalysisRevision",
+    "BriefReferenceSnapshot",
+    "BriefRevision",
+    "CompositionRevision",
+    "CompositionStage",
+    "CookbookBinding",
+    "CookbookRef",
     "InterpretationRevision",
     "ControlKind",
     "ControlSpec",
     "ControlValue",
     "PromptPolicy",
     "PromptLabSession",
+    "PromptComposition",
     "PromptReference",
     "PromptSnapshot",
     "RecipeRef",
@@ -40,6 +57,7 @@ __all__ = [
     "RunRecord",
     "RunReview",
     "RunStatus",
+    "StageDocument",
     "VariationMethod",
     "VariationPolicy",
 ]

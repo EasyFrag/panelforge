@@ -30,6 +30,12 @@ _PROMPT_KEYS_V2 = _PROMPT_KEYS_V1 | {
     "interpretation_revision_system",
     "interpretation_revision_user",
 }
+_PROMPT_KEYS_V3 = _PROMPT_KEYS_V2 | {
+    "brief_system",
+    "brief_user",
+    "brief_revision_system",
+    "brief_revision_user",
+}
 
 
 class LocalPromptProfileCatalog:
@@ -56,14 +62,14 @@ class LocalPromptProfileCatalog:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not isinstance(data, dict) or set(data) != _MANIFEST_KEYS:
                 raise ValueError(f"invalid prompt profile manifest: {manifest_path}")
-            if data["schema_version"] not in {1, 2}:
+            if data["schema_version"] not in {1, 2, 3}:
                 raise ValueError("unsupported prompt profile schema")
             prompts = data["prompts"]
-            expected_prompt_keys = (
-                _PROMPT_KEYS_V1
-                if data["schema_version"] == 1
-                else _PROMPT_KEYS_V2
-            )
+            expected_prompt_keys = {
+                1: _PROMPT_KEYS_V1,
+                2: _PROMPT_KEYS_V2,
+                3: _PROMPT_KEYS_V3,
+            }[data["schema_version"]]
             if not isinstance(prompts, dict) or set(prompts) != expected_prompt_keys:
                 raise ValueError("invalid prompt profile prompt bindings")
             directory = manifest_path.parent.resolve()
@@ -90,22 +96,42 @@ class LocalPromptProfileCatalog:
                 revision_user_prompt=read_prompt("revision_user"),
                 interpretation_system_prompt=(
                     read_prompt("interpretation_system")
-                    if data["schema_version"] == 2
+                    if data["schema_version"] >= 2
                     else None
                 ),
                 interpretation_user_prompt=(
                     read_prompt("interpretation_user")
-                    if data["schema_version"] == 2
+                    if data["schema_version"] >= 2
                     else None
                 ),
                 interpretation_revision_system_prompt=(
                     read_prompt("interpretation_revision_system")
-                    if data["schema_version"] == 2
+                    if data["schema_version"] >= 2
                     else None
                 ),
                 interpretation_revision_user_prompt=(
                     read_prompt("interpretation_revision_user")
-                    if data["schema_version"] == 2
+                    if data["schema_version"] >= 2
+                    else None
+                ),
+                brief_system_prompt=(
+                    read_prompt("brief_system")
+                    if data["schema_version"] >= 3
+                    else None
+                ),
+                brief_user_prompt=(
+                    read_prompt("brief_user")
+                    if data["schema_version"] >= 3
+                    else None
+                ),
+                brief_revision_system_prompt=(
+                    read_prompt("brief_revision_system")
+                    if data["schema_version"] >= 3
+                    else None
+                ),
+                brief_revision_user_prompt=(
+                    read_prompt("brief_revision_user")
+                    if data["schema_version"] >= 3
                     else None
                 ),
             )

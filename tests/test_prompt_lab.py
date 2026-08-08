@@ -18,12 +18,17 @@ from panelforge.application import (
     ModelDescriptor,
     NewReference,
     PromptLabService,
+    StreamEventKind,
+    StreamPhase,
 )
 from panelforge.domain import (
     AnalysisRevision,
+    BriefReferenceSnapshot,
+    BriefRevision,
     PromptLabSession,
     PromptReference,
     ReferenceReview,
+    ReferenceUse,
     RevisionOrigin,
 )
 from panelforge.infrastructure.llm import OpenAICompatibleGateway
@@ -114,6 +119,35 @@ class PromptLabDomainTest(unittest.TestCase):
                 active_revision_id="revision-2",
             )
 
+    def test_brief_snapshots_approved_observations_and_becomes_stale(self):
+        session = sample_session()
+        brief = BriefRevision(
+            revision_id="brief-1",
+            source_text="<Image 1> marche.",
+            content="INTENTION CENTRALE\nLe personnage marche.",
+            creative_freedom=25,
+            origin=RevisionOrigin.MODEL,
+            references=(
+                BriefReferenceSnapshot(
+                    reference_id="reference-1",
+                    analysis_revision_id="revision-1",
+                    uses=(ReferenceUse.SUBJECT,),
+                ),
+            ),
+        )
+
+        approved = session.add_brief_revision(brief).approve_brief()
+        changed = approved.update_reference(
+            approved.references[0].set_uses(
+                (ReferenceUse.SUBJECT, ReferenceUse.FIRST_FRAME)
+            )
+        )
+
+        self.assertTrue(approved.brief_complete)
+        self.assertFalse(changed.brief_complete)
+        self.assertTrue(changed.brief_is_stale)
+        self.assertIsNone(changed.approved_brief_revision_id)
+
 
 class LocalPromptSessionStoreTest(unittest.TestCase):
     def test_round_trip_save_list_and_timestamps(self):
@@ -146,6 +180,60 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             self.assertEqual(raw["created_at"], "2026-08-08T10:00:00Z")
             self.assertEqual(raw["updated_at"], "2026-08-08T10:00:01Z")
             self.assertEqual(raw["references"][0]["revisions"][1]["origin"], "manual")
+
+    def test_round_trips_structured_brief_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptSessionStore(directory)
+            session = sample_session().add_brief_revision(
+                BriefRevision(
+                    revision_id="brief-1",
+                    source_text="<Image 1> avance.",
+                    content="INTENTION CENTRALE\nAvancer.",
+                    creative_freedom=50,
+                    origin=RevisionOrigin.MODEL,
+                    references=(
+                        BriefReferenceSnapshot(
+                            reference_id="reference-1",
+                            analysis_revision_id="revision-1",
+                            uses=(ReferenceUse.SUBJECT,),
+                        ),
+                    ),
+                )
+            ).approve_brief()
+
+            store.create(session)
+
+            self.assertEqual(store.get(session.session_id), session)
+            raw = json.loads(
+                (
+                    Path(directory)
+                    / "prompt_sessions"
+                    / session.session_id
+                    / "session.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(raw["schema_version"], 3)
+            self.assertEqual(raw["brief_revisions"][0]["creative_freedom"], 50)
+
+    def test_reads_existing_schema_two_sessions_without_a_brief(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptSessionStore(directory)
+            session = sample_session()
+            store.create(session)
+            path = (
+                Path(directory)
+                / "prompt_sessions"
+                / session.session_id
+                / "session.json"
+            )
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["schema_version"] = 2
+            del raw["brief_revisions"]
+            del raw["active_brief_revision_id"]
+            del raw["approved_brief_revision_id"]
+            path.write_text(json.dumps(raw), encoding="utf-8")
+
+            self.assertEqual(store.get(session.session_id), session)
 
     def test_rejects_traversal_and_corrupt_identity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -181,6 +269,76 @@ class FakeCompletions:
 
     def create(self, **kwargs):
         self.kwargs = kwargs
+        if kwargs.get("stream"):
+            return iter(
+                (
+                    SimpleNamespace(
+                        model="vision-a",
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(
+                                    content=None,
+                                    reasoning_content="━━━━━\n",
+                                )
+                            )
+                        ],
+                        usage=None,
+                    ),
+                    SimpleNamespace(
+                        model="vision-a",
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(
+                                    content=None,
+                                    reasoning_content=(
+                                        "llama-swap loading model: vision-a\n"
+                                    ),
+                                )
+                            )
+                        ],
+                        usage=None,
+                    ),
+                    SimpleNamespace(
+                        model="vision-a",
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(
+                                    content=None,
+                                    reasoning_content="private reasoning 98%",
+                                )
+                            )
+                        ],
+                        usage=None,
+                    ),
+                    SimpleNamespace(
+                        model="vision-a",
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(
+                                    content="Bon",
+                                    reasoning_content=None,
+                                )
+                            )
+                        ],
+                        usage=None,
+                    ),
+                    SimpleNamespace(
+                        model="vision-a",
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(
+                                    content="jour",
+                                    reasoning_content=None,
+                                )
+                            )
+                        ],
+                        usage=SimpleNamespace(
+                            prompt_tokens=7,
+                            completion_tokens=2,
+                        ),
+                    ),
+                )
+            )
         return SimpleNamespace(
             model="vision-a",
             choices=[SimpleNamespace(message=SimpleNamespace(content="  résultat  "))],
@@ -216,10 +374,104 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
         self.assertEqual(models, (ModelDescriptor("vision-a"), ModelDescriptor("vision-b")))
         self.assertEqual(result.content, "résultat")
         self.assertEqual(result.prompt_tokens, 12)
+        self.assertEqual(completions.kwargs["max_tokens"], 32768)
         parts = completions.kwargs["messages"][1]["content"]
         self.assertEqual([part["type"] for part in parts], ["text", "text", "image_url", "text", "image_url"])
         self.assertIn("data:image/png;base64,", parts[2]["image_url"]["url"])
         self.assertIn("data:image/jpeg;base64,", parts[4]["image_url"]["url"])
+
+    def test_streams_text_and_only_exposes_verified_loading_state(self):
+        completions = FakeCompletions()
+        client = SimpleNamespace(
+            models=FakeModels(),
+            chat=SimpleNamespace(completions=completions),
+        )
+        gateway = OpenAICompatibleGateway(
+            "http://bucket:8083/v1",
+            client=client,
+        )
+
+        events = list(
+            gateway.stream(
+                CompletionRequest(
+                    model_id="vision-a",
+                    system_prompt="Réponds.",
+                    user_prompt="Dis bonjour.",
+                )
+            )
+        )
+
+        self.assertEqual(events[0].phase, StreamPhase.PREPARING)
+        self.assertEqual(events[1].phase, StreamPhase.LOADING)
+        self.assertEqual(events[1].text, "Chargement du modèle vision-a…")
+        self.assertNotIn("private reasoning", " ".join(event.text for event in events))
+        self.assertEqual(
+            [event.text for event in events if event.kind is StreamEventKind.DELTA],
+            ["Bon", "jour"],
+        )
+        completed = events[-1]
+        self.assertEqual(completed.kind, StreamEventKind.COMPLETED)
+        self.assertEqual(completed.result.content, "Bonjour")
+        self.assertEqual(completed.result.prompt_tokens, 7)
+        self.assertEqual(completed.result.completion_tokens, 2)
+
+    def test_reports_length_as_a_truncated_terminal_event(self):
+        class TruncatedCompletions:
+            def create(self, **kwargs):
+                return iter(
+                    (
+                        SimpleNamespace(
+                            model="thinking-model",
+                            choices=[
+                                SimpleNamespace(
+                                    finish_reason=None,
+                                    delta=SimpleNamespace(
+                                        content="Réponse partielle",
+                                        reasoning_content=None,
+                                    ),
+                                )
+                            ],
+                            usage=None,
+                        ),
+                        SimpleNamespace(
+                            model="thinking-model",
+                            choices=[
+                                SimpleNamespace(
+                                    finish_reason="length",
+                                    delta=SimpleNamespace(
+                                        content=None,
+                                        reasoning_content=None,
+                                    ),
+                                )
+                            ],
+                            usage=None,
+                        ),
+                    )
+                )
+
+        gateway = OpenAICompatibleGateway(
+            "http://bucket:8083/v1",
+            client=SimpleNamespace(
+                models=FakeModels(),
+                chat=SimpleNamespace(completions=TruncatedCompletions()),
+            ),
+        )
+
+        events = list(
+            gateway.stream(
+                CompletionRequest(
+                    model_id="thinking-model",
+                    system_prompt="Réponds.",
+                    user_prompt="Une demande complexe.",
+                )
+            )
+        )
+
+        terminal = events[-1]
+        self.assertEqual(terminal.kind, StreamEventKind.TRUNCATED)
+        self.assertEqual(terminal.phase, StreamPhase.TRUNCATED)
+        self.assertEqual(terminal.result.content, "Réponse partielle")
+        self.assertEqual(terminal.result.finish_reason, "length")
 
 
 class RecordingGateway:
@@ -293,12 +545,71 @@ class PromptLabServiceTest(unittest.TestCase):
             self.assertEqual(session.references[0].active_revision.origin, RevisionOrigin.MANUAL)
             self.assertEqual(len(session.references[0].revisions), 3)
 
+    def test_structures_revises_and_approves_a_brief_from_all_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ids = iter(("asset-1", "asset-2"))
+            assets = LocalAssetStore(directory, id_factory=lambda: next(ids))
+            first = assets.create(PNG + b"one", "image/png")
+            second = assets.create(PNG + b"two", "image/png")
+            gateway = RecordingGateway()
+            service = PromptLabService(
+                gateway=gateway,
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=assets,
+                sessions=LocalPromptSessionStore(directory),
+            )
+            session = service.create_session(
+                model_id="vision-model",
+                profile_id="minimax.h3.reference",
+                profile_version="0.3.0",
+                references=(
+                    NewReference(
+                        first.asset_id,
+                        "hero",
+                        "Héros",
+                        (ReferenceUse.SUBJECT, ReferenceUse.FIRST_FRAME),
+                    ),
+                    NewReference(
+                        second.asset_id,
+                        "arena",
+                        "Arène",
+                        (ReferenceUse.ENVIRONMENT,),
+                    ),
+                ),
+            )
+            for reference in session.references:
+                session = service.analyze_reference(session.session_id, reference.reference_id)
+                session = service.approve_reference(session.session_id, reference.reference_id)
+
+            session = service.structure_brief(
+                session.session_id,
+                "<Image 1> court dans <Image 2>.",
+                70,
+            )
+            request = gateway.requests[-1]
+
+            self.assertEqual(request.operation_id, "brief.structure")
+            self.assertEqual(request.images, ())
+            self.assertIn("<Image 1>", request.user_prompt)
+            self.assertIn("Usages : subject, first_frame", request.user_prompt)
+            self.assertIn("<Image 2>", request.user_prompt)
+            self.assertIn("Cinématographique", request.user_prompt)
+            self.assertEqual(session.active_brief_revision.creative_freedom, 70)
+            self.assertEqual(len(session.active_brief_revision.references), 2)
+
+            session = service.revise_brief(session.session_id, "Rends la caméra fixe.")
+            self.assertEqual(gateway.requests[-1].operation_id, "brief.revise")
+            self.assertIn("Rends la caméra fixe", gateway.requests[-1].user_prompt)
+            self.assertEqual(len(session.brief_revisions), 2)
+            self.assertTrue(service.approve_brief(session.session_id).brief_complete)
+
 
 class PromptProfileCatalogTest(unittest.TestCase):
     def test_loads_first_versioned_minimax_profile(self):
         catalog = LocalPromptProfileCatalog(PROFILE_ROOT)
         profile = catalog.get("minimax.h3.reference", "0.1.0")
         enriched = catalog.get("minimax.h3.reference", "0.2.0")
+        brief = catalog.get("minimax.h3.reference", "0.3.0")
 
         self.assertEqual(profile.target_model_family, "MiniMax H3")
         self.assertIn("{role}", profile.analysis_user_prompt)
@@ -306,7 +617,9 @@ class PromptProfileCatalogTest(unittest.TestCase):
         self.assertIsNone(profile.interpretation_system_prompt)
         self.assertIn("ACTIONS ET INTERACTIONS", enriched.analysis_system_prompt)
         self.assertIn("{uses}", enriched.interpretation_user_prompt)
-        self.assertEqual(catalog.list(), (profile, enriched))
+        self.assertIn("{reference_context}", brief.brief_user_prompt)
+        self.assertIn("<Image 1>", brief.brief_system_prompt)
+        self.assertEqual(catalog.list(), (profile, enriched, brief))
 
 
 if __name__ == "__main__":

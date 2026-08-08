@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/lab.css">
   <script src="/static/lab.js" defer></script>
   <script src="/static/prompt-lab.js" defer></script>
+  <script src="/static/prompt-composition.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -154,22 +155,22 @@
       <section class="prompt-stagebar">
         <div class="stage-chip active"><b>1</b><span>Observation<small>Preuves visuelles</small></span></div>
         <i></i>
-        <div class="stage-chip active"><b>2</b><span>Interprétation<small>Rôles MiniMax</small></span></div>
+        <div class="stage-chip active"><b>2</b><span>Brief<small>Intention + références</small></span></div>
         <i></i>
-        <div class="stage-chip future"><b>3</b><span>Brief<small>À venir</small></span></div>
+        <div class="stage-chip active"><b>3</b><span>Direction fighter<small>Références + beats</small></span></div>
         <i></i>
-        <div class="stage-chip future"><b>4</b><span>Prompt avancé<small>À venir</small></span></div>
+        <div class="stage-chip active"><b>4</b><span>Prompt MiniMax H3<small>Compilation Ref2VA</small></span></div>
       </section>
 
       <section id="prompt-empty" class="prompt-empty">
-        <b>Deux passes explicites par image</b>
-        <p>Validez d’abord les preuves visuelles, puis leur interprétation selon les rôles MiniMax. Chaque résultat reste éditable et possède son propre historique.</p>
+        <b>Des preuves visuelles au brief</b>
+        <p>Validez les observations, attribuez les rôles des images, puis rédigez votre intention en les citant directement.</p>
       </section>
 
       <section id="prompt-editor" class="prompt-editor" hidden>
         <div class="prompt-editor-head">
           <div><small>SESSION</small><h2 id="prompt-session-title">Références</h2></div>
-          <span id="prompt-session-progress" class="run-status">0 / 0 validée</span>
+          <div class="prompt-head-actions"><button id="analyze-all-references" type="button">Analyser toutes les images</button><span id="prompt-session-progress" class="run-status">0 / 0 validée</span></div>
         </div>
 
         <div id="reference-rail" class="reference-rail" aria-label="Références de la session"></div>
@@ -186,6 +187,10 @@
               <span id="analysis-review" class="review-pill pending">À valider</span>
             </div>
             <textarea id="analysis-content" rows="19" placeholder="Lancez l’analyse de cette image. Vous pourrez ensuite modifier directement le résultat."></textarea>
+            <div id="analysis-stream-state" class="stream-state" hidden>
+              <div><span id="analysis-stream-label">Préparation…</span><output id="analysis-stream-percent"></output></div>
+              <progress id="analysis-stream-progress" max="1"></progress>
+            </div>
             <div class="analysis-actions">
               <button id="analyze-reference" class="primary compact" type="button">Analyser cette image</button>
               <button id="save-analysis" type="button" disabled>Enregistrer ma correction</button>
@@ -205,19 +210,17 @@
             </details>
           </div>
 
-          <section class="interpretation-panel">
+          <section class="interpretation-panel optional-panel">
             <div class="section-title">
-              <div><small>INTERPRÉTATION MINIMAX</small><h2 id="interpretation-title">En attente de l’observation validée</h2></div>
+              <div><small>OUTIL AVANCÉ OPTIONNEL</small><h2 id="interpretation-title">Interprétation MiniMax par image</h2></div>
               <span id="interpretation-review" class="review-pill pending">À générer</span>
             </div>
 
-            <div class="reference-uses-editor">
-              <div><b>Usages de cette image</b><small>Une image peut cumuler plusieurs rôles.</small></div>
-              <div id="reference-uses" class="usage-options"></div>
-              <button id="save-reference-uses" type="button" disabled>Enregistrer les usages</button>
-            </div>
-
             <textarea id="interpretation-content" rows="16" placeholder="Après validation de l’observation, transformez-la en interprétation orientée MiniMax H3."></textarea>
+            <div id="interpretation-stream-state" class="stream-state" hidden>
+              <div><span id="interpretation-stream-label">Préparation…</span><output id="interpretation-stream-percent"></output></div>
+              <progress id="interpretation-stream-progress" max="1"></progress>
+            </div>
             <div class="analysis-actions">
               <button id="interpret-reference" class="primary compact" type="button" disabled>Interpréter pour MiniMax</button>
               <button id="save-interpretation" type="button" disabled>Enregistrer ma correction</button>
@@ -237,6 +240,185 @@
             </details>
           </section>
         </div>
+
+        <section class="brief-panel">
+          <div class="section-title">
+            <div><small>ÉTAPE 2 · BRIEF STRUCTURÉ</small><h2>Décrire la vidéo avec vos références</h2></div>
+            <span id="brief-review" class="review-pill pending">À générer</span>
+          </div>
+          <p class="muted">Attribuez ici les usages de chaque image. Cliquez sur son identifiant pour l’insérer dans votre texte.</p>
+          <div id="brief-reference-grid" class="brief-reference-grid"></div>
+
+          <label class="field-label" for="brief-source">Votre intention en langage simple</label>
+          <textarea id="brief-source" rows="7" placeholder="Ex. <Image 1> est la première frame. Le joueur frappe le ballon, puis à 3 secondes <Image 2> entre dans le cadre…"></textarea>
+
+          <div class="freedom-control">
+            <label for="brief-freedom"><b>Liberté créative</b><small id="brief-freedom-label">Équilibrée</small></label>
+            <input id="brief-freedom" type="range" min="0" max="100" step="5" value="50">
+            <output id="brief-freedom-value">50</output>
+          </div>
+
+          <div class="analysis-actions">
+            <button id="structure-brief" class="primary compact" type="button" disabled>Structurer le brief</button>
+            <button id="save-brief" type="button" disabled>Enregistrer ma correction</button>
+            <button id="approve-brief" type="button" disabled>Valider le brief</button>
+          </div>
+          <div id="brief-stream-state" class="stream-state" hidden>
+            <div><span id="brief-stream-label">Préparation…</span><output id="brief-stream-percent"></output></div>
+            <progress id="brief-stream-progress" max="1"></progress>
+          </div>
+          <p id="brief-message" class="message" aria-live="polite"></p>
+          <textarea id="brief-content" rows="20" placeholder="Le brief structuré apparaîtra ici et restera directement éditable."></textarea>
+
+          <div class="rewrite-box">
+            <label for="brief-rewrite-instruction">Demander une modification ciblée du brief</label>
+            <div><input id="brief-rewrite-instruction" type="text" placeholder="Ex. Reste plus factuel sur la caméra et conserve exactement la chronologie."><button id="rewrite-brief" type="button" disabled>Proposer</button></div>
+          </div>
+          <details class="revision-history">
+            <summary>Historique du brief <span id="brief-revision-count">0</span></summary>
+            <ol id="brief-revision-list"></ol>
+          </details>
+        </section>
+
+        <section id="fighter-workflow" class="cookbook-workflow" aria-labelledby="fighter-workflow-title">
+          <div class="section-title">
+            <div><small>COOKBOOK · PREMIER CAS D’ÉCOLE</small><h2 id="fighter-workflow-title">Construire un combat arcade lisible</h2></div>
+            <span id="fighter-workflow-status" class="review-pill pending">Brief requis</span>
+          </div>
+          <p class="muted">Une recette supervisée en trois passes : attribuer les références, régler la chronologie, puis compiler le prompt Ref2VA. Cette V1 accepte seulement les usages sujet/décor/style ; first/key/last frame est refusé explicitement en attendant son contrat dédié.</p>
+
+          <div class="cookbook-selector">
+            <label class="field-label" for="fighter-cookbook">Cookbook versionné
+              <select id="fighter-cookbook" disabled>
+                <option value="fighter.arcade_versus@0.1.0" data-preset="readable-v1">Arcade versus · readable-v1 · 0.1.0</option>
+              </select>
+            </label>
+            <p><b>Ref2VA</b><small>3 références · identités séparées · overlays en postproduction</small></p>
+          </div>
+
+          <div class="cookbook-steps">
+            <details id="reference-plan-step" class="cookbook-step" open>
+              <summary>
+                <span class="cookbook-step-index">3A</span>
+                <span class="cookbook-step-copy"><b>Plan de références</b><small>Définir les sujets et leur politique de rétention MiniMax.</small></span>
+                <span id="reference-plan-review" class="review-pill pending">À générer</span>
+              </summary>
+              <div class="cookbook-step-body">
+                <div class="fighter-slots">
+                  <label class="fighter-slot" for="fighter-a-reference">
+                    <span><b>Combattant A</b><code>&lt;Subject 1&gt;</code></span>
+                    <select id="fighter-a-reference" disabled><option value="">Choisir une image…</option></select>
+                    <small>Identité, visage, corps et tenue du premier combattant.</small>
+                  </label>
+                  <label class="fighter-slot" for="fighter-b-reference">
+                    <span><b>Combattant B</b><code>&lt;Subject 2&gt;</code></span>
+                    <select id="fighter-b-reference" disabled><option value="">Choisir une image…</option></select>
+                    <small>Référence distincte pour préserver clairement le second combattant.</small>
+                  </label>
+                  <label class="fighter-slot" for="arena-reference">
+                    <span><b>Arène</b><code>&lt;Subject 3&gt;</code></span>
+                    <select id="arena-reference" disabled><option value="">Choisir une image…</option></select>
+                    <small>Décor, lumière et géographie générale du combat.</small>
+                  </label>
+                </div>
+
+                <div class="fighter-direction-options" aria-label="Paramètres fixes du preset">
+                  <p><b>15 secondes</b><small>6 plans lisibles · 16:9</small></p>
+                  <p><b>Clash final</b><small>Pas de vainqueur inventé</small></p>
+                  <p><b>HUD en postproduction</b><small>Pas de texte demandé au modèle</small></p>
+                </div>
+
+                <div id="reference-plan-mapping" class="reference-plan-mapping" aria-live="polite">
+                  <small>Le numéro Image reste global ; Picture est renuméroté de 1 à 3 dans l’ordre des slots.</small>
+                </div>
+                <div class="analysis-actions">
+                  <button id="generate-reference-plan" class="primary compact" type="button" disabled>Générer le plan</button>
+                  <button id="save-reference-plan" type="button" disabled>Enregistrer ma correction</button>
+                  <button id="approve-reference-plan" type="button" disabled>Valider le plan</button>
+                </div>
+                <div id="reference-plan-stream-state" class="stream-state" hidden>
+                  <div><span id="reference-plan-stream-label">Préparation…</span><output id="reference-plan-stream-percent"></output></div>
+                  <progress id="reference-plan-stream-progress" max="1"></progress>
+                </div>
+                <p id="reference-plan-message" class="message" aria-live="polite"></p>
+                <textarea id="reference-plan-content" class="cookbook-stage-output" rows="15" placeholder="subject_definitions:&#10;&#10;retention_policy:" disabled></textarea>
+
+                <div class="rewrite-box">
+                  <label for="reference-plan-rewrite-instruction">Demander une modification ciblée du plan</label>
+                  <div><input id="reference-plan-rewrite-instruction" type="text" placeholder="Ex. Préserve strictement le visage et la tenue des deux combattants." disabled><button id="rewrite-reference-plan" type="button" disabled>Proposer</button></div>
+                </div>
+                <details class="revision-history">
+                  <summary>Historique du plan <span id="reference-plan-revision-count">0</span></summary>
+                  <ol id="reference-plan-revision-list"></ol>
+                </details>
+              </div>
+            </details>
+
+            <details id="beat-sheet-step" class="cookbook-step">
+              <summary>
+                <span class="cookbook-step-index">3B</span>
+                <span class="cookbook-step-copy"><b>Beat sheet</b><small>Ordonner les actions, réactions, caméras et respirations.</small></span>
+                <span id="beat-sheet-review" class="review-pill pending">Plan requis</span>
+              </summary>
+              <div class="cookbook-step-body">
+                <p class="cookbook-stage-caption">La recette readable-v1 privilégie peu de plans, des impacts lisibles et une géographie stable entre les combattants.</p>
+                <div class="analysis-actions">
+                  <button id="generate-beat-sheet" class="primary compact" type="button" disabled>Générer la beat sheet</button>
+                  <button id="save-beat-sheet" type="button" disabled>Enregistrer ma correction</button>
+                  <button id="approve-beat-sheet" type="button" disabled>Valider la beat sheet</button>
+                </div>
+                <div id="beat-sheet-stream-state" class="stream-state" hidden>
+                  <div><span id="beat-sheet-stream-label">Préparation…</span><output id="beat-sheet-stream-percent"></output></div>
+                  <progress id="beat-sheet-stream-progress" max="1"></progress>
+                </div>
+                <p id="beat-sheet-message" class="message" aria-live="polite"></p>
+                <textarea id="beat-sheet-content" class="cookbook-stage-output" rows="17" placeholder="VS intro → révélation de l’arène → READY / FIGHT → échange → renversement → clash final" disabled></textarea>
+
+                <div class="rewrite-box">
+                  <label for="beat-sheet-rewrite-instruction">Demander une modification ciblée de la chronologie</label>
+                  <div><input id="beat-sheet-rewrite-instruction" type="text" placeholder="Ex. Réduis l’introduction et accorde plus de temps au contre final." disabled><button id="rewrite-beat-sheet" type="button" disabled>Proposer</button></div>
+                </div>
+                <details class="revision-history">
+                  <summary>Historique de la beat sheet <span id="beat-sheet-revision-count">0</span></summary>
+                  <ol id="beat-sheet-revision-list"></ol>
+                </details>
+              </div>
+            </details>
+
+            <details id="final-prompt-step" class="cookbook-step">
+              <summary>
+                <span class="cookbook-step-index">4</span>
+                <span class="cookbook-step-copy"><b>Prompt MiniMax H3 final</b><small>Compiler le contrat Ref2VA et contrôler sa cohérence.</small></span>
+                <span id="final-prompt-review" class="review-pill pending">Beat sheet requise</span>
+              </summary>
+              <div class="cookbook-step-body">
+                <p class="cookbook-stage-caption">Le texte final reste éditable. Les labels, sections obligatoires et timestamps seront vérifiés avant validation.</p>
+                <div class="analysis-actions">
+                  <button id="generate-final-prompt" class="primary compact" type="button" disabled>Compiler le prompt</button>
+                  <button id="save-final-prompt" type="button" disabled>Enregistrer ma correction</button>
+                  <button id="approve-final-prompt" type="button" disabled>Valider le prompt</button>
+                  <button id="copy-final-prompt" type="button" disabled>Copier</button>
+                </div>
+                <div id="final-prompt-stream-state" class="stream-state" hidden>
+                  <div><span id="final-prompt-stream-label">Préparation…</span><output id="final-prompt-stream-percent"></output></div>
+                  <progress id="final-prompt-stream-progress" max="1"></progress>
+                </div>
+                <p id="final-prompt-message" class="message" aria-live="polite"></p>
+                <textarea id="final-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="subject_definitions:&#10;summary:&#10;retention_analysis:&#10;detailed_description:&#10;overall_soundscape:&#10;non_diegetic_music:" disabled></textarea>
+                <div id="final-prompt-lint" class="prompt-lint" role="status"><small>Les contrôles de structure apparaîtront ici après compilation.</small></div>
+
+                <div class="rewrite-box">
+                  <label for="final-prompt-rewrite-instruction">Demander une modification ciblée du prompt final</label>
+                  <div><input id="final-prompt-rewrite-instruction" type="text" placeholder="Ex. Allège la caméra sans modifier les identités ni la chronologie." disabled><button id="rewrite-final-prompt" type="button" disabled>Proposer</button></div>
+                </div>
+                <details class="revision-history">
+                  <summary>Historique du prompt <span id="final-prompt-revision-count">0</span></summary>
+                  <ol id="final-prompt-revision-list"></ol>
+                </details>
+              </div>
+            </details>
+          </div>
+        </section>
       </section>
     </div>
   </main>

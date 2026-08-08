@@ -14,8 +14,11 @@ sys.path.insert(0, str(SRC_ROOT))
 from panelforge.application import (
     ChangeViewRunner,
     CompletionResult,
+    CompletionStreamEvent,
     ModelDescriptor,
     PromptLabService,
+    StreamEventKind,
+    StreamPhase,
 )
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.presets import (
@@ -54,6 +57,7 @@ class UnusedComfy:
 class FakeGateway:
     def __init__(self) -> None:
         self.requests = []
+        self.truncate_next = False
 
     def list_models(self):
         return (
@@ -66,6 +70,44 @@ class FakeGateway:
         return CompletionResult(
             model_id=request.model_id,
             content=f"Analyse {len(self.requests)}",
+        )
+
+    def stream(self, request):
+        self.requests.append(request)
+        content = f"Analyse {len(self.requests)}"
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.STATUS,
+            phase=StreamPhase.GENERATING,
+            text="Génération…",
+        )
+        for part in ("Analyse ", str(len(self.requests))):
+            yield CompletionStreamEvent(
+                kind=StreamEventKind.DELTA,
+                phase=StreamPhase.GENERATING,
+                text=part,
+            )
+        if self.truncate_next:
+            self.truncate_next = False
+            yield CompletionStreamEvent(
+                kind=StreamEventKind.TRUNCATED,
+                phase=StreamPhase.TRUNCATED,
+                text=content,
+                result=CompletionResult(
+                    model_id=request.model_id,
+                    content=content,
+                    finish_reason="length",
+                ),
+            )
+            return
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.COMPLETED,
+            phase=StreamPhase.COMPLETED,
+            text=content,
+            progress=1.0,
+            result=CompletionResult(
+                model_id=request.model_id,
+                content=content,
+            ),
         )
 
 
@@ -92,14 +134,14 @@ class PromptLabWebTest(unittest.TestCase):
         self.client.close()
         self.temporary_directory.cleanup()
 
-    def create_session(self):
+    def create_session(self, profile_version="0.1.0"):
         response = self.client.post(
             "/api/prompt-lab/sessions",
             data={
                 "roles": ["character_1", "background"],
                 "model_id": "Qwen3.6-35B-A3B-UD-Q8_K_XL-instruct",
                 "profile_id": "minimax.h3.reference",
-                "profile_version": "0.1.0",
+                "profile_version": profile_version,
             },
             files=[
                 ("images", ("hero.png", PNG + b"hero", "image/png")),
@@ -119,12 +161,15 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertIn("Prompt Lab", page.text)
         self.assertEqual(script.status_code, 200)
         self.assertIn("/api/prompt-lab/sessions", script.text)
+        self.assertIn("analyze-all-references", page.text)
+        self.assertIn("brief-reference-grid", page.text)
         self.assertEqual(models.status_code, 200)
         self.assertEqual(len(models.json()["models"]), 2)
         self.assertEqual(spec.status_code, 200)
         profile = spec.json()["profiles"][0]
         self.assertEqual(profile["id"], "minimax.h3.reference")
         self.assertEqual(profile["version"], "0.1.0")
+        self.assertTrue(spec.json()["profiles"][-1]["supports_brief"])
 
     def test_runs_supervised_reference_actions_independently(self):
         session = self.create_session()
@@ -165,6 +210,47 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertEqual(listed.json()["sessions"][0], edited.json())
         self.assertEqual(second["review_status"], "pending")
 
+    def test_streams_and_persists_reference_analysis(self):
+        session = self.create_session()
+        session_id = session["id"]
+        reference_id = session["references"][0]["id"]
+
+        response = self.client.post(
+            f"/api/prompt-lab/sessions/{session_id}/references/{reference_id}/analyze/stream"
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers["content-type"], "text/event-stream; charset=utf-8")
+        self.assertIn('event: delta\ndata: {"kind": "delta"', response.text)
+        self.assertIn('"text": "Analyse "', response.text)
+        self.assertIn('event: completed', response.text)
+        persisted = self.client.get(
+            f"/api/prompt-lab/sessions/{session_id}"
+        ).json()
+        self.assertEqual(
+            persisted["references"][0]["active_content"],
+            "Analyse 1",
+        )
+
+    def test_streams_truncated_text_without_persisting_it(self):
+        session = self.create_session()
+        session_id = session["id"]
+        reference_id = session["references"][0]["id"]
+        self.gateway.truncate_next = True
+
+        response = self.client.post(
+            f"/api/prompt-lab/sessions/{session_id}/references/{reference_id}/analyze/stream"
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("event: truncated", response.text)
+        self.assertIn('"finish_reason": "length"', response.text)
+        self.assertIn('"max_tokens": 32768', response.text)
+        persisted = self.client.get(
+            f"/api/prompt-lab/sessions/{session_id}"
+        ).json()
+        self.assertIsNone(persisted["references"][0]["active_content"])
+
     def test_rejects_mismatched_roles_before_creating_session(self):
         response = self.client.post(
             "/api/prompt-lab/sessions",
@@ -180,6 +266,49 @@ class PromptLabWebTest(unittest.TestCase):
             ],
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_structures_streams_and_invalidates_an_approved_brief(self):
+        session = self.create_session("0.3.0")
+        session_id = session["id"]
+        for reference in session["references"]:
+            analyzed = self.client.post(
+                f"/api/prompt-lab/sessions/{session_id}/references/{reference['id']}/analyze"
+            )
+            self.assertEqual(analyzed.status_code, 200, analyzed.text)
+            approved = self.client.post(
+                f"/api/prompt-lab/sessions/{session_id}/references/{reference['id']}/approve"
+            )
+            self.assertEqual(approved.status_code, 200, approved.text)
+
+        streamed = self.client.post(
+            f"/api/prompt-lab/sessions/{session_id}/brief/structure/stream",
+            json={
+                "source_text": "<Image 1> entre dans <Image 2>.",
+                "creative_freedom": 35,
+            },
+        )
+
+        self.assertEqual(streamed.status_code, 200, streamed.text)
+        self.assertIn("event: completed", streamed.text)
+        brief = self.client.get(
+            f"/api/prompt-lab/sessions/{session_id}"
+        ).json()
+        self.assertEqual(brief["active_brief"]["source_text"], "<Image 1> entre dans <Image 2>.")
+        self.assertEqual(brief["active_brief"]["creative_freedom"], 35)
+        self.assertFalse(brief["brief_complete"])
+
+        approved_brief = self.client.post(
+            f"/api/prompt-lab/sessions/{session_id}/brief/approve"
+        )
+        self.assertTrue(approved_brief.json()["brief_complete"])
+        first = brief["references"][0]
+        changed = self.client.post(
+            f"/api/prompt-lab/sessions/{session_id}/references/{first['id']}/uses",
+            json={"uses": ["subject", "first_frame"]},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertFalse(changed.json()["brief_complete"])
+        self.assertTrue(changed.json()["brief_is_stale"])
 
 
 if __name__ == "__main__":
