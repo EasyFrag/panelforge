@@ -29,6 +29,7 @@ from .prompt_composition import (
     PromptCompositionService,
     composition_picture_mapping,
     lint_composition_document,
+    lint_i2v_prompt,
 )
 
 __all__ = [
@@ -56,4 +57,5 @@ __all__ = [
     "StreamPhase",
     "composition_picture_mapping",
     "lint_composition_document",
+    "lint_i2v_prompt",
 ]

@@ -1,11 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "cookbook_id": "fighter.arcade_versus",
   "version": "0.1.0",
   "display_name": "Fighter Arcade — lisible",
   "description": "Duel cinématique en six temps, pensé pour deux combattants et une arène de référence.",
   "target_mode": "ref2va",
+  "output_contract": "minimax.h3.ref2va",
   "preset": "readable-v1",
+  "stages": ["reference_plan", "beat_sheet", "final_prompt"],
   "require_distinct_references": true,
   "sources": [
     "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md",

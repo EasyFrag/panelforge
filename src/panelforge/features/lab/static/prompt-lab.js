@@ -23,6 +23,7 @@
   const elements = {
     changeView: $("#change-view-workspace"),
     promptLab: $("#prompt-lab-workspace"),
+    i2v: $("#i2v-workspace"),
     recipeBadge: $("#recipe-badge"),
     nav: [...document.querySelectorAll("[data-lab-view]")],
     form: $("#prompt-session-form"),
@@ -103,9 +104,10 @@
 
   function switchView(view) {
     const promptActive = view === "prompt-lab";
-    elements.changeView.hidden = promptActive;
+    elements.changeView.hidden = view !== "change-view";
     elements.promptLab.hidden = !promptActive;
-    elements.recipeBadge.hidden = promptActive;
+    elements.i2v.hidden = view !== "i2v";
+    elements.recipeBadge.hidden = view !== "change-view";
     elements.nav.forEach((button) => {
       button.classList.toggle("active", button.dataset.labView === view);
     });

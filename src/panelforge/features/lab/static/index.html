@@ -8,6 +8,7 @@
   <script src="/static/lab.js" defer></script>
   <script src="/static/prompt-lab.js" defer></script>
   <script src="/static/prompt-composition.js" defer></script>
+  <script src="/static/i2v-prompt.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -15,6 +16,7 @@
     <nav class="lab-nav" aria-label="Ateliers">
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
       <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
+      <button type="button" data-lab-view="i2v">I2V simple</button>
     </nav>
     <div id="recipe-badge" class="recipe">character.change_view <span id="recipe-version">…</span></div>
   </header>
@@ -419,6 +421,112 @@
             </details>
           </div>
         </section>
+      </section>
+    </div>
+  </main>
+
+  <main id="i2v-workspace" class="prompt-workspace i2v-workspace" hidden>
+    <aside class="controls prompt-setup">
+      <div class="title-row">
+        <div><small>COOKBOOK · I2VA</small><h1>Animer une première frame</h1></div>
+        <span class="experimental">● Experimental</span>
+      </div>
+      <p class="muted">Un parcours court : observer une image, cadrer l’intention, puis écrire le prompt H3.</p>
+
+      <form id="i2v-session-form">
+        <section>
+          <div class="section-title"><h2>Modèle vision et rédaction</h2><button id="i2v-refresh-models" class="text-button" type="button">Actualiser</button></div>
+          <label class="field-label">Modèle servi par llama.swap
+            <select id="i2v-model" required><option value="">Chargement…</option></select>
+          </label>
+        </section>
+        <section>
+          <h2>Image de première frame</h2>
+          <label class="prompt-upload i2v-upload" for="i2v-image">
+            <input id="i2v-image" type="file" accept="image/png,image/jpeg,image/webp">
+            <img id="i2v-upload-preview" alt="Aperçu de la première frame" hidden>
+            <b id="i2v-upload-title">Choisir une image</b>
+            <small id="i2v-upload-caption">PNG, JPEG ou WebP · 25 Mio maximum</small>
+          </label>
+        </section>
+        <section>
+          <h2>Intention simple</h2>
+          <textarea id="i2v-intention" rows="7" placeholder="Ex. Le joueur arme sa frappe, tire dans la lucarne et le gardien réagit trop tard." required></textarea>
+          <div class="freedom-control i2v-freedom">
+            <label for="i2v-freedom">Liberté créative<small id="i2v-freedom-label">Équilibrée</small></label>
+            <input id="i2v-freedom" type="range" min="0" max="100" step="5" value="35">
+            <output id="i2v-freedom-value">35</output>
+          </div>
+        </section>
+        <p id="i2v-setup-error" class="error" role="alert" hidden></p>
+        <button id="i2v-start" class="primary" type="submit" disabled>Créer le parcours I2V</button>
+      </form>
+
+      <div class="recent-sessions">
+        <div class="section-title"><h2>Parcours récents</h2><button id="i2v-refresh-sessions" class="text-button" type="button">Actualiser</button></div>
+        <div id="i2v-session-list"><p class="muted">Aucun parcours chargé.</p></div>
+      </div>
+    </aside>
+
+    <div class="prompt-content">
+      <section class="prompt-stagebar" aria-label="Étapes I2V">
+        <div id="i2v-chip-observation" class="stage-chip active"><b>1</b><span>Observation<small>Première frame</small></span></div>
+        <i></i>
+        <div id="i2v-chip-brief" class="stage-chip future"><b>2</b><span>Brief<small>Intention validée</small></span></div>
+        <i></i>
+        <div id="i2v-chip-prompt" class="stage-chip future"><b>3</b><span>Prompt H3<small>I2VA final</small></span></div>
+      </section>
+
+      <section id="i2v-empty" class="prompt-empty">
+        <b>Trois validations, sans étape cachée</b>
+        <p>Chargez une image et décrivez simplement ce qui doit arriver. Chaque résultat restera éditable avant de passer au suivant.</p>
+      </section>
+
+      <section id="i2v-editor" class="prompt-editor" hidden>
+        <div class="prompt-editor-head">
+          <div><small>I2V SIMPLE · SESSION</small><h2 id="i2v-session-title">Première frame</h2></div>
+          <div class="prompt-head-actions"><span id="i2v-session-progress" class="run-status active">Observation requise</span><button id="i2v-new-session" type="button">Nouveau</button></div>
+        </div>
+
+        <div class="i2v-first-frame">
+          <figure><figcaption>Première frame <small>&lt;Picture 1&gt; · 0,00 s</small></figcaption><div class="i2v-image-stage"><img id="i2v-reference-image" alt="Première frame du parcours I2V"></div></figure>
+          <div class="i2v-anchor-note"><b>Ancre stricte</b><p>Cette image devient la frame exacte de départ. Le prompt doit décrire un mouvement continu depuis cet état visible.</p></div>
+        </div>
+
+        <details id="i2v-observation-step" class="cookbook-step" open>
+          <summary><span class="cookbook-step-index">1</span><span class="cookbook-step-copy"><b>Observation</b><small>Décrire factuellement la première frame.</small></span><span id="i2v-observation-review" class="review-pill pending">À générer</span></summary>
+          <div class="cookbook-step-body">
+            <div class="analysis-actions"><button id="i2v-generate-observation" class="primary compact" type="button">Analyser l’image</button><button id="i2v-save-observation" type="button" disabled>Enregistrer</button><button id="i2v-approve-observation" type="button" disabled>Valider</button></div>
+            <div id="i2v-observation-stream-state" class="stream-state" hidden><div><span id="i2v-observation-stream-label">Préparation…</span><output id="i2v-observation-stream-percent"></output></div><progress id="i2v-observation-stream-progress" max="1"></progress></div>
+            <p id="i2v-observation-message" class="message" aria-live="polite"></p>
+            <textarea id="i2v-observation-content" class="cookbook-stage-output" rows="16" placeholder="L’analyse visuelle apparaîtra ici."></textarea>
+            <div class="rewrite-box"><label for="i2v-observation-instruction">Demander une correction à l’analyste</label><div><input id="i2v-observation-instruction" type="text" placeholder="Ex. Précise la position des appuis et du ballon."><button id="i2v-rewrite-observation" type="button" disabled>Proposer</button></div></div>
+          </div>
+        </details>
+
+        <details id="i2v-brief-step" class="cookbook-step" open>
+          <summary><span class="cookbook-step-index">2</span><span class="cookbook-step-copy"><b>Brief</b><small>Relier l’état initial à l’action demandée.</small></span><span id="i2v-brief-review" class="review-pill pending">Observation requise</span></summary>
+          <div class="cookbook-step-body">
+            <p class="cookbook-stage-caption">Intention source : <span id="i2v-active-intention"></span></p>
+            <div class="analysis-actions"><button id="i2v-generate-brief" class="primary compact" type="button" disabled>Structurer le brief</button><button id="i2v-save-brief" type="button" disabled>Enregistrer</button><button id="i2v-approve-brief" type="button" disabled>Valider</button></div>
+            <div id="i2v-brief-stream-state" class="stream-state" hidden><div><span id="i2v-brief-stream-label">Préparation…</span><output id="i2v-brief-stream-percent"></output></div><progress id="i2v-brief-stream-progress" max="1"></progress></div>
+            <p id="i2v-brief-message" class="message" aria-live="polite"></p>
+            <textarea id="i2v-brief-content" class="cookbook-stage-output" rows="18" placeholder="Le brief structuré apparaîtra ici." disabled></textarea>
+            <div class="rewrite-box"><label for="i2v-brief-instruction">Demander une modification du brief</label><div><input id="i2v-brief-instruction" type="text" placeholder="Ex. Garde un seul plan et réduis la liberté caméra." disabled><button id="i2v-rewrite-brief" type="button" disabled>Proposer</button></div></div>
+          </div>
+        </details>
+
+        <details id="i2v-prompt-step" class="cookbook-step" open>
+          <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler le contrat I2VA officiel.</small></span><span id="i2v-prompt-review" class="review-pill pending">Brief requis</span></summary>
+          <div class="cookbook-step-body">
+            <div class="analysis-actions"><button id="i2v-generate-prompt" class="primary compact" type="button" disabled>Générer le prompt H3</button><button id="i2v-save-prompt" type="button" disabled>Enregistrer</button><button id="i2v-approve-prompt" type="button" disabled>Valider</button><button id="i2v-copy-prompt" type="button" disabled>Copier</button></div>
+            <div id="i2v-prompt-stream-state" class="stream-state" hidden><div><span id="i2v-prompt-stream-label">Préparation…</span><output id="i2v-prompt-stream-percent"></output></div><progress id="i2v-prompt-stream-progress" max="1"></progress></div>
+            <p id="i2v-prompt-message" class="message" aria-live="polite"></p>
+            <textarea id="i2v-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="For the target video, at 0.00 seconds...&#10;&#10;integrated_multimodal_description: [Shot 1] ...&#10;&#10;overall_soundscape: ...&#10;&#10;non_diegetic_music: ..." disabled></textarea>
+            <div id="i2v-prompt-lint" class="prompt-lint" role="status"><small>Le contrat I2VA sera contrôlé après génération.</small></div>
+            <div class="rewrite-box"><label for="i2v-prompt-instruction">Demander une modification ciblée</label><div><input id="i2v-prompt-instruction" type="text" placeholder="Ex. Remplace le travelling par une caméra statique." disabled><button id="i2v-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
+          </div>
+        </details>
       </section>
     </div>
   </main>

@@ -58,7 +58,9 @@
   async function initialize() {
     try {
       const payload = await core.request("/api/prompt-lab/cookbooks");
-      state.cookbooks = payload.cookbooks || [];
+      state.cookbooks = (payload.cookbooks || []).filter(
+        (cookbook) => cookbook.output_contract === "minimax.h3.ref2va",
+      );
       elements.cookbook.replaceChildren();
       state.cookbooks.forEach((cookbook) => {
         const option = document.createElement("option");

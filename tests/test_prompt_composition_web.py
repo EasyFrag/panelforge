@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import json
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,7 @@ from panelforge.infrastructure.storage import (
     LocalRunStore,
 )
 from tests.test_prompt_composition import FakeGateway, approved_session
+from tests.test_i2v_prompt import I2VGateway, approved_i2v_session
 
 
 PRESET_DIRECTORY = (
@@ -145,11 +147,18 @@ class PromptCompositionWebTest(unittest.TestCase):
     def test_serves_the_modular_prompt_composition_frontend(self):
         page = self.client.get("/")
         script = self.client.get("/static/prompt-composition.js")
+        i2v_script = self.client.get("/static/i2v-prompt.js")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("prompt-composition.js", page.text)
+        self.assertIn('data-lab-view="i2v"', page.text)
+        self.assertIn('id="i2v-observation-step"', page.text)
+        self.assertIn('id="i2v-brief-step"', page.text)
+        self.assertIn('id="i2v-prompt-step"', page.text)
         self.assertEqual(script.status_code, 200)
         self.assertIn("required_uses", script.text)
+        self.assertEqual(i2v_script.status_code, 200)
+        self.assertIn('minimax.h3.i2va', i2v_script.text)
 
     def test_rejects_duplicate_fighter_assignments(self):
         response = self.client.post(
@@ -190,6 +199,67 @@ class PromptCompositionWebTest(unittest.TestCase):
         blocked = self.stream_stage("beat-sheet")
         self.assertEqual(blocked.status_code, 422)
         self.assertIn("approve a current reference_plan", blocked.json()["detail"])
+
+
+class I2VCompositionWebTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        assets = LocalAssetStore(self.directory.name)
+        sessions = LocalPromptSessionStore(self.directory.name)
+        sessions.create(approved_i2v_session())
+        runner = ChangeViewRunner(
+            recipe=ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY)),
+            comfy=UnusedComfy(),
+            assets=assets,
+            runs=LocalRunStore(self.directory.name),
+        )
+        service = PromptCompositionService(
+            gateway=I2VGateway(),
+            cookbooks=LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks"),
+            sessions=sessions,
+            compositions=LocalPromptCompositionStore(self.directory.name),
+        )
+        self.client = TestClient(create_app(runner, prompt_composition=service))
+
+    def tearDown(self):
+        self.client.close()
+        self.directory.cleanup()
+
+    def test_runs_the_direct_i2v_prompt_route_without_hidden_stages(self):
+        catalog = self.client.get("/api/prompt-lab/cookbooks").json()["cookbooks"]
+        i2v = next(item for item in catalog if item["id"] == "minimax.h3.i2v.simple")
+        self.assertEqual(i2v["stages"], ["final_prompt"])
+        self.assertEqual(i2v["output_contract"], "minimax.h3.i2va")
+
+        configured = self.client.post(
+            "/api/prompt-lab/sessions/session-i2v-1/composition",
+            json={
+                "cookbook_id": "minimax.h3.i2v.simple",
+                "cookbook_version": "0.1.0",
+                "bindings": {"first_frame": ["reference-i2v-1"]},
+            },
+        )
+        self.assertEqual(configured.status_code, 200, configured.text)
+
+        generated = self.client.post(
+            "/api/prompt-lab/sessions/session-i2v-1/final-prompt/generate/stream"
+        )
+        self.assertEqual(generated.status_code, 200, generated.text)
+        payloads = sse_payloads(generated)
+        self.assertEqual(payloads[-1]["kind"], "completed")
+        approved = self.client.post(
+            "/api/prompt-lab/sessions/session-i2v-1/final-prompt/approve"
+        )
+        self.assertEqual(approved.status_code, 200, approved.text)
+        final_document = approved.json()["composition"]["documents"]["final_prompt"]
+        self.assertTrue(final_document["complete"])
+        self.assertIn("integrated_multimodal_description:", final_document["active_content"])
+
+        inactive = self.client.post(
+            "/api/prompt-lab/sessions/session-i2v-1/beat-sheet/generate/stream"
+        )
+        self.assertEqual(inactive.status_code, 422)
+        self.assertIn("not active", inactive.json()["detail"])
 
 
 if __name__ == "__main__":

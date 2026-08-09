@@ -69,6 +69,21 @@ Les `<Picture N>` sont numérotées localement et de façon contiguë selon l’
 
 Le preset V1 reste volontairement étroit : 15 secondes, 16:9, six actions lisibles, clash final et textes/HUD réservés à la postproduction. Ces choix seront rendus paramétrables après les premiers tests qualitatifs.
 
+### I2V simple — première frame vers prompt H3
+
+Un onglet séparé expose `minimax.h3.i2v.simple@0.1.0/single-first-frame-v1` avec trois étapes visibles seulement :
+
+```text
+image de première frame
+  → Observation approuvée
+  → Brief approuvé
+  → prompt MiniMax H3 I2VA approuvé
+```
+
+L’image est liée de façon déterministe à `<Picture 1>` et déclarée comme frame exacte à `0.00` seconde. Il n’y a ni plan de références ni beat sheet cachés. Chaque résultat est streamé, éditable, révisable en langage naturel et soumis à une validation humaine.
+
+Le writer suit le [contrat I2VA du guide MiniMax H3](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md) : instruction d’ancrage exacte, puis `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`. Un linter dédié refuse les labels étrangers, les champs manquants et les timestamps de plans invalides avant approbation.
+
 ## Lancer le Lab
 
 L’interface tourne sur le poste PanelForge et appelle ComfyUI à distance. Rien n’est installé dans l’environnement Python du serveur GPU.
@@ -109,39 +124,45 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ## Feuille de route
 
-### 1. Qualifier Fighter Arcade
+### 1. Qualifier I2V simple
+
+- tester des premières frames et intentions variées avec le LLM local ;
+- comparer les prompts obtenus dans MiniMax H3 ;
+- versionner les corrections du writer et du linter sans modifier `0.1.0`.
+
+### 2. Qualifier Fighter Arcade
 
 - qualifier `Qwen3.6-27B` dense dès qu’il est servi ;
 - tester le flux complet avec plusieurs jeux de références ;
 - comparer les sorties H3, puis versionner les corrections de prompts et du linter ;
 - rendre durée, issue et intensité caméra paramétrables seulement après qualification.
 
-### 2. Vérifier la réutilisabilité du moteur vidéo
+### 3. Vérifier la réutilisabilité du moteur vidéo
 
 - permettre plusieurs compositions/forks sur une même session pour comparer deux versions sans réanalyser les images ;
 - ajouter un cookbook de transition comme deuxième cas d’école ;
 - introduire explicitement son contrat T2VA/FL2VA au lieu de le forcer dans Ref2VA ;
 - conserver les mêmes portes de génération, édition et approbation.
 
-### 3. Qualifier l’Image Lab actuel
+### 4. Qualifier l’Image Lab actuel
 
 - refaire le smoke réel de `character.change_view` ;
 - évaluer la matrice visuelle sur plusieurs personnages ;
 - ajuster les bornes LoRA uniquement à partir des résultats observés.
 
-### 4. Ajouter le mode Generate
+### 5. Ajouter le mode Generate
 
 - promouvoir l’expérience `character.bootstrap` en recette versionnée ;
 - exposer prompt positif/négatif, résolution et LoRAs déclarées ;
 - générer et comparer plusieurs candidats de personnage.
 
-### 5. Étendre l’édition d’image
+### 6. Étendre l’édition d’image
 
 - recettes à un, deux ou trois slots sémantiques (`source`, `identity_reference`, `scene_reference`, `previous_panel`) ;
 - opérations dédiées telles que changement d’âge ou édition libre ;
 - continuité optionnelle depuis le panel précédent lorsque la scène ne casse pas.
 
-### 6. Construire la Forge narrative
+### 7. Construire la Forge narrative
 
 - importer une histoire et proposer personnages, lieux et props ;
 - constituer des reference packs approuvés ;

@@ -1,0 +1,7 @@
+APPROVED FIRST-FRAME OBSERVATION
+{{REFERENCES}}
+
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+Compile the final MiniMax H3 I2VA prompt now. The observation defines the exact visible state at 0.00 seconds; the brief defines what happens next.

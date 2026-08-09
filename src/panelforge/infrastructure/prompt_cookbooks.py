@@ -28,14 +28,16 @@ class PromptCookbook:
     display_name: str
     description: str
     target_mode: str
+    output_contract: str
     preset: str
+    stages: tuple[str, ...]
     require_distinct_references: bool
     sources: tuple[str, ...]
     slots: tuple[CookbookSlot, ...]
-    reference_plan_system_prompt: str
-    reference_plan_user_prompt: str
-    beat_sheet_system_prompt: str
-    beat_sheet_user_prompt: str
+    reference_plan_system_prompt: str | None
+    reference_plan_user_prompt: str | None
+    beat_sheet_system_prompt: str | None
+    beat_sheet_user_prompt: str | None
     final_prompt_system_prompt: str
     final_prompt_user_prompt: str
     revision_system_prompt: str
@@ -83,7 +85,9 @@ class LocalPromptCookbookCatalog:
             "display_name",
             "description",
             "target_mode",
+            "output_contract",
             "preset",
+            "stages",
             "require_distinct_references",
             "sources",
             "engine_contract",
@@ -92,7 +96,7 @@ class LocalPromptCookbookCatalog:
         }
         if not isinstance(manifest, dict) or set(manifest) != expected:
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
-        if manifest["schema_version"] != 1:
+        if manifest["schema_version"] != 2:
             raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         engine = manifest["engine_contract"]
         if not isinstance(engine, dict) or set(engine) != {"id", "version"}:
@@ -149,16 +153,25 @@ class LocalPromptCookbookCatalog:
         if len({slot.slot_id for slot in slots}) != len(slots):
             raise ValueError(f"cookbook slots must have unique IDs: {manifest_path}")
         templates = manifest["templates"]
+        stages = _text_list(manifest["stages"], "stages")
+        supported_stages = {"reference_plan", "beat_sheet", "final_prompt"}
+        if not set(stages).issubset(supported_stages) or "final_prompt" not in stages:
+            raise ValueError(f"invalid cookbook stages: {manifest_path}")
+        if stages not in {
+            ("final_prompt",),
+            ("reference_plan", "beat_sheet", "final_prompt"),
+        }:
+            raise ValueError(f"unsupported cookbook stage pipeline: {manifest_path}")
         template_keys = {
-            "reference_plan_system",
-            "reference_plan_user",
-            "beat_sheet_system",
-            "beat_sheet_user",
             "final_prompt_system",
             "final_prompt_user",
             "revision_system",
             "revision_user",
         }
+        if "reference_plan" in stages:
+            template_keys |= {"reference_plan_system", "reference_plan_user"}
+        if "beat_sheet" in stages:
+            template_keys |= {"beat_sheet_system", "beat_sheet_user"}
         if not isinstance(templates, dict) or set(templates) != template_keys:
             raise ValueError(f"invalid cookbook templates: {manifest_path}")
         raw_sources = manifest["sources"]
@@ -174,6 +187,9 @@ class LocalPromptCookbookCatalog:
             content = path.read_text(encoding="utf-8").strip()
             return _text(content, f"template {key}")
 
+        def optional_template(key: str) -> str | None:
+            return load_template(key) if key in templates else None
+
         reference = CookbookRef(
             cookbook_id=_text(manifest["cookbook_id"], "cookbook_id"),
             version=_text(manifest["version"], "version"),
@@ -187,17 +203,19 @@ class LocalPromptCookbookCatalog:
             display_name=_text(manifest["display_name"], "display_name"),
             description=_text(manifest["description"], "description"),
             target_mode=_text(manifest["target_mode"], "target_mode"),
+            output_contract=_text(manifest["output_contract"], "output_contract"),
             preset=_text(manifest["preset"], "preset"),
+            stages=stages,
             require_distinct_references=_boolean(
                 manifest["require_distinct_references"],
                 "require_distinct_references",
             ),
             sources=sources,
             slots=tuple(slots),
-            reference_plan_system_prompt=load_template("reference_plan_system"),
-            reference_plan_user_prompt=load_template("reference_plan_user"),
-            beat_sheet_system_prompt=load_template("beat_sheet_system"),
-            beat_sheet_user_prompt=load_template("beat_sheet_user"),
+            reference_plan_system_prompt=optional_template("reference_plan_system"),
+            reference_plan_user_prompt=optional_template("reference_plan_user"),
+            beat_sheet_system_prompt=optional_template("beat_sheet_system"),
+            beat_sheet_user_prompt=optional_template("beat_sheet_user"),
             final_prompt_system_prompt=load_template("final_prompt_system"),
             final_prompt_user_prompt=load_template("final_prompt_user"),
             revision_system_prompt=load_template("revision_system"),

@@ -685,7 +685,9 @@ def create_app(
                     "display_name": cookbook.display_name,
                     "description": cookbook.description,
                     "target_mode": cookbook.target_mode,
+                    "output_contract": cookbook.output_contract,
                     "preset": cookbook.preset,
+                    "stages": list(cookbook.stages),
                     "sources": list(cookbook.sources),
                     "engine_contract": {
                         "id": cookbook.reference.engine_contract_id,

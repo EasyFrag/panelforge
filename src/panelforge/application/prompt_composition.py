@@ -53,6 +53,15 @@ _RETENTION_MARKERS = {
     "attribute_transfer",
     "weak_reference",
 }
+_I2VA_INSTRUCTION = (
+    "For the target video, at 0.00 seconds into the target video, "
+    "<Picture 1> (from [Shot 1]) is fully referenced."
+)
+_I2VA_FIELDS = (
+    "integrated_multimodal_description",
+    "overall_soundscape",
+    "non_diegetic_music",
+)
 
 
 class CookbookSlotPort(Protocol):
@@ -72,14 +81,16 @@ class PromptCookbookPort(Protocol):
     display_name: str
     description: str
     target_mode: str
+    output_contract: str
     preset: str
+    stages: tuple[str, ...]
     require_distinct_references: bool
     sources: tuple[str, ...]
     slots: tuple[CookbookSlotPort, ...]
-    reference_plan_system_prompt: str
-    reference_plan_user_prompt: str
-    beat_sheet_system_prompt: str
-    beat_sheet_user_prompt: str
+    reference_plan_system_prompt: str | None
+    reference_plan_user_prompt: str | None
+    beat_sheet_system_prompt: str | None
+    beat_sheet_user_prompt: str | None
     final_prompt_system_prompt: str
     final_prompt_user_prompt: str
     revision_system_prompt: str
@@ -202,8 +213,9 @@ class PromptCompositionService:
         for stage in CompositionStage:
             document = composition.document(stage)
             blocked_reason: str | None = None
+            cookbook: PromptCookbookPort | None = None
             try:
-                self._validated_cookbook(session, composition)
+                cookbook = self._validated_cookbook(session, composition)
                 expected = self._expected_sources(session, composition, stage)
             except ValueError as error:
                 expected = None
@@ -213,8 +225,9 @@ class PromptCompositionService:
             )
             complete = expected is not None and document.is_complete(expected)
             validation_errors: tuple[str, ...] = ()
-            if document.active_revision is not None:
-                validation_errors = lint_composition_document(
+            if document.active_revision is not None and cookbook is not None:
+                validation_errors = lint_cookbook_document(
+                    cookbook,
                     stage,
                     document.active_revision.content,
                 )
@@ -225,10 +238,15 @@ class PromptCompositionService:
                     complete=complete,
                     blocked_reason=blocked_reason,
                     validation_errors=validation_errors,
-                    validation_warnings=composition_document_warnings(
-                        stage,
-                        document.active_revision.content,
-                    ) if document.active_revision is not None else (),
+                    validation_warnings=(
+                        composition_document_warnings(
+                            cookbook,
+                            stage,
+                            document.active_revision.content,
+                        )
+                        if document.active_revision is not None and cookbook is not None
+                        else ()
+                    ),
                 )
             )
         return tuple(statuses)
@@ -244,7 +262,7 @@ class PromptCompositionService:
             instruction=None,
         )
         result = self.gateway.complete(request)
-        content = _compile_content(stage, prefix, result.content)
+        content = _compile_content(cookbook, stage, prefix, result.content)
         return self._persist_if_current(
             session,
             composition,
@@ -266,6 +284,7 @@ class PromptCompositionService:
         )
         return self._stream(
             request,
+            cookbook,
             session,
             composition,
             stage,
@@ -282,9 +301,14 @@ class PromptCompositionService:
     ) -> PromptComposition:
         session = self.sessions.get(source_session_id)
         composition = self.compositions.get(source_session_id)
-        self._validated_cookbook(session, composition)
+        cookbook = self._validated_cookbook(session, composition)
+        if stage.value not in cookbook.stages:
+            raise ValueError(f"stage {stage.value} is not active for this cookbook")
         expected = self._expected_sources(session, composition, stage)
-        if stage is CompositionStage.FINAL_PROMPT:
+        if (
+            stage is CompositionStage.FINAL_PROMPT
+            and CompositionStage.REFERENCE_PLAN.value in cookbook.stages
+        ):
             reference_plan = _approved_stage(
                 composition,
                 CompositionStage.REFERENCE_PLAN,
@@ -299,7 +323,7 @@ class PromptCompositionService:
                 raise ValueError(
                     "subject_definitions is locked by the approved reference plan"
                 )
-        _raise_lint(stage, content)
+        _raise_lint(cookbook, stage, content)
         return self._append_revision(
             composition,
             stage,
@@ -320,7 +344,7 @@ class PromptCompositionService:
             instruction=instruction,
         )
         result = self.gateway.complete(request)
-        content = _compile_content(stage, prefix, result.content)
+        content = _compile_content(cookbook, stage, prefix, result.content)
         return self._persist_if_current(
             session,
             composition,
@@ -344,6 +368,7 @@ class PromptCompositionService:
         )
         return self._stream(
             request,
+            cookbook,
             session,
             composition,
             stage,
@@ -360,11 +385,11 @@ class PromptCompositionService:
     ) -> PromptComposition:
         session = self.sessions.get(source_session_id)
         composition = self.compositions.get(source_session_id)
-        self._validated_cookbook(session, composition)
+        cookbook = self._validated_cookbook(session, composition)
         expected = self._expected_sources(session, composition, stage)
         document = composition.document(stage)
         if document.active_revision is not None:
-            _raise_lint(stage, document.active_revision.content)
+            _raise_lint(cookbook, stage, document.active_revision.content)
         return self.compositions.save_if_current(
             composition,
             composition.update_document(document.approve(expected)),
@@ -399,7 +424,10 @@ class PromptCompositionService:
             if current.source_ids != expected:
                 raise ValueError("the current document is stale; regenerate it first")
             editable_current = current.content
-            if stage is CompositionStage.FINAL_PROMPT:
+            if (
+                stage is CompositionStage.FINAL_PROMPT
+                and CompositionStage.REFERENCE_PLAN.value in cookbook.stages
+            ):
                 prefix, editable_current = _split_final_prompt(current.content)
             system_prompt = _render(
                 cookbook.revision_system_prompt,
@@ -411,7 +439,11 @@ class PromptCompositionService:
                 INSTRUCTION=instruction.strip(),
             )
             origin_operation = "revise"
-        if stage is CompositionStage.FINAL_PROMPT and instruction is None:
+        if (
+            stage is CompositionStage.FINAL_PROMPT
+            and instruction is None
+            and CompositionStage.REFERENCE_PLAN.value in cookbook.stages
+        ):
             reference_plan = _approved_stage(
                 composition,
                 CompositionStage.REFERENCE_PLAN,
@@ -444,11 +476,32 @@ class PromptCompositionService:
         stage: CompositionStage,
     ) -> tuple[str, str]:
         brief = _approved_brief(session)
+        if cookbook.stages == (CompositionStage.FINAL_PROMPT.value,):
+            return (
+                _required_prompt(
+                    cookbook.final_prompt_system_prompt,
+                    "final_prompt_system",
+                ),
+                _render(
+                    _required_prompt(
+                        cookbook.final_prompt_user_prompt,
+                        "final_prompt_user",
+                    ),
+                    BRIEF=brief.content,
+                    REFERENCES=_reference_context(session, composition, cookbook),
+                ),
+            )
         if stage is CompositionStage.REFERENCE_PLAN:
             return (
-                cookbook.reference_plan_system_prompt,
+                _required_prompt(
+                    cookbook.reference_plan_system_prompt,
+                    "reference_plan_system",
+                ),
                 _render(
-                    cookbook.reference_plan_user_prompt,
+                    _required_prompt(
+                        cookbook.reference_plan_user_prompt,
+                        "reference_plan_user",
+                    ),
                     BRIEF=brief.content,
                     REFERENCES=_reference_context(session, composition, cookbook),
                 ),
@@ -464,9 +517,15 @@ class PromptCompositionService:
         )
         if stage is CompositionStage.BEAT_SHEET:
             return (
-                cookbook.beat_sheet_system_prompt,
+                _required_prompt(
+                    cookbook.beat_sheet_system_prompt,
+                    "beat_sheet_system",
+                ),
                 _render(
-                    cookbook.beat_sheet_user_prompt,
+                    _required_prompt(
+                        cookbook.beat_sheet_user_prompt,
+                        "beat_sheet_user",
+                    ),
                     BRIEF=brief.content,
                     REFERENCE_PLAN=reference_plan.content,
                 ),
@@ -497,28 +556,25 @@ class PromptCompositionService:
         stage: CompositionStage,
     ) -> tuple[str, ...]:
         brief = _approved_brief(session)
+        cookbook = self.cookbooks.get(
+            composition.cookbook.cookbook_id,
+            composition.cookbook.version,
+        )
+        if stage.value not in cookbook.stages:
+            raise ValueError(f"stage {stage.value} is not active for this cookbook")
+        if cookbook.stages == (CompositionStage.FINAL_PROMPT.value,):
+            values = [
+                f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
+                f"brief:{brief.revision_id}",
+            ]
+            values.extend(_binding_source_snapshots(session, composition))
+            return tuple(values)
         if stage is CompositionStage.REFERENCE_PLAN:
             values = [
                 f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
                 f"brief:{brief.revision_id}",
             ]
-            for binding in composition.bindings:
-                snapshots: list[str] = []
-                for reference_id in binding.reference_ids:
-                    reference = session.reference(reference_id)
-                    if reference.approved_revision_id != reference.active_revision_id:
-                        raise ValueError("approve every bound visual analysis first")
-                    uses = ",".join(sorted(use.value for use in reference.uses))
-                    interpretation_id = (
-                        reference.active_interpretation_id
-                        if reference.interpretation_review_status.value == "approved"
-                        else "none"
-                    )
-                    snapshots.append(
-                        f"{reference_id}@{reference.active_revision_id}"
-                        f"[uses={uses};interpretation={interpretation_id}]"
-                    )
-                values.append(f"slot:{binding.slot_id}=" + ",".join(snapshots))
+            values.extend(_binding_source_snapshots(session, composition))
             return tuple(values)
         reference_sources = self._expected_sources(
             session,
@@ -600,18 +656,23 @@ class PromptCompositionService:
         origin: RevisionOrigin,
         instruction: str | None = None,
     ) -> PromptComposition:
-        _raise_lint(stage, content)
         cookbook = self.cookbooks.get(
             composition.cookbook.cookbook_id,
             composition.cookbook.version,
         )
-        _raise_cookbook_labels(
-            self.sessions.get(composition.source_session_id),
-            composition,
-            cookbook,
-            stage,
-            content,
-        )
+        _raise_lint(cookbook, stage, content)
+        if cookbook.output_contract == "minimax.h3.ref2va":
+            _raise_cookbook_labels(
+                self.sessions.get(composition.source_session_id),
+                composition,
+                cookbook,
+                stage,
+                content,
+            )
+        elif cookbook.output_contract == "minimax.h3.i2va":
+            _raise_i2v_labels(composition, stage, content)
+        else:
+            raise ValueError(f"unsupported output contract: {cookbook.output_contract}")
         document = composition.document(stage)
         revision = CompositionRevision(
             revision_id=f"{stage.value}-{uuid4().hex}",
@@ -629,6 +690,7 @@ class PromptCompositionService:
     def _stream(
         self,
         request: CompletionRequest,
+        cookbook: PromptCookbookPort,
         initial_session: PromptLabSession,
         initial_composition: PromptComposition,
         stage: CompositionStage,
@@ -648,7 +710,12 @@ class PromptCompositionService:
             if event.kind is StreamEventKind.COMPLETED:
                 if event.result is None:
                     raise ValueError("stream completed without a result")
-                content = _compile_content(stage, prefix, event.result.content)
+                content = _compile_content(
+                    cookbook,
+                    stage,
+                    prefix,
+                    event.result.content,
+                )
                 composition = self._persist_if_current(
                     initial_session,
                     initial_composition,
@@ -743,11 +810,82 @@ def lint_composition_document(
     return tuple(errors)
 
 
-def composition_document_warnings(
+def lint_cookbook_document(
+    cookbook: PromptCookbookPort,
     stage: CompositionStage,
     content: str,
 ) -> tuple[str, ...]:
-    if stage is not CompositionStage.FINAL_PROMPT:
+    if cookbook.output_contract == "minimax.h3.ref2va":
+        return lint_composition_document(stage, content)
+    if cookbook.output_contract == "minimax.h3.i2va":
+        if stage is not CompositionStage.FINAL_PROMPT:
+            return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
+        return lint_i2v_prompt(content)
+    return (f"Contrat de sortie inconnu : {cookbook.output_contract}",)
+
+
+def lint_i2v_prompt(content: str) -> tuple[str, ...]:
+    if not isinstance(content, str) or not content.strip():
+        return ("Le prompt I2V est vide.",)
+    value = _strip_fence(content).replace("\r\n", "\n")
+    errors: list[str] = []
+    if not value.startswith(_I2VA_INSTRUCTION + "\n\n"):
+        errors.append(
+            "Le prompt doit commencer par l’instruction I2VA officielle, suivie d’une ligne vide."
+        )
+    matches: dict[str, re.Match[str]] = {}
+    positions: list[int] = []
+    for field in _I2VA_FIELDS:
+        found = list(re.finditer(rf"(?m)^{re.escape(field)}:\s*", value))
+        if len(found) != 1:
+            errors.append(f"Le champ {field}: doit apparaître exactement une fois.")
+        else:
+            matches[field] = found[0]
+            positions.append(found[0].start())
+    if len(positions) == len(_I2VA_FIELDS) and positions != sorted(positions):
+        errors.append("Les trois champs I2VA ne sont pas dans l’ordre officiel.")
+    unexpected = sorted(
+        set(re.findall(r"(?m)^([a-z][a-z0-9_]*):", value))
+        - set(_I2VA_FIELDS)
+    )
+    for field in unexpected:
+        errors.append(f"Champ I2VA inattendu : {field}:")
+    if len(matches) == len(_I2VA_FIELDS):
+        integrated = value[
+            matches[_I2VA_FIELDS[0]].end() : matches[_I2VA_FIELDS[1]].start()
+        ].strip()
+        soundscape = value[
+            matches[_I2VA_FIELDS[1]].end() : matches[_I2VA_FIELDS[2]].start()
+        ].strip()
+        music = value[matches[_I2VA_FIELDS[2]].end() :].strip()
+        if not integrated.startswith("[Shot 1]"):
+            errors.append("integrated_multimodal_description doit commencer par [Shot 1].")
+        errors.extend(_lint_i2v_shots(integrated))
+        if "<Picture 1>" not in integrated:
+            errors.append("[Shot 1] doit ancrer explicitement <Picture 1>.")
+        if not soundscape:
+            errors.append("overall_soundscape ne doit pas être vide.")
+        if not music:
+            errors.append("non_diegetic_music ne doit pas être vide ; utilisez N/A si nécessaire.")
+    if re.search(r"(?i)@image\s*\d+|<Image\s+\d+>|<Subject\s+\d+>", value):
+        errors.append("Le prompt I2VA doit utiliser seulement <Picture 1> comme label visuel.")
+    picture_numbers = {int(item) for item in re.findall(r"<Picture\s+(\d+)>", value)}
+    if picture_numbers != {1}:
+        errors.append("Le prompt I2VA simple doit référencer uniquement <Picture 1>.")
+    if value.count("<d>") != value.count("</d>"):
+        errors.append("Les balises de dialogue <d> ne sont pas équilibrées.")
+    return tuple(errors)
+
+
+def composition_document_warnings(
+    cookbook: PromptCookbookPort,
+    stage: CompositionStage,
+    content: str,
+) -> tuple[str, ...]:
+    if (
+        cookbook.output_contract != "minimax.h3.ref2va"
+        or stage is not CompositionStage.FINAL_PROMPT
+    ):
         return ()
     detailed = _section_body(
         content,
@@ -762,10 +900,45 @@ def composition_document_warnings(
     return ()
 
 
-def _raise_lint(stage: CompositionStage, content: str) -> None:
-    errors = lint_composition_document(stage, _strip_fence(content))
+def _raise_lint(
+    cookbook: PromptCookbookPort,
+    stage: CompositionStage,
+    content: str,
+) -> None:
+    errors = lint_cookbook_document(cookbook, stage, _strip_fence(content))
     if errors:
         raise ValueError(" ".join(errors))
+
+
+def _lint_i2v_shots(content: str) -> tuple[str, ...]:
+    errors: list[str] = []
+    numbers = [int(value) for value in re.findall(r"\[Shot\s+(\d+)\]", content)]
+    if not numbers or numbers != list(range(1, len(numbers) + 1)):
+        errors.append("Les shots I2VA doivent être séquentiels, uniques et commencer à [Shot 1].")
+    matches = list(re.finditer(
+        r"\[Shot\s+(\d+)\](?:\s+At\s+(\d{2}):(\d{2})\.(\d{3}),)?",
+        content,
+    ))
+    timestamps: list[float] = []
+    for match in matches:
+        shot = int(match.group(1))
+        has_timestamp = match.group(2) is not None
+        if shot == 1 and has_timestamp:
+            errors.append("[Shot 1] ne doit pas avoir de timestamp.")
+        if shot > 1 and not has_timestamp:
+            errors.append(f"[Shot {shot}] doit commencer par `[Shot {shot}] At MM:SS.mmm,`.")
+        if has_timestamp:
+            seconds = int(match.group(3))
+            if seconds >= 60:
+                errors.append(f"Timestamp invalide pour [Shot {shot}].")
+            timestamps.append(
+                int(match.group(2)) * 60
+                + seconds
+                + int(match.group(4)) / 1000
+            )
+    if timestamps != sorted(set(timestamps)):
+        errors.append("Les cut times I2VA doivent être strictement croissants.")
+    return tuple(errors)
 
 
 def _lint_six_shots(
@@ -881,6 +1054,23 @@ def _raise_cookbook_labels(
                 + ", ".join(missing_in_action)
             )
         _raise_shot_appearances(cookbook, detailed)
+
+
+def _raise_i2v_labels(
+    composition: PromptComposition,
+    stage: CompositionStage,
+    content: str,
+) -> None:
+    if stage is not CompositionStage.FINAL_PROMPT:
+        raise ValueError("I2VA simple exposes only final_prompt")
+    mapping = composition_picture_mapping(composition)
+    if len(mapping) != 1 or mapping[0][1] != 1:
+        raise ValueError("I2VA simple requires exactly one local <Picture 1> binding")
+    picture_numbers = {
+        int(value) for value in re.findall(r"<Picture\s+(\d+)>", content)
+    }
+    if picture_numbers != {1}:
+        raise ValueError("I2VA simple must use exactly <Picture 1>")
 
 
 def _raise_retention_contract(
@@ -1045,6 +1235,31 @@ def _reference_context(
     return "\n".join(chunks).strip()
 
 
+def _binding_source_snapshots(
+    session: PromptLabSession,
+    composition: PromptComposition,
+) -> tuple[str, ...]:
+    values: list[str] = []
+    for binding in composition.bindings:
+        snapshots: list[str] = []
+        for reference_id in binding.reference_ids:
+            reference = session.reference(reference_id)
+            if reference.approved_revision_id != reference.active_revision_id:
+                raise ValueError("approve every bound visual analysis first")
+            uses = ",".join(sorted(use.value for use in reference.uses))
+            interpretation_id = (
+                reference.active_interpretation_id
+                if reference.interpretation_review_status.value == "approved"
+                else "none"
+            )
+            snapshots.append(
+                f"{reference_id}@{reference.active_revision_id}"
+                f"[uses={uses};interpretation={interpretation_id}]"
+            )
+        values.append(f"slot:{binding.slot_id}=" + ",".join(snapshots))
+    return tuple(values)
+
+
 def _render(template: str, **values: str) -> str:
     rendered = template
     for key, value in values.items():
@@ -1055,14 +1270,22 @@ def _render(template: str, **values: str) -> str:
     return rendered
 
 
-def _compile_content(stage: CompositionStage, prefix: str, result: str) -> str:
+def _compile_content(
+    cookbook: PromptCookbookPort,
+    stage: CompositionStage,
+    prefix: str,
+    result: str,
+) -> str:
     body = _strip_fence(result)
-    if stage is CompositionStage.FINAL_PROMPT:
+    if (
+        stage is CompositionStage.FINAL_PROMPT
+        and cookbook.output_contract == "minimax.h3.ref2va"
+    ):
         _raise_sections(body, _FINAL_SECTIONS[1:])
         content = prefix + body
     else:
         content = body
-    _raise_lint(stage, content)
+    _raise_lint(cookbook, stage, content)
     return content
 
 
@@ -1109,6 +1332,12 @@ def _stage_contract(
     stage: CompositionStage,
     cookbook: PromptCookbookPort,
 ) -> str:
+    if cookbook.output_contract == "minimax.h3.i2va":
+        return (
+            "Preserve the exact official first-frame instruction, then output exactly "
+            "integrated_multimodal_description:, overall_soundscape:, and "
+            "non_diegetic_music:. Use only <Picture 1>; [Shot 1] has no timestamp."
+        )
     subjects = ", ".join(
         slot.subject_label for slot in cookbook.slots if slot.subject_label is not None
     )
@@ -1117,6 +1346,12 @@ def _stage_contract(
     if stage is CompositionStage.BEAT_SHEET:
         return "Output exactly production_settings:, continuity_rules:, beat_sheet:. Use [Shot 1] without a timestamp, then [Shot N] At MM:SS.mmm, with strictly increasing cut times below 00:15.000."
     return "Output only summary:, retention_analysis:, detailed_description:, overall_soundscape:, non_diegetic_music:. Reconcile subject appearances with the beat sheet, establish style before [Shot 1], then use [Shot N] At MM:SS.mmm, for shots 2–6 with cut times below 00:15.000."
+
+
+def _required_prompt(value: str | None, name: str) -> str:
+    if value is None:
+        raise ValueError(f"cookbook is missing template {name}")
+    return value
 
 
 def _before_section(content: str, section: str) -> str:
