@@ -158,7 +158,8 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertEqual(script.status_code, 200)
         self.assertIn("required_uses", script.text)
         self.assertEqual(i2v_script.status_code, 200)
-        self.assertIn('minimax.h3.i2va', i2v_script.text)
+        self.assertIn('minimax.h3.i2v.simple', i2v_script.text)
+        self.assertIn('item.version === "0.2.0"', i2v_script.text)
 
     def test_rejects_duplicate_fighter_assignments(self):
         response = self.client.post(

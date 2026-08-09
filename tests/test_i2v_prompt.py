@@ -71,6 +71,15 @@ class I2VGateway:
         )
 
 
+class EnvelopeI2VGateway(I2VGateway):
+    def complete(self, request):
+        self.requests.append(request)
+        content = I2V_PROMPT
+        if request.operation_id == "final_prompt.revise":
+            content = "SOURCE CONTEXT — READ ONLY\nDo not persist this.\n\n" + content
+        return CompletionResult(model_id=request.model_id, content=content)
+
+
 def approved_i2v_session() -> PromptLabSession:
     analysis = AnalysisRevision(
         revision_id="analysis-i2v-1",
@@ -139,6 +148,18 @@ class I2VPromptTest(unittest.TestCase):
         self.assertEqual(cookbook.slots[0].required_uses, ("first_frame",))
         self.assertIsNone(cookbook.reference_plan_system_prompt)
 
+    def test_v2_adds_only_generic_feasibility_guidance_to_the_writer(self):
+        baseline = self.service.cookbooks.get("minimax.h3.i2v.simple", "0.1.0")
+        revised = self.service.cookbooks.get("minimax.h3.i2v.simple", "0.2.0")
+
+        self.assertEqual(revised.output_contract, baseline.output_contract)
+        self.assertEqual(revised.stages, baseline.stages)
+        self.assertNotIn("General feasibility rules", baseline.final_prompt_system_prompt)
+        self.assertIn("General feasibility rules", revised.final_prompt_system_prompt)
+        self.assertIn("every explicit duration", revised.final_prompt_system_prompt)
+        self.assertIn("physically natural secondary motion", revised.final_prompt_system_prompt)
+        self.assertIn("new sequential action beats", revised.final_prompt_system_prompt)
+
     def test_generates_and_approves_prompt_directly_from_observation_and_brief(self):
         self.service.configure(
             "session-i2v-1",
@@ -205,6 +226,42 @@ class I2VPromptTest(unittest.TestCase):
 
         self.assertTrue(any("instruction I2VA officielle" in error for error in errors))
         self.assertTrue(any("uniquement <Picture 1>" in error for error in errors))
+
+    def test_official_first_frame_instruction_is_sufficient_for_picture_anchor(self):
+        prompt = I2V_PROMPT.replace(
+            "the football player shown in <Picture 1>",
+            "the visible football player",
+        )
+
+        self.assertEqual(lint_i2v_prompt(prompt), ())
+
+    def test_revision_persists_only_the_revised_i2v_document(self):
+        gateway = EnvelopeI2VGateway()
+        service = PromptCompositionService(
+            gateway=gateway,
+            cookbooks=LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks"),
+            sessions=self.sessions,
+            compositions=self.compositions,
+        )
+        service.configure(
+            "session-i2v-1",
+            "minimax.h3.i2v.simple",
+            "0.1.0",
+            (CookbookBinding("first_frame", ("reference-i2v-1",)),),
+        )
+        service.generate("session-i2v-1", CompositionStage.FINAL_PROMPT)
+
+        revised = service.revise(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+            "Keep the camera fixed.",
+        )
+
+        self.assertEqual(revised.final_prompt.active_revision.content, I2V_PROMPT)
+        self.assertNotIn(
+            "SOURCE CONTEXT",
+            revised.final_prompt.active_revision.content,
+        )
 
 
 if __name__ == "__main__":

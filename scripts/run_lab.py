@@ -21,6 +21,7 @@ from panelforge.application import (
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.comfy import ComfyHttpClient
 from panelforge.infrastructure.llm import (
+    LlamaSwapAdminClient,
     LoggedMultimodalGateway,
     OpenAICompatibleGateway,
 )
@@ -129,6 +130,10 @@ def build_app(args: argparse.Namespace):
         runner,
         prompt_lab=prompt_lab,
         prompt_composition=prompt_composition,
+        model_runtime=LlamaSwapAdminClient(
+            args.llm_base_url,
+            api_key=args.llm_api_key,
+        ),
     )
 
 

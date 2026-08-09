@@ -5,6 +5,7 @@ from .change_view_runs import (
     ChangeViewRunner,
     extract_bound_image,
 )
+from .model_runtime import ModelRuntimeControl
 from .prompt_lab import (
     CompletionRequest,
     CompletionResult,
@@ -47,6 +48,7 @@ __all__ = [
     "LlmCallRecord",
     "LlmCallStatus",
     "ModelDescriptor",
+    "ModelRuntimeControl",
     "MultimodalGateway",
     "NewReference",
     "PromptLabService",

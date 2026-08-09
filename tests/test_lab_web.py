@@ -68,6 +68,14 @@ class ImmediateComfy:
         return PNG
 
 
+class FakeModelRuntime:
+    def __init__(self):
+        self.unload_calls = 0
+
+    def unload_all(self):
+        self.unload_calls += 1
+
+
 class LabWebTest(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -75,13 +83,16 @@ class LabWebTest(unittest.TestCase):
         runs = LocalRunStore(self.temporary_directory.name)
         recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
         self.comfy = ImmediateComfy()
+        self.model_runtime = FakeModelRuntime()
         runner = ChangeViewRunner(
             recipe=recipe,
             comfy=self.comfy,
             assets=assets,
             runs=runs,
         )
-        self.client = TestClient(create_app(runner))
+        self.client = TestClient(
+            create_app(runner, model_runtime=self.model_runtime)
+        )
 
     def tearDown(self):
         self.client.close()
@@ -94,8 +105,13 @@ class LabWebTest(unittest.TestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("PanelForge", page.text)
+        self.assertIn('id="release-vram"', page.text)
+        self.assertIn("/static/lab.js?v=20260809.2", page.text)
+        self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
+        self.assertEqual(script.headers["cache-control"], "no-store")
         self.assertIn("/api/change-view/preview", script.text)
+        self.assertIn("/api/model-runtime/unload", script.text)
         self.assertEqual(spec.status_code, 200)
         payload = spec.json()
         self.assertEqual(payload["recipe"]["version"], "0.2.0")
@@ -105,6 +121,13 @@ class LabWebTest(unittest.TestCase):
             2.0,
         )
         self.assertIsInstance(payload["controls"]["seed"]["default"], str)
+
+    def test_unloads_the_external_model_runtime(self):
+        response = self.client.post("/api/model-runtime/unload")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "unloaded")
+        self.assertEqual(self.model_runtime.unload_calls, 1)
 
     def test_preview_uses_the_protected_angle_grammar(self):
         response = self.client.post(

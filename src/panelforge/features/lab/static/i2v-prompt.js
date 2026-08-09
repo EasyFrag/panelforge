@@ -15,6 +15,7 @@
   };
   const elements = {
     form: $("#i2v-session-form"),
+    activeCookbook: $("#i2v-active-cookbook"),
     model: $("#i2v-model"),
     refreshModels: $("#i2v-refresh-models"),
     image: $("#i2v-image"),
@@ -74,9 +75,11 @@
       ]);
       state.spec = spec;
       state.cookbook = (cookbooks.cookbooks || []).find(
-        (item) => item.output_contract === "minimax.h3.i2va",
+        (item) => item.id === "minimax.h3.i2v.simple"
+          && item.version === "0.2.0",
       ) || null;
       if (!state.cookbook) throw new Error("Cookbook MiniMax H3 I2V indisponible.");
+      renderCookbookVersion();
       await Promise.all([loadModels(), loadSessions()]);
       updateStartButton();
     } catch (error) {
@@ -216,6 +219,7 @@
 
   function render() {
     const session = state.session;
+    renderCookbookVersion();
     elements.empty.hidden = Boolean(session);
     elements.editor.hidden = !session;
     updateStartButton();
@@ -245,6 +249,13 @@
     renderObservation(reference);
     renderBrief(session, briefInputsCurrent);
     renderPrompt(promptDocument, briefApproved);
+  }
+
+  function renderCookbookVersion() {
+    const reference = state.composition && state.composition.cookbook
+      ? state.composition.cookbook : state.cookbook;
+    elements.activeCookbook.textContent = reference
+      ? `${reference.id}@${reference.version}` : "indisponible";
   }
 
   function setChip(chip, complete, active) {

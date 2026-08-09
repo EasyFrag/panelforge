@@ -104,8 +104,13 @@ class LoggedMultimodalGateway:
             else:
                 status = LlmCallStatus.SUCCEEDED
         except GeneratorExit as caught:
-            status = LlmCallStatus.CANCELLED
-            error = caught
+            if result is None:
+                status = LlmCallStatus.CANCELLED
+                error = caught
+            elif result.finish_reason == "length":
+                status = LlmCallStatus.TRUNCATED
+            else:
+                status = LlmCallStatus.SUCCEEDED
             raise
         except Exception as caught:
             status = LlmCallStatus.FAILED

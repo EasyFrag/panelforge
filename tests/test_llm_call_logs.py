@@ -107,6 +107,30 @@ class FailingGateway(SuccessfulGateway):
         raise RuntimeError("server unavailable")
 
 
+class TerminalGateway(SuccessfulGateway):
+    def stream(self, request):
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.COMPLETED,
+            phase=StreamPhase.COMPLETED,
+            text="Done",
+            result=CompletionResult(
+                model_id=request.model_id,
+                content="Done",
+                finish_reason="stop",
+            ),
+        )
+
+
+class DeltaThenTerminalGateway(TerminalGateway):
+    def stream(self, request):
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.DELTA,
+            phase=StreamPhase.GENERATING,
+            text="Partial",
+        )
+        yield from super().stream(request)
+
+
 class LoggedMultimodalGatewayTest(unittest.TestCase):
     def test_records_complete_and_truncated_stream_calls(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -164,6 +188,50 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
             self.assertEqual(record.status, LlmCallStatus.FAILED)
             self.assertEqual(record.error_type, "RuntimeError")
             self.assertEqual(record.error_message, "server unavailable")
+
+    def test_terminal_model_result_stays_succeeded_when_consumer_closes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalLlmCallStore(directory)
+            gateway = LoggedMultimodalGateway(
+                TerminalGateway(),
+                store,
+                clock=lambda: START,
+                timer=iter((1.0, 1.1)).__next__,
+                id_factory=lambda: "call-terminal",
+            )
+            stream = gateway.stream(
+                CompletionRequest("vision-model", "System", "User")
+            )
+
+            terminal = next(stream)
+            self.assertEqual(terminal.kind, StreamEventKind.COMPLETED)
+            stream.close()
+
+            record = store.list()[0]
+            self.assertEqual(record.status, LlmCallStatus.SUCCEEDED)
+            self.assertIsNone(record.error_type)
+            self.assertEqual(record.response_text, "Done")
+
+    def test_closing_before_terminal_result_is_still_cancelled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalLlmCallStore(directory)
+            gateway = LoggedMultimodalGateway(
+                DeltaThenTerminalGateway(),
+                store,
+                clock=lambda: START,
+                timer=iter((1.0, 1.1)).__next__,
+                id_factory=lambda: "call-cancelled",
+            )
+            stream = gateway.stream(
+                CompletionRequest("vision-model", "System", "User")
+            )
+
+            self.assertEqual(next(stream).kind, StreamEventKind.DELTA)
+            stream.close()
+
+            record = store.list()[0]
+            self.assertEqual(record.status, LlmCallStatus.CANCELLED)
+            self.assertEqual(record.error_type, "GeneratorExit")
 
 
 if __name__ == "__main__":

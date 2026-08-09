@@ -12,6 +12,7 @@ const state = {
   busy: false,
   previewRequest: 0,
   pollFailures: 0,
+  runtimeMessageTimer: null,
 };
 
 const angleIcons = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"];
@@ -26,6 +27,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     "source-caption", "source-empty", "source-large", "result-caption",
     "result-empty", "result-loading", "result-image", "run-message", "keep",
     "reject", "reuse", "refresh", "history-empty", "history-list",
+    "release-vram", "runtime-message",
   ]) ui[id] = $(id);
 
   bindEvents();
@@ -59,7 +61,38 @@ function bindEvents() {
   ui.reject.addEventListener("click", () => review("rejected"));
   ui.reuse.addEventListener("click", reuseResult);
   ui.refresh.addEventListener("click", loadHistory);
+  ui["release-vram"].addEventListener("click", releaseVram);
   window.addEventListener("beforeunload", revokeObjectUrl);
+}
+
+async function releaseVram() {
+  const button = ui["release-vram"];
+  button.disabled = true;
+  button.textContent = "Déchargement…";
+  showRuntimeMessage("Déchargement des modèles LLM…");
+  try {
+    const result = await json("/api/model-runtime/unload", { method: "POST" });
+    showRuntimeMessage(result.message || "VRAM disponible");
+  } catch (error) {
+    showRuntimeMessage(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Libérer la VRAM";
+  }
+}
+
+function showRuntimeMessage(message, failed = false) {
+  const view = ui["runtime-message"];
+  if (state.runtimeMessageTimer !== null) {
+    window.clearTimeout(state.runtimeMessageTimer);
+  }
+  view.textContent = message;
+  view.classList.toggle("failed", failed);
+  view.hidden = false;
+  state.runtimeMessageTimer = window.setTimeout(() => {
+    view.hidden = true;
+    state.runtimeMessageTimer = null;
+  }, failed ? 8000 : 5000);
 }
 
 async function loadSpec() {

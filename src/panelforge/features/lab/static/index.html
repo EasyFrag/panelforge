@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css">
-  <script src="/static/lab.js" defer></script>
-  <script src="/static/prompt-lab.js" defer></script>
-  <script src="/static/prompt-composition.js" defer></script>
-  <script src="/static/i2v-prompt.js" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260809.2">
+  <script src="/static/lab.js?v=20260809.2" defer></script>
+  <script src="/static/prompt-lab.js?v=20260809.2" defer></script>
+  <script src="/static/prompt-composition.js?v=20260809.2" defer></script>
+  <script src="/static/i2v-prompt.js?v=20260809.2" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,11 @@
       <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
       <button type="button" data-lab-view="i2v">I2V simple</button>
     </nav>
-    <div id="recipe-badge" class="recipe">character.change_view <span id="recipe-version">…</span></div>
+    <div class="topbar-actions">
+      <span id="runtime-message" class="runtime-message" role="status" aria-live="polite" hidden></span>
+      <button id="release-vram" class="runtime-button" type="button" title="Décharge tous les modèles LLM. Une génération en cours peut être interrompue.">Libérer la VRAM</button>
+      <div id="recipe-badge" class="recipe">character.change_view <span id="recipe-version">…</span></div>
+    </div>
   </header>
 
   <main id="change-view-workspace">
@@ -431,7 +435,7 @@
         <div><small>COOKBOOK · I2VA</small><h1>Animer une première frame</h1></div>
         <span class="experimental">● Experimental</span>
       </div>
-      <p class="muted">Un parcours court : observer une image, cadrer l’intention, puis écrire le prompt H3.</p>
+      <p class="muted">Un parcours court : observer une image, cadrer l’intention, puis écrire le prompt H3. Recette : <code id="i2v-active-cookbook">chargement…</code></p>
 
       <form id="i2v-session-form">
         <section>

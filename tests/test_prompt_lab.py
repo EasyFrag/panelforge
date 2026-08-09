@@ -603,6 +603,78 @@ class PromptLabServiceTest(unittest.TestCase):
             self.assertEqual(len(session.brief_revisions), 2)
             self.assertTrue(service.approve_brief(session.session_id).brief_complete)
 
+    def test_brief_revision_discards_the_read_only_context_envelope(self):
+        original = """INTENTION CENTRALE
+Action initiale.
+RÉFÉRENCES CITÉES ET RÔLES
+<Image 1> est la première frame.
+SUJETS ET IDENTITÉS À PRÉSERVER
+Préserver le sujet.
+DÉCOR ET ÉTAT INITIAL
+Décor initial.
+CHRONOLOGIE ET ACTIONS DEMANDÉES
+Action initiale.
+CAMÉRA, LUMIÈRE ET MISE EN SCÈNE
+Caméra stable.
+CONTRAINTES STRICTES
+Conserver l’identité.
+LIBERTÉS AUTORISÉES
+Lumière secondaire.
+QUESTIONS OU AMBIGUÏTÉS
+N/A"""
+        revised = original.replace("Action initiale.", "Action révisée.")
+
+        class BriefEnvelopeGateway(RecordingGateway):
+            def complete(self, request):
+                self.requests.append(request)
+                if request.operation_id == "brief.structure":
+                    content = original
+                elif request.operation_id == "brief.revise":
+                    content = (
+                        "NIVEAU DE LIBERTÉ : 35/100\n"
+                        "CONTEXTE EN LECTURE SEULE\n\n"
+                        + revised
+                    )
+                else:
+                    content = "Observation factuelle."
+                return CompletionResult(model_id=request.model_id, content=content)
+
+        with tempfile.TemporaryDirectory() as directory:
+            assets = LocalAssetStore(directory, id_factory=lambda: "asset-1")
+            asset = assets.create(PNG, "image/png")
+            gateway = BriefEnvelopeGateway()
+            service = PromptLabService(
+                gateway=gateway,
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=assets,
+                sessions=LocalPromptSessionStore(directory),
+            )
+            session = service.create_session(
+                model_id="vision-model",
+                profile_id="minimax.h3.reference",
+                profile_version="0.3.0",
+                references=(
+                    NewReference(
+                        asset.asset_id,
+                        "i2v_first_frame",
+                        "Image 1",
+                        (ReferenceUse.FIRST_FRAME,),
+                    ),
+                ),
+            )
+            reference_id = session.references[0].reference_id
+            session = service.analyze_reference(session.session_id, reference_id)
+            service.approve_reference(session.session_id, reference_id)
+            service.structure_brief(session.session_id, "Anime le sujet.", 35)
+
+            session = service.revise_brief(
+                session.session_id,
+                "Révise seulement l’action.",
+            )
+
+            self.assertEqual(session.active_brief_revision.content, revised)
+            self.assertNotIn("CONTEXTE EN LECTURE SEULE", session.active_brief_revision.content)
+
 
 class PromptProfileCatalogTest(unittest.TestCase):
     def test_loads_first_versioned_minimax_profile(self):

@@ -21,6 +21,66 @@ from panelforge.domain import (
     RevisionOrigin,
 )
 
+from .revised_documents import RevisedDocumentContract
+
+
+_OBSERVATION_LEGACY_CONTRACT = RevisedDocumentContract(
+    "visual observation",
+    (
+        "- DESCRIPTION VISIBLE",
+        "- IDENTITÉ ET TRAITS DISTINCTIFS",
+        "- VÊTEMENTS ET ACCESSOIRES",
+        "- POSE, EXPRESSION ET CADRAGE",
+        "- DÉCOR, LUMIÈRE ET STYLE",
+        "- ÉLÉMENTS À PRÉSERVER",
+        "- INCERTITUDES",
+    ),
+)
+_OBSERVATION_CONTRACT = RevisedDocumentContract(
+    "visual observation",
+    (
+        "- TYPE D'IMAGE ET DESCRIPTION GLOBALE",
+        "- SUJETS VISIBLES",
+        "- ÂGE APPARENT ET INCERTITUDE",
+        "- APPARENCE ET TRAITS DISTINCTIFS",
+        "- VÊTEMENTS, ACCESSOIRES ET OBJETS",
+        "- ACTIONS ET INTERACTIONS VISIBLES",
+        "- POSITIONS, ORIENTATIONS ET CONTACTS",
+        "- POSE, EXPRESSION ET DIRECTION DU REGARD",
+        "- COMPOSITION, CADRAGE ET CAMÉRA",
+        "- DÉCOR, LUMIÈRE ET STYLE",
+        "- CONTENU SENSIBLE OU ADULTE VISIBLE",
+        "- ÉLÉMENTS À PRÉSERVER",
+        "- INCERTITUDES",
+    ),
+)
+_INTERPRETATION_CONTRACT = RevisedDocumentContract(
+    "reference interpretation",
+    (
+        "- reference_role",
+        "- subject_candidates",
+        "- picture_anchor",
+        "- initial_frame_state",
+        "- preservation_requirements",
+        "- prompt_implications",
+        "- uncertainties",
+    ),
+)
+_BRIEF_CONTRACT = RevisedDocumentContract(
+    "structured brief",
+    (
+        "INTENTION CENTRALE",
+        "RÉFÉRENCES CITÉES ET RÔLES",
+        "SUJETS ET IDENTITÉS À PRÉSERVER",
+        "DÉCOR ET ÉTAT INITIAL",
+        "CHRONOLOGIE ET ACTIONS DEMANDÉES",
+        "CAMÉRA, LUMIÈRE ET MISE EN SCÈNE",
+        "CONTRAINTES STRICTES",
+        "LIBERTÉS AUTORISÉES",
+        "QUESTIONS OU AMBIGUÏTÉS",
+    ),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ModelDescriptor:
@@ -412,7 +472,10 @@ class PromptLabService:
         return self._append_revision(
             session,
             reference,
-            content=_completed_content(result),
+            content=_extract_analysis_revision(
+                profile,
+                _completed_content(result),
+            ),
             origin=RevisionOrigin.REWRITE,
             instruction=instruction,
         )
@@ -445,7 +508,7 @@ class PromptLabService:
             lambda content: self._append_revision(
                 session,
                 reference,
-                content=content,
+                content=_extract_analysis_revision(profile, content),
                 origin=RevisionOrigin.REWRITE,
                 instruction=instruction,
             ),
@@ -585,7 +648,10 @@ class PromptLabService:
         return self._append_interpretation(
             session,
             reference,
-            content=_completed_content(result),
+            content=_INTERPRETATION_CONTRACT.extract(
+                _completed_content(result),
+                strict=False,
+            ),
             origin=RevisionOrigin.REWRITE,
             instruction=instruction,
         )
@@ -621,7 +687,10 @@ class PromptLabService:
             lambda content: self._append_interpretation(
                 session,
                 reference,
-                content=content,
+                content=_INTERPRETATION_CONTRACT.extract(
+                    content,
+                    strict=False,
+                ),
                 origin=RevisionOrigin.REWRITE,
                 instruction=instruction,
             ),
@@ -746,7 +815,10 @@ class PromptLabService:
         return self._append_brief(
             session,
             source_text=current.source_text,
-            content=_completed_content(result),
+            content=_BRIEF_CONTRACT.extract(
+                _completed_content(result),
+                strict=False,
+            ),
             creative_freedom=current.creative_freedom,
             references=snapshots,
             origin=RevisionOrigin.REWRITE,
@@ -781,7 +853,7 @@ class PromptLabService:
             lambda content: self._append_brief(
                 session,
                 source_text=current.source_text,
-                content=content,
+                content=_BRIEF_CONTRACT.extract(content, strict=False),
                 creative_freedom=current.creative_freedom,
                 references=snapshots,
                 origin=RevisionOrigin.REWRITE,
@@ -1008,6 +1080,15 @@ def _completed_content(result: CompletionResult) -> str:
     if result.finish_reason == "length":
         raise ValueError("model response was truncated because its token budget was exhausted")
     return result.content
+
+
+def _extract_analysis_revision(profile: PromptProfile, content: str) -> str:
+    contract = (
+        _OBSERVATION_CONTRACT
+        if "- TYPE D'IMAGE ET DESCRIPTION GLOBALE" in profile.analysis_system_prompt
+        else _OBSERVATION_LEGACY_CONTRACT
+    )
+    return contract.extract(content, strict=False)
 
 
 def _interpretation_revision_prompts(profile: PromptProfile) -> tuple[str, str]:

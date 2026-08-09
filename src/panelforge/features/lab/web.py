@@ -24,6 +24,7 @@ from panelforge.application import (
     ChangeViewRunRequest,
     ChangeViewRunner,
     CompositionStreamEvent,
+    ModelRuntimeControl,
     NewReference,
     PromptCompositionService,
     PromptLabService,
@@ -113,6 +114,7 @@ def create_app(
     *,
     prompt_lab: PromptLabService | None = None,
     prompt_composition: PromptCompositionService | None = None,
+    model_runtime: ModelRuntimeControl | None = None,
     static_directory: Path | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
@@ -122,11 +124,38 @@ def create_app(
         raise FileNotFoundError(index_path)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0")
+
+    @app.middleware("http")
+    async def disable_lab_asset_cache(request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     app.mount("/static", StaticFiles(directory=static_root), name="static")
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(index_path)
+        return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/model-runtime/unload")
+    def unload_model_runtime() -> dict[str, str]:
+        if model_runtime is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Le contrôle du serveur LLM n’est pas configuré.",
+            )
+        try:
+            model_runtime.unload_all()
+        except (OSError, RuntimeError, ValueError) as error:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Impossible de décharger les modèles LLM : {error}",
+            ) from error
+        return {
+            "status": "unloaded",
+            "message": "Modèles LLM déchargés · VRAM disponible",
+        }
 
     @app.get("/api/change-view/spec")
     def change_view_spec() -> dict[str, object]:

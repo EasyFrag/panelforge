@@ -25,6 +25,7 @@ from .prompt_lab import (
     StreamEventKind,
     StreamPhase,
 )
+from .revised_documents import RevisedDocumentContract
 
 
 _FINAL_SECTIONS = (
@@ -344,7 +345,10 @@ class PromptCompositionService:
             instruction=instruction,
         )
         result = self.gateway.complete(request)
-        content = _compile_content(cookbook, stage, prefix, result.content)
+        revised = _revision_document_contract(cookbook, stage).extract(
+            result.content
+        )
+        content = _compile_content(cookbook, stage, prefix, revised)
         return self._persist_if_current(
             session,
             composition,
@@ -710,11 +714,17 @@ class PromptCompositionService:
             if event.kind is StreamEventKind.COMPLETED:
                 if event.result is None:
                     raise ValueError("stream completed without a result")
+                result_content = event.result.content
+                if origin is RevisionOrigin.REWRITE:
+                    result_content = _revision_document_contract(
+                        cookbook,
+                        stage,
+                    ).extract(result_content)
                 content = _compile_content(
                     cookbook,
                     stage,
                     prefix,
-                    event.result.content,
+                    result_content,
                 )
                 composition = self._persist_if_current(
                     initial_session,
@@ -861,8 +871,6 @@ def lint_i2v_prompt(content: str) -> tuple[str, ...]:
         if not integrated.startswith("[Shot 1]"):
             errors.append("integrated_multimodal_description doit commencer par [Shot 1].")
         errors.extend(_lint_i2v_shots(integrated))
-        if "<Picture 1>" not in integrated:
-            errors.append("[Shot 1] doit ancrer explicitement <Picture 1>.")
         if not soundscape:
             errors.append("overall_soundscape ne doit pas être vide.")
         if not music:
@@ -1287,6 +1295,26 @@ def _compile_content(
         content = body
     _raise_lint(cookbook, stage, content)
     return content
+
+
+def _revision_document_contract(
+    cookbook: PromptCookbookPort,
+    stage: CompositionStage,
+) -> RevisedDocumentContract:
+    if cookbook.output_contract == "minimax.h3.i2va":
+        markers = (
+            _I2VA_INSTRUCTION,
+            *(f"{field}:" for field in _I2VA_FIELDS),
+        )
+    else:
+        sections = _STAGE_SECTIONS[stage]
+        if (
+            stage is CompositionStage.FINAL_PROMPT
+            and CompositionStage.REFERENCE_PLAN.value in cookbook.stages
+        ):
+            sections = sections[1:]
+        markers = tuple(f"{section}:" for section in sections)
+    return RevisedDocumentContract(f"{stage.value} document", tuple(markers))
 
 
 def _split_final_prompt(content: str) -> tuple[str, str]:

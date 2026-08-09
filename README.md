@@ -71,7 +71,7 @@ Le preset V1 reste volontairement étroit : 15 secondes, 16:9, six actions lisib
 
 ### I2V simple — première frame vers prompt H3
 
-Un onglet séparé expose `minimax.h3.i2v.simple@0.1.0/single-first-frame-v1` avec trois étapes visibles seulement :
+Un onglet séparé expose par défaut `minimax.h3.i2v.simple@0.2.0/single-first-frame-natural-motion-v2` avec trois étapes visibles seulement :
 
 ```text
 image de première frame
@@ -83,6 +83,10 @@ image de première frame
 L’image est liée de façon déterministe à `<Picture 1>` et déclarée comme frame exacte à `0.00` seconde. Il n’y a ni plan de références ni beat sheet cachés. Chaque résultat est streamé, éditable, révisable en langage naturel et soumis à une validation humaine.
 
 Le writer suit le [contrat I2VA du guide MiniMax H3](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md) : instruction d’ancrage exacte, puis `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`. Un linter dédié refuse les labels étrangers, les champs manquants et les timestamps de plans invalides avant approbation.
+
+La version `0.2.0` ajoute trois principes génériques : respecter la durée et sa capacité d’action, formuler positivement les contraintes de mouvement en conservant les mouvements secondaires naturels, et empêcher la liberté créative d’ajouter des événements séquentiels non demandés. `0.1.0` reste inchangée comme témoin de comparaison.
+
+Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Un résultat terminal du modèle reste journalisé comme réussi même si le linter applicatif rejette ensuite le document.
 
 ## Lancer le Lab
 
@@ -101,7 +105,7 @@ Puis ouvrir `http://127.0.0.1:7860`.
 
 Les données locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`.
 
-Le Lab appelle seulement l’API OpenAI-compatible du serveur. llama.swap reste responsable du chargement, du swap et de la mémoire GPU ; aucune bibliothèque d’inférence n’est installée par PanelForge.
+Le Lab appelle seulement les API du serveur. llama.swap reste responsable du chargement, du swap et de la mémoire GPU ; aucune bibliothèque d’inférence n’est installée par PanelForge. Le bouton global `Libérer la VRAM` passe par PanelForge puis appelle l’endpoint administratif officiel de llama.swap : tous les modèles LLM actifs sont déchargés et le prochain appel recharge automatiquement le modèle demandé. Cette action peut interrompre une génération LLM en cours.
 
 Le streaming repose sur `stream=true` et des événements SSE internes réutilisables par les prochaines fenêtres du Prompt Lab. Les appels disposent d’un budget de sortie de 32 768 tokens adapté aux modèles thinking. Si le serveur termine avec `finish_reason=length`, l’interface signale explicitement la troncature et conserve le texte partiel sans l’enregistrer automatiquement comme une révision complète. Avec `sendLoadingState: true` dans llama.swap, PanelForge reconnaît aussi son message de chargement et l’éventuelle position dans la file. llama.swap ne fournit actuellement pas de pourcentage de chargement fiable : l’interface n’en invente donc pas. Les contenus de raisonnement ordinaires du modèle ne sont jamais affichés comme état système.
 
@@ -112,7 +116,7 @@ Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opérat
 - `domain` : assets, recettes, runs, sessions et compositions/révisions immuables ;
 - `application` : orchestration d’un cas d’usage sans node ID ComfyUI et contrat générique de streaming LLM ;
 - `infrastructure/comfy` : transport HTTP minimal ;
-- `infrastructure/llm` : adaptateur multimodal OpenAI-compatible et décorateur de journalisation bornée ;
+- `infrastructure/llm` : adaptateur multimodal OpenAI-compatible, contrôle administratif minimal de llama.swap et décorateur de journalisation bornée ;
 - `infrastructure/presets` : validation et compilation des recettes versionnées ;
 - `infrastructure/storage` : stockage local vérifié par SHA-256 ;
 - `features/lab` : fine interface FastAPI et HTML/CSS/JavaScript natif ;
@@ -127,8 +131,8 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 ### 1. Qualifier I2V simple
 
 - tester des premières frames et intentions variées avec le LLM local ;
-- comparer les prompts obtenus dans MiniMax H3 ;
-- versionner les corrections du writer et du linter sans modifier `0.1.0`.
+- comparer `0.1.0` et `0.2.0` dans MiniMax H3 sur le cas squelette/rose puis un cas très différent ;
+- ne généraliser que les corrections reproduites sur plusieurs cas.
 
 ### 2. Qualifier Fighter Arcade
 
