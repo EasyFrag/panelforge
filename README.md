@@ -86,6 +86,8 @@ Le writer suit le [contrat I2VA du guide MiniMax H3](https://huggingface.co/Mini
 
 La version `0.2.0` ajoute trois principes génériques : respecter la durée et sa capacité d’action, formuler positivement les contraintes de mouvement en conservant les mouvements secondaires naturels, et empêcher la liberté créative d’ajouter des événements séquentiels non demandés. `0.1.0` reste inchangée comme témoin de comparaison.
 
+Le premier retour visuel est encourageant et le prompt du cas androïde montre une meilleure prise en compte de la durée et de l’état final. Deux générations successives ont toutefois abrégé le marqueur de dialogue (`FR`/`fr`) au lieu de produire le tag H3 exact. La recette `0.2.0` reste inchangée : les marqueurs stricts comme `<d>[French] ...</d>` seront insérés ou normalisés de façon déterministe à partir de données de dialogue structurées, plutôt que confiés à la prose libre du LLM.
+
 Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Un résultat terminal du modèle reste journalisé comme réussi même si le linter applicatif rejette ensuite le document.
 
 ## Lancer le Lab
@@ -130,9 +132,9 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ### 1. Qualifier I2V simple
 
-- tester des premières frames et intentions variées avec le LLM local ;
-- comparer `0.1.0` et `0.2.0` dans MiniMax H3 sur le cas squelette/rose puis un cas très différent ;
-- ne généraliser que les corrections reproduites sur plusieurs cas.
+- rendre et évaluer le cas androïde `0.2.0` : rythme, immobilité demandée, voix et synchronisation labiale ;
+- compiler plus tard les tags H3 stricts depuis des champs structurés, sans alourdir le system prompt ;
+- figer ou réviser `0.2.0` seulement à partir des défauts reproduits sur plusieurs vidéos.
 
 ### 2. Qualifier Fighter Arcade
 
