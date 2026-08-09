@@ -1,0 +1,7 @@
+CURRENT COMPILED PROMPT
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete four-field editable document and nothing else.

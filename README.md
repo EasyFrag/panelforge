@@ -90,6 +90,23 @@ Le premier retour visuel est encourageant et le prompt du cas androïde montre u
 
 Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Un résultat terminal du modèle reste journalisé comme réussi même si le linter applicatif rejette ensuite le document.
 
+### Ref2V — undressing mono-plan
+
+L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.2.0` ; `0.1.0` reste immuable comme témoin :
+
+```text
+première frame habillée + référence corporelle du même sujet
+  → deux Observations approuvées
+  → Brief approuvé
+  → prompt MiniMax H3 Ref2V compilé et approuvé
+```
+
+`<Picture 1>` est la frame concrète habillée à `0.00` seconde. `<Picture 2>` complète seulement l’apparence corporelle du même sujet et n’est ni une frame finale ni une cible de pose ou de composition. En `0.2.0`, le LLM écrit quatre champs internes — mise en place, action du plan, ambiance sonore et musique — puis PanelForge compile le mapping immuable, `Shot 1:` et les champs audio dans un format compact proche des exemples Ref2V éprouvés. Les sorties incomplètes sont rejetées avant persistance ; le linter verrouille le header, l’unique plan et l’ordre des timestamps.
+
+La version `0.1.0` conserve son writer à six sections Ref2VA afin de permettre une comparaison directe. La future variante à une seule référence corporelle, où les vêtements initiaux sont entièrement décrits, n’est pas incluse dans `0.2.0`.
+
+L’interface permet d’analyser les deux images en une action ou de relancer, corriger et valider chaque observation séparément. Observation et Brief réutilisent volontairement le profil générique `minimax.h3.reference@0.3.0` ; la V0.2 ne modifie donc le Brief d’aucun autre cookbook.
+
 ## Lancer le Lab
 
 L’interface tourne sur le poste PanelForge et appelle ComfyUI à distance. Rien n’est installé dans l’environnement Python du serveur GPU.
@@ -130,11 +147,13 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ## Feuille de route
 
-### 1. Qualifier I2V simple
+### 1. Qualifier les parcours courts I2V et Ref2V
 
 - rendre et évaluer le cas androïde `0.2.0` : rythme, immobilité demandée, voix et synchronisation labiale ;
 - compiler plus tard les tags H3 stricts depuis des champs structurés, sans alourdir le system prompt ;
 - figer ou réviser `0.2.0` seulement à partir des défauts reproduits sur plusieurs vidéos.
+- comparer `undressing.single_shot@0.2.0` au témoin `0.1.0` sur au moins deux couples de références très différents ; mesurer lisibilité des gestes, respect de l’ordre, continuité corporelle et usage correct de la seconde référence ;
+- ne spécialiser le profil Observation/Brief Ref2V que si un même manque se répète sur plusieurs essais.
 
 ### 2. Qualifier Fighter Arcade
 

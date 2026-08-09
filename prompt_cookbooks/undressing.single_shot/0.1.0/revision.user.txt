@@ -1,0 +1,10 @@
+STAGE CONTRACT
+{{STAGE_CONTRACT}}
+
+CURRENT APPROVED-WORKFLOW DRAFT
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete revised prompt and nothing else.

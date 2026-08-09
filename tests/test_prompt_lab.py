@@ -14,6 +14,7 @@ sys.path.insert(0, str(SRC_ROOT))
 from panelforge.application import (
     CompletionRequest,
     CompletionResult,
+    CompletionStreamEvent,
     ImageInput,
     ModelDescriptor,
     NewReference,
@@ -43,6 +44,24 @@ from panelforge.infrastructure.storage import (
 PROFILE_ROOT = PROJECT_ROOT / "prompt_profiles"
 PNG = b"\x89PNG\r\n\x1a\nreference"
 START = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
+BRIEF_DOCUMENT = """- INTENTION CENTRALE
+Action initiale.
+- RÉFÉRENCES CITÉES ET RÔLES
+<Image 1> est la première frame.
+- SUJETS ET IDENTITÉS À PRÉSERVER
+Préserver le sujet.
+- DÉCOR ET ÉTAT INITIAL
+Décor initial.
+- CHRONOLOGIE ET ACTIONS DEMANDÉES
+Action initiale.
+- CAMÉRA, LUMIÈRE ET MISE EN SCÈNE
+Caméra stable.
+- CONTRAINTES STRICTES
+Conserver l’identité.
+- LIBERTÉS AUTORISÉES
+Lumière secondaire.
+- QUESTIONS OU AMBIGUÏTÉS
+N/A"""
 
 
 class SequenceClock:
@@ -483,7 +502,10 @@ class RecordingGateway:
 
     def complete(self, request):
         self.requests.append(request)
-        content = "Analyse initiale" if len(self.requests) == 1 else "Analyse corrigée"
+        if request.operation_id == "brief.revise":
+            content = BRIEF_DOCUMENT
+        else:
+            content = "Analyse initiale" if len(self.requests) == 1 else "Analyse corrigée"
         return CompletionResult(model_id=request.model_id, content=content)
 
 
@@ -604,40 +626,38 @@ class PromptLabServiceTest(unittest.TestCase):
             self.assertTrue(service.approve_brief(session.session_id).brief_complete)
 
     def test_brief_revision_discards_the_read_only_context_envelope(self):
-        original = """INTENTION CENTRALE
-Action initiale.
-RÉFÉRENCES CITÉES ET RÔLES
-<Image 1> est la première frame.
-SUJETS ET IDENTITÉS À PRÉSERVER
-Préserver le sujet.
-DÉCOR ET ÉTAT INITIAL
-Décor initial.
-CHRONOLOGIE ET ACTIONS DEMANDÉES
-Action initiale.
-CAMÉRA, LUMIÈRE ET MISE EN SCÈNE
-Caméra stable.
-CONTRAINTES STRICTES
-Conserver l’identité.
-LIBERTÉS AUTORISÉES
-Lumière secondaire.
-QUESTIONS OU AMBIGUÏTÉS
-N/A"""
+        original = BRIEF_DOCUMENT
         revised = original.replace("Action initiale.", "Action révisée.")
 
         class BriefEnvelopeGateway(RecordingGateway):
+            def __init__(self):
+                super().__init__()
+                self.revision_content = (
+                    "NIVEAU DE LIBERTÉ : 35/100\n"
+                    "CONTEXTE EN LECTURE SEULE\n\n"
+                    + revised
+                )
+
             def complete(self, request):
                 self.requests.append(request)
                 if request.operation_id == "brief.structure":
                     content = original
                 elif request.operation_id == "brief.revise":
-                    content = (
-                        "NIVEAU DE LIBERTÉ : 35/100\n"
-                        "CONTEXTE EN LECTURE SEULE\n\n"
-                        + revised
-                    )
+                    content = self.revision_content
                 else:
                     content = "Observation factuelle."
                 return CompletionResult(model_id=request.model_id, content=content)
+
+            def stream(self, request):
+                self.requests.append(request)
+                yield CompletionStreamEvent(
+                    kind=StreamEventKind.COMPLETED,
+                    phase=StreamPhase.COMPLETED,
+                    result=CompletionResult(
+                        model_id=request.model_id,
+                        content=self.revision_content,
+                    ),
+                )
 
         with tempfile.TemporaryDirectory() as directory:
             assets = LocalAssetStore(directory, id_factory=lambda: "asset-1")
@@ -674,6 +694,47 @@ N/A"""
 
             self.assertEqual(session.active_brief_revision.content, revised)
             self.assertNotIn("CONTEXTE EN LECTURE SEULE", session.active_brief_revision.content)
+
+            gateway.revision_content = "Réponse libre sans les sections requises."
+            with self.assertRaisesRegex(ValueError, "missing marker"):
+                service.revise_brief(session.session_id, "Nouvelle révision.")
+            persisted = service.sessions.get(session.session_id)
+            self.assertEqual(len(persisted.brief_revisions), 2)
+            self.assertEqual(persisted.active_brief_revision.content, revised)
+
+            streamed_revision = revised.replace("Caméra stable.", "Caméra fixe.")
+            gateway.revision_content = "CONTEXTE EN LECTURE SEULE\n\n" + streamed_revision
+            events = list(
+                service.stream_revise_brief(
+                    session.session_id,
+                    "Fixe la caméra.",
+                )
+            )
+            streamed_session = events[-1].session
+            self.assertIsNotNone(streamed_session)
+            self.assertEqual(
+                streamed_session.active_brief_revision.content,
+                streamed_revision,
+            )
+            self.assertNotIn(
+                "CONTEXTE EN LECTURE SEULE",
+                streamed_session.active_brief_revision.content,
+            )
+
+            gateway.revision_content = "Réponse streaming sans sections."
+            with self.assertRaisesRegex(ValueError, "missing marker"):
+                list(
+                    service.stream_revise_brief(
+                        session.session_id,
+                        "Nouvelle révision streaming.",
+                    )
+                )
+            persisted = service.sessions.get(session.session_id)
+            self.assertEqual(len(persisted.brief_revisions), 3)
+            self.assertEqual(
+                persisted.active_brief_revision.content,
+                streamed_revision,
+            )
 
 
 class PromptProfileCatalogTest(unittest.TestCase):

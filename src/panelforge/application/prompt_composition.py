@@ -63,6 +63,29 @@ _I2VA_FIELDS = (
     "overall_soundscape",
     "non_diegetic_music",
 )
+_REF2V_COMPILED_CONTRACT = "minimax.h3.ref2v.single_shot_compiled"
+_REF2V_EDITABLE_FIELDS = (
+    "scene_setup",
+    "shot_1",
+    "overall_soundscape",
+    "non_diegetic_music",
+)
+_REF2V_COMPILED_HEADER = (
+    "<Picture 1>: the exact fully preserved starting frame at 0.00 seconds, "
+    "containing the subject in the dressed starting state and defining pose, "
+    "framing, room, lighting, and visible composition.\n"
+    "Use <Picture 2> only as a body and appearance reference for the same subject "
+    "shown in <Picture 1>; do not use it as a frame, pose, background, composition, "
+    "or target state."
+)
+_REF2V_EDITABLE_CONTRACT = RevisedDocumentContract(
+    "compiled Ref2V editable document",
+    tuple(f"{field}:" for field in _REF2V_EDITABLE_FIELDS),
+)
+_REF2VA_CONTRACTS = {
+    "minimax.h3.ref2va",
+    "minimax.h3.ref2va.single_shot",
+}
 
 
 class CookbookSlotPort(Protocol):
@@ -665,7 +688,7 @@ class PromptCompositionService:
             composition.cookbook.version,
         )
         _raise_lint(cookbook, stage, content)
-        if cookbook.output_contract == "minimax.h3.ref2va":
+        if cookbook.output_contract in _REF2VA_CONTRACTS:
             _raise_cookbook_labels(
                 self.sessions.get(composition.source_session_id),
                 composition,
@@ -673,6 +696,8 @@ class PromptCompositionService:
                 stage,
                 content,
             )
+        elif cookbook.output_contract == _REF2V_COMPILED_CONTRACT:
+            _raise_compiled_ref2v_labels(composition, stage, content)
         elif cookbook.output_contract == "minimax.h3.i2va":
             _raise_i2v_labels(composition, stage, content)
         else:
@@ -827,11 +852,169 @@ def lint_cookbook_document(
 ) -> tuple[str, ...]:
     if cookbook.output_contract == "minimax.h3.ref2va":
         return lint_composition_document(stage, content)
+    if cookbook.output_contract == "minimax.h3.ref2va.single_shot":
+        if stage is not CompositionStage.FINAL_PROMPT:
+            return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
+        return lint_ref2v_single_shot_prompt(content)
+    if cookbook.output_contract == _REF2V_COMPILED_CONTRACT:
+        if stage is not CompositionStage.FINAL_PROMPT:
+            return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
+        return lint_compiled_ref2v_single_shot_prompt(content)
     if cookbook.output_contract == "minimax.h3.i2va":
         if stage is not CompositionStage.FINAL_PROMPT:
             return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
         return lint_i2v_prompt(content)
     return (f"Contrat de sortie inconnu : {cookbook.output_contract}",)
+
+
+def lint_ref2v_single_shot_prompt(content: str) -> tuple[str, ...]:
+    """Validate the direct single-shot subset of the MiniMax Ref2VA contract."""
+    if not isinstance(content, str) or not content.strip():
+        return ("Le prompt Ref2V est vide.",)
+    value = _strip_fence(content).replace("\r\n", "\n")
+    errors: list[str] = []
+    positions: list[int] = []
+    for section in _FINAL_SECTIONS:
+        matches = list(re.finditer(rf"(?m)^{re.escape(section)}:$", value))
+        if len(matches) != 1:
+            errors.append(f"La section {section}: doit apparaître exactement une fois.")
+        else:
+            positions.append(matches[0].start())
+    if len(positions) == len(_FINAL_SECTIONS) and positions != sorted(positions):
+        errors.append("Les six sections Ref2VA ne sont pas dans l’ordre officiel.")
+    unexpected = sorted(
+        set(re.findall(r"(?m)^([a-z][a-z0-9_]*):$", value))
+        - set(_FINAL_SECTIONS)
+    )
+    for section in unexpected:
+        errors.append(f"Section Ref2VA inattendue : {section}:")
+    if errors:
+        return tuple(errors)
+
+    summary = _section_body(value, "summary", "retention_analysis")
+    if not summary.lstrip().startswith(
+        "[keyframe completion + reference generation]"
+    ):
+        errors.append(
+            "Le summary doit commencer par [keyframe completion + reference generation]."
+        )
+    if re.search(r"(?i)@image\s*\d+|<Image\s+\d+>", value):
+        errors.append(
+            "Le prompt Ref2VA doit utiliser <Subject N> et <Picture N>, jamais @image ou <Image N>."
+        )
+    if "integrated_multimodal_description" in value.lower():
+        errors.append("Le prompt utilise un ancien contrat MiniMax incompatible.")
+
+    definitions = _section_body(value, "subject_definitions", "summary")
+    subject_line = re.search(
+        r"(?ms)^<Subject\s+1>(?:\s|:).*?"
+        r"(?=^<(?:Subject|Picture)\s+\d+>(?:\s|:)|\Z)",
+        definitions.strip(),
+    )
+    cited = (
+        set(re.findall(r"<Picture\s+\d+>", subject_line.group(0)))
+        if subject_line is not None
+        else set()
+    )
+    if not {"<Picture 1>", "<Picture 2>"}.issubset(cited):
+        errors.append(
+            "La définition de <Subject 1> doit citer <Picture 1> et <Picture 2>."
+        )
+    if not re.search(r"(?m)^<Picture\s+1>(?:\s|:)", definitions):
+        errors.append("<Picture 1> doit être définie comme ancre de première frame.")
+    if re.search(r"(?m)^<Picture\s+2>(?:\s|:)", definitions):
+        errors.append("<Picture 2> est une référence de sujet, pas une frame autonome.")
+
+    detailed = _section_body(value, "detailed_description", "overall_soundscape")
+    shot_numbers = [int(item) for item in re.findall(r"\[Shot\s+(\d+)\]", detailed)]
+    if shot_numbers != [1]:
+        errors.append("Le cookbook mono-plan doit contenir exactement un [Shot 1].")
+    if re.search(r"\[Shot\s+1\]\s+At\s+", detailed):
+        errors.append("[Shot 1] ne doit pas avoir de timestamp.")
+    if not detailed.split("[Shot 1]", 1)[0].strip():
+        errors.append("detailed_description doit établir le style avant [Shot 1].")
+    if value.count("<d>") != value.count("</d>"):
+        errors.append("Les balises de dialogue <d> ne sont pas équilibrées.")
+    return tuple(errors)
+
+
+def lint_compiled_ref2v_single_shot_prompt(content: str) -> tuple[str, ...]:
+    """Validate the compact, code-compiled Ref2V single-shot contract."""
+    if not isinstance(content, str) or not content.strip():
+        return ("Le prompt Ref2V compilé est vide.",)
+    value = _strip_fence(content).replace("\r\n", "\n")
+    errors: list[str] = []
+    expected_start = _REF2V_COMPILED_HEADER + "\n\n"
+    if not value.startswith(expected_start):
+        errors.append("Le mapping de références compilé a été modifié.")
+
+    markers = ("Shot 1", "overall_soundscape", "non_diegetic_music")
+    positions: list[int] = []
+    for marker in markers:
+        matches = list(re.finditer(rf"(?m)^{re.escape(marker)}:", value))
+        if len(matches) != 1:
+            errors.append(f"Le champ {marker}: doit apparaître exactement une fois.")
+        else:
+            positions.append(matches[0].start())
+    if len(positions) == len(markers) and positions != sorted(positions):
+        errors.append("Les champs du prompt Ref2V compilé ne sont pas dans l’ordre attendu.")
+    if errors:
+        return tuple(errors)
+
+    shot_position = positions[0]
+    if not value[len(expected_start) : shot_position].strip():
+        errors.append("La mise en place de la scène ne doit pas être vide.")
+    shot = _inline_field_body(value, "Shot 1", "overall_soundscape").strip()
+    soundscape = _inline_field_body(
+        value,
+        "overall_soundscape",
+        "non_diegetic_music",
+    ).strip()
+    music = _inline_field_body(value, "non_diegetic_music", None).strip()
+    if not shot:
+        errors.append("Shot 1 ne doit pas être vide.")
+    if not soundscape:
+        errors.append("overall_soundscape ne doit pas être vide.")
+    if not music:
+        errors.append("non_diegetic_music ne doit pas être vide ; utilisez N/A si nécessaire.")
+
+    shot_numbers = [
+        int(number)
+        for number in re.findall(r"(?im)^\[?Shot\s+(\d+)\]?:", value)
+    ]
+    if shot_numbers != [1]:
+        errors.append("Le cookbook compilé doit contenir exactement un Shot 1.")
+    forbidden_fields = (*_REF2V_EDITABLE_FIELDS, *_FINAL_SECTIONS)
+    for field in forbidden_fields:
+        if re.search(rf"(?m)^{re.escape(field)}:$", value):
+            errors.append(
+                f"Le champ interne ou ancien {field}: ne doit pas apparaître dans le prompt final."
+            )
+    if re.search(r"(?i)@image\s*\d+|<Image\s+\d+>|<Subject\s+\d+>", value):
+        errors.append("Le prompt Ref2V compilé doit utiliser uniquement <Picture 1> et <Picture 2>.")
+    picture_numbers = {int(item) for item in re.findall(r"<Picture\s+(\d+)>", value)}
+    if picture_numbers != {1, 2}:
+        errors.append("Le prompt Ref2V compilé doit référencer exactement <Picture 1> et <Picture 2>.")
+    if value.count("<Picture 1>") != 2 or value.count("<Picture 2>") != 1:
+        errors.append("Les labels Picture sont réservés au mapping compilé.")
+    if not re.search(r"(?m)^<Picture\s+1>:", value):
+        errors.append("<Picture 1> doit rester une définition autonome de la première frame.")
+    if re.search(r"(?m)^<Picture\s+2>:", value):
+        errors.append("<Picture 2> est une référence corporelle, pas une frame autonome.")
+
+    timestamps: list[float] = []
+    for match in re.finditer(r"\bAt\s+(\d{2}):(\d{2})\.(\d{3})\b", shot):
+        minutes, seconds, milliseconds = (int(part) for part in match.groups())
+        if seconds >= 60:
+            errors.append("Un timestamp de Shot 1 est invalide.")
+        timestamps.append(minutes * 60 + seconds + milliseconds / 1000)
+    if timestamps != sorted(set(timestamps)):
+        errors.append("Les timestamps de Shot 1 doivent être strictement croissants.")
+    if timestamps and timestamps[-1] >= 15:
+        errors.append("Un timestamp atteint ou dépasse la durée maximale de 15 secondes.")
+    if value.count("<d>") != value.count("</d>"):
+        errors.append("Les balises de dialogue <d> ne sont pas équilibrées.")
+    return tuple(errors)
 
 
 def lint_i2v_prompt(content: str) -> tuple[str, ...]:
@@ -1081,6 +1264,23 @@ def _raise_i2v_labels(
         raise ValueError("I2VA simple must use exactly <Picture 1>")
 
 
+def _raise_compiled_ref2v_labels(
+    composition: PromptComposition,
+    stage: CompositionStage,
+    content: str,
+) -> None:
+    if stage is not CompositionStage.FINAL_PROMPT:
+        raise ValueError("compiled Ref2V exposes only final_prompt")
+    mapping = composition_picture_mapping(composition)
+    if len(mapping) != 2 or tuple(number for _, number in mapping) != (1, 2):
+        raise ValueError("compiled Ref2V requires exactly two local picture bindings")
+    picture_numbers = {
+        int(value) for value in re.findall(r"<Picture\s+(\d+)>", content)
+    }
+    if picture_numbers != {1, 2}:
+        raise ValueError("compiled Ref2V must use exactly <Picture 1> and <Picture 2>")
+
+
 def _raise_retention_contract(
     cookbook: PromptCookbookPort,
     retention: str,
@@ -1287,6 +1487,12 @@ def _compile_content(
     body = _strip_fence(result)
     if (
         stage is CompositionStage.FINAL_PROMPT
+        and cookbook.output_contract == _REF2V_COMPILED_CONTRACT
+    ):
+        editable = _REF2V_EDITABLE_CONTRACT.extract(body)
+        content = _compile_ref2v_single_shot(editable)
+    elif (
+        stage is CompositionStage.FINAL_PROMPT
         and cookbook.output_contract == "minimax.h3.ref2va"
     ):
         _raise_sections(body, _FINAL_SECTIONS[1:])
@@ -1301,6 +1507,8 @@ def _revision_document_contract(
     cookbook: PromptCookbookPort,
     stage: CompositionStage,
 ) -> RevisedDocumentContract:
+    if cookbook.output_contract == _REF2V_COMPILED_CONTRACT:
+        return _REF2V_EDITABLE_CONTRACT
     if cookbook.output_contract == "minimax.h3.i2va":
         markers = (
             _I2VA_INSTRUCTION,
@@ -1360,11 +1568,24 @@ def _stage_contract(
     stage: CompositionStage,
     cookbook: PromptCookbookPort,
 ) -> str:
+    if cookbook.output_contract == _REF2V_COMPILED_CONTRACT:
+        return (
+            "Return exactly scene_setup:, shot_1:, overall_soundscape:, and "
+            "non_diegetic_music:. PanelForge compiles the fixed <Picture 1> first-frame "
+            "definition, the <Picture 2> body-reference rule, and the Shot 1 heading."
+        )
     if cookbook.output_contract == "minimax.h3.i2va":
         return (
             "Preserve the exact official first-frame instruction, then output exactly "
             "integrated_multimodal_description:, overall_soundscape:, and "
             "non_diegetic_music:. Use only <Picture 1>; [Shot 1] has no timestamp."
+        )
+    if cookbook.output_contract == "minimax.h3.ref2va.single_shot":
+        return (
+            "Output exactly subject_definitions:, summary:, retention_analysis:, "
+            "detailed_description:, overall_soundscape:, and non_diegetic_music:. "
+            "Keep <Picture 1> as the first-frame anchor, <Picture 2> only inside "
+            "the <Subject 1> definition, and use exactly one untimestamped [Shot 1]."
         )
     subjects = ", ".join(
         slot.subject_label for slot in cookbook.slots if slot.subject_label is not None
@@ -1374,6 +1595,32 @@ def _stage_contract(
     if stage is CompositionStage.BEAT_SHEET:
         return "Output exactly production_settings:, continuity_rules:, beat_sheet:. Use [Shot 1] without a timestamp, then [Shot N] At MM:SS.mmm, with strictly increasing cut times below 00:15.000."
     return "Output only summary:, retention_analysis:, detailed_description:, overall_soundscape:, non_diegetic_music:. Reconcile subject appearances with the beat sheet, establish style before [Shot 1], then use [Shot N] At MM:SS.mmm, for shots 2–6 with cut times below 00:15.000."
+
+
+def _compile_ref2v_single_shot(editable: str) -> str:
+    scene = _section_body(editable, "scene_setup", "shot_1").strip()
+    shot = _section_body(editable, "shot_1", "overall_soundscape").strip()
+    soundscape = _section_body(
+        editable,
+        "overall_soundscape",
+        "non_diegetic_music",
+    ).strip()
+    music = _section_body(editable, "non_diegetic_music", None).strip()
+    for value, name in (
+        (scene, "scene_setup"),
+        (shot, "shot_1"),
+        (soundscape, "overall_soundscape"),
+        (music, "non_diegetic_music"),
+    ):
+        if not value:
+            raise ValueError(f"compiled Ref2V field must not be empty: {name}")
+    return (
+        f"{_REF2V_COMPILED_HEADER}\n\n"
+        f"{scene}\n\n"
+        f"Shot 1: {shot}\n\n"
+        f"overall_soundscape: {soundscape}\n\n"
+        f"non_diegetic_music: {music}"
+    )
 
 
 def _required_prompt(value: str | None, name: str) -> str:
@@ -1399,6 +1646,25 @@ def _section_body(
         return content[start.end() :]
     end = re.search(
         rf"(?m)^{re.escape(next_section)}:$",
+        content[start.end() :],
+    )
+    if end is None:
+        return content[start.end() :]
+    return content[start.end() : start.end() + end.start()]
+
+
+def _inline_field_body(
+    content: str,
+    field: str,
+    next_field: str | None,
+) -> str:
+    start = re.search(rf"(?m)^{re.escape(field)}:[ \t]*", content)
+    if start is None:
+        return ""
+    if next_field is None:
+        return content[start.end() :]
+    end = re.search(
+        rf"(?m)^{re.escape(next_field)}:[ \t]*",
         content[start.end() :],
     )
     if end is None:

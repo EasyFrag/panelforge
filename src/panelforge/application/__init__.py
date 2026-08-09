@@ -29,8 +29,10 @@ from .prompt_composition import (
     CompositionStreamEvent,
     PromptCompositionService,
     composition_picture_mapping,
+    lint_compiled_ref2v_single_shot_prompt,
     lint_composition_document,
     lint_i2v_prompt,
+    lint_ref2v_single_shot_prompt,
 )
 
 __all__ = [
@@ -58,6 +60,8 @@ __all__ = [
     "StreamEventKind",
     "StreamPhase",
     "composition_picture_mapping",
+    "lint_compiled_ref2v_single_shot_prompt",
     "lint_composition_document",
     "lint_i2v_prompt",
+    "lint_ref2v_single_shot_prompt",
 ]

@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "cookbook_id": "undressing.single_shot",
+  "version": "0.1.0",
+  "display_name": "MiniMax H3 Ref2V — undressing mono-plan",
+  "description": "Anime depuis une première frame habillée en utilisant une seconde image comme référence corporelle, avec des gestes séquentiels lisibles dans un plan continu.",
+  "target_mode": "ref2va",
+  "output_contract": "minimax.h3.ref2va.single_shot",
+  "preset": "undressing-single-shot-v1",
+  "stages": ["final_prompt"],
+  "require_distinct_references": true,
+  "sources": [
+    "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md",
+    "https://www.reddit.com/r/unstable_diffusion/comments/1vjhr9b/pretty_good_undressing_with_minimax_writeup/",
+    "https://www.reddit.com/r/DegenDiffusion/comments/1vfg8y7/sharing_prompts_for_minimax_h3/"
+  ],
+  "engine_contract": {
+    "id": "minimax.h3.ref2va",
+    "version": "1.0.0"
+  },
+  "slots": [
+    {
+      "id": "dressed_start",
+      "label": "Première frame habillée",
+      "description": "Image exacte à 0,00 seconde : identité, vêtements, pose, composition et décor de départ.",
+      "subject_label": "<Subject 1>",
+      "accepted_uses": ["first_frame", "subject"],
+      "required_uses": ["first_frame", "subject"],
+      "required_shots": [1],
+      "minimum_references": 1,
+      "maximum_references": 1
+    },
+    {
+      "id": "body_reference",
+      "label": "Référence corporelle",
+      "description": "Référence d'apparence et d'anatomie du même sujet ; elle ne définit ni une frame finale ni une composition.",
+      "subject_label": null,
+      "accepted_uses": ["subject"],
+      "required_uses": ["subject"],
+      "required_shots": [1],
+      "minimum_references": 1,
+      "maximum_references": 1
+    }
+  ],
+  "templates": {
+    "final_prompt_system": "final_prompt.system.txt",
+    "final_prompt_user": "final_prompt.user.txt",
+    "revision_system": "revision.system.txt",
+    "revision_user": "revision.user.txt"
+  }
+}

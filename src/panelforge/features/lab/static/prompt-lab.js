@@ -24,6 +24,7 @@
     changeView: $("#change-view-workspace"),
     promptLab: $("#prompt-lab-workspace"),
     i2v: $("#i2v-workspace"),
+    ref2v: $("#ref2v-workspace"),
     recipeBadge: $("#recipe-badge"),
     nav: [...document.querySelectorAll("[data-lab-view]")],
     form: $("#prompt-session-form"),
@@ -107,6 +108,7 @@
     elements.changeView.hidden = view !== "change-view";
     elements.promptLab.hidden = !promptActive;
     elements.i2v.hidden = view !== "i2v";
+    elements.ref2v.hidden = view !== "ref2v";
     elements.recipeBadge.hidden = view !== "change-view";
     elements.nav.forEach((button) => {
       button.classList.toggle("active", button.dataset.labView === view);

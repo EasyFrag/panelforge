@@ -302,9 +302,15 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .i2v-anchor-note b { color: var(--green); font-size: .75rem; }
 .i2v-anchor-note p { margin: .4rem 0 0; color: var(--muted); font-size: .72rem; line-height: 1.6; }
 .i2v-workspace .cookbook-step { margin-top: .65rem; }
+.ref2v-upload-grid, .ref2v-reference-grid, .ref2v-observation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.ref2v-reference-grid { margin: 1rem 0; }
+.ref2v-reference-grid figure { min-width: 0; }
+.ref2v-observation-card { min-width: 0; padding: .75rem; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.ref2v-observation-card h3 { margin: 0 0 .55rem; font-size: .75rem; }
+.ref2v-observation-card .cookbook-stage-output { min-height: 300px; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 1050px) { .reference-workbench, .i2v-first-frame { grid-template-columns: 1fr; } .reference-image-stage { min-height: 380px; } }
+@media (max-width: 1050px) { .reference-workbench, .i2v-first-frame, .ref2v-observation-grid { grid-template-columns: 1fr; } .reference-image-stage { min-height: 380px; } }
 @media (max-width: 950px) { main, .prompt-workspace { grid-template-columns: 1fr; } .controls { position: static; max-height: none; } }
 @media (max-width: 620px) {
   .recipe { display: none; }
@@ -331,6 +337,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
   .cookbook-selector > p { text-align: left; }
   .cookbook-step > summary { grid-template-columns: auto minmax(0, 1fr) auto; }
   .cookbook-step > summary .review-pill { display: none; }
+  .ref2v-upload-grid, .ref2v-reference-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 400px) { .azimuths, .selects { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { * { animation-duration: 1ms !important; } }

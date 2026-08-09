@@ -69,15 +69,15 @@ _INTERPRETATION_CONTRACT = RevisedDocumentContract(
 _BRIEF_CONTRACT = RevisedDocumentContract(
     "structured brief",
     (
-        "INTENTION CENTRALE",
-        "RÉFÉRENCES CITÉES ET RÔLES",
-        "SUJETS ET IDENTITÉS À PRÉSERVER",
-        "DÉCOR ET ÉTAT INITIAL",
-        "CHRONOLOGIE ET ACTIONS DEMANDÉES",
-        "CAMÉRA, LUMIÈRE ET MISE EN SCÈNE",
-        "CONTRAINTES STRICTES",
-        "LIBERTÉS AUTORISÉES",
-        "QUESTIONS OU AMBIGUÏTÉS",
+        "- INTENTION CENTRALE",
+        "- RÉFÉRENCES CITÉES ET RÔLES",
+        "- SUJETS ET IDENTITÉS À PRÉSERVER",
+        "- DÉCOR ET ÉTAT INITIAL",
+        "- CHRONOLOGIE ET ACTIONS DEMANDÉES",
+        "- CAMÉRA, LUMIÈRE ET MISE EN SCÈNE",
+        "- CONTRAINTES STRICTES",
+        "- LIBERTÉS AUTORISÉES",
+        "- QUESTIONS OU AMBIGUÏTÉS",
     ),
 )
 
@@ -815,10 +815,7 @@ class PromptLabService:
         return self._append_brief(
             session,
             source_text=current.source_text,
-            content=_BRIEF_CONTRACT.extract(
-                _completed_content(result),
-                strict=False,
-            ),
+            content=_BRIEF_CONTRACT.extract(_completed_content(result)),
             creative_freedom=current.creative_freedom,
             references=snapshots,
             origin=RevisionOrigin.REWRITE,
@@ -853,7 +850,7 @@ class PromptLabService:
             lambda content: self._append_brief(
                 session,
                 source_text=current.source_text,
-                content=_BRIEF_CONTRACT.extract(content, strict=False),
+                content=_BRIEF_CONTRACT.extract(content),
                 creative_freedom=current.creative_freedom,
                 references=snapshots,
                 origin=RevisionOrigin.REWRITE,

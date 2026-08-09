@@ -9,6 +9,7 @@
   <script src="/static/prompt-lab.js?v=20260809.2" defer></script>
   <script src="/static/prompt-composition.js?v=20260809.2" defer></script>
   <script src="/static/i2v-prompt.js?v=20260809.2" defer></script>
+  <script src="/static/ref2v-prompt.js?v=20260809.2" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -17,6 +18,7 @@
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
       <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
       <button type="button" data-lab-view="i2v">I2V simple</button>
+      <button type="button" data-lab-view="ref2v">Ref2V</button>
     </nav>
     <div class="topbar-actions">
       <span id="runtime-message" class="runtime-message" role="status" aria-live="polite" hidden></span>
@@ -529,6 +531,134 @@
             <textarea id="i2v-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="For the target video, at 0.00 seconds...&#10;&#10;integrated_multimodal_description: [Shot 1] ...&#10;&#10;overall_soundscape: ...&#10;&#10;non_diegetic_music: ..." disabled></textarea>
             <div id="i2v-prompt-lint" class="prompt-lint" role="status"><small>Le contrat I2VA sera contrôlé après génération.</small></div>
             <div class="rewrite-box"><label for="i2v-prompt-instruction">Demander une modification ciblée</label><div><input id="i2v-prompt-instruction" type="text" placeholder="Ex. Remplace le travelling par une caméra statique." disabled><button id="i2v-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
+          </div>
+        </details>
+      </section>
+    </div>
+  </main>
+
+  <main id="ref2v-workspace" class="prompt-workspace i2v-workspace" hidden>
+    <aside class="controls prompt-setup">
+      <div class="title-row">
+        <div><small>COOKBOOK · REF2V</small><h1>Undressing mono-plan</h1></div>
+        <span class="experimental">● Experimental</span>
+      </div>
+      <p class="muted">Deux références, trois validations. La première image ouvre la vidéo ; la seconde complète l’apparence du même sujet. Recette : <code id="ref2v-active-cookbook">chargement…</code></p>
+
+      <form id="ref2v-session-form">
+        <section>
+          <div class="section-title"><h2>Modèle vision et rédaction</h2><button id="ref2v-refresh-models" class="text-button" type="button">Actualiser</button></div>
+          <label class="field-label">Modèle servi par llama.swap
+            <select id="ref2v-model" required><option value="">Chargement…</option></select>
+          </label>
+        </section>
+        <section>
+          <h2>Références</h2>
+          <div class="ref2v-upload-grid">
+            <label class="prompt-upload i2v-upload" for="ref2v-start-image">
+              <input id="ref2v-start-image" type="file" accept="image/png,image/jpeg,image/webp">
+              <img id="ref2v-start-preview" alt="Aperçu de la première frame" hidden>
+              <b id="ref2v-start-title">Première frame habillée</b>
+              <small id="ref2v-start-caption">Image exacte à 0,00 s</small>
+            </label>
+            <label class="prompt-upload i2v-upload" for="ref2v-body-image">
+              <input id="ref2v-body-image" type="file" accept="image/png,image/jpeg,image/webp">
+              <img id="ref2v-body-preview" alt="Aperçu de la référence corporelle" hidden>
+              <b id="ref2v-body-title">Référence corporelle</b>
+              <small id="ref2v-body-caption">Référence du même sujet, pas une frame finale</small>
+            </label>
+          </div>
+        </section>
+        <section>
+          <h2>Intention simple</h2>
+          <textarea id="ref2v-intention" rows="7" placeholder="Ex. En dix secondes et sans coupe, elle retire d’abord sa veste puis son haut, et les laisse tomber à côté d’elle." required></textarea>
+          <div class="freedom-control i2v-freedom">
+            <label for="ref2v-freedom">Liberté créative<small id="ref2v-freedom-label">Encadrée</small></label>
+            <input id="ref2v-freedom" type="range" min="0" max="100" step="5" value="35">
+            <output id="ref2v-freedom-value">35</output>
+          </div>
+        </section>
+        <p id="ref2v-setup-error" class="error" role="alert" hidden></p>
+        <button id="ref2v-start" class="primary" type="submit" disabled>Créer le parcours Ref2V</button>
+      </form>
+
+      <div class="recent-sessions">
+        <div class="section-title"><h2>Parcours récents</h2><button id="ref2v-refresh-sessions" class="text-button" type="button">Actualiser</button></div>
+        <div id="ref2v-session-list"><p class="muted">Aucun parcours chargé.</p></div>
+      </div>
+    </aside>
+
+    <div class="prompt-content">
+      <section class="prompt-stagebar" aria-label="Étapes Ref2V">
+        <div id="ref2v-chip-observation" class="stage-chip active"><b>1</b><span>Observation<small>Deux références</small></span></div>
+        <i></i>
+        <div id="ref2v-chip-brief" class="stage-chip future"><b>2</b><span>Brief<small>Ordre et durée</small></span></div>
+        <i></i>
+        <div id="ref2v-chip-prompt" class="stage-chip future"><b>3</b><span>Prompt H3<small>Format compilé</small></span></div>
+      </section>
+
+      <section id="ref2v-empty" class="prompt-empty">
+        <b>Un parcours court et contrôlable</b>
+        <p>Chargez la première frame et une référence corporelle du même sujet. Chaque observation, le brief puis le prompt final restent éditables et validables séparément.</p>
+      </section>
+
+      <section id="ref2v-editor" class="prompt-editor" hidden>
+        <div class="prompt-editor-head">
+          <div><small>REF2V · SESSION</small><h2 id="ref2v-session-title">Deux références</h2></div>
+          <div class="prompt-head-actions"><span id="ref2v-session-progress" class="run-status active">Observations requises</span><button id="ref2v-new-session" type="button">Nouveau</button></div>
+        </div>
+
+        <div class="ref2v-reference-grid">
+          <figure><figcaption>Première frame <small>&lt;Picture 1&gt; · 0,00 s</small></figcaption><div class="i2v-image-stage"><img id="ref2v-start-reference" alt="Première frame Ref2V"></div></figure>
+          <figure><figcaption>Référence corporelle <small>&lt;Picture 2&gt; · sujet uniquement</small></figcaption><div class="i2v-image-stage"><img id="ref2v-body-reference" alt="Référence corporelle Ref2V"></div></figure>
+        </div>
+
+        <details class="cookbook-step" open>
+          <summary><span class="cookbook-step-index">1</span><span class="cookbook-step-copy"><b>Observations</b><small>Analyser et valider chaque image séparément.</small></span><span id="ref2v-observation-review" class="review-pill pending">À générer</span></summary>
+          <div class="cookbook-step-body">
+            <div class="analysis-actions"><button id="ref2v-analyze-all" class="primary compact" type="button">Analyser les deux images</button></div>
+            <div class="ref2v-observation-grid">
+              <section class="ref2v-observation-card">
+                <h3>Première frame habillée</h3>
+                <div class="analysis-actions"><button id="ref2v-generate-start" type="button">Analyser</button><button id="ref2v-save-start" type="button" disabled>Enregistrer</button><button id="ref2v-approve-start" type="button" disabled>Valider</button></div>
+                <div id="ref2v-start-stream-state" class="stream-state" hidden><div><span id="ref2v-start-stream-label">Préparation…</span><output id="ref2v-start-stream-percent"></output></div><progress id="ref2v-start-stream-progress" max="1"></progress></div>
+                <p id="ref2v-start-message" class="message" aria-live="polite"></p>
+                <textarea id="ref2v-start-content" class="cookbook-stage-output" rows="16" placeholder="Observation de la première frame."></textarea>
+                <div class="rewrite-box"><label for="ref2v-start-instruction">Correction en langage naturel</label><div><input id="ref2v-start-instruction" type="text" placeholder="Ex. Précise les vêtements, la pose et les contacts."><button id="ref2v-rewrite-start" type="button" disabled>Proposer</button></div></div>
+              </section>
+              <section class="ref2v-observation-card">
+                <h3>Référence corporelle</h3>
+                <div class="analysis-actions"><button id="ref2v-generate-body" type="button">Analyser</button><button id="ref2v-save-body" type="button" disabled>Enregistrer</button><button id="ref2v-approve-body" type="button" disabled>Valider</button></div>
+                <div id="ref2v-body-stream-state" class="stream-state" hidden><div><span id="ref2v-body-stream-label">Préparation…</span><output id="ref2v-body-stream-percent"></output></div><progress id="ref2v-body-stream-progress" max="1"></progress></div>
+                <p id="ref2v-body-message" class="message" aria-live="polite"></p>
+                <textarea id="ref2v-body-content" class="cookbook-stage-output" rows="16" placeholder="Observation de la référence corporelle."></textarea>
+                <div class="rewrite-box"><label for="ref2v-body-instruction">Correction en langage naturel</label><div><input id="ref2v-body-instruction" type="text" placeholder="Ex. Décris plus précisément les traits corporels visibles."><button id="ref2v-rewrite-body" type="button" disabled>Proposer</button></div></div>
+              </section>
+            </div>
+          </div>
+        </details>
+
+        <details class="cookbook-step" open>
+          <summary><span class="cookbook-step-index">2</span><span class="cookbook-step-copy"><b>Brief</b><small>Structurer durée, ordre, gestes et état final.</small></span><span id="ref2v-brief-review" class="review-pill pending">Observations requises</span></summary>
+          <div class="cookbook-step-body">
+            <p class="cookbook-stage-caption">Intention source : <span id="ref2v-active-intention"></span></p>
+            <div class="analysis-actions"><button id="ref2v-generate-brief" class="primary compact" type="button" disabled>Structurer le brief</button><button id="ref2v-save-brief" type="button" disabled>Enregistrer</button><button id="ref2v-approve-brief" type="button" disabled>Valider</button></div>
+            <div id="ref2v-brief-stream-state" class="stream-state" hidden><div><span id="ref2v-brief-stream-label">Préparation…</span><output id="ref2v-brief-stream-percent"></output></div><progress id="ref2v-brief-stream-progress" max="1"></progress></div>
+            <p id="ref2v-brief-message" class="message" aria-live="polite"></p>
+            <textarea id="ref2v-brief-content" class="cookbook-stage-output" rows="18" placeholder="Le brief structuré apparaîtra ici." disabled></textarea>
+            <div class="rewrite-box"><label for="ref2v-brief-instruction">Demander une modification du brief</label><div><input id="ref2v-brief-instruction" type="text" placeholder="Ex. Rends l’ordre strictement séquentiel et garde dix secondes." disabled><button id="ref2v-rewrite-brief" type="button" disabled>Proposer</button></div></div>
+          </div>
+        </details>
+
+        <details class="cookbook-step" open>
+          <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler le mapping et le plan continu.</small></span><span id="ref2v-prompt-review" class="review-pill pending">Brief requis</span></summary>
+          <div class="cookbook-step-body">
+            <div class="analysis-actions"><button id="ref2v-generate-prompt" class="primary compact" type="button" disabled>Générer le prompt H3</button><button id="ref2v-save-prompt" type="button" disabled>Enregistrer</button><button id="ref2v-approve-prompt" type="button" disabled>Valider</button><button id="ref2v-copy-prompt" type="button" disabled>Copier</button></div>
+            <div id="ref2v-prompt-stream-state" class="stream-state" hidden><div><span id="ref2v-prompt-stream-label">Préparation…</span><output id="ref2v-prompt-stream-percent"></output></div><progress id="ref2v-prompt-stream-progress" max="1"></progress></div>
+            <p id="ref2v-prompt-message" class="message" aria-live="polite"></p>
+            <textarea id="ref2v-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="&lt;Picture 1&gt;: première frame verrouillée…&#10;Use &lt;Picture 2&gt; only as…&#10;&#10;The setting is…&#10;&#10;Shot 1: …&#10;&#10;overall_soundscape: …&#10;&#10;non_diegetic_music: …" disabled></textarea>
+            <div id="ref2v-prompt-lint" class="prompt-lint" role="status"><small>Le format Ref2V compilé sera contrôlé après génération.</small></div>
+            <div class="rewrite-box"><label for="ref2v-prompt-instruction">Demander une modification ciblée</label><div><input id="ref2v-prompt-instruction" type="text" placeholder="Ex. Détaille davantage la trajectoire de la veste sans ajouter de coupe." disabled><button id="ref2v-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
           </div>
         </details>
       </section>
