@@ -42,6 +42,24 @@ PRESET_DIRECTORY = (
 )
 PROFILE_ROOT = PROJECT_ROOT / "prompt_profiles"
 PNG = b"\x89PNG\r\n\x1a\nimage-content"
+BRIEF_DOCUMENT = """INTENTION CENTRALE
+Action centrale.
+RÉFÉRENCES CITÉES ET RÔLES
+Deux références.
+SUJETS ET IDENTITÉS À PRÉSERVER
+Le sujet.
+DÉCOR ET ÉTAT INITIAL
+Le décor initial.
+CHRONOLOGIE ET ACTIONS DEMANDÉES
+Une action.
+CAMÉRA, LUMIÈRE ET MISE EN SCÈNE
+Caméra stable.
+CONTRAINTES STRICTES
+Préserver le sujet.
+LIBERTÉS AUTORISÉES
+Variations mineures.
+QUESTIONS OU AMBIGUÏTÉS
+N/A"""
 
 
 @dataclass(frozen=True)
@@ -67,20 +85,26 @@ class FakeGateway:
 
     def complete(self, request):
         self.requests.append(request)
+        content = (
+            BRIEF_DOCUMENT
+            if request.operation_id == "brief.structure"
+            else f"Analyse {len(self.requests)}"
+        )
         return CompletionResult(
             model_id=request.model_id,
-            content=f"Analyse {len(self.requests)}",
+            content=content,
         )
 
     def stream(self, request):
         self.requests.append(request)
-        content = f"Analyse {len(self.requests)}"
+        is_brief = request.operation_id == "brief.structure"
+        content = BRIEF_DOCUMENT if is_brief else f"Analyse {len(self.requests)}"
         yield CompletionStreamEvent(
             kind=StreamEventKind.STATUS,
             phase=StreamPhase.GENERATING,
             text="Génération…",
         )
-        for part in ("Analyse ", str(len(self.requests))):
+        for part in ((content,) if is_brief else ("Analyse ", str(len(self.requests)))):
             yield CompletionStreamEvent(
                 kind=StreamEventKind.DELTA,
                 phase=StreamPhase.GENERATING,
@@ -161,6 +185,7 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertIn("Prompt Lab", page.text)
         self.assertEqual(script.status_code, 200)
         self.assertIn("/api/prompt-lab/sessions", script.text)
+        self.assertIn("PanelForgeModelPicker.populate", script.text)
         self.assertIn("analyze-all-references", page.text)
         self.assertIn("brief-reference-grid", page.text)
         self.assertEqual(models.status_code, 200)

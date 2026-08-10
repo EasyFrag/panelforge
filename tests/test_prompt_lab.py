@@ -502,7 +502,7 @@ class RecordingGateway:
 
     def complete(self, request):
         self.requests.append(request)
-        if request.operation_id == "brief.revise":
+        if request.operation_id in {"brief.structure", "brief.revise"}:
             content = BRIEF_DOCUMENT
         else:
             content = "Analyse initiale" if len(self.requests) == 1 else "Analyse corrigée"
@@ -624,6 +624,58 @@ class PromptLabServiceTest(unittest.TestCase):
             self.assertIn("Rends la caméra fixe", gateway.requests[-1].user_prompt)
             self.assertEqual(len(session.brief_revisions), 2)
             self.assertTrue(service.approve_brief(session.session_id).brief_complete)
+
+    def test_brief_structure_normalizes_bare_headings(self):
+        bare_brief = "\n".join(
+            line.removeprefix("- ") if line.startswith("- ") else line
+            for line in BRIEF_DOCUMENT.splitlines()
+        )
+
+        class BareBriefGateway(RecordingGateway):
+            def __init__(self):
+                super().__init__()
+                self.brief_content = bare_brief
+
+            def complete(self, request):
+                self.requests.append(request)
+                content = (
+                    self.brief_content
+                    if request.operation_id == "brief.structure"
+                    else "Observation"
+                )
+                return CompletionResult(model_id=request.model_id, content=content)
+
+        with tempfile.TemporaryDirectory() as directory:
+            assets = LocalAssetStore(directory, id_factory=lambda: "asset-1")
+            asset = assets.create(PNG, "image/png")
+            gateway = BareBriefGateway()
+            service = PromptLabService(
+                gateway=gateway,
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=assets,
+                sessions=LocalPromptSessionStore(directory),
+            )
+            session = service.create_session(
+                model_id="vision-model",
+                profile_id="minimax.h3.reference",
+                profile_version="0.3.0",
+                references=(NewReference(asset.asset_id, "hero", "Héros"),),
+            )
+            session = service.analyze_reference(
+                session.session_id,
+                session.references[0].reference_id,
+            )
+            session = service.approve_reference(
+                session.session_id,
+                session.references[0].reference_id,
+            )
+
+            session = service.structure_brief(session.session_id, "Avance.", 35)
+
+            self.assertEqual(session.active_brief_revision.content, BRIEF_DOCUMENT)
+            gateway.brief_content = bare_brief.rsplit("QUESTIONS OU AMBIGUÏTÉS", 1)[0]
+            with self.assertRaisesRegex(ValueError, "QUESTIONS OU AMBIGUÏTÉS"):
+                service.structure_brief(session.session_id, "Avance.", 35)
 
     def test_brief_revision_discards_the_read_only_context_envelope(self):
         original = BRIEF_DOCUMENT

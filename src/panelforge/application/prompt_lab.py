@@ -21,7 +21,7 @@ from panelforge.domain import (
     RevisionOrigin,
 )
 
-from .revised_documents import RevisedDocumentContract
+from .revised_documents import RevisedDocumentContract, strip_markdown_fence
 
 
 _OBSERVATION_LEGACY_CONTRACT = RevisedDocumentContract(
@@ -79,6 +79,9 @@ _BRIEF_CONTRACT = RevisedDocumentContract(
         "- LIBERTÉS AUTORISÉES",
         "- QUESTIONS OU AMBIGUÏTÉS",
     ),
+)
+_BRIEF_HEADINGS = frozenset(
+    marker.removeprefix("- ") for marker in _BRIEF_CONTRACT.markers
 )
 
 
@@ -733,7 +736,7 @@ class PromptLabService:
         return self._append_brief(
             session,
             source_text=source_text,
-            content=_completed_content(result),
+            content=_normalize_brief_document(_completed_content(result)),
             creative_freedom=creative_freedom,
             references=snapshots,
             origin=RevisionOrigin.MODEL,
@@ -765,7 +768,7 @@ class PromptLabService:
             lambda content: self._append_brief(
                 session,
                 source_text=source_text,
-                content=content,
+                content=_normalize_brief_document(content),
                 creative_freedom=creative_freedom,
                 references=snapshots,
                 origin=RevisionOrigin.MODEL,
@@ -781,7 +784,7 @@ class PromptLabService:
         return self._append_brief(
             session,
             source_text=current.source_text,
-            content=_required_text(content, "content"),
+            content=_normalize_brief_document(_required_text(content, "content")),
             creative_freedom=current.creative_freedom,
             references=snapshots,
             origin=RevisionOrigin.MANUAL,
@@ -815,7 +818,7 @@ class PromptLabService:
         return self._append_brief(
             session,
             source_text=current.source_text,
-            content=_BRIEF_CONTRACT.extract(_completed_content(result)),
+            content=_normalize_brief_document(_completed_content(result)),
             creative_freedom=current.creative_freedom,
             references=snapshots,
             origin=RevisionOrigin.REWRITE,
@@ -850,7 +853,7 @@ class PromptLabService:
             lambda content: self._append_brief(
                 session,
                 source_text=current.source_text,
-                content=_BRIEF_CONTRACT.extract(content),
+                content=_normalize_brief_document(content),
                 creative_freedom=current.creative_freedom,
                 references=snapshots,
                 origin=RevisionOrigin.REWRITE,
@@ -996,6 +999,18 @@ def _brief_prompts(profile: PromptProfile) -> tuple[str, str]:
     if profile.brief_system_prompt is None or profile.brief_user_prompt is None:
         raise ValueError("this prompt profile does not support structured briefs")
     return profile.brief_system_prompt, profile.brief_user_prompt
+
+
+def _normalize_brief_document(content: str) -> str:
+    """Canonicalize cosmetic heading bullets, then enforce the full Brief contract."""
+    value = strip_markdown_fence(content).replace("\r\n", "\n")
+    lines: list[str] = []
+    for line in value.split("\n"):
+        candidate = line.strip()
+        if candidate.startswith("-"):
+            candidate = candidate[1:].strip()
+        lines.append(f"- {candidate}" if candidate in _BRIEF_HEADINGS else line)
+    return _BRIEF_CONTRACT.extract("\n".join(lines))
 
 
 def _brief_revision_prompts(profile: PromptProfile) -> tuple[str, str]:

@@ -243,28 +243,11 @@
     try {
       const payload = await request("/api/prompt-lab/models");
       const current = elements.model.value;
-      elements.model.replaceChildren();
-      payload.models.forEach(({ id }) => {
-        const option = document.createElement("option");
-        option.value = id;
-        option.textContent = id;
-        elements.model.append(option);
-      });
-      const identifiers = payload.models.map((model) => model.id);
-      elements.model.value = identifiers.includes(current)
-        ? current
-        : preferredModel(identifiers);
+      window.PanelForgeModelPicker.populate(elements.model, payload.models, current);
       updateCreateButton();
     } finally {
       elements.refreshModels.disabled = false;
     }
-  }
-
-  function preferredModel(identifiers) {
-    return identifiers.find((id) => id.toLowerCase().includes("qwen3.6-27b"))
-      || identifiers.find((id) => id.toLowerCase().includes("qwen3.6-35b-a3b"))
-      || identifiers[0]
-      || "";
   }
 
   elements.refreshModels.addEventListener("click", async () => {
@@ -877,6 +860,7 @@
       if (!completed) {
         throw new Error("Le flux s’est terminé sans résultat persisté.");
       }
+      target.scrollTop = 0;
       if (clearInstruction) clearInstruction.value = "";
       message.textContent = completedMessage;
       return { truncated: false, partialContent: "" };

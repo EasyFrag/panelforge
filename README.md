@@ -35,7 +35,7 @@ image source
 
 Le premier jalon du générateur de prompt est également disponible :
 
-- catalogue de modèles découvert dynamiquement via llama.swap ;
+- catalogue de modèles découvert dynamiquement via llama.swap ; `Qwen3.6-27B-Huihui-abliterated-Q8_0` est présélectionné lorsqu’il est disponible, avec repli gracieux et conservation d’un choix manuel ;
 - profils de prompting immuables et versionnés ; `minimax.h3.reference@0.3.0` ajoute le Brief sans modifier les versions précédentes ;
 - import cumulatif de une à huit images, suppression individuelle et rôle libre ;
 - observation vision lancée séparément pour chaque image, avec action, interactions, état initial et composition ;
@@ -92,7 +92,7 @@ Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journa
 
 ### Ref2V — undressing mono-plan
 
-L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.2.0` ; `0.1.0` reste immuable comme témoin :
+L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.7.1`. Le parcours visible reste volontairement court :
 
 ```text
 première frame habillée + référence corporelle du même sujet
@@ -103,9 +103,25 @@ première frame habillée + référence corporelle du même sujet
 
 `<Picture 1>` est la frame concrète habillée à `0.00` seconde. `<Picture 2>` complète seulement l’apparence corporelle du même sujet et n’est ni une frame finale ni une cible de pose ou de composition. En `0.2.0`, le LLM écrit quatre champs internes — mise en place, action du plan, ambiance sonore et musique — puis PanelForge compile le mapping immuable, `Shot 1:` et les champs audio dans un format compact proche des exemples Ref2V éprouvés. Les sorties incomplètes sont rejetées avant persistance ; le linter verrouille le header, l’unique plan et l’ordre des timestamps.
 
-La version `0.1.0` conserve son writer à six sections Ref2VA afin de permettre une comparaison directe. La future variante à une seule référence corporelle, où les vêtements initiaux sont entièrement décrits, n’est pas incluse dans `0.2.0`.
+La `0.3.0` ajoute deux appels internes derrière le même bouton : un planner produit d’abord un JSON de chorégraphie, puis le writer transforme uniquement ce plan validé en prose H3. Le validateur impose un ordre sans chevauchement, un temps minimal par geste, un état observable pour chaque vêtement, une pose finale tenue au moins deux secondes et, si demandée, une caméra déplacée seulement pendant cette pose. Le JSON n’encombre pas l’éditeur principal mais reste consultable dans un volet avancé.
 
-L’interface permet d’analyser les deux images en une action ou de relancer, corriger et valider chaque observation séparément. Observation et Brief réutilisent volontairement le profil générique `minimax.h3.reference@0.3.0` ; la V0.2 ne modifie donc le Brief d’aucun autre cookbook.
+La `0.4.0` distingue les gestes simples des transformations multi-étapes et estime pour celles-ci une marge supplémentaire de 1,5 seconde. Une marge insuffisante ne bloque plus le writer : le volet du plan affiche la durée minimale conseillée et la génération continue. Les incohérences structurelles — JSON invalide, chevauchement, timestamp hors vidéo — restent bloquantes. La caméra déclare un chemin physique (`pedestal`, `dolly`, `orbit`, `crane`, etc.) et le planner doit conserver une trajectoire de vêtement spatialement continue. Le volet est ouvert par défaut, se remplit pendant le premier appel et conserve aussi un candidat rejeté pour diagnostic.
+
+La `0.5.0` rend la durée élastique. Après le planner, PanelForge conserve chaque durée déjà lisible, agrandit seulement les gestes sous leur marge, décale les étapes suivantes et prolonge la fin jusqu’à un maximum de 15 secondes. Le plan persiste `requested_duration_seconds` et `duration_seconds`, tandis que le writer reçoit uniquement la chronologie finale afin d’éviter toute contradiction. L’interface affiche les deux durées.
+
+La `0.6.0` borne cette redistribution sans modifier les prompts LLM de la `0.5.0`. Les gestes simples gardent le rythme choisi par le planner. Les marges des transformations `multi_step` utilisent d’abord le temps de pose finale disponible au-delà de deux secondes, puis la caméra est recalée ou raccourcie ; la vidéo n’est prolongée qu’en dernier recours. Au plafond de 15 secondes, les marges restantes deviennent des avertissements au lieu de bloquer le writer. Les événements partageant une même frontière temporelle sont autorisés, tout comme un repère final exact à `00:15.000`.
+
+La `0.7.0` remplace ce plafond par un contrat consultatif. Le retiming conserve les marges multi-étapes, le délai d’établissement de la pose et la durée de caméra, puis prolonge la chronologie autant que nécessaire. Une durée supérieure à 15 secondes, un landmark absent ou un écart récupérable du format final apparaît comme avertissement sans empêcher l’enregistrement ni l’approbation ; seuls un plan illisible ou les quatre champs indispensables manquants restent bloquants. Les labels génériques `<Image 1>` et `<Image 2>` produits par le writer sont neutralisés avant compilation du mapping fixe.
+
+La `0.7.1` conserve exactement les prompts de la `0.7.0` et corrige un angle mort technique : si le planner place une pose finale cohérente exactement à la fin demandée, PanelForge ajoute automatiquement au moins deux secondes de tenue, avertit l’utilisateur et poursuit le writer sans relancer le planner. Les chevauchements et l’ordre impossible des actions restent bloquants.
+
+Pour réduire l’influence indésirable de la seconde image, son observation transmise au planner est projetée sur les seuls traits d’apparence ; pose, regard, cadrage, décor et caméra en sont retirés. Le writer reçoit le Brief et le plan approuvé, pas les observations brutes. PanelForge conserve ensuite le même compilateur et le même linter final que la `0.2.0`.
+
+Les versions `0.1.0` à `0.7.0` restent disponibles comme témoins de comparaison. La future variante à une seule référence corporelle, où les vêtements initiaux sont entièrement décrits, n’est pas incluse dans `0.7.1`.
+
+L’interface permet d’analyser les deux images en une action ou de relancer, corriger et valider chaque observation séparément. Observation et Brief réutilisent volontairement le profil générique `minimax.h3.reference@0.3.0` ; les cookbooks Ref2V ne modifient donc le Brief d’aucun autre parcours.
+
+Les neuf titres du Brief sont normalisés par code avec ou sans tiret initial, puis validés exactement une fois et dans le bon ordre avant persistance. Après chaque génération, les éditeurs reviennent en haut du document.
 
 ## Lancer le Lab
 
@@ -152,12 +168,13 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 - rendre et évaluer le cas androïde `0.2.0` : rythme, immobilité demandée, voix et synchronisation labiale ;
 - compiler plus tard les tags H3 stricts depuis des champs structurés, sans alourdir le system prompt ;
 - figer ou réviser `0.2.0` seulement à partir des défauts reproduits sur plusieurs vidéos.
-- comparer `undressing.single_shot@0.2.0` au témoin `0.1.0` sur au moins deux couples de références très différents ; mesurer lisibilité des gestes, respect de l’ordre, continuité corporelle et usage correct de la seconde référence ;
+- qualifier `undressing.single_shot@0.7.1` sur plusieurs couples de références ; mesurer durée planifiée, lisibilité des gestes, délai pose/caméra et valeur réelle des avertissements ;
+- concevoir la `0.8.0` comme un plan chorégraphique supervisé : sous-étapes, durées proposées et contradictions sémantiques visibles, puis correction humaine avant compilation des timestamps ;
 - ne spécialiser le profil Observation/Brief Ref2V que si un même manque se répète sur plusieurs essais.
 
 ### 2. Qualifier Fighter Arcade
 
-- qualifier `Qwen3.6-27B` dense dès qu’il est servi ;
+- qualifier `Qwen3.6-27B-Huihui-abliterated-Q8_0` sur plusieurs jeux de références ;
 - tester le flux complet avec plusieurs jeux de références ;
 - comparer les sorties H3, puis versionner les corrections de prompts et du linter ;
 - rendre durée, issue et intensité caméra paramétrables seulement après qualification.

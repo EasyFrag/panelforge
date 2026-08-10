@@ -1,0 +1,7 @@
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+CODE-VALIDATED CHOREOGRAPHY PLAN
+{{BEAT_SHEET}}
+
+Write the four internal content fields now. Treat the validated plan as the exact timing and choreography contract. The application will compile the reference mapping, Shot 1 heading, and final audio labels.

@@ -1144,6 +1144,11 @@ def _composition_stream_response(
                     "progress": event.progress,
                     "finish_reason": event.finish_reason,
                     "max_tokens": event.max_tokens,
+                    "document_stage": (
+                        event.document_stage.value
+                        if event.document_stage is not None
+                        else None
+                    ),
                 }
                 if event.composition is not None:
                     payload["composition"] = serialize_prompt_composition(

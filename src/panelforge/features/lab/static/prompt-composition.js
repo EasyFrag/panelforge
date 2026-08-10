@@ -517,6 +517,7 @@
         return { truncated: true, partialContent };
       }
       if (!completed) throw new Error("Le flux s’est terminé sans composition persistée.");
+      stage.content.scrollTop = 0;
       stage.message.textContent = completedMessage;
       return { truncated: false, partialContent: "" };
     } catch (error) {

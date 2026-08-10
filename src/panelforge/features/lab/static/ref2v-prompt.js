@@ -11,6 +11,8 @@
     previews: { start: null, body: null },
     session: null,
     composition: null,
+    actionPlanDraft: "",
+    actionPlanLive: false,
     busy: false,
   };
   const elements = {
@@ -34,6 +36,10 @@
     analyzeAll: $("#ref2v-analyze-all"),
     observationReview: $("#ref2v-observation-review"),
     activeIntention: $("#ref2v-active-intention"),
+    actionPlan: $("#ref2v-action-plan"),
+    actionPlanContent: $("#ref2v-action-plan-content"),
+    actionPlanDuration: $("#ref2v-action-plan-duration"),
+    actionPlanWarning: $("#ref2v-action-plan-warning"),
     chips: {
       observation: $("#ref2v-chip-observation"),
       brief: $("#ref2v-chip-brief"),
@@ -97,7 +103,7 @@
       ]);
       state.spec = spec;
       state.cookbook = (cookbooks.cookbooks || []).find(
-        (item) => item.id === "undressing.single_shot" && item.version === "0.2.0",
+        (item) => item.id === "undressing.single_shot" && item.version === "0.7.1",
       ) || null;
       if (!state.cookbook) throw new Error("Cookbook Ref2V undressing indisponible.");
       renderCookbookVersion();
@@ -111,16 +117,7 @@
   async function loadModels() {
     const selected = elements.model.value;
     const payload = await core.request("/api/prompt-lab/models");
-    elements.model.replaceChildren();
-    (payload.models || []).forEach((model) => {
-      const option = document.createElement("option");
-      option.value = model.id;
-      option.textContent = model.id;
-      elements.model.append(option);
-    });
-    if (selected && [...elements.model.options].some((option) => option.value === selected)) {
-      elements.model.value = selected;
-    }
+    window.PanelForgeModelPicker.populate(elements.model, payload.models || [], selected);
     updateStartButton();
   }
 
@@ -160,6 +157,8 @@
   async function openSession(session) {
     state.session = session;
     state.composition = null;
+    state.actionPlanDraft = "";
+    state.actionPlanLive = false;
     if (session.active_brief) {
       elements.intention.value = session.active_brief.source_text;
       elements.freedom.value = String(session.active_brief.creative_freedom);
@@ -197,6 +196,8 @@
     try {
       state.session = await core.request("/api/prompt-lab/sessions", { method: "POST", body });
       state.composition = null;
+      state.actionPlanDraft = "";
+      state.actionPlanLive = false;
       render();
       await loadSessions();
     } catch (error) {
@@ -242,7 +243,11 @@
     elements.empty.hidden = Boolean(session);
     elements.editor.hidden = !session;
     updateStartButton();
-    if (!session) return;
+    if (!session) {
+      elements.actionPlan.hidden = true;
+      elements.actionPlanContent.value = "";
+      return;
+    }
     const refs = {
       start: referenceByRole(session, "ref2v_dressed_start"),
       body: referenceByRole(session, "ref2v_body_reference"),
@@ -277,6 +282,7 @@
     renderObservation(elements.observations.body, refs.body);
     renderBrief(session, observationsApproved, briefInputsCurrent);
     renderPrompt(promptDocument, briefApproved);
+    renderActionPlan();
   }
 
   function renderCookbookVersion() {
@@ -337,7 +343,9 @@
     const complete = Boolean(documentState && documentState.complete);
     const stale = Boolean(documentState && documentState.stale);
     const errors = documentState ? documentState.validation_errors : [];
-    elements.prompt.review.textContent = complete ? "Validé" : stale ? "Obsolète" : active ? "À valider" : "Brief requis";
+    const warnings = documentState ? documentState.validation_warnings : [];
+    elements.prompt.review.textContent = complete ? "Validé" : stale ? "Obsolète"
+      : active ? "À valider" : briefApproved ? "À générer" : "Brief requis";
     elements.prompt.review.className = `review-pill ${complete ? "approved" : "pending"}`;
     elements.prompt.generate.disabled = state.busy || !briefApproved;
     elements.prompt.content.disabled = state.busy || !briefApproved || !state.composition;
@@ -348,17 +356,58 @@
     elements.prompt.rewrite.disabled = state.busy || !active || stale || !elements.prompt.instruction.value.trim();
     const lint = $("#ref2v-prompt-lint");
     lint.replaceChildren();
-    const result = document.createElement(errors.length ? "ul" : "small");
+    const result = document.createElement(errors.length || warnings.length ? "ul" : "small");
     if (draft) result.textContent = "Brouillon local non enregistré : validation à recalculer.";
     else if (!active) result.textContent = "Le format Ref2V compilé sera contrôlé après génération.";
-    else if (!errors.length) result.textContent = "Format Ref2V valide : mapping verrouillé, deux références et un plan continu.";
-    else errors.forEach((error) => {
-      const item = document.createElement("li");
-      item.textContent = error;
-      result.append(item);
-    });
+    else if (!errors.length && !warnings.length) result.textContent = "Format Ref2V valide : mapping verrouillé, deux références et un plan continu.";
+    else {
+      errors.forEach((error) => {
+        const item = document.createElement("li");
+        item.textContent = error;
+        result.append(item);
+      });
+      warnings.forEach((warning) => {
+        const item = document.createElement("li");
+        item.textContent = `Avertissement : ${warning}`;
+        result.append(item);
+      });
+    }
     lint.append(result);
     $("#ref2v-copy-prompt").disabled = state.busy || !complete || stale || draft || Boolean(errors.length);
+  }
+
+  function renderActionPlan() {
+    const cookbook = state.composition && state.composition.cookbook
+      ? state.composition.cookbook : state.cookbook;
+    const documentState = state.composition && state.composition.documents
+      ? state.composition.documents.beat_sheet : null;
+    const visible = Boolean(
+      cookbook && ["0.3.0", "0.4.0", "0.5.0", "0.6.0", "0.7.0", "0.7.1"].includes(cookbook.version),
+    );
+    const persisted = documentState && documentState.active_content
+      ? documentState.active_content : "";
+    elements.actionPlan.hidden = !visible;
+    elements.actionPlanContent.value = !visible ? ""
+      : state.actionPlanLive
+        ? state.actionPlanDraft || "Planification en cours…"
+        : persisted || state.actionPlanDraft || "Aucun plan validé pour le moment.";
+    const warnings = documentState && documentState.validation_warnings
+      ? documentState.validation_warnings : [];
+    elements.actionPlanWarning.textContent = warnings.join(" ");
+    elements.actionPlanWarning.hidden = !visible || !warnings.length;
+    let durationLabel = "";
+    if (persisted) {
+      try {
+        const plan = JSON.parse(persisted);
+        if (plan.requested_duration_seconds && plan.duration_seconds) {
+          durationLabel = `Durée demandée : ${plan.requested_duration_seconds} s · durée planifiée : ${plan.duration_seconds} s`;
+        }
+      } catch (_) {
+        durationLabel = "";
+      }
+    }
+    elements.actionPlanDuration.textContent = durationLabel;
+    elements.actionPlanDuration.hidden = !visible || !durationLabel;
   }
 
   async function sessionAction(url, payload, view, success) {
@@ -431,6 +480,12 @@
   async function streamPrompt(revision = false) {
     try {
       if (!state.composition) await configureRef2V();
+      if (!revision) {
+        state.actionPlanDraft = "";
+        state.actionPlanLive = true;
+        elements.actionPlan.open = true;
+        renderActionPlan();
+      }
       const payload = revision ? { instruction: elements.prompt.instruction.value.trim() } : null;
       const completed = await streamResult(
         `/api/prompt-lab/sessions/${state.session.id}/final-prompt/${revision ? "revise" : "generate"}/stream`,
@@ -467,6 +522,7 @@
   async function streamResult(url, payload, view, onEvent, success) {
     const previous = view.content.value;
     let received = false;
+    let receivedActionPlan = false;
     let completed = false;
     setBusy(true);
     view.content.value = "";
@@ -480,27 +536,55 @@
         body: payload ? JSON.stringify(payload) : undefined,
       }, (event) => {
         core.updateStreamState(view.stream, event);
+        if (event.composition || event.session) {
+          onEvent(event);
+          if (event.composition && event.document_stage === "beat_sheet") {
+            state.actionPlanLive = false;
+          }
+          render();
+          if (event.composition && event.document_stage === "beat_sheet") {
+            elements.actionPlanContent.scrollTop = 0;
+          }
+        }
         if (event.kind === "delta" && event.text) {
-          received = true;
-          view.content.value += event.text;
-          view.content.scrollTop = view.content.scrollHeight;
+          if (event.document_stage === "beat_sheet") {
+            receivedActionPlan = true;
+            state.actionPlanDraft += event.text;
+            elements.actionPlan.hidden = false;
+            elements.actionPlanContent.value = state.actionPlanDraft;
+            elements.actionPlanContent.scrollTop = elements.actionPlanContent.scrollHeight;
+          } else {
+            received = true;
+            view.content.value += event.text;
+            view.content.scrollTop = view.content.scrollHeight;
+          }
         }
         if (event.kind === "completed") {
-          onEvent(event);
           completed = true;
         }
         if (event.kind === "truncated") {
-          received = true;
+          if (event.document_stage === "beat_sheet") {
+            receivedActionPlan = true;
+            if (!state.actionPlanDraft && event.text) state.actionPlanDraft = event.text;
+            renderActionPlan();
+          } else {
+            received = true;
+          }
           view.message.className = "message warning-text";
           view.message.textContent = "Réponse tronquée : le brouillon partiel reste éditable.";
         }
       });
       if (!completed) throw new Error("Le flux s’est terminé sans résultat persistant.");
+      state.actionPlanLive = false;
+      view.content.scrollTop = 0;
       view.message.textContent = success;
       return true;
     } catch (error) {
       if (!received) view.content.value = previous;
       showStageError(view, error, received);
+      if (!received && receivedActionPlan) {
+        view.message.textContent = `${error.message} Le plan candidat rejeté reste visible pour diagnostic.`;
+      }
       core.failStreamState(view.stream, error.message);
       return false;
     } finally {
@@ -530,7 +614,13 @@
   elements.model.addEventListener("change", updateStartButton);
   elements.intention.addEventListener("input", () => { updateStartButton(); render(); });
   elements.freedom.addEventListener("input", () => { updateFreedom(); render(); });
-  elements.newSession.addEventListener("click", () => { state.session = null; state.composition = null; render(); });
+  elements.newSession.addEventListener("click", () => {
+    state.session = null;
+    state.composition = null;
+    state.actionPlanDraft = "";
+    state.actionPlanLive = false;
+    render();
+  });
   elements.analyzeAll.addEventListener("click", async () => {
     for (const name of ["start", "body"]) {
       const reference = referenceByRole(state.session, elements.observations[name].role);

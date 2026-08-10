@@ -291,6 +291,10 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .cookbook-step .cookbook-stage-output { min-height: 260px; color: var(--ink); background: white; font: .72rem/1.55 ui-monospace, monospace; }
 .cookbook-step .final-prompt-output { min-height: 420px; }
 .prompt-lint { color: var(--muted); }
+.internal-plan { margin: .65rem 0; padding: .65rem; border: 1px dashed #b8b2a7; border-radius: 9px; background: #fbfaf7; }
+.internal-plan summary { cursor: pointer; font-size: .7rem; font-weight: 800; }
+.internal-plan summary small { margin-left: .4rem; color: var(--muted); font-weight: 500; }
+.internal-plan textarea { width: 100%; margin-top: .65rem; color: var(--muted); background: white; font: .68rem/1.5 ui-monospace, monospace; }
 .i2v-upload { min-height: 150px; overflow: hidden; }
 .i2v-upload img { width: 100%; max-height: 190px; object-fit: contain; background: #dedbd3; }
 .i2v-upload img:not([hidden]) ~ b, .i2v-upload img:not([hidden]) ~ small { padding: 0 .5rem; }

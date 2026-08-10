@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
   <link rel="stylesheet" href="/static/lab.css?v=20260809.2">
-  <script src="/static/lab.js?v=20260809.2" defer></script>
-  <script src="/static/prompt-lab.js?v=20260809.2" defer></script>
-  <script src="/static/prompt-composition.js?v=20260809.2" defer></script>
-  <script src="/static/i2v-prompt.js?v=20260809.2" defer></script>
-  <script src="/static/ref2v-prompt.js?v=20260809.2" defer></script>
+  <script src="/static/lab.js?v=20260810.1" defer></script>
+  <script src="/static/prompt-lab.js?v=20260810.2" defer></script>
+  <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
+  <script src="/static/i2v-prompt.js?v=20260810.2" defer></script>
+  <script src="/static/ref2v-prompt.js?v=20260810.6" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -656,6 +656,12 @@
             <div class="analysis-actions"><button id="ref2v-generate-prompt" class="primary compact" type="button" disabled>Générer le prompt H3</button><button id="ref2v-save-prompt" type="button" disabled>Enregistrer</button><button id="ref2v-approve-prompt" type="button" disabled>Valider</button><button id="ref2v-copy-prompt" type="button" disabled>Copier</button></div>
             <div id="ref2v-prompt-stream-state" class="stream-state" hidden><div><span id="ref2v-prompt-stream-label">Préparation…</span><output id="ref2v-prompt-stream-percent"></output></div><progress id="ref2v-prompt-stream-progress" max="1"></progress></div>
             <p id="ref2v-prompt-message" class="message" aria-live="polite"></p>
+            <details id="ref2v-action-plan" class="internal-plan" open hidden>
+              <summary>Plan chorégraphique interne <small>Candidat contrôlé avant la rédaction</small></summary>
+              <p id="ref2v-action-plan-duration" class="message" hidden></p>
+              <p id="ref2v-action-plan-warning" class="message warning-text" role="status" hidden></p>
+              <textarea id="ref2v-action-plan-content" rows="15" readonly aria-label="Plan chorégraphique interne"></textarea>
+            </details>
             <textarea id="ref2v-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="&lt;Picture 1&gt;: première frame verrouillée…&#10;Use &lt;Picture 2&gt; only as…&#10;&#10;The setting is…&#10;&#10;Shot 1: …&#10;&#10;overall_soundscape: …&#10;&#10;non_diegetic_music: …" disabled></textarea>
             <div id="ref2v-prompt-lint" class="prompt-lint" role="status"><small>Le format Ref2V compilé sera contrôlé après génération.</small></div>
             <div class="rewrite-box"><label for="ref2v-prompt-instruction">Demander une modification ciblée</label><div><input id="ref2v-prompt-instruction" type="text" placeholder="Ex. Détaille davantage la trajectoire de la veste sans ajouter de coupe." disabled><button id="ref2v-rewrite-prompt" type="button" disabled>Proposer</button></div></div>

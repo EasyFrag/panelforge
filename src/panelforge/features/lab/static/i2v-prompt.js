@@ -97,16 +97,7 @@
   async function loadModels() {
     const selected = elements.model.value;
     const payload = await core.request("/api/prompt-lab/models");
-    elements.model.replaceChildren();
-    (payload.models || []).forEach((model) => {
-      const option = document.createElement("option");
-      option.value = model.id;
-      option.textContent = model.id;
-      elements.model.append(option);
-    });
-    if (selected && [...elements.model.options].some((option) => option.value === selected)) {
-      elements.model.value = selected;
-    }
+    window.PanelForgeModelPicker.populate(elements.model, payload.models || [], selected);
     updateStartButton();
   }
 
@@ -461,6 +452,7 @@
         }
       });
       if (!completed) throw new Error("Le flux s’est terminé sans résultat persistant.");
+      targetStage.content.scrollTop = 0;
       targetStage.message.textContent = success;
       return true;
     } catch (error) {

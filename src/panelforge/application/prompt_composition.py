@@ -25,6 +25,31 @@ from .prompt_lab import (
     StreamEventKind,
     StreamPhase,
 )
+from .ref2v_action_plan import (
+    canonical_ref2v_action_plan,
+    canonical_ref2v_action_plan_v2,
+    lint_ref2v_advisory_action_plan,
+    lint_ref2v_bounded_action_plan,
+    lint_ref2v_elastic_action_plan,
+    lint_ref2v_action_plan,
+    lint_ref2v_action_plan_v2,
+    parse_ref2v_advisory_action_plan,
+    ref2v_advisory_action_plan_warnings,
+    ref2v_advisory_writer_plan,
+    ref2v_bounded_action_plan_warnings,
+    ref2v_bounded_writer_plan,
+    ref2v_elastic_action_plan_warnings,
+    ref2v_elastic_writer_plan,
+    ref2v_action_plan_warnings_v2,
+    ref2v_action_plan_schema,
+    ref2v_action_plan_schema_v2,
+    ref2v_action_plan_schema_v3,
+    ref2v_repairable_action_plan_schema,
+    retime_ref2v_advisory_action_plan,
+    retime_ref2v_bounded_action_plan,
+    retime_ref2v_action_plan_v2,
+    retime_ref2v_repairable_action_plan,
+)
 from .revised_documents import RevisedDocumentContract
 
 
@@ -64,6 +89,24 @@ _I2VA_FIELDS = (
     "non_diegetic_music",
 )
 _REF2V_COMPILED_CONTRACT = "minimax.h3.ref2v.single_shot_compiled"
+_REF2V_PLANNED_CONTRACT = "minimax.h3.ref2v.single_shot_planned"
+_REF2V_PLANNED_V2_CONTRACT = "minimax.h3.ref2v.single_shot_planned_v2"
+_REF2V_ELASTIC_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v1"
+_REF2V_BOUNDED_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v2"
+_REF2V_ADVISORY_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v3"
+_REF2V_RECOVERABLE_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v4"
+_REF2V_ADVISORY_CONTRACTS = {
+    _REF2V_ADVISORY_CONTRACT,
+    _REF2V_RECOVERABLE_CONTRACT,
+}
+_REF2V_PLANNED_CONTRACTS = {
+    _REF2V_PLANNED_CONTRACT,
+    _REF2V_PLANNED_V2_CONTRACT,
+    _REF2V_ELASTIC_CONTRACT,
+    _REF2V_BOUNDED_CONTRACT,
+    _REF2V_ADVISORY_CONTRACT,
+    _REF2V_RECOVERABLE_CONTRACT,
+}
 _REF2V_EDITABLE_FIELDS = (
     "scene_setup",
     "shot_1",
@@ -160,6 +203,7 @@ class CompositionStreamEvent:
     composition: PromptComposition | None = None
     finish_reason: str | None = None
     max_tokens: int | None = None
+    document_stage: CompositionStage | None = None
 
 
 def composition_picture_mapping(
@@ -267,6 +311,7 @@ class PromptCompositionService:
                             cookbook,
                             stage,
                             document.active_revision.content,
+                            composition=composition,
                         )
                         if document.active_revision is not None and cookbook is not None
                         else ()
@@ -276,6 +321,24 @@ class PromptCompositionService:
         return tuple(statuses)
 
     def generate(
+        self,
+        source_session_id: str,
+        stage: CompositionStage,
+    ) -> PromptComposition:
+        composition = self.compositions.get(source_session_id)
+        cookbook = self.cookbooks.get(
+            composition.cookbook.cookbook_id,
+            composition.cookbook.version,
+        )
+        if (
+            cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
+            and stage is CompositionStage.FINAL_PROMPT
+        ):
+            self._generate_stage(source_session_id, CompositionStage.BEAT_SHEET)
+            self.approve(source_session_id, CompositionStage.BEAT_SHEET)
+        return self._generate_stage(source_session_id, stage)
+
+    def _generate_stage(
         self,
         source_session_id: str,
         stage: CompositionStage,
@@ -301,6 +364,21 @@ class PromptCompositionService:
         source_session_id: str,
         stage: CompositionStage,
     ) -> Iterator[CompositionStreamEvent]:
+        composition = self.compositions.get(source_session_id)
+        cookbook = self.cookbooks.get(
+            composition.cookbook.cookbook_id,
+            composition.cookbook.version,
+        )
+        if (
+            cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
+            and stage is CompositionStage.FINAL_PROMPT
+        ):
+            plan_request = self._request(
+                source_session_id,
+                CompositionStage.BEAT_SHEET,
+                instruction=None,
+            )
+            return self._stream_planned_final(source_session_id, plan_request)
         session, composition, cookbook, expected, request, prefix = self._request(
             source_session_id,
             stage,
@@ -314,6 +392,86 @@ class PromptCompositionService:
             stage,
             expected,
             prefix,
+            RevisionOrigin.MODEL,
+        )
+
+    def _stream_planned_final(
+        self,
+        source_session_id: str,
+        plan_request: tuple[
+            PromptLabSession,
+            PromptComposition,
+            PromptCookbookPort,
+            tuple[str, ...],
+            CompletionRequest,
+            str,
+        ],
+    ) -> Iterator[CompositionStreamEvent]:
+        session, composition, cookbook, expected, request, prefix = plan_request
+        yield CompositionStreamEvent(
+            kind=StreamEventKind.STATUS,
+            phase=StreamPhase.PREPARING,
+            text="Planification de la chorégraphie…",
+        )
+        plan_completed = False
+        for event in self._stream(
+            request,
+            cookbook,
+            session,
+            composition,
+            CompositionStage.BEAT_SHEET,
+            expected,
+            prefix,
+            RevisionOrigin.MODEL,
+        ):
+            if event.kind is StreamEventKind.COMPLETED:
+                plan_completed = True
+            elif event.kind is StreamEventKind.TRUNCATED:
+                yield CompositionStreamEvent(
+                    kind=StreamEventKind.TRUNCATED,
+                    phase=StreamPhase.TRUNCATED,
+                    text=event.text,
+                    finish_reason=event.finish_reason,
+                    max_tokens=event.max_tokens,
+                    document_stage=CompositionStage.BEAT_SHEET,
+                )
+                return
+            elif event.kind is StreamEventKind.DELTA:
+                yield CompositionStreamEvent(
+                    kind=event.kind,
+                    phase=event.phase,
+                    text=event.text,
+                    progress=event.progress,
+                    document_stage=CompositionStage.BEAT_SHEET,
+                )
+            else:
+                yield event
+        if not plan_completed:
+            raise ValueError("action-plan stream ended before completion")
+        approved_plan = self.approve(
+            source_session_id,
+            CompositionStage.BEAT_SHEET,
+        )
+        yield CompositionStreamEvent(
+            kind=StreamEventKind.STATUS,
+            phase=StreamPhase.PREPARING,
+            text="Plan validé. Rédaction du prompt H3…",
+            composition=approved_plan,
+            document_stage=CompositionStage.BEAT_SHEET,
+        )
+        final_request = self._request(
+            source_session_id,
+            CompositionStage.FINAL_PROMPT,
+            instruction=None,
+        )
+        yield from self._stream(
+            final_request[4],
+            final_request[2],
+            final_request[0],
+            final_request[1],
+            CompositionStage.FINAL_PROMPT,
+            final_request[3],
+            final_request[5],
             RevisionOrigin.MODEL,
         )
 
@@ -445,6 +603,13 @@ class PromptCompositionService:
         else:
             if not isinstance(instruction, str) or not instruction.strip():
                 raise ValueError("instruction must not be empty")
+            if (
+                cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
+                and stage is CompositionStage.BEAT_SHEET
+            ):
+                raise ValueError(
+                    "the internal action plan must be regenerated, not rewritten"
+                )
             current = composition.document(stage).active_revision
             if current is None:
                 raise ValueError("generate this stage before requesting a revision")
@@ -460,10 +625,30 @@ class PromptCompositionService:
                 cookbook.revision_system_prompt,
                 STAGE_CONTRACT=_stage_contract(stage, cookbook),
             )
+            revision_values = {
+                "CURRENT": editable_current,
+                "INSTRUCTION": instruction.strip(),
+            }
+            if (
+                cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
+                and stage is CompositionStage.FINAL_PROMPT
+            ):
+                action_plan = _approved_stage(
+                    composition,
+                    CompositionStage.BEAT_SHEET,
+                    self._expected_sources(
+                        session,
+                        composition,
+                        CompositionStage.BEAT_SHEET,
+                    ),
+                )
+                revision_values["PLAN"] = _writer_action_plan(
+                    cookbook,
+                    action_plan.content,
+                )
             user_prompt = _render(
                 cookbook.revision_user_prompt,
-                CURRENT=editable_current,
-                INSTRUCTION=instruction.strip(),
+                **revision_values,
             )
             origin_operation = "revise"
         if (
@@ -481,6 +666,12 @@ class PromptCompositionService:
                 ),
             )
             prefix = _reference_prefix(reference_plan.content)
+        operation_stage = (
+            "action_plan"
+            if cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
+            and stage is CompositionStage.BEAT_SHEET
+            else stage.value
+        )
         request = CompletionRequest(
             model_id=session.model_id,
             system_prompt=system_prompt,
@@ -491,7 +682,7 @@ class PromptCompositionService:
                 CompositionStage.FINAL_PROMPT: 0.2,
             }[stage],
             max_tokens=32768,
-            operation_id=f"{stage.value}.{origin_operation}",
+            operation_id=f"{operation_stage}.{origin_operation}",
         )
         return session, composition, cookbook, expected, request, prefix
 
@@ -503,6 +694,64 @@ class PromptCompositionService:
         stage: CompositionStage,
     ) -> tuple[str, str]:
         brief = _approved_brief(session)
+        if cookbook.output_contract in _REF2V_PLANNED_CONTRACTS:
+            if stage is CompositionStage.BEAT_SHEET:
+                return (
+                    _required_prompt(
+                        cookbook.beat_sheet_system_prompt,
+                        "beat_sheet_system",
+                    ),
+                    _render(
+                        _required_prompt(
+                            cookbook.beat_sheet_user_prompt,
+                            "beat_sheet_user",
+                        ),
+                        BRIEF=brief.content,
+                        REFERENCES=_action_plan_reference_context(
+                            session,
+                            composition,
+                            cookbook,
+                        ),
+                        ACTION_PLAN_SCHEMA=(
+                            ref2v_repairable_action_plan_schema()
+                            if cookbook.output_contract == _REF2V_RECOVERABLE_CONTRACT
+                            else ref2v_action_plan_schema_v3()
+                            if cookbook.output_contract == _REF2V_ADVISORY_CONTRACT
+                            else ref2v_action_plan_schema_v2()
+                            if cookbook.output_contract in {
+                                _REF2V_PLANNED_V2_CONTRACT,
+                                _REF2V_ELASTIC_CONTRACT,
+                                _REF2V_BOUNDED_CONTRACT,
+                            }
+                            else ref2v_action_plan_schema()
+                        ),
+                    ),
+                )
+            if stage is not CompositionStage.FINAL_PROMPT:
+                raise ValueError(f"stage {stage.value} is not active for this cookbook")
+            action_plan = _approved_stage(
+                composition,
+                CompositionStage.BEAT_SHEET,
+                self._expected_sources(
+                    session,
+                    composition,
+                    CompositionStage.BEAT_SHEET,
+                ),
+            )
+            return (
+                _required_prompt(
+                    cookbook.final_prompt_system_prompt,
+                    "final_prompt_system",
+                ),
+                _render(
+                    _required_prompt(
+                        cookbook.final_prompt_user_prompt,
+                        "final_prompt_user",
+                    ),
+                    BRIEF=brief.content,
+                    BEAT_SHEET=_writer_action_plan(cookbook, action_plan.content),
+                ),
+            )
         if cookbook.stages == (CompositionStage.FINAL_PROMPT.value,):
             return (
                 _required_prompt(
@@ -589,6 +838,23 @@ class PromptCompositionService:
         )
         if stage.value not in cookbook.stages:
             raise ValueError(f"stage {stage.value} is not active for this cookbook")
+        if cookbook.output_contract in _REF2V_PLANNED_CONTRACTS:
+            action_plan_sources = (
+                f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
+                f"brief:{brief.revision_id}",
+                *_binding_source_snapshots(session, composition),
+            )
+            if stage is CompositionStage.BEAT_SHEET:
+                return action_plan_sources
+            action_plan = _approved_stage(
+                composition,
+                CompositionStage.BEAT_SHEET,
+                action_plan_sources,
+            )
+            return (
+                f"brief:{brief.revision_id}",
+                f"action_plan:{action_plan.revision_id}",
+            )
         if cookbook.stages == (CompositionStage.FINAL_PROMPT.value,):
             values = [
                 f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
@@ -696,8 +962,18 @@ class PromptCompositionService:
                 stage,
                 content,
             )
-        elif cookbook.output_contract == _REF2V_COMPILED_CONTRACT:
-            _raise_compiled_ref2v_labels(composition, stage, content)
+        elif cookbook.output_contract in {
+            _REF2V_COMPILED_CONTRACT,
+            *_REF2V_PLANNED_CONTRACTS,
+        }:
+            _raise_compiled_ref2v_labels(
+                composition,
+                stage,
+                content,
+                enforce_content=(
+                    cookbook.output_contract not in _REF2V_ADVISORY_CONTRACTS
+                ),
+            )
         elif cookbook.output_contract == "minimax.h3.i2va":
             _raise_i2v_labels(composition, stage, content)
         else:
@@ -860,6 +1136,38 @@ def lint_cookbook_document(
         if stage is not CompositionStage.FINAL_PROMPT:
             return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
         return lint_compiled_ref2v_single_shot_prompt(content)
+    if cookbook.output_contract == _REF2V_PLANNED_CONTRACT:
+        if stage is CompositionStage.BEAT_SHEET:
+            return lint_ref2v_action_plan(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            return lint_compiled_ref2v_single_shot_prompt(content)
+        return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
+    if cookbook.output_contract == _REF2V_PLANNED_V2_CONTRACT:
+        if stage is CompositionStage.BEAT_SHEET:
+            return lint_ref2v_action_plan_v2(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            return lint_compiled_ref2v_single_shot_prompt(content)
+        return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
+    if cookbook.output_contract == _REF2V_ELASTIC_CONTRACT:
+        if stage is CompositionStage.BEAT_SHEET:
+            return lint_ref2v_elastic_action_plan(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            return lint_compiled_ref2v_single_shot_prompt(content)
+        return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
+    if cookbook.output_contract == _REF2V_BOUNDED_CONTRACT:
+        if stage is CompositionStage.BEAT_SHEET:
+            return lint_ref2v_bounded_action_plan(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            return lint_compiled_ref2v_single_shot_prompt(content)
+        return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
+    if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
+        if stage is CompositionStage.BEAT_SHEET:
+            return lint_ref2v_advisory_action_plan(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            if not isinstance(content, str) or not content.strip():
+                return ("Le prompt Ref2V compilé est vide.",)
+            return ()
+        return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
     if cookbook.output_contract == "minimax.h3.i2va":
         if stage is not CompositionStage.FINAL_PROMPT:
             return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
@@ -1008,13 +1316,45 @@ def lint_compiled_ref2v_single_shot_prompt(content: str) -> tuple[str, ...]:
         if seconds >= 60:
             errors.append("Un timestamp de Shot 1 est invalide.")
         timestamps.append(minutes * 60 + seconds + milliseconds / 1000)
-    if timestamps != sorted(set(timestamps)):
-        errors.append("Les timestamps de Shot 1 doivent être strictement croissants.")
-    if timestamps and timestamps[-1] >= 15:
-        errors.append("Un timestamp atteint ou dépasse la durée maximale de 15 secondes.")
+    if timestamps != sorted(timestamps):
+        errors.append("Les timestamps de Shot 1 doivent être non décroissants.")
+    if timestamps and timestamps[-1] > 15:
+        errors.append("Un timestamp dépasse la durée maximale de 15 secondes.")
     if value.count("<d>") != value.count("</d>"):
         errors.append("Les balises de dialogue <d> ne sont pas équilibrées.")
     return tuple(errors)
+
+
+def _ref2v_landmark_warnings(
+    plan_content: str,
+    prompt_content: str,
+) -> tuple[str, ...]:
+    try:
+        plan = parse_ref2v_advisory_action_plan(plan_content)
+    except (TypeError, ValueError):
+        return ()
+    landmarks_ms: list[int] = []
+    for beat in plan.beats:
+        landmarks_ms.extend((beat.start_ms, beat.end_ms))
+    landmarks_ms.append(plan.final_pose.start_ms)
+    if plan.camera is not None:
+        landmarks_ms.extend((plan.camera.start_ms, plan.camera.end_ms))
+    landmarks_ms.append(plan.duration_seconds * 1000)
+    expected = tuple(dict.fromkeys(_format_landmark(value) for value in landmarks_ms))
+    missing = tuple(value for value in expected if f"At {value}" not in prompt_content)
+    if not missing:
+        return ()
+    return (
+        "Landmarks du plan absents sous la forme `At MM:SS.mmm` : "
+        + ", ".join(missing)
+        + ". Le prompt reste utilisable et approuvable.",
+    )
+
+
+def _format_landmark(milliseconds: int) -> str:
+    minutes, remainder = divmod(milliseconds, 60_000)
+    seconds, millis = divmod(remainder, 1_000)
+    return f"{minutes:02d}:{seconds:02d}.{millis:03d}"
 
 
 def lint_i2v_prompt(content: str) -> tuple[str, ...]:
@@ -1072,7 +1412,45 @@ def composition_document_warnings(
     cookbook: PromptCookbookPort,
     stage: CompositionStage,
     content: str,
+    *,
+    composition: PromptComposition | None = None,
 ) -> tuple[str, ...]:
+    if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
+        if stage is CompositionStage.BEAT_SHEET:
+            return ref2v_advisory_action_plan_warnings(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            warnings = [
+                (
+                    "Un timestamp dépasse 15 s. Le prompt reste utilisable ; "
+                    "vérifiez la durée acceptée par le moteur vidéo ciblé."
+                    if warning == "Un timestamp dépasse la durée maximale de 15 secondes."
+                    else warning
+                )
+                for warning in lint_compiled_ref2v_single_shot_prompt(content)
+            ]
+            if composition is not None:
+                plan = composition.beat_sheet.active_revision
+                if plan is not None:
+                    warnings.extend(
+                        _ref2v_landmark_warnings(plan.content, content)
+                    )
+            return tuple(dict.fromkeys(warnings))
+        return ()
+    if (
+        cookbook.output_contract == _REF2V_BOUNDED_CONTRACT
+        and stage is CompositionStage.BEAT_SHEET
+    ):
+        return ref2v_bounded_action_plan_warnings(content)
+    if (
+        cookbook.output_contract == _REF2V_ELASTIC_CONTRACT
+        and stage is CompositionStage.BEAT_SHEET
+    ):
+        return ref2v_elastic_action_plan_warnings(content)
+    if (
+        cookbook.output_contract == _REF2V_PLANNED_V2_CONTRACT
+        and stage is CompositionStage.BEAT_SHEET
+    ):
+        return ref2v_action_plan_warnings_v2(content)
     if (
         cookbook.output_contract != "minimax.h3.ref2va"
         or stage is not CompositionStage.FINAL_PROMPT
@@ -1268,12 +1646,18 @@ def _raise_compiled_ref2v_labels(
     composition: PromptComposition,
     stage: CompositionStage,
     content: str,
+    *,
+    enforce_content: bool = True,
 ) -> None:
-    if stage is not CompositionStage.FINAL_PROMPT:
-        raise ValueError("compiled Ref2V exposes only final_prompt")
     mapping = composition_picture_mapping(composition)
     if len(mapping) != 2 or tuple(number for _, number in mapping) != (1, 2):
         raise ValueError("compiled Ref2V requires exactly two local picture bindings")
+    if stage is CompositionStage.BEAT_SHEET:
+        return
+    if stage is not CompositionStage.FINAL_PROMPT:
+        raise ValueError("compiled Ref2V exposes only its action plan and final_prompt")
+    if not enforce_content:
+        return
     picture_numbers = {
         int(value) for value in re.findall(r"<Picture\s+(\d+)>", content)
     }
@@ -1443,6 +1827,75 @@ def _reference_context(
     return "\n".join(chunks).strip()
 
 
+_BODY_REFERENCE_SECTIONS = {
+    "SUJETS VISIBLES",
+    "ÂGE APPARENT ET INCERTITUDE",
+    "APPARENCE ET TRAITS DISTINCTIFS",
+    "VÊTEMENTS, ACCESSOIRES ET OBJETS",
+    "CONTENU SENSIBLE OU ADULTE VISIBLE",
+    "ÉLÉMENTS À PRÉSERVER",
+    "INCERTITUDES",
+}
+
+
+def _action_plan_reference_context(
+    session: PromptLabSession,
+    composition: PromptComposition,
+    cookbook: PromptCookbookPort,
+) -> str:
+    """Build planner evidence while excluding pose/composition leakage from Picture 2."""
+    slots = {slot.slot_id: slot for slot in cookbook.slots}
+    picture_numbers = dict(composition_picture_mapping(composition))
+    chunks: list[str] = []
+    for binding in composition.bindings:
+        slot = slots[binding.slot_id]
+        chunks.append(f"SLOT {binding.slot_id} — {slot.label}")
+        chunks.append(f"fixed role: {slot.description}")
+        for reference_id in binding.reference_ids:
+            reference = session.reference(reference_id)
+            picture_index = picture_numbers[reference_id]
+            observation = reference.active_revision.content
+            if binding.slot_id == "body_reference":
+                observation = _appearance_only_observation(observation)
+                chunks.append(
+                    f"<Picture {picture_index}> / {reference.label} "
+                    "(appearance-only projection)"
+                )
+            else:
+                chunks.append(f"<Picture {picture_index}> / {reference.label}")
+            chunks.extend(
+                (
+                    "uses: " + ", ".join(use.value for use in reference.uses),
+                    "approved visual observation:",
+                    observation,
+                )
+            )
+            if (
+                binding.slot_id != "body_reference"
+                and reference.interpretation_review_status.value == "approved"
+                and reference.active_interpretation is not None
+            ):
+                chunks.extend(
+                    (
+                        "optional approved MiniMax interpretation:",
+                        reference.active_interpretation.content,
+                    )
+                )
+        chunks.append("")
+    return "\n".join(chunks).strip()
+
+
+def _appearance_only_observation(content: str) -> str:
+    headings = list(re.finditer(r"(?m)^-\s+([^\r\n]+?)\s*$", content))
+    selected: list[str] = []
+    for index, heading in enumerate(headings):
+        if heading.group(1).strip() not in _BODY_REFERENCE_SECTIONS:
+            continue
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(content)
+        selected.append(content[heading.start() : end].strip())
+    return "\n\n".join(selected) if selected else content
+
+
 def _binding_source_snapshots(
     session: PromptLabSession,
     composition: PromptComposition,
@@ -1486,9 +1939,42 @@ def _compile_content(
 ) -> str:
     body = _strip_fence(result)
     if (
-        stage is CompositionStage.FINAL_PROMPT
-        and cookbook.output_contract == _REF2V_COMPILED_CONTRACT
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_RECOVERABLE_CONTRACT
     ):
+        content = retime_ref2v_repairable_action_plan(body)
+    elif (
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_ADVISORY_CONTRACT
+    ):
+        content = retime_ref2v_advisory_action_plan(body)
+    elif (
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_BOUNDED_CONTRACT
+    ):
+        content = retime_ref2v_bounded_action_plan(body)
+    elif (
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_ELASTIC_CONTRACT
+    ):
+        content = retime_ref2v_action_plan_v2(body)
+    elif (
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_PLANNED_V2_CONTRACT
+    ):
+        content = canonical_ref2v_action_plan_v2(body)
+    elif (
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_PLANNED_CONTRACT
+    ):
+        content = canonical_ref2v_action_plan(body)
+    elif (
+        stage is CompositionStage.FINAL_PROMPT
+        and cookbook.output_contract
+        in {_REF2V_COMPILED_CONTRACT, *_REF2V_PLANNED_CONTRACTS}
+    ):
+        if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
+            body = _normalize_ref2v_model_labels(body)
         editable = _REF2V_EDITABLE_CONTRACT.extract(body)
         content = _compile_ref2v_single_shot(editable)
     elif (
@@ -1503,11 +1989,25 @@ def _compile_content(
     return content
 
 
+def _writer_action_plan(cookbook: PromptCookbookPort, content: str) -> str:
+    if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
+        return ref2v_advisory_writer_plan(content)
+    if cookbook.output_contract == _REF2V_BOUNDED_CONTRACT:
+        return ref2v_bounded_writer_plan(content)
+    if cookbook.output_contract == _REF2V_ELASTIC_CONTRACT:
+        return ref2v_elastic_writer_plan(content)
+    return content
+
+
 def _revision_document_contract(
     cookbook: PromptCookbookPort,
     stage: CompositionStage,
 ) -> RevisedDocumentContract:
-    if cookbook.output_contract == _REF2V_COMPILED_CONTRACT:
+    if (
+        cookbook.output_contract
+        in {_REF2V_COMPILED_CONTRACT, *_REF2V_PLANNED_CONTRACTS}
+        and stage is CompositionStage.FINAL_PROMPT
+    ):
         return _REF2V_EDITABLE_CONTRACT
     if cookbook.output_contract == "minimax.h3.i2va":
         markers = (
@@ -1553,6 +2053,20 @@ def _strip_fence(content: str) -> str:
     return value
 
 
+def _normalize_ref2v_model_labels(content: str) -> str:
+    """Neutralize recoverable model-owned labels before adding the fixed mapping."""
+    value = re.sub(
+        r"(?i)(?:<Image\s+1>|@image\s*1\b)",
+        "the supplied starting frame",
+        content,
+    )
+    return re.sub(
+        r"(?i)(?:<Image\s+2>|@image\s*2\b)",
+        "the supplied body-appearance reference",
+        value,
+    )
+
+
 def _raise_sections(content: str, sections: tuple[str, ...]) -> None:
     positions: list[int] = []
     for section in sections:
@@ -1568,7 +2082,11 @@ def _stage_contract(
     stage: CompositionStage,
     cookbook: PromptCookbookPort,
 ) -> str:
-    if cookbook.output_contract == _REF2V_COMPILED_CONTRACT:
+    if (
+        cookbook.output_contract
+        in {_REF2V_COMPILED_CONTRACT, *_REF2V_PLANNED_CONTRACTS}
+        and stage is CompositionStage.FINAL_PROMPT
+    ):
         return (
             "Return exactly scene_setup:, shot_1:, overall_soundscape:, and "
             "non_diegetic_music:. PanelForge compiles the fixed <Picture 1> first-frame "
@@ -1598,14 +2116,14 @@ def _stage_contract(
 
 
 def _compile_ref2v_single_shot(editable: str) -> str:
-    scene = _section_body(editable, "scene_setup", "shot_1").strip()
-    shot = _section_body(editable, "shot_1", "overall_soundscape").strip()
-    soundscape = _section_body(
+    scene = _inline_field_body(editable, "scene_setup", "shot_1").strip()
+    shot = _inline_field_body(editable, "shot_1", "overall_soundscape").strip()
+    soundscape = _inline_field_body(
         editable,
         "overall_soundscape",
         "non_diegetic_music",
     ).strip()
-    music = _section_body(editable, "non_diegetic_music", None).strip()
+    music = _inline_field_body(editable, "non_diegetic_music", None).strip()
     for value, name in (
         (scene, "scene_setup"),
         (shot, "shot_1"),
@@ -1670,3 +2188,6 @@ def _inline_field_body(
     if end is None:
         return content[start.end() :]
     return content[start.end() : start.end() + end.start()]
+    parse_ref2v_advisory_action_plan,
+    ref2v_advisory_action_plan_warnings,
+    ref2v_advisory_writer_plan,

@@ -148,6 +148,7 @@ class PromptCompositionWebTest(unittest.TestCase):
         page = self.client.get("/")
         script = self.client.get("/static/prompt-composition.js")
         i2v_script = self.client.get("/static/i2v-prompt.js")
+        ref2v_script = self.client.get("/static/ref2v-prompt.js")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("prompt-composition.js", page.text)
@@ -160,6 +161,12 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertEqual(i2v_script.status_code, 200)
         self.assertIn('minimax.h3.i2v.simple', i2v_script.text)
         self.assertIn('item.version === "0.2.0"', i2v_script.text)
+        self.assertIn("PanelForgeModelPicker.populate", i2v_script.text)
+        self.assertEqual(ref2v_script.status_code, 200)
+        self.assertIn('item.version === "0.7.1"', ref2v_script.text)
+        self.assertIn("PanelForgeModelPicker.populate", ref2v_script.text)
+        self.assertIn('id="ref2v-action-plan"', page.text)
+        self.assertIn('id="ref2v-action-plan" class="internal-plan" open hidden', page.text)
 
     def test_rejects_duplicate_fighter_assignments(self):
         response = self.client.post(

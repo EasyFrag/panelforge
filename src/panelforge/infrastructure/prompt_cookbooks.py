@@ -159,6 +159,7 @@ class LocalPromptCookbookCatalog:
             raise ValueError(f"invalid cookbook stages: {manifest_path}")
         if stages not in {
             ("final_prompt",),
+            ("beat_sheet", "final_prompt"),
             ("reference_plan", "beat_sheet", "final_prompt"),
         }:
             raise ValueError(f"unsupported cookbook stage pipeline: {manifest_path}")
