@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260809.2">
+  <link rel="stylesheet" href="/static/lab.css?v=20260810.3">
   <script src="/static/lab.js?v=20260810.1" defer></script>
   <script src="/static/prompt-lab.js?v=20260810.2" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260810.2" defer></script>
-  <script src="/static/ref2v-prompt.js?v=20260810.6" defer></script>
+  <script src="/static/ref2v-prompt.js?v=20260810.8" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -594,12 +594,14 @@
         <i></i>
         <div id="ref2v-chip-brief" class="stage-chip future"><b>2</b><span>Brief<small>Ordre et durée</small></span></div>
         <i></i>
-        <div id="ref2v-chip-prompt" class="stage-chip future"><b>3</b><span>Prompt H3<small>Format compilé</small></span></div>
+        <div id="ref2v-chip-plan" class="stage-chip future"><b>3</b><span>Plan<small>Chorégraphie</small></span></div>
+        <i></i>
+        <div id="ref2v-chip-prompt" class="stage-chip future"><b>4</b><span>Prompt H3<small>Format compilé</small></span></div>
       </section>
 
       <section id="ref2v-empty" class="prompt-empty">
         <b>Un parcours court et contrôlable</b>
-        <p>Chargez la première frame et une référence corporelle du même sujet. Chaque observation, le brief puis le prompt final restent éditables et validables séparément.</p>
+        <p>Chargez la première frame et une référence corporelle du même sujet. Les observations, le brief, la chorégraphie puis le prompt final restent éditables et validables séparément.</p>
       </section>
 
       <section id="ref2v-editor" class="prompt-editor" hidden>
@@ -650,18 +652,40 @@
           </div>
         </details>
 
+        <details id="ref2v-action-plan" class="cookbook-step" open hidden>
+          <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Plan chorégraphique</b><small>Contrôler les sous-gestes, les mains, les objets et les ambiguïtés.</small></span><span id="ref2v-plan-review" class="review-pill pending">Brief requis</span></summary>
+          <div class="cookbook-step-body">
+            <div class="analysis-actions"><button id="ref2v-generate-plan" class="primary compact" type="button" disabled>Proposer le plan</button><button id="ref2v-save-plan" type="button" disabled>Enregistrer</button><button id="ref2v-approve-plan" type="button" disabled>Valider</button></div>
+            <div id="ref2v-plan-stream-state" class="stream-state" hidden><div><span id="ref2v-plan-stream-label">Préparation…</span><output id="ref2v-plan-stream-percent"></output></div><progress id="ref2v-plan-stream-progress" max="1"></progress></div>
+            <p id="ref2v-plan-message" class="message" aria-live="polite"></p>
+            <p id="ref2v-action-plan-duration" class="message" hidden></p>
+            <p id="ref2v-action-plan-warning" class="message warning-text" role="status" hidden></p>
+            <section id="ref2v-arbitrations" class="arbitration-panel" hidden>
+              <div class="arbitration-heading">
+                <div><h3>Arbitrages du plan</h3><p>Choisissez une recommandation ou formulez votre propre décision. Rien n'est appliqué avant le bouton final.</p></div>
+                <button id="ref2v-accept-all-arbitrations" type="button">Reprendre toutes les recommandations</button>
+              </div>
+              <div id="ref2v-arbitration-list" class="arbitration-list"></div>
+              <label class="arbitration-global" for="ref2v-arbitration-instruction">
+                <span>Instruction complémentaire au planner <small>optionnelle</small></span>
+                <textarea id="ref2v-arbitration-instruction" rows="3" placeholder="Ex. Passe à 12 s, conserve exactement le décor initial et traite le baiser comme une action complète."></textarea>
+              </label>
+              <div class="arbitration-footer">
+                <small>Un appel LLM optionnel réécrira le plan. Vous devrez ensuite contrôler et valider la nouvelle version.</small>
+                <button id="ref2v-apply-arbitrations" class="primary compact" type="button" disabled>Appliquer les décisions au plan</button>
+              </div>
+            </section>
+            <textarea id="ref2v-action-plan-content" class="cookbook-stage-output" rows="22" aria-label="Plan chorégraphique supervisé" placeholder="Le plan JSON apparaîtra ici après le premier appel LLM."></textarea>
+            <p class="muted">Vous pouvez corriger directement les durées, sous-gestes, états des mains et résolutions proposées avant de valider.</p>
+          </div>
+        </details>
+
         <details class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler le mapping et le plan continu.</small></span><span id="ref2v-prompt-review" class="review-pill pending">Brief requis</span></summary>
+          <summary><span class="cookbook-step-index">4</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler le mapping depuis le plan validé.</small></span><span id="ref2v-prompt-review" class="review-pill pending">Plan requis</span></summary>
           <div class="cookbook-step-body">
             <div class="analysis-actions"><button id="ref2v-generate-prompt" class="primary compact" type="button" disabled>Générer le prompt H3</button><button id="ref2v-save-prompt" type="button" disabled>Enregistrer</button><button id="ref2v-approve-prompt" type="button" disabled>Valider</button><button id="ref2v-copy-prompt" type="button" disabled>Copier</button></div>
             <div id="ref2v-prompt-stream-state" class="stream-state" hidden><div><span id="ref2v-prompt-stream-label">Préparation…</span><output id="ref2v-prompt-stream-percent"></output></div><progress id="ref2v-prompt-stream-progress" max="1"></progress></div>
             <p id="ref2v-prompt-message" class="message" aria-live="polite"></p>
-            <details id="ref2v-action-plan" class="internal-plan" open hidden>
-              <summary>Plan chorégraphique interne <small>Candidat contrôlé avant la rédaction</small></summary>
-              <p id="ref2v-action-plan-duration" class="message" hidden></p>
-              <p id="ref2v-action-plan-warning" class="message warning-text" role="status" hidden></p>
-              <textarea id="ref2v-action-plan-content" rows="15" readonly aria-label="Plan chorégraphique interne"></textarea>
-            </details>
             <textarea id="ref2v-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="&lt;Picture 1&gt;: première frame verrouillée…&#10;Use &lt;Picture 2&gt; only as…&#10;&#10;The setting is…&#10;&#10;Shot 1: …&#10;&#10;overall_soundscape: …&#10;&#10;non_diegetic_music: …" disabled></textarea>
             <div id="ref2v-prompt-lint" class="prompt-lint" role="status"><small>Le format Ref2V compilé sera contrôlé après génération.</small></div>
             <div class="rewrite-box"><label for="ref2v-prompt-instruction">Demander une modification ciblée</label><div><input id="ref2v-prompt-instruction" type="text" placeholder="Ex. Détaille davantage la trajectoire de la veste sans ajouter de coupe." disabled><button id="ref2v-rewrite-prompt" type="button" disabled>Proposer</button></div></div>

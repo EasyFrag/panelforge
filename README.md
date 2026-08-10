@@ -92,12 +92,13 @@ Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journa
 
 ### Ref2V — undressing mono-plan
 
-L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.7.1`. Le parcours visible reste volontairement court :
+L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.8.0`. Le parcours reste supervisé étape par étape :
 
 ```text
 première frame habillée + référence corporelle du même sujet
   → deux Observations approuvées
   → Brief approuvé
+  → plan chorégraphique proposé, corrigé et approuvé
   → prompt MiniMax H3 Ref2V compilé et approuvé
 ```
 
@@ -115,9 +116,15 @@ La `0.7.0` remplace ce plafond par un contrat consultatif. Le retiming conserve 
 
 La `0.7.1` conserve exactement les prompts de la `0.7.0` et corrige un angle mort technique : si le planner place une pose finale cohérente exactement à la fin demandée, PanelForge ajoute automatiquement au moins deux secondes de tenue, avertit l’utilisateur et poursuit le writer sans relancer le planner. Les chevauchements et l’ordre impossible des actions restent bloquants.
 
+La `0.8.0` rend le plan obligatoire et visible avant le writer. Le parcours nominal reste à deux appels LLM : le premier propose la chorégraphie, puis l’utilisateur la contrôle et la valide avant le writer. Chaque geste contient des sous-étapes horodatées, l’état séparé des deux mains et l’état observable de l’objet. Le planner remonte aussi les conflits de visibilité, de continuité physique ou d’influence de la seconde référence dans `continuity_concerns` ; une ambiguïté non résolue reste un avertissement et ne bloque pas le parcours.
+
+Une interface d’arbitrage présente chaque conflit sous forme de carte. L’utilisateur peut reprendre la recommandation, accepter explicitement le risque, écrire sa décision ou ajouter une instruction globale telle qu’un changement de durée. « Appliquer les décisions au plan » déclenche un troisième appel optionnel qui réécrit réellement les sous-gestes et les timings. Le résultat redevient non validé pour contrôle humain ; le serveur refuse de le persister si une décision nommée disparaît ou n’est pas recopiée exactement dans sa résolution. Le JSON reste disponible comme recours avancé.
+
+Le code vérifie seulement la structure, l’ordre et la cohérence des intervalles. Il ne prétend pas estimer la durée sémantique correcte d’un geste : les timings proposés restent modifiables. Une pose finale sans marge est toujours prolongée automatiquement et une caméra de moins d’une seconde produit désormais un avertissement plutôt qu’un rejet.
+
 Pour réduire l’influence indésirable de la seconde image, son observation transmise au planner est projetée sur les seuls traits d’apparence ; pose, regard, cadrage, décor et caméra en sont retirés. Le writer reçoit le Brief et le plan approuvé, pas les observations brutes. PanelForge conserve ensuite le même compilateur et le même linter final que la `0.2.0`.
 
-Les versions `0.1.0` à `0.7.0` restent disponibles comme témoins de comparaison. La future variante à une seule référence corporelle, où les vêtements initiaux sont entièrement décrits, n’est pas incluse dans `0.7.1`.
+Les versions `0.1.0` à `0.7.1` restent disponibles comme témoins de comparaison. La future variante à une seule référence corporelle, où les vêtements initiaux sont entièrement décrits, n’est pas incluse dans `0.8.0`.
 
 L’interface permet d’analyser les deux images en une action ou de relancer, corriger et valider chaque observation séparément. Observation et Brief réutilisent volontairement le profil générique `minimax.h3.reference@0.3.0` ; les cookbooks Ref2V ne modifient donc le Brief d’aucun autre parcours.
 
@@ -168,8 +175,8 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 - rendre et évaluer le cas androïde `0.2.0` : rythme, immobilité demandée, voix et synchronisation labiale ;
 - compiler plus tard les tags H3 stricts depuis des champs structurés, sans alourdir le system prompt ;
 - figer ou réviser `0.2.0` seulement à partir des défauts reproduits sur plusieurs vidéos.
-- qualifier `undressing.single_shot@0.7.1` sur plusieurs couples de références ; mesurer durée planifiée, lisibilité des gestes, délai pose/caméra et valeur réelle des avertissements ;
-- concevoir la `0.8.0` comme un plan chorégraphique supervisé : sous-étapes, durées proposées et contradictions sémantiques visibles, puis correction humaine avant compilation des timestamps ;
+- qualifier `undressing.single_shot@0.8.0` sur plusieurs couples de références ; mesurer la qualité des sous-gestes, la continuité mains-objets et la pertinence des ambiguïtés remontées ;
+- tester l’arbitrage visuel sur quatre boutons, une sortie successive des manches, une chute complète et un geste final décomposé ; conserver le JSON comme recours avancé ;
 - ne spécialiser le profil Observation/Brief Ref2V que si un même manque se répète sur plusieurs essais.
 
 ### 2. Qualifier Fighter Arcade

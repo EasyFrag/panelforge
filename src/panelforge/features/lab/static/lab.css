@@ -312,6 +312,22 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .ref2v-observation-card { min-width: 0; padding: .75rem; border: 1px solid var(--line); border-radius: 10px; background: white; }
 .ref2v-observation-card h3 { margin: 0 0 .55rem; font-size: .75rem; }
 .ref2v-observation-card .cookbook-stage-output { min-height: 300px; }
+.arbitration-panel { display: grid; gap: .7rem; margin: .75rem 0; padding: .8rem; border: 1px solid #e2c995; border-radius: 10px; background: #fffaf0; }
+.arbitration-heading, .arbitration-footer { display: flex; gap: .75rem; align-items: center; justify-content: space-between; }
+.arbitration-heading h3 { margin: 0 0 .15rem; font-size: .78rem; }
+.arbitration-heading p { margin: 0; color: var(--muted); font-size: .66rem; }
+.arbitration-list { display: grid; gap: .55rem; }
+.arbitration-card { display: grid; gap: .5rem; padding: .7rem; border: 1px solid var(--line); border-radius: 9px; background: white; }
+.arbitration-card header { display: flex; gap: .5rem; align-items: center; justify-content: space-between; }
+.arbitration-card h4 { margin: 0; font-size: .72rem; }
+.arbitration-card p { margin: 0; font-size: .68rem; line-height: 1.45; }
+.arbitration-recommendation { padding: .55rem; border-left: 3px solid var(--amber); background: #fff8e8; }
+.arbitration-panel[hidden] { display: none; }
+.arbitration-card textarea, .arbitration-global textarea { width: 100%; box-sizing: border-box; padding: .55rem .6rem; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: white; font-family: inherit; font-size: .68rem; line-height: 1.45; resize: vertical; }
+.arbitration-card-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.arbitration-global { display: grid; gap: .35rem; font-size: .68rem; font-weight: 800; }
+.arbitration-global small, .arbitration-footer small { color: var(--muted); font-weight: 500; }
+.arbitration-footer small { max-width: 65ch; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1050px) { .reference-workbench, .i2v-first-frame, .ref2v-observation-grid { grid-template-columns: 1fr; } .reference-image-stage { min-height: 380px; } }

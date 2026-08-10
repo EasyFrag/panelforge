@@ -11,15 +11,18 @@
   - Prompt Lab : observations par image, Brief `minimax.h3.reference@0.3.0`, streaming, édition/révision, approbations et journal borné des appels LLM.
   - Fighter : `fighter.arcade_versus@0.1.0` fournit le flux Ref2VA supervisé plan de références → beat sheet → prompt H3.
   - I2V simple : `0.1.0` reste témoin et `0.2.0` est active. Le premier retour visuel est encourageant ; le prompt androïde respecte mieux durée, progression et état final.
-  - Ref2V : `undressing.single_shot@0.7.1` est active. Elle conserve les prompts de `0.7.0`, mais répare par code une pose finale placée exactement à la fin demandée en ajoutant au moins 2 s de tenue, avec avertissement et sans nouvel appel LLM.
-  - Le premier rendu V0.6 de 14 s est visuellement réussi et réduit le clipping. Sur le second couple d’images, le run Thinking passe de 10 à 11 s et persiste un prompt valide (`haut 4,5 s`, `jupe 4,5 s`, `pose/caméra 2 s`) ; l’Instruct était plus rapide mais rejeté pour un `<Image 1>` parasite.
-  - Le cas réel V0.7 qui bloquait à `pose finale = 10 s` est couvert : en `0.7.1`, il devient un plan de 12 s et poursuit directement vers le writer.
+  - Ref2V : `undressing.single_shot@0.8.0` est active. Observation → Brief → Plan → Prompt comporte quatre validations visibles et deux appels LLM nominaux.
+  - Le plan expose des sous-gestes horodatés, l’état des deux mains, l’état de l’objet et des `continuity_concerns` résolubles manuellement. Les ambiguïtés et une caméra trop courte avertissent sans bloquer ; ordre, chevauchements et JSON illisible restent bloquants.
+  - L’arbitrage V0.8 est opérationnel : cartes par conflit, recommandation/décision libre/risque accepté, instruction globale, puis troisième appel optionnel qui réécrit le plan. La nouvelle révision doit être revalidée ; les décisions ignorées ou les conflits supprimés sont rejetés.
+  - Premier run V0.8 : le prompt est structurellement bon mais suppose 3 boutons au lieu de 4, raccourcit la sortie des manches et réduit le baiser à une pose. La vidéo dérive vers un jardin malgré un plan qui verrouille la chambre ; ce point reste à reproduire avant de modifier le prompt.
+  - `0.7.1` reste disponible : elle répare automatiquement une pose finale placée à la fin demandée sans changer les prompts de `0.7.0`.
   - Les révisions Observation/Interprétation/Brief/cookbook extraient uniquement le document attendu. Le Brief normalise ses neuf titres avec ou sans tiret, rejette les sections absentes et revient en haut après génération ; le brut reste dans les logs.
-  - llama.swap garde la responsabilité GPU ; le bouton global `Libérer la VRAM` décharge ses modèles via PanelForge, sans exposer le serveur au navigateur. Le sélecteur partagé privilégie `Qwen3.6-27B-Huihui-abliterated-Q8_0`, conserve un choix manuel et se replie si le modèle manque. Les assets du Lab sont servis sans cache. Suite complète : 180 tests verts.
+  - llama.swap garde la responsabilité GPU ; le bouton global `Libérer la VRAM` décharge ses modèles via PanelForge, sans exposer le serveur au navigateur. Le sélecteur partagé privilégie `Qwen3.6-27B-Huihui-abliterated-Q8_0`. Suite complète : 189 tests verts.
 - Broken / missing:
   - I2V simple, Ref2V et Fighter ne sont pas encore qualifiés visuellement de bout en bout dans MiniMax H3.
   - Les tags H3 stricts ne sont pas encore compilés : Qwen abrège de façon répétée `[French]` en `FR`/`fr`.
   - Une session ne porte qu’une composition ; comparaison de versions/forks à ajouter. Le journal n’a pas encore de statut distinct « LLM terminé, document rejeté ». Aucun test navigateur automatisé.
+  - L’interface d’arbitrage n’a pas encore été validée dans un navigateur réel ni sur un run llama.swap ; le JSON reste l’éditeur avancé.
 
 ## Decisions
 
@@ -31,6 +34,8 @@
 - Ref2V V0.6 versionne un retiming entièrement algorithmique : mêmes templates que V0.5, gestes simples inchangés, redistribution bornée et métadonnées d’ajustement retirées avant le writer.
 - Ref2V V0.7 garde les contrôles structurels indispensables, mais rend consultatifs les labels, landmarks et durées supérieures à 15 s. Elle conserve le décalage pose → caméra au lieu de raccourcir la mise en scène.
 - Ref2V V0.7.1 ne change aucun prompt : son parseur tolère une marge finale récupérable, puis le retiming ajoute la tenue manquante. Un ordre ou un chevauchement impossible reste bloquant.
+- Ref2V V0.8 sépare le planner et le writer par une approbation humaine. Le code ne devine plus la durée d’une action ; il valide les intervalles, répare seulement la marge finale et conserve les ambiguïtés comme avertissements.
+- Une réconciliation d’arbitrage est un troisième appel LLM explicite et optionnel. Le code contrôle la structure et la traçabilité des décisions ; l’utilisateur contrôle toujours la pertinence du plan réécrit avant approbation.
 - Le run V0.3 du 2026-08-09 a validé les deux appels mais révélé un rejet applicatif des champs inline et une contradiction `frontal_axis`/orbite ; correctifs portés par le compilateur et la V0.4 sans altérer la recette témoin.
 - `minimax.h3.i2v.simple@0.1.0` reste immuable ; l’onglet sélectionne explicitement `0.2.0` pour les nouveaux parcours.
 - La prose reste au LLM, mais les futurs tags H3 stricts seront insérés/normalisés par code depuis des champs structurés ; ne pas surcharger `0.2.0` pour ce cas.
@@ -38,8 +43,8 @@
 
 ## Next steps
 
-1. Qualifier V0.7.1 sur plusieurs images et vérifier les avertissements de retiming dans MiniMax H3.
-2. Concevoir V0.8 : plan chorégraphique supervisé, sous-étapes, durées proposées et contradictions éditables avant compilation.
+1. Tester l’arbitrage V0.8 en conditions réelles avec 4 boutons, sortie successive des bras, chute/settling plus longs, baiser décomposé et durée de 12 s.
+2. Rejouer le même plan pour déterminer si la dérive chambre → jardin vient du moteur avant de renforcer la recette.
 3. Définir le contrat structuré de dialogue I2V, puis ajouter plusieurs compositions/forks par session.
 
 ## Risks / open questions
@@ -48,8 +53,8 @@
 - Une rotation à 180° depuis une unique vue frontale force H3 à inventer le dos du sujet ; ce cas bénéficiera d’une référence arrière en Ref2VA.
 - L’onglet I2V réutilise pour l’instant le profil générique d’observation/Brief `minimax.h3.reference@0.3.0` ; un profil I2V dédié ne se justifiera que si les tests montrent un manque.
 - Ref2V fait le même choix ; la seconde image peut influencer excessivement pose ou décor malgré le contrat textuel, ce qui doit être mesuré dans H3.
-- Les marges V0.7.1 restent des heuristiques ; elles ne savent pas estimer une sous-action comme trois boutons puis un retrait complet. Une durée supérieure à 15 s reste dépendante du moteur vidéo ciblé malgré son acceptation par PanelForge.
-- Le dernier Brief/plan demande une jupe inchangée tout en rendant visible un attribut anatomique qu’elle couvre ; cette contradiction sémantique et le glissement du haut classé trop simplement doivent être remontés par le futur plan supervisé.
+- La détection des contradictions V0.8 vient du planner LLM ; le code sait les conserver et les signaler, pas comprendre arbitrairement quelles zones un vêtement couvre.
+- Les sous-gestes réduisent le risque de clipping mais ne garantissent pas la simulation des doigts, du tissu ou de la gravité par H3. Une durée supérieure à 15 s reste dépendante du moteur ciblé.
 - La variante Ref2V à une seule référence corporelle, avec vêtements initiaux décrits, est différée à une version ultérieure.
 - llama.swap ne fournit pas de pourcentage fiable de chargement ; un stream interrompu ne reprend pas après redémarrage.
 - Libérer la VRAM pendant un appel LLM interrompt potentiellement sa génération ; l’interface l’indique dans l’infobulle.

@@ -139,6 +139,48 @@ _V4_ACTION_PLAN_DATA["camera"].pop("frontal_axis")
 _V4_ACTION_PLAN_DATA["camera"]["path_type"] = "pedestal"
 V4_ACTION_PLAN = json.dumps(_V4_ACTION_PLAN_DATA, ensure_ascii=False)
 
+_SUPERVISED_ACTION_PLAN_DATA = json.loads(V4_ACTION_PLAN)
+for _beat in _SUPERVISED_ACTION_PLAN_DATA["beats"]:
+    _beat["substeps"] = [
+        {
+            "substep_id": f'{_beat["beat_id"]}_continuous',
+            "start_ms": _beat["start_ms"],
+            "end_ms": _beat["end_ms"],
+            "action": _beat["action"],
+            "left_hand": "The left hand preserves its stated contact until release.",
+            "right_hand": "The right hand preserves its stated contact until release.",
+            "object_state_after": _beat["required_end_state"],
+        }
+    ]
+_SUPERVISED_ACTION_PLAN_DATA["continuity_concerns"] = [
+    {
+        "concern_id": "retained_garment_visibility",
+        "category": "state_visibility_conflict",
+        "description": "A retained garment may cover a requested visible region.",
+        "proposed_resolution": "Choose either garment retention or explicit repositioning.",
+        "resolution": None,
+    }
+]
+SUPERVISED_ACTION_PLAN = json.dumps(
+    _SUPERVISED_ACTION_PLAN_DATA,
+    ensure_ascii=False,
+)
+_ARBITRATION_DECISION = (
+    "Retain the garment and remove the incompatible visibility request."
+)
+_RECONCILED_ACTION_PLAN_DATA = json.loads(SUPERVISED_ACTION_PLAN)
+_RECONCILED_ACTION_PLAN_DATA["duration_seconds"] = 12
+_RECONCILED_ACTION_PLAN_DATA["beats"][0]["action"] = (
+    "Remove the top while preserving the retained garment coverage."
+)
+_RECONCILED_ACTION_PLAN_DATA["continuity_concerns"][0]["resolution"] = (
+    _ARBITRATION_DECISION
+)
+RECONCILED_ACTION_PLAN = json.dumps(
+    _RECONCILED_ACTION_PLAN_DATA,
+    ensure_ascii=False,
+)
+
 
 class Gateway:
     def __init__(self, content=VALID_PROMPT):
@@ -195,6 +237,15 @@ class PlannedV4Gateway(PlannedGateway):
     def _content_for(self, request):
         if request.operation_id == "action_plan.generate":
             return V4_ACTION_PLAN
+        return V2_INLINE_EDITABLE
+
+
+class SupervisedGateway(PlannedGateway):
+    def _content_for(self, request):
+        if request.operation_id == "action_plan.generate":
+            return SUPERVISED_ACTION_PLAN
+        if request.operation_id == "action_plan.reconcile":
+            return RECONCILED_ACTION_PLAN
         return V2_INLINE_EDITABLE
 
 
@@ -383,6 +434,22 @@ class Ref2VPromptTest(unittest.TestCase):
         self.assertEqual(recoverable.beat_sheet_user_prompt, witness.beat_sheet_user_prompt)
         self.assertEqual(recoverable.final_prompt_system_prompt, witness.final_prompt_system_prompt)
         self.assertEqual(recoverable.final_prompt_user_prompt, witness.final_prompt_user_prompt)
+
+    def test_catalog_exposes_the_supervised_v8_contract(self):
+        cookbook = self.service.cookbooks.get("undressing.single_shot", "0.8.0")
+
+        self.assertEqual(
+            cookbook.output_contract,
+            "minimax.h3.ref2v.single_shot_supervised_v1",
+        )
+        self.assertIn("contiguous substeps", cookbook.beat_sheet_system_prompt)
+        self.assertIn("continuity_concern", cookbook.beat_sheet_system_prompt)
+        self.assertIn(
+            "human arbitration",
+            cookbook.beat_sheet_reconcile_system_prompt,
+        )
+        self.assertIn("{{DECISIONS}}", cookbook.beat_sheet_reconcile_user_prompt)
+        self.assertIn("human-approved", cookbook.final_prompt_system_prompt)
 
     def test_v2_revision_is_recompiled_without_exposing_internal_fields(self):
         self.service.configure(
@@ -873,6 +940,171 @@ class Ref2VPromptTest(unittest.TestCase):
                 for warning in statuses[CompositionStage.BEAT_SHEET].validation_warnings
             )
         )
+
+    def test_v8_requires_human_plan_approval_before_the_writer(self):
+        self.gateway = SupervisedGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.8.0",
+            self.bindings(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "approve"):
+            self.service.generate(
+                "session-ref2v-1",
+                CompositionStage.FINAL_PROMPT,
+            )
+        planned = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.BEAT_SHEET,
+        )
+        statuses = {status.stage: status for status in self.service.status(planned)}
+
+        self.assertEqual(len(self.gateway.requests), 1)
+        self.assertIsNone(planned.beat_sheet.approved_revision_id)
+        self.assertTrue(
+            any(
+                "state_visibility_conflict" in warning
+                for warning in statuses[CompositionStage.BEAT_SHEET].validation_warnings
+            )
+        )
+
+        edited_plan = json.loads(planned.beat_sheet.active_revision.content)
+        edited_plan["continuity_concerns"][0]["resolution"] = (
+            "Retain the garment and remove the incompatible visibility request."
+        )
+        edited = self.service.edit(
+            "session-ref2v-1",
+            CompositionStage.BEAT_SHEET,
+            json.dumps(edited_plan, ensure_ascii=False),
+        )
+        edited_status = {
+            status.stage: status for status in self.service.status(edited)
+        }
+        approved = self.service.approve(
+            "session-ref2v-1",
+            CompositionStage.BEAT_SHEET,
+        )
+        final = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+
+        self.assertNotEqual(
+            edited.beat_sheet.active_revision_id,
+            planned.beat_sheet.active_revision_id,
+        )
+        self.assertFalse(
+            any(
+                "state_visibility_conflict" in warning
+                for warning in edited_status[CompositionStage.BEAT_SHEET].validation_warnings
+            )
+        )
+        self.assertEqual(
+            approved.beat_sheet.approved_revision_id,
+            approved.beat_sheet.active_revision_id,
+        )
+        self.assertEqual(
+            [request.operation_id for request in self.gateway.requests],
+            ["action_plan.generate", "final_prompt.generate"],
+        )
+        writer_prompt = self.gateway.requests[-1].user_prompt
+        self.assertIn("remove_top_continuous", writer_prompt)
+        self.assertIn("Retain the garment", writer_prompt)
+        self.assertIsNotNone(final.final_prompt.active_revision)
+
+    def test_v8_reconciles_human_decisions_into_a_new_plan_revision(self):
+        self.gateway = SupervisedGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.8.0",
+            self.bindings(),
+        )
+        planned = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.BEAT_SHEET,
+        )
+        previous_revision_id = planned.beat_sheet.active_revision_id
+
+        events = list(
+            self.service.stream_reconcile_action_plan(
+                "session-ref2v-1",
+                {"retained_garment_visibility": _ARBITRATION_DECISION},
+                "Give the physical transition more time.",
+            )
+        )
+
+        reconciled = events[-1].composition
+        self.assertIsNotNone(reconciled)
+        self.assertEqual(events[-1].document_stage, CompositionStage.BEAT_SHEET)
+        self.assertNotEqual(
+            reconciled.beat_sheet.active_revision_id,
+            previous_revision_id,
+        )
+        self.assertIsNone(reconciled.beat_sheet.approved_revision_id)
+        self.assertEqual(
+            reconciled.beat_sheet.active_revision.parent_revision_id,
+            previous_revision_id,
+        )
+        revised_plan = json.loads(reconciled.beat_sheet.active_revision.content)
+        self.assertEqual(revised_plan["duration_seconds"], 12)
+        self.assertEqual(
+            revised_plan["continuity_concerns"][0]["resolution"],
+            _ARBITRATION_DECISION,
+        )
+        request = self.gateway.requests[-1]
+        self.assertEqual(request.operation_id, "action_plan.reconcile")
+        self.assertIn(_ARBITRATION_DECISION, request.user_prompt)
+        self.assertIn("Give the physical transition more time", request.user_prompt)
+        self.assertIn('"requested_duration_seconds": 10', request.user_prompt)
+
+    def test_v8_rejects_an_arbitration_for_an_unknown_concern(self):
+        self.gateway = SupervisedGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.8.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        with self.assertRaisesRegex(ValueError, "unknown continuity concern"):
+            self.service.stream_reconcile_action_plan(
+                "session-ref2v-1",
+                {"missing": "Apply this."},
+            )
+
+    def test_v8_does_not_persist_a_reconciliation_that_ignores_the_decision(self):
+        self.gateway = SupervisedGateway()
+        self.gateway._content_for = lambda request: SUPERVISED_ACTION_PLAN
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.8.0",
+            self.bindings(),
+        )
+        planned = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.BEAT_SHEET,
+        )
+        previous_revision_id = planned.beat_sheet.active_revision_id
+
+        with self.assertRaisesRegex(ValueError, "did not apply decision"):
+            list(
+                self.service.stream_reconcile_action_plan(
+                    "session-ref2v-1",
+                    {"retained_garment_visibility": _ARBITRATION_DECISION},
+                )
+            )
+
+        stored = self.compositions.get("session-ref2v-1")
+        self.assertEqual(stored.beat_sheet.active_revision_id, previous_revision_id)
 
     def test_generates_directly_from_two_observations_and_approved_brief(self):
         self.service.configure(

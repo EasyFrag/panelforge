@@ -38,6 +38,8 @@ class PromptCookbook:
     reference_plan_user_prompt: str | None
     beat_sheet_system_prompt: str | None
     beat_sheet_user_prompt: str | None
+    beat_sheet_reconcile_system_prompt: str | None
+    beat_sheet_reconcile_user_prompt: str | None
     final_prompt_system_prompt: str
     final_prompt_user_prompt: str
     revision_system_prompt: str
@@ -173,7 +175,14 @@ class LocalPromptCookbookCatalog:
             template_keys |= {"reference_plan_system", "reference_plan_user"}
         if "beat_sheet" in stages:
             template_keys |= {"beat_sheet_system", "beat_sheet_user"}
-        if not isinstance(templates, dict) or set(templates) != template_keys:
+        reconciliation_keys = {
+            "beat_sheet_reconcile_system",
+            "beat_sheet_reconcile_user",
+        }
+        if not isinstance(templates, dict) or frozenset(templates) not in {
+            frozenset(template_keys),
+            frozenset(template_keys | reconciliation_keys),
+        }:
             raise ValueError(f"invalid cookbook templates: {manifest_path}")
         raw_sources = manifest["sources"]
         if not isinstance(raw_sources, list) or not raw_sources:
@@ -217,6 +226,12 @@ class LocalPromptCookbookCatalog:
             reference_plan_user_prompt=optional_template("reference_plan_user"),
             beat_sheet_system_prompt=optional_template("beat_sheet_system"),
             beat_sheet_user_prompt=optional_template("beat_sheet_user"),
+            beat_sheet_reconcile_system_prompt=optional_template(
+                "beat_sheet_reconcile_system"
+            ),
+            beat_sheet_reconcile_user_prompt=optional_template(
+                "beat_sheet_reconcile_user"
+            ),
             final_prompt_system_prompt=load_template("final_prompt_system"),
             final_prompt_user_prompt=load_template("final_prompt_user"),
             revision_system_prompt=load_template("revision_system"),

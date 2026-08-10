@@ -109,6 +109,11 @@ class CompositionConfigureBody(BaseModel):
     bindings: dict[str, list[str]]
 
 
+class PlanArbitrationBody(BaseModel):
+    decisions: dict[str, str]
+    instruction: str | None = None
+
+
 def create_app(
     runner: ChangeViewRunner,
     *,
@@ -782,6 +787,23 @@ def create_app(
         return _composition_stream_action(
             service,
             lambda: service.stream_generate(session_id, composition_stage),
+        )
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/beat-sheet/reconcile/stream"
+    )
+    def stream_action_plan_reconciliation(
+        session_id: str,
+        body: PlanArbitrationBody,
+    ) -> StreamingResponse:
+        service = _require_prompt_composition(prompt_composition)
+        return _composition_stream_action(
+            service,
+            lambda: service.stream_reconcile_action_plan(
+                session_id,
+                body.decisions,
+                body.instruction,
+            ),
         )
 
     @app.post("/api/prompt-lab/sessions/{session_id}/{stage}/edit")

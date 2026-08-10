@@ -1,0 +1,16 @@
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+CURRENT VALIDATED PLAN
+{{CURRENT_PLAN}}
+
+HUMAN DECISIONS
+{{DECISIONS}}
+
+OPTIONAL GLOBAL INSTRUCTION
+{{GLOBAL_INSTRUCTION}}
+
+REQUIRED JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Reconcile the complete plan now. Make each accepted decision observable in the affected choreography and timings, preserve everything else, and copy each decision exactly into its matching resolution field.

@@ -20,6 +20,7 @@ from panelforge.application.ref2v_action_plan import (
     parse_ref2v_bounded_action_plan,
     parse_ref2v_elastic_action_plan,
     parse_ref2v_action_plan,
+    parse_ref2v_supervised_compiled_plan,
     ref2v_advisory_action_plan_warnings,
     ref2v_advisory_writer_plan,
     ref2v_bounded_action_plan_warnings,
@@ -27,10 +28,12 @@ from panelforge.application.ref2v_action_plan import (
     ref2v_elastic_action_plan_warnings,
     ref2v_elastic_writer_plan,
     ref2v_action_plan_warnings_v2,
+    ref2v_supervised_action_plan_warnings,
     retime_ref2v_advisory_action_plan,
     retime_ref2v_bounded_action_plan,
     retime_ref2v_action_plan_v2,
     retime_ref2v_repairable_action_plan,
+    retime_ref2v_supervised_action_plan,
 )
 
 
@@ -93,6 +96,52 @@ def valid_plan_v2() -> dict:
         beat["complexity"] = "simple"
     plan["camera"].pop("frontal_axis")
     plan["camera"]["path_type"] = "pedestal"
+    return plan
+
+
+def valid_supervised_plan() -> dict:
+    plan = valid_plan_v2()
+    plan["beats"][0]["complexity"] = "multi_step"
+    plan["beats"][0]["substeps"] = [
+        {
+            "substep_id": "grip_and_lift",
+            "start_ms": 0,
+            "end_ms": 1800,
+            "action": "Grip the hem and lift it to the shoulders.",
+            "left_hand": "The left hand keeps the left hem under tension.",
+            "right_hand": "The right hand keeps the right hem under tension.",
+            "object_state_after": "The top is gathered at the shoulders.",
+        },
+        {
+            "substep_id": "clear_and_release",
+            "start_ms": 1800,
+            "end_ms": 3500,
+            "action": "Clear both arms and the head, then release the top.",
+            "left_hand": "The left hand releases after the fabric clears the wrist.",
+            "right_hand": "The right hand guides the top beside the body.",
+            "object_state_after": "The top has left both hands and is settling.",
+        },
+    ]
+    plan["beats"][1]["substeps"] = [
+        {
+            "substep_id": "lower_and_step_free",
+            "start_ms": 3500,
+            "end_ms": 7000,
+            "action": "Lower the skirt and step free of it.",
+            "left_hand": "The left hand holds the left waistband until release.",
+            "right_hand": "The right hand holds the right waistband until release.",
+            "object_state_after": "The skirt is released and rests beside the top.",
+        }
+    ]
+    plan["continuity_concerns"] = [
+        {
+            "concern_id": "covered_region",
+            "category": "state_visibility_conflict",
+            "description": "The requested visible region remains covered by the retained skirt.",
+            "proposed_resolution": "Either retain the skirt and remove the visibility request, or add an explicit skirt action.",
+            "resolution": None,
+        }
+    ]
     return plan
 
 
@@ -342,6 +391,42 @@ class Ref2VActionPlanTest(unittest.TestCase):
             parsed.timing_adjustments,
         )
         self.assertTrue(any("2 s" in warning for warning in warnings))
+
+    def test_supervised_plan_preserves_user_timings_and_exposes_concerns(self):
+        plan = valid_supervised_plan()
+        plan["beats"][1]["end_ms"] = 10_000
+        plan["beats"][1]["substeps"][0]["end_ms"] = 10_000
+        plan["final_pose"]["start_ms"] = 10_000
+        plan["camera"] = None
+
+        retimed = retime_ref2v_supervised_action_plan(json.dumps(plan))
+        parsed = parse_ref2v_supervised_compiled_plan(retimed)
+        warnings = ref2v_supervised_action_plan_warnings(retimed)
+
+        self.assertEqual(parsed.requested_duration_seconds, 10)
+        self.assertEqual(parsed.duration_seconds, 12)
+        self.assertEqual(parsed.beats[0].end_ms, 3500)
+        self.assertEqual(parsed.beats[0].substeps[0].end_ms, 1800)
+        self.assertIn(RetimingAdjustment.FINAL_HOLD_REPAIRED, parsed.timing_adjustments)
+        self.assertTrue(any("state_visibility_conflict" in item for item in warnings))
+
+    def test_supervised_plan_rejects_a_gap_between_substeps(self):
+        plan = valid_supervised_plan()
+        plan["beats"][0]["substeps"][1]["start_ms"] = 2000
+
+        with self.assertRaisesRegex(ValueError, "substeps must be contiguous"):
+            retime_ref2v_supervised_action_plan(json.dumps(plan))
+
+    def test_supervised_plan_warns_instead_of_rejecting_a_short_camera_move(self):
+        plan = valid_supervised_plan()
+        plan["camera"]["start_ms"] = 7500
+        plan["camera"]["end_ms"] = 8000
+
+        compiled = retime_ref2v_supervised_action_plan(json.dumps(plan))
+        warnings = ref2v_supervised_action_plan_warnings(compiled)
+
+        self.assertEqual(parse_ref2v_supervised_compiled_plan(compiled).duration_seconds, 10)
+        self.assertTrue(any("moins d’une seconde" in item for item in warnings))
 
 
 if __name__ == "__main__":

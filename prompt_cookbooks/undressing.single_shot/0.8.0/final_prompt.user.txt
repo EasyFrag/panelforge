@@ -1,0 +1,7 @@
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+HUMAN-APPROVED SUPERVISED CHOREOGRAPHY PLAN
+{{BEAT_SHEET}}
+
+Write the four internal content fields now. The approved plan and its exact landmarks override any shorter duration or less explicit action phrasing in the Brief. The application will compile the reference mapping, Shot 1 heading, and final audio labels.

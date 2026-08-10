@@ -32,6 +32,15 @@ class CameraPath(StrEnum):
     OTHER = "other"
 
 
+class ContinuityConcernCategory(StrEnum):
+    TEMPORAL_AMBIGUITY = "temporal_ambiguity"
+    HAND_OBJECT_CONTINUITY = "hand_object_continuity"
+    STATE_VISIBILITY_CONFLICT = "state_visibility_conflict"
+    REFERENCE_INFLUENCE = "reference_influence"
+    PHYSICAL_PLAUSIBILITY = "physical_plausibility"
+    OTHER = "other"
+
+
 class RetimingAdjustment(StrEnum):
     DURATION_EXTENDED = "duration_extended"
     FINAL_HOLD_REPAIRED = "final_hold_repaired"
@@ -98,6 +107,56 @@ class CameraPlan(_StrictModel):
 
 class ActionBeatV2(ActionBeat):
     complexity: ActionComplexity
+
+
+class ActionSubstep(_StrictModel):
+    substep_id: str = Field(min_length=1)
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+    action: str = Field(min_length=1)
+    left_hand: str = Field(min_length=1)
+    right_hand: str = Field(min_length=1)
+    object_state_after: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> ActionSubstep:
+        if self.end_ms <= self.start_ms:
+            raise ValueError("action substep end_ms must be greater than start_ms")
+        return self
+
+
+class ActionBeatV3(ActionBeatV2):
+    substeps: tuple[ActionSubstep, ...] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_substeps(self) -> ActionBeatV3:
+        substep_ids = [substep.substep_id for substep in self.substeps]
+        if len(substep_ids) != len(set(substep_ids)):
+            raise ValueError(f"action beat {self.beat_id} has duplicate substep IDs")
+        cursor_ms = self.start_ms
+        for substep in self.substeps:
+            if substep.start_ms != cursor_ms:
+                raise ValueError(
+                    f"action beat {self.beat_id} substeps must be contiguous"
+                )
+            if substep.end_ms > self.end_ms:
+                raise ValueError(
+                    f"action beat {self.beat_id} substep exceeds its beat"
+                )
+            cursor_ms = substep.end_ms
+        if cursor_ms != self.end_ms:
+            raise ValueError(
+                f"action beat {self.beat_id} substeps must cover the complete beat"
+            )
+        return self
+
+
+class ContinuityConcern(_StrictModel):
+    concern_id: str = Field(min_length=1)
+    category: ContinuityConcernCategory
+    description: str = Field(min_length=1)
+    proposed_resolution: str = Field(min_length=1)
+    resolution: str | None = Field(default=None, min_length=1)
 
 
 class CameraPlanV2(_StrictModel):
@@ -195,18 +254,29 @@ class Ref2VRepairableActionPlan(_StrictModel):
 
     @model_validator(mode="after")
     def validate_structure(self) -> Ref2VRepairableActionPlan:
-        beat_ids = [beat.beat_id for beat in self.beats]
-        if len(beat_ids) != len(set(beat_ids)):
-            raise ValueError("action beat IDs must be unique")
-        previous_end = 0
-        for beat in self.beats:
-            if beat.start_ms < previous_end:
-                raise ValueError("action beats must be sequential and non-overlapping")
-            previous_end = beat.end_ms
-        if self.final_pose.start_ms < previous_end:
-            raise ValueError("final pose must start after the last primary action")
-        if self.camera is not None and self.camera.start_ms < self.final_pose.start_ms:
-            raise ValueError("camera movement must start during the held final pose")
+        _validate_repairable_structure(self.beats, self.final_pose, self.camera)
+        return self
+
+
+class Ref2VSupervisedActionPlan(_StrictModel):
+    """V0.8 planner output with editable atomic motion and continuity concerns."""
+
+    duration_seconds: int = Field(ge=4)
+    reference_policy: ReferencePolicy
+    scene_setup: str = Field(min_length=1)
+    beats: tuple[ActionBeatV3, ...] = Field(min_length=1, max_length=6)
+    final_pose: FinalPose
+    camera: CameraPlanV2 | None
+    continuity_concerns: tuple[ContinuityConcern, ...] = Field(max_length=12)
+    overall_soundscape: str = Field(min_length=1)
+    non_diegetic_music: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_structure(self) -> Ref2VSupervisedActionPlan:
+        _validate_repairable_structure(self.beats, self.final_pose, self.camera)
+        concern_ids = [concern.concern_id for concern in self.continuity_concerns]
+        if len(concern_ids) != len(set(concern_ids)):
+            raise ValueError("continuity concerns must have unique IDs")
         return self
 
 
@@ -221,12 +291,49 @@ class Ref2VAdvisoryActionPlan(Ref2VActionPlanV3):
         return self
 
 
+class Ref2VSupervisedCompiledPlan(Ref2VSupervisedActionPlan):
+    requested_duration_seconds: int = Field(ge=4)
+    timing_adjustments: tuple[RetimingAdjustment, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_compiled_timeline(self) -> Ref2VSupervisedCompiledPlan:
+        if self.requested_duration_seconds > self.duration_seconds:
+            raise ValueError("requested duration must not exceed planned duration")
+        duration_ms = self.duration_seconds * 1000
+        if self.final_pose.start_ms >= duration_ms:
+            raise ValueError("final pose must start before the video ends")
+        if duration_ms - self.final_pose.start_ms < 2000:
+            raise ValueError("final pose must remain visible for at least 2000 ms")
+        if self.camera is not None and self.camera.end_ms > duration_ms:
+            raise ValueError("camera movement exceeds the video duration")
+        return self
+
+
 _BASE_MINIMUM_DURATIONS = {
     MotionType.OVER_HEAD_REMOVAL: 3000,
     MotionType.STEP_OUT_REMOVAL: 3000,
     MotionType.SIMPLE_REMOVAL: 2000,
     MotionType.OTHER: 1000,
 }
+
+
+def _validate_repairable_structure(
+    beats: tuple[ActionBeatV2, ...] | tuple[ActionBeatV3, ...],
+    final_pose: FinalPose,
+    camera: CameraPlanV2 | None,
+) -> None:
+    beat_ids = [beat.beat_id for beat in beats]
+    if len(beat_ids) != len(set(beat_ids)):
+        raise ValueError("action beat IDs must be unique")
+    previous_end = 0
+    for beat in beats:
+        if beat.start_ms < previous_end:
+            raise ValueError("action beats must be sequential and non-overlapping")
+        previous_end = beat.end_ms
+    if final_pose.start_ms < previous_end:
+        raise ValueError("final pose must start after the last primary action")
+    if camera is not None and camera.start_ms < final_pose.start_ms:
+        raise ValueError("camera movement must start during the held final pose")
 
 
 def _validate_timeline(
@@ -341,6 +448,18 @@ def parse_ref2v_repairable_action_plan(content: str) -> Ref2VRepairableActionPla
 def ref2v_repairable_action_plan_schema() -> str:
     return json.dumps(
         Ref2VRepairableActionPlan.model_json_schema(),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def parse_ref2v_supervised_action_plan(content: str) -> Ref2VSupervisedActionPlan:
+    return _parse_plan(content, Ref2VSupervisedActionPlan)
+
+
+def ref2v_supervised_action_plan_schema() -> str:
+    return json.dumps(
+        Ref2VSupervisedActionPlan.model_json_schema(),
         ensure_ascii=False,
         indent=2,
     )
@@ -625,6 +744,33 @@ def retime_ref2v_repairable_action_plan(content: str) -> str:
     return json.dumps(repaired.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
+def retime_ref2v_supervised_action_plan(content: str) -> str:
+    """Compile user-editable timings without guessing how long an action should take."""
+    plan = parse_ref2v_supervised_action_plan(content)
+    data = plan.model_dump(mode="json")
+    requested_duration_ms = plan.duration_seconds * 1000
+    original_hold_ms = max(0, requested_duration_ms - plan.final_pose.start_ms)
+    planned_duration_ms = plan.final_pose.start_ms + max(2000, original_hold_ms)
+
+    if plan.camera is not None:
+        planned_duration_ms = max(planned_duration_ms, plan.camera.end_ms)
+
+    planned_duration_ms = _ceil_to_second(planned_duration_ms)
+    adjustments: list[RetimingAdjustment] = []
+    if original_hold_ms < 2000:
+        adjustments.append(RetimingAdjustment.FINAL_HOLD_REPAIRED)
+    if planned_duration_ms > requested_duration_ms:
+        adjustments.append(RetimingAdjustment.DURATION_EXTENDED)
+    if planned_duration_ms > 15_000:
+        adjustments.append(RetimingAdjustment.DURATION_OVER_15)
+
+    data["requested_duration_seconds"] = plan.duration_seconds
+    data["duration_seconds"] = planned_duration_ms // 1000
+    data["timing_adjustments"] = [adjustment.value for adjustment in adjustments]
+    compiled = Ref2VSupervisedCompiledPlan.model_validate(data)
+    return json.dumps(compiled.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+
 def parse_ref2v_elastic_action_plan(content: str) -> Ref2VElasticActionPlan:
     return _parse_plan(content, Ref2VElasticActionPlan)
 
@@ -635,6 +781,10 @@ def parse_ref2v_bounded_action_plan(content: str) -> Ref2VBoundedActionPlan:
 
 def parse_ref2v_advisory_action_plan(content: str) -> Ref2VAdvisoryActionPlan:
     return _parse_plan(content, Ref2VAdvisoryActionPlan)
+
+
+def parse_ref2v_supervised_compiled_plan(content: str) -> Ref2VSupervisedCompiledPlan:
+    return _parse_plan(content, Ref2VSupervisedCompiledPlan)
 
 
 def lint_ref2v_elastic_action_plan(content: str) -> tuple[str, ...]:
@@ -656,6 +806,14 @@ def lint_ref2v_bounded_action_plan(content: str) -> tuple[str, ...]:
 def lint_ref2v_advisory_action_plan(content: str) -> tuple[str, ...]:
     try:
         parse_ref2v_advisory_action_plan(content)
+    except (TypeError, ValueError) as error:
+        return (str(error),)
+    return ()
+
+
+def lint_ref2v_supervised_compiled_plan(content: str) -> tuple[str, ...]:
+    try:
+        parse_ref2v_supervised_compiled_plan(content)
     except (TypeError, ValueError) as error:
         return (str(error),)
     return ()
@@ -715,21 +873,57 @@ def ref2v_advisory_action_plan_warnings(content: str) -> tuple[str, ...]:
         plan = parse_ref2v_advisory_action_plan(content)
     except (TypeError, ValueError):
         return ()
+    return _advisory_timing_warnings(
+        plan.requested_duration_seconds,
+        plan.duration_seconds,
+        plan.timing_adjustments,
+    )
+
+
+def _advisory_timing_warnings(
+    requested_duration_seconds: int,
+    duration_seconds: int,
+    adjustments: tuple[RetimingAdjustment, ...],
+) -> tuple[str, ...]:
     warnings: list[str] = []
-    if RetimingAdjustment.FINAL_HOLD_REPAIRED in plan.timing_adjustments:
+    if RetimingAdjustment.FINAL_HOLD_REPAIRED in adjustments:
         warnings.append(
             "Le plan LLM ne réservait pas les 2 s nécessaires à la pose finale ; "
             "la chronologie a été prolongée automatiquement sans relancer le planner."
         )
-    if RetimingAdjustment.DURATION_EXTENDED in plan.timing_adjustments:
+    if RetimingAdjustment.DURATION_EXTENDED in adjustments:
         warnings.append(
             "Durée planifiée étendue automatiquement de "
-            f"{plan.requested_duration_seconds} s à {plan.duration_seconds} s."
+            f"{requested_duration_seconds} s à {duration_seconds} s."
         )
-    if RetimingAdjustment.DURATION_OVER_15 in plan.timing_adjustments:
+    if RetimingAdjustment.DURATION_OVER_15 in adjustments:
         warnings.append(
-            f"La durée planifiée de {plan.duration_seconds} s dépasse 15 s. "
+            f"La durée planifiée de {duration_seconds} s dépasse 15 s. "
             "La génération reste autorisée ; vérifiez la capacité du moteur vidéo ciblé."
+        )
+    return tuple(warnings)
+
+
+def ref2v_supervised_action_plan_warnings(content: str) -> tuple[str, ...]:
+    try:
+        plan = parse_ref2v_supervised_compiled_plan(content)
+    except (TypeError, ValueError):
+        return ()
+    warnings = list(_advisory_timing_warnings(
+        plan.requested_duration_seconds,
+        plan.duration_seconds,
+        plan.timing_adjustments,
+    ))
+    for concern in plan.continuity_concerns:
+        if concern.resolution is None:
+            warnings.append(
+                f"Arbitrage conseillé [{concern.category.value} / {concern.concern_id}] : "
+                f"{concern.description} Proposition : {concern.proposed_resolution}"
+            )
+    if plan.camera is not None and plan.camera.end_ms - plan.camera.start_ms < 1000:
+        warnings.append(
+            "Le mouvement de caméra proposé dure moins d’une seconde ; il peut être "
+            "peu lisible, mais le plan reste validable."
         )
     return tuple(warnings)
 
@@ -754,6 +948,16 @@ def ref2v_bounded_writer_plan(content: str) -> str:
 def ref2v_advisory_writer_plan(content: str) -> str:
     """Hide V0.7 scheduling provenance from the prose writer."""
     plan = parse_ref2v_advisory_action_plan(content)
+    data = plan.model_dump(
+        mode="json",
+        exclude={"requested_duration_seconds", "timing_adjustments"},
+    )
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def ref2v_supervised_writer_plan(content: str) -> str:
+    """Hide compilation provenance while preserving the supervised choreography."""
+    plan = parse_ref2v_supervised_compiled_plan(content)
     data = plan.model_dump(
         mode="json",
         exclude={"requested_duration_seconds", "timing_adjustments"},

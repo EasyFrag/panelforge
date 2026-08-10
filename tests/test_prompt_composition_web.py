@@ -27,6 +27,10 @@ from panelforge.infrastructure.storage import (
 )
 from tests.test_prompt_composition import FakeGateway, approved_session
 from tests.test_i2v_prompt import I2VGateway, approved_i2v_session
+from tests.test_ref2v_prompt import (
+    SupervisedGateway,
+    approved_session as approved_ref2v_session,
+)
 
 
 PRESET_DIRECTORY = (
@@ -163,10 +167,14 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('item.version === "0.2.0"', i2v_script.text)
         self.assertIn("PanelForgeModelPicker.populate", i2v_script.text)
         self.assertEqual(ref2v_script.status_code, 200)
-        self.assertIn('item.version === "0.7.1"', ref2v_script.text)
+        self.assertIn('item.version === "0.8.0"', ref2v_script.text)
         self.assertIn("PanelForgeModelPicker.populate", ref2v_script.text)
         self.assertIn('id="ref2v-action-plan"', page.text)
-        self.assertIn('id="ref2v-action-plan" class="internal-plan" open hidden', page.text)
+        self.assertIn('id="ref2v-action-plan" class="cookbook-step" open hidden', page.text)
+        self.assertIn('id="ref2v-generate-plan"', page.text)
+        self.assertIn('id="ref2v-arbitrations"', page.text)
+        self.assertIn('id="ref2v-apply-arbitrations"', page.text)
+        self.assertIn("beat-sheet/reconcile/stream", ref2v_script.text)
 
     def test_rejects_duplicate_fighter_assignments(self):
         response = self.client.post(
@@ -268,6 +276,69 @@ class I2VCompositionWebTest(unittest.TestCase):
         )
         self.assertEqual(inactive.status_code, 422)
         self.assertIn("not active", inactive.json()["detail"])
+
+
+class Ref2VArbitrationWebTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        assets = LocalAssetStore(self.directory.name)
+        sessions = LocalPromptSessionStore(self.directory.name)
+        sessions.create(approved_ref2v_session())
+        runner = ChangeViewRunner(
+            recipe=ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY)),
+            comfy=UnusedComfy(),
+            assets=assets,
+            runs=LocalRunStore(self.directory.name),
+        )
+        service = PromptCompositionService(
+            gateway=SupervisedGateway(),
+            cookbooks=LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks"),
+            sessions=sessions,
+            compositions=LocalPromptCompositionStore(self.directory.name),
+        )
+        self.client = TestClient(create_app(runner, prompt_composition=service))
+
+    def tearDown(self):
+        self.client.close()
+        self.directory.cleanup()
+
+    def test_reconciles_a_supervised_plan_through_the_stream_route(self):
+        configured = self.client.post(
+            "/api/prompt-lab/sessions/session-ref2v-1/composition",
+            json={
+                "cookbook_id": "undressing.single_shot",
+                "cookbook_version": "0.8.0",
+                "bindings": {
+                    "dressed_start": ["reference-start"],
+                    "body_reference": ["reference-body"],
+                },
+            },
+        )
+        self.assertEqual(configured.status_code, 200, configured.text)
+        generated = self.client.post(
+            "/api/prompt-lab/sessions/session-ref2v-1/beat-sheet/generate/stream"
+        )
+        self.assertEqual(generated.status_code, 200, generated.text)
+
+        reconciled = self.client.post(
+            "/api/prompt-lab/sessions/session-ref2v-1/beat-sheet/reconcile/stream",
+            json={
+                "decisions": {
+                    "retained_garment_visibility": (
+                        "Retain the garment and remove the incompatible visibility request."
+                    )
+                },
+                "instruction": "Give the transition more time.",
+            },
+        )
+
+        self.assertEqual(reconciled.status_code, 200, reconciled.text)
+        payloads = sse_payloads(reconciled)
+        self.assertEqual(payloads[-1]["kind"], "completed")
+        self.assertEqual(payloads[-1]["document_stage"], "beat_sheet")
+        document = payloads[-1]["composition"]["documents"]["beat_sheet"]
+        self.assertFalse(document["complete"])
+        self.assertIn("Retain the garment", document["active_content"])
 
 
 if __name__ == "__main__":

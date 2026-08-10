@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+import json
 import re
 from typing import Protocol
 from uuid import uuid4
@@ -33,7 +34,9 @@ from .ref2v_action_plan import (
     lint_ref2v_elastic_action_plan,
     lint_ref2v_action_plan,
     lint_ref2v_action_plan_v2,
+    lint_ref2v_supervised_compiled_plan,
     parse_ref2v_advisory_action_plan,
+    parse_ref2v_supervised_compiled_plan,
     ref2v_advisory_action_plan_warnings,
     ref2v_advisory_writer_plan,
     ref2v_bounded_action_plan_warnings,
@@ -45,10 +48,14 @@ from .ref2v_action_plan import (
     ref2v_action_plan_schema_v2,
     ref2v_action_plan_schema_v3,
     ref2v_repairable_action_plan_schema,
+    ref2v_supervised_action_plan_schema,
+    ref2v_supervised_action_plan_warnings,
+    ref2v_supervised_writer_plan,
     retime_ref2v_advisory_action_plan,
     retime_ref2v_bounded_action_plan,
     retime_ref2v_action_plan_v2,
     retime_ref2v_repairable_action_plan,
+    retime_ref2v_supervised_action_plan,
 )
 from .revised_documents import RevisedDocumentContract
 
@@ -95,9 +102,14 @@ _REF2V_ELASTIC_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v1"
 _REF2V_BOUNDED_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v2"
 _REF2V_ADVISORY_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v3"
 _REF2V_RECOVERABLE_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v4"
+_REF2V_SUPERVISED_CONTRACT = "minimax.h3.ref2v.single_shot_supervised_v1"
 _REF2V_ADVISORY_CONTRACTS = {
     _REF2V_ADVISORY_CONTRACT,
     _REF2V_RECOVERABLE_CONTRACT,
+}
+_REF2V_SOFT_FINAL_CONTRACTS = {
+    *_REF2V_ADVISORY_CONTRACTS,
+    _REF2V_SUPERVISED_CONTRACT,
 }
 _REF2V_PLANNED_CONTRACTS = {
     _REF2V_PLANNED_CONTRACT,
@@ -106,6 +118,7 @@ _REF2V_PLANNED_CONTRACTS = {
     _REF2V_BOUNDED_CONTRACT,
     _REF2V_ADVISORY_CONTRACT,
     _REF2V_RECOVERABLE_CONTRACT,
+    _REF2V_SUPERVISED_CONTRACT,
 }
 _REF2V_EDITABLE_FIELDS = (
     "scene_setup",
@@ -158,6 +171,8 @@ class PromptCookbookPort(Protocol):
     reference_plan_user_prompt: str | None
     beat_sheet_system_prompt: str | None
     beat_sheet_user_prompt: str | None
+    beat_sheet_reconcile_system_prompt: str | None
+    beat_sheet_reconcile_user_prompt: str | None
     final_prompt_system_prompt: str
     final_prompt_user_prompt: str
     revision_system_prompt: str
@@ -332,6 +347,7 @@ class PromptCompositionService:
         )
         if (
             cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
+            and cookbook.output_contract != _REF2V_SUPERVISED_CONTRACT
             and stage is CompositionStage.FINAL_PROMPT
         ):
             self._generate_stage(source_session_id, CompositionStage.BEAT_SHEET)
@@ -371,6 +387,7 @@ class PromptCompositionService:
         )
         if (
             cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
+            and cookbook.output_contract != _REF2V_SUPERVISED_CONTRACT
             and stage is CompositionStage.FINAL_PROMPT
         ):
             plan_request = self._request(
@@ -563,6 +580,137 @@ class PromptCompositionService:
             instruction,
         )
 
+    def stream_reconcile_action_plan(
+        self,
+        source_session_id: str,
+        decisions: Mapping[str, str],
+        instruction: str | None = None,
+    ) -> Iterator[CompositionStreamEvent]:
+        """Rewrite a supervised plan so human arbitration changes its real timeline."""
+        session = self.sessions.get(source_session_id)
+        composition = self.compositions.get(source_session_id)
+        cookbook = self._validated_cookbook(session, composition)
+        if cookbook.output_contract != _REF2V_SUPERVISED_CONTRACT:
+            raise ValueError(
+                "action-plan arbitration is only available for supervised Ref2V"
+            )
+        system_template = _required_prompt(
+            cookbook.beat_sheet_reconcile_system_prompt,
+            "beat_sheet_reconcile_system",
+        )
+        user_template = _required_prompt(
+            cookbook.beat_sheet_reconcile_user_prompt,
+            "beat_sheet_reconcile_user",
+        )
+        expected = self._expected_sources(
+            session,
+            composition,
+            CompositionStage.BEAT_SHEET,
+        )
+        current = composition.beat_sheet.active_revision
+        if current is None:
+            raise ValueError("generate the action plan before arbitrating it")
+        if current.source_ids != expected:
+            raise ValueError("the current action plan is stale; regenerate it first")
+        current_plan = parse_ref2v_supervised_compiled_plan(current.content)
+        normalized_decisions = _normalize_arbitration_decisions(
+            decisions,
+            {concern.concern_id for concern in current_plan.continuity_concerns},
+        )
+        if instruction is not None and not isinstance(instruction, str):
+            raise TypeError("the global arbitration instruction must be text")
+        normalized_instruction = (
+            instruction.strip() if instruction and instruction.strip() else None
+        )
+        if normalized_instruction is not None and len(normalized_instruction) > 4000:
+            raise ValueError("the global arbitration instruction is too long")
+        if not normalized_decisions and normalized_instruction is None:
+            raise ValueError("provide at least one arbitration decision or instruction")
+        decisions_json = json.dumps(
+            [
+                {"concern_id": concern_id, "decision": decision}
+                for concern_id, decision in normalized_decisions.items()
+            ],
+            ensure_ascii=False,
+            indent=2,
+        )
+        request = CompletionRequest(
+            model_id=session.model_id,
+            system_prompt=system_template,
+            user_prompt=_render(
+                user_template,
+                BRIEF=_approved_brief(session).content,
+                CURRENT_PLAN=current.content,
+                DECISIONS=decisions_json,
+                GLOBAL_INSTRUCTION=normalized_instruction or "N/A",
+                ACTION_PLAN_SCHEMA=ref2v_supervised_action_plan_schema(),
+            ),
+            temperature=0.2,
+            max_tokens=32768,
+            operation_id="action_plan.reconcile",
+        )
+        audit_instruction = json.dumps(
+            {
+                "decisions": normalized_decisions,
+                "instruction": normalized_instruction,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+        def validate_reconciliation(content: str) -> None:
+            revised = parse_ref2v_supervised_compiled_plan(content)
+            original_resolutions = {
+                concern.concern_id: concern.resolution
+                for concern in current_plan.continuity_concerns
+            }
+            resolutions = {
+                concern.concern_id: concern.resolution
+                for concern in revised.continuity_concerns
+            }
+            removed = sorted(set(original_resolutions) - set(resolutions))
+            if removed:
+                raise ValueError(
+                    "the reconciled plan removed continuity concern(s): "
+                    + ", ".join(removed)
+                )
+            missing = [
+                concern_id
+                for concern_id, decision in normalized_decisions.items()
+                if resolutions.get(concern_id) != decision
+            ]
+            if missing:
+                raise ValueError(
+                    "the reconciled plan did not apply decision(s): "
+                    + ", ".join(missing)
+                )
+            silently_changed = [
+                concern_id
+                for concern_id, resolution in original_resolutions.items()
+                if concern_id not in normalized_decisions
+                and resolutions.get(concern_id) != resolution
+            ]
+            if silently_changed:
+                raise ValueError(
+                    "the reconciled plan changed undecided concern(s): "
+                    + ", ".join(silently_changed)
+                )
+
+        return self._stream(
+            request,
+            cookbook,
+            session,
+            composition,
+            CompositionStage.BEAT_SHEET,
+            expected,
+            "",
+            RevisionOrigin.REWRITE,
+            audit_instruction,
+            extract_revision=False,
+            validate_content=validate_reconciliation,
+            document_stage=CompositionStage.BEAT_SHEET,
+        )
+
     def approve(
         self,
         source_session_id: str,
@@ -713,7 +861,9 @@ class PromptCompositionService:
                             cookbook,
                         ),
                         ACTION_PLAN_SCHEMA=(
-                            ref2v_repairable_action_plan_schema()
+                            ref2v_supervised_action_plan_schema()
+                            if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT
+                            else ref2v_repairable_action_plan_schema()
                             if cookbook.output_contract == _REF2V_RECOVERABLE_CONTRACT
                             else ref2v_action_plan_schema_v3()
                             if cookbook.output_contract == _REF2V_ADVISORY_CONTRACT
@@ -971,7 +1121,7 @@ class PromptCompositionService:
                 stage,
                 content,
                 enforce_content=(
-                    cookbook.output_contract not in _REF2V_ADVISORY_CONTRACTS
+                    cookbook.output_contract not in _REF2V_SOFT_FINAL_CONTRACTS
                 ),
             )
         elif cookbook.output_contract == "minimax.h3.i2va":
@@ -1003,6 +1153,10 @@ class PromptCompositionService:
         prefix: str,
         origin: RevisionOrigin,
         instruction: str | None = None,
+        *,
+        extract_revision: bool = True,
+        validate_content: Callable[[str], None] | None = None,
+        document_stage: CompositionStage | None = None,
     ) -> Iterator[CompositionStreamEvent]:
         terminal = False
         if prefix:
@@ -1016,7 +1170,7 @@ class PromptCompositionService:
                 if event.result is None:
                     raise ValueError("stream completed without a result")
                 result_content = event.result.content
-                if origin is RevisionOrigin.REWRITE:
+                if origin is RevisionOrigin.REWRITE and extract_revision:
                     result_content = _revision_document_contract(
                         cookbook,
                         stage,
@@ -1027,6 +1181,8 @@ class PromptCompositionService:
                     prefix,
                     result_content,
                 )
+                if validate_content is not None:
+                    validate_content(content)
                 composition = self._persist_if_current(
                     initial_session,
                     initial_composition,
@@ -1045,6 +1201,7 @@ class PromptCompositionService:
                     composition=composition,
                     finish_reason=event.result.finish_reason,
                     max_tokens=request.max_tokens,
+                    document_stage=document_stage,
                 )
             elif event.kind is StreamEventKind.TRUNCATED:
                 terminal = True
@@ -1055,6 +1212,7 @@ class PromptCompositionService:
                     text=partial,
                     finish_reason=(event.result.finish_reason if event.result else None),
                     max_tokens=request.max_tokens,
+                    document_stage=document_stage,
                 )
             else:
                 yield CompositionStreamEvent(
@@ -1062,6 +1220,7 @@ class PromptCompositionService:
                     phase=event.phase,
                     text=event.text,
                     progress=event.progress,
+                    document_stage=document_stage,
                 )
         if not terminal:
             raise ValueError("model stream ended before completion")
@@ -1159,6 +1318,14 @@ def lint_cookbook_document(
             return lint_ref2v_bounded_action_plan(content)
         if stage is CompositionStage.FINAL_PROMPT:
             return lint_compiled_ref2v_single_shot_prompt(content)
+        return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
+    if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT:
+        if stage is CompositionStage.BEAT_SHEET:
+            return lint_ref2v_supervised_compiled_plan(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            if not isinstance(content, str) or not content.strip():
+                return ("Le prompt Ref2V compilé est vide.",)
+            return ()
         return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
     if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
         if stage is CompositionStage.BEAT_SHEET:
@@ -1332,10 +1499,15 @@ def _ref2v_landmark_warnings(
     try:
         plan = parse_ref2v_advisory_action_plan(plan_content)
     except (TypeError, ValueError):
-        return ()
+        try:
+            plan = parse_ref2v_supervised_compiled_plan(plan_content)
+        except (TypeError, ValueError):
+            return ()
     landmarks_ms: list[int] = []
     for beat in plan.beats:
         landmarks_ms.extend((beat.start_ms, beat.end_ms))
+        for substep in getattr(beat, "substeps", ()):
+            landmarks_ms.extend((substep.start_ms, substep.end_ms))
     landmarks_ms.append(plan.final_pose.start_ms)
     if plan.camera is not None:
         landmarks_ms.extend((plan.camera.start_ms, plan.camera.end_ms))
@@ -1415,6 +1587,25 @@ def composition_document_warnings(
     *,
     composition: PromptComposition | None = None,
 ) -> tuple[str, ...]:
+    if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT:
+        if stage is CompositionStage.BEAT_SHEET:
+            return ref2v_supervised_action_plan_warnings(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            warnings = [
+                (
+                    "Un timestamp dépasse 15 s. Le prompt reste utilisable ; "
+                    "vérifiez la durée acceptée par le moteur vidéo ciblé."
+                    if warning == "Un timestamp dépasse la durée maximale de 15 secondes."
+                    else warning
+                )
+                for warning in lint_compiled_ref2v_single_shot_prompt(content)
+            ]
+            if composition is not None:
+                plan = composition.beat_sheet.active_revision
+                if plan is not None:
+                    warnings.extend(_ref2v_landmark_warnings(plan.content, content))
+            return tuple(dict.fromkeys(warnings))
+        return ()
     if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
         if stage is CompositionStage.BEAT_SHEET:
             return ref2v_advisory_action_plan_warnings(content)
@@ -1931,6 +2122,30 @@ def _render(template: str, **values: str) -> str:
     return rendered
 
 
+def _normalize_arbitration_decisions(
+    decisions: Mapping[str, str],
+    known_concern_ids: set[str],
+) -> dict[str, str]:
+    if not isinstance(decisions, Mapping):
+        raise TypeError("arbitration decisions must be a mapping")
+    if len(decisions) > 12:
+        raise ValueError("at most 12 arbitration decisions are supported")
+    normalized: dict[str, str] = {}
+    for raw_concern_id, raw_decision in decisions.items():
+        if not isinstance(raw_concern_id, str) or not raw_concern_id.strip():
+            raise ValueError("arbitration concern IDs must not be empty")
+        concern_id = raw_concern_id.strip()
+        if concern_id not in known_concern_ids:
+            raise ValueError(f"unknown continuity concern: {concern_id}")
+        if not isinstance(raw_decision, str) or not raw_decision.strip():
+            raise ValueError(f"decision for {concern_id} must not be empty")
+        decision = raw_decision.strip()
+        if len(decision) > 2000:
+            raise ValueError(f"decision for {concern_id} is too long")
+        normalized[concern_id] = decision
+    return normalized
+
+
 def _compile_content(
     cookbook: PromptCookbookPort,
     stage: CompositionStage,
@@ -1939,6 +2154,11 @@ def _compile_content(
 ) -> str:
     body = _strip_fence(result)
     if (
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT
+    ):
+        content = retime_ref2v_supervised_action_plan(body)
+    elif (
         stage is CompositionStage.BEAT_SHEET
         and cookbook.output_contract == _REF2V_RECOVERABLE_CONTRACT
     ):
@@ -1973,7 +2193,7 @@ def _compile_content(
         and cookbook.output_contract
         in {_REF2V_COMPILED_CONTRACT, *_REF2V_PLANNED_CONTRACTS}
     ):
-        if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
+        if cookbook.output_contract in _REF2V_SOFT_FINAL_CONTRACTS:
             body = _normalize_ref2v_model_labels(body)
         editable = _REF2V_EDITABLE_CONTRACT.extract(body)
         content = _compile_ref2v_single_shot(editable)
@@ -1990,6 +2210,8 @@ def _compile_content(
 
 
 def _writer_action_plan(cookbook: PromptCookbookPort, content: str) -> str:
+    if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT:
+        return ref2v_supervised_writer_plan(content)
     if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
         return ref2v_advisory_writer_plan(content)
     if cookbook.output_contract == _REF2V_BOUNDED_CONTRACT:
@@ -2188,6 +2410,3 @@ def _inline_field_body(
     if end is None:
         return content[start.end() :]
     return content[start.end() : start.end() + end.start()]
-    parse_ref2v_advisory_action_plan,
-    ref2v_advisory_action_plan_warnings,
-    ref2v_advisory_writer_plan,
