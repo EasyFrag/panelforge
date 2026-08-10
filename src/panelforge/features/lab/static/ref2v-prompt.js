@@ -4,6 +4,7 @@
   const core = window.PanelForgePromptLab;
   if (!core) return;
   const $ = (selector) => document.querySelector(selector);
+  const supervisedCookbookVersions = new Set(["0.8.0", "0.9.0"]);
   const state = {
     spec: null,
     cookbook: null,
@@ -111,6 +112,10 @@
     ) || (state.spec.profiles || []).find((profile) => profile.supports_brief) || null;
   }
 
+  function isSupervisedCookbook(cookbook) {
+    return Boolean(cookbook && supervisedCookbookVersions.has(cookbook.version));
+  }
+
   async function initialize() {
     try {
       const [spec, cookbooks] = await Promise.all([
@@ -119,7 +124,7 @@
       ]);
       state.spec = spec;
       state.cookbook = (cookbooks.cookbooks || []).find(
-        (item) => item.id === "undressing.single_shot" && item.version === "0.8.0",
+        (item) => item.id === "undressing.single_shot" && item.version === "0.9.0",
       ) || null;
       if (!state.cookbook) throw new Error("Cookbook Ref2V undressing indisponible.");
       renderCookbookVersion();
@@ -283,10 +288,10 @@
       ? state.composition.documents.final_prompt : null;
     const planDocument = state.composition && state.composition.documents
       ? state.composition.documents.beat_sheet : null;
-    const supervised = Boolean(
+    const supervised = isSupervisedCookbook(
       state.composition && state.composition.cookbook
-      && state.composition.cookbook.version === "0.8.0",
-    ) || Boolean(!state.composition && state.cookbook && state.cookbook.version === "0.8.0");
+        ? state.composition.cookbook : state.cookbook,
+    );
     const planApproved = Boolean(planDocument && planDocument.complete);
     const promptApproved = Boolean(promptDocument && promptDocument.complete);
     elements.sessionTitle.textContent = `${refs.start.label} + ${refs.body.label}`;
@@ -541,9 +546,9 @@
     const documentState = state.composition && state.composition.documents
       ? state.composition.documents.beat_sheet : null;
     const visible = Boolean(
-      cookbook && ["0.3.0", "0.4.0", "0.5.0", "0.6.0", "0.7.0", "0.7.1", "0.8.0"].includes(cookbook.version),
+      cookbook && ["0.3.0", "0.4.0", "0.5.0", "0.6.0", "0.7.0", "0.7.1", "0.8.0", "0.9.0"].includes(cookbook.version),
     );
-    const supervised = Boolean(cookbook && cookbook.version === "0.8.0");
+    const supervised = isSupervisedCookbook(cookbook);
     const persisted = documentState && documentState.active_content
       ? documentState.active_content : "";
     const active = documentState && documentState.active_revision_id;
@@ -749,8 +754,9 @@
   async function streamPrompt(revision = false) {
     try {
       if (!state.composition) await configureRef2V();
-      const supervised = state.composition && state.composition.cookbook
-        && state.composition.cookbook.version === "0.8.0";
+      const supervised = isSupervisedCookbook(
+        state.composition && state.composition.cookbook,
+      );
       if (!revision && !supervised) {
         state.actionPlanDraft = "";
         state.actionPlanLive = true;

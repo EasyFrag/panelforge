@@ -78,6 +78,11 @@ V2_INLINE_EDITABLE = (
     .replace("non_diegetic_music:\n", "non_diegetic_music: ")
 )
 
+V9_MAJOR_INLINE_EDITABLE = """scene_setup: The setting is a quiet white-walled room with diffuse light. The target video is one continuous shot with the visible construction of the starting garment preserved.
+shot_1: The scene begins from the exact dressed state in the starting frame. Both hands raise the garment in one continuous motion until it clears the upper body and settles into its next observable state. At 00:03.500, the subject begins the second major action and completes it through fluid intermediate hand and fabric motion. At 00:07.000, the subject establishes and holds the requested final pose. At 00:07.500, the planned camera movement begins around that already-established pose.
+overall_soundscape: Quiet indoor room tone, soft cloth movement, natural breathing, and a light fabric landing.
+non_diegetic_music: N/A"""
+
 V3_ACTION_PLAN = json.dumps(
     {
         "duration_seconds": 10,
@@ -178,6 +183,14 @@ _RECONCILED_ACTION_PLAN_DATA["continuity_concerns"][0]["resolution"] = (
 )
 RECONCILED_ACTION_PLAN = json.dumps(
     _RECONCILED_ACTION_PLAN_DATA,
+    ensure_ascii=False,
+)
+_NOOP_RECONCILED_ACTION_PLAN_DATA = json.loads(SUPERVISED_ACTION_PLAN)
+_NOOP_RECONCILED_ACTION_PLAN_DATA["continuity_concerns"][0]["resolution"] = (
+    _ARBITRATION_DECISION
+)
+NOOP_RECONCILED_ACTION_PLAN = json.dumps(
+    _NOOP_RECONCILED_ACTION_PLAN_DATA,
     ensure_ascii=False,
 )
 
@@ -450,6 +463,20 @@ class Ref2VPromptTest(unittest.TestCase):
         )
         self.assertIn("{{DECISIONS}}", cookbook.beat_sheet_reconcile_user_prompt)
         self.assertIn("human-approved", cookbook.final_prompt_system_prompt)
+
+    def test_catalog_exposes_v9_visible_topology_and_major_landmarks(self):
+        cookbook = self.service.cookbooks.get("undressing.single_shot", "0.9.0")
+
+        self.assertEqual(
+            cookbook.output_contract,
+            "minimax.h3.ref2v.single_shot_supervised_v1",
+        )
+        self.assertIn("visible physical construction", cookbook.beat_sheet_system_prompt)
+        self.assertIn("sleeveless garment has armholes", cookbook.beat_sheet_system_prompt)
+        self.assertIn("set camera to null", cookbook.beat_sheet_system_prompt)
+        self.assertIn("observable actions and visible states", cookbook.beat_sheet_reconcile_system_prompt)
+        self.assertIn("Do not timestamp substeps", cookbook.final_prompt_system_prompt)
+        self.assertIn("cause, continuous action", cookbook.final_prompt_system_prompt)
 
     def test_v2_revision_is_recompiled_without_exposing_internal_fields(self):
         self.service.configure(
@@ -1015,6 +1042,72 @@ class Ref2VPromptTest(unittest.TestCase):
         self.assertIn("Retain the garment", writer_prompt)
         self.assertIsNotNone(final.final_prompt.active_revision)
 
+    def test_v9_writer_uses_only_major_landmarks_without_warning(self):
+        self.gateway = SupervisedGateway()
+        self.gateway._content_for = lambda request: (
+            SUPERVISED_ACTION_PLAN
+            if request.operation_id == "action_plan.generate"
+            else V9_MAJOR_INLINE_EDITABLE
+        )
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.9.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.approve("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        composition = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+        statuses = {status.stage: status for status in self.service.status(composition)}
+        prompt = composition.final_prompt.active_revision.content
+
+        self.assertIn("At 00:03.500", prompt)
+        self.assertIn("At 00:07.000", prompt)
+        self.assertIn("At 00:07.500", prompt)
+        self.assertNotIn("At 00:00.000", prompt)
+        self.assertFalse(
+            any(
+                "Jalons majeurs" in warning or "micro-timestamps" in warning
+                for warning in statuses[CompositionStage.FINAL_PROMPT].validation_warnings
+            )
+        )
+
+        revised = self.service.revise(
+            "session-ref2v-1",
+            CompositionStage.FINAL_PROMPT,
+            "Keep the same major landmarks and make the prose more fluid.",
+        )
+        self.assertIsNotNone(revised.final_prompt.active_revision)
+        self.assertIn("APPROVED SUPERVISED CHOREOGRAPHY", self.gateway.requests[-1].user_prompt)
+
+    def test_v9_reconciliation_templates_render_with_the_supervised_contract(self):
+        self.gateway = SupervisedGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.9.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        events = list(
+            self.service.stream_reconcile_action_plan(
+                "session-ref2v-1",
+                {"retained_garment_visibility": _ARBITRATION_DECISION},
+            )
+        )
+
+        self.assertIsNotNone(events[-1].composition)
+        request = self.gateway.requests[-1]
+        self.assertIn("CURRENT VALIDATED ACTION PLAN", request.user_prompt)
+        self.assertIn("REQUIRED JSON SCHEMA", request.user_prompt)
+
     def test_v8_reconciles_human_decisions_into_a_new_plan_revision(self):
         self.gateway = SupervisedGateway()
         self.service.gateway = self.gateway
@@ -1105,6 +1198,45 @@ class Ref2VPromptTest(unittest.TestCase):
 
         stored = self.compositions.get("session-ref2v-1")
         self.assertEqual(stored.beat_sheet.active_revision_id, previous_revision_id)
+
+    def test_v8_warns_without_blocking_when_arbitration_only_sets_resolution(self):
+        self.gateway = SupervisedGateway()
+        self.gateway._content_for = lambda request: (
+            SUPERVISED_ACTION_PLAN
+            if request.operation_id == "action_plan.generate"
+            else NOOP_RECONCILED_ACTION_PLAN
+        )
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.8.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        events = list(
+            self.service.stream_reconcile_action_plan(
+                "session-ref2v-1",
+                {"retained_garment_visibility": _ARBITRATION_DECISION},
+            )
+        )
+        reconciled = events[-1].composition
+
+        warnings = {
+            status.stage: status.validation_warnings
+            for status in self.service.status(reconciled)
+        }
+        self.assertTrue(
+            any(
+                "aucun geste" in warning
+                for warning in warnings[CompositionStage.BEAT_SHEET]
+            )
+        )
+        approved = self.service.approve(
+            "session-ref2v-1",
+            CompositionStage.BEAT_SHEET,
+        )
+        self.assertTrue(approved.beat_sheet.approved_revision_id)
 
     def test_generates_directly_from_two_observations_and_approved_brief(self):
         self.service.configure(

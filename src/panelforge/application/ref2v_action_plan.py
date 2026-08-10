@@ -6,6 +6,7 @@ from collections.abc import Callable
 from enum import StrEnum
 import json
 import math
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -49,6 +50,7 @@ class RetimingAdjustment(StrEnum):
     CAMERA_SHORTENED = "camera_shortened"
     MARGINS_CAPPED = "margins_capped"
     DURATION_OVER_15 = "duration_over_15"
+    STATIC_CAMERA_NORMALIZED = "static_camera_normalized"
 
 
 class _StrictModel(BaseModel):
@@ -454,7 +456,7 @@ def ref2v_repairable_action_plan_schema() -> str:
 
 
 def parse_ref2v_supervised_action_plan(content: str) -> Ref2VSupervisedActionPlan:
-    return _parse_plan(content, Ref2VSupervisedActionPlan)
+    return _parse_supervised_plan(content, Ref2VSupervisedActionPlan)
 
 
 def ref2v_supervised_action_plan_schema() -> str:
@@ -746,6 +748,7 @@ def retime_ref2v_repairable_action_plan(content: str) -> str:
 
 def retime_ref2v_supervised_action_plan(content: str) -> str:
     """Compile user-editable timings without guessing how long an action should take."""
+    static_camera_normalized = _has_explicitly_static_camera(content)
     plan = parse_ref2v_supervised_action_plan(content)
     data = plan.model_dump(mode="json")
     requested_duration_ms = plan.duration_seconds * 1000
@@ -763,6 +766,8 @@ def retime_ref2v_supervised_action_plan(content: str) -> str:
         adjustments.append(RetimingAdjustment.DURATION_EXTENDED)
     if planned_duration_ms > 15_000:
         adjustments.append(RetimingAdjustment.DURATION_OVER_15)
+    if static_camera_normalized:
+        adjustments.append(RetimingAdjustment.STATIC_CAMERA_NORMALIZED)
 
     data["requested_duration_seconds"] = plan.duration_seconds
     data["duration_seconds"] = planned_duration_ms // 1000
@@ -784,7 +789,7 @@ def parse_ref2v_advisory_action_plan(content: str) -> Ref2VAdvisoryActionPlan:
 
 
 def parse_ref2v_supervised_compiled_plan(content: str) -> Ref2VSupervisedCompiledPlan:
-    return _parse_plan(content, Ref2VSupervisedCompiledPlan)
+    return _parse_supervised_plan(content, Ref2VSupervisedCompiledPlan)
 
 
 def lint_ref2v_elastic_action_plan(content: str) -> tuple[str, ...]:
@@ -901,6 +906,11 @@ def _advisory_timing_warnings(
             f"La durée planifiée de {duration_seconds} s dépasse 15 s. "
             "La génération reste autorisée ; vérifiez la capacité du moteur vidéo ciblé."
         )
+    if RetimingAdjustment.STATIC_CAMERA_NORMALIZED in adjustments:
+        warnings.append(
+            "Le planner avait encodé une caméra explicitement fixe comme un mouvement ; "
+            "PanelForge l’a normalisée en camera: null."
+        )
     return tuple(warnings)
 
 
@@ -996,6 +1006,57 @@ def _ceil_to_second(milliseconds: int) -> int:
 
 
 def _parse_plan(content: str, model_type):
+    raw = _parse_plan_data(content)
+    try:
+        return model_type.model_validate(raw)
+    except ValidationError as error:
+        raise ValueError(f"invalid Ref2V action plan: {error}") from error
+
+
+def _parse_supervised_plan(content: str, model_type):
+    raw = _parse_plan_data(content)
+    if _is_explicitly_static_camera(raw.get("camera")):
+        raw["camera"] = None
+    try:
+        return model_type.model_validate(raw)
+    except ValidationError as error:
+        raise ValueError(f"invalid Ref2V action plan: {error}") from error
+
+
+def _has_explicitly_static_camera(content: str) -> bool:
+    try:
+        raw = _parse_plan_data(content)
+    except (TypeError, ValueError):
+        return False
+    return _is_explicitly_static_camera(raw.get("camera"))
+
+
+def _is_explicitly_static_camera(value: object) -> bool:
+    if not isinstance(value, dict) or value.get("path_type") != CameraPath.OTHER.value:
+        return False
+    movement = str(value.get("movement", "")).casefold()
+    perspective = re.sub(
+        r"[^a-z]+",
+        " ",
+        str(value.get("visible_perspective_change", "")).casefold(),
+    ).strip()
+    explicitly_fixed = re.search(
+        r"\b(static|fixed|locked(?: off)?|stationary|tripod)\b",
+        movement,
+    )
+    no_perspective_change = perspective in {
+        "none",
+        "no change",
+        "no perspective change",
+        "no visible perspective change",
+        "static",
+        "fixed",
+        "unchanged",
+    }
+    return explicitly_fixed is not None and no_perspective_change
+
+
+def _parse_plan_data(content: str) -> dict[str, object]:
     if not isinstance(content, str) or not content.strip():
         raise ValueError("Ref2V action plan is empty")
     value = content.strip()
@@ -1009,6 +1070,8 @@ def _parse_plan(content: str, model_type):
         raise ValueError("Ref2V action plan does not contain a JSON object")
     try:
         raw = json.loads(value[start : end + 1])
-        return model_type.model_validate(raw)
-    except (json.JSONDecodeError, ValidationError) as error:
+    except json.JSONDecodeError as error:
         raise ValueError(f"invalid Ref2V action plan: {error}") from error
+    if not isinstance(raw, dict):
+        raise ValueError("invalid Ref2V action plan: root must be a JSON object")
+    return raw

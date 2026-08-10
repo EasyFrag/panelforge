@@ -428,6 +428,36 @@ class Ref2VActionPlanTest(unittest.TestCase):
         self.assertEqual(parse_ref2v_supervised_compiled_plan(compiled).duration_seconds, 10)
         self.assertTrue(any("moins d’une seconde" in item for item in warnings))
 
+    def test_supervised_plan_normalizes_an_explicitly_static_camera(self):
+        plan = valid_supervised_plan()
+        plan["camera"] = {
+            "start_ms": 0,
+            "end_ms": 10_000,
+            "path_type": "other",
+            "movement": "Fixed tripod with no pan, tilt, zoom, or dolly.",
+            "visible_perspective_change": "None",
+            "during": "held_final_pose",
+        }
+
+        compiled = retime_ref2v_supervised_action_plan(json.dumps(plan))
+        parsed = parse_ref2v_supervised_compiled_plan(compiled)
+        warnings = ref2v_supervised_action_plan_warnings(compiled)
+
+        self.assertIsNone(parsed.camera)
+        self.assertIn(
+            RetimingAdjustment.STATIC_CAMERA_NORMALIZED,
+            parsed.timing_adjustments,
+        )
+        self.assertTrue(any("camera: null" in item for item in warnings))
+
+    def test_supervised_plan_still_rejects_a_real_camera_move_before_final_pose(self):
+        plan = valid_supervised_plan()
+        plan["camera"]["start_ms"] = 0
+        plan["camera"]["end_ms"] = 6000
+
+        with self.assertRaisesRegex(ValueError, "camera movement must start"):
+            retime_ref2v_supervised_action_plan(json.dumps(plan))
+
 
 if __name__ == "__main__":
     unittest.main()

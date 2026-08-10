@@ -1495,6 +1495,8 @@ def lint_compiled_ref2v_single_shot_prompt(content: str) -> tuple[str, ...]:
 def _ref2v_landmark_warnings(
     plan_content: str,
     prompt_content: str,
+    *,
+    major_only: bool = False,
 ) -> tuple[str, ...]:
     try:
         plan = parse_ref2v_advisory_action_plan(plan_content)
@@ -1504,23 +1506,48 @@ def _ref2v_landmark_warnings(
         except (TypeError, ValueError):
             return ()
     landmarks_ms: list[int] = []
-    for beat in plan.beats:
-        landmarks_ms.extend((beat.start_ms, beat.end_ms))
-        for substep in getattr(beat, "substeps", ()):
-            landmarks_ms.extend((substep.start_ms, substep.end_ms))
-    landmarks_ms.append(plan.final_pose.start_ms)
-    if plan.camera is not None:
-        landmarks_ms.extend((plan.camera.start_ms, plan.camera.end_ms))
-    landmarks_ms.append(plan.duration_seconds * 1000)
+    if major_only:
+        landmarks_ms.extend(beat.start_ms for beat in plan.beats[1:])
+        landmarks_ms.append(plan.final_pose.start_ms)
+        if plan.camera is not None:
+            landmarks_ms.append(plan.camera.start_ms)
+    else:
+        for beat in plan.beats:
+            landmarks_ms.extend((beat.start_ms, beat.end_ms))
+            for substep in getattr(beat, "substeps", ()):
+                landmarks_ms.extend((substep.start_ms, substep.end_ms))
+        landmarks_ms.append(plan.final_pose.start_ms)
+        if plan.camera is not None:
+            landmarks_ms.extend((plan.camera.start_ms, plan.camera.end_ms))
+        landmarks_ms.append(plan.duration_seconds * 1000)
     expected = tuple(dict.fromkeys(_format_landmark(value) for value in landmarks_ms))
     missing = tuple(value for value in expected if f"At {value}" not in prompt_content)
-    if not missing:
-        return ()
-    return (
-        "Landmarks du plan absents sous la forme `At MM:SS.mmm` : "
-        + ", ".join(missing)
-        + ". Le prompt reste utilisable et approuvable.",
-    )
+    warnings: list[str] = []
+    if missing:
+        label = "Jalons majeurs" if major_only else "Landmarks"
+        warnings.append(
+            f"{label} du plan absents sous la forme `At MM:SS.mmm` : "
+            + ", ".join(missing)
+            + ". Le prompt reste utilisable et approuvable."
+        )
+    if major_only:
+        present = tuple(
+            dict.fromkeys(
+                match.group(1)
+                for match in re.finditer(
+                    r"\bAt\s+(\d{2}:\d{2}\.\d{3})\b",
+                    prompt_content,
+                )
+            )
+        )
+        unexpected = tuple(value for value in present if value not in expected)
+        if unexpected:
+            warnings.append(
+                "Le writer a exposé des micro-timestamps non requis : "
+                + ", ".join(unexpected)
+                + ". Le prompt reste utilisable, mais une rédaction par jalons majeurs est conseillée."
+            )
+    return tuple(warnings)
 
 
 def _format_landmark(milliseconds: int) -> str:
@@ -1589,7 +1616,10 @@ def composition_document_warnings(
 ) -> tuple[str, ...]:
     if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT:
         if stage is CompositionStage.BEAT_SHEET:
-            return ref2v_supervised_action_plan_warnings(content)
+            warnings = list(ref2v_supervised_action_plan_warnings(content))
+            if composition is not None:
+                warnings.extend(_supervised_reconciliation_warnings(composition))
+            return tuple(dict.fromkeys(warnings))
         if stage is CompositionStage.FINAL_PROMPT:
             warnings = [
                 (
@@ -1603,7 +1633,13 @@ def composition_document_warnings(
             if composition is not None:
                 plan = composition.beat_sheet.active_revision
                 if plan is not None:
-                    warnings.extend(_ref2v_landmark_warnings(plan.content, content))
+                    warnings.extend(
+                        _ref2v_landmark_warnings(
+                            plan.content,
+                            content,
+                            major_only=cookbook.reference.version == "0.9.0",
+                        )
+                    )
             return tuple(dict.fromkeys(warnings))
         return ()
     if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
@@ -1658,6 +1694,63 @@ def composition_document_warnings(
             f"detailed_description contient {word_count} mots ; la cible du guide est 350–500.",
         )
     return ()
+
+
+def _supervised_reconciliation_warnings(
+    composition: PromptComposition,
+) -> tuple[str, ...]:
+    document = composition.beat_sheet
+    active = document.active_revision
+    if (
+        active is None
+        or active.origin is not RevisionOrigin.REWRITE
+        or active.parent_revision_id is None
+        or active.instruction is None
+    ):
+        return ()
+    try:
+        instruction = json.loads(active.instruction)
+    except json.JSONDecodeError:
+        return ()
+    if not isinstance(instruction, dict) or "decisions" not in instruction:
+        return ()
+    parent = next(
+        (
+            revision
+            for revision in document.revisions
+            if revision.revision_id == active.parent_revision_id
+        ),
+        None,
+    )
+    if parent is None:
+        return ()
+    try:
+        before = _supervised_planning_payload(parent.content)
+        after = _supervised_planning_payload(active.content)
+    except (TypeError, ValueError):
+        return ()
+    if before != after:
+        return ()
+    return (
+        "Les arbitrages ont été enregistrés, mais aucun geste, timing, état, décor "
+        "ou mouvement de caméra du plan n’a changé.",
+    )
+
+
+def _supervised_planning_payload(content: str) -> dict[str, object]:
+    plan = parse_ref2v_supervised_compiled_plan(content)
+    data = plan.model_dump(mode="json")
+    return {
+        key: data[key]
+        for key in (
+            "duration_seconds",
+            "reference_policy",
+            "scene_setup",
+            "beats",
+            "final_pose",
+            "camera",
+        )
+    }
 
 
 def _raise_lint(
