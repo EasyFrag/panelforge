@@ -30,7 +30,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _COMPOSITION_KEYS = {
     "schema_version",
     "created_at",
@@ -55,7 +55,7 @@ _DOCUMENT_KEYS = {
     "active_revision_id",
     "approved_revision_id",
 }
-_REVISION_KEYS = {
+_REVISION_KEYS_V1 = {
     "revision_id",
     "content",
     "origin",
@@ -63,6 +63,7 @@ _REVISION_KEYS = {
     "parent_revision_id",
     "instruction",
 }
+_REVISION_KEYS_V2 = {*_REVISION_KEYS_V1, "compiler_context"}
 
 
 class LocalPromptCompositionStore:
@@ -176,7 +177,10 @@ class LocalPromptCompositionStore:
                 f"{expected_source_session_id!r}"
             )
         schema_version = data.get("schema_version")
-        if isinstance(schema_version, bool) or schema_version != _SCHEMA_VERSION:
+        if (
+            isinstance(schema_version, bool)
+            or schema_version not in {1, _SCHEMA_VERSION}
+        ):
             raise StorageCorruptionError(
                 "unsupported prompt composition schema for "
                 f"{expected_source_session_id!r}"
@@ -184,7 +188,10 @@ class LocalPromptCompositionStore:
         created_at = _require_timestamp(data.get("created_at"), "created_at")
         updated_at = _require_timestamp(data.get("updated_at"), "updated_at")
         try:
-            composition = _composition_from_dict(data)
+            composition = _composition_from_dict(
+                data,
+                schema_version=schema_version,
+            )
         except (KeyError, TypeError, ValueError) as error:
             raise StorageCorruptionError(
                 "invalid prompt composition metadata for "
@@ -250,6 +257,7 @@ def _document_to_dict(document: StageDocument) -> dict[str, object]:
                 "source_ids": list(revision.source_ids),
                 "parent_revision_id": revision.parent_revision_id,
                 "instruction": revision.instruction,
+                "compiler_context": revision.compiler_context,
             }
             for revision in document.revisions
         ],
@@ -258,7 +266,11 @@ def _document_to_dict(document: StageDocument) -> dict[str, object]:
     }
 
 
-def _composition_from_dict(data: dict[str, object]) -> PromptComposition:
+def _composition_from_dict(
+    data: dict[str, object],
+    *,
+    schema_version: int,
+) -> PromptComposition:
     raw_cookbook = _require_object(data["cookbook"], "cookbook")
     if set(raw_cookbook) != _COOKBOOK_KEYS:
         raise ValueError("cookbook contains invalid fields")
@@ -290,14 +302,17 @@ def _composition_from_dict(data: dict[str, object]) -> PromptComposition:
         reference_plan=_document_from_dict(
             data["reference_plan"],
             CompositionStage.REFERENCE_PLAN,
+            schema_version=schema_version,
         ),
         beat_sheet=_document_from_dict(
             data["beat_sheet"],
             CompositionStage.BEAT_SHEET,
+            schema_version=schema_version,
         ),
         final_prompt=_document_from_dict(
             data["final_prompt"],
             CompositionStage.FINAL_PROMPT,
+            schema_version=schema_version,
         ),
     )
 
@@ -305,6 +320,8 @@ def _composition_from_dict(data: dict[str, object]) -> PromptComposition:
 def _document_from_dict(
     value: object,
     expected_stage: CompositionStage,
+    *,
+    schema_version: int,
 ) -> StageDocument:
     document = _require_object(value, expected_stage.value)
     if set(document) != _DOCUMENT_KEYS:
@@ -314,9 +331,12 @@ def _document_from_dict(
         raise ValueError(f"expected {expected_stage.value}, got {stage.value}")
     raw_revisions = _require_list(document["revisions"], "revisions")
     revisions: list[CompositionRevision] = []
+    revision_keys = (
+        _REVISION_KEYS_V1 if schema_version == 1 else _REVISION_KEYS_V2
+    )
     for raw_revision in raw_revisions:
         revision = _require_object(raw_revision, "revision")
-        if set(revision) != _REVISION_KEYS:
+        if set(revision) != revision_keys:
             raise ValueError("revision contains invalid fields")
         revisions.append(
             CompositionRevision(
@@ -328,6 +348,11 @@ def _document_from_dict(
                 ),
                 parent_revision_id=revision["parent_revision_id"],
                 instruction=revision["instruction"],
+                compiler_context=(
+                    revision["compiler_context"]
+                    if schema_version >= 2
+                    else None
+                ),
             )
         )
     return StageDocument(

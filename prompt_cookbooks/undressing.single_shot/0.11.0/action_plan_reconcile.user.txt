@@ -1,0 +1,16 @@
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+CURRENT VALIDATED ACTION PLAN
+{{CURRENT_PLAN}}
+
+HUMAN ARBITRATION DECISIONS
+{{DECISIONS}}
+
+OPTIONAL GLOBAL INSTRUCTION
+{{GLOBAL_INSTRUCTION}}
+
+REQUIRED JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Rewrite the complete plan now. Apply each decision to the observable physical route, not only to concern text. Preserve one connected object, evidenced openings, continuous hand support, required clearances, release and final location; merge unnecessary microsteps and keep camera data canonical.

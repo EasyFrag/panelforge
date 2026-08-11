@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Lock
 
 from panelforge.application import (
+    LlmCallApplicationOutcome,
     LlmCallImage,
     LlmCallRecord,
     LlmCallStatus,
@@ -21,8 +22,8 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 1
-_RECORD_KEYS = {
+_SCHEMA_VERSION = 2
+_RECORD_KEYS_V1 = {
     "call_id",
     "operation_id",
     "requested_model_id",
@@ -41,6 +42,12 @@ _RECORD_KEYS = {
     "completion_tokens",
     "error_type",
     "error_message",
+}
+_RECORD_KEYS_V2 = {
+    *_RECORD_KEYS_V1,
+    "application_outcome",
+    "application_error_type",
+    "application_error_message",
 }
 _IMAGE_KEYS = {"label", "media_type", "byte_size", "sha256"}
 
@@ -92,14 +99,18 @@ class LocalLlmCallStore:
         raw = _read_json_object(self._path)
         if set(raw) != {"schema_version", "calls"}:
             raise StorageCorruptionError("invalid LLM call journal keys")
-        if raw["schema_version"] != _SCHEMA_VERSION:
+        schema_version = raw["schema_version"]
+        if schema_version not in {1, _SCHEMA_VERSION}:
             raise StorageCorruptionError("unsupported LLM call journal schema")
         calls = raw["calls"]
         if not isinstance(calls, list):
             raise StorageCorruptionError("LLM call journal calls must be a list")
         if len(calls) > self._capacity:
             raise StorageCorruptionError("LLM call journal exceeds its capacity")
-        return [_record_from_dict(item) for item in calls]
+        return [
+            _record_from_dict(item, schema_version=schema_version)
+            for item in calls
+        ]
 
 
 def _record_to_dict(record: LlmCallRecord) -> dict[str, object]:
@@ -130,11 +141,23 @@ def _record_to_dict(record: LlmCallRecord) -> dict[str, object]:
         "completion_tokens": record.completion_tokens,
         "error_type": record.error_type,
         "error_message": record.error_message,
+        "application_outcome": (
+            record.application_outcome.value
+            if record.application_outcome is not None
+            else None
+        ),
+        "application_error_type": record.application_error_type,
+        "application_error_message": record.application_error_message,
     }
 
 
-def _record_from_dict(value: object) -> LlmCallRecord:
-    if not isinstance(value, dict) or set(value) != _RECORD_KEYS:
+def _record_from_dict(
+    value: object,
+    *,
+    schema_version: int,
+) -> LlmCallRecord:
+    expected_keys = _RECORD_KEYS_V1 if schema_version == 1 else _RECORD_KEYS_V2
+    if not isinstance(value, dict) or set(value) != expected_keys:
         raise StorageCorruptionError("invalid LLM call record")
     raw_images = value["images"]
     if not isinstance(raw_images, list):
@@ -171,6 +194,18 @@ def _record_from_dict(value: object) -> LlmCallRecord:
             completion_tokens=value["completion_tokens"],
             error_type=value["error_type"],
             error_message=value["error_message"],
+            application_outcome=(
+                LlmCallApplicationOutcome(value["application_outcome"])
+                if schema_version >= 2
+                and value["application_outcome"] is not None
+                else None
+            ),
+            application_error_type=(
+                value["application_error_type"] if schema_version >= 2 else None
+            ),
+            application_error_message=(
+                value["application_error_message"] if schema_version >= 2 else None
+            ),
         )
     except (TypeError, ValueError) as error:
         raise StorageCorruptionError("invalid LLM call record values") from error

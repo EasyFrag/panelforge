@@ -22,12 +22,14 @@ from panelforge.application import (
     StreamEventKind,
     StreamPhase,
 )
+from panelforge.application.prompt_lab import _brief_inputs, project_reference_evidence
 from panelforge.domain import (
     AnalysisRevision,
     BriefReferenceSnapshot,
     BriefRevision,
     PromptLabSession,
     PromptReference,
+    ReferenceEvidencePolicy,
     ReferenceReview,
     ReferenceUse,
     RevisionOrigin,
@@ -100,6 +102,76 @@ def sample_session() -> PromptLabSession:
 
 
 class PromptLabDomainTest(unittest.TestCase):
+    def test_appearance_only_evidence_keeps_only_age_and_stable_appearance(self):
+        observation = """- SUJETS VISIBLES
+One adult subject in a garden.
+- ÂGE APPARENT ET INCERTITUDE
+Adult, estimated between 25 and 35.
+- APPARENCE ET TRAITS DISTINCTIFS
+Oval face, brown eyes, dark hair, and stable body proportions.
+- VÊTEMENTS, ACCESSOIRES ET OBJETS
+A green top and a black skirt.
+- POSE, EXPRESSION ET DIRECTION DU REGARD
+Kneeling and looking left.
+- COMPOSITION, CADRAGE ET CAMÉRA
+High-angle close-up.
+- DÉCOR, LUMIÈRE ET STYLE
+Outdoor garden in warm light."""
+
+        projected = project_reference_evidence(
+            observation,
+            ReferenceEvidencePolicy.APPEARANCE_ONLY_V1,
+        )
+
+        self.assertIn("estimated between 25 and 35", projected)
+        self.assertIn("Oval face, brown eyes", projected)
+        for excluded in ("garden", "green top", "Kneeling", "High-angle"):
+            self.assertNotIn(excluded, projected)
+        with self.assertRaisesRegex(ValueError, "missing required section"):
+            project_reference_evidence(
+                "- APPARENCE ET TRAITS DISTINCTIFS\nBrown eyes.",
+                ReferenceEvidencePolicy.APPEARANCE_ONLY_V1,
+            )
+
+    def test_brief_context_and_snapshot_apply_the_reference_evidence_policy(self):
+        revision = AnalysisRevision(
+            revision_id="revision-appearance",
+            content=(
+                "- ÂGE APPARENT ET INCERTITUDE\nAdult.\n"
+                "- APPARENCE ET TRAITS DISTINCTIFS\nBrown eyes and dark hair.\n"
+                "- POSE, EXPRESSION ET DIRECTION DU REGARD\nKneeling.\n"
+                "- DÉCOR, LUMIÈRE ET STYLE\nA garden."
+            ),
+            origin=RevisionOrigin.MODEL,
+        )
+        reference = PromptReference(
+            reference_id="reference-appearance",
+            asset_id="asset-appearance",
+            role="body_reference",
+            label="Body",
+            evidence_policy=ReferenceEvidencePolicy.APPEARANCE_ONLY_V1,
+            revisions=(revision,),
+            active_revision_id=revision.revision_id,
+            approved_revision_id=revision.revision_id,
+        )
+        session = PromptLabSession(
+            session_id="prompt-appearance",
+            model_id="vision-model",
+            profile_id="minimax.h3.reference",
+            profile_version="0.3.0",
+            references=(reference,),
+        )
+
+        context, snapshots = _brief_inputs(session)
+
+        self.assertIn("Brown eyes and dark hair", context)
+        self.assertNotIn("Kneeling", context)
+        self.assertNotIn("garden", context)
+        self.assertEqual(
+            snapshots[0].evidence_policy,
+            ReferenceEvidencePolicy.APPEARANCE_ONLY_V1,
+        )
+
     def test_revision_invalidates_only_its_reference_approval(self):
         approved = sample_session()
         second = approved.references[0].add_revision(
@@ -169,6 +241,36 @@ class PromptLabDomainTest(unittest.TestCase):
 
 
 class LocalPromptSessionStoreTest(unittest.TestCase):
+    def test_round_trips_an_explicit_appearance_evidence_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptSessionStore(directory)
+            source = sample_session()
+            reference = source.references[0]
+            session = PromptLabSession(
+                session_id="prompt-appearance-store",
+                model_id=source.model_id,
+                profile_id=source.profile_id,
+                profile_version=source.profile_version,
+                references=(
+                    PromptReference(
+                        reference_id=reference.reference_id,
+                        asset_id=reference.asset_id,
+                        role=reference.role,
+                        label=reference.label,
+                        evidence_policy=(
+                            ReferenceEvidencePolicy.APPEARANCE_ONLY_V1
+                        ),
+                        revisions=reference.revisions,
+                        active_revision_id=reference.active_revision_id,
+                        approved_revision_id=reference.approved_revision_id,
+                    ),
+                ),
+            )
+
+            store.create(session)
+
+            self.assertEqual(store.get(session.session_id), session)
+
     def test_round_trip_save_list_and_timestamps(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalPromptSessionStore(directory, clock=SequenceClock())
@@ -231,8 +333,24 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 3)
+            self.assertEqual(raw["schema_version"], 4)
             self.assertEqual(raw["brief_revisions"][0]["creative_freedom"], 50)
+            self.assertEqual(raw["references"][0]["evidence_policy"], "full")
+            self.assertEqual(
+                raw["brief_revisions"][0]["references"][0]["evidence_policy"],
+                "full",
+            )
+
+            raw["schema_version"] = 3
+            del raw["references"][0]["evidence_policy"]
+            del raw["brief_revisions"][0]["references"][0]["evidence_policy"]
+            (
+                Path(directory)
+                / "prompt_sessions"
+                / session.session_id
+                / "session.json"
+            ).write_text(json.dumps(raw), encoding="utf-8")
+            self.assertEqual(store.get(session.session_id), session)
 
     def test_reads_existing_schema_two_sessions_without_a_brief(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -250,6 +368,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             del raw["brief_revisions"]
             del raw["active_brief_revision_id"]
             del raw["approved_brief_revision_id"]
+            del raw["references"][0]["evidence_policy"]
             path.write_text(json.dumps(raw), encoding="utf-8")
 
             self.assertEqual(store.get(session.session_id), session)

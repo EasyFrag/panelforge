@@ -1,0 +1,7 @@
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+HUMAN-APPROVED SUPERVISED CHOREOGRAPHY PLAN
+{{BEAT_SHEET}}
+
+Write the four canonical internal fields now. The approved plan overrides shorter Brief wording. Preserve its connected-object route, hand support, evidenced openings, necessary clearances, final object location, final state, and camera object in fluid prose. Keep substep timing internal, expose only major landmarks, begin scene_setup with the required neutral continuous-shot sentence, and place `[[camera:camera_1]]` exactly once. The application will compile references, camera vocabulary, Shot 1, and audio labels.

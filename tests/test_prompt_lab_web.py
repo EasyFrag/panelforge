@@ -178,6 +178,7 @@ class PromptLabWebTest(unittest.TestCase):
     def test_exposes_dynamic_models_and_versioned_profiles(self):
         page = self.client.get("/")
         script = self.client.get("/static/prompt-lab.js")
+        ref2v_script = self.client.get("/static/ref2v-prompt.js")
         models = self.client.get("/api/prompt-lab/models")
         spec = self.client.get("/api/prompt-lab/spec")
 
@@ -186,6 +187,8 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertEqual(script.status_code, 200)
         self.assertIn("/api/prompt-lab/sessions", script.text)
         self.assertIn("PanelForgeModelPicker.populate", script.text)
+        self.assertIn('body.append("evidence_policies"', ref2v_script.text)
+        self.assertIn("selectCookbookForSessionEvidence", ref2v_script.text)
         self.assertIn("analyze-all-references", page.text)
         self.assertIn("brief-reference-grid", page.text)
         self.assertEqual(models.status_code, 200)
@@ -195,6 +198,45 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertEqual(profile["id"], "minimax.h3.reference")
         self.assertEqual(profile["version"], "0.1.0")
         self.assertTrue(spec.json()["profiles"][-1]["supports_brief"])
+
+    def test_session_creation_accepts_one_explicit_evidence_policy_per_image(self):
+        response = self.client.post(
+            "/api/prompt-lab/sessions",
+            data={
+                "roles": ["dressed_start", "body_reference"],
+                "usages": ["first_frame,subject", "subject"],
+                "evidence_policies": ["full", "appearance_only_v1"],
+                "model_id": "Qwen3.6-35B-A3B-UD-Q8_K_XL-instruct",
+                "profile_id": "minimax.h3.reference",
+                "profile_version": "0.3.0",
+            },
+            files=[
+                ("images", ("start.png", PNG + b"start", "image/png")),
+                ("images", ("body.png", PNG + b"body", "image/png")),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(
+            [item["evidence_policy"] for item in response.json()["references"]],
+            ["full", "appearance_only_v1"],
+        )
+
+        invalid = self.client.post(
+            "/api/prompt-lab/sessions",
+            data={
+                "roles": ["one", "two"],
+                "evidence_policies": ["full"],
+                "model_id": "vision-small",
+                "profile_id": "minimax.h3.reference",
+                "profile_version": "0.3.0",
+            },
+            files=[
+                ("images", ("one.png", PNG + b"one", "image/png")),
+                ("images", ("two.png", PNG + b"two", "image/png")),
+            ],
+        )
+        self.assertEqual(invalid.status_code, 422)
 
     def test_runs_supervised_reference_actions_independently(self):
         session = self.create_session()

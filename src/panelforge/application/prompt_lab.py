@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 import math
+import re
 from typing import Protocol
 from uuid import uuid4
 
@@ -17,6 +18,7 @@ from panelforge.domain import (
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
+    ReferenceEvidencePolicy,
     ReferenceUse,
     RevisionOrigin,
 )
@@ -115,6 +117,7 @@ class CompletionResult:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     finish_reason: str | None = None
+    call_id: str | None = None
 
 
 class StreamEventKind(StrEnum):
@@ -137,6 +140,11 @@ class LlmCallStatus(StrEnum):
     TRUNCATED = "truncated"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class LlmCallApplicationOutcome(StrEnum):
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +191,9 @@ class LlmCallRecord:
     completion_tokens: int | None
     error_type: str | None
     error_message: str | None
+    application_outcome: LlmCallApplicationOutcome | None = None
+    application_error_type: str | None = None
+    application_error_message: str | None = None
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -228,6 +239,31 @@ class LlmCallRecord:
         )
         _require_optional_text(self.error_type, "error_type")
         _require_optional_text(self.error_message, "error_message")
+        if (
+            self.application_outcome is not None
+            and not isinstance(
+                self.application_outcome,
+                LlmCallApplicationOutcome,
+            )
+        ):
+            raise TypeError(
+                "application_outcome must be an LlmCallApplicationOutcome"
+            )
+        _require_optional_text(
+            self.application_error_type,
+            "application_error_type",
+        )
+        _require_optional_text(
+            self.application_error_message,
+            "application_error_message",
+        )
+        if self.application_outcome is not LlmCallApplicationOutcome.REJECTED and (
+            self.application_error_type is not None
+            or self.application_error_message is not None
+        ):
+            raise ValueError(
+                "application errors require a rejected application outcome"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +312,7 @@ class NewReference:
     role: str
     label: str
     uses: tuple[ReferenceUse, ...] = (ReferenceUse.SUBJECT,)
+    evidence_policy: ReferenceEvidencePolicy = ReferenceEvidencePolicy.FULL
 
 
 class MultimodalGateway(Protocol):
@@ -290,6 +327,17 @@ class LlmCallLogStore(Protocol):
     def append(self, record: LlmCallRecord) -> None: ...
 
     def list(self, limit: int = 20) -> tuple[LlmCallRecord, ...]: ...
+
+
+class LlmCallApplicationOutcomeReporter(Protocol):
+    def report_application_outcome(
+        self,
+        call_id: str,
+        outcome: LlmCallApplicationOutcome,
+        *,
+        error_type: str | None = None,
+        error_message: str | None = None,
+    ) -> None: ...
 
 
 class PromptProfileCatalog(Protocol):
@@ -369,6 +417,7 @@ class PromptLabService:
                     role=item.role,
                     label=item.label,
                     uses=item.uses,
+                    evidence_policy=item.evidence_policy,
                 )
                 for item in references
             ),
@@ -1038,6 +1087,7 @@ def _brief_inputs(
                 reference_id=reference.reference_id,
                 analysis_revision_id=analysis.revision_id,
                 uses=reference.uses,
+                evidence_policy=reference.evidence_policy,
             )
         )
         context.append(
@@ -1047,12 +1097,69 @@ def _brief_inputs(
                     f"Nom : {reference.label}",
                     f"Rôle utilisateur : {reference.role}",
                     "Usages : " + ", ".join(use.value for use in reference.uses),
+                    f"Politique de preuve : {reference.evidence_policy.value}",
                     "OBSERVATION APPROUVÉE",
-                    analysis.content,
+                    project_reference_evidence(
+                        analysis.content,
+                        reference.evidence_policy,
+                    ),
                 )
             )
         )
     return "\n\n".join(context), tuple(snapshots)
+
+
+_APPEARANCE_ONLY_V1_MARKERS = _OBSERVATION_CONTRACT.markers[2:4]
+
+
+def project_reference_evidence(
+    content: str,
+    policy: ReferenceEvidencePolicy,
+) -> str:
+    """Apply a typed, deterministic evidence boundary to an observation."""
+
+    if not isinstance(policy, ReferenceEvidencePolicy):
+        raise TypeError("policy must be a ReferenceEvidencePolicy")
+    if policy is ReferenceEvidencePolicy.FULL:
+        return content
+
+    value = strip_markdown_fence(content).replace("\r\n", "\n")
+    headings: list[tuple[str, re.Match[str]]] = []
+    for marker in _OBSERVATION_CONTRACT.markers:
+        matches = list(re.finditer(rf"(?m)^{re.escape(marker)}\s*$", value))
+        if len(matches) > 1:
+            raise ValueError(
+                f"appearance_only_v1 observation contains multiple sections: {marker}"
+            )
+        if matches:
+            headings.append((marker, matches[0]))
+    headings.sort(key=lambda item: item[1].start())
+    by_marker = {marker: match for marker, match in headings}
+    missing = [
+        marker for marker in _APPEARANCE_ONLY_V1_MARKERS if marker not in by_marker
+    ]
+    if missing:
+        raise ValueError(
+            "appearance_only_v1 observation is missing required section: "
+            + ", ".join(missing)
+        )
+    if [by_marker[marker].start() for marker in _APPEARANCE_ONLY_V1_MARKERS] != sorted(
+        by_marker[marker].start() for marker in _APPEARANCE_ONLY_V1_MARKERS
+    ):
+        raise ValueError("appearance_only_v1 observation sections are out of order")
+    selected: list[str] = []
+    for marker in _APPEARANCE_ONLY_V1_MARKERS:
+        match = by_marker[marker]
+        end = next(
+            (
+                following.start()
+                for _, following in headings
+                if following.start() > match.start()
+            ),
+            len(value),
+        )
+        selected.append(value[match.start() : end].strip())
+    return "\n\n".join(selected)
 
 
 def _current_brief(session: PromptLabSession) -> BriefRevision:

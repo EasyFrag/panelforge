@@ -13,6 +13,7 @@ from panelforge.domain import (
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
+    ReferenceEvidencePolicy,
     ReferenceUse,
     RevisionOrigin,
 )
@@ -31,7 +32,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _SESSION_KEYS_V1_V2 = {
     "schema_version",
     "created_at",
@@ -42,7 +43,7 @@ _SESSION_KEYS_V1_V2 = {
     "profile_version",
     "references",
 }
-_SESSION_KEYS_V3 = _SESSION_KEYS_V1_V2 | {
+_SESSION_KEYS_V3_V4 = _SESSION_KEYS_V1_V2 | {
     "brief_revisions",
     "active_brief_revision_id",
     "approved_brief_revision_id",
@@ -62,6 +63,7 @@ _REFERENCE_KEYS_V2 = _REFERENCE_KEYS_V1 | {
     "active_interpretation_id",
     "approved_interpretation_id",
 }
+_REFERENCE_KEYS_V4 = _REFERENCE_KEYS_V2 | {"evidence_policy"}
 _REVISION_KEYS = {
     "revision_id",
     "content",
@@ -78,11 +80,12 @@ _BRIEF_REVISION_KEYS = _REVISION_KEYS | {
     "creative_freedom",
     "references",
 }
-_BRIEF_REFERENCE_KEYS = {
+_BRIEF_REFERENCE_KEYS_V3 = {
     "reference_id",
     "analysis_revision_id",
     "uses",
 }
+_BRIEF_REFERENCE_KEYS_V4 = _BRIEF_REFERENCE_KEYS_V3 | {"evidence_policy"}
 
 
 class LocalPromptSessionStore:
@@ -179,13 +182,13 @@ class LocalPromptSessionStore:
         _require_regular_file(path)
         data = _read_json_object(path)
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2, _SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, _SCHEMA_VERSION}:
             raise StorageCorruptionError(
                 f"unsupported prompt session schema for {expected_id!r}"
             )
         expected_keys = (
-            _SESSION_KEYS_V3
-            if schema_version == _SCHEMA_VERSION
+            _SESSION_KEYS_V3_V4
+            if schema_version >= 3
             else _SESSION_KEYS_V1_V2
         )
         if set(data) != expected_keys:
@@ -244,6 +247,7 @@ def _session_to_dict(
                         "reference_id": reference.reference_id,
                         "analysis_revision_id": reference.analysis_revision_id,
                         "uses": [use.value for use in reference.uses],
+                        "evidence_policy": reference.evidence_policy.value,
                     }
                     for reference in revision.references
                 ],
@@ -260,6 +264,7 @@ def _session_to_dict(
                 "asset_id": reference.asset_id,
                 "role": reference.role,
                 "label": reference.label,
+                "evidence_policy": reference.evidence_policy.value,
                 "revisions": [
                     {
                         "revision_id": revision.revision_id,
@@ -306,7 +311,11 @@ def _session_from_dict(
     references: list[PromptReference] = []
     for raw_reference in raw_references:
         expected_reference_keys = (
-            _REFERENCE_KEYS_V1 if schema_version == 1 else _REFERENCE_KEYS_V2
+            _REFERENCE_KEYS_V1
+            if schema_version == 1
+            else _REFERENCE_KEYS_V4
+            if schema_version >= 4
+            else _REFERENCE_KEYS_V2
         )
         if (
             not isinstance(raw_reference, dict)
@@ -367,6 +376,11 @@ def _session_from_dict(
                 asset_id=raw_reference["asset_id"],
                 role=raw_reference["role"],
                 label=raw_reference["label"],
+                evidence_policy=(
+                    ReferenceEvidencePolicy(raw_reference["evidence_policy"])
+                    if schema_version >= 4
+                    else ReferenceEvidencePolicy.FULL
+                ),
                 revisions=tuple(revisions),
                 active_revision_id=raw_reference["active_revision_id"],
                 approved_revision_id=raw_reference["approved_revision_id"],
@@ -402,7 +416,12 @@ def _session_from_dict(
             for raw_reference in raw_brief_references:
                 if (
                     not isinstance(raw_reference, dict)
-                    or set(raw_reference) != _BRIEF_REFERENCE_KEYS
+                    or set(raw_reference)
+                    != (
+                        _BRIEF_REFERENCE_KEYS_V4
+                        if schema_version >= 4
+                        else _BRIEF_REFERENCE_KEYS_V3
+                    )
                 ):
                     raise ValueError("brief reference contains invalid fields")
                 raw_uses = raw_reference["uses"]
@@ -415,6 +434,11 @@ def _session_from_dict(
                             "analysis_revision_id"
                         ],
                         uses=tuple(ReferenceUse(value) for value in raw_uses),
+                        evidence_policy=(
+                            ReferenceEvidencePolicy(raw_reference["evidence_policy"])
+                            if schema_version >= 4
+                            else ReferenceEvidencePolicy.FULL
+                        ),
                     )
                 )
             brief_revisions.append(

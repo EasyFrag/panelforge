@@ -1,0 +1,10 @@
+APPROVED REFERENCE EVIDENCE
+{{REFERENCES}}
+
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+REQUIRED JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Propose the complete supervised timeline now. Use the smallest set of observable state transitions that proves one connected object's route, hand contacts, required clearances, release, and final location. Use a canonical camera target only when it adds necessary information; otherwise set target_clause to null. Report unresolved physical, temporal, or reference-influence risks.

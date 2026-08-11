@@ -12,6 +12,14 @@ from .recipes import (
     VariationPolicy,
 )
 from .runs import RunRecord, RunReview, RunStatus
+from .minimax_h3 import (
+    H3CameraAmplitude,
+    H3CameraDirective,
+    H3CameraMotion,
+    H3CameraSpeed,
+    H3MediaKind,
+    h3_media_label,
+)
 from .prompt_lab import (
     AnalysisRevision,
     BriefReferenceSnapshot,
@@ -19,6 +27,7 @@ from .prompt_lab import (
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
+    ReferenceEvidencePolicy,
     ReferenceReview,
     ReferenceUse,
     RevisionOrigin,
@@ -42,6 +51,11 @@ __all__ = [
     "CookbookBinding",
     "CookbookRef",
     "InterpretationRevision",
+    "H3CameraAmplitude",
+    "H3CameraDirective",
+    "H3CameraMotion",
+    "H3CameraSpeed",
+    "H3MediaKind",
     "ControlKind",
     "ControlSpec",
     "ControlValue",
@@ -49,6 +63,7 @@ __all__ = [
     "PromptLabSession",
     "PromptComposition",
     "PromptReference",
+    "ReferenceEvidencePolicy",
     "PromptSnapshot",
     "RecipeRef",
     "ReferenceReview",
@@ -60,4 +75,5 @@ __all__ = [
     "StageDocument",
     "VariationMethod",
     "VariationPolicy",
+    "h3_media_label",
 ]

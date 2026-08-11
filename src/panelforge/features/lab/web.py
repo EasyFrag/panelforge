@@ -37,6 +37,7 @@ from panelforge.domain import (
     CookbookBinding,
     PromptComposition,
     PromptLabSession,
+    ReferenceEvidencePolicy,
     ReferenceUse,
     RunRecord,
     RunReview,
@@ -386,6 +387,7 @@ def create_app(
         profile_id: Annotated[str, Form()],
         profile_version: Annotated[str, Form()],
         usages: Annotated[list[str] | None, Form()] = None,
+        evidence_policies: Annotated[list[str] | None, Form()] = None,
     ) -> dict[str, object]:
         service = _require_prompt_lab(prompt_lab)
         if not images or len(images) > MAX_PROMPT_REFERENCES:
@@ -403,15 +405,30 @@ def create_app(
                 status_code=422,
                 detail="provide exactly one usage set for each image",
             )
+        if evidence_policies is not None and len(images) != len(evidence_policies):
+            raise HTTPException(
+                status_code=422,
+                detail="provide exactly one evidence policy for each image",
+            )
 
         uploaded: list[
-            tuple[bytes, str, str, str, tuple[ReferenceUse, ...]]
+            tuple[
+                bytes,
+                str,
+                str,
+                str,
+                tuple[ReferenceUse, ...],
+                ReferenceEvidencePolicy,
+            ]
         ] = []
         try:
             service.get_profile(profile_id, profile_version)
             usage_values = usages or [ReferenceUse.SUBJECT.value] * len(images)
-            for index, (image, role, raw_uses) in enumerate(
-                zip(images, roles, usage_values, strict=True),
+            policy_values = evidence_policies or [
+                ReferenceEvidencePolicy.FULL.value
+            ] * len(images)
+            for index, (image, role, raw_uses, raw_policy) in enumerate(
+                zip(images, roles, usage_values, policy_values, strict=True),
                 1,
             ):
                 content = await image.read(MAX_IMAGE_BYTES + 1)
@@ -421,7 +438,14 @@ def create_app(
                 media_type = detect_image_media_type(content)
                 label = (image.filename or "").strip() or f"Image {index}"
                 uploaded.append(
-                    (content, media_type, role, label, _parse_reference_uses(raw_uses))
+                    (
+                        content,
+                        media_type,
+                        role,
+                        label,
+                        _parse_reference_uses(raw_uses),
+                        ReferenceEvidencePolicy(raw_policy),
+                    )
                 )
 
             references = tuple(
@@ -430,8 +454,16 @@ def create_app(
                     role=role,
                     label=label,
                     uses=reference_uses,
+                    evidence_policy=evidence_policy,
                 )
-                for content, media_type, role, label, reference_uses in uploaded
+                for (
+                    content,
+                    media_type,
+                    role,
+                    label,
+                    reference_uses,
+                    evidence_policy,
+                ) in uploaded
             )
             session = service.create_session(
                 model_id=model_id,
@@ -721,6 +753,9 @@ def create_app(
                     "target_mode": cookbook.target_mode,
                     "output_contract": cookbook.output_contract,
                     "preset": cookbook.preset,
+                    "invalid_camera_target_policy": (
+                        cookbook.invalid_camera_target_policy
+                    ),
                     "stages": list(cookbook.stages),
                     "sources": list(cookbook.sources),
                     "engine_contract": {
@@ -732,6 +767,7 @@ def create_app(
                             "id": slot.slot_id,
                             "label": slot.label,
                             "description": slot.description,
+                            "evidence_policy": slot.evidence_policy.value,
                             "subject_label": slot.subject_label,
                             "accepted_uses": list(slot.accepted_uses),
                             "required_uses": list(slot.required_uses),
@@ -950,6 +986,7 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
                         "reference_id": reference.reference_id,
                         "analysis_revision_id": reference.analysis_revision_id,
                         "uses": [use.value for use in reference.uses],
+                        "evidence_policy": reference.evidence_policy.value,
                     }
                     for reference in revision.references
                 ],
@@ -964,6 +1001,7 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
                 "content_url": f"/api/assets/{reference.asset_id}/content",
                 "role": reference.role,
                 "label": reference.label,
+                "evidence_policy": reference.evidence_policy.value,
                 "review_status": reference.review_status.value,
                 "uses": [use.value for use in reference.uses],
                 "active_revision_id": reference.active_revision_id,

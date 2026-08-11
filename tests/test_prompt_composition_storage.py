@@ -69,6 +69,7 @@ def sample_composition() -> PromptComposition:
                 content="subject_definitions: ...",
                 origin=RevisionOrigin.MODEL,
                 source_ids=("beat-sheet-1",),
+                compiler_context='{"camera_directives": []}',
             ),
         ),
         active_revision_id="final-prompt-1",
@@ -94,6 +95,16 @@ def sample_composition() -> PromptComposition:
 
 
 class LocalPromptCompositionStoreTest(unittest.TestCase):
+    def test_revision_requires_non_empty_compiler_context_when_present(self):
+        with self.assertRaisesRegex(ValueError, "compiler_context"):
+            CompositionRevision(
+                revision_id="revision-1",
+                content="Prompt final",
+                origin=RevisionOrigin.MODEL,
+                source_ids=("brief-1",),
+                compiler_context="  ",
+            )
+
     def test_compare_and_save_rejects_a_stale_writer(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalPromptCompositionStore(directory)
@@ -140,13 +151,57 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
                 / "composition.json"
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 1)
+            self.assertEqual(raw["schema_version"], 2)
             self.assertEqual(raw["created_at"], "2026-08-08T10:00:00Z")
             self.assertEqual(raw["updated_at"], "2026-08-08T10:01:00Z")
             self.assertEqual(raw["bindings"][0]["slot_id"], "fighter_a")
             self.assertEqual(
                 raw["final_prompt"]["revisions"][1]["origin"],
                 "manual",
+            )
+            self.assertEqual(
+                raw["final_prompt"]["revisions"][0]["compiler_context"],
+                '{"camera_directives": []}',
+            )
+            self.assertIsNone(
+                raw["final_prompt"]["revisions"][1]["compiler_context"]
+            )
+
+    def test_reads_strict_schema_v1_and_migrates_on_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptCompositionStore(directory, clock=SequenceClock())
+            composition = sample_composition()
+            store.create(composition)
+            path = (
+                Path(directory)
+                / "prompt_compositions"
+                / composition.source_session_id
+                / "composition.json"
+            )
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["schema_version"] = 1
+            for document_name in (
+                "reference_plan",
+                "beat_sheet",
+                "final_prompt",
+            ):
+                for revision in raw[document_name]["revisions"]:
+                    revision.pop("compiler_context")
+            path.write_text(json.dumps(raw), encoding="utf-8")
+
+            loaded = store.get(composition.source_session_id)
+
+            self.assertIsNone(loaded.final_prompt.active_revision.compiler_context)
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8"))["schema_version"],
+                1,
+            )
+
+            store.save(loaded)
+            migrated = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(migrated["schema_version"], 2)
+            self.assertIsNone(
+                migrated["final_prompt"]["revisions"][0]["compiler_context"]
             )
 
     def test_rejects_unknown_or_invalid_nested_fields(self):
@@ -172,6 +227,20 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
             with self.subTest("wrong document stage"):
                 raw = json.loads(json.dumps(original))
                 raw["reference_plan"]["stage"] = "beat_sheet"
+                path.write_text(json.dumps(raw), encoding="utf-8")
+                with self.assertRaisesRegex(StorageCorruptionError, "metadata"):
+                    store.get(composition.source_session_id)
+
+            with self.subTest("schema v2 missing compiler context"):
+                raw = json.loads(json.dumps(original))
+                raw["final_prompt"]["revisions"][0].pop("compiler_context")
+                path.write_text(json.dumps(raw), encoding="utf-8")
+                with self.assertRaisesRegex(StorageCorruptionError, "metadata"):
+                    store.get(composition.source_session_id)
+
+            with self.subTest("schema v1 containing compiler context"):
+                raw = json.loads(json.dumps(original))
+                raw["schema_version"] = 1
                 path.write_text(json.dumps(raw), encoding="utf-8")
                 with self.assertRaisesRegex(StorageCorruptionError, "metadata"):
                     store.get(composition.source_session_id)

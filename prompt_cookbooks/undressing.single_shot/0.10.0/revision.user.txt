@@ -1,0 +1,10 @@
+APPROVED SUPERVISED CHOREOGRAPHY PLAN (READ ONLY)
+{{PLAN}}
+
+CURRENT EDITABLE DOCUMENT
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete revised canonical internal document now.

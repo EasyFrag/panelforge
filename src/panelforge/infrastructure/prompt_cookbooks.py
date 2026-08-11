@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 
-from panelforge.domain import CookbookRef
+from panelforge.domain import CookbookRef, ReferenceEvidencePolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +15,7 @@ class CookbookSlot:
     slot_id: str
     label: str
     description: str
+    evidence_policy: ReferenceEvidencePolicy
     subject_label: str | None
     accepted_uses: tuple[str, ...]
     required_uses: tuple[str, ...]
@@ -24,6 +26,7 @@ class CookbookSlot:
 
 @dataclass(frozen=True, slots=True)
 class PromptCookbook:
+    schema_version: int
     reference: CookbookRef
     display_name: str
     description: str
@@ -32,6 +35,7 @@ class PromptCookbook:
     preset: str
     stages: tuple[str, ...]
     require_distinct_references: bool
+    invalid_camera_target_policy: str
     sources: tuple[str, ...]
     slots: tuple[CookbookSlot, ...]
     reference_plan_system_prompt: str | None
@@ -61,7 +65,10 @@ class LocalPromptCookbookCatalog:
         return tuple(
             sorted(
                 cookbooks,
-                key=lambda item: (item.reference.cookbook_id, item.reference.version),
+                key=lambda item: (
+                    item.reference.cookbook_id,
+                    _semantic_version_key(item.reference.version),
+                ),
             )
         )
 
@@ -80,6 +87,11 @@ class LocalPromptCookbookCatalog:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise ValueError(f"invalid cookbook manifest: {manifest_path}") from error
+        if not isinstance(manifest, dict):
+            raise ValueError(f"invalid cookbook fields: {manifest_path}")
+        schema_version = manifest.get("schema_version")
+        if schema_version not in {2, 3}:
+            raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         expected = {
             "schema_version",
             "cookbook_id",
@@ -96,10 +108,10 @@ class LocalPromptCookbookCatalog:
             "slots",
             "templates",
         }
-        if not isinstance(manifest, dict) or set(manifest) != expected:
+        if schema_version == 3:
+            expected.add("invalid_camera_target_policy")
+        if set(manifest) != expected:
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
-        if manifest["schema_version"] != 2:
-            raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         engine = manifest["engine_contract"]
         if not isinstance(engine, dict) or set(engine) != {"id", "version"}:
             raise ValueError(f"invalid engine contract: {manifest_path}")
@@ -108,7 +120,7 @@ class LocalPromptCookbookCatalog:
             raise ValueError(f"cookbook slots must not be empty: {manifest_path}")
         slots: list[CookbookSlot] = []
         for raw_slot in raw_slots:
-            if not isinstance(raw_slot, dict) or set(raw_slot) != {
+            expected_slot_fields = {
                 "id",
                 "label",
                 "description",
@@ -118,12 +130,20 @@ class LocalPromptCookbookCatalog:
                 "required_shots",
                 "minimum_references",
                 "maximum_references",
-            }:
+            }
+            if schema_version == 3:
+                expected_slot_fields.add("evidence_policy")
+            if not isinstance(raw_slot, dict) or set(raw_slot) != expected_slot_fields:
                 raise ValueError(f"invalid cookbook slot: {manifest_path}")
             slot = CookbookSlot(
                 slot_id=_text(raw_slot["id"], "slot id"),
                 label=_text(raw_slot["label"], "slot label"),
                 description=_text(raw_slot["description"], "slot description"),
+                evidence_policy=(
+                    ReferenceEvidencePolicy(raw_slot["evidence_policy"])
+                    if schema_version == 3
+                    else ReferenceEvidencePolicy.FULL
+                ),
                 subject_label=_optional_text(
                     raw_slot["subject_label"],
                     "subject_label",
@@ -188,6 +208,18 @@ class LocalPromptCookbookCatalog:
         if not isinstance(raw_sources, list) or not raw_sources:
             raise ValueError(f"cookbook sources must not be empty: {manifest_path}")
         sources = tuple(_text(value, "cookbook source") for value in raw_sources)
+        invalid_camera_target_policy = (
+            _text(
+                manifest["invalid_camera_target_policy"],
+                "invalid_camera_target_policy",
+            )
+            if schema_version == 3
+            else "reject"
+        )
+        if invalid_camera_target_policy not in {"reject", "drop_with_warning"}:
+            raise ValueError(
+                f"invalid camera target policy: {invalid_camera_target_policy}"
+            )
 
         def load_template(key: str) -> str:
             filename = _text(templates[key], f"template {key}")
@@ -209,6 +241,7 @@ class LocalPromptCookbookCatalog:
         if directory.parent.name != reference.cookbook_id or directory.name != reference.version:
             raise ValueError(f"cookbook identity does not match its path: {manifest_path}")
         return PromptCookbook(
+            schema_version=schema_version,
             reference=reference,
             display_name=_text(manifest["display_name"], "display_name"),
             description=_text(manifest["description"], "description"),
@@ -220,6 +253,7 @@ class LocalPromptCookbookCatalog:
                 manifest["require_distinct_references"],
                 "require_distinct_references",
             ),
+            invalid_camera_target_policy=invalid_camera_target_policy,
             sources=sources,
             slots=tuple(slots),
             reference_plan_system_prompt=optional_template("reference_plan_system"),
@@ -281,3 +315,27 @@ def _boolean(value: object, name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{name} must be a boolean")
     return value
+
+
+_SEMANTIC_VERSION = re.compile(
+    r"^(?P<major>0|[1-9]\d*)\."
+    r"(?P<minor>0|[1-9]\d*)\."
+    r"(?P<patch>0|[1-9]\d*)"
+    r"(?P<suffix>[-+][0-9A-Za-z.-]+)?$"
+)
+
+
+def _semantic_version_key(version: str) -> tuple[int, int, int, int, int, str]:
+    """Sort cookbook versions numerically while keeping malformed legacy IDs stable."""
+    match = _SEMANTIC_VERSION.fullmatch(version)
+    if match is None:
+        return (1, 0, 0, 0, 0, version)
+    suffix = match.group("suffix") or ""
+    return (
+        0,
+        int(match.group("major")),
+        int(match.group("minor")),
+        int(match.group("patch")),
+        1 if not suffix or suffix.startswith("+") else 0,
+        suffix,
+    )

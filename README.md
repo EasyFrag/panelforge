@@ -71,7 +71,7 @@ Le preset V1 reste volontairement étroit : 15 secondes, 16:9, six actions lisib
 
 ### I2V simple — première frame vers prompt H3
 
-Un onglet séparé expose par défaut `minimax.h3.i2v.simple@0.2.0/single-first-frame-natural-motion-v2` avec trois étapes visibles seulement :
+Un onglet séparé expose par défaut `minimax.h3.i2v.simple@0.3.0/single-first-frame-natural-motion-canonical-v1` avec trois étapes visibles seulement :
 
 ```text
 image de première frame
@@ -82,17 +82,17 @@ image de première frame
 
 L’image est liée de façon déterministe à `<Picture 1>` et déclarée comme frame exacte à `0.00` seconde. Il n’y a ni plan de références ni beat sheet cachés. Chaque résultat est streamé, éditable, révisable en langage naturel et soumis à une validation humaine.
 
-Le writer suit le [contrat I2VA du guide MiniMax H3](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md) : instruction d’ancrage exacte, puis `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`. Un linter dédié refuse les labels étrangers, les champs manquants et les timestamps de plans invalides avant approbation.
+Le writer suit le contrat I2VA MiniMax H3 : instruction d’ancrage exacte, puis `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`. Le LLM choisit la sémantique, la chorégraphie et la prose ; un compilateur déterministe impose ensuite le vocabulaire fermé des mouvements de caméra, les placeholders, les labels et les balises de dialogue. Le protocole `minimax.h3.protocol@0.1.0` épingle la [documentation officielle MiniMax H3](https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/base-en.txt) au commit `05d91ff89f58b665e56424fd66db9ef0351b3015`.
 
-La version `0.2.0` ajoute trois principes génériques : respecter la durée et sa capacité d’action, formuler positivement les contraintes de mouvement en conservant les mouvements secondaires naturels, et empêcher la liberté créative d’ajouter des événements séquentiels non demandés. `0.1.0` reste inchangée comme témoin de comparaison.
+La version `0.3.0` conserve les principes de mouvement naturel de `0.2.0`, mais demande au LLM un brouillon interne structuré avant compilation. `0.2.0` reste inchangée comme témoin A/B et `0.1.0` comme témoin historique.
 
-Le premier retour visuel est encourageant et le prompt du cas androïde montre une meilleure prise en compte de la durée et de l’état final. Deux générations successives ont toutefois abrégé le marqueur de dialogue (`FR`/`fr`) au lieu de produire le tag H3 exact. La recette `0.2.0` reste inchangée : les marqueurs stricts comme `<d>[French] ...</d>` seront insérés ou normalisés de façon déterministe à partir de données de dialogue structurées, plutôt que confiés à la prose libre du LLM.
+Les marqueurs tels que `<d>[French] ...</d>` sont maintenant normalisés par code. Chaque révision canonique persiste aussi un `compiler_context` interne contenant les directives structurées : une révision non liée à la caméra réhydrate ce contexte au lieu de demander au LLM de le réinventer, tandis qu’une demande explicite de changement de caméra peut produire une nouvelle version du contexte.
 
-Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Un résultat terminal du modèle reste journalisé comme réussi même si le linter applicatif rejette ensuite le document.
+Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Le journal distingue désormais le résultat du transport modèle (`succeeded`, `truncated`, etc.) de l’issue applicative (`accepted` ou `rejected`) : un LLM terminé correctement n’est plus confondu avec un document accepté par le compilateur.
 
 ### Ref2V — undressing mono-plan
 
-L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.9.0`. Le parcours reste supervisé étape par étape :
+L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.11.0`. La `0.10.0` reste son témoin H3. Le parcours reste supervisé étape par étape :
 
 ```text
 première frame habillée + référence corporelle du même sujet
@@ -120,17 +120,23 @@ La `0.8.0` rend le plan obligatoire et visible avant le writer. Le parcours nomi
 
 La `0.9.0` conserve ce plan détaillé en interne, mais le writer n’expose plus chaque micro-étape au moteur vidéo. Le prompt final utilise seulement les débuts des beats majeurs, la pose finale et un éventuel mouvement de caméra comme jalons horodatés ; chaque beat est rédigé comme une transition continue cause → action → réaction → état observable. Le planner traite aussi la construction visible du vêtement comme un contrat physique : un haut sans manches conserve des emmanchures ou des bretelles et ne peut plus être réinterprété comme un vêtement à manches. Les arbitrages sont formulés en résultats visibles plutôt qu’en vocabulaire de moteur 3D.
 
-Une caméra explicitement décrite comme fixe mais encodée par le LLM dans l’objet `camera` est normalisée en `camera: null` avec avertissement. Un véritable mouvement commençant avant la pose finale reste bloquant.
+La `0.10.0` conserve la grammaire compacte et empirique de `0.9.0`, mais remplace la caméra libre par le protocole versionné `minimax.h3.protocol@0.1.0`. Le planner choisit une directive dans le vocabulaire officiel, le writer place seulement un placeholder, puis PanelForge compile la clause exacte depuis le plan approuvé, normalise les tags H3 et persiste le `compiler_context`. `0.9.0` reste le témoin A/B sans ce compilateur canonique.
+
+La `0.11.0` cible les défauts génériques observés sur plusieurs retraits : un vêtement reste un objet connecté, suit une seule route compatible avec ses ouvertures visibles, conserve des prises de mains explicites et franchit les parties du corps avant d’être relâché puis posé. Le planner utilise le plus petit nombre de transitions permettant de prouver cette continuité, sans multiplier les micro-timestamps. Le writer restitue ensuite cette route en prose fluide et interdit duplication, séparation en panneaux, téléportation ou changement de topologie. Aucune couleur, tenue, pose ou pièce propre à un exemple n’est codée dans la recette.
+
+Cette sortie reste volontairement le format compact `minimax.h3.ref2v.single_shot_supervised_compact_h3_v1` qualifié pour ce cookbook. Ce n’est pas le format Ref2VA officiel à six sections ; une future recette six-sections devra porter un contrat distinct au lieu d’être introduite silencieusement ici.
+
+Une caméra explicitement décrite comme fixe mais encodée par le LLM dans l’objet `camera` est normalisée en `camera: null` avec avertissement. Un véritable mouvement peut accompagner l’action, assurer une transition, parcourir tout le plan ou entourer la pose finale. Si le LLM le marque à tort `held_final_pose` alors que ses timestamps commencent plus tôt, PanelForge corrige sa phase et avertit sans rejeter le candidat. En `0.11.0`, un `target_clause` optionnel invalide est retiré avec avertissement tout en conservant le mouvement typé ; la `0.10.0` garde son comportement strict. L’ordre impossible des gestes, les mouvements caméra inconnus et leur chevauchement avec la pose finale restent bloquants.
 
 Une interface d’arbitrage présente chaque conflit sous forme de carte. L’utilisateur peut reprendre la recommandation, accepter explicitement le risque, écrire sa décision ou ajouter une instruction globale telle qu’un changement de durée. « Appliquer les décisions au plan » déclenche un troisième appel optionnel qui réécrit réellement les sous-gestes et les timings. Le résultat redevient non validé pour contrôle humain ; le serveur refuse de le persister si une décision nommée disparaît ou n’est pas recopiée exactement dans sa résolution. Si seules les résolutions changent sans aucun effet sur les gestes, timings, états, décor ou caméra, un avertissement non bloquant le signale. Le JSON reste disponible comme recours avancé.
 
 Le code vérifie seulement la structure, l’ordre et la cohérence des intervalles. Il ne prétend pas estimer la durée sémantique correcte d’un geste : les timings proposés restent modifiables. Une pose finale sans marge est toujours prolongée automatiquement et une caméra de moins d’une seconde produit désormais un avertissement plutôt qu’un rejet.
 
-Pour réduire l’influence indésirable de la seconde image, son observation transmise au planner est projetée sur les seuls traits d’apparence ; pose, regard, cadrage, décor et caméra en sont retirés. Le writer reçoit le Brief et le plan approuvé, pas les observations brutes. PanelForge conserve ensuite le même compilateur et le même linter final que la `0.2.0`.
+En `0.11.0`, chaque slot porte une politique de preuve persistante. La seconde image est projetée de manière déterministe sur les seules sections âge apparent et apparence stable avant le Brief puis avant le planner. Le mapping final envoyé à H3 répète explicitement que cette image ne définit ni tenue, état instantané, pose, mains, expression, objectif, angle, lumière, décor ou composition. Ces attributs ne sont donc plus transmis comme preuves par PanelForge, même si la fidélité réelle du moteur à cette frontière doit encore être qualifiée visuellement. La politique fait partie du snapshot du Brief et de la provenance. Les sessions et recettes antérieures conservent leur comportement historique.
 
-Les versions `0.1.0` à `0.8.0` restent disponibles comme témoins de comparaison. La future variante à une seule référence corporelle, où les vêtements initiaux sont entièrement décrits, n’est pas incluse dans `0.9.0`.
+Les versions `0.1.0` à `0.10.0` restent disponibles pour comparaison. La future variante à une seule référence corporelle, où les vêtements initiaux sont entièrement décrits, n’est pas incluse dans `0.11.0`.
 
-L’interface permet d’analyser les deux images en une action ou de relancer, corriger et valider chaque observation séparément. Observation et Brief réutilisent volontairement le profil générique `minimax.h3.reference@0.3.0` ; les cookbooks Ref2V ne modifient donc le Brief d’aucun autre parcours.
+L’interface permet d’analyser les deux images en une action ou de relancer, corriger et valider chaque observation séparément. Observation et Brief réutilisent le profil générique `minimax.h3.reference@0.3.0`, tandis que la politique de preuve est attachée à chaque référence : les autres parcours restent en politique `full` et ne sont pas filtrés.
 
 Les neuf titres du Brief sont normalisés par code avec ou sans tiret initial, puis validés exactement une fois et dans le bon ordre avant persistance. Après chaque génération, les éditeurs reviennent en haut du document.
 
@@ -155,7 +161,7 @@ Le Lab appelle seulement les API du serveur. llama.swap reste responsable du cha
 
 Le streaming repose sur `stream=true` et des événements SSE internes réutilisables par les prochaines fenêtres du Prompt Lab. Les appels disposent d’un budget de sortie de 32 768 tokens adapté aux modèles thinking. Si le serveur termine avec `finish_reason=length`, l’interface signale explicitement la troncature et conserve le texte partiel sans l’enregistrer automatiquement comme une révision complète. Avec `sendLoadingState: true` dans llama.swap, PanelForge reconnaît aussi son message de chargement et l’éventuelle position dans la file. llama.swap ne fournit actuellement pas de pourcentage de chargement fiable : l’interface n’en invente donc pas. Les contenus de raisonnement ordinaires du modèle ne sont jamais affichés comme état système.
 
-Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opération, modèle, prompts exacts, réponse, durée, tokens, statut, `finish_reason` et erreur éventuelle. Les images ne sont jamais recopiées dans ce journal ; seules leurs métadonnées et leur SHA-256 sont enregistrées. Ce fichier local peut contenir du texte sensible, reste ignoré par Git et n’est pas exposé par l’API du Lab.
+Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opération, modèle, prompts exacts, réponse, durée, tokens, statut transport, issue applicative, `finish_reason` et erreurs éventuelles. Les images ne sont jamais recopiées dans ce journal ; seules leurs métadonnées et leur SHA-256 sont enregistrées. Ce fichier local peut contenir du texte sensible, reste ignoré par Git et n’est pas exposé par l’API du Lab.
 
 ## Architecture
 
@@ -176,12 +182,9 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ### 1. Qualifier les parcours courts I2V et Ref2V
 
-- rendre et évaluer le cas androïde `0.2.0` : rythme, immobilité demandée, voix et synchronisation labiale ;
-- compiler plus tard les tags H3 stricts depuis des champs structurés, sans alourdir le system prompt ;
-- figer ou réviser `0.2.0` seulement à partir des défauts reproduits sur plusieurs vidéos.
-- qualifier `undressing.single_shot@0.9.0` sur plusieurs couples de références ; mesurer la topologie des vêtements, la fluidité obtenue avec les jalons majeurs et la continuité mains-objets ;
-- tester l’arbitrage visuel sur quatre boutons, une sortie successive des manches, une chute complète et un geste final décomposé ; conserver le JSON comme recours avancé ;
-- ne spécialiser le profil Observation/Brief Ref2V que si un même manque se répète sur plusieurs essais.
+- comparer en A/B `minimax.h3.i2v.simple@0.3.0` à son témoin `0.2.0` sur les mêmes images et intentions : qualité vidéo, rythme, tags, voix et synchronisation labiale ;
+- comparer en A/B `undressing.single_shot@0.11.0` à son témoin `0.10.0` sur plusieurs constructions de vêtements : topologie, passages par les ouvertures, continuité des prises, clipping, rythme et caméra ;
+- versionner une nouvelle recette seulement à partir de défauts reproduits sur plusieurs rendus, en conservant prompts, contexte compilateur et observations de test.
 
 ### 2. Qualifier Fighter Arcade
 
@@ -229,4 +232,4 @@ Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie p
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 258 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

@@ -12,6 +12,7 @@ from panelforge.application import (
     CompletionRequest,
     CompletionResult,
     CompletionStreamEvent,
+    LlmCallApplicationOutcome,
     ModelDescriptor,
     PromptCompositionService,
     StreamEventKind,
@@ -33,7 +34,9 @@ from panelforge.domain import (
     RevisionOrigin,
 )
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
+from panelforge.infrastructure.llm import LoggedMultimodalGateway
 from panelforge.infrastructure.storage import (
+    LocalLlmCallStore,
     LocalPromptCompositionStore,
     LocalPromptSessionStore,
 )
@@ -92,6 +95,7 @@ class FakeGateway:
         return CompletionResult(
             model_id=request.model_id,
             content=self._content(request.operation_id),
+            call_id=f"call-{len(self.requests)}",
         )
 
     def stream(self, request):
@@ -111,7 +115,11 @@ class FakeGateway:
             kind=StreamEventKind.COMPLETED,
             phase=StreamPhase.COMPLETED,
             text=content,
-            result=CompletionResult(model_id=request.model_id, content=content),
+            result=CompletionResult(
+                model_id=request.model_id,
+                content=content,
+                call_id=f"call-{len(self.requests)}",
+            ),
         )
 
     @staticmethod
@@ -132,6 +140,27 @@ class MutatingGateway(FakeGateway):
         result = super().complete(request)
         self.callback()
         return result
+
+
+class RejectingGateway(FakeGateway):
+    @staticmethod
+    def _content(operation_id):
+        return "not a valid cookbook document"
+
+
+class OutcomeReporter:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def report_application_outcome(
+        self,
+        call_id,
+        outcome,
+        *,
+        error_type=None,
+        error_message=None,
+    ):
+        self.calls.append((call_id, outcome, error_type, error_message))
 
 
 def approved_session() -> PromptLabSession:
@@ -355,6 +384,111 @@ class PromptCompositionServiceTest(unittest.TestCase):
         deltas = [event.text for event in events if event.kind is StreamEventKind.DELTA]
         self.assertTrue(deltas[0].startswith("subject_definitions:"))
         self.assertIsNotNone(events[-1].composition)
+
+    def test_stream_marks_a_persisted_document_as_application_accepted(self):
+        reporter = OutcomeReporter()
+        self.service = PromptCompositionService(
+            gateway=self.gateway,
+            cookbooks=LocalPromptCookbookCatalog(COOKBOOK_ROOT),
+            sessions=self.sessions,
+            compositions=self.compositions,
+            application_outcomes=reporter,
+        )
+        self.service.configure(
+            "session-1",
+            "fighter.arcade_versus",
+            "0.1.0",
+            bindings(),
+        )
+
+        list(
+            self.service.stream_generate(
+                "session-1",
+                CompositionStage.REFERENCE_PLAN,
+            )
+        )
+
+        self.assertEqual(reporter.calls[0][:3], (
+            "call-1",
+            LlmCallApplicationOutcome.ACCEPTED,
+            None,
+        ))
+
+    def test_stream_marks_a_structurally_invalid_document_as_rejected(self):
+        reporter = OutcomeReporter()
+        self.service = PromptCompositionService(
+            gateway=RejectingGateway(),
+            cookbooks=LocalPromptCookbookCatalog(COOKBOOK_ROOT),
+            sessions=self.sessions,
+            compositions=self.compositions,
+            application_outcomes=reporter,
+        )
+        self.service.configure(
+            "session-1",
+            "fighter.arcade_versus",
+            "0.1.0",
+            bindings(),
+        )
+
+        with self.assertRaises(ValueError):
+            list(
+                self.service.stream_generate(
+                    "session-1",
+                    CompositionStage.REFERENCE_PLAN,
+                )
+            )
+
+        self.assertEqual(
+            reporter.calls[0][0:3],
+            (
+                "call-1",
+                LlmCallApplicationOutcome.REJECTED,
+                "ValueError",
+            ),
+        )
+        self.assertTrue(reporter.calls[0][3])
+        self.assertEqual(
+            self.service.get("session-1").reference_plan.revisions,
+            (),
+        )
+
+    def test_logged_stream_keeps_transport_success_when_application_rejects(self):
+        call_store = LocalLlmCallStore(self.directory.name)
+        gateway = LoggedMultimodalGateway(
+            RejectingGateway(),
+            call_store,
+            id_factory=lambda: "correlated-call",
+        )
+        self.service = PromptCompositionService(
+            gateway=gateway,
+            cookbooks=LocalPromptCookbookCatalog(COOKBOOK_ROOT),
+            sessions=self.sessions,
+            compositions=self.compositions,
+            application_outcomes=gateway,
+        )
+        self.service.configure(
+            "session-1",
+            "fighter.arcade_versus",
+            "0.1.0",
+            bindings(),
+        )
+
+        with self.assertRaises(ValueError):
+            list(
+                self.service.stream_generate(
+                    "session-1",
+                    CompositionStage.REFERENCE_PLAN,
+                )
+            )
+
+        record = call_store.list()[0]
+        self.assertEqual(record.call_id, "correlated-call")
+        self.assertEqual(record.status.value, "succeeded")
+        self.assertEqual(
+            record.application_outcome,
+            LlmCallApplicationOutcome.REJECTED,
+        )
+        self.assertEqual(record.application_error_type, "ValueError")
 
     def test_does_not_persist_a_result_if_the_brief_changed_during_generation(self):
         def change_brief():

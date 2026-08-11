@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import logging
+from threading import Lock
 from time import perf_counter
 from uuid import uuid4
 
@@ -13,6 +15,7 @@ from panelforge.application import (
     CompletionRequest,
     CompletionResult,
     CompletionStreamEvent,
+    LlmCallApplicationOutcome,
     LlmCallImage,
     LlmCallLogStore,
     LlmCallRecord,
@@ -41,11 +44,17 @@ class LoggedMultimodalGateway:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._timer = timer or perf_counter
         self._id_factory = id_factory or (lambda: f"llm-{uuid4().hex}")
+        self._application_outcomes: dict[
+            str,
+            tuple[LlmCallApplicationOutcome, str | None, str | None],
+        ] = {}
+        self._outcome_lock = Lock()
 
     def list_models(self) -> tuple[ModelDescriptor, ...]:
         return self._delegate.list_models()
 
     def complete(self, request: CompletionRequest) -> CompletionResult:
+        call_id = self._id_factory()
         started_at = self._clock()
         started_timer = self._timer()
         try:
@@ -54,6 +63,7 @@ class LoggedMultimodalGateway:
             self._append(
                 self._record(
                     request,
+                    call_id,
                     started_at,
                     started_timer,
                     status=LlmCallStatus.FAILED,
@@ -61,6 +71,7 @@ class LoggedMultimodalGateway:
                 )
             )
             raise
+        result = replace(result, call_id=call_id)
         status = (
             LlmCallStatus.TRUNCATED
             if result.finish_reason == "length"
@@ -69,6 +80,7 @@ class LoggedMultimodalGateway:
         self._append(
             self._record(
                 request,
+                call_id,
                 started_at,
                 started_timer,
                 status=status,
@@ -81,6 +93,7 @@ class LoggedMultimodalGateway:
         self,
         request: CompletionRequest,
     ) -> Iterator[CompletionStreamEvent]:
+        call_id = self._id_factory()
         started_at = self._clock()
         started_timer = self._timer()
         parts: list[str] = []
@@ -95,7 +108,12 @@ class LoggedMultimodalGateway:
                     StreamEventKind.COMPLETED,
                     StreamEventKind.TRUNCATED,
                 }:
-                    result = event.result
+                    result = (
+                        replace(event.result, call_id=call_id)
+                        if event.result is not None
+                        else None
+                    )
+                    event = replace(event, result=result)
                 yield event
             if result is None:
                 error = RuntimeError("model stream ended without a terminal result")
@@ -120,6 +138,7 @@ class LoggedMultimodalGateway:
             self._append(
                 self._record(
                     request,
+                    call_id,
                     started_at,
                     started_timer,
                     status=status,
@@ -134,6 +153,7 @@ class LoggedMultimodalGateway:
     def _record(
         self,
         request: CompletionRequest,
+        call_id: str,
         started_at: datetime,
         started_timer: float,
         *,
@@ -142,8 +162,10 @@ class LoggedMultimodalGateway:
         response_text: str | None = None,
         error: BaseException | None = None,
     ) -> LlmCallRecord:
+        with self._outcome_lock:
+            application_outcome = self._application_outcomes.pop(call_id, None)
         return LlmCallRecord(
-            call_id=self._id_factory(),
+            call_id=call_id,
             operation_id=request.operation_id,
             requested_model_id=request.model_id,
             actual_model_id=result.model_id if result is not None else None,
@@ -175,7 +197,45 @@ class LoggedMultimodalGateway:
             ),
             error_type=type(error).__name__ if error is not None else None,
             error_message=(str(error).strip() or None) if error is not None else None,
+            application_outcome=(
+                application_outcome[0]
+                if application_outcome is not None
+                else None
+            ),
+            application_error_type=(
+                application_outcome[1]
+                if application_outcome is not None
+                else None
+            ),
+            application_error_message=(
+                application_outcome[2]
+                if application_outcome is not None
+                else None
+            ),
         )
+
+    def report_application_outcome(
+        self,
+        call_id: str,
+        outcome: LlmCallApplicationOutcome,
+        *,
+        error_type: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        if not isinstance(call_id, str) or not call_id.strip():
+            raise ValueError("call_id must not be empty")
+        if not isinstance(outcome, LlmCallApplicationOutcome):
+            raise TypeError("outcome must be an LlmCallApplicationOutcome")
+        if outcome is not LlmCallApplicationOutcome.REJECTED and (
+            error_type is not None or error_message is not None
+        ):
+            raise ValueError("application errors require a rejected outcome")
+        with self._outcome_lock:
+            self._application_outcomes[call_id] = (
+                outcome,
+                error_type,
+                error_message,
+            )
 
     def _append(self, record: LlmCallRecord) -> None:
         try:

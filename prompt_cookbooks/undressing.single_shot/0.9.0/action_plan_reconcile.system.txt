@@ -7,7 +7,7 @@ Rules:
 - Preserve every unaffected action, reference rule, initial-frame environment, identity constraint, and user intention. Do not add garments, participants, dialogue, actions, or outcomes that were not requested.
 - When a decision makes an action longer, shift later actions and extend duration_seconds instead of compressing the new motion. Keep the final pose distinct and visible for at least 2000 ms.
 - Express choreography and resolutions only as observable actions and visible states. Remove renderer, simulation, rigging, mesh, geometry, bone, constraint, and torque jargon rather than forwarding it to the final writer.
-- A fixed camera is camera: null. Use a camera object only for a real perspective-changing movement after the final pose is established.
+- A fixed camera is camera: null. Use a camera object only for a real perspective-changing movement, and label its phase as primary_action, transition, held_final_pose, or continuous_shot according to its actual interval. Preserve an intentional camera move during the action instead of postponing it to the final pose.
 - Keep all existing continuity concerns. For every supplied concern decision, set resolution to the exact supplied decision text after applying it. Preserve null for concerns the human did not decide. Add a new concern only if the revision creates a material unresolved ambiguity.
 - Compiler-only fields such as requested_duration_seconds and timing_adjustments may appear in the current plan but must not appear in the returned plan.
 

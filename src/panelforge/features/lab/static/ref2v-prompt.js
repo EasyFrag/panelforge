@@ -4,9 +4,13 @@
   const core = window.PanelForgePromptLab;
   if (!core) return;
   const $ = (selector) => document.querySelector(selector);
-  const supervisedCookbookVersions = new Set(["0.8.0", "0.9.0"]);
+  const cookbookId = "undressing.single_shot";
+  const preferredCookbookVersion = "0.11.0";
+  const fallbackCookbookVersion = "0.10.0";
+  const supervisedCookbookVersions = new Set(["0.8.0", "0.9.0", "0.10.0", "0.11.0"]);
   const state = {
     spec: null,
+    cookbooks: [],
     cookbook: null,
     files: { start: null, body: null },
     previews: { start: null, body: null },
@@ -21,6 +25,8 @@
   const elements = {
     form: $("#ref2v-session-form"),
     activeCookbook: $("#ref2v-active-cookbook"),
+    cookbook: $("#ref2v-cookbook"),
+    cookbookHelp: $("#ref2v-cookbook-help"),
     model: $("#ref2v-model"),
     refreshModels: $("#ref2v-refresh-models"),
     intention: $("#ref2v-intention"),
@@ -123,9 +129,7 @@
         core.request("/api/prompt-lab/cookbooks"),
       ]);
       state.spec = spec;
-      state.cookbook = (cookbooks.cookbooks || []).find(
-        (item) => item.id === "undressing.single_shot" && item.version === "0.9.0",
-      ) || null;
+      populateCookbooks(cookbooks.cookbooks || []);
       if (!state.cookbook) throw new Error("Cookbook Ref2V undressing indisponible.");
       renderCookbookVersion();
       await Promise.all([loadModels(), loadSessions()]);
@@ -133,6 +137,68 @@
     } catch (error) {
       showSetupError(error.message);
     }
+  }
+
+  function cookbookValue(cookbook) {
+    return `${cookbook.id}@${cookbook.version}`;
+  }
+
+  function cookbookRole(version) {
+    if (version === preferredCookbookVersion) return "Continuité physique expérimentale";
+    if (version === fallbackCookbookVersion) return "Témoin H3 de comparaison";
+    return "Historique";
+  }
+
+  function populateCookbooks(cookbooks) {
+    state.cookbooks = cookbooks.filter((item) => item.id === cookbookId);
+    elements.cookbook.replaceChildren();
+    state.cookbooks.forEach((cookbook) => {
+      const option = document.createElement("option");
+      option.value = cookbookValue(cookbook);
+      option.textContent = `${cookbook.version} · ${cookbookRole(cookbook.version)} — ${cookbook.display_name}`;
+      elements.cookbook.append(option);
+    });
+    selectDefaultCookbook();
+  }
+
+  function selectDefaultCookbook() {
+    state.cookbook = state.cookbooks.find(
+      (item) => item.version === preferredCookbookVersion,
+    ) || state.cookbooks.find(
+      (item) => item.version === fallbackCookbookVersion,
+    ) || state.cookbooks[state.cookbooks.length - 1] || null;
+    elements.cookbook.value = state.cookbook ? cookbookValue(state.cookbook) : "";
+  }
+
+  function cookbookFromSelection() {
+    return state.cookbooks.find(
+      (cookbook) => cookbookValue(cookbook) === elements.cookbook.value,
+    ) || null;
+  }
+
+  function evidencePolicyForSlot(slotId) {
+    const slot = state.cookbook && (state.cookbook.slots || []).find(
+      (item) => item.id === slotId,
+    );
+    if (!slot || !slot.evidence_policy) {
+      throw new Error(`Politique de preuve absente pour le slot ${slotId}.`);
+    }
+    return slot.evidence_policy;
+  }
+
+  function selectCookbookForSessionEvidence(session) {
+    const references = session.references || [];
+    const compatible = state.cookbooks.filter((cookbook) => {
+      const slots = cookbook.slots || [];
+      return slots.length === references.length && slots.every(
+        (slot, index) => (slot.evidence_policy || "full")
+          === (references[index].evidence_policy || "full"),
+      );
+    });
+    state.cookbook = compatible[compatible.length - 1]
+      || state.cookbooks.find((item) => item.version === fallbackCookbookVersion)
+      || state.cookbook;
+    elements.cookbook.value = state.cookbook ? cookbookValue(state.cookbook) : "";
   }
 
   async function loadModels() {
@@ -178,6 +244,7 @@
   async function openSession(session) {
     state.session = session;
     state.composition = null;
+    selectCookbookForSessionEvidence(session);
     state.actionPlanDraft = "";
     state.actionPlanLive = false;
     resetArbitrations();
@@ -208,9 +275,11 @@
     body.append("images", state.files.start, state.files.start.name);
     body.append("roles", "ref2v_dressed_start");
     body.append("usages", "first_frame,subject");
+    body.append("evidence_policies", evidencePolicyForSlot("dressed_start"));
     body.append("images", state.files.body, state.files.body.name);
     body.append("roles", "ref2v_body_reference");
     body.append("usages", "subject");
+    body.append("evidence_policies", evidencePolicyForSlot("body_reference"));
     body.append("model_id", elements.model.value);
     body.append("profile_id", profile.id);
     body.append("profile_version", profile.version);
@@ -331,6 +400,13 @@
       ? state.composition.cookbook : state.cookbook;
     elements.activeCookbook.textContent = cookbook
       ? `${cookbook.id}@${cookbook.version}` : "indisponible";
+    if (cookbook) elements.cookbook.value = cookbookValue(cookbook);
+    elements.cookbook.disabled = state.busy || Boolean(state.composition);
+    elements.cookbookHelp.textContent = state.composition && cookbook
+      ? `${cookbookRole(cookbook.version)} · version verrouillée pour cette session.`
+      : cookbook
+        ? `${cookbookRole(cookbook.version)} · ${cookbook.description || "recette disponible"}`
+        : "Aucune recette Ref2V disponible.";
   }
 
   function setChip(chip, complete, active) {
@@ -545,10 +621,13 @@
       ? state.composition.cookbook : state.cookbook;
     const documentState = state.composition && state.composition.documents
       ? state.composition.documents.beat_sheet : null;
-    const visible = Boolean(
-      cookbook && ["0.3.0", "0.4.0", "0.5.0", "0.6.0", "0.7.0", "0.7.1", "0.8.0", "0.9.0"].includes(cookbook.version),
-    );
     const supervised = isSupervisedCookbook(cookbook);
+    const visible = Boolean(
+      supervised || (
+        cookbook
+        && ["0.3.0", "0.4.0", "0.5.0", "0.6.0", "0.7.0", "0.7.1"].includes(cookbook.version)
+      ),
+    );
     const persisted = documentState && documentState.active_content
       ? documentState.active_content : "";
     const active = documentState && documentState.active_revision_id;
@@ -889,6 +968,10 @@
   elements.refreshModels.addEventListener("click", () => loadModels().catch((error) => showSetupError(error.message)));
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupError(error.message)));
   elements.model.addEventListener("change", updateStartButton);
+  elements.cookbook.addEventListener("change", () => {
+    state.cookbook = cookbookFromSelection();
+    render();
+  });
   elements.intention.addEventListener("input", () => { updateStartButton(); render(); });
   elements.freedom.addEventListener("input", () => { updateFreedom(); render(); });
   elements.newSession.addEventListener("click", () => {
@@ -897,6 +980,7 @@
     state.actionPlanDraft = "";
     state.actionPlanLive = false;
     resetArbitrations();
+    selectDefaultCookbook();
     render();
   });
   elements.analyzeAll.addEventListener("click", async () => {

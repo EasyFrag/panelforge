@@ -15,6 +15,7 @@ from panelforge.application import (
     CompletionResult,
     CompletionStreamEvent,
     ImageInput,
+    LlmCallApplicationOutcome,
     LlmCallImage,
     LlmCallRecord,
     LlmCallStatus,
@@ -69,6 +70,27 @@ class LocalLlmCallStoreTest(unittest.TestCase):
             )
             self.assertEqual(len(raw["calls"]), 20)
             self.assertNotIn("image-content", json.dumps(raw))
+
+    def test_reads_v1_and_rewrites_it_as_v2_on_the_next_append(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalLlmCallStore(directory)
+            store.append(sample_record(1))
+            path = Path(directory) / "llm_calls.json"
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["schema_version"] = 1
+            for call in raw["calls"]:
+                call.pop("application_outcome")
+                call.pop("application_error_type")
+                call.pop("application_error_message")
+            path.write_text(json.dumps(raw), encoding="utf-8")
+
+            migrated = store.list()[0]
+            self.assertIsNone(migrated.application_outcome)
+            store.append(sample_record(2))
+
+            rewritten = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(rewritten["schema_version"], 2)
+            self.assertIn("application_outcome", rewritten["calls"][0])
 
 
 class SuccessfulGateway:
@@ -152,8 +174,8 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
                 operation_id="reference.observe",
             )
 
-            gateway.complete(request)
-            list(gateway.stream(request))
+            completed_result = gateway.complete(request)
+            stream_events = list(gateway.stream(request))
 
             streamed, completed = store.list()
             self.assertEqual(streamed.status, LlmCallStatus.TRUNCATED)
@@ -161,6 +183,8 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
             self.assertEqual(streamed.finish_reason, "length")
             self.assertEqual(streamed.duration_ms, 500)
             self.assertEqual(completed.status, LlmCallStatus.SUCCEEDED)
+            self.assertEqual(completed_result.call_id, completed.call_id)
+            self.assertEqual(stream_events[-1].result.call_id, streamed.call_id)
             self.assertEqual(completed.duration_ms, 250)
             self.assertEqual(completed.images[0].byte_size, len(b"image-content"))
 
@@ -205,12 +229,21 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
 
             terminal = next(stream)
             self.assertEqual(terminal.kind, StreamEventKind.COMPLETED)
+            self.assertEqual(terminal.result.call_id, "call-terminal")
+            gateway.report_application_outcome(
+                terminal.result.call_id,
+                LlmCallApplicationOutcome.ACCEPTED,
+            )
             stream.close()
 
             record = store.list()[0]
             self.assertEqual(record.status, LlmCallStatus.SUCCEEDED)
             self.assertIsNone(record.error_type)
             self.assertEqual(record.response_text, "Done")
+            self.assertEqual(
+                record.application_outcome,
+                LlmCallApplicationOutcome.ACCEPTED,
+            )
 
     def test_closing_before_terminal_result_is_still_cancelled(self):
         with tempfile.TemporaryDirectory() as directory:

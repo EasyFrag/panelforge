@@ -153,6 +153,7 @@ class PromptCompositionWebTest(unittest.TestCase):
         script = self.client.get("/static/prompt-composition.js")
         i2v_script = self.client.get("/static/i2v-prompt.js")
         ref2v_script = self.client.get("/static/ref2v-prompt.js")
+        catalog = self.client.get("/api/prompt-lab/cookbooks").json()["cookbooks"]
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("prompt-composition.js", page.text)
@@ -160,15 +161,43 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('id="i2v-observation-step"', page.text)
         self.assertIn('id="i2v-brief-step"', page.text)
         self.assertIn('id="i2v-prompt-step"', page.text)
+        self.assertIn('id="i2v-cookbook"', page.text)
+        self.assertIn('i2v-prompt.js?v=20260811.1', page.text)
         self.assertEqual(script.status_code, 200)
         self.assertIn("required_uses", script.text)
         self.assertEqual(i2v_script.status_code, 200)
         self.assertIn('minimax.h3.i2v.simple', i2v_script.text)
-        self.assertIn('item.version === "0.2.0"', i2v_script.text)
+        self.assertIn('preferredCookbookVersion = "0.3.0"', i2v_script.text)
+        self.assertIn('fallbackCookbookVersion = "0.2.0"', i2v_script.text)
+        self.assertIn('core.request("/api/prompt-lab/cookbooks")', i2v_script.text)
+        self.assertIn('Canonique expérimental', i2v_script.text)
+        self.assertIn('Témoin de comparaison', i2v_script.text)
         self.assertIn("PanelForgeModelPicker.populate", i2v_script.text)
         self.assertEqual(ref2v_script.status_code, 200)
-        self.assertIn('item.version === "0.9.0"', ref2v_script.text)
-        self.assertIn('new Set(["0.8.0", "0.9.0"])', ref2v_script.text)
+        self.assertIn('id="ref2v-cookbook"', page.text)
+        self.assertIn('ref2v-prompt.js?v=20260811.2', page.text)
+        self.assertIn('preferredCookbookVersion = "0.11.0"', ref2v_script.text)
+        self.assertIn('fallbackCookbookVersion = "0.10.0"', ref2v_script.text)
+        self.assertIn(
+            'new Set(["0.8.0", "0.9.0", "0.10.0", "0.11.0"])',
+            ref2v_script.text,
+        )
+        self.assertIn('const visible = Boolean(', ref2v_script.text)
+        self.assertIn('supervised || (', ref2v_script.text)
+        self.assertIn('core.request("/api/prompt-lab/cookbooks")', ref2v_script.text)
+        self.assertIn('Continuité physique expérimentale', ref2v_script.text)
+        self.assertIn('evidencePolicyForSlot', ref2v_script.text)
+        self.assertIn('selectCookbookForSessionEvidence', ref2v_script.text)
+        ref2v_v11 = next(
+            item
+            for item in catalog
+            if item["id"] == "undressing.single_shot"
+            and item["version"] == "0.11.0"
+        )
+        self.assertEqual(
+            ref2v_v11["invalid_camera_target_policy"],
+            "drop_with_warning",
+        )
         self.assertIn("PanelForgeModelPicker.populate", ref2v_script.text)
         self.assertIn('id="ref2v-action-plan"', page.text)
         self.assertIn('id="ref2v-action-plan" class="cookbook-step" open hidden', page.text)

@@ -1,0 +1,7 @@
+APPROVED FIRST-FRAME OBSERVATION
+{{REFERENCES}}
+
+APPROVED STRUCTURED BRIEF
+{{BRIEF}}
+
+Write the canonical internal draft now. The observation defines the exact visible state at 0.00 seconds; the brief defines what happens next. Encode every camera instruction as a JSON directive plus its matching placeholder.

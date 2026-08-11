@@ -18,6 +18,9 @@ from panelforge.application import (
     StreamPhase,
     lint_i2v_prompt,
 )
+from panelforge.application.prompt_composition import (
+    _instruction_requests_camera_change,
+)
 from panelforge.domain import (
     AnalysisRevision,
     BriefReferenceSnapshot,
@@ -43,6 +46,24 @@ integrated_multimodal_description: [Shot 1] Live-action, cinematic, the football
 overall_soundscape: Stadium ambience continues under the sharp kick, displaced grass, the ball cutting through the air, and the net snapping taut.
 
 non_diegetic_music: A sparse low percussion pulse accelerates once after the kick, then stops at the net impact."""
+
+I2V_CANONICAL_DRAFT = """camera_directives:
+[{"id":"camera_1","motion":"pan.right","amplitude":"small","speed":"fast","target_clause":"following the ball"}]
+integrated_multimodal_description:
+[Shot 1] The football player shown in <Picture 1> strikes the ball. [[camera:camera_1]] The player shouts <d>[FR] Maintenant!</d> as the ball reaches the net.
+overall_soundscape:
+The kick, shout, and net impact remain synchronized with the stadium ambience.
+non_diegetic_music:
+N/A"""
+
+I2V_REPEATED_CAMERA_DRAFT = """camera_directives:
+[{"id":"camera_1","motion":"pan.right"},{"id":"camera_2","motion":"pan.right"}]
+integrated_multimodal_description:
+[Shot 1] The runner shown in <Picture 1> enters the straight. [[camera:camera_1]] After the bend, the runner accelerates again. [[camera:camera_2]]
+overall_soundscape:
+Footsteps and crowd ambience follow the action.
+non_diegetic_music:
+N/A"""
 
 
 class I2VGateway:
@@ -78,6 +99,16 @@ class EnvelopeI2VGateway(I2VGateway):
         if request.operation_id == "final_prompt.revise":
             content = "SOURCE CONTEXT — READ ONLY\nDo not persist this.\n\n" + content
         return CompletionResult(model_id=request.model_id, content=content)
+
+
+class CanonicalI2VGateway(I2VGateway):
+    def __init__(self, content=I2V_CANONICAL_DRAFT) -> None:
+        super().__init__()
+        self.content = content
+
+    def complete(self, request):
+        self.requests.append(request)
+        return CompletionResult(model_id=request.model_id, content=self.content)
 
 
 def approved_i2v_session() -> PromptLabSession:
@@ -159,6 +190,238 @@ class I2VPromptTest(unittest.TestCase):
         self.assertIn("every explicit duration", revised.final_prompt_system_prompt)
         self.assertIn("physically natural secondary motion", revised.final_prompt_system_prompt)
         self.assertIn("new sequential action beats", revised.final_prompt_system_prompt)
+
+    def test_v3_pins_the_h3_protocol_and_compiles_the_internal_draft(self):
+        cookbook = self.service.cookbooks.get("minimax.h3.i2v.simple", "0.3.0")
+        self.assertEqual(cookbook.output_contract, "minimax.h3.i2va.canonical_v1")
+        self.assertEqual(cookbook.reference.engine_contract_id, "minimax.h3.protocol")
+        self.assertEqual(cookbook.reference.engine_contract_version, "0.1.0")
+        self.assertTrue(all("05d91ff89f58" in source for source in cookbook.sources))
+
+        self.gateway = CanonicalI2VGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-i2v-1",
+            "minimax.h3.i2v.simple",
+            "0.3.0",
+            (CookbookBinding("first_frame", ("reference-i2v-1",)),),
+        )
+
+        composition = self.service.generate(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+        content = composition.final_prompt.active_revision.content
+
+        self.assertTrue(content.startswith("For the target video, at 0.00 seconds"))
+        self.assertNotIn("camera_directives:", content)
+        self.assertNotIn("[[camera:", content)
+        self.assertIn(
+            "The camera pans right with small amplitude at fast speed, following the ball.",
+            content,
+        )
+        self.assertIn("<d>[French] Maintenant!</d>", content)
+        compiler_context = composition.final_prompt.active_revision.compiler_context
+        self.assertIsNotNone(compiler_context)
+        self.assertIn('"motion":"pan.right"', compiler_context)
+        self.assertEqual(
+            self.compositions.get("session-i2v-1")
+            .final_prompt.active_revision.compiler_context,
+            compiler_context,
+        )
+
+        edited = self.service.edit(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+            content.replace("stadium ambience", "stadium room tone"),
+        )
+        self.assertEqual(
+            edited.final_prompt.active_revision.compiler_context,
+            compiler_context,
+        )
+
+    def test_v3_rejects_an_unknown_camera_enum_without_persisting_it(self):
+        invalid = I2V_CANONICAL_DRAFT.replace('"pan.right"', '"dolly"')
+        self.gateway = CanonicalI2VGateway(invalid)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-i2v-1",
+            "minimax.h3.i2v.simple",
+            "0.3.0",
+            (CookbookBinding("first_frame", ("reference-i2v-1",)),),
+        )
+
+        with self.assertRaisesRegex(ValueError, "invalid camera directive"):
+            self.service.generate("session-i2v-1", CompositionStage.FINAL_PROMPT)
+
+        stored = self.compositions.get("session-i2v-1")
+        self.assertIsNone(stored.final_prompt.active_revision)
+
+    def test_v3_rejects_an_embedded_camera_placeholder(self):
+        invalid = I2V_CANONICAL_DRAFT.replace(
+            ". [[camera:camera_1]] The player",
+            " while [[camera:camera_1]] the player",
+        )
+        self.gateway = CanonicalI2VGateway(invalid)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-i2v-1",
+            "minimax.h3.i2v.simple",
+            "0.3.0",
+            (CookbookBinding("first_frame", ("reference-i2v-1",)),),
+        )
+
+        with self.assertRaisesRegex(ValueError, "standalone sentence"):
+            self.service.generate("session-i2v-1", CompositionStage.FINAL_PROMPT)
+
+    def test_v3_revision_reuses_the_internal_camera_contract(self):
+        self.gateway = CanonicalI2VGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-i2v-1",
+            "minimax.h3.i2v.simple",
+            "0.3.0",
+            (CookbookBinding("first_frame", ("reference-i2v-1",)),),
+        )
+        self.service.generate("session-i2v-1", CompositionStage.FINAL_PROMPT)
+
+        revised = self.service.revise(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+            "Keep the action and make the soundscape shorter.",
+        )
+
+        self.assertNotIn("camera_directives:", revised.final_prompt.active_revision.content)
+        self.assertIn(
+            "The camera pans right with small amplitude at fast speed, following the ball.",
+            revised.final_prompt.active_revision.content,
+        )
+        self.assertIn("camera_directives:", self.gateway.requests[-1].system_prompt)
+        revision_prompt = self.gateway.requests[-1].user_prompt
+        self.assertIn('"motion":"pan.right"', revision_prompt)
+        self.assertIn("[[camera:camera_1]]", revision_prompt)
+        self.assertNotIn(
+            "The camera pans right with small amplitude at fast speed, following the ball.",
+            revision_prompt,
+        )
+        self.assertNotIn(
+            "For the target video, at 0.00 seconds into the target video",
+            revision_prompt,
+        )
+
+    def test_v3_non_camera_revision_cannot_silently_change_camera_directives(self):
+        self.gateway = CanonicalI2VGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-i2v-1",
+            "minimax.h3.i2v.simple",
+            "0.3.0",
+            (CookbookBinding("first_frame", ("reference-i2v-1",)),),
+        )
+        generated = self.service.generate(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+        parent_id = generated.final_prompt.active_revision_id
+        self.gateway.content = I2V_CANONICAL_DRAFT.replace(
+            '"pan.right"',
+            '"zoom.in"',
+        )
+
+        with self.assertRaisesRegex(ValueError, "explicitly mentions the camera"):
+            self.service.revise(
+                "session-i2v-1",
+                CompositionStage.FINAL_PROMPT,
+                "Shorten only the soundscape.",
+            )
+
+        self.assertEqual(
+            self.compositions.get("session-i2v-1").final_prompt.active_revision_id,
+            parent_id,
+        )
+        revised = self.service.revise(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+            "Change the camera angle to a zoom while preserving the action.",
+        )
+        self.assertIn(
+            '"motion":"zoom.in"',
+            revised.final_prompt.active_revision.compiler_context,
+        )
+
+    def test_v3_recognizes_the_supported_camera_revision_vocabulary(self):
+        for instruction in (
+            "Tilt upward.",
+            "Use a truck left.",
+            "Add a pedestal down.",
+            "Roll clockwise.",
+            "Switch to POV.",
+            "Use a tracking shot.",
+            "Fais un panoramique lent.",
+            "Passe en contre-plong\u00e9e.",
+            "Change la cam\u00e9ra en contre-plong\u00e9e.",
+            "Change le point de vue.",
+        ):
+            with self.subTest(instruction=instruction):
+                self.assertTrue(_instruction_requests_camera_change(instruction))
+
+        self.assertFalse(
+            _instruction_requests_camera_change("Shorten only the soundscape.")
+        )
+
+    def test_v3_rehydrates_two_identical_camera_clauses_in_directive_order(self):
+        self.gateway = CanonicalI2VGateway(I2V_REPEATED_CAMERA_DRAFT)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-i2v-1",
+            "minimax.h3.i2v.simple",
+            "0.3.0",
+            (CookbookBinding("first_frame", ("reference-i2v-1",)),),
+        )
+        generated = self.service.generate(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+
+        self.assertEqual(
+            generated.final_prompt.active_revision.content.count(
+                "The camera pans right."
+            ),
+            2,
+        )
+        revised = self.service.revise(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+            "Shorten only the soundscape.",
+        )
+        revision_prompt = self.gateway.requests[-1].user_prompt
+        self.assertEqual(revision_prompt.count("[[camera:camera_1]]"), 1)
+        self.assertEqual(revision_prompt.count("[[camera:camera_2]]"), 1)
+        self.assertLess(
+            revision_prompt.index("[[camera:camera_1]]"),
+            revision_prompt.index("[[camera:camera_2]]"),
+        )
+        self.assertEqual(
+            revised.final_prompt.active_revision.content.count(
+                "The camera pans right."
+            ),
+            2,
+        )
+
+    def test_v2_generation_remains_on_the_legacy_uncompiled_contract(self):
+        self.service.configure(
+            "session-i2v-1",
+            "minimax.h3.i2v.simple",
+            "0.2.0",
+            (CookbookBinding("first_frame", ("reference-i2v-1",)),),
+        )
+
+        composition = self.service.generate(
+            "session-i2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+
+        self.assertEqual(composition.final_prompt.active_revision.content, I2V_PROMPT)
 
     def test_generates_and_approves_prompt_directly_from_observation_and_brief(self):
         self.service.configure(

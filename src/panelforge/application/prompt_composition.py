@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 import json
+import logging
 import re
 from typing import Protocol
 from uuid import uuid4
@@ -14,17 +16,34 @@ from panelforge.domain import (
     CompositionStage,
     CookbookBinding,
     CookbookRef,
+    H3CameraDirective,
     PromptComposition,
     PromptLabSession,
+    ReferenceEvidencePolicy,
     RevisionOrigin,
 )
 
 from .prompt_lab import (
     CompletionRequest,
+    LlmCallApplicationOutcome,
+    LlmCallApplicationOutcomeReporter,
     MultimodalGateway,
     PromptSessionStore,
     StreamEventKind,
     StreamPhase,
+    project_reference_evidence,
+)
+from .minimax_h3_protocol import (
+    H3IssueSeverity,
+    H3ProtocolMode,
+    PROTOCOL_ID,
+    PROTOCOL_VERSION,
+    compile_camera_draft,
+    compile_camera_motion,
+    compile_camera_placeholders,
+    lint_h3_prompt,
+    normalize_dialogue_language_tags,
+    parse_camera_directives,
 )
 from .ref2v_action_plan import (
     canonical_ref2v_action_plan,
@@ -35,8 +54,12 @@ from .ref2v_action_plan import (
     lint_ref2v_action_plan,
     lint_ref2v_action_plan_v2,
     lint_ref2v_supervised_compiled_plan,
+    lint_ref2v_supervised_compiled_plan_v2,
+    lint_ref2v_supervised_canonical_compiled_plan,
     parse_ref2v_advisory_action_plan,
     parse_ref2v_supervised_compiled_plan,
+    parse_ref2v_supervised_compiled_plan_v2,
+    parse_ref2v_supervised_canonical_compiled_plan,
     ref2v_advisory_action_plan_warnings,
     ref2v_advisory_writer_plan,
     ref2v_bounded_action_plan_warnings,
@@ -49,17 +72,27 @@ from .ref2v_action_plan import (
     ref2v_action_plan_schema_v3,
     ref2v_repairable_action_plan_schema,
     ref2v_supervised_action_plan_schema,
+    ref2v_supervised_action_plan_schema_v2,
+    ref2v_supervised_canonical_action_plan_schema,
     ref2v_supervised_action_plan_warnings,
+    ref2v_supervised_action_plan_warnings_v2,
+    ref2v_supervised_canonical_action_plan_warnings,
+    ref2v_supervised_canonical_camera_directives,
+    ref2v_supervised_canonical_writer_plan,
     ref2v_supervised_writer_plan,
+    ref2v_supervised_writer_plan_v2,
     retime_ref2v_advisory_action_plan,
     retime_ref2v_bounded_action_plan,
     retime_ref2v_action_plan_v2,
     retime_ref2v_repairable_action_plan,
     retime_ref2v_supervised_action_plan,
+    retime_ref2v_supervised_action_plan_v2,
+    retime_ref2v_supervised_canonical_action_plan,
 )
 from .revised_documents import RevisedDocumentContract
 
 
+_LOGGER = logging.getLogger(__name__)
 _FINAL_SECTIONS = (
     "subject_definitions",
     "summary",
@@ -95,6 +128,7 @@ _I2VA_FIELDS = (
     "overall_soundscape",
     "non_diegetic_music",
 )
+_I2VA_CANONICAL_CONTRACT = "minimax.h3.i2va.canonical_v1"
 _REF2V_COMPILED_CONTRACT = "minimax.h3.ref2v.single_shot_compiled"
 _REF2V_PLANNED_CONTRACT = "minimax.h3.ref2v.single_shot_planned"
 _REF2V_PLANNED_V2_CONTRACT = "minimax.h3.ref2v.single_shot_planned_v2"
@@ -103,13 +137,26 @@ _REF2V_BOUNDED_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v2"
 _REF2V_ADVISORY_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v3"
 _REF2V_RECOVERABLE_CONTRACT = "minimax.h3.ref2v.single_shot_elastic_v4"
 _REF2V_SUPERVISED_CONTRACT = "minimax.h3.ref2v.single_shot_supervised_v1"
+_REF2V_SUPERVISED_V2_CONTRACT = "minimax.h3.ref2v.single_shot_supervised_v2"
+_REF2V_SUPERVISED_CANONICAL_CONTRACT = (
+    "minimax.h3.ref2v.single_shot_supervised_compact_h3_v1"
+)
+_REF2V_SUPERVISED_CONTRACTS = {
+    _REF2V_SUPERVISED_CONTRACT,
+    _REF2V_SUPERVISED_V2_CONTRACT,
+    _REF2V_SUPERVISED_CANONICAL_CONTRACT,
+}
+_H3_PROTOCOL_CONTRACTS = {
+    _I2VA_CANONICAL_CONTRACT,
+    _REF2V_SUPERVISED_CANONICAL_CONTRACT,
+}
 _REF2V_ADVISORY_CONTRACTS = {
     _REF2V_ADVISORY_CONTRACT,
     _REF2V_RECOVERABLE_CONTRACT,
 }
 _REF2V_SOFT_FINAL_CONTRACTS = {
     *_REF2V_ADVISORY_CONTRACTS,
-    _REF2V_SUPERVISED_CONTRACT,
+    *_REF2V_SUPERVISED_CONTRACTS,
 }
 _REF2V_PLANNED_CONTRACTS = {
     _REF2V_PLANNED_CONTRACT,
@@ -118,7 +165,7 @@ _REF2V_PLANNED_CONTRACTS = {
     _REF2V_BOUNDED_CONTRACT,
     _REF2V_ADVISORY_CONTRACT,
     _REF2V_RECOVERABLE_CONTRACT,
-    _REF2V_SUPERVISED_CONTRACT,
+    *_REF2V_SUPERVISED_CONTRACTS,
 }
 _REF2V_EDITABLE_FIELDS = (
     "scene_setup",
@@ -134,10 +181,28 @@ _REF2V_COMPILED_HEADER = (
     "shown in <Picture 1>; do not use it as a frame, pose, background, composition, "
     "or target state."
 )
+_REF2V_APPEARANCE_ONLY_COMPILED_HEADER = (
+    "<Picture 1>: the exact fully preserved starting frame at 0.00 seconds, "
+    "containing the subject in the dressed starting state and defining pose, "
+    "framing, room, lighting, and visible composition.\n"
+    "Use <Picture 2> only for the identity, face, skin, body proportions, and stable "
+    "physical appearance of the same adult subject shown in <Picture 1>; do not use "
+    "it as a frame, pose, "
+    "hand placement, expression, clothing state, lens, camera angle, lighting, "
+    "background, composition, or target staging."
+)
 _REF2V_EDITABLE_CONTRACT = RevisedDocumentContract(
     "compiled Ref2V editable document",
     tuple(f"{field}:" for field in _REF2V_EDITABLE_FIELDS),
 )
+_I2VA_CANONICAL_EDITABLE_CONTRACT = RevisedDocumentContract(
+    "canonical I2VA editable document",
+    (
+        "camera_directives:",
+        *(f"{field}:" for field in _I2VA_FIELDS),
+    ),
+)
+_H3_CAMERA_CONTEXT_MARKER = "__PANELFORGE_H3_CAMERA_CONTEXT__:"
 _REF2VA_CONTRACTS = {
     "minimax.h3.ref2va",
     "minimax.h3.ref2va.single_shot",
@@ -148,6 +213,7 @@ class CookbookSlotPort(Protocol):
     slot_id: str
     label: str
     description: str
+    evidence_policy: ReferenceEvidencePolicy
     subject_label: str | None
     accepted_uses: tuple[str, ...]
     required_uses: tuple[str, ...]
@@ -157,6 +223,7 @@ class CookbookSlotPort(Protocol):
 
 
 class PromptCookbookPort(Protocol):
+    schema_version: int
     reference: CookbookRef
     display_name: str
     description: str
@@ -165,6 +232,7 @@ class PromptCookbookPort(Protocol):
     preset: str
     stages: tuple[str, ...]
     require_distinct_references: bool
+    invalid_camera_target_policy: str
     sources: tuple[str, ...]
     slots: tuple[CookbookSlotPort, ...]
     reference_plan_system_prompt: str | None
@@ -243,11 +311,13 @@ class PromptCompositionService:
         cookbooks: PromptCookbookCatalog,
         sessions: PromptSessionStore,
         compositions: PromptCompositionStore,
+        application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
     ) -> None:
         self.gateway = gateway
         self.cookbooks = cookbooks
         self.sessions = sessions
         self.compositions = compositions
+        self.application_outcomes = application_outcomes
 
     def list_cookbooks(self) -> tuple[PromptCookbookPort, ...]:
         return self.cookbooks.list()
@@ -347,7 +417,7 @@ class PromptCompositionService:
         )
         if (
             cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
-            and cookbook.output_contract != _REF2V_SUPERVISED_CONTRACT
+            and cookbook.output_contract not in _REF2V_SUPERVISED_CONTRACTS
             and stage is CompositionStage.FINAL_PROMPT
         ):
             self._generate_stage(source_session_id, CompositionStage.BEAT_SHEET)
@@ -365,7 +435,12 @@ class PromptCompositionService:
             instruction=None,
         )
         result = self.gateway.complete(request)
-        content = _compile_content(cookbook, stage, prefix, result.content)
+        content, compiler_context = _compile_content_with_context(
+            cookbook,
+            stage,
+            prefix,
+            result.content,
+        )
         return self._persist_if_current(
             session,
             composition,
@@ -373,6 +448,7 @@ class PromptCompositionService:
             expected,
             content,
             RevisionOrigin.MODEL,
+            compiler_context=compiler_context,
         )
 
     def stream_generate(
@@ -387,7 +463,7 @@ class PromptCompositionService:
         )
         if (
             cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
-            and cookbook.output_contract != _REF2V_SUPERVISED_CONTRACT
+            and cookbook.output_contract not in _REF2V_SUPERVISED_CONTRACTS
             and stage is CompositionStage.FINAL_PROMPT
         ):
             plan_request = self._request(
@@ -523,12 +599,14 @@ class PromptCompositionService:
                     "subject_definitions is locked by the approved reference plan"
                 )
         _raise_lint(cookbook, stage, content)
+        active = composition.document(stage).active_revision
         return self._append_revision(
             composition,
             stage,
             expected,
             _strip_fence(content),
             RevisionOrigin.MANUAL,
+            compiler_context=(active.compiler_context if active is not None else None),
         )
 
     def revise(
@@ -546,7 +624,12 @@ class PromptCompositionService:
         revised = _revision_document_contract(cookbook, stage).extract(
             result.content
         )
-        content = _compile_content(cookbook, stage, prefix, revised)
+        content, compiler_context = _compile_content_with_context(
+            cookbook,
+            stage,
+            prefix,
+            revised,
+        )
         return self._persist_if_current(
             session,
             composition,
@@ -555,6 +638,7 @@ class PromptCompositionService:
             content,
             RevisionOrigin.REWRITE,
             instruction,
+            compiler_context=compiler_context,
         )
 
     def stream_revise(
@@ -590,7 +674,7 @@ class PromptCompositionService:
         session = self.sessions.get(source_session_id)
         composition = self.compositions.get(source_session_id)
         cookbook = self._validated_cookbook(session, composition)
-        if cookbook.output_contract != _REF2V_SUPERVISED_CONTRACT:
+        if cookbook.output_contract not in _REF2V_SUPERVISED_CONTRACTS:
             raise ValueError(
                 "action-plan arbitration is only available for supervised Ref2V"
             )
@@ -612,7 +696,14 @@ class PromptCompositionService:
             raise ValueError("generate the action plan before arbitrating it")
         if current.source_ids != expected:
             raise ValueError("the current action plan is stale; regenerate it first")
-        current_plan = parse_ref2v_supervised_compiled_plan(current.content)
+        parse_compiled_plan = (
+            parse_ref2v_supervised_canonical_compiled_plan
+            if cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT
+            else parse_ref2v_supervised_compiled_plan_v2
+            if cookbook.output_contract == _REF2V_SUPERVISED_V2_CONTRACT
+            else parse_ref2v_supervised_compiled_plan
+        )
+        current_plan = parse_compiled_plan(current.content)
         normalized_decisions = _normalize_arbitration_decisions(
             decisions,
             {concern.concern_id for concern in current_plan.continuity_concerns},
@@ -643,7 +734,13 @@ class PromptCompositionService:
                 CURRENT_PLAN=current.content,
                 DECISIONS=decisions_json,
                 GLOBAL_INSTRUCTION=normalized_instruction or "N/A",
-                ACTION_PLAN_SCHEMA=ref2v_supervised_action_plan_schema(),
+                ACTION_PLAN_SCHEMA=(
+                    ref2v_supervised_canonical_action_plan_schema()
+                    if cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT
+                    else ref2v_supervised_action_plan_schema_v2()
+                    if cookbook.output_contract == _REF2V_SUPERVISED_V2_CONTRACT
+                    else ref2v_supervised_action_plan_schema()
+                ),
             ),
             temperature=0.2,
             max_tokens=32768,
@@ -659,7 +756,7 @@ class PromptCompositionService:
         )
 
         def validate_reconciliation(content: str) -> None:
-            revised = parse_ref2v_supervised_compiled_plan(content)
+            revised = parse_compiled_plan(content)
             original_resolutions = {
                 concern.concern_id: concern.resolution
                 for concern in current_plan.continuity_concerns
@@ -765,6 +862,14 @@ class PromptCompositionService:
                 raise ValueError("the current document is stale; regenerate it first")
             editable_current = current.content
             if (
+                cookbook.output_contract == _I2VA_CANONICAL_CONTRACT
+                and stage is CompositionStage.FINAL_PROMPT
+            ):
+                editable_current = _rehydrate_i2v_editable_document(
+                    current.content,
+                    current.compiler_context,
+                )
+            if (
                 stage is CompositionStage.FINAL_PROMPT
                 and CompositionStage.REFERENCE_PLAN.value in cookbook.stages
             ):
@@ -814,6 +919,24 @@ class PromptCompositionService:
                 ),
             )
             prefix = _reference_prefix(reference_plan.content)
+        if (
+            stage is CompositionStage.FINAL_PROMPT
+            and cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT
+        ):
+            action_plan = _approved_stage(
+                composition,
+                CompositionStage.BEAT_SHEET,
+                self._expected_sources(
+                    session,
+                    composition,
+                    CompositionStage.BEAT_SHEET,
+                ),
+            )
+            prefix = _encode_h3_camera_context(
+                ref2v_supervised_canonical_camera_directives(
+                    action_plan.content,
+                )
+            )
         operation_stage = (
             "action_plan"
             if cookbook.output_contract in _REF2V_PLANNED_CONTRACTS
@@ -861,7 +984,12 @@ class PromptCompositionService:
                             cookbook,
                         ),
                         ACTION_PLAN_SCHEMA=(
-                            ref2v_supervised_action_plan_schema()
+                            ref2v_supervised_canonical_action_plan_schema()
+                            if cookbook.output_contract
+                            == _REF2V_SUPERVISED_CANONICAL_CONTRACT
+                            else ref2v_supervised_action_plan_schema_v2()
+                            if cookbook.output_contract == _REF2V_SUPERVISED_V2_CONTRACT
+                            else ref2v_supervised_action_plan_schema()
                             if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT
                             else ref2v_repairable_action_plan_schema()
                             if cookbook.output_contract == _REF2V_RECOVERABLE_CONTRACT
@@ -1057,6 +1185,8 @@ class PromptCompositionService:
         content: str,
         origin: RevisionOrigin,
         instruction: str | None = None,
+        *,
+        compiler_context: str | None = None,
     ) -> PromptComposition:
         current_session = self.sessions.get(initial_session.session_id)
         current = self.compositions.get(initial_session.session_id)
@@ -1064,9 +1194,17 @@ class PromptCompositionService:
             raise ValueError("cookbook changed while the model was generating")
         if current.document(stage).active_revision_id != initial_composition.document(stage).active_revision_id:
             raise ValueError("this stage changed while the model was generating")
-        self._validated_cookbook(current_session, current)
+        cookbook = self._validated_cookbook(current_session, current)
         if self._expected_sources(current_session, current, stage) != expected:
             raise ValueError("an upstream approval changed while the model was generating")
+        _validate_compiler_context_change(
+            cookbook,
+            stage,
+            origin,
+            instruction,
+            current.document(stage).active_revision,
+            compiler_context,
+        )
         return self._append_revision(
             current,
             stage,
@@ -1074,6 +1212,7 @@ class PromptCompositionService:
             content,
             origin,
             instruction,
+            compiler_context=compiler_context,
         )
 
     def _validated_cookbook(
@@ -1087,6 +1226,13 @@ class PromptCompositionService:
         )
         if cookbook.reference != composition.cookbook:
             raise ValueError("the cookbook engine contract changed")
+        if cookbook.output_contract in _H3_PROTOCOL_CONTRACTS and (
+            cookbook.reference.engine_contract_id,
+            cookbook.reference.engine_contract_version,
+        ) != (PROTOCOL_ID, PROTOCOL_VERSION):
+            raise ValueError(
+                "the cookbook requires an unsupported MiniMax H3 protocol version"
+            )
         _validate_bindings(session, cookbook, composition.bindings)
         return cookbook
 
@@ -1098,11 +1244,40 @@ class PromptCompositionService:
         content: str,
         origin: RevisionOrigin,
         instruction: str | None = None,
+        *,
+        compiler_context: str | None = None,
     ) -> PromptComposition:
         cookbook = self.cookbooks.get(
             composition.cookbook.cookbook_id,
             composition.cookbook.version,
         )
+        if stage is CompositionStage.FINAL_PROMPT and cookbook.output_contract in {
+            _I2VA_CANONICAL_CONTRACT,
+            _REF2V_SUPERVISED_CANONICAL_CONTRACT,
+        }:
+            if compiler_context is None:
+                raise ValueError("canonical H3 revision is missing compiler context")
+            directives = _decode_h3_camera_context(compiler_context)
+            mode = H3ProtocolMode.I2VA
+            if cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT:
+                mode = H3ProtocolMode.REF2VA
+                action_plan = composition.beat_sheet.active_revision
+                if action_plan is None:
+                    raise ValueError("canonical Ref2V requires an approved action plan")
+                plan_context = _encode_h3_camera_context(
+                    ref2v_supervised_canonical_camera_directives(
+                        action_plan.content,
+                    )
+                )
+                if compiler_context != plan_context:
+                    raise ValueError(
+                        "canonical Ref2V compiler context must come from the approved plan"
+                    )
+            _raise_h3_protocol(
+                mode,
+                content,
+                expected_directives=directives,
+            )
         _raise_lint(cookbook, stage, content)
         if cookbook.output_contract in _REF2VA_CONTRACTS:
             _raise_cookbook_labels(
@@ -1124,7 +1299,10 @@ class PromptCompositionService:
                     cookbook.output_contract not in _REF2V_SOFT_FINAL_CONTRACTS
                 ),
             )
-        elif cookbook.output_contract == "minimax.h3.i2va":
+        elif cookbook.output_contract in {
+            "minimax.h3.i2va",
+            _I2VA_CANONICAL_CONTRACT,
+        }:
             _raise_i2v_labels(composition, stage, content)
         else:
             raise ValueError(f"unsupported output contract: {cookbook.output_contract}")
@@ -1136,6 +1314,7 @@ class PromptCompositionService:
             source_ids=expected,
             parent_revision_id=document.active_revision_id,
             instruction=instruction,
+            compiler_context=compiler_context,
         )
         return self.compositions.save_if_current(
             composition,
@@ -1159,7 +1338,7 @@ class PromptCompositionService:
         document_stage: CompositionStage | None = None,
     ) -> Iterator[CompositionStreamEvent]:
         terminal = False
-        if prefix:
+        if prefix and not _is_h3_camera_context(prefix):
             yield CompositionStreamEvent(
                 kind=StreamEventKind.DELTA,
                 phase=StreamPhase.GENERATING,
@@ -1169,28 +1348,41 @@ class PromptCompositionService:
             if event.kind is StreamEventKind.COMPLETED:
                 if event.result is None:
                     raise ValueError("stream completed without a result")
-                result_content = event.result.content
-                if origin is RevisionOrigin.REWRITE and extract_revision:
-                    result_content = _revision_document_contract(
+                try:
+                    result_content = event.result.content
+                    if origin is RevisionOrigin.REWRITE and extract_revision:
+                        result_content = _revision_document_contract(
+                            cookbook,
+                            stage,
+                        ).extract(result_content)
+                    content, compiler_context = _compile_content_with_context(
                         cookbook,
                         stage,
-                    ).extract(result_content)
-                content = _compile_content(
-                    cookbook,
-                    stage,
-                    prefix,
-                    result_content,
-                )
-                if validate_content is not None:
-                    validate_content(content)
-                composition = self._persist_if_current(
-                    initial_session,
-                    initial_composition,
-                    stage,
-                    expected,
-                    content,
-                    origin,
-                    instruction,
+                        prefix,
+                        result_content,
+                    )
+                    if validate_content is not None:
+                        validate_content(content)
+                    composition = self._persist_if_current(
+                        initial_session,
+                        initial_composition,
+                        stage,
+                        expected,
+                        content,
+                        origin,
+                        instruction,
+                        compiler_context=compiler_context,
+                    )
+                except Exception as error:
+                    self._report_application_outcome(
+                        event.result.call_id,
+                        LlmCallApplicationOutcome.REJECTED,
+                        error,
+                    )
+                    raise
+                self._report_application_outcome(
+                    event.result.call_id,
+                    LlmCallApplicationOutcome.ACCEPTED,
                 )
                 terminal = True
                 yield CompositionStreamEvent(
@@ -1205,7 +1397,10 @@ class PromptCompositionService:
                 )
             elif event.kind is StreamEventKind.TRUNCATED:
                 terminal = True
-                partial = prefix + (event.result.content if event.result else event.text)
+                visible_prefix = "" if _is_h3_camera_context(prefix) else prefix
+                partial = visible_prefix + (
+                    event.result.content if event.result else event.text
+                )
                 yield CompositionStreamEvent(
                     kind=StreamEventKind.TRUNCATED,
                     phase=StreamPhase.TRUNCATED,
@@ -1224,6 +1419,27 @@ class PromptCompositionService:
                 )
         if not terminal:
             raise ValueError("model stream ended before completion")
+
+    def _report_application_outcome(
+        self,
+        call_id: str | None,
+        outcome: LlmCallApplicationOutcome,
+        error: Exception | None = None,
+    ) -> None:
+        if self.application_outcomes is None or call_id is None:
+            return
+        try:
+            self.application_outcomes.report_application_outcome(
+                call_id,
+                outcome,
+                error_type=type(error).__name__ if error is not None else None,
+                error_message=(str(error).strip() or None) if error is not None else None,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "failed to persist application outcome for LLM call %s",
+                call_id,
+            )
 
 
 def lint_composition_document(
@@ -1319,9 +1535,28 @@ def lint_cookbook_document(
         if stage is CompositionStage.FINAL_PROMPT:
             return lint_compiled_ref2v_single_shot_prompt(content)
         return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
-    if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT:
+    if cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT:
         if stage is CompositionStage.BEAT_SHEET:
-            return lint_ref2v_supervised_compiled_plan(content)
+            return lint_ref2v_supervised_canonical_compiled_plan(content)
+        if stage is CompositionStage.FINAL_PROMPT:
+            errors = [
+                error
+                for error in lint_compiled_ref2v_single_shot_prompt(
+                    content,
+                    expected_header=_ref2v_compiled_header(cookbook),
+                )
+                if "15 secondes" not in error
+            ]
+            errors.extend(_h3_protocol_errors(H3ProtocolMode.REF2VA, content))
+            return tuple(dict.fromkeys(errors))
+        return (f"Stage {stage.value} does not belong to this cookbook.",)
+    if cookbook.output_contract in _REF2V_SUPERVISED_CONTRACTS:
+        if stage is CompositionStage.BEAT_SHEET:
+            return (
+                lint_ref2v_supervised_compiled_plan_v2(content)
+                if cookbook.output_contract == _REF2V_SUPERVISED_V2_CONTRACT
+                else lint_ref2v_supervised_compiled_plan(content)
+            )
         if stage is CompositionStage.FINAL_PROMPT:
             if not isinstance(content, str) or not content.strip():
                 return ("Le prompt Ref2V compilé est vide.",)
@@ -1335,10 +1570,16 @@ def lint_cookbook_document(
                 return ("Le prompt Ref2V compilé est vide.",)
             return ()
         return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
-    if cookbook.output_contract == "minimax.h3.i2va":
+    if cookbook.output_contract in {
+        "minimax.h3.i2va",
+        _I2VA_CANONICAL_CONTRACT,
+    }:
         if stage is not CompositionStage.FINAL_PROMPT:
             return (f"L’étape {stage.value} n’appartient pas à ce cookbook.",)
-        return lint_i2v_prompt(content)
+        errors = list(lint_i2v_prompt(content))
+        if cookbook.output_contract == _I2VA_CANONICAL_CONTRACT:
+            errors.extend(_h3_protocol_errors(H3ProtocolMode.I2VA, content))
+        return tuple(dict.fromkeys(errors))
     return (f"Contrat de sortie inconnu : {cookbook.output_contract}",)
 
 
@@ -1413,13 +1654,31 @@ def lint_ref2v_single_shot_prompt(content: str) -> tuple[str, ...]:
     return tuple(errors)
 
 
-def lint_compiled_ref2v_single_shot_prompt(content: str) -> tuple[str, ...]:
+def _ref2v_compiled_header(cookbook: PromptCookbookPort) -> str:
+    body_slot = next(
+        (slot for slot in cookbook.slots if slot.slot_id == "body_reference"),
+        None,
+    )
+    if (
+        body_slot is not None
+        and body_slot.evidence_policy
+        is ReferenceEvidencePolicy.APPEARANCE_ONLY_V1
+    ):
+        return _REF2V_APPEARANCE_ONLY_COMPILED_HEADER
+    return _REF2V_COMPILED_HEADER
+
+
+def lint_compiled_ref2v_single_shot_prompt(
+    content: str,
+    *,
+    expected_header: str = _REF2V_COMPILED_HEADER,
+) -> tuple[str, ...]:
     """Validate the compact, code-compiled Ref2V single-shot contract."""
     if not isinstance(content, str) or not content.strip():
         return ("Le prompt Ref2V compilé est vide.",)
     value = _strip_fence(content).replace("\r\n", "\n")
     errors: list[str] = []
-    expected_start = _REF2V_COMPILED_HEADER + "\n\n"
+    expected_start = expected_header + "\n\n"
     if not value.startswith(expected_start):
         errors.append("Le mapping de références compilé a été modifié.")
 
@@ -1499,17 +1758,23 @@ def _ref2v_landmark_warnings(
     major_only: bool = False,
 ) -> tuple[str, ...]:
     try:
-        plan = parse_ref2v_advisory_action_plan(plan_content)
+        plan = parse_ref2v_supervised_canonical_compiled_plan(plan_content)
     except (TypeError, ValueError):
         try:
-            plan = parse_ref2v_supervised_compiled_plan(plan_content)
+            plan = parse_ref2v_advisory_action_plan(plan_content)
         except (TypeError, ValueError):
-            return ()
+            try:
+                plan = parse_ref2v_supervised_compiled_plan(plan_content)
+            except (TypeError, ValueError):
+                try:
+                    plan = parse_ref2v_supervised_compiled_plan_v2(plan_content)
+                except (TypeError, ValueError):
+                    return ()
     landmarks_ms: list[int] = []
     if major_only:
         landmarks_ms.extend(beat.start_ms for beat in plan.beats[1:])
         landmarks_ms.append(plan.final_pose.start_ms)
-        if plan.camera is not None:
+        if plan.camera is not None and plan.camera.start_ms > 0:
             landmarks_ms.append(plan.camera.start_ms)
     else:
         for beat in plan.beats:
@@ -1614,9 +1879,48 @@ def composition_document_warnings(
     *,
     composition: PromptComposition | None = None,
 ) -> tuple[str, ...]:
-    if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT:
+    if (
+        cookbook.output_contract == _I2VA_CANONICAL_CONTRACT
+        and stage is CompositionStage.FINAL_PROMPT
+    ):
+        return _h3_protocol_warnings(H3ProtocolMode.I2VA, content)
+    if cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT:
         if stage is CompositionStage.BEAT_SHEET:
-            warnings = list(ref2v_supervised_action_plan_warnings(content))
+            warnings = list(
+                ref2v_supervised_canonical_action_plan_warnings(content)
+            )
+            if composition is not None:
+                warnings.extend(_supervised_reconciliation_warnings(composition))
+            return tuple(dict.fromkeys(warnings))
+        if stage is CompositionStage.FINAL_PROMPT:
+            warnings = [
+                error
+                for error in lint_compiled_ref2v_single_shot_prompt(
+                    content,
+                    expected_header=_ref2v_compiled_header(cookbook),
+                )
+                if "15 secondes" in error
+            ]
+            warnings.extend(_h3_protocol_warnings(H3ProtocolMode.REF2VA, content))
+            if composition is not None:
+                plan = composition.beat_sheet.active_revision
+                if plan is not None:
+                    warnings.extend(
+                        _ref2v_landmark_warnings(
+                            plan.content,
+                            content,
+                            major_only=True,
+                        )
+                    )
+            return tuple(dict.fromkeys(warnings))
+        return ()
+    if cookbook.output_contract in _REF2V_SUPERVISED_CONTRACTS:
+        if stage is CompositionStage.BEAT_SHEET:
+            warnings = list(
+                ref2v_supervised_action_plan_warnings_v2(content)
+                if cookbook.output_contract == _REF2V_SUPERVISED_V2_CONTRACT
+                else ref2v_supervised_action_plan_warnings(content)
+            )
             if composition is not None:
                 warnings.extend(_supervised_reconciliation_warnings(composition))
             return tuple(dict.fromkeys(warnings))
@@ -1738,7 +2042,13 @@ def _supervised_reconciliation_warnings(
 
 
 def _supervised_planning_payload(content: str) -> dict[str, object]:
-    plan = parse_ref2v_supervised_compiled_plan(content)
+    try:
+        plan = parse_ref2v_supervised_canonical_compiled_plan(content)
+    except (TypeError, ValueError):
+        try:
+            plan = parse_ref2v_supervised_compiled_plan(content)
+        except (TypeError, ValueError):
+            plan = parse_ref2v_supervised_compiled_plan_v2(content)
     data = plan.model_dump(mode="json")
     return {
         key: data[key]
@@ -2048,6 +2358,11 @@ def _validate_bindings(
             reference = session.reference(reference_id)
             if reference.approved_revision_id != reference.active_revision_id:
                 raise ValueError("approve every bound visual analysis first")
+            if reference.evidence_policy is not slot.evidence_policy:
+                raise ValueError(
+                    f"slot {slot.slot_id} requires evidence policy "
+                    f"{slot.evidence_policy.value}"
+                )
             unsupported_uses = sorted(
                 use.value
                 for use in reference.uses
@@ -2089,16 +2404,26 @@ def _reference_context(
         for reference_id in binding.reference_ids:
             reference = session.reference(reference_id)
             picture_index = picture_numbers[reference_id]
+            observation = project_reference_evidence(
+                reference.active_revision.content,
+                reference.evidence_policy,
+            )
+            projection = (
+                ""
+                if reference.evidence_policy is ReferenceEvidencePolicy.FULL
+                else f" ({reference.evidence_policy.value} projection)"
+            )
             chunks.extend(
                 (
-                    f"<Picture {picture_index}> / {reference.label}",
+                    f"<Picture {picture_index}> / {reference.label}{projection}",
                     "uses: " + ", ".join(use.value for use in reference.uses),
                     "approved visual observation:",
-                    reference.active_revision.content,
+                    observation,
                 )
             )
             if (
-                reference.interpretation_review_status.value == "approved"
+                reference.evidence_policy is ReferenceEvidencePolicy.FULL
+                and reference.interpretation_review_status.value == "approved"
                 and reference.active_interpretation is not None
             ):
                 chunks.extend(
@@ -2111,7 +2436,7 @@ def _reference_context(
     return "\n".join(chunks).strip()
 
 
-_BODY_REFERENCE_SECTIONS = {
+_LEGACY_BODY_REFERENCE_SECTIONS = {
     "SUJETS VISIBLES",
     "ÂGE APPARENT ET INCERTITUDE",
     "APPARENCE ET TRAITS DISTINCTIFS",
@@ -2127,7 +2452,7 @@ def _action_plan_reference_context(
     composition: PromptComposition,
     cookbook: PromptCookbookPort,
 ) -> str:
-    """Build planner evidence while excluding pose/composition leakage from Picture 2."""
+    """Build planner evidence under each reference's immutable evidence policy."""
     slots = {slot.slot_id: slot for slot in cookbook.slots}
     picture_numbers = dict(composition_picture_mapping(composition))
     chunks: list[str] = []
@@ -2138,15 +2463,27 @@ def _action_plan_reference_context(
         for reference_id in binding.reference_ids:
             reference = session.reference(reference_id)
             picture_index = picture_numbers[reference_id]
-            observation = reference.active_revision.content
-            if binding.slot_id == "body_reference":
-                observation = _appearance_only_observation(observation)
-                chunks.append(
-                    f"<Picture {picture_index}> / {reference.label} "
-                    "(appearance-only projection)"
+            legacy_body_projection = (
+                cookbook.schema_version == 2
+                and binding.slot_id == "body_reference"
+                and reference.evidence_policy is ReferenceEvidencePolicy.FULL
+            )
+            if legacy_body_projection:
+                observation = _legacy_body_reference_observation(
+                    reference.active_revision.content
                 )
+                projection = " (legacy appearance-only projection)"
             else:
-                chunks.append(f"<Picture {picture_index}> / {reference.label}")
+                observation = project_reference_evidence(
+                    reference.active_revision.content,
+                    reference.evidence_policy,
+                )
+                projection = (
+                    ""
+                    if reference.evidence_policy is ReferenceEvidencePolicy.FULL
+                    else f" ({reference.evidence_policy.value} projection)"
+                )
+            chunks.append(f"<Picture {picture_index}> / {reference.label}{projection}")
             chunks.extend(
                 (
                     "uses: " + ", ".join(use.value for use in reference.uses),
@@ -2155,7 +2492,8 @@ def _action_plan_reference_context(
                 )
             )
             if (
-                binding.slot_id != "body_reference"
+                reference.evidence_policy is ReferenceEvidencePolicy.FULL
+                and not legacy_body_projection
                 and reference.interpretation_review_status.value == "approved"
                 and reference.active_interpretation is not None
             ):
@@ -2169,11 +2507,11 @@ def _action_plan_reference_context(
     return "\n".join(chunks).strip()
 
 
-def _appearance_only_observation(content: str) -> str:
+def _legacy_body_reference_observation(content: str) -> str:
     headings = list(re.finditer(r"(?m)^-\s+([^\r\n]+?)\s*$", content))
     selected: list[str] = []
     for index, heading in enumerate(headings):
-        if heading.group(1).strip() not in _BODY_REFERENCE_SECTIONS:
+        if heading.group(1).strip() not in _LEGACY_BODY_REFERENCE_SECTIONS:
             continue
         end = headings[index + 1].start() if index + 1 < len(headings) else len(content)
         selected.append(content[heading.start() : end].strip())
@@ -2197,9 +2535,14 @@ def _binding_source_snapshots(
                 if reference.interpretation_review_status.value == "approved"
                 else "none"
             )
+            evidence_snapshot = (
+                ""
+                if reference.evidence_policy is ReferenceEvidencePolicy.FULL
+                else f";evidence={reference.evidence_policy.value}"
+            )
             snapshots.append(
                 f"{reference_id}@{reference.active_revision_id}"
-                f"[uses={uses};interpretation={interpretation_id}]"
+                f"[uses={uses}{evidence_snapshot};interpretation={interpretation_id}]"
             )
         values.append(f"slot:{binding.slot_id}=" + ",".join(snapshots))
     return tuple(values)
@@ -2213,6 +2556,151 @@ def _render(template: str, **values: str) -> str:
     if unresolved:
         raise ValueError(f"unresolved cookbook template values: {unresolved}")
     return rendered
+
+
+def _encode_h3_camera_context(
+    directives: tuple[H3CameraDirective, ...],
+) -> str:
+    payload: list[dict[str, str]] = []
+    for directive in directives:
+        item = {
+            "id": directive.directive_id,
+            "motion": directive.motion.value,
+        }
+        if directive.amplitude is not None:
+            item["amplitude"] = directive.amplitude.value
+        if directive.speed is not None:
+            item["speed"] = directive.speed.value
+        if directive.target_clause:
+            item["target_clause"] = directive.target_clause
+        payload.append(item)
+    return _H3_CAMERA_CONTEXT_MARKER + json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
+def _is_h3_camera_context(value: str) -> bool:
+    return value.startswith(_H3_CAMERA_CONTEXT_MARKER)
+
+
+def _decode_h3_camera_context(value: str) -> tuple[H3CameraDirective, ...]:
+    if not _is_h3_camera_context(value):
+        raise ValueError("canonical H3 camera context is missing")
+    return parse_camera_directives(value[len(_H3_CAMERA_CONTEXT_MARKER) :])
+
+
+def _rehydrate_i2v_editable_document(
+    content: str,
+    compiler_context: str | None,
+) -> str:
+    if compiler_context is None:
+        raise ValueError("canonical I2VA revision is missing compiler context")
+    directives = _decode_h3_camera_context(compiler_context)
+    value = _strip_fence(content).replace("\r\n", "\n")
+    fixed_prefix = _I2VA_INSTRUCTION + "\n\n"
+    if not value.startswith(fixed_prefix):
+        raise ValueError("canonical I2VA prompt is missing its fixed instruction")
+    body = value[len(fixed_prefix) :]
+    expected_clauses = Counter(
+        compile_camera_motion(directive) for directive in directives
+    )
+    for clause, expected_count in expected_clauses.items():
+        if body.count(clause) != expected_count:
+            raise ValueError(
+                "compiled camera clause occurrence count does not match "
+                "the I2VA compiler context"
+            )
+    for directive in directives:
+        clause = compile_camera_motion(directive)
+        body = body.replace(
+            clause,
+            f"[[camera:{directive.directive_id}]]",
+            1,
+        )
+    raw_directives = compiler_context[len(_H3_CAMERA_CONTEXT_MARKER) :]
+    return f"camera_directives:\n{raw_directives}\n{body}"
+
+
+def _validate_compiler_context_change(
+    cookbook: PromptCookbookPort,
+    stage: CompositionStage,
+    origin: RevisionOrigin,
+    instruction: str | None,
+    parent: CompositionRevision | None,
+    compiler_context: str | None,
+) -> None:
+    if not (
+        cookbook.output_contract == _I2VA_CANONICAL_CONTRACT
+        and stage is CompositionStage.FINAL_PROMPT
+        and origin is RevisionOrigin.REWRITE
+    ):
+        return
+    if parent is None or parent.compiler_context is None:
+        raise ValueError("canonical I2VA revision is missing its parent compiler context")
+    if compiler_context == parent.compiler_context:
+        return
+    if _instruction_requests_camera_change(instruction or ""):
+        return
+    raise ValueError(
+        "an I2VA revision may change camera directives only when the instruction "
+        "explicitly mentions the camera, angle, framing, view, or shot"
+    )
+
+
+def _instruction_requests_camera_change(instruction: str) -> bool:
+    return re.search(
+        r"(?i)(?:\b(?:cam(?:e|\u00e9)ra|angle|zoom|pan|travell?ing|cadrage|vue|shot|"
+        r"tilt|truck|pedestal|roll|pov|tracking|panoramique|inclinaison|suivi|"
+        r"roulis|rotation)\b|contre[- ]plong(?:\u00e9e|ee|e)|"
+        r"plong(?:\u00e9e|ee|e)|"
+        r"point\s+de\s+vue)",
+        instruction,
+    ) is not None
+
+
+def _h3_protocol_errors(
+    mode: H3ProtocolMode,
+    content: str,
+    *,
+    expected_directives: tuple[H3CameraDirective, ...] = (),
+) -> tuple[str, ...]:
+    return tuple(
+        issue.message
+        for issue in lint_h3_prompt(
+            mode,
+            content,
+            expected_directives=expected_directives,
+        )
+        if issue.severity is H3IssueSeverity.ERROR
+    )
+
+
+def _h3_protocol_warnings(
+    mode: H3ProtocolMode,
+    content: str,
+) -> tuple[str, ...]:
+    return tuple(
+        issue.message
+        for issue in lint_h3_prompt(mode, content)
+        if issue.severity is H3IssueSeverity.WARNING
+    )
+
+
+def _raise_h3_protocol(
+    mode: H3ProtocolMode,
+    content: str,
+    *,
+    expected_directives: tuple[H3CameraDirective, ...] = (),
+) -> None:
+    errors = _h3_protocol_errors(
+        mode,
+        content,
+        expected_directives=expected_directives,
+    )
+    if errors:
+        raise ValueError(" ".join(errors))
 
 
 def _normalize_arbitration_decisions(
@@ -2239,6 +2727,29 @@ def _normalize_arbitration_decisions(
     return normalized
 
 
+def _compile_content_with_context(
+    cookbook: PromptCookbookPort,
+    stage: CompositionStage,
+    prefix: str,
+    result: str,
+) -> tuple[str, str | None]:
+    content = _compile_content(cookbook, stage, prefix, result)
+    compiler_context: str | None = None
+    if (
+        stage is CompositionStage.FINAL_PROMPT
+        and cookbook.output_contract == _I2VA_CANONICAL_CONTRACT
+    ):
+        _, directives = compile_camera_draft(_strip_fence(result))
+        compiler_context = _encode_h3_camera_context(directives)
+    elif (
+        stage is CompositionStage.FINAL_PROMPT
+        and cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT
+    ):
+        _decode_h3_camera_context(prefix)
+        compiler_context = prefix
+    return content, compiler_context
+
+
 def _compile_content(
     cookbook: PromptCookbookPort,
     stage: CompositionStage,
@@ -2247,6 +2758,34 @@ def _compile_content(
 ) -> str:
     body = _strip_fence(result)
     if (
+        stage is CompositionStage.FINAL_PROMPT
+        and cookbook.output_contract == _I2VA_CANONICAL_CONTRACT
+    ):
+        editable, directives = compile_camera_draft(body)
+        content = normalize_dialogue_language_tags(
+            f"{_I2VA_INSTRUCTION}\n\n{editable}"
+        )
+        _raise_h3_protocol(
+            H3ProtocolMode.I2VA,
+            content,
+            expected_directives=directives,
+        )
+    elif (
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT
+    ):
+        content = retime_ref2v_supervised_canonical_action_plan(
+            body,
+            recover_invalid_target=(
+                cookbook.invalid_camera_target_policy == "drop_with_warning"
+            ),
+        )
+    elif (
+        stage is CompositionStage.BEAT_SHEET
+        and cookbook.output_contract == _REF2V_SUPERVISED_V2_CONTRACT
+    ):
+        content = retime_ref2v_supervised_action_plan_v2(body)
+    elif (
         stage is CompositionStage.BEAT_SHEET
         and cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT
     ):
@@ -2283,6 +2822,28 @@ def _compile_content(
         content = canonical_ref2v_action_plan(body)
     elif (
         stage is CompositionStage.FINAL_PROMPT
+        and cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT
+    ):
+        directives = _decode_h3_camera_context(prefix)
+        body = _normalize_ref2v_model_labels(body)
+        editable = _REF2V_EDITABLE_CONTRACT.extract(body)
+        editable = compile_camera_placeholders(
+            normalize_dialogue_language_tags(editable),
+            directives,
+        )
+        content = normalize_dialogue_language_tags(
+            _compile_ref2v_single_shot(
+                editable,
+                compiled_header=_ref2v_compiled_header(cookbook),
+            )
+        )
+        _raise_h3_protocol(
+            H3ProtocolMode.REF2VA,
+            content,
+            expected_directives=directives,
+        )
+    elif (
+        stage is CompositionStage.FINAL_PROMPT
         and cookbook.output_contract
         in {_REF2V_COMPILED_CONTRACT, *_REF2V_PLANNED_CONTRACTS}
     ):
@@ -2303,6 +2864,10 @@ def _compile_content(
 
 
 def _writer_action_plan(cookbook: PromptCookbookPort, content: str) -> str:
+    if cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT:
+        return ref2v_supervised_canonical_writer_plan(content)
+    if cookbook.output_contract == _REF2V_SUPERVISED_V2_CONTRACT:
+        return ref2v_supervised_writer_plan_v2(content)
     if cookbook.output_contract == _REF2V_SUPERVISED_CONTRACT:
         return ref2v_supervised_writer_plan(content)
     if cookbook.output_contract in _REF2V_ADVISORY_CONTRACTS:
@@ -2318,6 +2883,11 @@ def _revision_document_contract(
     cookbook: PromptCookbookPort,
     stage: CompositionStage,
 ) -> RevisedDocumentContract:
+    if (
+        cookbook.output_contract == _I2VA_CANONICAL_CONTRACT
+        and stage is CompositionStage.FINAL_PROMPT
+    ):
+        return _I2VA_CANONICAL_EDITABLE_CONTRACT
     if (
         cookbook.output_contract
         in {_REF2V_COMPILED_CONTRACT, *_REF2V_PLANNED_CONTRACTS}
@@ -2398,6 +2968,27 @@ def _stage_contract(
     cookbook: PromptCookbookPort,
 ) -> str:
     if (
+        cookbook.output_contract == _I2VA_CANONICAL_CONTRACT
+        and stage is CompositionStage.FINAL_PROMPT
+    ):
+        return (
+            "Return exactly camera_directives:, integrated_multimodal_description:, "
+            "overall_soundscape:, and non_diegetic_music:. camera_directives is a "
+            "valid JSON array. Declare every [[camera:camera_N]] placeholder once "
+            "and use each exactly once. PanelForge compiles the official first-frame "
+            "instruction and camera clauses."
+        )
+    if (
+        cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT
+        and stage is CompositionStage.FINAL_PROMPT
+    ):
+        return (
+            "Return exactly scene_setup:, shot_1:, overall_soundscape:, and "
+            "non_diegetic_music:. Insert [[camera:camera_1]] exactly once and do "
+            "not paraphrase camera motion. PanelForge compiles the plan-owned "
+            "camera clause, fixed reference mapping, and Shot 1 heading."
+        )
+    if (
         cookbook.output_contract
         in {_REF2V_COMPILED_CONTRACT, *_REF2V_PLANNED_CONTRACTS}
         and stage is CompositionStage.FINAL_PROMPT
@@ -2430,7 +3021,11 @@ def _stage_contract(
     return "Output only summary:, retention_analysis:, detailed_description:, overall_soundscape:, non_diegetic_music:. Reconcile subject appearances with the beat sheet, establish style before [Shot 1], then use [Shot N] At MM:SS.mmm, for shots 2–6 with cut times below 00:15.000."
 
 
-def _compile_ref2v_single_shot(editable: str) -> str:
+def _compile_ref2v_single_shot(
+    editable: str,
+    *,
+    compiled_header: str = _REF2V_COMPILED_HEADER,
+) -> str:
     scene = _inline_field_body(editable, "scene_setup", "shot_1").strip()
     shot = _inline_field_body(editable, "shot_1", "overall_soundscape").strip()
     soundscape = _inline_field_body(
@@ -2448,7 +3043,7 @@ def _compile_ref2v_single_shot(editable: str) -> str:
         if not value:
             raise ValueError(f"compiled Ref2V field must not be empty: {name}")
     return (
-        f"{_REF2V_COMPILED_HEADER}\n\n"
+        f"{compiled_header}\n\n"
         f"{scene}\n\n"
         f"Shot 1: {shot}\n\n"
         f"overall_soundscape: {soundscape}\n\n"

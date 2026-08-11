@@ -27,6 +27,13 @@ class ReferenceUse(StrEnum):
     STYLE = "style"
 
 
+class ReferenceEvidencePolicy(StrEnum):
+    """Controls which approved visual evidence may flow into downstream prompts."""
+
+    FULL = "full"
+    APPEARANCE_ONLY_V1 = "appearance_only_v1"
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisRevision:
     revision_id: str
@@ -81,11 +88,14 @@ class BriefReferenceSnapshot:
     reference_id: str
     analysis_revision_id: str
     uses: tuple[ReferenceUse, ...]
+    evidence_policy: ReferenceEvidencePolicy = ReferenceEvidencePolicy.FULL
 
     def __post_init__(self) -> None:
         _require_text(self.reference_id, "reference_id")
         _require_text(self.analysis_revision_id, "analysis_revision_id")
         _require_uses(self.uses)
+        if not isinstance(self.evidence_policy, ReferenceEvidencePolicy):
+            raise TypeError("evidence_policy must be a ReferenceEvidencePolicy")
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +147,7 @@ class PromptReference:
     asset_id: str
     role: str
     label: str
+    evidence_policy: ReferenceEvidencePolicy = ReferenceEvidencePolicy.FULL
     revisions: tuple[AnalysisRevision, ...] = ()
     active_revision_id: str | None = None
     approved_revision_id: str | None = None
@@ -261,6 +272,8 @@ class PromptReference:
             (self.label, "label"),
         ):
             _require_text(value, name)
+        if not isinstance(self.evidence_policy, ReferenceEvidencePolicy):
+            raise TypeError("evidence_policy must be a ReferenceEvidencePolicy")
         _require_uses(self.uses)
         if not isinstance(self.revisions, tuple):
             raise TypeError("revisions must be a tuple")
@@ -365,6 +378,7 @@ class PromptLabSession:
                 reference.approved_revision_id != reference.active_revision_id
                 or snapshot.analysis_revision_id != reference.active_revision_id
                 or set(snapshot.uses) != set(reference.uses)
+                or snapshot.evidence_policy is not reference.evidence_policy
             ):
                 return True
         return False
@@ -389,6 +403,8 @@ class PromptLabSession:
         current = self.reference(updated.reference_id)
         if current.asset_id != updated.asset_id:
             raise ValueError("a reference asset cannot be replaced in place")
+        if current.evidence_policy is not updated.evidence_policy:
+            raise ValueError("a reference evidence policy cannot be changed in place")
         if current == updated:
             return self
         return replace(
@@ -411,6 +427,7 @@ class PromptLabSession:
             reference.reference_id: (
                 reference.active_revision_id,
                 set(reference.uses),
+                reference.evidence_policy,
             )
             for reference in self.references
         }
@@ -418,6 +435,7 @@ class PromptLabSession:
             reference.reference_id: (
                 reference.analysis_revision_id,
                 set(reference.uses),
+                reference.evidence_policy,
             )
             for reference in revision.references
         }

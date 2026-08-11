@@ -21,6 +21,11 @@ from panelforge.application.ref2v_action_plan import (
     parse_ref2v_elastic_action_plan,
     parse_ref2v_action_plan,
     parse_ref2v_supervised_compiled_plan,
+    parse_ref2v_supervised_compiled_plan_v2,
+    parse_ref2v_supervised_canonical_compiled_plan,
+    ref2v_supervised_action_plan_schema,
+    ref2v_supervised_action_plan_schema_v2,
+    ref2v_supervised_canonical_action_plan_schema,
     ref2v_advisory_action_plan_warnings,
     ref2v_advisory_writer_plan,
     ref2v_bounded_action_plan_warnings,
@@ -29,11 +34,17 @@ from panelforge.application.ref2v_action_plan import (
     ref2v_elastic_writer_plan,
     ref2v_action_plan_warnings_v2,
     ref2v_supervised_action_plan_warnings,
+    ref2v_supervised_action_plan_warnings_v2,
+    ref2v_supervised_canonical_action_plan_warnings,
+    ref2v_supervised_canonical_camera_directives,
+    ref2v_supervised_canonical_writer_plan,
     retime_ref2v_advisory_action_plan,
     retime_ref2v_bounded_action_plan,
     retime_ref2v_action_plan_v2,
     retime_ref2v_repairable_action_plan,
     retime_ref2v_supervised_action_plan,
+    retime_ref2v_supervised_action_plan_v2,
+    retime_ref2v_supervised_canonical_action_plan,
 )
 
 
@@ -142,6 +153,23 @@ def valid_supervised_plan() -> dict:
             "resolution": None,
         }
     ]
+    return plan
+
+
+def valid_canonical_supervised_plan() -> dict:
+    plan = valid_supervised_plan()
+    plan["camera"] = {
+        "start_ms": 7500,
+        "end_ms": 9500,
+        "motion": "pedestal.down",
+        "amplitude": "small",
+        "speed": "slow",
+        "target_clause": "toward waist height while preserving the frontal axis",
+        "visible_perspective_change": (
+            "The lower body becomes more prominent against the rising background."
+        ),
+        "during": "held_final_pose",
+    }
     return plan
 
 
@@ -448,15 +476,225 @@ class Ref2VActionPlanTest(unittest.TestCase):
             RetimingAdjustment.STATIC_CAMERA_NORMALIZED,
             parsed.timing_adjustments,
         )
+        self.assertNotIn(
+            RetimingAdjustment.CAMERA_PHASE_NORMALIZED,
+            parsed.timing_adjustments,
+        )
         self.assertTrue(any("camera: null" in item for item in warnings))
 
-    def test_supervised_plan_still_rejects_a_real_camera_move_before_final_pose(self):
+    def test_supervised_v1_still_rejects_a_real_camera_move_during_the_action(self):
         plan = valid_supervised_plan()
         plan["camera"]["start_ms"] = 0
-        plan["camera"]["end_ms"] = 6000
+        plan["camera"]["end_ms"] = 10_000
 
         with self.assertRaisesRegex(ValueError, "camera movement must start"):
             retime_ref2v_supervised_action_plan(json.dumps(plan))
+
+    def test_supervised_v2_normalizes_all_four_camera_phases_from_timings(self):
+        cases = (
+            ("primary_action", 0, 3000, 7000, "held_final_pose"),
+            ("transition", 7000, 7500, 7500, "held_final_pose"),
+            ("held_final_pose", 7500, 9500, 7000, "primary_action"),
+            ("continuous_shot", 0, 10_000, 7000, "held_final_pose"),
+        )
+        last_compiled = ""
+        for expected_phase, start_ms, end_ms, final_start_ms, supplied_phase in cases:
+            with self.subTest(expected_phase=expected_phase):
+                plan = valid_supervised_plan()
+                plan["final_pose"]["start_ms"] = final_start_ms
+                plan["camera"]["start_ms"] = start_ms
+                plan["camera"]["end_ms"] = end_ms
+                plan["camera"]["during"] = supplied_phase
+
+                last_compiled = retime_ref2v_supervised_action_plan_v2(
+                    json.dumps(plan)
+                )
+                parsed = parse_ref2v_supervised_compiled_plan_v2(last_compiled)
+
+                self.assertEqual(parsed.camera.during, expected_phase)
+                self.assertIn(
+                    RetimingAdjustment.CAMERA_PHASE_NORMALIZED,
+                    parsed.timing_adjustments,
+                )
+
+        warnings = ref2v_supervised_action_plan_warnings_v2(last_compiled)
+        self.assertTrue(any("accompagne la chorégraphie" in item for item in warnings))
+
+    def test_supervised_camera_phase_schemas_are_versioned(self):
+        v1_schema = ref2v_supervised_action_plan_schema()
+        v2_schema = ref2v_supervised_action_plan_schema_v2()
+
+        self.assertIn('"const": "held_final_pose"', v1_schema)
+        self.assertNotIn('"primary_action"', v1_schema)
+        for phase in (
+            "primary_action",
+            "transition",
+            "held_final_pose",
+            "continuous_shot",
+        ):
+            self.assertIn(f'"{phase}"', v2_schema)
+
+    def test_canonical_plan_accepts_only_the_official_camera_enum(self):
+        plan = valid_canonical_supervised_plan()
+
+        compiled = retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
+        parsed = parse_ref2v_supervised_canonical_compiled_plan(compiled)
+
+        self.assertEqual(parsed.camera.motion, "pedestal.down")
+        self.assertEqual(parsed.camera.directive_id, "camera_1")
+        schema = ref2v_supervised_canonical_action_plan_schema()
+        self.assertIn('"pedestal.down"', schema)
+        self.assertNotIn('"directive_id"', schema)
+        self.assertNotIn('"path_type"', schema)
+
+    def test_canonical_plan_rejects_legacy_dolly_and_orbit_terms(self):
+        for legacy_motion in ("dolly", "orbit"):
+            with self.subTest(legacy_motion=legacy_motion):
+                plan = valid_canonical_supervised_plan()
+                plan["camera"]["motion"] = legacy_motion
+
+                with self.assertRaisesRegex(ValueError, "motion"):
+                    retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
+
+    def test_canonical_plan_rejects_modifiers_for_an_incompatible_motion(self):
+        plan = valid_canonical_supervised_plan()
+        plan["camera"]["motion"] = "shake.slightly"
+
+        with self.assertRaisesRegex(ValueError, "does not accept"):
+            retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
+
+    def test_canonical_plan_normalizes_camera_phase_from_timestamps(self):
+        plan = valid_canonical_supervised_plan()
+        plan["camera"]["start_ms"] = 0
+        plan["camera"]["end_ms"] = 3000
+        plan["camera"]["during"] = "held_final_pose"
+
+        compiled = retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
+        parsed = parse_ref2v_supervised_canonical_compiled_plan(compiled)
+
+        self.assertEqual(parsed.camera.during, "primary_action")
+        self.assertIn(
+            RetimingAdjustment.CAMERA_PHASE_NORMALIZED,
+            parsed.timing_adjustments,
+        )
+
+    def test_canonical_plan_drops_only_an_invalid_optional_camera_target(self):
+        plan = valid_canonical_supervised_plan()
+        plan["camera"]["motion"] = "tracking_shot"
+        plan["camera"]["target_clause"] = (
+            "moving backward and tilting down to follow the subject"
+        )
+
+        compiled = retime_ref2v_supervised_canonical_action_plan(
+            json.dumps(plan),
+            recover_invalid_target=True,
+        )
+        parsed = parse_ref2v_supervised_canonical_compiled_plan(compiled)
+        warnings = ref2v_supervised_canonical_action_plan_warnings(compiled)
+
+        self.assertIsNotNone(parsed.camera)
+        self.assertEqual(parsed.camera.motion, "tracking_shot")
+        self.assertIsNone(parsed.camera.target_clause)
+        self.assertIn(
+            RetimingAdjustment.CAMERA_TARGET_DROPPED,
+            parsed.timing_adjustments,
+        )
+        self.assertTrue(any("retir" in warning for warning in warnings))
+
+    def test_canonical_v1_keeps_invalid_camera_targets_strict(self):
+        plan = valid_canonical_supervised_plan()
+        plan["camera"]["motion"] = "tracking_shot"
+        plan["camera"]["target_clause"] = (
+            "moving backward and tilting down to follow the subject"
+        )
+
+        with self.assertRaisesRegex(ValueError, "target_clause"):
+            retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
+
+    def test_canonical_plan_still_rejects_an_invalid_typed_camera(self):
+        plan = valid_canonical_supervised_plan()
+        plan["camera"]["motion"] = "tracking_shot"
+        plan["camera"]["amplitude"] = "enormous"
+        plan["camera"]["target_clause"] = "moving backward"
+
+        with self.assertRaisesRegex(ValueError, "amplitude"):
+            retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
+
+    def test_canonical_plan_extends_duration_and_warns_above_fifteen_seconds(self):
+        plan = valid_canonical_supervised_plan()
+        plan["duration_seconds"] = 15
+        plan["beats"][1]["end_ms"] = 15_000
+        plan["beats"][1]["substeps"][0]["end_ms"] = 15_000
+        plan["final_pose"]["start_ms"] = 15_000
+        plan["camera"] = None
+
+        compiled = retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
+        parsed = parse_ref2v_supervised_canonical_compiled_plan(compiled)
+        warnings = ref2v_supervised_canonical_action_plan_warnings(compiled)
+
+        self.assertEqual(parsed.duration_seconds, 17)
+        self.assertIn(RetimingAdjustment.FINAL_HOLD_REPAIRED, parsed.timing_adjustments)
+        self.assertIn(RetimingAdjustment.DURATION_OVER_15, parsed.timing_adjustments)
+        self.assertTrue(any("dépasse 15 s" in item for item in warnings))
+
+    def test_canonical_writer_hides_metadata_and_keeps_camera_identity(self):
+        compiled = retime_ref2v_supervised_canonical_action_plan(
+            json.dumps(valid_canonical_supervised_plan())
+        )
+
+        writer_data = json.loads(ref2v_supervised_canonical_writer_plan(compiled))
+
+        self.assertNotIn("requested_duration_seconds", writer_data)
+        self.assertNotIn("timing_adjustments", writer_data)
+        self.assertEqual(writer_data["camera"]["directive_id"], "camera_1")
+
+    def test_canonical_camera_directive_is_derived_from_compiled_plan(self):
+        compiled = retime_ref2v_supervised_canonical_action_plan(
+            json.dumps(valid_canonical_supervised_plan())
+        )
+
+        directives = ref2v_supervised_canonical_camera_directives(compiled)
+
+        self.assertEqual(len(directives), 1)
+        self.assertEqual(directives[0].directive_id, "camera_1")
+        self.assertEqual(directives[0].motion, "pedestal.down")
+        self.assertEqual(directives[0].amplitude, "small")
+        self.assertEqual(directives[0].speed, "slow")
+
+    def test_canonical_static_shot_is_normalized_to_null_but_still_compiles(self):
+        plan = valid_canonical_supervised_plan()
+        plan["camera"] = {
+            "start_ms": 0,
+            "end_ms": 10_000,
+            "motion": "static_shot",
+            "visible_perspective_change": "None",
+            "during": "continuous_shot",
+        }
+
+        compiled = retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
+        parsed = parse_ref2v_supervised_canonical_compiled_plan(compiled)
+        directives = ref2v_supervised_canonical_camera_directives(compiled)
+
+        self.assertIsNone(parsed.camera)
+        self.assertIn(
+            RetimingAdjustment.STATIC_CAMERA_NORMALIZED,
+            parsed.timing_adjustments,
+        )
+        self.assertEqual(directives[0].motion, "static_shot")
+
+    def test_canonical_static_shot_is_validated_before_normalization(self):
+        plan = valid_canonical_supervised_plan()
+        plan["camera"] = {
+            "start_ms": 0,
+            "end_ms": 10_000,
+            "motion": "static_shot",
+            "speed": "fast",
+            "visible_perspective_change": "None",
+            "during": "continuous_shot",
+        }
+
+        with self.assertRaisesRegex(ValueError, "does not accept"):
+            retime_ref2v_supervised_canonical_action_plan(json.dumps(plan))
 
 
 if __name__ == "__main__":

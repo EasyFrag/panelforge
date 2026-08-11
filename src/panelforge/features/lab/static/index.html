@@ -8,8 +8,8 @@
   <script src="/static/lab.js?v=20260810.1" defer></script>
   <script src="/static/prompt-lab.js?v=20260810.2" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
-  <script src="/static/i2v-prompt.js?v=20260810.2" defer></script>
-  <script src="/static/ref2v-prompt.js?v=20260810.8" defer></script>
+  <script src="/static/i2v-prompt.js?v=20260811.1" defer></script>
+  <script src="/static/ref2v-prompt.js?v=20260811.2" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -445,6 +445,10 @@
           <label class="field-label">Modèle servi par llama.swap
             <select id="i2v-model" required><option value="">Chargement…</option></select>
           </label>
+          <label class="field-label" for="i2v-cookbook">Version de la recette MiniMax
+            <select id="i2v-cookbook" required><option value="">Chargement…</option></select>
+            <small id="i2v-cookbook-help">La version choisie sera verrouillée dès la création du prompt.</small>
+          </label>
         </section>
         <section>
           <h2>Image de première frame</h2>
@@ -550,6 +554,10 @@
           <div class="section-title"><h2>Modèle vision et rédaction</h2><button id="ref2v-refresh-models" class="text-button" type="button">Actualiser</button></div>
           <label class="field-label">Modèle servi par llama.swap
             <select id="ref2v-model" required><option value="">Chargement…</option></select>
+          </label>
+          <label class="field-label" for="ref2v-cookbook">Version de la recette MiniMax
+            <select id="ref2v-cookbook" required><option value="">Chargement…</option></select>
+            <small id="ref2v-cookbook-help">La version choisie sera verrouillée dès la création du plan.</small>
           </label>
         </section>
         <section>

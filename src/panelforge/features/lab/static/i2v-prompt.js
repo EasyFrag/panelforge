@@ -4,8 +4,12 @@
   const core = window.PanelForgePromptLab;
   if (!core) return;
   const $ = (selector) => document.querySelector(selector);
+  const cookbookId = "minimax.h3.i2v.simple";
+  const preferredCookbookVersion = "0.3.0";
+  const fallbackCookbookVersion = "0.2.0";
   const state = {
     spec: null,
+    cookbooks: [],
     cookbook: null,
     file: null,
     previewUrl: null,
@@ -16,6 +20,8 @@
   const elements = {
     form: $("#i2v-session-form"),
     activeCookbook: $("#i2v-active-cookbook"),
+    cookbook: $("#i2v-cookbook"),
+    cookbookHelp: $("#i2v-cookbook-help"),
     model: $("#i2v-model"),
     refreshModels: $("#i2v-refresh-models"),
     image: $("#i2v-image"),
@@ -74,10 +80,7 @@
         core.request("/api/prompt-lab/cookbooks"),
       ]);
       state.spec = spec;
-      state.cookbook = (cookbooks.cookbooks || []).find(
-        (item) => item.id === "minimax.h3.i2v.simple"
-          && item.version === "0.2.0",
-      ) || null;
+      populateCookbooks(cookbooks.cookbooks || []);
       if (!state.cookbook) throw new Error("Cookbook MiniMax H3 I2V indisponible.");
       renderCookbookVersion();
       await Promise.all([loadModels(), loadSessions()]);
@@ -85,6 +88,43 @@
     } catch (error) {
       showSetupError(error.message);
     }
+  }
+
+  function cookbookValue(cookbook) {
+    return `${cookbook.id}@${cookbook.version}`;
+  }
+
+  function cookbookRole(version) {
+    if (version === preferredCookbookVersion) return "Canonique expérimental";
+    if (version === fallbackCookbookVersion) return "Témoin de comparaison";
+    return "Historique";
+  }
+
+  function populateCookbooks(cookbooks) {
+    state.cookbooks = cookbooks.filter((item) => item.id === cookbookId);
+    elements.cookbook.replaceChildren();
+    state.cookbooks.forEach((cookbook) => {
+      const option = document.createElement("option");
+      option.value = cookbookValue(cookbook);
+      option.textContent = `${cookbook.version} · ${cookbookRole(cookbook.version)} — ${cookbook.display_name}`;
+      elements.cookbook.append(option);
+    });
+    selectDefaultCookbook();
+  }
+
+  function selectDefaultCookbook() {
+    state.cookbook = state.cookbooks.find(
+      (item) => item.version === preferredCookbookVersion,
+    ) || state.cookbooks.find(
+      (item) => item.version === fallbackCookbookVersion,
+    ) || state.cookbooks[state.cookbooks.length - 1] || null;
+    elements.cookbook.value = state.cookbook ? cookbookValue(state.cookbook) : "";
+  }
+
+  function cookbookFromSelection() {
+    return state.cookbooks.find(
+      (cookbook) => cookbookValue(cookbook) === elements.cookbook.value,
+    ) || null;
   }
 
   function selectedProfile() {
@@ -247,6 +287,13 @@
       ? state.composition.cookbook : state.cookbook;
     elements.activeCookbook.textContent = reference
       ? `${reference.id}@${reference.version}` : "indisponible";
+    if (reference) elements.cookbook.value = cookbookValue(reference);
+    elements.cookbook.disabled = state.busy || Boolean(state.composition);
+    elements.cookbookHelp.textContent = state.composition && reference
+      ? `${cookbookRole(reference.version)} · version verrouillée pour cette session.`
+      : reference
+        ? `${cookbookRole(reference.version)} · ${reference.description || "recette disponible"}`
+        : "Aucune recette I2V disponible.";
   }
 
   function setChip(chip, complete, active) {
@@ -485,6 +532,10 @@
   elements.refreshModels.addEventListener("click", () => loadModels().catch((error) => showSetupError(error.message)));
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupError(error.message)));
   elements.model.addEventListener("change", updateStartButton);
+  elements.cookbook.addEventListener("change", () => {
+    state.cookbook = cookbookFromSelection();
+    render();
+  });
   elements.intention.addEventListener("input", () => { updateStartButton(); render(); });
   elements.freedom.addEventListener("input", () => {
     updateFreedom();
@@ -493,6 +544,7 @@
   elements.newSession.addEventListener("click", () => {
     state.session = null;
     state.composition = null;
+    selectDefaultCookbook();
     render();
   });
 

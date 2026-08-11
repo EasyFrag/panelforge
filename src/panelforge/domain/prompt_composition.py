@@ -54,6 +54,7 @@ class CompositionRevision:
     source_ids: tuple[str, ...]
     parent_revision_id: str | None = None
     instruction: str | None = None
+    compiler_context: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.revision_id, "revision_id")
@@ -72,6 +73,8 @@ class CompositionRevision:
                 raise ValueError("a revision cannot be its own parent")
         if self.instruction is not None:
             _require_text(self.instruction, "instruction")
+        if self.compiler_context is not None:
+            _require_text(self.compiler_context, "compiler_context")
 
 
 @dataclass(frozen=True, slots=True)

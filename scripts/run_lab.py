@@ -125,6 +125,7 @@ def build_app(args: argparse.Namespace):
         cookbooks=LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks"),
         sessions=prompt_sessions,
         compositions=prompt_compositions,
+        application_outcomes=gateway,
     )
     return create_app(
         runner,

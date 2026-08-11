@@ -11,6 +11,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from panelforge.domain.minimax_h3 import (
+    H3CameraAmplitude,
+    H3CameraDirective,
+    H3CameraMotion,
+    H3CameraSpeed,
+)
+
 
 class MotionType(StrEnum):
     OVER_HEAD_REMOVAL = "over_head_removal"
@@ -51,6 +58,8 @@ class RetimingAdjustment(StrEnum):
     MARGINS_CAPPED = "margins_capped"
     DURATION_OVER_15 = "duration_over_15"
     STATIC_CAMERA_NORMALIZED = "static_camera_normalized"
+    CAMERA_PHASE_NORMALIZED = "camera_phase_normalized"
+    CAMERA_TARGET_DROPPED = "camera_target_dropped"
 
 
 class _StrictModel(BaseModel):
@@ -176,6 +185,71 @@ class CameraPlanV2(_StrictModel):
         return self
 
 
+class CameraPlanV3(_StrictModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+    path_type: CameraPath
+    movement: str = Field(min_length=1)
+    visible_perspective_change: str = Field(min_length=1)
+    during: Literal[
+        "primary_action",
+        "transition",
+        "held_final_pose",
+        "continuous_shot",
+    ]
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> CameraPlanV3:
+        if self.end_ms <= self.start_ms:
+            raise ValueError("camera end_ms must be greater than start_ms")
+        return self
+
+
+class CanonicalCameraPlan(_StrictModel):
+    """Strict H3 camera input; ``during`` is normalized from its interval."""
+
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+    motion: H3CameraMotion
+    amplitude: H3CameraAmplitude | None = None
+    speed: H3CameraSpeed | None = None
+    target_clause: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional spatial or visual continuation of the one typed motion. "
+            "It must use an allowed continuation prefix and contain no second "
+            "camera movement; use null when unnecessary."
+        ),
+    )
+    visible_perspective_change: str = Field(min_length=1)
+    during: Literal[
+        "primary_action",
+        "transition",
+        "held_final_pose",
+        "continuous_shot",
+    ]
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> CanonicalCameraPlan:
+        if self.end_ms <= self.start_ms:
+            raise ValueError("camera end_ms must be greater than start_ms")
+        H3CameraDirective(
+            directive_id="camera_1",
+            motion=self.motion,
+            amplitude=self.amplitude,
+            speed=self.speed,
+            target_clause=self.target_clause or "",
+        )
+        return self
+
+
+class CompiledCanonicalCameraPlan(CanonicalCameraPlan):
+    """Canonical camera with the compiler-owned placeholder identity."""
+
+    directive_id: Literal["camera_1"] = "camera_1"
+
+
 class Ref2VActionPlan(_StrictModel):
     duration_seconds: int = Field(ge=4, le=15)
     reference_policy: ReferencePolicy
@@ -282,6 +356,60 @@ class Ref2VSupervisedActionPlan(_StrictModel):
         return self
 
 
+class Ref2VSupervisedActionPlanV2(_StrictModel):
+    """V0.9 planner output with camera phases derived from its interval."""
+
+    duration_seconds: int = Field(ge=4)
+    reference_policy: ReferencePolicy
+    scene_setup: str = Field(min_length=1)
+    beats: tuple[ActionBeatV3, ...] = Field(min_length=1, max_length=6)
+    final_pose: FinalPose
+    camera: CameraPlanV3 | None
+    continuity_concerns: tuple[ContinuityConcern, ...] = Field(max_length=12)
+    overall_soundscape: str = Field(min_length=1)
+    non_diegetic_music: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_structure(self) -> Ref2VSupervisedActionPlanV2:
+        _validate_repairable_structure(
+            self.beats,
+            self.final_pose,
+            self.camera,
+            allow_camera_before_final_pose=True,
+        )
+        concern_ids = [concern.concern_id for concern in self.continuity_concerns]
+        if len(concern_ids) != len(set(concern_ids)):
+            raise ValueError("continuity concerns must have unique IDs")
+        return self
+
+
+class Ref2VSupervisedCanonicalActionPlan(_StrictModel):
+    """Canonical H3 planner input with a closed camera vocabulary."""
+
+    duration_seconds: int = Field(ge=4)
+    reference_policy: ReferencePolicy
+    scene_setup: str = Field(min_length=1)
+    beats: tuple[ActionBeatV3, ...] = Field(min_length=1, max_length=6)
+    final_pose: FinalPose
+    camera: CanonicalCameraPlan | None
+    continuity_concerns: tuple[ContinuityConcern, ...] = Field(max_length=12)
+    overall_soundscape: str = Field(min_length=1)
+    non_diegetic_music: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_structure(self) -> Ref2VSupervisedCanonicalActionPlan:
+        _validate_repairable_structure(
+            self.beats,
+            self.final_pose,
+            self.camera,
+            allow_camera_before_final_pose=True,
+        )
+        concern_ids = [concern.concern_id for concern in self.continuity_concerns]
+        if len(concern_ids) != len(set(concern_ids)):
+            raise ValueError("continuity concerns must have unique IDs")
+        return self
+
+
 class Ref2VAdvisoryActionPlan(Ref2VActionPlanV3):
     requested_duration_seconds: int = Field(ge=4)
     timing_adjustments: tuple[RetimingAdjustment, ...] = ()
@@ -311,6 +439,40 @@ class Ref2VSupervisedCompiledPlan(Ref2VSupervisedActionPlan):
         return self
 
 
+class Ref2VSupervisedCompiledPlanV2(Ref2VSupervisedActionPlanV2):
+    requested_duration_seconds: int = Field(ge=4)
+    timing_adjustments: tuple[RetimingAdjustment, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_compiled_timeline(self) -> Ref2VSupervisedCompiledPlanV2:
+        _validate_supervised_compiled_timeline(self)
+        return self
+
+
+class Ref2VSupervisedCanonicalCompiledPlan(_StrictModel):
+    """Application-compiled canonical plan consumed by the prose writer."""
+
+    duration_seconds: int = Field(ge=4)
+    reference_policy: ReferencePolicy
+    scene_setup: str = Field(min_length=1)
+    beats: tuple[ActionBeatV3, ...] = Field(min_length=1, max_length=6)
+    final_pose: FinalPose
+    camera: CompiledCanonicalCameraPlan | None
+    continuity_concerns: tuple[ContinuityConcern, ...] = Field(max_length=12)
+    overall_soundscape: str = Field(min_length=1)
+    non_diegetic_music: str = Field(min_length=1)
+    requested_duration_seconds: int = Field(ge=4)
+    timing_adjustments: tuple[RetimingAdjustment, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_compiled_timeline(self) -> Ref2VSupervisedCanonicalCompiledPlan:
+        _validate_supervised_compiled_timeline(self)
+        concern_ids = [concern.concern_id for concern in self.continuity_concerns]
+        if len(concern_ids) != len(set(concern_ids)):
+            raise ValueError("continuity concerns must have unique IDs")
+        return self
+
+
 _BASE_MINIMUM_DURATIONS = {
     MotionType.OVER_HEAD_REMOVAL: 3000,
     MotionType.STEP_OUT_REMOVAL: 3000,
@@ -322,7 +484,9 @@ _BASE_MINIMUM_DURATIONS = {
 def _validate_repairable_structure(
     beats: tuple[ActionBeatV2, ...] | tuple[ActionBeatV3, ...],
     final_pose: FinalPose,
-    camera: CameraPlanV2 | None,
+    camera: CameraPlanV2 | CameraPlanV3 | CanonicalCameraPlan | None,
+    *,
+    allow_camera_before_final_pose: bool = False,
 ) -> None:
     beat_ids = [beat.beat_id for beat in beats]
     if len(beat_ids) != len(set(beat_ids)):
@@ -334,8 +498,30 @@ def _validate_repairable_structure(
         previous_end = beat.end_ms
     if final_pose.start_ms < previous_end:
         raise ValueError("final pose must start after the last primary action")
-    if camera is not None and camera.start_ms < final_pose.start_ms:
+    if (
+        not allow_camera_before_final_pose
+        and camera is not None
+        and camera.start_ms < final_pose.start_ms
+    ):
         raise ValueError("camera movement must start during the held final pose")
+
+
+def _validate_supervised_compiled_timeline(
+    plan: (
+        Ref2VSupervisedCompiledPlan
+        | Ref2VSupervisedCompiledPlanV2
+        | Ref2VSupervisedCanonicalCompiledPlan
+    ),
+) -> None:
+    if plan.requested_duration_seconds > plan.duration_seconds:
+        raise ValueError("requested duration must not exceed planned duration")
+    duration_ms = plan.duration_seconds * 1000
+    if plan.final_pose.start_ms >= duration_ms:
+        raise ValueError("final pose must start before the video ends")
+    if duration_ms - plan.final_pose.start_ms < 2000:
+        raise ValueError("final pose must remain visible for at least 2000 ms")
+    if plan.camera is not None and plan.camera.end_ms > duration_ms:
+        raise ValueError("camera movement exceeds the video duration")
 
 
 def _validate_timeline(
@@ -465,6 +651,51 @@ def ref2v_supervised_action_plan_schema() -> str:
         ensure_ascii=False,
         indent=2,
     )
+
+
+def parse_ref2v_supervised_action_plan_v2(
+    content: str,
+) -> Ref2VSupervisedActionPlanV2:
+    return _parse_supervised_plan(
+        content,
+        Ref2VSupervisedActionPlanV2,
+        normalize_camera_phase=True,
+    )
+
+
+def ref2v_supervised_action_plan_schema_v2() -> str:
+    return json.dumps(
+        Ref2VSupervisedActionPlanV2.model_json_schema(),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def parse_ref2v_supervised_canonical_action_plan(
+    content: str,
+) -> Ref2VSupervisedCanonicalActionPlan:
+    """Parse planner/reconciliation JSON under the canonical H3 camera contract."""
+    return _parse_canonical_supervised_plan(
+        content,
+        Ref2VSupervisedCanonicalActionPlan,
+    )
+
+
+def ref2v_supervised_canonical_action_plan_schema() -> str:
+    """Return the planner schema; compiler-owned ``directive_id`` is intentionally absent."""
+    return json.dumps(
+        Ref2VSupervisedCanonicalActionPlan.model_json_schema(),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def lint_ref2v_supervised_canonical_action_plan(content: str) -> tuple[str, ...]:
+    try:
+        parse_ref2v_supervised_canonical_action_plan(content)
+    except (TypeError, ValueError) as error:
+        return (str(error),)
+    return ()
 
 
 def lint_ref2v_action_plan_v2(content: str) -> tuple[str, ...]:
@@ -747,9 +978,78 @@ def retime_ref2v_repairable_action_plan(content: str) -> str:
 
 
 def retime_ref2v_supervised_action_plan(content: str) -> str:
-    """Compile user-editable timings without guessing how long an action should take."""
+    """Compile the V0.8 plan while preserving its held-pose camera contract."""
+    return _retime_ref2v_supervised_action_plan(content, protocol_v2=False)
+
+
+def retime_ref2v_supervised_action_plan_v2(content: str) -> str:
+    """Compile the V0.9 plan and normalize its camera phase from its interval."""
+    return _retime_ref2v_supervised_action_plan(content, protocol_v2=True)
+
+
+def retime_ref2v_supervised_canonical_action_plan(
+    content: str,
+    *,
+    recover_invalid_target: bool = False,
+) -> str:
+    """Compile canonical H3 camera data without guessing semantic action duration."""
+    static_camera_normalized = _has_canonical_static_camera(content)
+    camera_phase_normalized = _has_mislabeled_supervised_camera_phase(content)
+    camera_target_dropped = (
+        _has_invalid_canonical_target_clause(content)
+        if recover_invalid_target
+        else False
+    )
+    plan = _parse_canonical_supervised_plan(
+        content,
+        Ref2VSupervisedCanonicalActionPlan,
+        recover_invalid_target=recover_invalid_target,
+    )
+    data = plan.model_dump(mode="json")
+    requested_duration_ms = plan.duration_seconds * 1000
+    original_hold_ms = max(0, requested_duration_ms - plan.final_pose.start_ms)
+    planned_duration_ms = plan.final_pose.start_ms + max(2000, original_hold_ms)
+
+    if plan.camera is not None:
+        planned_duration_ms = max(planned_duration_ms, plan.camera.end_ms)
+        data["camera"]["directive_id"] = "camera_1"
+
+    planned_duration_ms = _ceil_to_second(planned_duration_ms)
+    adjustments: list[RetimingAdjustment] = []
+    if original_hold_ms < 2000:
+        adjustments.append(RetimingAdjustment.FINAL_HOLD_REPAIRED)
+    if planned_duration_ms > requested_duration_ms:
+        adjustments.append(RetimingAdjustment.DURATION_EXTENDED)
+    if planned_duration_ms > 15_000:
+        adjustments.append(RetimingAdjustment.DURATION_OVER_15)
+    if static_camera_normalized:
+        adjustments.append(RetimingAdjustment.STATIC_CAMERA_NORMALIZED)
+    if camera_phase_normalized and not static_camera_normalized:
+        adjustments.append(RetimingAdjustment.CAMERA_PHASE_NORMALIZED)
+    if camera_target_dropped and not static_camera_normalized:
+        adjustments.append(RetimingAdjustment.CAMERA_TARGET_DROPPED)
+
+    data["requested_duration_seconds"] = plan.duration_seconds
+    data["duration_seconds"] = planned_duration_ms // 1000
+    data["timing_adjustments"] = [adjustment.value for adjustment in adjustments]
+    compiled = Ref2VSupervisedCanonicalCompiledPlan.model_validate(data)
+    return json.dumps(compiled.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+
+def _retime_ref2v_supervised_action_plan(
+    content: str,
+    *,
+    protocol_v2: bool,
+) -> str:
     static_camera_normalized = _has_explicitly_static_camera(content)
-    plan = parse_ref2v_supervised_action_plan(content)
+    camera_phase_normalized = (
+        _has_mislabeled_supervised_camera_phase(content) if protocol_v2 else False
+    )
+    plan = (
+        parse_ref2v_supervised_action_plan_v2(content)
+        if protocol_v2
+        else parse_ref2v_supervised_action_plan(content)
+    )
     data = plan.model_dump(mode="json")
     requested_duration_ms = plan.duration_seconds * 1000
     original_hold_ms = max(0, requested_duration_ms - plan.final_pose.start_ms)
@@ -768,11 +1068,18 @@ def retime_ref2v_supervised_action_plan(content: str) -> str:
         adjustments.append(RetimingAdjustment.DURATION_OVER_15)
     if static_camera_normalized:
         adjustments.append(RetimingAdjustment.STATIC_CAMERA_NORMALIZED)
+    if camera_phase_normalized:
+        adjustments.append(RetimingAdjustment.CAMERA_PHASE_NORMALIZED)
 
     data["requested_duration_seconds"] = plan.duration_seconds
     data["duration_seconds"] = planned_duration_ms // 1000
     data["timing_adjustments"] = [adjustment.value for adjustment in adjustments]
-    compiled = Ref2VSupervisedCompiledPlan.model_validate(data)
+    compiled_model = (
+        Ref2VSupervisedCompiledPlanV2
+        if protocol_v2
+        else Ref2VSupervisedCompiledPlan
+    )
+    compiled = compiled_model.model_validate(data)
     return json.dumps(compiled.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
@@ -790,6 +1097,25 @@ def parse_ref2v_advisory_action_plan(content: str) -> Ref2VAdvisoryActionPlan:
 
 def parse_ref2v_supervised_compiled_plan(content: str) -> Ref2VSupervisedCompiledPlan:
     return _parse_supervised_plan(content, Ref2VSupervisedCompiledPlan)
+
+
+def parse_ref2v_supervised_compiled_plan_v2(
+    content: str,
+) -> Ref2VSupervisedCompiledPlanV2:
+    return _parse_supervised_plan(
+        content,
+        Ref2VSupervisedCompiledPlanV2,
+        normalize_camera_phase=True,
+    )
+
+
+def parse_ref2v_supervised_canonical_compiled_plan(
+    content: str,
+) -> Ref2VSupervisedCanonicalCompiledPlan:
+    return _parse_canonical_supervised_plan(
+        content,
+        Ref2VSupervisedCanonicalCompiledPlan,
+    )
 
 
 def lint_ref2v_elastic_action_plan(content: str) -> tuple[str, ...]:
@@ -819,6 +1145,24 @@ def lint_ref2v_advisory_action_plan(content: str) -> tuple[str, ...]:
 def lint_ref2v_supervised_compiled_plan(content: str) -> tuple[str, ...]:
     try:
         parse_ref2v_supervised_compiled_plan(content)
+    except (TypeError, ValueError) as error:
+        return (str(error),)
+    return ()
+
+
+def lint_ref2v_supervised_compiled_plan_v2(content: str) -> tuple[str, ...]:
+    try:
+        parse_ref2v_supervised_compiled_plan_v2(content)
+    except (TypeError, ValueError) as error:
+        return (str(error),)
+    return ()
+
+
+def lint_ref2v_supervised_canonical_compiled_plan(
+    content: str,
+) -> tuple[str, ...]:
+    try:
+        parse_ref2v_supervised_canonical_compiled_plan(content)
     except (TypeError, ValueError) as error:
         return (str(error),)
     return ()
@@ -911,6 +1255,17 @@ def _advisory_timing_warnings(
             "Le planner avait encodé une caméra explicitement fixe comme un mouvement ; "
             "PanelForge l’a normalisée en camera: null."
         )
+    if RetimingAdjustment.CAMERA_PHASE_NORMALIZED in adjustments:
+        warnings.append(
+            "Le mouvement de caméra commençait pendant l’action tout en étant étiqueté "
+            "held_final_pose ; PanelForge a corrigé automatiquement sa phase."
+        )
+    if RetimingAdjustment.CAMERA_TARGET_DROPPED in adjustments:
+        warnings.append(
+            "Le complément caméra optionnel ne respectait pas le vocabulaire H3 ou "
+            "contenait un second mouvement. PanelForge l’a retiré sans bloquer le plan ; "
+            "le mouvement canonique principal est conservé."
+        )
     return tuple(warnings)
 
 
@@ -919,6 +1274,45 @@ def ref2v_supervised_action_plan_warnings(content: str) -> tuple[str, ...]:
         plan = parse_ref2v_supervised_compiled_plan(content)
     except (TypeError, ValueError):
         return ()
+    return _ref2v_supervised_action_plan_warnings(
+        plan,
+        warn_camera_during_action=False,
+    )
+
+
+def ref2v_supervised_action_plan_warnings_v2(content: str) -> tuple[str, ...]:
+    try:
+        plan = parse_ref2v_supervised_compiled_plan_v2(content)
+    except (TypeError, ValueError):
+        return ()
+    return _ref2v_supervised_action_plan_warnings(
+        plan,
+        warn_camera_during_action=True,
+    )
+
+
+def ref2v_supervised_canonical_action_plan_warnings(
+    content: str,
+) -> tuple[str, ...]:
+    try:
+        plan = parse_ref2v_supervised_canonical_compiled_plan(content)
+    except (TypeError, ValueError):
+        return ()
+    return _ref2v_supervised_action_plan_warnings(
+        plan,
+        warn_camera_during_action=True,
+    )
+
+
+def _ref2v_supervised_action_plan_warnings(
+    plan: (
+        Ref2VSupervisedCompiledPlan
+        | Ref2VSupervisedCompiledPlanV2
+        | Ref2VSupervisedCanonicalCompiledPlan
+    ),
+    *,
+    warn_camera_during_action: bool,
+) -> tuple[str, ...]:
     warnings = list(_advisory_timing_warnings(
         plan.requested_duration_seconds,
         plan.duration_seconds,
@@ -934,6 +1328,16 @@ def ref2v_supervised_action_plan_warnings(content: str) -> tuple[str, ...]:
         warnings.append(
             "Le mouvement de caméra proposé dure moins d’une seconde ; il peut être "
             "peu lisible, mais le plan reste validable."
+        )
+    if (
+        warn_camera_during_action
+        and plan.camera is not None
+        and plan.camera.start_ms < plan.final_pose.start_ms
+    ):
+        warnings.append(
+            "Le mouvement de caméra accompagne la chorégraphie avant la pose finale. "
+            "Le plan reste validable ; vérifiez que le sujet, les mains et l’objet restent "
+            "lisibles pendant ce changement de perspective."
         )
     return tuple(warnings)
 
@@ -975,6 +1379,51 @@ def ref2v_supervised_writer_plan(content: str) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
 
 
+def ref2v_supervised_writer_plan_v2(content: str) -> str:
+    """Hide V0.9 compilation provenance while preserving normalized camera phases."""
+    plan = parse_ref2v_supervised_compiled_plan_v2(content)
+    data = plan.model_dump(
+        mode="json",
+        exclude={"requested_duration_seconds", "timing_adjustments"},
+    )
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def ref2v_supervised_canonical_writer_plan(content: str) -> str:
+    """Hide scheduling metadata while retaining the camera placeholder identity."""
+    plan = parse_ref2v_supervised_canonical_compiled_plan(content)
+    data = plan.model_dump(
+        mode="json",
+        exclude={"requested_duration_seconds", "timing_adjustments"},
+    )
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def ref2v_supervised_canonical_camera_directives(
+    content: str,
+) -> tuple[H3CameraDirective, ...]:
+    """Derive the one compiler-owned directive expected in the final prose."""
+    plan = parse_ref2v_supervised_canonical_compiled_plan(content)
+    camera = plan.camera
+    if camera is None:
+        return (
+            H3CameraDirective(
+                directive_id="camera_1",
+                motion=H3CameraMotion.STATIC_SHOT,
+                target_clause="",
+            ),
+        )
+    return (
+        H3CameraDirective(
+            directive_id=camera.directive_id,
+            motion=camera.motion,
+            amplitude=camera.amplitude,
+            speed=camera.speed,
+            target_clause=camera.target_clause or "",
+        ),
+    )
+
+
 def _recommended_motion_duration_ms(beat: ActionBeatV2) -> int:
     return _BASE_MINIMUM_DURATIONS[beat.motion_type] + (
         1500 if beat.complexity is ActionComplexity.MULTI_STEP else 0
@@ -1013,14 +1462,81 @@ def _parse_plan(content: str, model_type):
         raise ValueError(f"invalid Ref2V action plan: {error}") from error
 
 
-def _parse_supervised_plan(content: str, model_type):
+def _parse_supervised_plan(
+    content: str,
+    model_type,
+    *,
+    normalize_camera_phase: bool = False,
+):
     raw = _parse_plan_data(content)
     if _is_explicitly_static_camera(raw.get("camera")):
         raw["camera"] = None
+    elif normalize_camera_phase:
+        _normalize_supervised_camera_phase(raw)
     try:
         return model_type.model_validate(raw)
     except ValidationError as error:
         raise ValueError(f"invalid Ref2V action plan: {error}") from error
+
+
+def _parse_canonical_supervised_plan(
+    content: str,
+    model_type,
+    *,
+    recover_invalid_target: bool = False,
+):
+    raw = _parse_plan_data(content)
+    if recover_invalid_target:
+        _drop_invalid_canonical_target_clause(raw)
+    if _is_canonical_static_camera(raw.get("camera")):
+        try:
+            CanonicalCameraPlan.model_validate(raw["camera"])
+        except ValidationError as error:
+            raise ValueError(f"invalid Ref2V action plan: {error}") from error
+        raw["camera"] = None
+    else:
+        _normalize_supervised_camera_phase(raw)
+    try:
+        return model_type.model_validate(raw)
+    except ValidationError as error:
+        raise ValueError(f"invalid Ref2V action plan: {error}") from error
+
+
+def _has_invalid_canonical_target_clause(content: str) -> bool:
+    try:
+        raw = _parse_plan_data(content)
+    except (TypeError, ValueError):
+        return False
+    return _drop_invalid_canonical_target_clause(raw)
+
+
+def _drop_invalid_canonical_target_clause(raw: dict[str, object]) -> bool:
+    """Drop only an invalid optional target after validating the typed camera itself."""
+    camera = raw.get("camera")
+    if not isinstance(camera, dict):
+        return False
+    target = camera.get("target_clause")
+    if target is None or target == "":
+        return False
+
+    without_target = dict(camera)
+    without_target["target_clause"] = None
+    try:
+        validated = CanonicalCameraPlan.model_validate(without_target)
+    except ValidationError:
+        return False
+    try:
+        H3CameraDirective(
+            directive_id="camera_1",
+            motion=validated.motion,
+            amplitude=validated.amplitude,
+            speed=validated.speed,
+            target_clause=target,
+        )
+    except (TypeError, ValueError):
+        camera["target_clause"] = None
+        return True
+    return False
 
 
 def _has_explicitly_static_camera(content: str) -> bool:
@@ -1029,6 +1545,85 @@ def _has_explicitly_static_camera(content: str) -> bool:
     except (TypeError, ValueError):
         return False
     return _is_explicitly_static_camera(raw.get("camera"))
+
+
+def _has_canonical_static_camera(content: str) -> bool:
+    try:
+        raw = _parse_plan_data(content)
+    except (TypeError, ValueError):
+        return False
+    return _is_canonical_static_camera(raw.get("camera"))
+
+
+def _has_mislabeled_supervised_camera_phase(content: str) -> bool:
+    try:
+        raw = _parse_plan_data(content)
+    except (TypeError, ValueError):
+        return False
+    if _is_explicitly_static_camera(raw.get("camera")):
+        return False
+    camera = raw.get("camera")
+    expected = _supervised_camera_phase(raw)
+    return (
+        expected is not None
+        and isinstance(camera, dict)
+        and camera.get("during") != expected
+    )
+
+
+def _normalize_supervised_camera_phase(raw: dict[str, object]) -> None:
+    phase = _supervised_camera_phase(raw)
+    camera = raw.get("camera")
+    if phase is not None and isinstance(camera, dict):
+        camera["during"] = phase
+
+
+def _supervised_camera_phase(raw: dict[str, object]) -> str | None:
+    camera = raw.get("camera")
+    final_pose = raw.get("final_pose")
+    beats = raw.get("beats")
+    if (
+        not isinstance(camera, dict)
+        or not isinstance(final_pose, dict)
+        or not isinstance(beats, list)
+    ):
+        return None
+    start_ms = camera.get("start_ms")
+    end_ms = camera.get("end_ms")
+    final_start_ms = final_pose.get("start_ms")
+    beat_intervals = [
+        (beat.get("start_ms"), beat.get("end_ms"))
+        for beat in beats
+        if (
+            isinstance(beat, dict)
+            and isinstance(beat.get("start_ms"), int)
+            and isinstance(beat.get("end_ms"), int)
+        )
+    ]
+    if (
+        not isinstance(start_ms, int)
+        or not isinstance(end_ms, int)
+        or not isinstance(final_start_ms, int)
+    ):
+        return None
+    if start_ms >= final_start_ms:
+        return "held_final_pose"
+    if end_ms > final_start_ms:
+        return "continuous_shot"
+    overlapping_beats = [
+        (beat_start_ms, beat_end_ms)
+        for beat_start_ms, beat_end_ms in beat_intervals
+        if start_ms < beat_end_ms and end_ms > beat_start_ms
+    ]
+    if not overlapping_beats:
+        return "transition"
+    if (
+        len(overlapping_beats) == 1
+        and start_ms >= overlapping_beats[0][0]
+        and end_ms <= overlapping_beats[0][1]
+    ):
+        return "primary_action"
+    return "continuous_shot"
 
 
 def _is_explicitly_static_camera(value: object) -> bool:
@@ -1054,6 +1649,13 @@ def _is_explicitly_static_camera(value: object) -> bool:
         "unchanged",
     }
     return explicitly_fixed is not None and no_perspective_change
+
+
+def _is_canonical_static_camera(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("motion") == H3CameraMotion.STATIC_SHOT.value
+    )
 
 
 def _parse_plan_data(content: str) -> dict[str, object]:

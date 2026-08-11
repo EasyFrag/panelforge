@@ -26,6 +26,7 @@ from panelforge.domain import (
     CookbookBinding,
     PromptLabSession,
     PromptReference,
+    ReferenceEvidencePolicy,
     ReferenceUse,
     RevisionOrigin,
 )
@@ -170,6 +171,35 @@ SUPERVISED_ACTION_PLAN = json.dumps(
     _SUPERVISED_ACTION_PLAN_DATA,
     ensure_ascii=False,
 )
+_CANONICAL_ACTION_PLAN_DATA = json.loads(SUPERVISED_ACTION_PLAN)
+_CANONICAL_ACTION_PLAN_DATA["camera"] = {
+    "start_ms": 7500,
+    "end_ms": 9500,
+    "motion": "pedestal.down",
+    "amplitude": "small",
+    "speed": "slow",
+    "target_clause": "toward waist height",
+    "visible_perspective_change": (
+        "The lower body becomes more prominent against the rising background."
+    ),
+    "during": "held_final_pose",
+}
+_CANONICAL_ACTION_PLAN_DATA["continuity_concerns"] = []
+CANONICAL_ACTION_PLAN = json.dumps(
+    _CANONICAL_ACTION_PLAN_DATA,
+    ensure_ascii=False,
+)
+
+CANONICAL_EDITABLE = """camera_directives:
+[{"id":"camera_1","motion":"zoom.in"}]
+scene_setup:
+The setting is a quiet white-walled room with diffuse light. The target video is one continuous shot.
+shot_1:
+The scene begins from the exact dressed state in the starting frame. Both hands raise the garment in one continuous motion. At 00:07.500, [[camera:camera_1]] The subject says <d>[fr] C'est fini.</d> and holds the final pose.
+overall_soundscape:
+Quiet indoor room tone, cloth movement, and natural breathing.
+non_diegetic_music:
+N/A"""
 _ARBITRATION_DECISION = (
     "Retain the garment and remove the incompatible visibility request."
 )
@@ -262,7 +292,26 @@ class SupervisedGateway(PlannedGateway):
         return V2_INLINE_EDITABLE
 
 
-def approved_session() -> PromptLabSession:
+class CanonicalGateway(PlannedGateway):
+    def __init__(self, editable=CANONICAL_EDITABLE, plan=CANONICAL_ACTION_PLAN):
+        super().__init__()
+        self.editable = editable
+        self.plan = plan
+
+    def _content_for(self, request):
+        if request.operation_id in {
+            "action_plan.generate",
+            "action_plan.reconcile",
+        }:
+            return self.plan
+        return self.editable
+
+
+def approved_session(
+    *,
+    session_id: str = "session-ref2v-1",
+    body_evidence_policy: ReferenceEvidencePolicy = ReferenceEvidencePolicy.FULL,
+) -> PromptLabSession:
     references = []
     snapshots = []
     definitions = (
@@ -277,6 +326,7 @@ def approved_session() -> PromptLabSession:
             "body_reference",
             (ReferenceUse.SUBJECT,),
             "- SUJETS VISIBLES\nThe same adult subject.\n"
+            "- ÂGE APPARENT ET INCERTITUDE\nAn adult subject; exact age uncertain.\n"
             "- APPARENCE ET TRAITS DISTINCTIFS\nMatching face, skin, and body proportions.\n"
             "- POSE, EXPRESSION ET DIRECTION DU REGARD\nA kneeling side pose looking away.\n"
             "- COMPOSITION, CADRAGE ET CAMÉRA\nA high-angle close-up.\n"
@@ -294,6 +344,11 @@ def approved_session() -> PromptLabSession:
             asset_id=f"asset-{key}",
             role=role,
             label=f"{key}.png",
+            evidence_policy=(
+                body_evidence_policy
+                if key == "body"
+                else ReferenceEvidencePolicy.FULL
+            ),
             revisions=(revision,),
             active_revision_id=revision.revision_id,
             approved_revision_id=revision.revision_id,
@@ -305,10 +360,11 @@ def approved_session() -> PromptLabSession:
                 reference_id=reference.reference_id,
                 analysis_revision_id=revision.revision_id,
                 uses=uses,
+                evidence_policy=reference.evidence_policy,
             )
         )
     session = PromptLabSession(
-        session_id="session-ref2v-1",
+        session_id=session_id,
         model_id="vision-model",
         profile_id="minimax.h3.reference",
         profile_version="0.3.0",
@@ -469,14 +525,235 @@ class Ref2VPromptTest(unittest.TestCase):
 
         self.assertEqual(
             cookbook.output_contract,
-            "minimax.h3.ref2v.single_shot_supervised_v1",
+            "minimax.h3.ref2v.single_shot_supervised_v2",
         )
         self.assertIn("visible physical construction", cookbook.beat_sheet_system_prompt)
         self.assertIn("sleeveless garment has armholes", cookbook.beat_sheet_system_prompt)
         self.assertIn("set camera to null", cookbook.beat_sheet_system_prompt)
+        self.assertIn("during primary_action", cookbook.beat_sheet_system_prompt)
         self.assertIn("observable actions and visible states", cookbook.beat_sheet_reconcile_system_prompt)
         self.assertIn("Do not timestamp substeps", cookbook.final_prompt_system_prompt)
         self.assertIn("cause, continuous action", cookbook.final_prompt_system_prompt)
+
+    def test_catalog_exposes_v10_with_the_pinned_compact_h3_protocol(self):
+        cookbook = self.service.cookbooks.get("undressing.single_shot", "0.10.0")
+
+        self.assertEqual(
+            cookbook.output_contract,
+            "minimax.h3.ref2v.single_shot_supervised_compact_h3_v1",
+        )
+        self.assertEqual(cookbook.reference.engine_contract_id, "minimax.h3.protocol")
+        self.assertEqual(cookbook.invalid_camera_target_policy, "reject")
+        self.assertEqual(cookbook.reference.engine_contract_version, "0.1.0")
+        official_sources = [
+            source for source in cookbook.sources if "github.com/MiniMax-AI" in source
+        ]
+        self.assertEqual(len(official_sources), 2)
+        self.assertTrue(all("05d91ff89f58" in source for source in official_sources))
+        self.assertEqual(cookbook.schema_version, 2)
+        self.assertTrue(
+            all(
+                slot.evidence_policy is ReferenceEvidencePolicy.FULL
+                for slot in cookbook.slots
+            )
+        )
+
+    def test_catalog_exposes_v11_as_a_generic_physical_continuity_recipe(self):
+        cookbook = self.service.cookbooks.get("undressing.single_shot", "0.11.0")
+
+        self.assertEqual(
+            cookbook.output_contract,
+            "minimax.h3.ref2v.single_shot_supervised_compact_h3_v1",
+        )
+        self.assertEqual(cookbook.reference.engine_contract_id, "minimax.h3.protocol")
+        self.assertEqual(cookbook.invalid_camera_target_policy, "drop_with_warning")
+        slots = {slot.slot_id: slot for slot in cookbook.slots}
+        self.assertEqual(slots["dressed_start"].evidence_policy, "full")
+        self.assertEqual(
+            slots["body_reference"].evidence_policy,
+            "appearance_only_v1",
+        )
+        self.assertIn(
+            "persistent connected object",
+            cookbook.beat_sheet_system_prompt,
+        )
+        self.assertIn(
+            "smallest sufficient sequence",
+            cookbook.beat_sheet_system_prompt,
+        )
+        self.assertIn(
+            "neutral pattern",
+            cookbook.final_prompt_system_prompt,
+        )
+        self.assertNotIn("yellow", cookbook.beat_sheet_system_prompt.lower())
+
+    def test_v11_strictly_projects_body_evidence_in_the_action_plan(self):
+        session_id = "session-ref2v-appearance"
+        self.sessions.create(
+            approved_session(
+                session_id=session_id,
+                body_evidence_policy=(
+                    ReferenceEvidencePolicy.APPEARANCE_ONLY_V1
+                ),
+            )
+        )
+        self.gateway = CanonicalGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            session_id,
+            "undressing.single_shot",
+            "0.11.0",
+            self.bindings(),
+        )
+
+        self.service.generate(session_id, CompositionStage.BEAT_SHEET)
+
+        planner_prompt = self.gateway.requests[-1].user_prompt
+        self.assertIn("An adult subject; exact age uncertain", planner_prompt)
+        self.assertIn("Matching face, skin, and body proportions", planner_prompt)
+        for excluded in (
+            "kneeling side pose",
+            "high-angle close-up",
+            "SUJETS VISIBLES",
+        ):
+            self.assertNotIn(excluded, planner_prompt)
+
+    def test_v11_recovers_an_invalid_optional_camera_target_but_v10_stays_strict(self):
+        plan = json.loads(CANONICAL_ACTION_PLAN)
+        plan["camera"]["motion"] = "tracking_shot"
+        plan["camera"]["target_clause"] = (
+            "moving backward and tilting down to follow the subject"
+        )
+        plan_content = json.dumps(plan, ensure_ascii=False)
+
+        self.gateway = CanonicalGateway(plan=plan_content)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        with self.assertRaisesRegex(ValueError, "target_clause"):
+            self.service.generate(
+                "session-ref2v-1",
+                CompositionStage.BEAT_SHEET,
+            )
+
+        session_id = "session-ref2v-target-recovery"
+        self.sessions.create(
+            approved_session(
+                session_id=session_id,
+                body_evidence_policy=(
+                    ReferenceEvidencePolicy.APPEARANCE_ONLY_V1
+                ),
+            )
+        )
+        self.service.configure(
+            session_id,
+            "undressing.single_shot",
+            "0.11.0",
+            self.bindings(),
+        )
+        composition = self.service.generate(
+            session_id,
+            CompositionStage.BEAT_SHEET,
+        )
+        compiled = json.loads(composition.beat_sheet.active_revision.content)
+
+        self.assertIsNone(compiled["camera"]["target_clause"])
+        self.assertIn("camera_target_dropped", compiled["timing_adjustments"])
+
+    def test_v11_compiles_the_strict_appearance_boundary_into_the_h3_prompt(self):
+        session_id = "session-ref2v-strict-final"
+        self.sessions.create(
+            approved_session(
+                session_id=session_id,
+                body_evidence_policy=(
+                    ReferenceEvidencePolicy.APPEARANCE_ONLY_V1
+                ),
+            )
+        )
+        self.gateway = CanonicalGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            session_id,
+            "undressing.single_shot",
+            "0.11.0",
+            self.bindings(),
+        )
+        self.service.generate(session_id, CompositionStage.BEAT_SHEET)
+        self.service.approve(session_id, CompositionStage.BEAT_SHEET)
+
+        composition = self.service.generate(
+            session_id,
+            CompositionStage.FINAL_PROMPT,
+        )
+        prompt = composition.final_prompt.active_revision.content
+        strict_header = prompt.split("\n\n", 1)[0]
+
+        self.assertIn("identity, face, skin, body proportions", strict_header)
+        for excluded_attribute in (
+            "pose",
+            "hand placement",
+            "expression",
+            "clothing state",
+            "lens",
+            "camera angle",
+            "lighting",
+            "background",
+            "composition",
+            "target staging",
+        ):
+            self.assertIn(excluded_attribute, strict_header)
+
+        legacy_header = V2_COMPILED_PROMPT.split("\n\n", 1)[0]
+        with self.assertRaisesRegex(ValueError, "mapping"):
+            self.service.edit(
+                session_id,
+                CompositionStage.FINAL_PROMPT,
+                prompt.replace(strict_header, legacy_header, 1),
+            )
+
+    def test_v8_keeps_the_held_final_pose_camera_contract(self):
+        plan = json.loads(SUPERVISED_ACTION_PLAN)
+        plan["camera"]["start_ms"] = 0
+        plan["camera"]["end_ms"] = 10_000
+        self.gateway = SupervisedGateway()
+        self.gateway._content_for = lambda request: json.dumps(plan)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.8.0",
+            self.bindings(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "camera movement must start"):
+            self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+    def test_v9_normalizes_a_camera_spanning_action_and_final_pose(self):
+        plan = json.loads(SUPERVISED_ACTION_PLAN)
+        plan["camera"]["start_ms"] = 0
+        plan["camera"]["end_ms"] = 10_000
+        self.gateway = SupervisedGateway()
+        self.gateway._content_for = lambda request: json.dumps(plan)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.9.0",
+            self.bindings(),
+        )
+
+        composition = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.BEAT_SHEET,
+        )
+        compiled = json.loads(composition.beat_sheet.active_revision.content)
+
+        self.assertEqual(compiled["camera"]["during"], "continuous_shot")
+        self.assertIn("camera_phase_normalized", compiled["timing_adjustments"])
 
     def test_v2_revision_is_recompiled_without_exposing_internal_fields(self):
         self.service.configure(
@@ -647,6 +924,12 @@ class Ref2VPromptTest(unittest.TestCase):
         self.assertNotIn("high-angle close-up", planner_prompt)
         self.assertIn("appearance-only projection", planner_prompt)
         self.assertIn('"beat_id"', self.gateway.requests[1].user_prompt)
+        self.assertTrue(
+            all(
+                "evidence=full" not in source_id
+                for source_id in composition.beat_sheet.active_revision.source_ids
+            )
+        )
 
     def test_v3_stream_keeps_the_internal_json_out_of_the_prompt_deltas(self):
         self.gateway = PlannedGateway()
@@ -1084,6 +1367,241 @@ class Ref2VPromptTest(unittest.TestCase):
         )
         self.assertIsNotNone(revised.final_prompt.active_revision)
         self.assertIn("APPROVED SUPERVISED CHOREOGRAPHY", self.gateway.requests[-1].user_prompt)
+
+    def test_v10_compiles_only_the_approved_plan_camera_directive(self):
+        self.gateway = CanonicalGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.approve("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        composition = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+        prompt = composition.final_prompt.active_revision.content
+
+        self.assertTrue(
+            prompt.startswith(V2_COMPILED_PROMPT.split("\n\n", 1)[0])
+        )
+        self.assertNotIn("clothing state", prompt.split("\n\n", 1)[0])
+
+        self.assertIn(
+            "The camera pedestals down with small amplitude at slow speed toward waist height.",
+            prompt,
+        )
+        self.assertNotIn("camera zooms in", prompt.lower())
+        self.assertNotIn("camera_directives:", prompt)
+        self.assertNotIn("[[camera:", prompt)
+        self.assertNotIn("__PANELFORGE", prompt)
+        self.assertIn("<d>[French] C'est fini.</d>", prompt)
+        self.assertIn('"directive_id": "camera_1"', self.gateway.requests[-1].user_prompt)
+        compiler_context = composition.final_prompt.active_revision.compiler_context
+        self.assertIsNotNone(compiler_context)
+        self.assertIn('"motion":"pedestal.down"', compiler_context)
+        self.assertEqual(
+            self.compositions.get("session-ref2v-1")
+            .final_prompt.active_revision.compiler_context,
+            compiler_context,
+        )
+
+        edited = self.service.edit(
+            "session-ref2v-1",
+            CompositionStage.FINAL_PROMPT,
+            prompt.replace("Quiet indoor room tone", "Soft indoor room tone"),
+        )
+        self.assertEqual(
+            edited.final_prompt.active_revision.compiler_context,
+            compiler_context,
+        )
+
+    def test_v10_rejects_a_missing_camera_placeholder(self):
+        editable = CANONICAL_EDITABLE.replace("[[camera:camera_1]]", "")
+        self.gateway = CanonicalGateway(editable=editable)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.approve("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        with self.assertRaisesRegex(ValueError, "must appear exactly once"):
+            self.service.generate(
+                "session-ref2v-1",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+        stored = self.compositions.get("session-ref2v-1")
+        self.assertIsNone(stored.final_prompt.active_revision)
+
+    def test_v10_rejects_a_duplicate_camera_placeholder(self):
+        editable = CANONICAL_EDITABLE.replace(
+            "[[camera:camera_1]]",
+            "[[camera:camera_1]] [[camera:camera_1]]",
+        )
+        self.gateway = CanonicalGateway(editable=editable)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.approve("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        with self.assertRaisesRegex(ValueError, "must appear exactly once"):
+            self.service.generate(
+                "session-ref2v-1",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+    def test_v10_rejects_an_embedded_camera_placeholder(self):
+        editable = CANONICAL_EDITABLE.replace(
+            "At 00:07.500, [[camera:camera_1]] The subject",
+            "The garment settles while [[camera:camera_1]] the subject",
+        )
+        self.gateway = CanonicalGateway(editable=editable)
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.approve("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        with self.assertRaisesRegex(ValueError, "standalone sentence"):
+            self.service.generate(
+                "session-ref2v-1",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+    def test_v10_compiles_a_null_camera_as_the_canonical_static_clause(self):
+        plan = json.loads(CANONICAL_ACTION_PLAN)
+        plan["camera"] = None
+        editable = CANONICAL_EDITABLE.replace(
+            "The target video is one continuous shot.",
+            "The target video is one continuous shot. [[camera:camera_1]]",
+        ).replace(
+            "At 00:07.500, [[camera:camera_1]]",
+            "At 00:07.500,",
+        )
+        self.gateway = CanonicalGateway(
+            editable=editable,
+            plan=json.dumps(plan, ensure_ascii=False),
+        )
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.approve("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        composition = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+
+        self.assertIn(
+            "The camera holds a static shot.",
+            composition.final_prompt.active_revision.content,
+        )
+
+    def test_v10_reconciliation_uses_the_canonical_schema(self):
+        self.gateway = CanonicalGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+
+        events = list(
+            self.service.stream_reconcile_action_plan(
+                "session-ref2v-1",
+                {},
+                "Preserve the approved timing.",
+            )
+        )
+
+        self.assertIsNotNone(events[-1].composition)
+        request = self.gateway.requests[-1]
+        self.assertEqual(request.operation_id, "action_plan.reconcile")
+        self.assertIn('"motion"', request.user_prompt)
+
+    def test_v10_manual_edit_cannot_replace_the_plan_owned_camera_clause(self):
+        self.gateway = CanonicalGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.approve("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        composition = self.service.generate(
+            "session-ref2v-1",
+            CompositionStage.FINAL_PROMPT,
+        )
+        altered = composition.final_prompt.active_revision.content.replace(
+            "The camera pedestals down with small amplitude at slow speed toward waist height.",
+            "The camera zooms in.",
+        )
+
+        with self.assertRaisesRegex(ValueError, "compiled camera clause"):
+            self.service.edit(
+                "session-ref2v-1",
+                CompositionStage.FINAL_PROMPT,
+                altered,
+            )
+
+    def test_v10_revision_recompiles_the_approved_plan_camera(self):
+        self.gateway = CanonicalGateway()
+        self.service.gateway = self.gateway
+        self.service.configure(
+            "session-ref2v-1",
+            "undressing.single_shot",
+            "0.10.0",
+            self.bindings(),
+        )
+        self.service.generate("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.approve("session-ref2v-1", CompositionStage.BEAT_SHEET)
+        self.service.generate("session-ref2v-1", CompositionStage.FINAL_PROMPT)
+
+        revised = self.service.revise(
+            "session-ref2v-1",
+            CompositionStage.FINAL_PROMPT,
+            "Keep the choreography and shorten only the soundscape.",
+        )
+
+        content = revised.final_prompt.active_revision.content
+        self.assertIn(
+            "The camera pedestals down with small amplitude at slow speed toward waist height.",
+            content,
+        )
+        self.assertNotIn("camera zooms in", content.lower())
+        self.assertNotIn("__PANELFORGE", content)
+        parent = revised.final_prompt.revisions[-2]
+        self.assertEqual(
+            revised.final_prompt.active_revision.compiler_context,
+            parent.compiler_context,
+        )
 
     def test_v9_reconciliation_templates_render_with_the_supervised_contract(self):
         self.gateway = SupervisedGateway()
