@@ -7,7 +7,7 @@
   const profileId = "minimax.h3.ref2v.direct";
   const profileVersion = "0.1.0";
   const cookbookId = "minimax.h3.ref2v.direct";
-  const cookbookVersion = "0.2.0";
+  const cookbookVersion = "0.3.0";
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame"],
     ["subject_reference", "Sujet / identité", "subject"],
@@ -21,11 +21,14 @@
 
   const state = {
     spec: null,
+    cookbooks: [],
     cookbook: null,
     drafts: [],
     session: null,
     composition: null,
     busy: false,
+    arbitrationDecisions: {},
+    arbitrationRevisionId: null,
   };
 
   const elements = {
@@ -58,6 +61,11 @@
     plan: stage("plan"),
     prompt: stage("prompt"),
     copyPrompt: $("#ref2vd-copy-prompt"),
+    arbitrations: $("#ref2vd-arbitrations"),
+    arbitrationList: $("#ref2vd-arbitration-list"),
+    arbitrationInstruction: $("#ref2vd-arbitration-instruction"),
+    acceptAllArbitrations: $("#ref2vd-accept-all-arbitrations"),
+    applyArbitrations: $("#ref2vd-apply-arbitrations"),
   };
 
   function stage(name) {
@@ -87,7 +95,8 @@
         core.request("/api/prompt-lab/cookbooks"),
       ]);
       state.spec = spec;
-      state.cookbook = (cookbooks.cookbooks || []).find(
+      state.cookbooks = cookbooks.cookbooks || [];
+      state.cookbook = state.cookbooks.find(
         (item) => item.id === cookbookId && item.version === cookbookVersion,
       ) || null;
       if (!selectedProfile()) throw new Error("Profil Ref2V Direct indisponible.");
@@ -104,6 +113,15 @@
     return state.spec && (state.spec.profiles || []).find(
       (item) => item.id === profileId && item.version === profileVersion,
     );
+  }
+
+  function activeCookbookSpec() {
+    const reference = state.composition && state.composition.cookbook
+      ? state.composition.cookbook : state.cookbook;
+    if (!reference) return null;
+    return state.cookbooks.find(
+      (item) => item.id === reference.id && item.version === reference.version,
+    ) || null;
   }
 
   async function loadModels() {
@@ -341,6 +359,7 @@
       briefState.ready,
       briefState.draft ? "Brief modifié" : "Brief requis",
     );
+    renderArbitrations(plan, planState, briefState.ready);
     const promptState = renderDocument(
       elements.prompt,
       prompt,
@@ -389,6 +408,137 @@
     return { draft, ready };
   }
 
+  const arbitrationCategoryLabels = {
+    temporal: "Rythme et durée",
+    spatial: "Espace et trajectoire",
+    identity: "Identité",
+    object: "Objet et continuité",
+    physical: "Plausibilité physique",
+    reference: "Influence des références",
+    other: "Autre point",
+  };
+
+  function resetArbitrations() {
+    state.arbitrationDecisions = {};
+    state.arbitrationRevisionId = null;
+    elements.arbitrationInstruction.value = "";
+    elements.arbitrationList.dataset.renderKey = "";
+  }
+
+  function updateArbitrationActions() {
+    const ready = elements.arbitrations.dataset.ready === "true";
+    const hasDecision = Object.values(state.arbitrationDecisions).some(
+      (value) => value && value.trim(),
+    );
+    const hasInstruction = Boolean(elements.arbitrationInstruction.value.trim());
+    elements.applyArbitrations.disabled = !ready || (!hasDecision && !hasInstruction);
+    elements.acceptAllArbitrations.disabled = !ready
+      || elements.arbitrations.dataset.hasRecommendations !== "true";
+  }
+
+  function renderArbitrations(documentState, planState, prerequisite) {
+    const cookbook = activeCookbookSpec();
+    const active = documentState && documentState.active_revision_id;
+    let plan = null;
+    if (active && documentState.active_content) {
+      try { plan = JSON.parse(documentState.active_content); } catch (_) { plan = null; }
+    }
+    const risks = plan && Array.isArray(plan.risks) ? plan.risks : null;
+    const available = Boolean(
+      cookbook && cookbook.supports_plan_reconciliation && active && risks,
+    );
+    elements.arbitrations.hidden = !available;
+    if (!available) {
+      elements.arbitrations.dataset.ready = "false";
+      updateArbitrationActions();
+      return;
+    }
+    if (state.arbitrationRevisionId !== active) {
+      resetArbitrations();
+      state.arbitrationRevisionId = active;
+    }
+    const renderKey = `${active}:${JSON.stringify(risks)}`;
+    if (elements.arbitrationList.dataset.renderKey !== renderKey) {
+      elements.arbitrationList.replaceChildren();
+      if (!risks.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = "Aucun risque détecté. Vous pouvez néanmoins donner une instruction globale au planner.";
+        elements.arbitrationList.append(empty);
+      }
+      risks.forEach((risk) => {
+        const card = document.createElement("article");
+        card.className = "arbitration-card";
+        const header = document.createElement("header");
+        const title = document.createElement("h4");
+        title.textContent = `${arbitrationCategoryLabels[risk.category] || risk.category} · ${risk.risk_id}`;
+        const badge = document.createElement("span");
+        badge.className = `review-pill ${risk.resolution ? "approved" : "pending"}`;
+        badge.textContent = risk.resolution ? "Résolu" : "À décider";
+        header.append(title, badge);
+        const description = document.createElement("p");
+        description.textContent = risk.description;
+        const recommendation = document.createElement("p");
+        recommendation.className = "arbitration-recommendation";
+        recommendation.textContent = `Recommandation : ${risk.recommendation}`;
+        const decision = document.createElement("textarea");
+        decision.rows = 2;
+        decision.dataset.riskId = risk.risk_id;
+        decision.setAttribute("aria-label", `Décision pour ${risk.risk_id}`);
+        decision.placeholder = risk.resolution
+          ? `Décision déjà appliquée : ${risk.resolution}`
+          : "Écrivez votre décision, ou reprenez la recommandation.";
+        decision.value = state.arbitrationDecisions[risk.risk_id] || "";
+        decision.addEventListener("input", () => {
+          state.arbitrationDecisions[risk.risk_id] = decision.value;
+          updateArbitrationActions();
+        });
+        const actions = document.createElement("div");
+        actions.className = "arbitration-card-actions";
+        const useRecommendation = document.createElement("button");
+        useRecommendation.type = "button";
+        useRecommendation.textContent = "Reprendre la recommandation";
+        useRecommendation.addEventListener("click", () => {
+          decision.value = risk.recommendation;
+          state.arbitrationDecisions[risk.risk_id] = decision.value;
+          updateArbitrationActions();
+        });
+        const acceptRisk = document.createElement("button");
+        acceptRisk.type = "button";
+        acceptRisk.textContent = "Accepter le risque sans changement";
+        acceptRisk.addEventListener("click", () => {
+          decision.value = "Risque accepté : conserver le plan actuel sans modification pour ce point.";
+          state.arbitrationDecisions[risk.risk_id] = decision.value;
+          updateArbitrationActions();
+        });
+        actions.append(useRecommendation, acceptRisk);
+        card.append(header, description, recommendation);
+        if (risk.resolution) {
+          const applied = document.createElement("p");
+          applied.className = "muted";
+          applied.textContent = `Décision appliquée : ${risk.resolution}`;
+          card.append(applied);
+        }
+        card.append(decision, actions);
+        elements.arbitrationList.append(card);
+      });
+      elements.arbitrationList.dataset.renderKey = renderKey;
+    }
+    const ready = Boolean(
+      !state.busy && prerequisite && !planState.draft && !planState.stale
+      && !planState.diagnostics.length,
+    );
+    elements.arbitrations.dataset.ready = String(ready);
+    elements.arbitrations.dataset.hasRecommendations = String(
+      risks.some((risk) => !risk.resolution && risk.recommendation),
+    );
+    elements.arbitrationInstruction.disabled = !ready;
+    elements.arbitrationList.querySelectorAll("textarea, button").forEach((control) => {
+      control.disabled = !ready;
+    });
+    updateArbitrationActions();
+  }
+
   function renderDocument(view, documentState, prerequisite, missingLabel) {
     const active = documentState && documentState.active_revision_id;
     hydrate(view.content, `${view === elements.plan ? "plan" : "prompt"}:${active || "none"}`, documentState && documentState.active_content);
@@ -415,7 +565,7 @@
         || !view.instruction.value.trim();
     }
     renderDiagnostics(view.lint, diagnostics, warnings, draft);
-    return { draft, ready };
+    return { draft, ready, stale, diagnostics };
   }
 
   function renderDiagnostics(container, errors, warnings, draft) {
@@ -515,6 +665,23 @@
     } catch (error) {
       showStageError(view, error, false);
     }
+  }
+
+  async function reconcilePlan() {
+    const decisions = Object.fromEntries(
+      Object.entries(state.arbitrationDecisions)
+        .map(([riskId, value]) => [riskId, value.trim()])
+        .filter(([, value]) => value),
+    );
+    const instruction = elements.arbitrationInstruction.value.trim() || null;
+    const completed = await streamResult(
+      `/api/prompt-lab/sessions/${state.session.id}/beat-sheet/reconcile/stream`,
+      { decisions, instruction },
+      elements.plan,
+      (event) => { if (event.composition) state.composition = event.composition; },
+      "Arbitrages appliqués au plan. Vérifiez puis validez cette nouvelle version.",
+    );
+    if (completed) resetArbitrations();
   }
 
   async function streamResult(url, payload, view, onEvent, successMessage) {
@@ -624,6 +791,7 @@
   function resetSession() {
     state.session = null;
     state.composition = null;
+    resetArbitrations();
     state.drafts.forEach((draft) => URL.revokeObjectURL(draft.previewUrl));
     state.drafts = [];
     renderDraftReferences();
@@ -660,6 +828,26 @@
   elements.plan.generate.addEventListener("click", () => streamCompositionStage("beat-sheet"));
   elements.plan.save.addEventListener("click", () => documentAction("beat-sheet", "edit", { content: elements.plan.content.value.trim() }));
   elements.plan.approve.addEventListener("click", () => documentAction("beat-sheet", "approve"));
+  elements.arbitrationInstruction.addEventListener("input", updateArbitrationActions);
+  elements.acceptAllArbitrations.addEventListener("click", () => {
+    const documentState = state.composition && state.composition.documents
+      ? state.composition.documents.beat_sheet : null;
+    if (!documentState || !documentState.active_content) return;
+    try {
+      const plan = JSON.parse(documentState.active_content);
+      (plan.risks || []).forEach((risk) => {
+        if (!risk.resolution && risk.recommendation) {
+          state.arbitrationDecisions[risk.risk_id] = risk.recommendation;
+        }
+      });
+      elements.arbitrationList.dataset.renderKey = "";
+      render();
+    } catch (_) {
+      elements.plan.message.className = "message error-text";
+      elements.plan.message.textContent = "Le plan actif ne peut pas être relu pour l’arbitrage.";
+    }
+  });
+  elements.applyArbitrations.addEventListener("click", reconcilePlan);
 
   elements.prompt.content.addEventListener("input", render);
   elements.prompt.instruction.addEventListener("input", render);

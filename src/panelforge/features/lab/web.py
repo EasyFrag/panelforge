@@ -758,6 +758,10 @@ def create_app(
                         cookbook.invalid_camera_target_policy
                     ),
                     "stages": list(cookbook.stages),
+                    "supports_plan_reconciliation": bool(
+                        cookbook.beat_sheet_reconcile_system_prompt
+                        and cookbook.beat_sheet_reconcile_user_prompt
+                    ),
                     "sources": list(cookbook.sources),
                     "engine_contract": {
                         "id": cookbook.reference.engine_contract_id,

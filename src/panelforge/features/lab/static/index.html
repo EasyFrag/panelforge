@@ -10,7 +10,7 @@
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260811.1" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260811.2" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260811.2" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260811.3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -788,6 +788,21 @@
             <p id="ref2vd-plan-message" class="message" aria-live="polite"></p>
             <div id="ref2vd-plan-lint" class="prompt-lint"><small>Les risques et durées longues seront signalés sans bloquer le Plan.</small></div>
             <textarea id="ref2vd-plan-content" class="cookbook-stage-output" rows="24" placeholder="Le plan JSON apparaîtra ici après validation du Brief."></textarea>
+            <section id="ref2vd-arbitrations" class="arbitration-panel" hidden>
+              <div class="arbitration-heading">
+                <div><b>Arbitrages du plan</b><small>Décidez risque par risque, ou reprenez toutes les recommandations.</small></div>
+                <button id="ref2vd-accept-all-arbitrations" type="button">Reprendre toutes les recommandations</button>
+              </div>
+              <div id="ref2vd-arbitration-list" class="arbitration-list"></div>
+              <label class="arbitration-global" for="ref2vd-arbitration-instruction">
+                Instruction globale optionnelle
+                <textarea id="ref2vd-arbitration-instruction" rows="3" placeholder="Ex. Conserve le rythme, mais stabilise le décor et clarifie les transferts de contact."></textarea>
+              </label>
+              <div class="arbitration-footer">
+                <small>Le planner relit les images et réécrit réellement le plan à partir de vos décisions.</small>
+                <button id="ref2vd-apply-arbitrations" class="primary compact" type="button" disabled>Appliquer les décisions au plan</button>
+              </div>
+            </section>
             <p class="muted">Le Plan reste éditable directement. Les erreurs de structure empêchent sa validation ; la densité et une durée supérieure à 15 s restent des avertissements.</p>
           </div>
         </details>

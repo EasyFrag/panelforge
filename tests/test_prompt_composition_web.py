@@ -153,6 +153,7 @@ class PromptCompositionWebTest(unittest.TestCase):
         script = self.client.get("/static/prompt-composition.js")
         i2v_script = self.client.get("/static/i2v-prompt.js")
         ref2v_script = self.client.get("/static/ref2v-prompt.js")
+        direct_script = self.client.get("/static/ref2v-direct.js")
         catalog = self.client.get("/api/prompt-lab/cookbooks").json()["cookbooks"]
 
         self.assertEqual(page.status_code, 200)
@@ -205,6 +206,25 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('id="ref2v-arbitrations"', page.text)
         self.assertIn('id="ref2v-apply-arbitrations"', page.text)
         self.assertIn("beat-sheet/reconcile/stream", ref2v_script.text)
+        self.assertEqual(direct_script.status_code, 200)
+        self.assertIn('ref2v-direct.js?v=20260811.3', page.text)
+        self.assertIn('cookbookVersion = "0.3.0"', direct_script.text)
+        self.assertIn('id="ref2vd-arbitrations"', page.text)
+        self.assertIn('id="ref2vd-accept-all-arbitrations"', page.text)
+        self.assertIn('id="ref2vd-apply-arbitrations"', page.text)
+        self.assertIn("beat-sheet/reconcile/stream", direct_script.text)
+        direct_v2 = next(
+            item for item in catalog
+            if item["id"] == "minimax.h3.ref2v.direct"
+            and item["version"] == "0.2.0"
+        )
+        direct_v3 = next(
+            item for item in catalog
+            if item["id"] == "minimax.h3.ref2v.direct"
+            and item["version"] == "0.3.0"
+        )
+        self.assertFalse(direct_v2["supports_plan_reconciliation"])
+        self.assertTrue(direct_v3["supports_plan_reconciliation"])
 
     def test_rejects_duplicate_fighter_assignments(self):
         response = self.client.post(

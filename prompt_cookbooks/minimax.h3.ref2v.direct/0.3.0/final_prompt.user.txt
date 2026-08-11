@@ -1,0 +1,10 @@
+APPROVED FRENCH MULTIMODAL BRIEF
+{{BRIEF}}
+
+READ-ONLY DYNAMIC REFERENCE MAPPING
+{{REFERENCE_MAPPING}}
+
+APPROVED DIRECT REF2V V2 PHYSICAL PLAN WITH APPLICATION-DERIVED TIMING
+{{PLAN}}
+
+Write the complete four-field H3 document now. The mapping owns reference influence; the plan owns action timing, physical continuity, camera placeholders, scene invariants and final state; its derived_timing owns the final-state start and total duration. Do not output either envelope.

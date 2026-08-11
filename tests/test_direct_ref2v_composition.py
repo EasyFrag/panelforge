@@ -114,17 +114,30 @@ def action_plan_v2(*, with_camera: bool = True) -> dict:
     return value
 
 
-def final_document(*, with_camera: bool = True, duration: str = "12") -> str:
+def final_document(
+    *,
+    with_camera: bool = True,
+    duration: str = "12",
+    camera_layout: str = "canonical",
+) -> str:
     camera = (
         "At 00:08.000, [[camera:camera_1]]\n"
         if with_camera
         else "At 00:08.000, the transfer is complete.\n"
     )
+    shot_header = "shot_1:\n"
+    if with_camera and camera_layout == "extra_period":
+        camera = camera.replace("]]\n", "]].\n")
+    elif with_camera and camera_layout == "inline_field":
+        shot_header = "shot_1: [[camera:camera_1]] "
+        camera = "At 00:08.000, the transfer is complete.\n"
+    elif with_camera and camera_layout == "embedded_prose":
+        camera = "At 00:08.000, the recipient turns while [[camera:camera_1]] following the parcel.\n"
     return (
         "scene_setup:\n"
         f"The target video is one continuous {duration}-second shot. The same warm room, "
         "table, lighting, courier, recipient, and parcel remain spatially stable.\n"
-        "shot_1:\n"
+        f"{shot_header}"
         "The courier crosses the room with both hands supporting the parcel. The "
         "recipient takes a shared grip before the courier releases it.\n"
         f"{camera}"
@@ -138,8 +151,14 @@ def final_document(*, with_camera: bool = True, duration: str = "12") -> str:
 
 
 class DirectGateway:
-    def __init__(self, *, with_camera: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        with_camera: bool = True,
+        camera_layout: str = "canonical",
+    ) -> None:
         self.with_camera = with_camera
+        self.camera_layout = camera_layout
         self.requests: list[CompletionRequest] = []
 
     def complete(self, request: CompletionRequest) -> CompletionResult:
@@ -155,6 +174,7 @@ class DirectGateway:
             content = final_document(
                 with_camera=self.with_camera,
                 duration="12",
+                camera_layout=self.camera_layout,
             )
         return CompletionResult(
             model_id=request.model_id,
@@ -164,7 +184,69 @@ class DirectGateway:
 
     def stream(self, request: CompletionRequest):
         self.requests.append(request)
-        content = final_document(with_camera=self.with_camera)
+        content = final_document(
+            with_camera=self.with_camera,
+            camera_layout=self.camera_layout,
+        )
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.DELTA,
+            phase=StreamPhase.GENERATING,
+            text=content,
+        )
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.COMPLETED,
+            phase=StreamPhase.COMPLETED,
+            text=content,
+            result=CompletionResult(
+                model_id=request.model_id,
+                content=content,
+                call_id=f"call-{len(self.requests)}",
+            ),
+        )
+
+
+class ArbitrationGateway(DirectGateway):
+    decision = "Keep the fur slightly damp while preserving the current action."
+
+    @staticmethod
+    def _planned(*, resolved: bool) -> dict:
+        value = action_plan_v2()
+        value["risks"] = [
+            {
+                "risk_id": "risk_1",
+                "category": "reference",
+                "description": "The fur state is ambiguous between references.",
+                "recommendation": "Keep the fur slightly damp.",
+                "resolution": ArbitrationGateway.decision if resolved else None,
+            },
+            {
+                "risk_id": "risk_2",
+                "category": "spatial",
+                "description": "The parcel path needs a stable side.",
+                "recommendation": "Keep the parcel on frame right.",
+                "resolution": None,
+            },
+        ]
+        if resolved:
+            value["beats"][0]["primary_action"] += " The fur remains slightly damp."
+        return value
+
+    def complete(self, request: CompletionRequest) -> CompletionResult:
+        if request.operation_id != "action_plan.generate":
+            return super().complete(request)
+        self.requests.append(request)
+        return CompletionResult(
+            model_id=request.model_id,
+            content=json.dumps(self._planned(resolved=False)),
+            call_id=f"call-{len(self.requests)}",
+        )
+
+    def stream(self, request: CompletionRequest):
+        if request.operation_id != "action_plan.reconcile":
+            yield from super().stream(request)
+            return
+        self.requests.append(request)
+        content = json.dumps(self._planned(resolved=True))
         yield CompletionStreamEvent(
             kind=StreamEventKind.DELTA,
             phase=StreamPhase.GENERATING,
@@ -273,6 +355,87 @@ def configured_service(
 
 
 class DirectRef2VCompositionTest(unittest.TestCase):
+    def test_v3_reconciles_risks_against_native_images_and_keeps_v2_as_witness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, image_contents = configured_service(
+                directory,
+                2,
+                cookbook_version="0.3.0",
+            )
+            gateway = ArbitrationGateway()
+            service.gateway = gateway
+            service.generate("direct-session", CompositionStage.BEAT_SHEET)
+
+            events = list(service.stream_reconcile_action_plan(
+                "direct-session",
+                {"risk_1": gateway.decision},
+                "Preserve every unaffected timing and reference boundary.",
+            ))
+
+            request = gateway.requests[-1]
+            self.assertEqual(request.operation_id, "action_plan.reconcile")
+            self.assertEqual(
+                tuple(image.content for image in request.images),
+                image_contents,
+            )
+            self.assertIn('"risk_id": "risk_1"', request.user_prompt)
+            self.assertIn("<Picture 1> = <Image 1>", request.user_prompt)
+            composition = events[-1].composition
+            self.assertIsNotNone(composition)
+            active = composition.beat_sheet.active_revision
+            self.assertIs(active.origin, RevisionOrigin.REWRITE)
+            revised = json.loads(active.content)
+            self.assertEqual(revised["risks"][0]["resolution"], gateway.decision)
+            self.assertIsNone(revised["risks"][1]["resolution"])
+            self.assertIn("slightly damp", revised["beats"][0]["primary_action"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, _ = configured_service(
+                directory,
+                2,
+                cookbook_version="0.2.0",
+            )
+            service.gateway = ArbitrationGateway()
+            service.generate("direct-session", CompositionStage.BEAT_SHEET)
+            with self.assertRaisesRegex(ValueError, "does not support plan arbitration"):
+                list(service.stream_reconcile_action_plan(
+                    "direct-session",
+                    {"risk_1": ArbitrationGateway.decision},
+                ))
+
+    def test_recovers_only_unambiguous_camera_placeholder_layouts(self):
+        for camera_layout in ("extra_period", "inline_field"):
+            with self.subTest(camera_layout=camera_layout), tempfile.TemporaryDirectory() as directory:
+                service, _, _ = configured_service(
+                    directory,
+                    2,
+                    cookbook_version="0.2.0",
+                )
+                service.gateway = DirectGateway(camera_layout=camera_layout)
+                service.generate("direct-session", CompositionStage.BEAT_SHEET)
+                service.approve("direct-session", CompositionStage.BEAT_SHEET)
+
+                composition = service.generate(
+                    "direct-session",
+                    CompositionStage.FINAL_PROMPT,
+                )
+
+                final = composition.final_prompt.active_revision.content
+                self.assertNotIn("[[camera:", final)
+                self.assertEqual(final.count("The camera pushes in"), 1)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, _ = configured_service(
+                directory,
+                2,
+                cookbook_version="0.2.0",
+            )
+            service.gateway = DirectGateway(camera_layout="embedded_prose")
+            service.generate("direct-session", CompositionStage.BEAT_SHEET)
+            service.approve("direct-session", CompositionStage.BEAT_SHEET)
+            with self.assertRaisesRegex(ValueError, "camera placeholder"):
+                service.generate("direct-session", CompositionStage.FINAL_PROMPT)
+
     def test_v2_derives_final_timing_without_persisting_redundant_clocks(self):
         with tempfile.TemporaryDirectory() as directory:
             service, gateway, _ = configured_service(

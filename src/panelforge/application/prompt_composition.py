@@ -49,6 +49,7 @@ from .direct_ref2v_plan import (
     direct_ref2v_writer_plan_v2,
     lint_direct_ref2v_action_plan,
     lint_direct_ref2v_action_plan_v2,
+    parse_direct_ref2v_action_plan_v2,
 )
 from .direct_ref2v_prompt import (
     apply_direct_ref2v_timing_v2,
@@ -58,6 +59,7 @@ from .direct_ref2v_prompt import (
     encode_direct_ref2v_context,
     is_direct_ref2v_context,
     lint_direct_ref2v_prompt,
+    normalize_direct_ref2v_camera_placeholders,
     rehydrate_direct_ref2v_editable_document,
     validate_direct_ref2v_labels,
 )
@@ -714,6 +716,14 @@ class PromptCompositionService:
         session = self.sessions.get(source_session_id)
         composition = self.compositions.get(source_session_id)
         cookbook = self._validated_cookbook(session, composition)
+        if cookbook.output_contract in _REF2V_DIRECT_CONTRACTS:
+            return self._stream_reconcile_direct_action_plan(
+                session,
+                composition,
+                cookbook,
+                decisions,
+                instruction,
+            )
         if cookbook.output_contract not in _REF2V_SUPERVISED_CONTRACTS:
             raise ValueError(
                 "action-plan arbitration is only available for supervised Ref2V"
@@ -830,6 +840,133 @@ class PromptCompositionService:
             if silently_changed:
                 raise ValueError(
                     "the reconciled plan changed undecided concern(s): "
+                    + ", ".join(silently_changed)
+                )
+
+        return self._stream(
+            request,
+            cookbook,
+            session,
+            composition,
+            CompositionStage.BEAT_SHEET,
+            expected,
+            "",
+            RevisionOrigin.REWRITE,
+            audit_instruction,
+            extract_revision=False,
+            validate_content=validate_reconciliation,
+            document_stage=CompositionStage.BEAT_SHEET,
+        )
+
+    def _stream_reconcile_direct_action_plan(
+        self,
+        session: PromptLabSession,
+        composition: PromptComposition,
+        cookbook: PromptCookbookPort,
+        decisions: Mapping[str, str],
+        instruction: str | None,
+    ) -> Iterator[CompositionStreamEvent]:
+        """Apply human decisions to a Direct V2 plan using its native images."""
+
+        if (
+            cookbook.output_contract != _REF2V_DIRECT_V2_CONTRACT
+            or cookbook.beat_sheet_reconcile_system_prompt is None
+            or cookbook.beat_sheet_reconcile_user_prompt is None
+        ):
+            raise ValueError(
+                "this direct Ref2V cookbook version does not support plan arbitration"
+            )
+        expected = self._expected_sources(
+            session,
+            composition,
+            CompositionStage.BEAT_SHEET,
+        )
+        current = composition.beat_sheet.active_revision
+        if current is None:
+            raise ValueError("generate the action plan before arbitrating it")
+        if current.source_ids != expected:
+            raise ValueError("the current action plan is stale; regenerate it first")
+        current_plan = parse_direct_ref2v_action_plan_v2(current.content)
+        normalized_decisions = _normalize_arbitration_decisions(
+            decisions,
+            {risk.risk_id for risk in current_plan.risks},
+        )
+        if instruction is not None and not isinstance(instruction, str):
+            raise TypeError("the global arbitration instruction must be text")
+        normalized_instruction = (
+            instruction.strip() if instruction and instruction.strip() else None
+        )
+        if normalized_instruction is not None and len(normalized_instruction) > 4000:
+            raise ValueError("the global arbitration instruction is too long")
+        if not normalized_decisions and normalized_instruction is None:
+            raise ValueError("provide at least one arbitration decision or instruction")
+        decisions_json = json.dumps(
+            [
+                {"risk_id": risk_id, "decision": decision}
+                for risk_id, decision in normalized_decisions.items()
+            ],
+            ensure_ascii=False,
+            indent=2,
+        )
+        request = CompletionRequest(
+            model_id=session.model_id,
+            system_prompt=cookbook.beat_sheet_reconcile_system_prompt,
+            user_prompt=_render(
+                cookbook.beat_sheet_reconcile_user_prompt,
+                BRIEF=_approved_brief(session).content,
+                REFERENCES=direct_reference_mapping(
+                    session,
+                    composition_picture_mapping(composition),
+                ),
+                CURRENT_PLAN=current.content,
+                DECISIONS=decisions_json,
+                GLOBAL_INSTRUCTION=normalized_instruction or "N/A",
+                ACTION_PLAN_SCHEMA=direct_ref2v_action_plan_schema_v2(),
+            ),
+            images=self._direct_reference_images(session, composition),
+            temperature=0.2,
+            max_tokens=32768,
+            operation_id="action_plan.reconcile",
+        )
+        audit_instruction = json.dumps(
+            {
+                "decisions": normalized_decisions,
+                "instruction": normalized_instruction,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+        def validate_reconciliation(content: str) -> None:
+            revised = parse_direct_ref2v_action_plan_v2(content)
+            original_resolutions = {
+                risk.risk_id: risk.resolution for risk in current_plan.risks
+            }
+            resolutions = {risk.risk_id: risk.resolution for risk in revised.risks}
+            removed = sorted(set(original_resolutions) - set(resolutions))
+            if removed:
+                raise ValueError(
+                    "the reconciled plan removed risk(s): " + ", ".join(removed)
+                )
+            missing = [
+                risk_id
+                for risk_id, decision in normalized_decisions.items()
+                if resolutions.get(risk_id) != decision
+            ]
+            if missing:
+                raise ValueError(
+                    "the reconciled plan did not apply decision(s): "
+                    + ", ".join(missing)
+                )
+            silently_changed = [
+                risk_id
+                for risk_id, resolution in original_resolutions.items()
+                if risk_id not in normalized_decisions
+                and resolutions.get(risk_id) != resolution
+            ]
+            if silently_changed:
+                raise ValueError(
+                    "the reconciled plan changed undecided risk(s): "
                     + ", ".join(silently_changed)
                 )
 
@@ -3134,6 +3271,7 @@ def _compile_content(
         and cookbook.output_contract in _REF2V_DIRECT_CONTRACTS
     ):
         header, directives = decode_direct_ref2v_context(prefix)
+        body = normalize_direct_ref2v_camera_placeholders(body)
         editable = _REF2V_EDITABLE_CONTRACT.extract(body)
         editable = compile_camera_placeholders(
             normalize_dialogue_language_tags(editable),

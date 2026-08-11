@@ -22,6 +22,9 @@ class DirectRef2VCatalogTest(unittest.TestCase):
         cls.cookbook_v2 = LocalPromptCookbookCatalog(
             PROJECT_ROOT / "prompt_cookbooks"
         ).get("minimax.h3.ref2v.direct", "0.2.0")
+        cls.cookbook_v3 = LocalPromptCookbookCatalog(
+            PROJECT_ROOT / "prompt_cookbooks"
+        ).get("minimax.h3.ref2v.direct", "0.3.0")
 
     def test_profile_loads_as_direct_multimodal(self):
         self.assertEqual(
@@ -143,7 +146,38 @@ class DirectRef2VCatalogTest(unittest.TestCase):
             if item.reference.cookbook_id == "minimax.h3.ref2v.direct"
         ]
 
-        self.assertEqual(versions, ["0.1.0", "0.2.0"])
+        self.assertEqual(versions, ["0.1.0", "0.2.0", "0.3.0"])
+
+    def test_v3_adds_multimodal_risk_arbitration_without_changing_v2_plan(self):
+        cookbook = self.cookbook_v3
+
+        self.assertEqual(
+            cookbook.output_contract,
+            "minimax.h3.ref2v.direct_supervised_h3_v2",
+        )
+        self.assertEqual(
+            cookbook.preset,
+            "direct-multiref-supervised-h3-v3-arbitrated",
+        )
+        self.assertIsNotNone(cookbook.beat_sheet_reconcile_system_prompt)
+        self.assertIsNotNone(cookbook.beat_sheet_reconcile_user_prompt)
+        reconcile = "\n".join((
+            cookbook.beat_sheet_reconcile_system_prompt or "",
+            cookbook.beat_sheet_reconcile_user_prompt or "",
+        ))
+        for placeholder in (
+            "{{BRIEF}}",
+            "{{REFERENCES}}",
+            "{{CURRENT_PLAN}}",
+            "{{DECISIONS}}",
+            "{{GLOBAL_INSTRUCTION}}",
+            "{{ACTION_PLAN_SCHEMA}}",
+        ):
+            self.assertIn(placeholder, reconcile)
+        self.assertIn("attached native images", reconcile)
+        self.assertIn("copy its text exactly", reconcile)
+        self.assertIn("final_state.final_hold_ms", reconcile)
+        self.assertIsNone(self.cookbook_v2.beat_sheet_reconcile_system_prompt)
 
 
 if __name__ == "__main__":

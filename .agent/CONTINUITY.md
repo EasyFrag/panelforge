@@ -2,34 +2,34 @@
 
 ## Goal
 
-- Construire PanelForge comme atelier local de canon visuel et de recettes versionnées, réutilisables pour produire des panels narratifs cohérents.
+- Construire PanelForge comme atelier local de canon visuel et de recettes versionnées pour produire des panels narratifs cohérents.
 
 ## Current state
 
 - Works:
   - Image Lab exécute `character.change_view@0.2.0`; Prompt Lab fournit streaming, révisions, approbations et journal borné des appels LLM.
-  - `Ref2V Direct` propose 1–3 images natives → Brief multimodal → Plan JSON multimodal → prompt H3 textuel, sans étape Observation.
-  - `minimax.h3.ref2v.direct@0.2.0` est le défaut : le LLM produit les actions et `final_hold_ms`; le code dérive le début de l’état final et la durée, sans retiming. `0.1.0` reste le témoin immuable.
-  - Les faibles holds, durées dérivées >15 s, risques non arbitrés et cibles caméra récupérables restent des warnings.
-  - Suite complète : 298 tests verts.
+  - `Ref2V Direct` réalise 1–3 images natives → Brief multimodal → Plan JSON multimodal → prompt H3, sans Observation séparée.
+  - `minimax.h3.ref2v.direct@0.3.0` est le défaut : timings V2 dérivés via `final_hold_ms`, arbitrages individuels/globaux avec relecture des images, puis writer H3. `0.2.0` reste le témoin V2.
+  - Le compilateur récupère deux variantes caméra purement formelles, mais rejette toujours les placeholders réellement enchâssés dans la prose.
+  - Suite complète : 301 tests verts.
 - Broken / missing:
-  - La 0.2.0 n’a pas encore été rejouée sur le cas réel couple + chat ni qualifiée sur un rendu MiniMax H3.
-  - Direct reste mono-plan; une vraie coupe/multi-shot exige un contrat séparé.
-  - Une référence secondaire brute peut encore influencer visuellement le décor malgré les frontières textuelles.
+  - La 0.3.0 doit encore être qualifiée visuellement sur plusieurs familles d’actions et avec 1/2/3 références.
+  - Direct reste mono-plan; une vraie coupe/multi-shot exige un contrat distinct.
+  - Une référence secondaire brute peut encore influencer le décor malgré les frontières textuelles.
 
 ## Decisions
 
-- Les recettes publiées restent immuables; une session existante conserve sa version.
-- Le LLM décide la sémantique, la route physique et les timings d’action; le code dérive uniquement les relations déterministes et compile les contrats exacts.
-- Chaque étape reste déclenchable, éditable et approuvable séparément.
+- Les recettes publiées restent immuables et une composition existante conserve sa version.
+- Le LLM décide sémantique, route physique et timings; le code dérive seulement les relations déterministes et compile les contrats exacts.
+- Les warnings n’empêchent pas la validation; seules les erreurs structurelles ou contractuelles bloquent.
 
 ## Next steps
 
-1. Rejouer le run couple + chat avec Direct 0.2.0, puis tester 1 et 3 images.
-2. Comparer 0.2.0 à 0.1.0 sur rythme, physique, clipping et stabilité du décor.
+1. Rejouer le cas couple + chat avec Direct 0.3.0 et tester les trois modes d’arbitrage.
+2. Comparer 0.3.0 à 0.2.0 sur physique, rythme, clipping, décor et respect des décisions.
 3. Concevoir séparément le contrat multi-shot si les demandes de coupe se répètent.
 
 ## Risks / open questions
 
-- Un contrat temporel cohérent ne garantit pas à lui seul la physique ni la fidélité du moteur vidéo.
-- Le Brief/Plan multimodal coûte plus cher, mais limite la perte d’information des observations intermédiaires.
+- Un plan cohérent et arbitré ne garantit pas à lui seul la fidélité du moteur vidéo.
+- Brief, Plan et arbitrage multimodaux coûtent davantage mais réduisent la perte de preuve visuelle.

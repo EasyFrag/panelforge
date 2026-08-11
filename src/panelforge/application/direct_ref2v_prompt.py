@@ -214,6 +214,27 @@ def apply_direct_ref2v_timing_v2(content: str, plan_content: str) -> str:
     return value
 
 
+def normalize_direct_ref2v_camera_placeholders(content: str) -> str:
+    """Recover two unambiguous writer-only camera layout variants.
+
+    The protocol compiler owns the sentence punctuation.  Local writers still
+    occasionally add one period after the placeholder or keep the placeholder
+    on the ``shot_1:`` line.  Both layouts carry exactly the same semantics, so
+    normalize them before the strict protocol validation.  Embedded
+    placeholders elsewhere remain untouched and therefore fail closed.
+    """
+
+    value = _strip_fence(content).replace("\r\n", "\n")
+    placeholder = r"\[\[camera:camera_\d+\]\]"
+    value = re.sub(rf"({placeholder})\.(?=\s|$)", r"\1", value)
+    value = re.sub(
+        rf"(?m)^(shot_1:)[ \t]+({placeholder})(?=\s|$)",
+        r"\1\n\2",
+        value,
+    )
+    return value
+
+
 def validate_direct_ref2v_labels(
     session: PromptLabSession,
     mapping: PictureMapping,
@@ -437,6 +458,7 @@ __all__ = [
     "encode_direct_ref2v_context",
     "is_direct_ref2v_context",
     "lint_direct_ref2v_prompt",
+    "normalize_direct_ref2v_camera_placeholders",
     "rehydrate_direct_ref2v_editable_document",
     "validate_direct_ref2v_labels",
 ]

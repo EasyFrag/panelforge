@@ -153,9 +153,11 @@ L’onglet indépendant `Ref2V Direct` conserve l’ancien Ref2V comme témoin e
 
 Le profil `minimax.h3.ref2v.direct@0.1.0` ne crée aucune fiche d’observation. Le modèle reçoit directement les images pendant la génération du Brief et à chaque révision de celui-ci. Le planner reçoit à nouveau les mêmes pixels, dans le même ordre, avec le Brief approuvé. Le writer final reste textuel : il ne reçoit que le mapping immuable et le Plan approuvé.
 
-Chaque image porte un rôle fermé — première ou dernière frame, keyframe, sujet, décor, composition, style ou mouvement — et l’ordre affiché fixe le mapping `<Image N> → <Picture N>`. Le cookbook sélectionné par défaut est désormais `minimax.h3.ref2v.direct@0.2.0`; `0.1.0` reste inchangé comme témoin et les compositions existantes continuent de l’utiliser.
+Chaque image porte un rôle fermé — première ou dernière frame, keyframe, sujet, décor, composition, style ou mouvement — et l’ordre affiché fixe le mapping `<Image N> → <Picture N>`. Le cookbook sélectionné par défaut est désormais `minimax.h3.ref2v.direct@0.3.0`; `0.2.0` reste le témoin temporel V2 et `0.1.0` le témoin historique. Une composition existante conserve toujours sa version.
 
-Le Plan est volontairement générique : personnes, vêtements, accessoires, objets rigides ou articulés utilisent le même contrat de contacts, trajectoires, appuis, relâchement et état observable. En `0.2.0`, le LLM cadence uniquement les actions et choisit `final_hold_ms`; il ne produit plus `duration_seconds` ni de timestamp redondant pour l’état final. Le code place cet état à la fin du dernier beat et calcule la durée totale, sans retimer ni interpréter les gestes. Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés sont des avertissements ; JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants.
+Le Plan est volontairement générique : personnes, vêtements, accessoires, objets rigides ou articulés utilisent le même contrat de contacts, trajectoires, appuis, relâchement et état observable. Depuis `0.2.0`, le LLM cadence uniquement les actions et choisit `final_hold_ms`; le code place l’état final à la fin du dernier beat et calcule la durée totale, sans retimer ni interpréter les gestes. La `0.3.0` ajoute l’arbitrage supervisé des risques : décision libre par risque, reprise de toutes les recommandations ou instruction globale. Cet appel relit les images natives, applique les décisions au contenu réel du plan et exige leur copie exacte dans `risk.resolution`.
+
+Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés restent des avertissements. JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants. Deux écarts de forme caméra sans ambiguïté sont réparés par le code avant validation — point final redondant après `[[camera:camera_N]]` et placeholder placé sur la ligne `shot_1:` — tandis qu’un placeholder enchâssé dans une phrase reste rejeté.
 
 Cette version représente toujours un seul plan continu. Une demande de coupe ou de second plan doit remonter comme risque explicite ; le support multi-shot sera un contrat séparé, pas une caméra détournée.
 
@@ -203,7 +205,7 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ### 1. Qualifier les parcours courts I2V et Ref2V
 
-- tester `minimax.h3.ref2v.direct@0.2.0` avec une, deux puis trois références et plusieurs familles d’actions, puis comparer à `0.1.0` ; mesurer fidélité aux rôles, continuité du décor, physique, rythme et clipping ;
+- tester `minimax.h3.ref2v.direct@0.3.0` avec une, deux puis trois références et plusieurs familles d’actions, puis comparer à son témoin `0.2.0` ; mesurer qualité des arbitrages, fidélité aux rôles, continuité du décor, physique, rythme et clipping ;
 - comparer en A/B `minimax.h3.i2v.simple@0.3.0` à son témoin `0.2.0` sur les mêmes images et intentions : qualité vidéo, rythme, tags, voix et synchronisation labiale ;
 - comparer en A/B `undressing.single_shot@0.11.0` à son témoin `0.10.0` sur plusieurs constructions de vêtements : topologie, passages par les ouvertures, continuité des prises, clipping, rythme et caméra ;
 - versionner une nouvelle recette seulement à partir de défauts reproduits sur plusieurs rendus, en conservant prompts, contexte compilateur et observations de test.

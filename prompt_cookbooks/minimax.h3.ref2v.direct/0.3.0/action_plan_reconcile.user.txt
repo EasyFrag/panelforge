@@ -1,0 +1,19 @@
+APPROVED FRENCH MULTIMODAL BRIEF
+{{BRIEF}}
+
+ORDERED REFERENCE EVIDENCE AND LOCAL <Picture N> MAPPING
+{{REFERENCES}}
+
+CURRENT VALIDATED DIRECT REF2V V2 PLAN
+{{CURRENT_PLAN}}
+
+HUMAN DECISIONS
+{{DECISIONS}}
+
+OPTIONAL GLOBAL INSTRUCTION
+{{GLOBAL_INSTRUCTION}}
+
+REQUIRED DIRECT REF2V V2 ACTION-PLAN JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Relook at the attached native images, apply every decision to both its exact risk.resolution and the relevant physical plan content, preserve undecided risks and all unaffected contracts, then return only the complete valid JSON object.
