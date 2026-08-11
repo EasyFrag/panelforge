@@ -1,5 +1,7 @@
 """PanelForge application use cases."""
 
+from panelforge.domain import direct_reference_required_use
+
 from .change_view_runs import (
     ChangeViewRunRequest,
     ChangeViewRunner,
@@ -80,6 +82,7 @@ __all__ = [
     "PromptProfile",
     "StreamEventKind",
     "StreamPhase",
+    "direct_reference_required_use",
     "composition_picture_mapping",
     "compile_camera_draft",
     "compile_camera_motion",

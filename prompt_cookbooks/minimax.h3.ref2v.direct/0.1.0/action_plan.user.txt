@@ -1,0 +1,10 @@
+APPROVED FRENCH MULTIMODAL BRIEF
+{{BRIEF}}
+
+ORDERED REFERENCE EVIDENCE AND LOCAL <Picture N> MAPPING
+{{REFERENCES}}
+
+REQUIRED DIRECT REF2V ACTION-PLAN JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Produce the exact JSON object now. Preserve the approved reference boundaries, action order and scene invariants. Choose a generic physically coherent route, align camera timing with its motivating event, and expose unresolved conflicts or duration pressure as risks instead of silently changing the request.

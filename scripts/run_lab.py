@@ -126,6 +126,7 @@ def build_app(args: argparse.Namespace):
         sessions=prompt_sessions,
         compositions=prompt_compositions,
         application_outcomes=gateway,
+        assets=assets,
     )
     return create_app(
         runner,

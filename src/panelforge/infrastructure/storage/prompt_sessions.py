@@ -13,6 +13,7 @@ from panelforge.domain import (
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
+    PromptSessionMode,
     ReferenceEvidencePolicy,
     ReferenceUse,
     RevisionOrigin,
@@ -32,7 +33,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 _SESSION_KEYS_V1_V2 = {
     "schema_version",
     "created_at",
@@ -48,6 +49,7 @@ _SESSION_KEYS_V3_V4 = _SESSION_KEYS_V1_V2 | {
     "active_brief_revision_id",
     "approved_brief_revision_id",
 }
+_SESSION_KEYS_V5 = _SESSION_KEYS_V3_V4 | {"session_mode"}
 _REFERENCE_KEYS_V1 = {
     "reference_id",
     "asset_id",
@@ -182,12 +184,14 @@ class LocalPromptSessionStore:
         _require_regular_file(path)
         data = _read_json_object(path)
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2, 3, _SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, 4, _SCHEMA_VERSION}:
             raise StorageCorruptionError(
                 f"unsupported prompt session schema for {expected_id!r}"
             )
         expected_keys = (
-            _SESSION_KEYS_V3_V4
+            _SESSION_KEYS_V5
+            if schema_version >= 5
+            else _SESSION_KEYS_V3_V4
             if schema_version >= 3
             else _SESSION_KEYS_V1_V2
         )
@@ -235,6 +239,7 @@ def _session_to_dict(
         "model_id": session.model_id,
         "profile_id": session.profile_id,
         "profile_version": session.profile_version,
+        "session_mode": session.session_mode.value,
         "brief_revisions": [
             {
                 "revision_id": revision.revision_id,
@@ -458,6 +463,11 @@ def _session_from_dict(
         model_id=data["model_id"],
         profile_id=data["profile_id"],
         profile_version=data["profile_version"],
+        session_mode=(
+            PromptSessionMode(data["session_mode"])
+            if schema_version >= 5
+            else PromptSessionMode.ANALYZED
+        ),
         references=tuple(references),
         brief_revisions=tuple(brief_revisions),
         active_brief_revision_id=(

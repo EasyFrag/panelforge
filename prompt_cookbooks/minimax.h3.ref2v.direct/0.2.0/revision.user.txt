@@ -1,0 +1,13 @@
+APPROVED DIRECT REF2V V2 PHYSICAL PLAN WITH APPLICATION-DERIVED TIMING (READ ONLY)
+{{PLAN}}
+
+DYNAMIC REFERENCE MAPPING (READ ONLY)
+{{REFERENCE_MAPPING}}
+
+CURRENT EDITABLE DOCUMENT
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete revised four-field H3 document now. Apply only compatible prose changes and preserve every untouched contract, including derived_timing and the final hold.

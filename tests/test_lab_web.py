@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -114,6 +115,19 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("/api/model-runtime/unload", script.text)
         self.assertIn("Qwen3.6-27B-Huihui-abliterated-Q8_0", script.text)
         self.assertIn("PanelForgeModelPicker", script.text)
+        self.assertIn('data-lab-view="ref2v-direct"', page.text)
+        self.assertIn('id="ref2vd-workspace"', page.text)
+        self.assertIn('id="ref2vd-image-input" type="file"', page.text)
+        self.assertIn("multiple", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260811.2", page.text)
+        direct_script = self.client.get("/static/ref2v-direct.js")
+        self.assertEqual(direct_script.status_code, 200)
+        self.assertIn('const cookbookVersion = "0.2.0"', direct_script.text)
+        self.assertIn('bindings: { references:', direct_script.text)
+        self.assertNotIn("/references/${", direct_script.text)
+        self.assertNotIn("crypto.randomUUID", direct_script.text)
+        ids = re.findall(r'\bid="([^"]+)"', page.text)
+        self.assertEqual(len(ids), len(set(ids)), "HTML IDs must remain unique")
         self.assertEqual(spec.status_code, 200)
         payload = spec.json()
         self.assertEqual(payload["recipe"]["version"], "0.2.0")

@@ -1,0 +1,10 @@
+APPROVED FRENCH MULTIMODAL BRIEF
+{{BRIEF}}
+
+ORDERED REFERENCE EVIDENCE AND LOCAL <Picture N> MAPPING
+{{REFERENCES}}
+
+REQUIRED DIRECT REF2V V2 ACTION-PLAN JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Produce the exact JSON object now. Do not output duration_seconds. End the final beat when its action has physically settled, then express only the readable tail hold as final_state.final_hold_ms; the application derives the final-state start and total duration. Preserve the approved reference boundaries, action order and scene invariants. This is one continuous shot only: expose any unresolved request for a cut or additional shot as a risk rather than encoding it as camera motion. technical_adjustments must be an empty array.

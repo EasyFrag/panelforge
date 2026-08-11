@@ -25,6 +25,7 @@
     promptLab: $("#prompt-lab-workspace"),
     i2v: $("#i2v-workspace"),
     ref2v: $("#ref2v-workspace"),
+    ref2vDirect: $("#ref2vd-workspace"),
     recipeBadge: $("#recipe-badge"),
     nav: [...document.querySelectorAll("[data-lab-view]")],
     form: $("#prompt-session-form"),
@@ -109,6 +110,7 @@
     elements.promptLab.hidden = !promptActive;
     elements.i2v.hidden = view !== "i2v";
     elements.ref2v.hidden = view !== "ref2v";
+    elements.ref2vDirect.hidden = view !== "ref2v-direct";
     elements.recipeBadge.hidden = view !== "change-view";
     elements.nav.forEach((button) => {
       button.classList.toggle("active", button.dataset.labView === view);

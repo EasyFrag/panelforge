@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from panelforge.application import (
     ModelDescriptor,
     NewReference,
     PromptLabService,
+    PromptProfile,
     StreamEventKind,
     StreamPhase,
 )
@@ -29,6 +31,7 @@ from panelforge.domain import (
     BriefRevision,
     PromptLabSession,
     PromptReference,
+    PromptSessionMode,
     ReferenceEvidencePolicy,
     ReferenceReview,
     ReferenceUse,
@@ -239,8 +242,177 @@ Outdoor garden in warm light."""
         self.assertTrue(changed.brief_is_stale)
         self.assertIsNone(changed.approved_brief_revision_id)
 
+    def test_direct_brief_snapshots_do_not_require_or_track_analyses(self):
+        reference = PromptReference(
+            reference_id="reference-direct",
+            asset_id="asset-direct",
+            role="first_frame",
+            label="Opening frame",
+            uses=(ReferenceUse.FIRST_FRAME,),
+        )
+        session = PromptLabSession(
+            session_id="prompt-direct",
+            model_id="vision-model",
+            profile_id="direct.profile",
+            profile_version="0.1.0",
+            session_mode=PromptSessionMode.DIRECT_MULTIMODAL,
+            references=(reference,),
+        )
+        brief = BriefRevision(
+            revision_id="brief-direct",
+            source_text="Animate <Image 1>.",
+            content=BRIEF_DOCUMENT,
+            creative_freedom=25,
+            origin=RevisionOrigin.MODEL,
+            references=(
+                BriefReferenceSnapshot(
+                    reference_id=reference.reference_id,
+                    analysis_revision_id=None,
+                    uses=reference.uses,
+                ),
+            ),
+        )
+
+        approved = session.add_brief_revision(brief).approve_brief()
+
+        self.assertFalse(approved.analysis_complete)
+        self.assertTrue(approved.brief_complete)
+        analyzed_reference = approved.references[0].add_revision(
+            AnalysisRevision(
+                revision_id="optional-analysis",
+                content="Optional observation.",
+                origin=RevisionOrigin.MODEL,
+            )
+        )
+        self.assertTrue(
+            approved.update_reference(analyzed_reference).brief_complete
+        )
+
+    def test_direct_reference_roles_and_uses_are_domain_invariants(self):
+        def reference(role, uses):
+            return PromptReference(
+                reference_id=f"reference-{role}",
+                asset_id=f"asset-{role}",
+                role=role,
+                label=role,
+                uses=uses,
+            )
+
+        with self.assertRaisesRegex(ValueError, "unsupported direct reference role"):
+            PromptLabSession(
+                session_id="prompt-invalid-role",
+                model_id="vision-model",
+                profile_id="direct.profile",
+                profile_version="0.1.0",
+                session_mode=PromptSessionMode.DIRECT_MULTIMODAL,
+                references=(reference("other", (ReferenceUse.SUBJECT,)),),
+            )
+        with self.assertRaisesRegex(ValueError, "requires use motion"):
+            PromptLabSession(
+                session_id="prompt-invalid-use",
+                model_id="vision-model",
+                profile_id="direct.profile",
+                profile_version="0.1.0",
+                session_mode=PromptSessionMode.DIRECT_MULTIMODAL,
+                references=(
+                    reference("motion_reference", (ReferenceUse.SUBJECT,)),
+                ),
+            )
+        with self.assertRaisesRegex(ValueError, "at most one first_frame"):
+            PromptLabSession(
+                session_id="prompt-duplicate-first",
+                model_id="vision-model",
+                profile_id="direct.profile",
+                profile_version="0.1.0",
+                session_mode=PromptSessionMode.DIRECT_MULTIMODAL,
+                references=(
+                    reference("first_frame", (ReferenceUse.FIRST_FRAME,)),
+                    PromptReference(
+                        reference_id="reference-first-2",
+                        asset_id="asset-first-2",
+                        role="first_frame",
+                        label="first 2",
+                        uses=(ReferenceUse.FIRST_FRAME,),
+                    ),
+                ),
+            )
+
 
 class LocalPromptSessionStoreTest(unittest.TestCase):
+    def test_round_trips_direct_mode_and_null_analysis_snapshots_in_schema_five(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptSessionStore(directory)
+            reference = PromptReference(
+                reference_id="reference-direct",
+                asset_id="asset-direct",
+                role="first_frame",
+                label="Opening frame",
+                uses=(ReferenceUse.FIRST_FRAME,),
+            )
+            session = PromptLabSession(
+                session_id="prompt-direct-store",
+                model_id="vision-model",
+                profile_id="direct.profile",
+                profile_version="0.1.0",
+                session_mode=PromptSessionMode.DIRECT_MULTIMODAL,
+                references=(reference,),
+            ).add_brief_revision(
+                BriefRevision(
+                    revision_id="brief-direct",
+                    source_text="Animate <Image 1>.",
+                    content=BRIEF_DOCUMENT,
+                    creative_freedom=35,
+                    origin=RevisionOrigin.MODEL,
+                    references=(
+                        BriefReferenceSnapshot(
+                            reference_id=reference.reference_id,
+                            analysis_revision_id=None,
+                            uses=reference.uses,
+                        ),
+                    ),
+                )
+            )
+
+            store.create(session)
+
+            self.assertEqual(store.get(session.session_id), session)
+            raw = json.loads(
+                (
+                    Path(directory)
+                    / "prompt_sessions"
+                    / session.session_id
+                    / "session.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(raw["schema_version"], 5)
+            self.assertEqual(raw["session_mode"], "direct_multimodal")
+            self.assertIsNone(
+                raw["brief_revisions"][0]["references"][0][
+                    "analysis_revision_id"
+                ]
+            )
+
+    def test_schema_four_sessions_migrate_to_analyzed_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptSessionStore(directory)
+            session = sample_session()
+            store.create(session)
+            path = (
+                Path(directory)
+                / "prompt_sessions"
+                / session.session_id
+                / "session.json"
+            )
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["schema_version"] = 4
+            del raw["session_mode"]
+            path.write_text(json.dumps(raw), encoding="utf-8")
+
+            migrated = store.get(session.session_id)
+
+            self.assertEqual(migrated.session_mode, PromptSessionMode.ANALYZED)
+            self.assertEqual(migrated, session)
+
     def test_round_trips_an_explicit_appearance_evidence_policy(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalPromptSessionStore(directory)
@@ -333,7 +505,8 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 4)
+            self.assertEqual(raw["schema_version"], 5)
+            self.assertEqual(raw["session_mode"], "analyzed")
             self.assertEqual(raw["brief_revisions"][0]["creative_freedom"], 50)
             self.assertEqual(raw["references"][0]["evidence_policy"], "full")
             self.assertEqual(
@@ -342,6 +515,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
 
             raw["schema_version"] = 3
+            del raw["session_mode"]
             del raw["references"][0]["evidence_policy"]
             del raw["brief_revisions"][0]["references"][0]["evidence_policy"]
             (
@@ -365,6 +539,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 2
+            del raw["session_mode"]
             del raw["brief_revisions"]
             del raw["active_brief_revision_id"]
             del raw["approved_brief_revision_id"]
@@ -628,7 +803,193 @@ class RecordingGateway:
         return CompletionResult(model_id=request.model_id, content=content)
 
 
+class DirectRecordingGateway(RecordingGateway):
+    def stream(self, request):
+        self.requests.append(request)
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.COMPLETED,
+            phase=StreamPhase.COMPLETED,
+            result=CompletionResult(
+                model_id=request.model_id,
+                content=BRIEF_DOCUMENT,
+            ),
+        )
+
+
+class SingleProfileCatalog:
+    def __init__(self, profile):
+        self.profile = profile
+
+    def list(self):
+        return (self.profile,)
+
+    def get(self, profile_id, version):
+        if (profile_id, version) != (
+            self.profile.profile_id,
+            self.profile.version,
+        ):
+            raise KeyError((profile_id, version))
+        return self.profile
+
+
 class PromptLabServiceTest(unittest.TestCase):
+    def test_direct_brief_and_llm_revisions_receive_native_images_in_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ids = iter(("asset-1", "asset-2", "asset-3"))
+            assets = LocalAssetStore(directory, id_factory=lambda: next(ids))
+            stored_assets = (
+                assets.create(PNG + b"one", "image/png"),
+                assets.create(PNG + b"two", "image/png"),
+                assets.create(PNG + b"three", "image/png"),
+            )
+            base_profile = LocalPromptProfileCatalog(PROFILE_ROOT).get(
+                "minimax.h3.reference",
+                "0.3.0",
+            )
+            direct_profile = replace(
+                base_profile,
+                profile_id="minimax.h3.direct",
+                version="0.1.0",
+                session_mode=PromptSessionMode.DIRECT_MULTIMODAL,
+            )
+            gateway = DirectRecordingGateway()
+            service = PromptLabService(
+                gateway=gateway,
+                profiles=SingleProfileCatalog(direct_profile),
+                assets=assets,
+                sessions=LocalPromptSessionStore(directory),
+            )
+            session = service.create_session(
+                model_id="vision-model",
+                profile_id=direct_profile.profile_id,
+                profile_version=direct_profile.version,
+                references=(
+                    NewReference(
+                        stored_assets[0].asset_id,
+                        "first_frame",
+                        "Start",
+                        (ReferenceUse.FIRST_FRAME,),
+                    ),
+                    NewReference(
+                        stored_assets[1].asset_id,
+                        "motion_reference",
+                        "Motion",
+                        (ReferenceUse.MOTION,),
+                    ),
+                    NewReference(
+                        stored_assets[2].asset_id,
+                        "last_frame",
+                        "End",
+                        (ReferenceUse.LAST_FRAME,),
+                    ),
+                ),
+            )
+
+            self.assertEqual(
+                session.session_mode,
+                PromptSessionMode.DIRECT_MULTIMODAL,
+            )
+            self.assertFalse(session.analysis_complete)
+            session = service.structure_brief(
+                session.session_id,
+                "Move from <Image 1> to <Image 3> using <Image 2>.",
+                35,
+            )
+
+            structure_request = gateway.requests[-1]
+            self.assertEqual(structure_request.operation_id, "brief.structure")
+            self.assertEqual(
+                tuple(image.content for image in structure_request.images),
+                (PNG + b"one", PNG + b"two", PNG + b"three"),
+            )
+            self.assertEqual(
+                tuple(image.label for image in structure_request.images),
+                (
+                    "<Image 1> · Start",
+                    "<Image 2> · Motion",
+                    "<Image 3> · End",
+                ),
+            )
+            self.assertLess(
+                structure_request.user_prompt.index("<Image 1>"),
+                structure_request.user_prompt.index("<Image 2>"),
+            )
+            self.assertLess(
+                structure_request.user_prompt.index("<Image 2>"),
+                structure_request.user_prompt.index("<Image 3>"),
+            )
+            self.assertIn(
+                "NATIVE IMAGE ATTACHED TO THIS REQUEST",
+                structure_request.user_prompt,
+            )
+            self.assertTrue(
+                all(
+                    snapshot.analysis_revision_id is None
+                    for snapshot in session.active_brief_revision.references
+                )
+            )
+
+            session = service.revise_brief(session.session_id, "Keep it factual.")
+            revise_request = gateway.requests[-1]
+            self.assertEqual(revise_request.operation_id, "brief.revise")
+            self.assertEqual(
+                tuple(image.content for image in revise_request.images),
+                (PNG + b"one", PNG + b"two", PNG + b"three"),
+            )
+
+            events = list(
+                service.stream_revise_brief(
+                    session.session_id,
+                    "Keep the same image mapping.",
+                )
+            )
+            stream_request = gateway.requests[-1]
+            self.assertEqual(stream_request.operation_id, "brief.revise")
+            self.assertEqual(
+                tuple(image.label for image in stream_request.images),
+                (
+                    "<Image 1> · Start",
+                    "<Image 2> · Motion",
+                    "<Image 3> · End",
+                ),
+            )
+            self.assertTrue(events[-1].session.brief_complete is False)
+
+    def test_direct_sessions_reject_more_than_three_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base_profile = LocalPromptProfileCatalog(PROFILE_ROOT).get(
+                "minimax.h3.reference",
+                "0.3.0",
+            )
+            direct_profile = replace(
+                base_profile,
+                profile_id="minimax.h3.direct",
+                version="0.1.0",
+                session_mode=PromptSessionMode.DIRECT_MULTIMODAL,
+            )
+            service = PromptLabService(
+                gateway=DirectRecordingGateway(),
+                profiles=SingleProfileCatalog(direct_profile),
+                assets=LocalAssetStore(directory),
+                sessions=LocalPromptSessionStore(directory),
+            )
+
+            with self.assertRaisesRegex(ValueError, "at most 3 references"):
+                service.create_session(
+                    model_id="vision-model",
+                    profile_id=direct_profile.profile_id,
+                    profile_version=direct_profile.version,
+                    references=tuple(
+                        NewReference(
+                            f"asset-{index}",
+                            "subject_reference",
+                            f"Reference {index}",
+                            (ReferenceUse.SUBJECT,),
+                        )
+                        for index in range(4)
+                    ),
+                )
+
     def test_each_reference_is_analyzed_revised_and_approved_independently(self):
         with tempfile.TemporaryDirectory() as directory:
             ids = iter(("asset-1", "asset-2"))
@@ -909,6 +1270,58 @@ class PromptLabServiceTest(unittest.TestCase):
 
 
 class PromptProfileCatalogTest(unittest.TestCase):
+    def test_schema_four_loads_direct_mode_without_interpretation_prompts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_directory = Path(directory) / "direct" / "0.1.0"
+            profile_directory.mkdir(parents=True)
+            prompt_keys = (
+                "analysis_system",
+                "analysis_user",
+                "revision_system",
+                "revision_user",
+                "brief_system",
+                "brief_user",
+                "brief_revision_system",
+                "brief_revision_user",
+            )
+            bindings = {}
+            for key in prompt_keys:
+                filename = f"{key}.txt"
+                bindings[key] = filename
+                (profile_directory / filename).write_text(
+                    f"Prompt for {key}.",
+                    encoding="utf-8",
+                )
+            (profile_directory / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 4,
+                        "profile_id": "minimax.h3.direct",
+                        "version": "0.1.0",
+                        "display_name": "Direct multimodal",
+                        "target_model_family": "MiniMax H3",
+                        "source_guides": [],
+                        "prompts": bindings,
+                        "status": "experimental",
+                        "session_mode": "direct_multimodal",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            profile = LocalPromptProfileCatalog(directory).get(
+                "minimax.h3.direct",
+                "0.1.0",
+            )
+
+            self.assertEqual(
+                profile.session_mode,
+                PromptSessionMode.DIRECT_MULTIMODAL,
+            )
+            self.assertIsNone(profile.interpretation_system_prompt)
+            self.assertIsNone(profile.interpretation_user_prompt)
+            self.assertIn("brief_user", profile.brief_user_prompt)
+
     def test_loads_first_versioned_minimax_profile(self):
         catalog = LocalPromptProfileCatalog(PROFILE_ROOT)
         profile = catalog.get("minimax.h3.reference", "0.1.0")
@@ -923,7 +1336,17 @@ class PromptProfileCatalogTest(unittest.TestCase):
         self.assertIn("{uses}", enriched.interpretation_user_prompt)
         self.assertIn("{reference_context}", brief.brief_user_prompt)
         self.assertIn("<Image 1>", brief.brief_system_prompt)
-        self.assertEqual(catalog.list(), (profile, enriched, brief))
+        self.assertEqual(profile.session_mode, PromptSessionMode.ANALYZED)
+        self.assertEqual(enriched.session_mode, PromptSessionMode.ANALYZED)
+        self.assertEqual(brief.session_mode, PromptSessionMode.ANALYZED)
+        self.assertEqual(
+            tuple(
+                item
+                for item in catalog.list()
+                if item.profile_id == "minimax.h3.reference"
+            ),
+            (profile, enriched, brief),
+        )
 
 
 if __name__ == "__main__":

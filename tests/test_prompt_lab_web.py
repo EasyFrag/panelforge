@@ -194,10 +194,85 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertEqual(models.status_code, 200)
         self.assertEqual(len(models.json()["models"]), 2)
         self.assertEqual(spec.status_code, 200)
-        profile = spec.json()["profiles"][0]
+        profiles = spec.json()["profiles"]
+        profile = next(
+            item
+            for item in profiles
+            if item["id"] == "minimax.h3.reference"
+            and item["version"] == "0.1.0"
+        )
         self.assertEqual(profile["id"], "minimax.h3.reference")
         self.assertEqual(profile["version"], "0.1.0")
-        self.assertTrue(spec.json()["profiles"][-1]["supports_brief"])
+        self.assertEqual(profile["session_mode"], "analyzed")
+        direct_profile = next(
+            item
+            for item in profiles
+            if item["id"] == "minimax.h3.ref2v.direct"
+            and item["version"] == "0.1.0"
+        )
+        self.assertEqual(direct_profile["session_mode"], "direct_multimodal")
+        self.assertTrue(direct_profile["supports_brief"])
+
+    def test_direct_multimodal_structures_brief_without_observations(self):
+        created = self.client.post(
+            "/api/prompt-lab/sessions",
+            data={
+                "roles": [
+                    "first_frame",
+                    "subject_reference",
+                    "environment_reference",
+                ],
+                "usages": ["first_frame", "subject", "environment"],
+                "model_id": "vision-small",
+                "profile_id": "minimax.h3.ref2v.direct",
+                "profile_version": "0.1.0",
+            },
+            files=[
+                ("images", ("start.png", PNG + b"start", "image/png")),
+                ("images", ("subject.png", PNG + b"subject", "image/png")),
+                ("images", ("room.png", PNG + b"room", "image/png")),
+            ],
+        )
+
+        self.assertEqual(created.status_code, 201, created.text)
+        session = created.json()
+        self.assertEqual(session["session_mode"], "direct_multimodal")
+        self.assertFalse(session["analysis_complete"])
+        self.assertTrue(
+            all(
+                reference["active_content"] is None
+                for reference in session["references"]
+            )
+        )
+
+        structured = self.client.post(
+            f"/api/prompt-lab/sessions/{session['id']}/brief/structure",
+            json={
+                "source_text": "Le sujet traverse la pièce en un plan continu.",
+                "creative_freedom": 20,
+            },
+        )
+
+        self.assertEqual(structured.status_code, 200, structured.text)
+        brief = structured.json()
+        self.assertIsNotNone(brief["active_brief"])
+        self.assertEqual(
+            [
+                reference["analysis_revision_id"]
+                for reference in brief["brief_revisions"][-1]["references"]
+            ],
+            [None, None, None],
+        )
+        request = self.gateway.requests[-1]
+        self.assertEqual(request.operation_id, "brief.structure")
+        self.assertEqual(
+            [image.label for image in request.images],
+            [
+                "<Image 1> · start.png",
+                "<Image 2> · subject.png",
+                "<Image 3> · room.png",
+            ],
+        )
 
     def test_session_creation_accepts_one_explicit_evidence_policy_per_image(self):
         response = self.client.post(

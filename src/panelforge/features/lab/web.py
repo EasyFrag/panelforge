@@ -360,6 +360,7 @@ def create_app(
                     "version": profile.version,
                     "display_name": profile.display_name,
                     "target_model_family": profile.target_model_family,
+                    "session_mode": profile.session_mode.value,
                     "supports_interpretation": (
                         profile.interpretation_system_prompt is not None
                     ),
@@ -943,6 +944,7 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
         "id": session.session_id,
         "session_id": session.session_id,
         "model_id": session.model_id,
+        "session_mode": session.session_mode.value,
         "profile": {
             "id": session.profile_id,
             "version": session.profile_version,

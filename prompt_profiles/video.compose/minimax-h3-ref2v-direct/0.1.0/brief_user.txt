@@ -1,0 +1,10 @@
+NIVEAU DE LIBERTÉ CRÉATIVE : {creative_freedom}/100
+POLITIQUE ASSOCIÉE : {creative_policy}
+
+IMAGES NATIVES ET MÉTADONNÉES DE RÉFÉRENCE
+{reference_context}
+
+INTENTION UTILISATEUR
+{source_text}
+
+Lis directement toutes les images natives jointes dans leur ordre, associe-les aux labels fixes <Image N> et produis le Brief français aux neuf sections exactes. Conserve la séparation entre observé, demandé, proposé et incertain. Relève toute contradiction ou difficulté de faisabilité sans la résoudre silencieusement.

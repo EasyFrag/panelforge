@@ -140,6 +140,27 @@ L’interface permet d’analyser les deux images en une action ou de relancer, 
 
 Les neuf titres du Brief sont normalisés par code avec ou sans tiret initial, puis validés exactement une fois et dans le bon ordre avant persistance. Après chaque génération, les éditeurs reviennent en haut du document.
 
+### Ref2V Direct — brief multimodal sans observation intermédiaire
+
+L’onglet indépendant `Ref2V Direct` conserve l’ancien Ref2V comme témoin et propose un parcours générique plus court :
+
+```text
+1 à 3 images natives + intention simple
+  → Brief multimodal éditable et approuvé
+  → Plan JSON physique éditable et approuvé
+  → prompt MiniMax H3 compilé et approuvé
+```
+
+Le profil `minimax.h3.ref2v.direct@0.1.0` ne crée aucune fiche d’observation. Le modèle reçoit directement les images pendant la génération du Brief et à chaque révision de celui-ci. Le planner reçoit à nouveau les mêmes pixels, dans le même ordre, avec le Brief approuvé. Le writer final reste textuel : il ne reçoit que le mapping immuable et le Plan approuvé.
+
+Chaque image porte un rôle fermé — première ou dernière frame, keyframe, sujet, décor, composition, style ou mouvement — et l’ordre affiché fixe le mapping `<Image N> → <Picture N>`. Le cookbook sélectionné par défaut est désormais `minimax.h3.ref2v.direct@0.2.0`; `0.1.0` reste inchangé comme témoin et les compositions existantes continuent de l’utiliser.
+
+Le Plan est volontairement générique : personnes, vêtements, accessoires, objets rigides ou articulés utilisent le même contrat de contacts, trajectoires, appuis, relâchement et état observable. En `0.2.0`, le LLM cadence uniquement les actions et choisit `final_hold_ms`; il ne produit plus `duration_seconds` ni de timestamp redondant pour l’état final. Le code place cet état à la fin du dernier beat et calcule la durée totale, sans retimer ni interpréter les gestes. Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés sont des avertissements ; JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants.
+
+Cette version représente toujours un seul plan continu. Une demande de coupe ou de second plan doit remonter comme risque explicite ; le support multi-shot sera un contrat séparé, pas une caméra détournée.
+
+Les trois appels nominaux sont déclenchés séparément dans l’interface. Les corrections manuelles ne consomment aucun appel ; une révision du Brief ou du Prompt en langage naturel ajoute un appel explicite. Les recettes historiques et leurs sessions ne sont pas modifiées.
+
 ## Lancer le Lab
 
 L’interface tourne sur le poste PanelForge et appelle ComfyUI à distance. Rien n’est installé dans l’environnement Python du serveur GPU.
@@ -182,6 +203,7 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ### 1. Qualifier les parcours courts I2V et Ref2V
 
+- tester `minimax.h3.ref2v.direct@0.2.0` avec une, deux puis trois références et plusieurs familles d’actions, puis comparer à `0.1.0` ; mesurer fidélité aux rôles, continuité du décor, physique, rythme et clipping ;
 - comparer en A/B `minimax.h3.i2v.simple@0.3.0` à son témoin `0.2.0` sur les mêmes images et intentions : qualité vidéo, rythme, tags, voix et synchronisation labiale ;
 - comparer en A/B `undressing.single_shot@0.11.0` à son témoin `0.10.0` sur plusieurs constructions de vêtements : topologie, passages par les ouvertures, continuité des prises, clipping, rythme et caméra ;
 - versionner une nouvelle recette seulement à partir de défauts reproduits sur plusieurs rendus, en conservant prompts, contexte compilateur et observations de test.
@@ -232,4 +254,4 @@ Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie p
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 258 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 298 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

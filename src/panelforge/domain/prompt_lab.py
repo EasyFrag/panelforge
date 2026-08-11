@@ -25,6 +25,7 @@ class ReferenceUse(StrEnum):
     COMPOSITION = "composition"
     ENVIRONMENT = "environment"
     STYLE = "style"
+    MOTION = "motion"
 
 
 class ReferenceEvidencePolicy(StrEnum):
@@ -32,6 +33,38 @@ class ReferenceEvidencePolicy(StrEnum):
 
     FULL = "full"
     APPEARANCE_ONLY_V1 = "appearance_only_v1"
+
+
+class PromptSessionMode(StrEnum):
+    """Selects how visual evidence reaches Brief generation."""
+
+    ANALYZED = "analyzed"
+    DIRECT_MULTIMODAL = "direct_multimodal"
+
+
+_DIRECT_REFERENCE_REQUIRED_USES = {
+    "first_frame": ReferenceUse.FIRST_FRAME,
+    "keyframe_reference": ReferenceUse.KEYFRAME,
+    "subject_reference": ReferenceUse.SUBJECT,
+    "environment_reference": ReferenceUse.ENVIRONMENT,
+    "style_reference": ReferenceUse.STYLE,
+    "composition_reference": ReferenceUse.COMPOSITION,
+    "motion_reference": ReferenceUse.MOTION,
+    "last_frame": ReferenceUse.LAST_FRAME,
+}
+
+
+def direct_reference_required_use(role: str) -> ReferenceUse:
+    """Return the semantic use required by a Direct reference role."""
+
+    _require_text(role, "role")
+    try:
+        return _DIRECT_REFERENCE_REQUIRED_USES[role]
+    except KeyError as error:
+        allowed = ", ".join(_DIRECT_REFERENCE_REQUIRED_USES)
+        raise ValueError(
+            f"unsupported direct reference role {role!r}; expected one of {allowed}"
+        ) from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,13 +119,14 @@ class InterpretationRevision:
 @dataclass(frozen=True, slots=True)
 class BriefReferenceSnapshot:
     reference_id: str
-    analysis_revision_id: str
+    analysis_revision_id: str | None
     uses: tuple[ReferenceUse, ...]
     evidence_policy: ReferenceEvidencePolicy = ReferenceEvidencePolicy.FULL
 
     def __post_init__(self) -> None:
         _require_text(self.reference_id, "reference_id")
-        _require_text(self.analysis_revision_id, "analysis_revision_id")
+        if self.analysis_revision_id is not None:
+            _require_text(self.analysis_revision_id, "analysis_revision_id")
         _require_uses(self.uses)
         if not isinstance(self.evidence_policy, ReferenceEvidencePolicy):
             raise TypeError("evidence_policy must be a ReferenceEvidencePolicy")
@@ -336,6 +370,7 @@ class PromptLabSession:
     profile_id: str
     profile_version: str
     references: tuple[PromptReference, ...]
+    session_mode: PromptSessionMode = PromptSessionMode.ANALYZED
     brief_revisions: tuple[BriefRevision, ...] = ()
     active_brief_revision_id: str | None = None
     approved_brief_revision_id: str | None = None
@@ -374,9 +409,14 @@ class PromptLabSession:
             return True
         for reference in self.references:
             snapshot = snapshots[reference.reference_id]
-            if (
+            analysis_is_stale = (
                 reference.approved_revision_id != reference.active_revision_id
                 or snapshot.analysis_revision_id != reference.active_revision_id
+            ) if self.session_mode is PromptSessionMode.ANALYZED else (
+                snapshot.analysis_revision_id is not None
+            )
+            if (
+                analysis_is_stale
                 or set(snapshot.uses) != set(reference.uses)
                 or snapshot.evidence_policy is not reference.evidence_policy
             ):
@@ -407,25 +447,42 @@ class PromptLabSession:
             raise ValueError("a reference evidence policy cannot be changed in place")
         if current == updated:
             return self
+        brief_inputs_changed = (
+            self.session_mode is PromptSessionMode.ANALYZED
+            or current.role != updated.role
+            or current.label != updated.label
+            or set(current.uses) != set(updated.uses)
+        )
         return replace(
             self,
             references=tuple(
                 updated if item.reference_id == updated.reference_id else item
                 for item in self.references
             ),
-            approved_brief_revision_id=None,
+            approved_brief_revision_id=(
+                None
+                if brief_inputs_changed
+                else self.approved_brief_revision_id
+            ),
         )
 
     def add_brief_revision(self, revision: BriefRevision) -> PromptLabSession:
         if not isinstance(revision, BriefRevision):
             raise TypeError("revision must be a BriefRevision")
-        if not self.analysis_complete:
+        if (
+            self.session_mode is PromptSessionMode.ANALYZED
+            and not self.analysis_complete
+        ):
             raise ValueError("approve every visual analysis before structuring the brief")
         if revision.parent_revision_id != self.active_brief_revision_id:
             raise ValueError("brief revision parent must be the active revision")
         expected = {
             reference.reference_id: (
-                reference.active_revision_id,
+                (
+                    reference.active_revision_id
+                    if self.session_mode is PromptSessionMode.ANALYZED
+                    else None
+                ),
                 set(reference.uses),
                 reference.evidence_policy,
             )
@@ -475,6 +532,13 @@ class PromptLabSession:
             raise TypeError("references must be a tuple")
         if not self.references:
             raise ValueError("references must not be empty")
+        if not isinstance(self.session_mode, PromptSessionMode):
+            raise TypeError("session_mode must be a PromptSessionMode")
+        if (
+            self.session_mode is PromptSessionMode.DIRECT_MULTIMODAL
+            and len(self.references) > 3
+        ):
+            raise ValueError("direct multimodal sessions support at most 3 references")
         reference_ids: set[str] = set()
         for reference in self.references:
             if not isinstance(reference, PromptReference):
@@ -482,6 +546,19 @@ class PromptLabSession:
             if reference.reference_id in reference_ids:
                 raise ValueError("references must have unique IDs")
             reference_ids.add(reference.reference_id)
+        if self.session_mode is PromptSessionMode.DIRECT_MULTIMODAL:
+            for role in ("first_frame", "last_frame"):
+                if sum(reference.role == role for reference in self.references) > 1:
+                    raise ValueError(
+                        f"direct multimodal sessions allow at most one {role}"
+                    )
+            for reference in self.references:
+                required_use = direct_reference_required_use(reference.role)
+                if required_use not in reference.uses:
+                    raise ValueError(
+                        f"direct reference role {reference.role} requires use "
+                        f"{required_use.value}"
+                    )
         if not isinstance(self.brief_revisions, tuple):
             raise TypeError("brief_revisions must be a tuple")
         brief_revision_ids: set[str] = set()
@@ -490,6 +567,20 @@ class PromptLabSession:
                 raise TypeError("brief_revisions must contain BriefRevision values")
             if revision.revision_id in brief_revision_ids:
                 raise ValueError("brief revisions must have unique IDs")
+            if self.session_mode is PromptSessionMode.ANALYZED and any(
+                reference.analysis_revision_id is None
+                for reference in revision.references
+            ):
+                raise ValueError(
+                    "analyzed brief snapshots require analysis revision IDs"
+                )
+            if self.session_mode is PromptSessionMode.DIRECT_MULTIMODAL and any(
+                reference.analysis_revision_id is not None
+                for reference in revision.references
+            ):
+                raise ValueError(
+                    "direct multimodal brief snapshots must not reference analyses"
+                )
             brief_revision_ids.add(revision.revision_id)
             expected_parent = (
                 self.brief_revisions[index - 1].revision_id if index else None

@@ -306,6 +306,49 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .i2v-anchor-note b { color: var(--green); font-size: .75rem; }
 .i2v-anchor-note p { margin: .4rem 0 0; color: var(--muted); font-size: .72rem; line-height: 1.6; }
 .i2v-workspace .cookbook-step { margin-top: .65rem; }
+
+.ref2vd-add { min-height: 5.5rem; }
+.ref2vd-reference-list { display: grid; gap: .55rem; margin-top: .65rem; }
+.ref2vd-reference-card {
+  display: grid;
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+  gap: .65rem;
+  align-items: center;
+  padding: .55rem;
+  border: 1px solid var(--line);
+  border-radius: .75rem;
+  background: var(--panel);
+}
+.ref2vd-reference-card img {
+  width: 4.25rem;
+  height: 4.25rem;
+  object-fit: cover;
+  border-radius: .55rem;
+}
+.ref2vd-reference-card > div { min-width: 0; display: grid; gap: .35rem; }
+.ref2vd-reference-card b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref2vd-reference-card select { width: 100%; }
+.ref2vd-card-actions { display: flex; gap: .35rem; }
+.ref2vd-card-actions button { min-height: 1.9rem; padding: .25rem .5rem; }
+.ref2vd-reference-dock {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .7rem;
+  margin: .8rem 0;
+}
+.ref2vd-reference-dock figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: .8rem;
+  background: var(--panel);
+}
+.ref2vd-reference-dock img { width: 100%; height: 10rem; object-fit: contain; display: block; }
+.ref2vd-reference-dock figcaption { padding: .45rem .6rem; font-size: .78rem; }
+
+@media (max-width: 760px) {
+  .ref2vd-reference-dock { grid-template-columns: 1fr; }
+}
 .ref2v-upload-grid, .ref2v-reference-grid, .ref2v-observation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
 .ref2v-reference-grid { margin: 1rem 0; }
 .ref2v-reference-grid figure { min-width: 0; }

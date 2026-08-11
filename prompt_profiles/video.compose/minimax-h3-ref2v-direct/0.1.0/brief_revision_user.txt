@@ -1,0 +1,16 @@
+NIVEAU DE LIBERTÉ CRÉATIVE : {creative_freedom}/100
+POLITIQUE ASSOCIÉE : {creative_policy}
+
+IMAGES NATIVES ET MÉTADONNÉES DE RÉFÉRENCE
+{reference_context}
+
+INTENTION UTILISATEUR D’ORIGINE
+{source_text}
+
+BRIEF ACTUEL
+{current_brief}
+
+MODIFICATION DEMANDÉE
+{instruction}
+
+Relis toutes les images natives, applique seulement la modification demandée et retourne le Brief français complet aux neuf sections exactes. Préserve les rôles, usages et provenances ; transforme toute contradiction non arbitrée en question explicite.

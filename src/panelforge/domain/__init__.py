@@ -27,10 +27,12 @@ from .prompt_lab import (
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
+    PromptSessionMode,
     ReferenceEvidencePolicy,
     ReferenceReview,
     ReferenceUse,
     RevisionOrigin,
+    direct_reference_required_use,
 )
 from .prompt_composition import (
     CompositionRevision,
@@ -63,6 +65,7 @@ __all__ = [
     "PromptLabSession",
     "PromptComposition",
     "PromptReference",
+    "PromptSessionMode",
     "ReferenceEvidencePolicy",
     "PromptSnapshot",
     "RecipeRef",
@@ -76,4 +79,5 @@ __all__ = [
     "VariationMethod",
     "VariationPolicy",
     "h3_media_label",
+    "direct_reference_required_use",
 ]

@@ -18,6 +18,7 @@ from panelforge.domain import (
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
+    PromptSessionMode,
     ReferenceEvidencePolicy,
     ReferenceUse,
     RevisionOrigin,
@@ -304,6 +305,11 @@ class PromptProfile:
     brief_user_prompt: str | None = None
     brief_revision_system_prompt: str | None = None
     brief_revision_user_prompt: str | None = None
+    session_mode: PromptSessionMode = PromptSessionMode.ANALYZED
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.session_mode, PromptSessionMode):
+            raise TypeError("session_mode must be a PromptSessionMode")
 
 
 @dataclass(frozen=True, slots=True)
@@ -404,12 +410,13 @@ class PromptLabService:
         profile_version: str,
         references: tuple[NewReference, ...],
     ) -> PromptLabSession:
-        self.profiles.get(profile_id, profile_version)
+        profile = self.profiles.get(profile_id, profile_version)
         session = PromptLabSession(
             session_id=f"prompt-{uuid4().hex}",
             model_id=model_id,
             profile_id=profile_id,
             profile_version=profile_version,
+            session_mode=profile.session_mode,
             references=tuple(
                 PromptReference(
                     reference_id=f"ref-{uuid4().hex}",
@@ -779,6 +786,7 @@ class PromptLabService:
                     reference_context=context,
                     source_text=_required_text(source_text, "source_text"),
                 ),
+                images=self._brief_images(session),
                 operation_id="brief.structure",
             )
         )
@@ -810,6 +818,7 @@ class PromptLabService:
                 reference_context=context,
                 source_text=_required_text(source_text, "source_text"),
             ),
+            images=self._brief_images(session),
             operation_id="brief.structure",
         )
         yield from self._stream_completion(
@@ -861,6 +870,7 @@ class PromptLabService:
                     current_brief=current.content,
                     instruction=_required_text(instruction, "instruction"),
                 ),
+                images=self._brief_images(session),
                 operation_id="brief.revise",
             )
         )
@@ -895,6 +905,7 @@ class PromptLabService:
                 current_brief=current.content,
                 instruction=_required_text(instruction, "instruction"),
             ),
+            images=self._brief_images(session),
             operation_id="brief.revise",
         )
         yield from self._stream_completion(
@@ -924,6 +935,21 @@ class PromptLabService:
             content=self.assets.read_bytes(reference.asset_id),
             label=reference.label,
         )
+
+    def _brief_images(self, session: PromptLabSession) -> tuple[ImageInput, ...]:
+        if session.session_mode is not PromptSessionMode.DIRECT_MULTIMODAL:
+            return ()
+        images: list[ImageInput] = []
+        for index, reference in enumerate(session.references, 1):
+            image = self._image(reference)
+            images.append(
+                ImageInput(
+                    media_type=image.media_type,
+                    content=image.content,
+                    label=f"<Image {index}> · {reference.label}",
+                )
+            )
+        return tuple(images)
 
     def _append_revision(
         self,
@@ -1074,22 +1100,56 @@ def _brief_revision_prompts(profile: PromptProfile) -> tuple[str, str]:
 def _brief_inputs(
     session: PromptLabSession,
 ) -> tuple[str, tuple[BriefReferenceSnapshot, ...]]:
-    if not session.analysis_complete:
+    if (
+        session.session_mode is PromptSessionMode.ANALYZED
+        and not session.analysis_complete
+    ):
         raise ValueError("approve every visual analysis before structuring the brief")
     context: list[str] = []
     snapshots: list[BriefReferenceSnapshot] = []
     for index, reference in enumerate(session.references, 1):
         analysis = reference.active_revision
-        if analysis is None or reference.approved_revision_id != analysis.revision_id:
+        if (
+            session.session_mode is PromptSessionMode.ANALYZED
+            and (
+                analysis is None
+                or reference.approved_revision_id != analysis.revision_id
+            )
+        ):
             raise ValueError("approve every visual analysis before structuring the brief")
         snapshots.append(
             BriefReferenceSnapshot(
                 reference_id=reference.reference_id,
-                analysis_revision_id=analysis.revision_id,
+                analysis_revision_id=(
+                    analysis.revision_id
+                    if session.session_mode is PromptSessionMode.ANALYZED
+                    and analysis is not None
+                    else None
+                ),
                 uses=reference.uses,
                 evidence_policy=reference.evidence_policy,
             )
         )
+        if session.session_mode is PromptSessionMode.DIRECT_MULTIMODAL:
+            context.append(
+                "\n".join(
+                    (
+                        f"<Image {index}>",
+                        f"Name: {reference.label}",
+                        f"User role: {reference.role}",
+                        "Uses: " + ", ".join(
+                            use.value for use in reference.uses
+                        ),
+                        f"Evidence policy: {reference.evidence_policy.value}",
+                        "NATIVE IMAGE ATTACHED TO THIS REQUEST",
+                    )
+                )
+            )
+            continue
+        if analysis is None:  # Guarded above; explicit for type narrowing.
+            raise ValueError(
+                "approve every visual analysis before structuring the brief"
+            )
         context.append(
             "\n".join(
                 (

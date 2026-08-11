@@ -90,7 +90,7 @@ class LocalPromptCookbookCatalog:
         if not isinstance(manifest, dict):
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
         schema_version = manifest.get("schema_version")
-        if schema_version not in {2, 3}:
+        if schema_version not in {2, 3, 4}:
             raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         expected = {
             "schema_version",
@@ -108,7 +108,7 @@ class LocalPromptCookbookCatalog:
             "slots",
             "templates",
         }
-        if schema_version == 3:
+        if schema_version >= 3:
             expected.add("invalid_camera_target_policy")
         if set(manifest) != expected:
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
@@ -131,7 +131,7 @@ class LocalPromptCookbookCatalog:
                 "minimum_references",
                 "maximum_references",
             }
-            if schema_version == 3:
+            if schema_version >= 3:
                 expected_slot_fields.add("evidence_policy")
             if not isinstance(raw_slot, dict) or set(raw_slot) != expected_slot_fields:
                 raise ValueError(f"invalid cookbook slot: {manifest_path}")
@@ -141,7 +141,7 @@ class LocalPromptCookbookCatalog:
                 description=_text(raw_slot["description"], "slot description"),
                 evidence_policy=(
                     ReferenceEvidencePolicy(raw_slot["evidence_policy"])
-                    if schema_version == 3
+                    if schema_version >= 3
                     else ReferenceEvidencePolicy.FULL
                 ),
                 subject_label=_optional_text(
@@ -155,10 +155,12 @@ class LocalPromptCookbookCatalog:
                 required_uses=_text_list(
                     raw_slot["required_uses"],
                     "required_uses",
+                    allow_empty=schema_version >= 4,
                 ),
                 required_shots=_positive_int_list(
                     raw_slot["required_shots"],
                     "required_shots",
+                    allow_empty=schema_version >= 4,
                 ),
                 minimum_references=_positive_int(
                     raw_slot["minimum_references"], "minimum_references"
@@ -213,7 +215,7 @@ class LocalPromptCookbookCatalog:
                 manifest["invalid_camera_target_policy"],
                 "invalid_camera_target_policy",
             )
-            if schema_version == 3
+            if schema_version >= 3
             else "reject"
         )
         if invalid_camera_target_policy not in {"reject", "drop_with_warning"}:
@@ -291,18 +293,30 @@ def _optional_text(value: object, name: str) -> str | None:
     return _text(value, name)
 
 
-def _text_list(value: object, name: str) -> tuple[str, ...]:
-    if not isinstance(value, list) or not value:
-        raise ValueError(f"{name} must be a non-empty list")
+def _text_list(
+    value: object,
+    name: str,
+    *,
+    allow_empty: bool = False,
+) -> tuple[str, ...]:
+    if not isinstance(value, list) or (not allow_empty and not value):
+        qualifier = "a list" if allow_empty else "a non-empty list"
+        raise ValueError(f"{name} must be {qualifier}")
     items = tuple(_text(item, name) for item in value)
     if len(items) != len(set(items)):
         raise ValueError(f"{name} must not contain duplicates")
     return items
 
 
-def _positive_int_list(value: object, name: str) -> tuple[int, ...]:
-    if not isinstance(value, list) or not value:
-        raise ValueError(f"{name} must be a non-empty list")
+def _positive_int_list(
+    value: object,
+    name: str,
+    *,
+    allow_empty: bool = False,
+) -> tuple[int, ...]:
+    if not isinstance(value, list) or (not allow_empty and not value):
+        qualifier = "a list" if allow_empty else "a non-empty list"
+        raise ValueError(f"{name} must be {qualifier}")
     items = tuple(_positive_int(item, name) for item in value)
     if len(items) != len(set(items)):
         raise ValueError(f"{name} must not contain duplicates")
