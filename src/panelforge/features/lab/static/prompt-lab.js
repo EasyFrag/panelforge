@@ -133,6 +133,37 @@
     return payload;
   }
 
+  let completionAudioContext = null;
+
+  function prepareCompletionAudio() {
+    if (!completionAudioContext) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      completionAudioContext = new AudioContext();
+    }
+    if (completionAudioContext.state === "suspended") {
+      completionAudioContext.resume().catch(() => {});
+    }
+  }
+
+  function playCompletionTone() {
+    if (!completionAudioContext || completionAudioContext.state !== "running") return;
+    const now = completionAudioContext.currentTime;
+    const oscillator = completionAudioContext.createOscillator();
+    const gain = completionAudioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(660, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.025, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+    oscillator.connect(gain).connect(completionAudioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.2);
+  }
+
+  document.addEventListener("pointerdown", prepareCompletionAudio, { capture: true });
+  document.addEventListener("keydown", prepareCompletionAudio, { capture: true });
+
   async function streamRequest(url, options, onEvent) {
     const response = await fetch(url, options);
     if (!response.ok) {
@@ -163,6 +194,7 @@
           const event = JSON.parse(data);
           if (event.kind === "error") throw new Error(event.message || "Le flux LLM a échoué.");
           onEvent(event);
+          if (event.kind === "completed") playCompletionTone();
         }
         boundary = buffer.indexOf("\n\n");
       }
