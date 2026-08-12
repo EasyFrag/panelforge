@@ -1,0 +1,19 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+ORDERED REFERENCES
+{{REFERENCES}}
+
+CURRENT PLAN
+{{CURRENT_PLAN}}
+
+HUMAN DECISIONS
+{{DECISIONS}}
+
+GLOBAL INSTRUCTION
+{{GLOBAL_INSTRUCTION}}
+
+REQUIRED DIRECT REF2V V2 JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Relook at the images, apply the decisions to both risk.resolution and the real plan semantics, then return only the complete JSON object.

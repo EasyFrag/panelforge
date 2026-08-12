@@ -360,7 +360,7 @@ class DirectRef2VCompositionTest(unittest.TestCase):
             service, _, _ = configured_service(
                 directory,
                 2,
-                cookbook_version="0.3.1",
+                cookbook_version="0.3.2",
             )
             gateway = ArbitrationGateway()
             service.gateway = gateway

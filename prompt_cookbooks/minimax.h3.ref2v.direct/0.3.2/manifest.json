@@ -1,0 +1,41 @@
+{
+  "schema_version": 5,
+  "cookbook_id": "minimax.h3.ref2v.direct",
+  "version": "0.3.2",
+  "display_name": "MiniMax H3 Ref2V — mono-plan compact V2",
+  "description": "Variante compacte du plan physique V2, avec ownership strict des labels Picture dans l’en-tête compilé.",
+  "target_mode": "ref2v_direct",
+  "output_contract": "minimax.h3.ref2v.direct_supervised_h3_v2",
+  "preset": "direct-multiref-supervised-h3-v3-compact-picture-ownership",
+  "stages": ["beat_sheet", "final_prompt"],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "drop_with_warning",
+  "writer_projection": "compact_v1",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/ref-en.txt"
+  ],
+  "engine_contract": {"id": "minimax.h3.protocol", "version": "0.1.0"},
+  "slots": [{
+    "id": "references",
+    "label": "Références directes",
+    "description": "Une à trois images distinctes avec rôles et usages explicites, conservées dans leur ordre local <Picture N>.",
+    "evidence_policy": "full",
+    "subject_label": null,
+    "accepted_uses": ["subject", "first_frame", "keyframe", "last_frame", "composition", "environment", "style", "motion"],
+    "required_uses": [],
+    "required_shots": [],
+    "minimum_references": 1,
+    "maximum_references": 3
+  }],
+  "templates": {
+    "beat_sheet_system": "action_plan.system.txt",
+    "beat_sheet_user": "action_plan.user.txt",
+    "beat_sheet_reconcile_system": "action_plan_reconcile.system.txt",
+    "beat_sheet_reconcile_user": "action_plan_reconcile.user.txt",
+    "final_prompt_system": "final_prompt.system.txt",
+    "final_prompt_user": "final_prompt.user.txt",
+    "revision_system": "revision.system.txt",
+    "revision_user": "revision.user.txt"
+  }
+}

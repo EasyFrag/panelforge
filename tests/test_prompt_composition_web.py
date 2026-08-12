@@ -207,9 +207,9 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('id="ref2v-apply-arbitrations"', page.text)
         self.assertIn("beat-sheet/reconcile/stream", ref2v_script.text)
         self.assertEqual(direct_script.status_code, 200)
-        self.assertIn('ref2v-direct.js?v=20260812.1', page.text)
+        self.assertIn('ref2v-direct.js?v=20260812.2', page.text)
         self.assertIn('id="ref2vd-cookbook"', page.text)
-        self.assertIn('preferredCookbookVersion = "0.3.1"', direct_script.text)
+        self.assertIn('preferredCookbookVersion = "0.3.2"', direct_script.text)
         self.assertNotIn('cookbookVersion = "0.3.0"', direct_script.text)
         self.assertIn("cookbook_version: state.cookbook.version", direct_script.text)
         self.assertIn('id="ref2vd-arbitrations"', page.text)
@@ -229,7 +229,7 @@ class PromptCompositionWebTest(unittest.TestCase):
         direct_compact = next(
             item for item in catalog
             if item["id"] == "minimax.h3.ref2v.direct"
-            and item["version"] == "0.3.1"
+            and item["version"] == "0.3.2"
         )
         self.assertFalse(direct_v2["supports_plan_reconciliation"])
         self.assertTrue(direct_v3["supports_plan_reconciliation"])

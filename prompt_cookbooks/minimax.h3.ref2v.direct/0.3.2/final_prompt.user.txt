@@ -1,0 +1,10 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+REFERENCE MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+COMPACT APPROVED PLAN WITH DERIVED TIMING
+{{PLAN}}
+
+Write the complete four-field H3 document. The mapping owns reference influence; the plan owns action, timing, continuity, camera, scene, audio, and final state. Output neither envelope.

@@ -149,16 +149,24 @@
   function playCompletionTone() {
     if (!completionAudioContext || completionAudioContext.state !== "running") return;
     const now = completionAudioContext.currentTime;
-    const oscillator = completionAudioContext.createOscillator();
-    const gain = completionAudioContext.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(660, now);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.025, now + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-    oscillator.connect(gain).connect(completionAudioContext.destination);
-    oscillator.start(now);
-    oscillator.stop(now + 0.2);
+    [
+      { frequency: 660, offset: 0, duration: 0.24 },
+      { frequency: 880, offset: 0.22, duration: 0.34 },
+    ].forEach((note) => {
+      const start = now + note.offset;
+      const end = start + note.duration;
+      const oscillator = completionAudioContext.createOscillator();
+      const gain = completionAudioContext.createGain();
+      oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(note.frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.08, start + 0.02);
+      gain.gain.setValueAtTime(0.06, end - 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.0001, end);
+      oscillator.connect(gain).connect(completionAudioContext.destination);
+      oscillator.start(start);
+      oscillator.stop(end + 0.01);
+    });
   }
 
   document.addEventListener("pointerdown", prepareCompletionAudio, { capture: true });

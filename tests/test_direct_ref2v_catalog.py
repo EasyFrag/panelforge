@@ -28,6 +28,9 @@ class DirectRef2VCatalogTest(unittest.TestCase):
         cls.cookbook_compact = LocalPromptCookbookCatalog(
             PROJECT_ROOT / "prompt_cookbooks"
         ).get("minimax.h3.ref2v.direct", "0.3.1")
+        cls.cookbook_compact_v2 = LocalPromptCookbookCatalog(
+            PROJECT_ROOT / "prompt_cookbooks"
+        ).get("minimax.h3.ref2v.direct", "0.3.2")
 
     def test_profile_loads_as_direct_multimodal(self):
         self.assertEqual(
@@ -149,7 +152,10 @@ class DirectRef2VCatalogTest(unittest.TestCase):
             if item.reference.cookbook_id == "minimax.h3.ref2v.direct"
         ]
 
-        self.assertEqual(versions, ["0.1.0", "0.2.0", "0.3.0", "0.3.1"])
+        self.assertEqual(
+            versions,
+            ["0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2"],
+        )
 
     def test_v3_adds_multimodal_risk_arbitration_without_changing_v2_plan(self):
         cookbook = self.cookbook_v3
@@ -200,6 +206,32 @@ class DirectRef2VCatalogTest(unittest.TestCase):
             len(self.cookbook_v3.final_prompt_system_prompt),
         )
         self.assertEqual(self.cookbook_v3.writer_projection, "full")
+
+    def test_compact_v2_only_clarifies_compiled_picture_ownership(self):
+        previous = self.cookbook_compact
+        current = self.cookbook_compact_v2
+        rule = (
+            "The four generated fields must contain no <Picture N> labels. "
+            "The compiled reference header is their sole owner."
+        )
+
+        self.assertEqual(current.output_contract, previous.output_contract)
+        self.assertEqual(current.writer_projection, previous.writer_projection)
+        self.assertEqual(current.slots, previous.slots)
+        self.assertEqual(
+            current.beat_sheet_system_prompt,
+            previous.beat_sheet_system_prompt,
+        )
+        self.assertEqual(
+            current.beat_sheet_reconcile_system_prompt,
+            previous.beat_sheet_reconcile_system_prompt,
+        )
+        self.assertNotIn(rule, previous.final_prompt_system_prompt)
+        self.assertIn(rule, current.final_prompt_system_prompt)
+        self.assertIn(
+            "These four fields must contain no <Picture N> labels",
+            current.revision_system_prompt,
+        )
 
 
 if __name__ == "__main__":

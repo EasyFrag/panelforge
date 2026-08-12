@@ -7,7 +7,7 @@
   const profileId = "minimax.h3.ref2v.direct";
   const profileVersion = "0.1.0";
   const cookbookId = "minimax.h3.ref2v.direct";
-  const preferredCookbookVersion = "0.3.1";
+  const preferredCookbookVersion = "0.3.2";
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame"],
     ["subject_reference", "Sujet / identité", "subject"],
@@ -122,7 +122,8 @@
   function cookbookLabel(cookbook) {
     const qualifier = cookbook.version === preferredCookbookVersion
       ? "Compacte · expérimentale"
-      : cookbook.version === "0.3.0" ? "Verrouillée · témoin"
+      : cookbook.version === "0.3.1" ? "Compacte · témoin"
+        : cookbook.version === "0.3.0" ? "Verrouillée · témoin"
         : cookbook.version === "0.2.0" ? "Témoin V2" : "Historique";
     return `${cookbook.version} — ${qualifier}`;
   }
