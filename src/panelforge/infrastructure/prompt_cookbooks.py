@@ -230,7 +230,7 @@ class LocalPromptCookbookCatalog:
             if schema_version >= 5
             else "full"
         )
-        if writer_projection not in {"full", "compact_v1"}:
+        if writer_projection not in {"full", "compact_v1", "compact_multishot_v1"}:
             raise ValueError(f"invalid writer projection: {writer_projection}")
 
         def load_template(key: str) -> str:

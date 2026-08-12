@@ -9,13 +9,13 @@
 - Works:
   - Image Lab exécute `character.change_view@0.2.0`; Prompt Lab fournit streaming, carillon de fin renforcé, révisions, approbations et journal borné des appels LLM.
   - Ref2V Direct réalise 1–3 images natives → Brief multimodal → Plan JSON multimodal → prompt H3, sans Observation séparée.
-  - `minimax.h3.ref2v.direct@0.3.2` est le défaut. Elle conserve intégralement le Plan V2 compact `0.3.1` et interdit seulement au writer de répéter les labels `<Picture N>` appartenant à l’en-tête compilé.
+  - `minimax.h3.ref2v.direct@0.3.2` reste le mono-plan robuste par défaut. `minimax.h3.ref2v.direct.multishot@0.1.0` ajoute séparément trois plans et deux coupes compilées, avec le même Brief, Plan et arbitrage.
   - I2V Direct réalise une première frame native → Brief multimodal → Plan V2 arbitrable → prompt I2VA compilé. `minimax.h3.i2v.direct@0.1.0` est expérimental; l’ancien I2V simple reste le témoin.
-  - Toutes les versions restent sélectionnables avant le Plan puis verrouillées dans la composition; `0.3.1` est le témoin compact et `0.3.0` le témoin complet.
-  - Validation locale : 320 tests passent.
+  - Les recettes restent sélectionnables par `id@version` avant le Plan puis verrouillées dans la composition; le multi-plan dérive headings, coupes, durée et caméra sans horloge redondante du LLM.
+  - Validation locale : 366 tests passent.
 - Broken / missing:
-  - Direct reste mono-plan; une vraie coupe ou un second plan exige un contrat distinct.
-  - Les dialogues H3 exacts et l’efficacité sémantique des arbitrages restent à qualifier.
+  - I2V Direct : Qwen rattache parfois une paraphrase au placeholder caméra; le compilateur la rejette correctement (2 cas sur 4 dans le dernier run).
+  - Le dialogue traversant une coupe, les transitions stylisées et un nombre flexible de plans ne sont pas couverts par la V1 multi-plan.
   - Une référence secondaire brute peut encore influencer le décor malgré les frontières textuelles.
   - Les contrôleurs UI I2V Direct et Ref2V Direct partagent le backend mais gardent encore du code JavaScript dupliqué.
 
@@ -28,9 +28,9 @@
 
 ## Next steps
 
-1. Qualifier I2V Direct face à l’ancien I2V simple sur les mêmes frames et intentions avant toute substitution.
-2. Extraire un contrôleur UI Direct partagé seulement après stabilisation des deux UX.
-3. Reprendre ensuite le multi-shot Ref2V comme contrat séparé avec coupes et transitions H3 explicites.
+1. Qualifier I2V Direct face à l’ancien I2V simple et décider d’un repair ciblé du placeholder caméra avant toute substitution.
+2. Comparer en A/B Ref2V Direct mono `0.3.2` et multi `0.1.0` sur plusieurs scènes et modèles.
+3. N’ajouter transitions, dialogue cross-cut ou plans flexibles qu’après cette qualification.
 
 ## Risks / open questions
 

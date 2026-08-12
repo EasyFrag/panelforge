@@ -11,7 +11,7 @@
   <script src="/static/i2v-prompt.js?v=20260811.1" defer></script>
   <script src="/static/i2v-direct.js?v=20260812.1" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260811.2" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260812.2" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260812.3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -912,6 +912,13 @@
             <div id="ref2vd-plan-stream-state" class="stream-state" hidden><div><span id="ref2vd-plan-stream-label">Préparation…</span><output id="ref2vd-plan-stream-percent"></output></div><progress id="ref2vd-plan-stream-progress" max="1"></progress></div>
             <p id="ref2vd-plan-message" class="message" aria-live="polite"></p>
             <div id="ref2vd-plan-lint" class="prompt-lint"><small>Les risques et durées longues seront signalés sans bloquer le Plan.</small></div>
+            <section id="ref2vd-multishot-summary" class="arbitration-panel" aria-label="Synthèse multi-plan" hidden>
+              <div class="arbitration-heading">
+                <div><b>Synthèse multi-plan</b><small>Lecture seule · actions dominantes, coupes et durée dérivées du JSON.</small></div>
+                <span id="ref2vd-multishot-summary-badge" class="review-pill pending">3 plans attendus</span>
+              </div>
+              <div id="ref2vd-multishot-summary-list" class="arbitration-list"></div>
+            </section>
             <textarea id="ref2vd-plan-content" class="cookbook-stage-output" rows="24" placeholder="Le plan JSON apparaîtra ici après validation du Brief."></textarea>
             <section id="ref2vd-arbitrations" class="arbitration-panel" hidden>
               <div class="arbitration-heading">

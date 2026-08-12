@@ -1,0 +1,10 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+REFERENCE MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+COMPACT APPROVED THREE-SHOT PLAN WITH DERIVED CUTS
+{{PLAN}}
+
+Write the complete six-field internal H3 document. The mapping owns reference influence; the plan owns the three shots, hard cuts, continuity, timing, camera, sound, and final state. Output neither compiled headings nor either envelope.

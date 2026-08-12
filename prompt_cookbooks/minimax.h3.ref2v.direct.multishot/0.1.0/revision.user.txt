@@ -1,0 +1,13 @@
+APPROVED COMPACT THREE-SHOT PLAN — READ ONLY
+{{PLAN}}
+
+REFERENCE MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+CURRENT INTERNAL DOCUMENT
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete revised six-field document. Apply only compatible prose changes and preserve exactly three shots, their hard-cut boundaries, and every untouched contract.

@@ -7,7 +7,9 @@
   const profileId = "minimax.h3.ref2v.direct";
   const profileVersion = "0.1.0";
   const cookbookId = "minimax.h3.ref2v.direct";
+  const multishotCookbookId = "minimax.h3.ref2v.direct.multishot";
   const preferredCookbookVersion = "0.3.2";
+  const preferredCookbookValue = `${cookbookId}@${preferredCookbookVersion}`;
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame"],
     ["subject_reference", "Sujet / identité", "subject"],
@@ -67,6 +69,9 @@
     arbitrationInstruction: $("#ref2vd-arbitration-instruction"),
     acceptAllArbitrations: $("#ref2vd-accept-all-arbitrations"),
     applyArbitrations: $("#ref2vd-apply-arbitrations"),
+    multishotSummary: $("#ref2vd-multishot-summary"),
+    multishotSummaryBadge: $("#ref2vd-multishot-summary-badge"),
+    multishotSummaryList: $("#ref2vd-multishot-summary-list"),
   };
 
   function stage(name) {
@@ -115,32 +120,56 @@
 
   function directCookbooks() {
     return state.cookbooks.filter(
-      (item) => item.id === cookbookId && item.target_mode === "ref2v_direct",
+      (item) => [cookbookId, multishotCookbookId].includes(item.id)
+        && item.target_mode === "ref2v_direct",
     );
   }
 
+  function cookbookValue(cookbook) {
+    return `${cookbook.id}@${cookbook.version}`;
+  }
+
+  function isMultishotCookbook(cookbook) {
+    return Boolean(cookbook && cookbook.id === multishotCookbookId);
+  }
+
   function cookbookLabel(cookbook) {
+    if (isMultishotCookbook(cookbook)) {
+      return `${cookbook.id}@${cookbook.version} — Trois plans · expérimental`;
+    }
     const qualifier = cookbook.version === preferredCookbookVersion
-      ? "Compacte · expérimentale"
+      ? "Mono-plan · robuste · défaut"
       : cookbook.version === "0.3.1" ? "Compacte · témoin"
         : cookbook.version === "0.3.0" ? "Verrouillée · témoin"
         : cookbook.version === "0.2.0" ? "Témoin V2" : "Historique";
-    return `${cookbook.version} — ${qualifier}`;
+    return `${cookbook.id}@${cookbook.version} — ${qualifier}`;
+  }
+
+  function orderedDirectCookbooks() {
+    return [...directCookbooks()].sort((left, right) => {
+      if (left.id !== right.id) return left.id === cookbookId ? -1 : 1;
+      return right.version.localeCompare(left.version, undefined, { numeric: true });
+    });
+  }
+
+  function resetCookbookSelection() {
+    const available = orderedDirectCookbooks();
+    state.cookbook = available.find(
+      (item) => cookbookValue(item) === preferredCookbookValue,
+    ) || available[0] || null;
+    elements.cookbook.value = state.cookbook ? cookbookValue(state.cookbook) : "";
   }
 
   function populateCookbooks() {
-    const available = directCookbooks();
+    const available = orderedDirectCookbooks();
     elements.cookbook.replaceChildren();
-    [...available].reverse().forEach((cookbook) => {
+    available.forEach((cookbook) => {
       const option = document.createElement("option");
-      option.value = cookbook.version;
+      option.value = cookbookValue(cookbook);
       option.textContent = cookbookLabel(cookbook);
       elements.cookbook.append(option);
     });
-    state.cookbook = available.find(
-      (item) => item.version === preferredCookbookVersion,
-    ) || available.at(-1) || null;
-    elements.cookbook.value = state.cookbook ? state.cookbook.version : "";
+    resetCookbookSelection();
   }
 
   function activeCookbookSpec() {
@@ -358,8 +387,9 @@
     const session = state.session;
     const compositionReference = state.composition && state.composition.cookbook
       ? state.composition.cookbook : null;
+    const selectedCookbook = compositionReference || state.cookbook;
     const activeCookbook = activeCookbookSpec();
-    if (compositionReference) elements.cookbook.value = compositionReference.version;
+    if (selectedCookbook) elements.cookbook.value = cookbookValue(selectedCookbook);
     elements.cookbook.disabled = state.busy || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
       ? compositionReference
@@ -393,6 +423,7 @@
       briefState.ready,
       briefState.draft ? "Brief modifié" : "Brief requis",
     );
+    renderMultishotSummary();
     renderArbitrations(plan, planState, briefState.ready);
     const promptState = renderDocument(
       elements.prompt,
@@ -423,6 +454,144 @@
       card.append(image, caption);
       elements.dock.append(card);
     });
+  }
+
+  function finiteNumber(...values) {
+    for (const value of values) {
+      const number = Number(value);
+      if (value !== null && value !== "" && Number.isFinite(number)) return number;
+    }
+    return null;
+  }
+
+  function milliseconds(value, unit = "milliseconds") {
+    const number = finiteNumber(value);
+    if (number === null) return null;
+    return unit === "seconds" ? Math.round(number * 1000) : Math.round(number);
+  }
+
+  function shotTiming(shots) {
+    let cursor = 0;
+    return shots.map((shot) => {
+      const explicitStart = finiteNumber(
+        shot.start_ms,
+        shot.start_time_ms,
+        shot.cut_at_ms,
+      );
+      const start = explicitStart === null ? cursor : explicitStart;
+      const duration = milliseconds(shot.duration_ms)
+        ?? milliseconds(shot.duration_seconds, "seconds");
+      const explicitEnd = finiteNumber(shot.end_ms, shot.end_time_ms);
+      const end = explicitEnd ?? (duration === null ? null : start + duration);
+      if (end !== null) cursor = end;
+      return { start, end, duration: end === null ? duration : end - start };
+    });
+  }
+
+  function formatClock(value) {
+    if (!Number.isFinite(value)) return null;
+    const minutes = Math.floor(value / 60000);
+    const seconds = Math.floor((value % 60000) / 1000);
+    const millis = Math.round(value % 1000);
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
+  }
+
+  function summaryText(value) {
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) return value.filter(Boolean).join(", ");
+    if (value && typeof value === "object") {
+      return value.description || value.directive || value.movement || value.type || "";
+    }
+    return "";
+  }
+
+  function cameraSummary(camera) {
+    if (!camera) return "";
+    if (typeof camera === "string") return camera.trim();
+    if (typeof camera !== "object") return "";
+    return [
+      camera.motion,
+      camera.amplitude,
+      camera.speed,
+      camera.target_clause,
+    ].filter(Boolean).join(" · ");
+  }
+
+  function renderMultishotSummary() {
+    const multishot = isMultishotCookbook(activeCookbookSpec());
+    elements.multishotSummary.hidden = !multishot;
+    if (!multishot) return;
+
+    elements.multishotSummaryList.replaceChildren();
+    let plan = null;
+    try { plan = JSON.parse(elements.plan.content.value); } catch (_) { plan = null; }
+    let shots = plan && (
+      (Array.isArray(plan.shots) && plan.shots)
+      || (Array.isArray(plan.plans) && plan.plans)
+      || (Array.isArray(plan.shot_plan) && plan.shot_plan)
+    );
+    if (shots && shots.some(
+      (shot) => !shot || typeof shot !== "object" || Array.isArray(shot),
+    )) shots = null;
+    if (!shots) {
+      elements.multishotSummaryBadge.textContent = "3 plans attendus";
+      const message = document.createElement("p");
+      message.className = "muted";
+      message.textContent = elements.plan.content.value.trim()
+        ? "Le JSON est incomplet ou illisible ; la synthèse se recalculera après enregistrement."
+        : "La frise apparaîtra dès que le Plan JSON sera généré.";
+      elements.multishotSummaryList.append(message);
+      return;
+    }
+
+    const timings = shotTiming(shots);
+    const derived = plan.derived_timing || {};
+    const lastEnd = timings.length ? timings[timings.length - 1].end : null;
+    const finalHold = plan.final_state
+      ? milliseconds(plan.final_state.final_hold_ms) : null;
+    const derivedTotal = lastEnd === null ? null : lastEnd + (finalHold || 0);
+    const total = finiteNumber(derived.duration_ms, plan.duration_ms)
+      ?? milliseconds(derived.duration_seconds, "seconds")
+      ?? milliseconds(plan.duration_seconds, "seconds")
+      ?? derivedTotal;
+    elements.multishotSummaryBadge.textContent = `${shots.length} plan${shots.length > 1 ? "s" : ""}${total === null ? "" : ` · ${(total / 1000).toFixed(total % 1000 ? 1 : 0)} s`}`;
+
+    for (let index = 0; index < 3; index += 1) {
+      const shot = shots[index];
+      const card = document.createElement("article");
+      card.className = "arbitration-card";
+      const header = document.createElement("header");
+      const title = document.createElement("h4");
+      title.textContent = `Plan ${index + 1}`;
+      const timing = timings[index];
+      const badge = document.createElement("span");
+      badge.className = `review-pill ${shot ? "approved" : "pending"}`;
+      const cut = index > 0 && timing ? formatClock(timing.start) : null;
+      badge.textContent = !shot ? "Manquant"
+        : cut ? `Coupe à ${cut}`
+          : timing && timing.duration !== null ? `${(timing.duration / 1000).toFixed(1)} s` : "Présent";
+      header.append(title, badge);
+      const description = document.createElement("p");
+      description.textContent = shot
+        ? summaryText(shot.primary_action || shot.dominant_action || shot.action || shot.purpose || shot.objective || shot.description) || "Action non résumée."
+        : "Ce troisième plan est requis par la recette.";
+      card.append(header, description);
+      if (shot) {
+        const details = [
+          ["Entrée", summaryText(shot.entry_state)],
+          ["Sortie", summaryText(shot.observable_end_state || shot.exit_state)],
+          ["Références", summaryText(shot.active_picture_labels || shot.active_references || shot.references)],
+          ["Caméra", cameraSummary(shot.camera)],
+        ].filter(([, value]) => value);
+        if (details.length) {
+          const metadata = document.createElement("p");
+          metadata.className = "muted";
+          metadata.textContent = details.map(([label, value]) => `${label} : ${value}`).join(" · ");
+          card.append(metadata);
+        }
+      }
+      elements.multishotSummaryList.append(card);
+    }
   }
 
   function renderBrief(brief, complete, inputsCurrent) {
@@ -826,6 +995,7 @@
   function resetSession() {
     state.session = null;
     state.composition = null;
+    resetCookbookSelection();
     resetArbitrations();
     state.drafts.forEach((draft) => URL.revokeObjectURL(draft.previewUrl));
     state.drafts = [];
@@ -849,7 +1019,7 @@
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupMessage(error.message)));
   elements.cookbook.addEventListener("change", () => {
     state.cookbook = directCookbooks().find(
-      (item) => item.version === elements.cookbook.value,
+      (item) => cookbookValue(item) === elements.cookbook.value,
     ) || null;
     render();
   });

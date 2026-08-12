@@ -172,11 +172,13 @@ Le profil `minimax.h3.ref2v.direct@0.1.0` ne crée aucune fiche d’observation.
 
 Chaque image porte un rôle fermé — première ou dernière frame, keyframe, sujet, décor, composition, style ou mouvement — et l’ordre affiché fixe le mapping `<Image N> → <Picture N>`. Le sélecteur Ref2V Direct propose toutes les versions du catalogue avant la création du Plan, puis verrouille la version dans la composition. `minimax.h3.ref2v.direct@0.3.2` est sélectionnée par défaut ; `0.3.1` reste son témoin compact, `0.3.0` le témoin verrouillé complet, `0.2.0` le témoin temporel V2 et `0.1.0` le témoin historique.
 
-Le Plan est volontairement générique : personnes, vêtements, accessoires, objets rigides ou articulés utilisent le même contrat de contacts, trajectoires, appuis, relâchement et état observable. Depuis `0.2.0`, le LLM cadence uniquement les actions et choisit `final_hold_ms`; le code place l’état final à la fin du dernier beat et calcule la durée totale, sans retimer ni interpréter les gestes. La `0.3.0` ajoute l’arbitrage supervisé des risques. La `0.3.1` compacte les instructions et le contexte writer. La `0.3.2` ne change ni Plan ni orchestration : elle précise seulement que les labels `<Picture N>` appartiennent à l’en-tête compilé et ne doivent pas être répétés dans les quatre champs produits par le writer.
+Le Plan est volontairement générique : personnes, vêtements, accessoires, objets rigides ou articulés utilisent le même contrat de contacts, trajectoires, appuis, relâchement et état observable. Depuis `0.2.0`, le LLM cadence uniquement les actions et choisit `final_hold_ms`; le code place l’état final à la fin du dernier beat et calcule la durée totale, sans retimer ni interpréter les gestes. La `0.3.0` ajoute l’arbitrage supervisé des risques. La `0.3.1` compacte les instructions et le contexte writer. La `0.3.2` ne change ni Plan ni orchestration : elle précise seulement que les labels `<Picture N>` appartiennent à l’en-tête compilé et ne doivent pas être répétés dans les quatre champs produits par le writer. Cette recette mono-plan reste la voie robuste sélectionnée par défaut.
 
 Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés restent des avertissements. JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants. Les écarts caméra sans ambiguïté sont réparés avant validation avec un warning traçable : cible optionnelle invalide, amplitude/vitesse incompatibles avec `static_shot`, `shake.*` ou `pov`, point final redondant après `[[camera:camera_N]]` et placeholder placé sur la ligne `shot_1:`. Un placeholder réellement enchâssé dans une phrase reste rejeté.
 
-Cette version représente toujours un seul plan continu. Une demande de coupe ou de second plan doit remonter comme risque explicite ; le support multi-shot sera un contrat séparé, pas une caméra détournée.
+`minimax.h3.ref2v.direct.multishot@0.1.0` ajoute à côté une recette expérimentale distincte : une à trois références, exactement trois plans et deux coupes franches. Elle réutilise le même Brief multimodal, le Plan éditable et l’arbitrage. Le LLM choisit une action dominante et une durée pour chaque plan ; PanelForge dérive les deux timestamps de coupe, les headings H3, la durée totale ainsi que les IDs et clauses caméra. Le writer ne produit que six champs internes — `scene_setup`, `shot_1`, `shot_2`, `shot_3`, `overall_soundscape`, `non_diegetic_music` — puis le code compile l’en-tête dynamique et la chronologie finale.
+
+Les risques non arbitrés, une tenue finale faible et une durée dérivée supérieure à 15 secondes restent des avertissements. Cette V1 exclut volontairement `<scenetrans>`, les dialogues traversant une coupe, les transitions stylisées et un nombre de plans variable : ces syntaxes nécessiteront des recettes séparées après qualification du montage à trois plans.
 
 Les trois appels nominaux sont déclenchés séparément dans l’interface. Les corrections manuelles ne consomment aucun appel ; une révision du Brief ou du Prompt en langage naturel ajoute un appel explicite. Les recettes historiques et leurs sessions ne sont pas modifiées.
 
@@ -222,10 +224,12 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ### 1. Qualifier les parcours courts I2V et Ref2V
 
-- qualifier `minimax.h3.ref2v.direct@0.3.2` avec Gemma et Qwen, puis comparer à `0.3.1` sur les mêmes références et intentions ; mesurer les répétitions de labels, rejets de forme, fidélité aux rôles, continuité, rythme et clipping ;
+- comparer en A/B le mono-plan robuste `minimax.h3.ref2v.direct@0.3.2` et le trois-plans expérimental `minimax.h3.ref2v.direct.multishot@0.1.0` sur les mêmes références et intentions ; mesurer conformité des coupes, fidélité aux rôles, continuité, rythme et clipping ;
 - qualifier `minimax.h3.i2v.direct@0.1.0` face à `minimax.h3.i2v.simple@0.3.0` sur les mêmes premières frames et intentions : conformité I2VA, qualité du Brief et du Plan, rythme, continuité, caméra, clipping, tags, voix et synchronisation labiale ;
 - comparer en A/B `undressing.single_shot@0.11.0` à son témoin `0.10.0` sur plusieurs constructions de vêtements : topologie, passages par les ouvertures, continuité des prises, clipping, rythme et caméra ;
 - versionner une nouvelle recette seulement à partir de défauts reproduits sur plusieurs rendus, en conservant prompts, contexte compilateur et observations de test.
+
+Les transitions stylisées, le dialogue continu à travers les coupes et un nombre flexible de plans restent hors scope tant que ce premier A/B n’est pas qualifié.
 
 ### 2. Qualifier Fighter Arcade
 
@@ -273,4 +277,4 @@ Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie p
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 303 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 366 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

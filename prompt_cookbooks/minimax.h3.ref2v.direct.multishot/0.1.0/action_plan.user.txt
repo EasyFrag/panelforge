@@ -1,0 +1,10 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+ORDERED REFERENCE EVIDENCE
+{{REFERENCES}}
+
+REQUIRED DIRECT REF2V THREE-SHOT JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Return the complete three-shot plan. Use exactly shot_1, shot_2, and shot_3 with two hard cuts. Preserve reference boundaries and physical continuity, assign one realistic duration_ms per shot, keep camera local to its shot, and expose unresolved conflicts or timing pressure as risks.
