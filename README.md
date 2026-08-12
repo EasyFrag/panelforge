@@ -157,7 +157,7 @@ Chaque image porte un rôle fermé — première ou dernière frame, keyframe, s
 
 Le Plan est volontairement générique : personnes, vêtements, accessoires, objets rigides ou articulés utilisent le même contrat de contacts, trajectoires, appuis, relâchement et état observable. Depuis `0.2.0`, le LLM cadence uniquement les actions et choisit `final_hold_ms`; le code place l’état final à la fin du dernier beat et calcule la durée totale, sans retimer ni interpréter les gestes. La `0.3.0` ajoute l’arbitrage supervisé des risques : décision libre par risque, reprise de toutes les recommandations ou instruction globale. Cet appel relit les images natives, applique les décisions au contenu réel du plan et exige leur copie exacte dans `risk.resolution`.
 
-Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés restent des avertissements. JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants. Deux écarts de forme caméra sans ambiguïté sont réparés par le code avant validation — point final redondant après `[[camera:camera_N]]` et placeholder placé sur la ligne `shot_1:` — tandis qu’un placeholder enchâssé dans une phrase reste rejeté.
+Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés restent des avertissements. JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants. Les écarts caméra sans ambiguïté sont réparés avant validation avec un warning traçable : cible optionnelle invalide, amplitude/vitesse incompatibles avec `static_shot`, `shake.*` ou `pov`, point final redondant après `[[camera:camera_N]]` et placeholder placé sur la ligne `shot_1:`. Un placeholder réellement enchâssé dans une phrase reste rejeté.
 
 Cette version représente toujours un seul plan continu. Une demande de coupe ou de second plan doit remonter comme risque explicite ; le support multi-shot sera un contrat séparé, pas une caméra détournée.
 
@@ -256,4 +256,4 @@ Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie p
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 298 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 303 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

@@ -229,6 +229,9 @@ class DirectRef2VPlanV2Test(unittest.TestCase):
             {"description", "final_hold_ms"},
         )
         self.assertEqual(final_schema["properties"]["final_hold_ms"]["minimum"], 0)
+        camera_schema = schema["$defs"]["DirectCameraPlan"]["properties"]
+        self.assertIn("shake.slightly", camera_schema["amplitude"]["description"])
+        self.assertIn("Must be null", camera_schema["target_clause"]["description"])
 
     def test_rejects_v1_timing_fields_from_the_planner(self):
         plan = plan_v2()
@@ -308,6 +311,68 @@ class DirectRef2VPlanV2Test(unittest.TestCase):
         )
         warnings = direct_ref2v_action_plan_warnings_v2(canonical)
         self.assertTrue(any("camera_1" in warning for warning in warnings))
+
+    def test_built_in_camera_dynamics_are_normalized_with_warnings(self):
+        plan = plan_v2()
+        camera = plan["camera_directives"][0]
+        camera.update(
+            {
+                "motion": "shake.slightly",
+                "amplitude": "small",
+                "speed": "slow",
+                "target_clause": "stabiliser le cadrage",
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            canonical_direct_ref2v_action_plan_v2(json.dumps(plan))
+
+        canonical = canonical_direct_ref2v_action_plan_v2(
+            json.dumps(plan), recover_invalid_target=True
+        )
+        decoded = json.loads(canonical)
+        recovered = decoded["camera_directives"][0]
+        self.assertIsNone(recovered["amplitude"])
+        self.assertIsNone(recovered["speed"])
+        self.assertIsNone(recovered["target_clause"])
+        self.assertEqual(
+            decoded["technical_adjustments"],
+            [
+                "camera_modifiers_dropped:camera_1",
+                "camera_target_dropped:camera_1",
+            ],
+        )
+        warnings = direct_ref2v_action_plan_warnings_v2(canonical)
+        self.assertTrue(any("modificateurs" in warning for warning in warnings))
+        self.assertTrue(any("cible optionnelle" in warning for warning in warnings))
+
+    def test_static_shot_keeps_valid_target_while_dropping_only_dynamics(self):
+        plan = plan_v2()
+        camera = plan["camera_directives"][0]
+        camera.update(
+            {
+                "motion": "static_shot",
+                "amplitude": "large",
+                "speed": "fast",
+                "target_clause": "as the subject leaves the frame",
+            }
+        )
+
+        canonical = canonical_direct_ref2v_action_plan_v2(
+            json.dumps(plan), recover_invalid_target=True
+        )
+        decoded = json.loads(canonical)
+        recovered = decoded["camera_directives"][0]
+        self.assertIsNone(recovered["amplitude"])
+        self.assertIsNone(recovered["speed"])
+        self.assertEqual(
+            recovered["target_clause"],
+            "as the subject leaves the frame",
+        )
+        self.assertEqual(
+            decoded["technical_adjustments"],
+            ["camera_modifiers_dropped:camera_1"],
+        )
 
     def test_v1_contract_is_unchanged(self):
         schema = json.loads(direct_ref2v_action_plan_schema())

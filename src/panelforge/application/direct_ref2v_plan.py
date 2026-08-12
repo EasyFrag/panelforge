@@ -106,9 +106,28 @@ class DirectCameraPlan(_StrictModel):
     start_ms: int = Field(ge=0)
     end_ms: int = Field(gt=0)
     motion: H3CameraMotion
-    amplitude: H3CameraAmplitude | None = None
-    speed: H3CameraSpeed | None = None
-    target_clause: str | None = Field(default=None, min_length=1)
+    amplitude: H3CameraAmplitude | None = Field(
+        default=None,
+        description=(
+            "Optional amplitude. Must be null for static_shot, shake.slightly, "
+            "shake.strongly, and pov because their dynamics are built in."
+        ),
+    )
+    speed: H3CameraSpeed | None = Field(
+        default=None,
+        description=(
+            "Optional speed. Must be null for static_shot, shake.slightly, "
+            "shake.strongly, and pov because their dynamics are built in."
+        ),
+    )
+    target_clause: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional natural-English spatial or visual continuation. Must be "
+            "null for shake.slightly, shake.strongly, and pov."
+        ),
+    )
     visible_change: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -292,7 +311,7 @@ def canonical_direct_ref2v_action_plan(
     *,
     recover_invalid_target: bool = False,
 ) -> str:
-    """Validate and serialize a plan; optionally drop only invalid camera targets."""
+    """Validate and serialize a plan with optional deterministic camera recovery."""
 
     value = _json_object(content)
     raw_adjustments = value.get("technical_adjustments", [])
@@ -302,7 +321,7 @@ def canonical_direct_ref2v_action_plan(
             "application-owned and must be empty"
         )
     if recover_invalid_target:
-        _drop_invalid_camera_targets(value)
+        _recover_invalid_camera_directives(value)
     try:
         plan = DirectRef2VActionPlan.model_validate(value)
     except ValidationError as error:
@@ -315,7 +334,7 @@ def canonical_direct_ref2v_action_plan_v2(
     *,
     recover_invalid_target: bool = False,
 ) -> str:
-    """Validate V2 while optionally recovering only invalid camera targets."""
+    """Validate V2 with optional deterministic camera recovery."""
 
     value = _json_object(content)
     raw_adjustments = value.get("technical_adjustments", [])
@@ -325,7 +344,7 @@ def canonical_direct_ref2v_action_plan_v2(
             "application-owned and must be empty"
         )
     if recover_invalid_target:
-        _drop_invalid_camera_targets(value)
+        _recover_invalid_camera_directives(value)
     try:
         plan = DirectRef2VActionPlanV2.model_validate(value)
     except ValidationError as error:
@@ -372,6 +391,12 @@ def direct_ref2v_action_plan_warnings(content: str) -> tuple[str, ...]:
                 f"La cible optionnelle de {directive_id} a été omise après "
                 "validation ; le mouvement de caméra est conservé."
             )
+        elif adjustment.startswith("camera_modifiers_dropped:"):
+            directive_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"Les modificateurs incompatibles de {directive_id} ont été "
+                "omis ; le mouvement de caméra est conservé."
+            )
         else:
             warnings.append(f"Ajustement technique appliqué : {adjustment}.")
     return tuple(warnings)
@@ -406,6 +431,12 @@ def direct_ref2v_action_plan_warnings_v2(content: str) -> tuple[str, ...]:
             warnings.append(
                 f"La cible optionnelle de {directive_id} a ete omise apres "
                 "validation ; le mouvement de camera est conserve."
+            )
+        elif adjustment.startswith("camera_modifiers_dropped:"):
+            directive_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"Les modificateurs incompatibles de {directive_id} ont ete "
+                "omis ; le mouvement de camera est conserve."
             )
         else:
             warnings.append(f"Ajustement technique applique : {adjustment}.")
@@ -483,7 +514,26 @@ def _json_object(content: str) -> dict[str, object]:
     return decoded
 
 
-def _drop_invalid_camera_targets(value: dict[str, object]) -> None:
+_CAMERA_MOTIONS_WITHOUT_DYNAMICS = frozenset(
+    {
+        H3CameraMotion.STATIC_SHOT.value,
+        H3CameraMotion.SHAKE_SLIGHTLY.value,
+        H3CameraMotion.SHAKE_STRONGLY.value,
+        H3CameraMotion.POV.value,
+    }
+)
+_CAMERA_MOTIONS_WITHOUT_TARGET = frozenset(
+    {
+        H3CameraMotion.SHAKE_SLIGHTLY.value,
+        H3CameraMotion.SHAKE_STRONGLY.value,
+        H3CameraMotion.POV.value,
+    }
+)
+
+
+def _recover_invalid_camera_directives(value: dict[str, object]) -> None:
+    """Drop only protocol-forbidden redundant camera fields, with provenance."""
+
     raw_directives = value.get("camera_directives")
     if not isinstance(raw_directives, list):
         return
@@ -492,7 +542,28 @@ def _drop_invalid_camera_targets(value: dict[str, object]) -> None:
         adjustments = []
         value["technical_adjustments"] = adjustments
     for item in raw_directives:
-        if not isinstance(item, dict) or not item.get("target_clause"):
+        if not isinstance(item, dict):
+            continue
+        directive_id = item.get("directive_id", "unknown")
+        motion = item.get("motion")
+        if motion in _CAMERA_MOTIONS_WITHOUT_DYNAMICS and (
+            item.get("amplitude") is not None or item.get("speed") is not None
+        ):
+            item["amplitude"] = None
+            item["speed"] = None
+            _append_adjustment(
+                adjustments,
+                f"camera_modifiers_dropped:{directive_id}",
+            )
+        if motion in _CAMERA_MOTIONS_WITHOUT_TARGET and (
+            item.get("target_clause") is not None
+        ):
+            item["target_clause"] = None
+            _append_adjustment(
+                adjustments,
+                f"camera_target_dropped:{directive_id}",
+            )
+        if not item.get("target_clause"):
             continue
         try:
             DirectCameraPlan.model_validate(item)
@@ -505,6 +576,12 @@ def _drop_invalid_camera_targets(value: dict[str, object]) -> None:
             except ValidationError:
                 continue
         item["target_clause"] = None
-        marker = f"camera_target_dropped:{item.get('directive_id', 'unknown')}"
-        if marker not in adjustments:
-            adjustments.append(marker)
+        _append_adjustment(
+            adjustments,
+            f"camera_target_dropped:{directive_id}",
+        )
+
+
+def _append_adjustment(adjustments: list[object], marker: str) -> None:
+    if marker not in adjustments:
+        adjustments.append(marker)
