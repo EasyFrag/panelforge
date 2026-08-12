@@ -47,6 +47,7 @@ from .direct_ref2v_plan import (
     direct_ref2v_camera_directives_v2,
     direct_ref2v_writer_plan,
     direct_ref2v_writer_plan_v2,
+    direct_ref2v_writer_plan_v2_compact,
     lint_direct_ref2v_action_plan,
     lint_direct_ref2v_action_plan_v2,
     parse_direct_ref2v_action_plan_v2,
@@ -271,6 +272,7 @@ class PromptCookbookPort(Protocol):
     stages: tuple[str, ...]
     require_distinct_references: bool
     invalid_camera_target_policy: str
+    writer_projection: str
     sources: tuple[str, ...]
     slots: tuple[CookbookSlotPort, ...]
     reference_plan_system_prompt: str | None
@@ -3311,6 +3313,8 @@ def _compile_content(
 
 def _writer_action_plan(cookbook: PromptCookbookPort, content: str) -> str:
     if cookbook.output_contract == _REF2V_DIRECT_V2_CONTRACT:
+        if cookbook.writer_projection == "compact_v1":
+            return direct_ref2v_writer_plan_v2_compact(content)
         return direct_ref2v_writer_plan_v2(content)
     if cookbook.output_contract == _REF2V_DIRECT_V1_CONTRACT:
         return direct_ref2v_writer_plan(content)

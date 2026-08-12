@@ -36,6 +36,7 @@ class PromptCookbook:
     stages: tuple[str, ...]
     require_distinct_references: bool
     invalid_camera_target_policy: str
+    writer_projection: str
     sources: tuple[str, ...]
     slots: tuple[CookbookSlot, ...]
     reference_plan_system_prompt: str | None
@@ -90,7 +91,7 @@ class LocalPromptCookbookCatalog:
         if not isinstance(manifest, dict):
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
         schema_version = manifest.get("schema_version")
-        if schema_version not in {2, 3, 4}:
+        if schema_version not in {2, 3, 4, 5}:
             raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         expected = {
             "schema_version",
@@ -110,6 +111,8 @@ class LocalPromptCookbookCatalog:
         }
         if schema_version >= 3:
             expected.add("invalid_camera_target_policy")
+        if schema_version >= 5:
+            expected.add("writer_projection")
         if set(manifest) != expected:
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
         engine = manifest["engine_contract"]
@@ -222,6 +225,13 @@ class LocalPromptCookbookCatalog:
             raise ValueError(
                 f"invalid camera target policy: {invalid_camera_target_policy}"
             )
+        writer_projection = (
+            _text(manifest["writer_projection"], "writer_projection")
+            if schema_version >= 5
+            else "full"
+        )
+        if writer_projection not in {"full", "compact_v1"}:
+            raise ValueError(f"invalid writer projection: {writer_projection}")
 
         def load_template(key: str) -> str:
             filename = _text(templates[key], f"template {key}")
@@ -256,6 +266,7 @@ class LocalPromptCookbookCatalog:
                 "require_distinct_references",
             ),
             invalid_camera_target_policy=invalid_camera_target_policy,
+            writer_projection=writer_projection,
             sources=sources,
             slots=tuple(slots),
             reference_plan_system_prompt=optional_template("reference_plan_system"),

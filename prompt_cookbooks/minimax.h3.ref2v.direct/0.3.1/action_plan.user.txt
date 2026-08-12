@@ -1,0 +1,10 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+ORDERED REFERENCE EVIDENCE
+{{REFERENCES}}
+
+REQUIRED DIRECT REF2V V2 JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Return the complete one-shot physical plan. Preserve reference boundaries and requested action order. Use final_state.final_hold_ms instead of a redundant duration or final timestamp, and expose unresolved cuts, conflicts, or timing pressure as risks.

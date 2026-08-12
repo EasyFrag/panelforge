@@ -7,7 +7,7 @@
   const profileId = "minimax.h3.ref2v.direct";
   const profileVersion = "0.1.0";
   const cookbookId = "minimax.h3.ref2v.direct";
-  const cookbookVersion = "0.3.0";
+  const preferredCookbookVersion = "0.3.1";
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame"],
     ["subject_reference", "Sujet / identité", "subject"],
@@ -35,6 +35,7 @@
     form: $("#ref2vd-session-form"),
     model: $("#ref2vd-model"),
     refreshModels: $("#ref2vd-refresh-models"),
+    cookbook: $("#ref2vd-cookbook"),
     activeCookbook: $("#ref2vd-active-cookbook"),
     imageInput: $("#ref2vd-image-input"),
     referenceList: $("#ref2vd-reference-list"),
@@ -96,12 +97,9 @@
       ]);
       state.spec = spec;
       state.cookbooks = cookbooks.cookbooks || [];
-      state.cookbook = state.cookbooks.find(
-        (item) => item.id === cookbookId && item.version === cookbookVersion,
-      ) || null;
+      populateCookbooks();
       if (!selectedProfile()) throw new Error("Profil Ref2V Direct indisponible.");
       if (!state.cookbook) throw new Error("Cookbook Ref2V Direct indisponible.");
-      elements.activeCookbook.textContent = `${state.cookbook.id}@${state.cookbook.version}`;
       await Promise.all([loadModels(), loadSessions()]);
       render();
     } catch (error) {
@@ -113,6 +111,35 @@
     return state.spec && (state.spec.profiles || []).find(
       (item) => item.id === profileId && item.version === profileVersion,
     );
+  }
+
+  function directCookbooks() {
+    return state.cookbooks.filter(
+      (item) => item.id === cookbookId && item.target_mode === "ref2v_direct",
+    );
+  }
+
+  function cookbookLabel(cookbook) {
+    const qualifier = cookbook.version === preferredCookbookVersion
+      ? "Compacte · expérimentale"
+      : cookbook.version === "0.3.0" ? "Verrouillée · témoin"
+        : cookbook.version === "0.2.0" ? "Témoin V2" : "Historique";
+    return `${cookbook.version} — ${qualifier}`;
+  }
+
+  function populateCookbooks() {
+    const available = directCookbooks();
+    elements.cookbook.replaceChildren();
+    [...available].reverse().forEach((cookbook) => {
+      const option = document.createElement("option");
+      option.value = cookbook.version;
+      option.textContent = cookbookLabel(cookbook);
+      elements.cookbook.append(option);
+    });
+    state.cookbook = available.find(
+      (item) => item.version === preferredCookbookVersion,
+    ) || available.at(-1) || null;
+    elements.cookbook.value = state.cookbook ? state.cookbook.version : "";
   }
 
   function activeCookbookSpec() {
@@ -328,10 +355,16 @@
 
   function render() {
     const session = state.session;
-    const activeCookbook = state.composition && state.composition.cookbook
-      ? state.composition.cookbook : state.cookbook;
+    const compositionReference = state.composition && state.composition.cookbook
+      ? state.composition.cookbook : null;
+    const activeCookbook = activeCookbookSpec();
+    if (compositionReference) elements.cookbook.value = compositionReference.version;
+    elements.cookbook.disabled = state.busy || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
-      ? `${activeCookbook.id}@${activeCookbook.version}` : "Cookbook indisponible";
+      ? compositionReference
+        ? `${activeCookbook.display_name} · ${activeCookbook.id}@${activeCookbook.version} verrouillée`
+        : `${activeCookbook.display_name} · verrouillée à la création du Plan`
+      : "Cookbook indisponible";
     elements.empty.hidden = Boolean(session);
     elements.editor.hidden = !session;
     elements.start.disabled = state.busy || Boolean(state.session) || Boolean(setupValidationError());
@@ -634,14 +667,15 @@
 
   async function ensureComposition() {
     if (state.composition) return;
+    if (!state.cookbook) throw new Error("Choisissez une recette Ref2V Direct.");
     const response = await core.request(
       `/api/prompt-lab/sessions/${state.session.id}/composition`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cookbook_id: cookbookId,
-          cookbook_version: cookbookVersion,
+          cookbook_id: state.cookbook.id,
+          cookbook_version: state.cookbook.version,
           bindings: { references: state.session.references.map((item) => item.id) },
         }),
       },
@@ -812,6 +846,12 @@
   elements.form.addEventListener("submit", createSession);
   elements.refreshModels.addEventListener("click", () => loadModels().catch((error) => showSetupMessage(error.message)));
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupMessage(error.message)));
+  elements.cookbook.addEventListener("change", () => {
+    state.cookbook = directCookbooks().find(
+      (item) => item.version === elements.cookbook.value,
+    ) || null;
+    render();
+  });
   elements.intention.addEventListener("input", render);
   elements.model.addEventListener("change", render);
   elements.freedom.addEventListener("input", () => { updateFreedom(); render(); });

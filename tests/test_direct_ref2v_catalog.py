@@ -25,6 +25,9 @@ class DirectRef2VCatalogTest(unittest.TestCase):
         cls.cookbook_v3 = LocalPromptCookbookCatalog(
             PROJECT_ROOT / "prompt_cookbooks"
         ).get("minimax.h3.ref2v.direct", "0.3.0")
+        cls.cookbook_compact = LocalPromptCookbookCatalog(
+            PROJECT_ROOT / "prompt_cookbooks"
+        ).get("minimax.h3.ref2v.direct", "0.3.1")
 
     def test_profile_loads_as_direct_multimodal(self):
         self.assertEqual(
@@ -146,7 +149,7 @@ class DirectRef2VCatalogTest(unittest.TestCase):
             if item.reference.cookbook_id == "minimax.h3.ref2v.direct"
         ]
 
-        self.assertEqual(versions, ["0.1.0", "0.2.0", "0.3.0"])
+        self.assertEqual(versions, ["0.1.0", "0.2.0", "0.3.0", "0.3.1"])
 
     def test_v3_adds_multimodal_risk_arbitration_without_changing_v2_plan(self):
         cookbook = self.cookbook_v3
@@ -178,6 +181,25 @@ class DirectRef2VCatalogTest(unittest.TestCase):
         self.assertIn("copy its text exactly", reconcile)
         self.assertIn("final_state.final_hold_ms", reconcile)
         self.assertIsNone(self.cookbook_v2.beat_sheet_reconcile_system_prompt)
+
+    def test_compact_recipe_reuses_v2_contract_with_declared_projection(self):
+        compact = self.cookbook_compact
+
+        self.assertEqual(compact.schema_version, 5)
+        self.assertEqual(compact.writer_projection, "compact_v1")
+        self.assertEqual(compact.output_contract, self.cookbook_v3.output_contract)
+        self.assertEqual(compact.stages, self.cookbook_v3.stages)
+        self.assertEqual(compact.slots, self.cookbook_v3.slots)
+        self.assertIsNotNone(compact.beat_sheet_reconcile_system_prompt)
+        self.assertLess(
+            len(compact.beat_sheet_system_prompt or ""),
+            len(self.cookbook_v3.beat_sheet_system_prompt or ""),
+        )
+        self.assertLess(
+            len(compact.final_prompt_system_prompt),
+            len(self.cookbook_v3.final_prompt_system_prompt),
+        )
+        self.assertEqual(self.cookbook_v3.writer_projection, "full")
 
 
 if __name__ == "__main__":

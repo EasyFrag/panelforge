@@ -355,6 +355,28 @@ def configured_service(
 
 
 class DirectRef2VCompositionTest(unittest.TestCase):
+    def test_compact_recipe_keeps_supervision_out_of_the_writer_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, _ = configured_service(
+                directory,
+                2,
+                cookbook_version="0.3.1",
+            )
+            gateway = ArbitrationGateway()
+            service.gateway = gateway
+            service.generate("direct-session", CompositionStage.BEAT_SHEET)
+            service.approve("direct-session", CompositionStage.BEAT_SHEET)
+
+            service.generate("direct-session", CompositionStage.FINAL_PROMPT)
+
+            writer_request = gateway.requests[-1]
+            self.assertEqual(writer_request.operation_id, "final_prompt.generate")
+            self.assertIn('"beat_id": "handoff"', writer_request.user_prompt)
+            self.assertIn('"derived_timing"', writer_request.user_prompt)
+            self.assertNotIn('"risks"', writer_request.user_prompt)
+            self.assertNotIn('"technical_adjustments"', writer_request.user_prompt)
+            self.assertNotIn("The fur state is ambiguous", writer_request.user_prompt)
+
     def test_v3_reconciles_risks_against_native_images_and_keeps_v2_as_witness(self):
         with tempfile.TemporaryDirectory() as directory:
             service, _, image_contents = configured_service(

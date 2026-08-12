@@ -757,6 +757,7 @@ def create_app(
                     "invalid_camera_target_policy": (
                         cookbook.invalid_camera_target_policy
                     ),
+                    "writer_projection": cookbook.writer_projection,
                     "stages": list(cookbook.stages),
                     "supports_plan_reconciliation": bool(
                         cookbook.beat_sheet_reconcile_system_prompt

@@ -495,6 +495,22 @@ def direct_ref2v_writer_plan_v2(content: str) -> str:
     return json.dumps(writer_value, ensure_ascii=False, indent=2)
 
 
+def direct_ref2v_writer_plan_v2_compact(content: str) -> str:
+    """Project a validated V2 plan to the fields needed by the prose writer."""
+
+    plan = parse_direct_ref2v_action_plan_v2(content)
+    writer_value = plan.model_dump(
+        mode="json",
+        exclude={"risks", "technical_adjustments"},
+    )
+    writer_value["derived_timing"] = {
+        "final_state_start_ms": plan.final_start_ms,
+        "duration_ms": plan.duration_ms,
+        "duration_seconds": plan.duration_ms / 1000,
+    }
+    return json.dumps(writer_value, ensure_ascii=False, indent=2)
+
+
 def _json_object(content: str) -> dict[str, object]:
     if not isinstance(content, str) or not content.strip():
         raise ValueError("direct Ref2V action plan must not be empty")

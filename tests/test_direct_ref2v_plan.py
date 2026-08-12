@@ -11,6 +11,7 @@ from panelforge.application.direct_ref2v_plan import (
     direct_ref2v_camera_directives,
     direct_ref2v_camera_directives_v2,
     direct_ref2v_writer_plan_v2,
+    direct_ref2v_writer_plan_v2_compact,
     lint_direct_ref2v_action_plan,
     lint_direct_ref2v_action_plan_v2,
     parse_direct_ref2v_action_plan,
@@ -291,6 +292,31 @@ class DirectRef2VPlanV2Test(unittest.TestCase):
 
         self.assertEqual(writer_plan["derived_timing"]["duration_ms"], 10250)
         self.assertEqual(writer_plan["derived_timing"]["duration_seconds"], 10.25)
+
+    def test_compact_writer_projection_removes_only_supervision_metadata(self):
+        plan = plan_v2()
+        plan["risks"] = [{
+            "risk_id": "risk_1",
+            "category": "temporal",
+            "description": "A timing concern.",
+            "recommendation": "Keep the pace readable.",
+            "resolution": "Accepted.",
+        }]
+        projected = json.loads(direct_ref2v_writer_plan_v2_compact(json.dumps(plan)))
+
+        self.assertNotIn("risks", projected)
+        self.assertNotIn("technical_adjustments", projected)
+        for field in (
+            "scene_setup",
+            "continuity_invariants",
+            "beats",
+            "final_state",
+            "camera_directives",
+            "overall_soundscape",
+            "non_diegetic_music",
+            "derived_timing",
+        ):
+            self.assertIn(field, projected)
 
     def test_invalid_optional_camera_target_is_fail_soft_when_requested(self):
         plan = plan_v2()
