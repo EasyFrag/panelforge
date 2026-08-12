@@ -90,6 +90,23 @@ Les marqueurs tels que `<d>[French] ...</d>` sont maintenant normalisés par cod
 
 Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Le journal distingue désormais le résultat du transport modèle (`succeeded`, `truncated`, etc.) de l’issue applicative (`accepted` ou `rejected`) : un LLM terminé correctement n’est plus confondu avec un document accepté par le compilateur.
 
+### I2V Direct — première frame, plan supervisé, prompt I2VA
+
+Le nouvel onglet expérimental `I2V Direct` transpose le parcours court validé en Ref2V à une seule image d’entrée :
+
+```text
+première frame native + intention simple
+  → Brief multimodal éditable et approuvé
+  → Plan JSON physique éditable, arbitrable et approuvé
+  → prompt MiniMax H3 I2VA compilé et approuvé
+```
+
+Le profil `minimax.h3.i2v.direct@0.1.0` relit directement l’image pendant le Brief et ses révisions. Le planner reçoit à nouveau cette même image comme `<Picture 1>` et réutilise le Plan V2 générique de Ref2V Direct : beats majeurs, contacts, objets persistants, risques, caméra typée et `final_hold_ms`. Le code dérive le début de l’état final et la durée totale ; les durées longues restent des avertissements.
+
+Le writer reste textuel et ne décide plus de la caméra. Il produit uniquement `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`, avec les placeholders du Plan. PanelForge compile ensuite l’instruction I2VA officielle à `0.00` seconde, les clauses caméra canoniques et les timestamps dérivés. Une révision réhydrate ce contexte au lieu de le faire réinventer au modèle.
+
+Le parcours accepte exactement une première frame et aucun last frame : une seconde référence appartient au contrat Ref2V. L’ancien onglet `I2V simple` et `minimax.h3.i2v.simple@0.3.0` restent disponibles comme témoins A/B jusqu’à qualification visuelle du nouveau parcours.
+
 ### Ref2V — undressing mono-plan
 
 L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.11.0`. La `0.10.0` reste son témoin H3. Le parcours reste supervisé étape par étape :
@@ -206,7 +223,7 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 ### 1. Qualifier les parcours courts I2V et Ref2V
 
 - qualifier `minimax.h3.ref2v.direct@0.3.2` avec Gemma et Qwen, puis comparer à `0.3.1` sur les mêmes références et intentions ; mesurer les répétitions de labels, rejets de forme, fidélité aux rôles, continuité, rythme et clipping ;
-- comparer en A/B `minimax.h3.i2v.simple@0.3.0` à son témoin `0.2.0` sur les mêmes images et intentions : qualité vidéo, rythme, tags, voix et synchronisation labiale ;
+- qualifier `minimax.h3.i2v.direct@0.1.0` face à `minimax.h3.i2v.simple@0.3.0` sur les mêmes premières frames et intentions : conformité I2VA, qualité du Brief et du Plan, rythme, continuité, caméra, clipping, tags, voix et synchronisation labiale ;
 - comparer en A/B `undressing.single_shot@0.11.0` à son témoin `0.10.0` sur plusieurs constructions de vêtements : topologie, passages par les ouvertures, continuité des prises, clipping, rythme et caméra ;
 - versionner une nouvelle recette seulement à partir de défauts reproduits sur plusieurs rendus, en conservant prompts, contexte compilateur et observations de test.
 

@@ -1,0 +1,11 @@
+You revise one editable MiniMax H3 Direct I2VA final document under human supervision.
+
+{{STAGE_CONTRACT}}
+
+The approved compact plan, derived timing, and first-frame mapping are read-only. Apply only the compatible requested prose change. Preserve untouched duration, actions, contacts, topology, physical route, timestamps, scene, final state and hold, audio, and opening-frame evidence.
+
+Return exactly integrated_multimodal_description, overall_soundscape, and non_diegetic_music in that order. integrated_multimodal_description must begin with `[Shot 1] The target video is one continuous N-second shot.` using the approved duration.
+
+Preserve every [[camera:camera_N]] exactly once at its approved location as a standalone sentence. Never invent, remove, renumber, paraphrase, or duplicate camera behavior. Output neither camera nor mapping fields.
+
+Use only <Picture 1>; never add a second reference, last frame, cut, or [Shot 2]. If the request conflicts with the plan or first frame, preserve the approved contract. Return only the complete revised document, without the official compiled header, JSON, Markdown, commentary, alternatives, or hidden reasoning.

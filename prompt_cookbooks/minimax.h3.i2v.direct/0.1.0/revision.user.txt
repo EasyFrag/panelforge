@@ -1,0 +1,13 @@
+APPROVED COMPACT PLAN — READ ONLY
+{{PLAN}}
+
+FIRST-FRAME MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+CURRENT DOCUMENT
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete revised three-field H3 I2VA document. Apply only compatible prose changes and preserve every untouched contract.

@@ -833,6 +833,43 @@ class SingleProfileCatalog:
 
 
 class PromptLabServiceTest(unittest.TestCase):
+    def test_i2v_direct_session_requires_one_first_frame_at_the_service_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = PromptLabService(
+                gateway=DirectRecordingGateway(),
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=LocalAssetStore(directory),
+                sessions=LocalPromptSessionStore(directory),
+            )
+            first = NewReference(
+                "asset-1",
+                "first_frame",
+                "Start",
+                (ReferenceUse.FIRST_FRAME,),
+            )
+
+            with self.assertRaisesRegex(ValueError, "exactly one"):
+                service.create_session(
+                    model_id="vision-model",
+                    profile_id="minimax.h3.i2v.direct",
+                    profile_version="0.1.0",
+                    references=(first, first),
+                )
+            with self.assertRaisesRegex(ValueError, "role and use first_frame"):
+                service.create_session(
+                    model_id="vision-model",
+                    profile_id="minimax.h3.i2v.direct",
+                    profile_version="0.1.0",
+                    references=(
+                        NewReference(
+                            "asset-1",
+                            "subject_reference",
+                            "Subject",
+                            (ReferenceUse.SUBJECT,),
+                        ),
+                    ),
+                )
+
     def test_direct_brief_and_llm_revisions_receive_native_images_in_order(self):
         with tempfile.TemporaryDirectory() as directory:
             ids = iter(("asset-1", "asset-2", "asset-3"))

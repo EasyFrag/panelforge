@@ -129,7 +129,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(prompt_script.status_code, 200)
-        self.assertIn("/static/prompt-lab.js?v=20260812.1", page.text)
+        self.assertIn("/static/prompt-lab.js?v=20260812.2", page.text)
         self.assertIn("function playCompletionTone()", prompt_script.text)
         self.assertIn('oscillator.type = "triangle"', prompt_script.text)
         self.assertIn("frequency: 660", prompt_script.text)
@@ -147,6 +147,37 @@ class LabWebTest(unittest.TestCase):
             2.0,
         )
         self.assertIsInstance(payload["controls"]["seed"]["default"], str)
+
+    def test_serves_the_parallel_direct_i2v_workspace(self):
+        page = self.client.get("/")
+        script = self.client.get("/static/i2v-direct.js")
+        prompt_script = self.client.get("/static/prompt-lab.js")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(script.status_code, 200)
+        self.assertIn('data-lab-view="i2v-direct"', page.text)
+        self.assertIn('id="i2vd-workspace"', page.text)
+        self.assertIn('id="i2vd-image-input" type="file"', page.text)
+        self.assertNotIn(
+            'id="i2vd-image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple',
+            page.text,
+        )
+        self.assertIn('id="i2vd-brief-step"', page.text)
+        self.assertIn('id="i2vd-plan-step"', page.text)
+        self.assertIn('id="i2vd-prompt-step"', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260812.1', page.text)
+        self.assertIn('const profileId = "minimax.h3.i2v.direct"', script.text)
+        self.assertIn('const cookbookId = "minimax.h3.i2v.direct"', script.text)
+        self.assertIn('item.target_mode === "i2v_direct"', script.text)
+        self.assertIn('body.append("roles", "first_frame")', script.text)
+        self.assertIn('body.append("usages", "first_frame")', script.text)
+        self.assertIn('bindings: { first_frame: [reference.id] }', script.text)
+        self.assertIn("beat-sheet/reconcile/stream", script.text)
+        self.assertIn('i2vDirect: $("#i2vd-workspace")', prompt_script.text)
+        self.assertIn(
+            'elements.i2vDirect.hidden = view !== "i2v-direct"',
+            prompt_script.text,
+        )
 
     def test_unloads_the_external_model_runtime(self):
         response = self.client.post("/api/model-runtime/unload")

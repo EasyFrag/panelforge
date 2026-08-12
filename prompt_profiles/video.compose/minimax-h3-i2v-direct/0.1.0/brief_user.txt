@@ -1,0 +1,10 @@
+NIVEAU DE LIBERTÉ CRÉATIVE : {creative_freedom}/100
+POLITIQUE ASSOCIÉE : {creative_policy}
+
+PREMIÈRE FRAME NATIVE ET MÉTADONNÉES
+{reference_context}
+
+INTENTION UTILISATEUR
+{source_text}
+
+Lis directement l’unique image native comme <Image 1>, première frame exacte à 0,00 seconde, puis produis le Brief français aux neuf sections exactes. Conserve la séparation entre observé, demandé, proposé et incertain. Relève toute contradiction ou difficulté de faisabilité sans la résoudre silencieusement.

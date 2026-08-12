@@ -411,6 +411,17 @@ class PromptLabService:
         references: tuple[NewReference, ...],
     ) -> PromptLabSession:
         profile = self.profiles.get(profile_id, profile_version)
+        if profile.profile_id == "minimax.h3.i2v.direct":
+            if len(references) != 1:
+                raise ValueError("I2V Direct requires exactly one first-frame image")
+            reference = references[0]
+            if (
+                reference.role != "first_frame"
+                or ReferenceUse.FIRST_FRAME not in reference.uses
+            ):
+                raise ValueError(
+                    "I2V Direct requires the image role and use first_frame"
+                )
         session = PromptLabSession(
             session_id=f"prompt-{uuid4().hex}",
             model_id=model_id,

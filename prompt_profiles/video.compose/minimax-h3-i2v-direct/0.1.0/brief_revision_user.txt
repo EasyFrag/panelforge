@@ -1,0 +1,16 @@
+NIVEAU DE LIBERTÉ CRÉATIVE : {creative_freedom}/100
+POLITIQUE ASSOCIÉE : {creative_policy}
+
+PREMIÈRE FRAME NATIVE ET MÉTADONNÉES
+{reference_context}
+
+INTENTION UTILISATEUR D’ORIGINE
+{source_text}
+
+BRIEF ACTUEL
+{current_brief}
+
+MODIFICATION DEMANDÉE
+{instruction}
+
+Relis l’unique première frame, applique seulement la modification demandée et retourne le Brief français complet aux neuf sections exactes. Préserve l’état initial et les provenances ; transforme toute contradiction non arbitrée en question explicite.

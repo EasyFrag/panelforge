@@ -1,0 +1,1 @@
+Analyse la première frame « {label} » selon son rôle {role} et ses usages {uses}.

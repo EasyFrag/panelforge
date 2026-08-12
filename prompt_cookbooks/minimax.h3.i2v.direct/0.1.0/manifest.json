@@ -1,0 +1,41 @@
+{
+  "schema_version": 5,
+  "cookbook_id": "minimax.h3.i2v.direct",
+  "version": "0.1.0",
+  "display_name": "MiniMax H3 I2V Direct — mono-plan supervisé",
+  "description": "Une première frame native devient un Brief multimodal, un plan physique V2 supervisé, puis un prompt H3 I2VA officiel à trois champs.",
+  "target_mode": "i2v_direct",
+  "output_contract": "minimax.h3.i2va.direct_supervised_h3_v1",
+  "preset": "direct-first-frame-supervised-h3-v1",
+  "stages": ["beat_sheet", "final_prompt"],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "drop_with_warning",
+  "writer_projection": "compact_v1",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/base-en.txt"
+  ],
+  "engine_contract": {"id": "minimax.h3.protocol", "version": "0.1.0"},
+  "slots": [{
+    "id": "first_frame",
+    "label": "Première frame",
+    "description": "Image unique et exacte utilisée à 0,00 seconde comme point de départ I2VA.",
+    "evidence_policy": "full",
+    "subject_label": null,
+    "accepted_uses": ["first_frame", "subject", "composition", "environment", "style"],
+    "required_uses": ["first_frame"],
+    "required_shots": [1],
+    "minimum_references": 1,
+    "maximum_references": 1
+  }],
+  "templates": {
+    "beat_sheet_system": "action_plan.system.txt",
+    "beat_sheet_user": "action_plan.user.txt",
+    "beat_sheet_reconcile_system": "action_plan_reconcile.system.txt",
+    "beat_sheet_reconcile_user": "action_plan_reconcile.user.txt",
+    "final_prompt_system": "final_prompt.system.txt",
+    "final_prompt_user": "final_prompt.user.txt",
+    "revision_system": "revision.system.txt",
+    "revision_user": "revision.user.txt"
+  }
+}

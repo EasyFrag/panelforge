@@ -24,6 +24,7 @@
     changeView: $("#change-view-workspace"),
     promptLab: $("#prompt-lab-workspace"),
     i2v: $("#i2v-workspace"),
+    i2vDirect: $("#i2vd-workspace"),
     ref2v: $("#ref2v-workspace"),
     ref2vDirect: $("#ref2vd-workspace"),
     recipeBadge: $("#recipe-badge"),
@@ -109,6 +110,7 @@
     elements.changeView.hidden = view !== "change-view";
     elements.promptLab.hidden = !promptActive;
     elements.i2v.hidden = view !== "i2v";
+    elements.i2vDirect.hidden = view !== "i2v-direct";
     elements.ref2v.hidden = view !== "ref2v";
     elements.ref2vDirect.hidden = view !== "ref2v-direct";
     elements.recipeBadge.hidden = view !== "change-view";
