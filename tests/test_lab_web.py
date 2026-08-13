@@ -119,8 +119,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260813.3", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260813.6", page.text)
+        self.assertIn("/static/lab.css?v=20260813.4", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260813.7", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -218,7 +218,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260813.4', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260813.5', page.text)
         self.assertIn('const preferredCookbookVersion = "0.2.0"', script.text)
         self.assertIn('elements.cookbook.value = compositionReference', script.text)
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
@@ -234,6 +234,47 @@ class LabWebTest(unittest.TestCase):
             'elements.i2vDirect.hidden = view !== "i2v-direct"',
             prompt_script.text,
         )
+
+    def test_direct_creative_freedom_uses_discrete_modes(self):
+        page = self.client.get("/")
+        scripts = (
+            self.client.get("/static/i2v-direct.js"),
+            self.client.get("/static/ref2v-direct.js"),
+        )
+
+        expected_options = (
+            ("0", "Factuel strict"),
+            ("35", "Conservateur"),
+            ("50", "Équilibré"),
+            ("80", "Cinématographique"),
+            ("100", "Exploratoire"),
+        )
+        for prefix in ("i2vd", "ref2vd"):
+            match = re.search(
+                rf'<select id="{prefix}-freedom"[^>]*>(.*?)</select>',
+                page.text,
+                re.DOTALL,
+            )
+            self.assertIsNotNone(match)
+            options = re.findall(r'<option value="(\d+)"[^>]*>([^<]+)</option>', match.group(1))
+            self.assertEqual(options, list(expected_options))
+            self.assertIn('<option value="35" data-description=', match.group(1))
+            self.assertIn('selected>Conservateur</option>', match.group(1))
+            self.assertNotIn(f'id="{prefix}-freedom" type="range"', page.text)
+            self.assertNotIn(f'id="{prefix}-freedom-value"', page.text)
+        self.assertEqual(page.text.count("Agit sur le Brief ; son effet sur le Plan et le prompt final est indirect."), 2)
+
+        for script in scripts:
+            self.assertEqual(script.status_code, 200)
+            self.assertIn("function setFreedom(value)", script.text)
+            self.assertIn('option[data-legacy-freedom]', script.text)
+            self.assertIn('legacyOption.dataset.legacyFreedom = "true"', script.text)
+            self.assertIn('valeur historique ${normalized}/100', script.text)
+            self.assertIn('setFreedom(session.active_brief.creative_freedom ?? 35)', script.text)
+            self.assertIn('setFreedom(35)', script.text)
+            self.assertIn('elements.freedom.addEventListener("change"', script.text)
+            self.assertIn('creative_freedom: Number(elements.freedom.value)', script.text)
+            self.assertNotIn("freedomValue", script.text)
 
     def test_exposes_shared_quick_mode_for_both_direct_workspaces(self):
         page = self.client.get("/")

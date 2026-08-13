@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260813.3">
+  <link rel="stylesheet" href="/static/lab.css?v=20260813.4">
   <script src="/static/lab.js?v=20260810.1" defer></script>
   <script src="/static/prompt-lab.js?v=20260813.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260813.4" defer></script>
+  <script src="/static/i2v-direct.js?v=20260813.5" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260813.6" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260813.7" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -588,10 +588,16 @@
         <section>
           <h2>Intention simple</h2>
           <textarea id="i2vd-intention" rows="8" placeholder="Ex. Le joueur arme sa frappe, tire dans la lucarne et célèbre son but face à la caméra." required></textarea>
-          <div class="freedom-control i2v-freedom">
-            <label for="i2vd-freedom">Liberté créative<small id="i2vd-freedom-label">Encadrée</small></label>
-            <input id="i2vd-freedom" type="range" min="0" max="100" step="5" value="35">
-            <output id="i2vd-freedom-value">35</output>
+          <div class="freedom-control direct-freedom-control">
+            <label for="i2vd-freedom"><b>Liberté créative</b><small>Agit sur le Brief ; son effet sur le Plan et le prompt final est indirect.</small></label>
+            <select id="i2vd-freedom" aria-describedby="i2vd-freedom-label">
+              <option value="0" data-description="N’ajoute aucun détail absent des entrées.">Factuel strict</option>
+              <option value="35" data-description="Seulement des liaisons minimales et évidentes." selected>Conservateur</option>
+              <option value="50" data-description="Quelques propositions cinématographiques compatibles.">Équilibré</option>
+              <option value="80" data-description="Enrichit caméra, rythme et ambiance sans contredire les contraintes.">Cinématographique</option>
+              <option value="100" data-description="Propose librement des détails compatibles et les signale comme libertés.">Exploratoire</option>
+            </select>
+            <small id="i2vd-freedom-label" class="freedom-mode-description">Seulement des liaisons minimales et évidentes.</small>
           </div>
         </section>
         <p id="i2vd-setup-message" class="error" role="alert" hidden></p>
@@ -901,10 +907,16 @@
         <section>
           <h2>Intention simple</h2>
           <textarea id="ref2vd-intention" rows="8" placeholder="Ex. À partir de ces références, crée un plan continu où le personnage traverse la pièce, prend l’objet puis se retourne vers la caméra." required></textarea>
-          <div class="freedom-control i2v-freedom">
-            <label for="ref2vd-freedom">Liberté créative<small id="ref2vd-freedom-label">Encadrée</small></label>
-            <input id="ref2vd-freedom" type="range" min="0" max="100" step="5" value="35">
-            <output id="ref2vd-freedom-value">35</output>
+          <div class="freedom-control direct-freedom-control">
+            <label for="ref2vd-freedom"><b>Liberté créative</b><small>Agit sur le Brief ; son effet sur le Plan et le prompt final est indirect.</small></label>
+            <select id="ref2vd-freedom" aria-describedby="ref2vd-freedom-label">
+              <option value="0" data-description="N’ajoute aucun détail absent des entrées.">Factuel strict</option>
+              <option value="35" data-description="Seulement des liaisons minimales et évidentes." selected>Conservateur</option>
+              <option value="50" data-description="Quelques propositions cinématographiques compatibles.">Équilibré</option>
+              <option value="80" data-description="Enrichit caméra, rythme et ambiance sans contredire les contraintes.">Cinématographique</option>
+              <option value="100" data-description="Propose librement des détails compatibles et les signale comme libertés.">Exploratoire</option>
+            </select>
+            <small id="ref2vd-freedom-label" class="freedom-mode-description">Seulement des liaisons minimales et évidentes.</small>
           </div>
         </section>
         <p id="ref2vd-mode-warning" class="warning" role="status" hidden></p>

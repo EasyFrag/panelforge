@@ -20,8 +20,9 @@
   - Ref2V conserve la recette sélectionnée après `Nouveau`, avertit sans bloquer si une intention multi-plan utilise le mono-plan et exige une confirmation explicite du mapping des rôles, invalidée à chaque modification.
   - L’aide `?` des références Ref2V résume dans un tableau compact et accessible le canal contrôlé par chacun des huit rôles d’image.
   - I2V et Ref2V proposent un Mode rapide partagé qui génère puis approuve Brief, Plan et Prompt sans nouvelle recette ni appel LLM ; il ignore les warnings et recommandations, s’arrête sur toute erreur bloquante et reprend sans rejouer les étapes déjà validées.
+  - I2V et Ref2V Direct remplacent le curseur de liberté créative par cinq modes discrets alignés sur les politiques backend. Le contrôle précise que son effet direct s’arrête au Brief et restaure exactement toute ancienne valeur numérique hors preset.
   - Les archives neutralisent création et écritures mais laissent ouvrir et copier tout prompt actif, même non approuvé ou obsolète ; leurs listes chargent jusqu’à 200 sessions avant filtrage.
-  - Validation locale : 423 tests passent.
+  - Validation locale : 424 tests passent.
 - Broken / missing:
   - Le dialogue traversant une coupe et les transitions stylisées ne sont pas couverts par la recette multi-plan flexible.
   - Une référence secondaire brute peut encore influencer le décor malgré les frontières textuelles.
@@ -47,4 +48,5 @@
 - Le garde-fou rejette exhaustivement les formulations caméra canoniques et garde une détection volontairement étroite des paraphrases libres pour ne pas confondre mouvement du sujet et caméra ; qualifier ses faux positifs/négatifs sur des sorties réelles.
 - Un Plan cohérent ne garantit pas à lui seul la fidélité du moteur vidéo aux références brutes.
 - FL2VA n’entre pas dans ce parcours : ne pas laisser une seconde image modifier silencieusement le contrat I2VA.
+- Les modes de liberté restent une politique globale du Brief ; de vrais axes indépendants « enrichissement visuel » et « caméra/rythme » exigeraient un futur contrat explicite et ne doivent pas être simulés par l’UX seule.
 - Les Archives chargent aujourd’hui 200 sessions avant filtrage client ; une pagination ou un filtre serveur sera nécessaire si le volume dépasse ce seuil.

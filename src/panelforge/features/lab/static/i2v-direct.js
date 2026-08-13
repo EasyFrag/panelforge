@@ -37,7 +37,6 @@
     uploadCaption: $("#i2vd-upload-caption"),
     intention: $("#i2vd-intention"),
     freedom: $("#i2vd-freedom"),
-    freedomValue: $("#i2vd-freedom-value"),
     freedomLabel: $("#i2vd-freedom-label"),
     start: $("#i2vd-start"),
     setupMessage: $("#i2vd-setup-message"),
@@ -185,12 +184,11 @@
     state.quickRecord = quickPipeline.load(session.id);
     if (session.active_brief) {
       elements.intention.value = session.active_brief.source_text || "";
-      elements.freedom.value = String(session.active_brief.creative_freedom ?? 35);
+      setFreedom(session.active_brief.creative_freedom ?? 35);
     } else {
       elements.intention.value = "";
-      elements.freedom.value = "35";
+      setFreedom(35);
     }
-    updateFreedom();
     try {
       const payload = await core.request(`/api/prompt-lab/sessions/${session.id}/composition`);
       state.composition = payload.composition;
@@ -254,11 +252,40 @@
     if (created && quickRequested) await runQuickMode();
   }
 
+  function freedomMode(value) {
+    if (value <= 20) return ["Factuel strict", "N’ajoute aucun détail absent des entrées."];
+    if (value <= 40) return ["Conservateur", "Seulement des liaisons minimales et évidentes."];
+    if (value <= 60) return ["Équilibré", "Quelques propositions cinématographiques compatibles."];
+    if (value <= 80) return ["Cinématographique", "Enrichit caméra, rythme et ambiance sans contredire les contraintes."];
+    return ["Exploratoire", "Propose librement des détails compatibles et les signale comme libertés."];
+  }
+
+  function setFreedom(value) {
+    const parsed = Number(value);
+    const normalized = Number.isInteger(parsed) && parsed >= 0 && parsed <= 100 ? parsed : 35;
+    const previousLegacy = elements.freedom.querySelector("option[data-legacy-freedom]");
+    if (previousLegacy) previousLegacy.remove();
+    const exactOption = [...elements.freedom.options].find((option) => Number(option.value) === normalized);
+    if (!exactOption) {
+      const [label, description] = freedomMode(normalized);
+      const legacyOption = document.createElement("option");
+      legacyOption.value = String(normalized);
+      legacyOption.dataset.legacyFreedom = "true";
+      legacyOption.dataset.description = description;
+      legacyOption.textContent = `${label} · valeur historique ${normalized}/100`;
+      elements.freedom.append(legacyOption);
+    }
+    elements.freedom.value = String(normalized);
+    updateFreedom();
+  }
+
   function updateFreedom() {
-    const value = Number(elements.freedom.value);
-    elements.freedomValue.value = String(value);
-    elements.freedomLabel.textContent = value <= 20
-      ? "Très factuelle" : value <= 45 ? "Encadrée" : value <= 70 ? "Cinématographique" : "Très libre";
+    const selected = elements.freedom.selectedOptions[0];
+    const legacyOption = elements.freedom.querySelector("option[data-legacy-freedom]");
+    if (legacyOption && legacyOption !== selected) legacyOption.remove();
+    const [, fallback] = freedomMode(Number(elements.freedom.value));
+    elements.freedomLabel.textContent = selected && selected.dataset.description
+      ? selected.dataset.description : fallback;
   }
 
   function interactionLocked() {
@@ -854,9 +881,8 @@
     elements.uploadTitle.textContent = "Choisir une image";
     elements.uploadCaption.textContent = "PNG, JPEG ou WebP · 25 Mio maximum";
     elements.intention.value = "";
-    elements.freedom.value = "35";
+    setFreedom(35);
     elements.quickMode.checked = false;
-    updateFreedom();
     for (const view of [elements.brief, elements.plan, elements.prompt]) {
       view.message.textContent = "";
       if (view.instruction) view.instruction.value = "";
@@ -877,7 +903,7 @@
   });
   elements.intention.addEventListener("input", render);
   elements.model.addEventListener("change", render);
-  elements.freedom.addEventListener("input", () => { updateFreedom(); render(); });
+  elements.freedom.addEventListener("change", () => { updateFreedom(); render(); });
   elements.newSession.addEventListener("click", resetSession);
   elements.quickResume.addEventListener("click", runQuickMode);
 
