@@ -140,7 +140,10 @@
 
   function cookbookLabel(cookbook) {
     if (isMultishotCookbook(cookbook)) {
-      return `${cookbook.id}@${cookbook.version} — Trois plans · expérimental`;
+      const qualifier = cookbook.version === "0.2.0"
+        ? "2–6 plans automatiques · caméra compilée · expérimental"
+        : "3 plans · placeholders · témoin";
+      return `${cookbook.id}@${cookbook.version} — ${qualifier}`;
     }
     const qualifier = cookbook.version === preferredCookbookVersion
       ? "Mono-plan · caméra compilée · défaut"
@@ -564,7 +567,11 @@
     if (typeof value === "string") return value.trim();
     if (Array.isArray(value)) return value.filter(Boolean).join(", ");
     if (value && typeof value === "object") {
-      return value.description || value.directive || value.movement || value.type || "";
+      const direct = value.description || value.directive || value.movement || value.type;
+      if (direct) return direct;
+      return Object.values(value).filter(
+        (item) => typeof item === "string" && item.trim(),
+      ).join(" · ");
     }
     return "";
   }
@@ -598,7 +605,7 @@
       (shot) => !shot || typeof shot !== "object" || Array.isArray(shot),
     )) shots = null;
     if (!shots) {
-      elements.multishotSummaryBadge.textContent = "3 plans attendus";
+      elements.multishotSummaryBadge.textContent = "Plans à générer";
       const message = document.createElement("p");
       message.className = "muted";
       message.textContent = elements.plan.content.value.trim()
@@ -620,7 +627,7 @@
       ?? derivedTotal;
     elements.multishotSummaryBadge.textContent = `${shots.length} plan${shots.length > 1 ? "s" : ""}${total === null ? "" : ` · ${(total / 1000).toFixed(total % 1000 ? 1 : 0)} s`}`;
 
-    for (let index = 0; index < 3; index += 1) {
+    for (let index = 0; index < shots.length; index += 1) {
       const shot = shots[index];
       const card = document.createElement("article");
       card.className = "arbitration-card";
@@ -637,12 +644,14 @@
       header.append(title, badge);
       const description = document.createElement("p");
       description.textContent = shot
-        ? summaryText(shot.primary_action || shot.dominant_action || shot.action || shot.purpose || shot.objective || shot.description) || "Action non résumée."
-        : "Ce troisième plan est requis par la recette.";
+        ? summaryText(shot.actions || shot.primary_action || shot.dominant_action || shot.action || shot.purpose || shot.objective || shot.description) || "Action non résumée."
+        : "Plan manquant.";
       card.append(header, description);
       if (shot) {
         const details = [
           ["Entrée", summaryText(shot.entry_state)],
+          ["Cadrage", summaryText(shot.opening_composition)],
+          ["Raccord", summaryText(shot.continuity_from_previous)],
           ["Sortie", summaryText(shot.observable_end_state || shot.exit_state)],
           ["Références", summaryText(shot.active_picture_labels || shot.active_references || shot.references)],
           ["Caméra", cameraSummary(shot.camera)],

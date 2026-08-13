@@ -1,0 +1,19 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+ORDERED REFERENCES
+{{REFERENCES}}
+
+CURRENT PLAN
+{{CURRENT_PLAN}}
+
+HUMAN DECISIONS
+{{DECISIONS}}
+
+GLOBAL INSTRUCTION
+{{GLOBAL_INSTRUCTION}}
+
+REQUIRED DIRECT REF2V FLEXIBLE MULTI-SHOT JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Relook at the images, apply the decisions to the risk resolutions and real plan semantics, then return only the complete JSON object. Preserve the current N shots and every hard-cut boundary.

@@ -1,0 +1,10 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+REFERENCE MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+COMPACT APPROVED FLEXIBLE MULTI-SHOT PLAN WITH DERIVED CUTS
+{{PLAN}}
+
+Let N equal the number of shots in PLAN. Write exactly scene_setup, shot_1 through shot_N, overall_soundscape, and non_diegetic_music in that order. Preserve hard-cut continuity and distinct opening compositions. Output no compiled header, heading, timestamp, placeholder, directive ID, or camera movement prose.

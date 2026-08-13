@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import json
 import re
 
-from panelforge.domain import H3CameraDirective
+from panelforge.domain import H3CameraDirective, H3CameraMotion
 
 from .minimax_h3_protocol import compile_camera_motion, parse_camera_directives
 
@@ -39,6 +39,15 @@ _DYNAMIC_CAMERA_NOUN = re.compile(
 _DURATION_SENTENCE = re.compile(
     r"\[Shot 1\]\s+The target video is one continuous "
     r"[^\r\n]+?-second shot\."
+)
+_CANONICAL_CAMERA_BASES = tuple(
+    compile_camera_motion(
+        H3CameraDirective(
+            directive_id="camera_1",
+            motion=motion,
+        )
+    ).removesuffix(".").casefold()
+    for motion in H3CameraMotion
 )
 
 
@@ -258,9 +267,11 @@ def _capitalize_at(content: str, index: int) -> str:
 
 
 def _has_dynamic_camera_prose(content: str) -> bool:
+    normalized = content.casefold()
     return bool(
         _DYNAMIC_CAMERA_SUBJECT.search(content)
         or _DYNAMIC_CAMERA_NOUN.search(content)
+        or any(base in normalized for base in _CANONICAL_CAMERA_BASES)
     )
 
 

@@ -176,9 +176,9 @@ Le Plan est volontairement générique : personnes, vêtements, accessoires, obj
 
 Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés restent des avertissements. JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants. Dans la `0.3.3`, landmark absent ou dupliqué, placeholder résiduel et prose de mouvement caméra réintroduite par le writer sont rejetés avant compilation ; la casse de la phrase sujet suivant l’insertion est normalisée mécaniquement. Ces contrôles sont propres au nouveau contrat et ne modifient pas les compositions historiques.
 
-`minimax.h3.ref2v.direct.multishot@0.1.0` ajoute à côté une recette expérimentale distincte : une à trois références, exactement trois plans et deux coupes franches. Elle réutilise le même Brief multimodal, le Plan éditable et l’arbitrage. Le LLM choisit une action dominante et une durée pour chaque plan ; PanelForge dérive les deux timestamps de coupe, les headings H3, la durée totale ainsi que les IDs et clauses caméra. Le writer ne produit que six champs internes — `scene_setup`, `shot_1`, `shot_2`, `shot_3`, `overall_soundscape`, `non_diegetic_music` — puis le code compile l’en-tête dynamique et la chronologie finale.
+`minimax.h3.ref2v.direct.multishot@0.2.0` ajoute à côté la recette expérimentale flexible : une à trois références et deux à six plans reliés par des coupes franches. Elle réutilise le même Brief multimodal, le Plan éditable et l’arbitrage, sans appel LLM supplémentaire. Le planner choisit le nombre minimal de plans, leur durée, leur composition d’ouverture et un raccord structuré — repère spatial, position, direction et phase du mouvement. PanelForge dérive `shot_N`, les timestamps de coupe, la durée totale et `camera_N`. Le writer produit dynamiquement `scene_setup`, `shot_1` à `shot_N` et les deux champs audio, sans voir ni paraphraser les mouvements caméra ; le code compile l’en-tête, les headings et les clauses canoniques. La `0.1.0`, limitée à trois plans et aux placeholders, reste un témoin immuable.
 
-Les risques non arbitrés, une tenue finale faible et une durée dérivée supérieure à 15 secondes restent des avertissements. Cette V1 exclut volontairement `<scenetrans>`, les dialogues traversant une coupe, les transitions stylisées et un nombre de plans variable : ces syntaxes nécessiteront des recettes séparées après qualification du montage à trois plans.
+Les risques non arbitrés, une tenue finale faible et une durée dérivée supérieure à 15 secondes restent des avertissements. La V2 verrouille le nombre de plans pendant l’arbitrage et les révisions, mais autorise une nouvelle génération du Plan à en choisir un autre. Elle exclut encore `<scenetrans>`, les dialogues traversant une coupe et les transitions stylisées ; ces syntaxes resteront dans des recettes séparées.
 
 Les trois appels nominaux sont déclenchés séparément dans l’interface. Les corrections manuelles ne consomment aucun appel ; une révision du Brief ou du Prompt en langage naturel ajoute un appel explicite. Les recettes historiques et leurs sessions ne sont pas modifiées.
 
@@ -224,11 +224,11 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ### 1. Qualifier les parcours courts I2V et Ref2V
 
-- comparer en A/B le mono-plan robuste `minimax.h3.ref2v.direct@0.3.3` et le trois-plans expérimental `minimax.h3.ref2v.direct.multishot@0.1.0` sur les mêmes références et intentions ; mesurer conformité des coupes, fidélité aux rôles, continuité, rythme et clipping ;
+- comparer en A/B le mono-plan robuste `minimax.h3.ref2v.direct@0.3.3` et le multi-plan flexible `minimax.h3.ref2v.direct.multishot@0.2.0` sur les mêmes références et intentions ; qualifier notamment 2, 3, 4 et 6 plans, la distinction des cadrages et les raccords de trajectoire ;
 - qualifier `minimax.h3.i2v.direct@0.2.0` sur plusieurs premières frames, intentions et familles de modèles : conformité I2VA, qualité du Brief et du Plan, rythme, continuité, caméra compilée, clipping, tags, voix et synchronisation labiale ;
 - versionner une nouvelle recette seulement à partir de défauts reproduits sur plusieurs rendus, en conservant prompts, contexte compilateur et observations de test.
 
-Les transitions stylisées, le dialogue continu à travers les coupes et un nombre flexible de plans restent hors scope tant que ce premier A/B n’est pas qualifié.
+Les transitions stylisées et le dialogue continu à travers les coupes restent hors scope tant que ce premier A/B n’est pas qualifié.
 
 ### 2. Qualifier Fighter Arcade
 
@@ -276,4 +276,4 @@ Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie p
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 380 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 422 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

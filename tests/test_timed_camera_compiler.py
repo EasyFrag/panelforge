@@ -108,6 +108,19 @@ class TimedCameraCompilerTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "movement prose"):
                     insert_ref2v_camera_clauses(writer, self.placements()[:1])
 
+    def test_all_canonical_camera_families_fail_closed(self):
+        for writer in (
+            "The camera holds a static shot. The subject waits.",
+            "The shot adopts the subject's POV. The subject waits.",
+            "The camera shakes slightly. The subject waits.",
+            "The camera rolls clockwise. The subject waits.",
+            "The camera trucks left. The subject waits.",
+            "The camera pedestals up. The subject waits.",
+        ):
+            with self.subTest(writer=writer):
+                with self.assertRaisesRegex(ValueError, "movement prose"):
+                    insert_ref2v_camera_clauses(writer, ())
+
     def test_static_scene_language_is_not_mistaken_for_camera_motion(self):
         for writer in (
             "The framing remains stable while she moves.",

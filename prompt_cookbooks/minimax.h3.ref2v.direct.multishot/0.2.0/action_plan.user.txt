@@ -1,0 +1,10 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+ORDERED REFERENCE EVIDENCE
+{{REFERENCES}}
+
+REQUIRED DIRECT REF2V FLEXIBLE MULTI-SHOT JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Return the complete plan now. Choose the minimum sufficient N from 2 through 6 in this same response, emit exactly N ordered shots array entries without shot_id, use hard cuts only, and preserve reference boundaries, distinct opening compositions, ordered actions, physical raccords, realistic per-shot durations, and a readable final hold.
