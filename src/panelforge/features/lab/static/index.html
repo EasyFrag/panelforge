@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260813.1">
+  <link rel="stylesheet" href="/static/lab.css?v=20260813.2">
   <script src="/static/lab.js?v=20260810.1" defer></script>
   <script src="/static/prompt-lab.js?v=20260813.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/i2v-direct.js?v=20260813.3" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260813.4" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260813.5" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -859,7 +859,25 @@
           <p class="muted" id="ref2vd-active-cookbook">La version sera verrouillée à la création du Plan.</p>
         </section>
         <section>
-          <div class="section-title"><h2>Références</h2><small>1 à 3 · ordre = Picture N</small></div>
+          <div class="section-title">
+            <div class="ref2vd-role-heading">
+              <h2>Références</h2>
+              <details id="ref2vd-role-help" class="ref2vd-role-help">
+                <summary>
+                  <span aria-hidden="true">?</span>
+                  <span class="sr-only">Comprendre les rôles des images</span>
+                </summary>
+                <div class="ref2vd-role-help-panel">
+                  <table aria-label="Ce que contrôle chaque rôle d’image">
+                    <thead><tr><th scope="col">Rôle</th><th scope="col">Contrôle</th></tr></thead>
+                    <tbody id="ref2vd-role-help-body"></tbody>
+                  </table>
+                  <p>Le rôle limite le canal transférable ; ce n’est ni un poids visuel ni un masque.</p>
+                </div>
+              </details>
+            </div>
+            <small>1 à 3 · ordre = Picture N</small>
+          </div>
           <label class="prompt-upload ref2vd-add" for="ref2vd-image-input">
             <input id="ref2vd-image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple>
             <b>＋ Ajouter des images</b><small>Une nouvelle sélection complète la liste existante.</small>

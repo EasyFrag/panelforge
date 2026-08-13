@@ -119,7 +119,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260813.4", page.text)
+        self.assertIn("/static/lab.css?v=20260813.2", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260813.5", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -157,6 +158,21 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-mode-warning"', page.text)
         self.assertIn('id="ref2vd-role-warning"', page.text)
         self.assertIn('id="ref2vd-role-confirmation"', page.text)
+        self.assertIn('id="ref2vd-role-help"', page.text)
+        self.assertIn('id="ref2vd-role-help-body"', page.text)
+        self.assertIn('aria-label="Ce que contrôle chaque rôle d’image"', page.text)
+        self.assertIn("function renderRoleHelp()", direct_script.text)
+        for expected in (
+            "État visible complet à 0,00 s",
+            "Identité, apparence stable",
+            "État visuel d’un instant intermédiaire",
+            "Environnement, matériaux, géométrie spatiale",
+            "Composition, cadrage et équilibre spatial",
+            "Style visuel, palette, texture",
+            "Mécanique de l’action, dynamique corporelle",
+            "État visuel final exact",
+        ):
+            self.assertIn(expected, direct_script.text)
         self.assertIn("function lockLegacyArchives()", prompt_script.text)
         self.assertIn("new MutationObserver(lockTextareas)", prompt_script.text)
         self.assertIn("if (!textarea.readOnly) textarea.readOnly = true", prompt_script.text)

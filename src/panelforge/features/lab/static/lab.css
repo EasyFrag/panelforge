@@ -329,6 +329,46 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .i2v-workspace .cookbook-step { margin-top: .65rem; }
 
 .ref2vd-add { min-height: 5.5rem; }
+.ref2vd-role-heading { display: flex; gap: .4rem; align-items: center; }
+.ref2vd-role-help { position: relative; padding: 0; border: 0; }
+.ref2vd-role-help > summary {
+  display: grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #9eaa9f;
+  border-radius: 50%;
+  color: var(--green);
+  background: white;
+  font-size: .68rem;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+  list-style: none;
+}
+.ref2vd-role-help > summary::-webkit-details-marker { display: none; }
+.ref2vd-role-help > summary:focus-visible { outline: 3px solid #17634c33; outline-offset: 2px; }
+.ref2vd-role-help[open] > summary { border-color: var(--green); background: var(--green-soft); }
+.ref2vd-role-help-panel {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + .4rem);
+  left: -2.2rem;
+  width: min(20.5rem, calc(100vw - 3rem));
+  max-height: min(32rem, 70vh);
+  padding: .6rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: .7rem;
+  background: white;
+  box-shadow: 0 12px 30px #27302b24;
+}
+.ref2vd-role-help-panel table { width: 100%; border-collapse: collapse; font-size: .61rem; line-height: 1.35; }
+.ref2vd-role-help-panel th, .ref2vd-role-help-panel td { padding: .34rem .3rem; border-bottom: 1px solid #ece8df; text-align: left; vertical-align: top; }
+.ref2vd-role-help-panel thead th { color: var(--muted); font-size: .56rem; letter-spacing: .05em; text-transform: uppercase; }
+.ref2vd-role-help-panel tbody th { width: 34%; color: var(--ink); }
+.ref2vd-role-help-panel p { margin: .5rem .3rem 0; color: var(--muted); font-size: .59rem; line-height: 1.4; }
 .ref2vd-reference-list { display: grid; gap: .55rem; margin-top: .65rem; }
 .ref2vd-reference-card {
   display: grid;

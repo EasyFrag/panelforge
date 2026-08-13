@@ -11,14 +11,14 @@
   const preferredCookbookVersion = "0.3.3";
   const preferredCookbookValue = `${cookbookId}@${preferredCookbookVersion}`;
   const roleOptions = [
-    ["first_frame", "Première frame exacte", "first_frame"],
-    ["subject_reference", "Sujet / identité", "subject"],
-    ["keyframe_reference", "Keyframe", "keyframe"],
-    ["environment_reference", "Décor", "environment"],
-    ["composition_reference", "Composition", "composition"],
-    ["style_reference", "Style", "style"],
-    ["motion_reference", "Mouvement", "motion"],
-    ["last_frame", "Dernière frame exacte", "last_frame"],
+    ["first_frame", "Première frame exacte", "first_frame", "État visible complet à 0,00 s : sujets, pose, cadrage, perspective, décor, lumière et composition."],
+    ["subject_reference", "Sujet / identité", "subject", "Identité, apparence stable et attributs explicitement attribués."],
+    ["keyframe_reference", "Keyframe", "keyframe", "État visuel d’un instant intermédiaire défini par le Brief et le Plan."],
+    ["environment_reference", "Décor", "environment", "Environnement, matériaux, géométrie spatiale, lumière et atmosphère."],
+    ["composition_reference", "Composition", "composition", "Composition, cadrage et équilibre spatial."],
+    ["style_reference", "Style", "style", "Style visuel, palette, texture et traitement cinématographique."],
+    ["motion_reference", "Mouvement", "motion", "Mécanique de l’action, dynamique corporelle et qualité du mouvement."],
+    ["last_frame", "Dernière frame exacte", "last_frame", "État visuel final exact au temps prévu."],
   ];
 
   const state = {
@@ -42,6 +42,7 @@
     activeCookbook: $("#ref2vd-active-cookbook"),
     imageInput: $("#ref2vd-image-input"),
     referenceList: $("#ref2vd-reference-list"),
+    roleHelpBody: $("#ref2vd-role-help-body"),
     roleSummary: $("#ref2vd-role-summary"),
     roleWarning: $("#ref2vd-role-warning"),
     roleConfirmation: $("#ref2vd-role-confirmation"),
@@ -97,6 +98,20 @@
         progress: $(`#ref2vd-${name}-stream-progress`),
       },
     };
+  }
+
+  function renderRoleHelp() {
+    elements.roleHelpBody.replaceChildren();
+    roleOptions.forEach(([, label, , controls]) => {
+      const row = document.createElement("tr");
+      const role = document.createElement("th");
+      role.scope = "row";
+      role.textContent = label;
+      const description = document.createElement("td");
+      description.textContent = controls;
+      row.append(role, description);
+      elements.roleHelpBody.append(row);
+    });
   }
 
   async function initialize() {
@@ -1160,6 +1175,7 @@
   });
 
   updateFreedom();
+  renderRoleHelp();
   renderDraftReferences();
   render();
   initialize();
