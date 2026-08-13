@@ -9,6 +9,11 @@ from panelforge.domain import H3CameraDirective
 
 from .direct_ref2v_plan import parse_direct_ref2v_action_plan_v2
 from .minimax_h3_protocol import compile_camera_motion
+from .timed_camera_compiler import (
+    TimedCameraPlacement,
+    insert_i2v_camera_clauses,
+    remove_i2v_camera_clauses,
+)
 
 
 I2VA_FIXED_INSTRUCTION = (
@@ -22,7 +27,12 @@ I2VA_FIELDS = (
 )
 
 
-def apply_direct_i2v_timing(content: str, plan_content: str) -> str:
+def apply_direct_i2v_timing(
+    content: str,
+    plan_content: str,
+    *,
+    preserve_field_linebreak: bool = False,
+) -> str:
     """Compile the derived duration and validate plan-owned landmarks.
 
     The LLM owns the semantic plan but not the redundant clocks.  The plan V2
@@ -99,7 +109,8 @@ def apply_direct_i2v_timing(content: str, plan_content: str) -> str:
         "integrated_multimodal_description",
         "overall_soundscape",
     )
-    return value[:start] + integrated.strip() + "\n" + value[end:]
+    separator = "\n" if preserve_field_linebreak else ""
+    return value[:start] + separator + integrated.strip() + "\n" + value[end:]
 
 
 def normalize_direct_i2v_camera_placeholders(content: str) -> str:
@@ -108,6 +119,42 @@ def normalize_direct_i2v_camera_placeholders(content: str) -> str:
     value = _strip_fence(content).replace("\r\n", "\n")
     placeholder = r"\[\[camera:camera_\d+\]\]"
     return re.sub(rf"({placeholder})\.(?=\s|$)", r"\1", value)
+
+
+def insert_camera_owned_direct_i2v_clauses(
+    content: str,
+    placements: tuple[TimedCameraPlacement, ...],
+) -> str:
+    """Insert plan-owned camera clauses into the I2VA writer envelope."""
+
+    value = _strip_fence(content).replace("\r\n", "\n")
+    start, end = _field_span(
+        value,
+        "integrated_multimodal_description",
+        "overall_soundscape",
+    )
+    integrated = insert_i2v_camera_clauses(value[start:end].strip(), placements)
+    return value[:start] + "\n" + integrated + "\n" + value[end:]
+
+
+def rehydrate_camera_owned_direct_i2v_document(
+    content: str,
+    placements: tuple[TimedCameraPlacement, ...],
+) -> str:
+    """Remove only compiler-inserted camera clauses for a writer revision."""
+
+    value = _strip_fence(content).replace("\r\n", "\n")
+    prefix = I2VA_FIXED_INSTRUCTION + "\n\n"
+    if not value.startswith(prefix):
+        raise ValueError("direct I2VA prompt is missing its fixed instruction")
+    body = value[len(prefix) :]
+    start, end = _field_span(
+        body,
+        "integrated_multimodal_description",
+        "overall_soundscape",
+    )
+    integrated = remove_i2v_camera_clauses(body[start:end].strip(), placements)
+    return (body[:start] + "\n" + integrated + "\n" + body[end:]).strip()
 
 
 def rehydrate_direct_i2v_editable_document(

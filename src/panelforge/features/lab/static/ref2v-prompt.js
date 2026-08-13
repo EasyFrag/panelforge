@@ -209,10 +209,12 @@
   }
 
   async function loadSessions() {
-    const payload = await core.request("/api/prompt-lab/sessions?limit=20");
+    const payload = await core.request("/api/prompt-lab/sessions?limit=200");
     const sessions = (payload.sessions || []).filter((session) => {
       const roles = new Set((session.references || []).map((reference) => reference.role));
-      return session.references.length === 2
+      return session.session_mode === "analyzed"
+        && session.profile && session.profile.id === "minimax.h3.reference"
+        && session.references.length === 2
         && roles.has("ref2v_dressed_start")
         && roles.has("ref2v_body_reference");
     });
@@ -490,7 +492,7 @@
       });
     }
     lint.append(result);
-    $("#ref2v-copy-prompt").disabled = state.busy || !complete || stale || draft || Boolean(errors.length);
+    $("#ref2v-copy-prompt").disabled = state.busy || !active || !elements.prompt.content.value.trim();
   }
 
   const arbitrationCategoryLabels = {

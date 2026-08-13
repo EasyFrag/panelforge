@@ -1,0 +1,11 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+FIRST-FRAME EVIDENCE
+{{REFERENCES}}
+
+REQUIRED DIRECT I2VA JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Relook at the attached first frame and return the complete one-shot physical plan. Preserve its exact initial state and the requested action order. Use final_state.final_hold_ms instead of a redundant duration or final timestamp, and expose unresolved cuts, conflicts, or timing pressure as risks.
+

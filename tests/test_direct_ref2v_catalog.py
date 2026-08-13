@@ -31,6 +31,9 @@ class DirectRef2VCatalogTest(unittest.TestCase):
         cls.cookbook_compact_v2 = LocalPromptCookbookCatalog(
             PROJECT_ROOT / "prompt_cookbooks"
         ).get("minimax.h3.ref2v.direct", "0.3.2")
+        cls.camera_owned_cookbook = LocalPromptCookbookCatalog(
+            PROJECT_ROOT / "prompt_cookbooks"
+        ).get("minimax.h3.ref2v.direct", "0.3.3")
 
     def test_profile_loads_as_direct_multimodal(self):
         self.assertEqual(
@@ -154,7 +157,7 @@ class DirectRef2VCatalogTest(unittest.TestCase):
 
         self.assertEqual(
             versions,
-            ["0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2"],
+            ["0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2", "0.3.3"],
         )
 
     def test_v3_adds_multimodal_risk_arbitration_without_changing_v2_plan(self):
@@ -232,6 +235,50 @@ class DirectRef2VCatalogTest(unittest.TestCase):
             "These four fields must contain no <Picture N> labels",
             current.revision_system_prompt,
         )
+
+    def test_camera_owned_recipe_versions_only_the_writer_contract(self):
+        previous = self.cookbook_compact_v2
+        current = self.camera_owned_cookbook
+
+        self.assertEqual(
+            current.output_contract,
+            "minimax.h3.ref2v.direct_supervised_h3_v3",
+        )
+        self.assertEqual(
+            current.preset,
+            "direct-multiref-supervised-h3-v4-compact-camera-owned",
+        )
+        self.assertEqual(current.slots, previous.slots)
+        self.assertEqual(current.writer_projection, previous.writer_projection)
+        self.assertEqual(
+            current.beat_sheet_system_prompt,
+            previous.beat_sheet_system_prompt,
+        )
+        self.assertEqual(
+            current.beat_sheet_user_prompt,
+            previous.beat_sheet_user_prompt,
+        )
+        self.assertEqual(
+            current.beat_sheet_reconcile_system_prompt,
+            previous.beat_sheet_reconcile_system_prompt,
+        )
+        self.assertEqual(
+            current.beat_sheet_reconcile_user_prompt,
+            previous.beat_sheet_reconcile_user_prompt,
+        )
+
+        writer_prompts = "\n".join((
+            current.final_prompt_system_prompt,
+            current.final_prompt_user_prompt,
+            current.revision_system_prompt,
+            current.revision_user_prompt,
+        ))
+        self.assertNotIn("[[camera:", writer_prompts)
+        self.assertIn("Camera scheduling is application-owned", writer_prompts)
+        self.assertNotIn("camera_directives", writer_prompts)
+        self.assertIn("camera_landmarks_ms", writer_prompts)
+        self.assertIn("At MM:SS.mmm,", writer_prompts)
+        self.assertIn("output no camera placeholder", writer_prompts)
 
 
 if __name__ == "__main__":

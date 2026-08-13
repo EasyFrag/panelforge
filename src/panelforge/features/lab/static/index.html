@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260811.4">
+  <link rel="stylesheet" href="/static/lab.css?v=20260813.1">
   <script src="/static/lab.js?v=20260810.1" defer></script>
-  <script src="/static/prompt-lab.js?v=20260812.2" defer></script>
+  <script src="/static/prompt-lab.js?v=20260813.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
-  <script src="/static/i2v-prompt.js?v=20260811.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260812.1" defer></script>
-  <script src="/static/ref2v-prompt.js?v=20260811.2" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260812.3" defer></script>
+  <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260813.3" defer></script>
+  <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260813.3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -19,10 +19,9 @@
     <nav class="lab-nav" aria-label="Ateliers">
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
       <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
-      <button type="button" data-lab-view="i2v">I2V simple</button>
-      <button type="button" data-lab-view="i2v-direct">I2V Direct</button>
-      <button type="button" data-lab-view="ref2v">Ref2V</button>
-      <button type="button" data-lab-view="ref2v-direct">Ref2V Direct</button>
+      <button type="button" data-lab-view="i2v-direct">I2V</button>
+      <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
+      <button type="button" data-lab-view="archives">Archives</button>
     </nav>
     <div class="topbar-actions">
       <span id="runtime-message" class="runtime-message" role="status" aria-live="polite" hidden></span>
@@ -435,13 +434,25 @@
     </div>
   </main>
 
-  <main id="i2v-workspace" class="prompt-workspace i2v-workspace" hidden>
+  <main id="archives-workspace" class="archive-workspace" hidden>
+    <section class="archive-index">
+      <div><small>PARCOURS HISTORIQUES</small><h1>Archives</h1></div>
+      <p>Ces parcours restent lisibles pour préserver les compositions existantes. La création et les modifications sont désactivées ; le contenu actif peut toujours être copié.</p>
+      <div class="archive-links">
+        <button type="button" data-archive-view="i2v"><b>I2V simple</b><small>Observation → Brief → Prompt I2VA</small></button>
+        <button type="button" data-archive-view="ref2v"><b>Ref2V spécialisé</b><small>Ancienne recette undressing.single_shot</small></button>
+      </div>
+    </section>
+  </main>
+
+  <main id="i2v-workspace" class="prompt-workspace i2v-workspace legacy-archive" hidden>
     <aside class="controls prompt-setup">
       <div class="title-row">
-        <div><small>COOKBOOK · I2VA</small><h1>Animer une première frame</h1></div>
-        <span class="experimental">● Experimental</span>
+        <div><small>ARCHIVE · I2V SIMPLE</small><h1>Animer une première frame</h1></div>
+        <span class="archive-badge">Lecture seule</span>
       </div>
-      <p class="muted">Un parcours court : observer une image, cadrer l’intention, puis écrire le prompt H3. Recette : <code id="i2v-active-cookbook">chargement…</code></p>
+      <p class="muted">Ancien parcours conservé pour relire et copier ses résultats. Recette : <code id="i2v-active-cookbook">chargement…</code></p>
+      <p class="archive-notice">La création et les modifications sont désactivées. Utilisez le nouvel onglet <b>I2V</b> pour un nouveau parcours.</p>
 
       <form id="i2v-session-form">
         <section>
@@ -492,8 +503,8 @@
       </section>
 
       <section id="i2v-empty" class="prompt-empty">
-        <b>Trois validations, sans étape cachée</b>
-        <p>Chargez une image et décrivez simplement ce qui doit arriver. Chaque résultat restera éditable avant de passer au suivant.</p>
+        <b>Sélectionnez un parcours historique</b>
+        <p>Les sessions archivées apparaissent dans la colonne de gauche. Leur prompt actif reste consultable et copiable, même s’il n’avait pas été approuvé.</p>
       </section>
 
       <section id="i2v-editor" class="prompt-editor" hidden>
@@ -548,8 +559,8 @@
   <main id="i2vd-workspace" class="prompt-workspace i2v-workspace" hidden>
     <aside class="controls prompt-setup">
       <div class="title-row">
-        <div><small>COOKBOOK · I2V DIRECT</small><h1>Animer depuis la première frame</h1></div>
-        <span class="experimental">● Experimental</span>
+        <div><small>COOKBOOK · I2V</small><h1>Animer depuis la première frame</h1></div>
+        <span class="current-badge">Parcours actuel</span>
       </div>
       <p class="muted">La première frame est relue directement par le LLM pendant le Brief et le Plan. Aucun texte d’observation intermédiaire.</p>
 
@@ -665,13 +676,14 @@
     </div>
   </main>
 
-  <main id="ref2v-workspace" class="prompt-workspace i2v-workspace" hidden>
+  <main id="ref2v-workspace" class="prompt-workspace i2v-workspace legacy-archive" hidden>
     <aside class="controls prompt-setup">
       <div class="title-row">
-        <div><small>COOKBOOK · REF2V</small><h1>Undressing mono-plan</h1></div>
-        <span class="experimental">● Experimental</span>
+        <div><small>ARCHIVE · REF2V SPÉCIALISÉ</small><h1>Undressing mono-plan</h1></div>
+        <span class="archive-badge">Lecture seule</span>
       </div>
-      <p class="muted">Deux références, trois validations. La première image ouvre la vidéo ; la seconde complète l’apparence du même sujet. Recette : <code id="ref2v-active-cookbook">chargement…</code></p>
+      <p class="muted">Ancien parcours spécialisé conservé pour relire et copier ses résultats. Recette : <code id="ref2v-active-cookbook">chargement…</code></p>
+      <p class="archive-notice">La création et les modifications sont désactivées. Utilisez le nouvel onglet <b>Ref2V</b> pour un nouveau parcours.</p>
 
       <form id="ref2v-session-form">
         <section>
@@ -732,8 +744,8 @@
       </section>
 
       <section id="ref2v-empty" class="prompt-empty">
-        <b>Un parcours court et contrôlable</b>
-        <p>Chargez la première frame et une référence corporelle du même sujet. Les observations, le brief, la chorégraphie puis le prompt final restent éditables et validables séparément.</p>
+        <b>Sélectionnez un parcours historique</b>
+        <p>Les sessions archivées apparaissent dans la colonne de gauche. Leur prompt actif reste consultable et copiable, même s’il n’avait pas été approuvé.</p>
       </section>
 
       <section id="ref2v-editor" class="prompt-editor" hidden>
@@ -830,8 +842,8 @@
   <main id="ref2vd-workspace" class="prompt-workspace i2v-workspace" hidden>
     <aside class="controls prompt-setup">
       <div class="title-row">
-        <div><small>COOKBOOK · REF2V DIRECT</small><h1>Composer depuis les images</h1></div>
-        <span class="experimental">● Experimental</span>
+        <div><small>COOKBOOK · REF2V</small><h1>Composer depuis les images</h1></div>
+        <span class="current-badge">Parcours actuel</span>
       </div>
       <p class="muted">Une à trois images sont relues directement par le LLM pendant le Brief et le Plan. Aucun texte d’observation intermédiaire.</p>
 
@@ -853,6 +865,11 @@
             <b>＋ Ajouter des images</b><small>Une nouvelle sélection complète la liste existante.</small>
           </label>
           <div id="ref2vd-reference-list" class="ref2vd-reference-list"><p class="muted">Aucune référence.</p></div>
+          <div class="ref2vd-role-review">
+            <ul id="ref2vd-role-summary" class="ref2vd-role-summary"><li>Aucun rôle à vérifier.</li></ul>
+            <p id="ref2vd-role-warning" class="warning" role="status" hidden></p>
+            <label class="ref2vd-role-confirmation"><input id="ref2vd-role-confirmation" type="checkbox" disabled> J’ai vérifié le rôle et l’usage attribués à chaque image.</label>
+          </div>
         </section>
         <section>
           <h2>Intention simple</h2>
@@ -863,6 +880,7 @@
             <output id="ref2vd-freedom-value">35</output>
           </div>
         </section>
+        <p id="ref2vd-mode-warning" class="warning" role="status" hidden></p>
         <p id="ref2vd-setup-message" class="error" role="alert" hidden></p>
         <button id="ref2vd-start" class="primary" type="submit" disabled>Créer le parcours</button>
       </form>

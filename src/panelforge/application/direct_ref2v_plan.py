@@ -511,6 +511,31 @@ def direct_ref2v_writer_plan_v2_compact(content: str) -> str:
     return json.dumps(writer_value, ensure_ascii=False, indent=2)
 
 
+def direct_ref2v_writer_plan_v2_camera_owned(content: str) -> str:
+    """Hide camera semantics while exposing only required writer landmarks.
+
+    The application owns the typed directives and later compiles their exact H3
+    clauses.  Giving the prose writer only the start times prevents it from
+    paraphrasing motion while still letting it emit the required temporal
+    anchors for non-zero starts.
+    """
+
+    plan = parse_direct_ref2v_action_plan_v2(content)
+    writer_value = plan.model_dump(
+        mode="json",
+        exclude={"risks", "technical_adjustments", "camera_directives"},
+    )
+    writer_value["camera_landmarks_ms"] = [
+        item.start_ms for item in plan.camera_directives
+    ]
+    writer_value["derived_timing"] = {
+        "final_state_start_ms": plan.final_start_ms,
+        "duration_ms": plan.duration_ms,
+        "duration_seconds": plan.duration_ms / 1000,
+    }
+    return json.dumps(writer_value, ensure_ascii=False, indent=2)
+
+
 def _json_object(content: str) -> dict[str, object]:
     if not isinstance(content, str) or not content.strip():
         raise ValueError("direct Ref2V action plan must not be empty")

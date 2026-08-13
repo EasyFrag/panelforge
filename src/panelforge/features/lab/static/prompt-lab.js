@@ -23,12 +23,14 @@
   const elements = {
     changeView: $("#change-view-workspace"),
     promptLab: $("#prompt-lab-workspace"),
+    archives: $("#archives-workspace"),
     i2v: $("#i2v-workspace"),
     i2vDirect: $("#i2vd-workspace"),
     ref2v: $("#ref2v-workspace"),
     ref2vDirect: $("#ref2vd-workspace"),
     recipeBadge: $("#recipe-badge"),
     nav: [...document.querySelectorAll("[data-lab-view]")],
+    archiveLinks: [...document.querySelectorAll("[data-archive-view]")],
     form: $("#prompt-session-form"),
     model: $("#prompt-model"),
     profile: $("#prompt-profile"),
@@ -107,15 +109,20 @@
 
   function switchView(view) {
     const promptActive = view === "prompt-lab";
+    const archiveActive = ["archives", "i2v", "ref2v"].includes(view);
     elements.changeView.hidden = view !== "change-view";
     elements.promptLab.hidden = !promptActive;
+    elements.archives.hidden = view !== "archives";
     elements.i2v.hidden = view !== "i2v";
     elements.i2vDirect.hidden = view !== "i2v-direct";
     elements.ref2v.hidden = view !== "ref2v";
     elements.ref2vDirect.hidden = view !== "ref2v-direct";
     elements.recipeBadge.hidden = view !== "change-view";
     elements.nav.forEach((button) => {
-      button.classList.toggle("active", button.dataset.labView === view);
+      button.classList.toggle(
+        "active",
+        button.dataset.labView === (archiveActive ? "archives" : view),
+      );
     });
     if (promptActive && !state.initialized) initialize();
   }
@@ -123,6 +130,41 @@
   elements.nav.forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.labView));
   });
+
+  elements.archiveLinks.forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.archiveView));
+  });
+
+  function lockLegacyArchives() {
+    [elements.i2v, elements.ref2v].forEach((workspace) => {
+      const lockTextareas = () => workspace.querySelectorAll("textarea").forEach((textarea) => {
+        if (textarea.disabled) textarea.disabled = false;
+        if (!textarea.readOnly) textarea.readOnly = true;
+      });
+      lockTextareas();
+      new MutationObserver(lockTextareas).observe(workspace, {
+        attributes: true,
+        attributeFilter: ["disabled", "readonly"],
+        subtree: true,
+      });
+      workspace.addEventListener("submit", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
+      workspace.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        const allowed = button.classList.contains("session-link")
+          || button.id.endsWith("-refresh-sessions")
+          || button.id.endsWith("-copy-prompt");
+        if (allowed) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
+    });
+  }
+
+  lockLegacyArchives();
 
   async function request(url, options = {}) {
     const response = await fetch(url, options);

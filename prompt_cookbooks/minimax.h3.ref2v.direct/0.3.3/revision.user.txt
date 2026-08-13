@@ -1,0 +1,13 @@
+APPROVED COMPACT PLAN — READ ONLY
+{{PLAN}}
+
+REFERENCE MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+CURRENT DOCUMENT
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete revised four-field H3 document. Apply only compatible prose changes, preserve every untouched contract and exact non-zero camera-start landmark, and leave all camera sentence insertion to the application.

@@ -114,9 +114,16 @@ def action_plan(*, with_camera: bool = True, resolved: bool = False) -> dict:
     }
 
 
-def final_document(*, with_camera: bool = True, revised: bool = False) -> str:
+def final_document(
+    *,
+    with_camera: bool = True,
+    revised: bool = False,
+    camera_owned: bool = False,
+) -> str:
     camera = (
-        "At 00:04.000, [[camera:camera_1]] The ball accelerates toward the net.\n"
+        "At 00:04.000, "
+        + ("" if camera_owned else "[[camera:camera_1]] ")
+        + "The ball accelerates toward the net.\n"
         if with_camera
         else "The ball accelerates toward the net.\n"
     )
@@ -144,9 +151,16 @@ def final_document(*, with_camera: bool = True, revised: bool = False) -> str:
 class DirectI2VGateway:
     decision = "Keep the ball path on the established court axis."
 
-    def __init__(self, *, with_camera: bool = True, picture_2: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        with_camera: bool = True,
+        picture_2: bool = False,
+        camera_owned: bool = False,
+    ) -> None:
         self.with_camera = with_camera
         self.picture_2 = picture_2
+        self.camera_owned = camera_owned
         self.requests: list[CompletionRequest] = []
 
     def _content(self, request: CompletionRequest) -> str:
@@ -155,6 +169,7 @@ class DirectI2VGateway:
         document = final_document(
             with_camera=self.with_camera,
             revised=request.operation_id == "final_prompt.revise",
+            camera_owned=self.camera_owned,
         )
         if self.picture_2:
             document = document.replace(
@@ -239,6 +254,7 @@ def configured_service(
     *,
     with_camera: bool = True,
     picture_2: bool = False,
+    cookbook_version: str = "0.1.0",
 ):
     assets = LocalAssetStore(directory, id_factory=lambda: "asset-1")
     session = direct_i2v_session(assets)
@@ -247,6 +263,7 @@ def configured_service(
     gateway = DirectI2VGateway(
         with_camera=with_camera,
         picture_2=picture_2,
+        camera_owned=cookbook_version == "0.2.0",
     )
     service = PromptCompositionService(
         gateway=gateway,
@@ -258,13 +275,58 @@ def configured_service(
     service.configure(
         session.session_id,
         "minimax.h3.i2v.direct",
-        "0.1.0",
+        cookbook_version,
         (CookbookBinding("first_frame", ("reference-1",)),),
     )
     return service, gateway
 
 
 class DirectI2VCompositionTest(unittest.TestCase):
+    def test_camera_owned_writer_never_sees_or_emits_camera_semantics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = configured_service(
+                directory,
+                cookbook_version="0.2.0",
+            )
+            service.generate("direct-i2v-session", CompositionStage.BEAT_SHEET)
+            service.approve("direct-i2v-session", CompositionStage.BEAT_SHEET)
+
+            composition = service.generate(
+                "direct-i2v-session",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+            request = gateway.requests[-1]
+            self.assertNotIn('"camera_directives"', request.user_prompt)
+            self.assertIn('"camera_landmarks_ms": [', request.user_prompt)
+            self.assertIn("4000", request.user_prompt)
+            self.assertNotIn("[[camera:", request.system_prompt + request.user_prompt)
+            final = composition.final_prompt.active_revision
+            self.assertIn(
+                "integrated_multimodal_description:\n[Shot 1]",
+                final.content,
+            )
+            self.assertIn(
+                "At 00:04.000, The camera pans right with small amplitude at "
+                "fast speed, following the ball. The ball accelerates",
+                final.content,
+            )
+            self.assertNotIn("[[camera:", final.content)
+
+            revised = service.revise(
+                "direct-i2v-session",
+                CompositionStage.FINAL_PROMPT,
+                "Shorten only the soundscape.",
+            )
+            revision_request = gateway.requests[-1]
+            self.assertNotIn("[[camera:", revision_request.user_prompt)
+            self.assertNotIn("The camera pans", revision_request.user_prompt)
+            self.assertIn(
+                "At 00:04.000, The camera pans right with small amplitude at "
+                "fast speed, following the ball.",
+                revised.final_prompt.active_revision.content,
+            )
+
     def test_direct_cookbook_rejects_an_unbound_extra_reference(self):
         with tempfile.TemporaryDirectory() as directory:
             asset_ids = iter(("asset-1", "asset-2"))

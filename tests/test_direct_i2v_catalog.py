@@ -18,6 +18,9 @@ class DirectI2VCatalogTest(unittest.TestCase):
         cls.cookbook = LocalPromptCookbookCatalog(
             PROJECT_ROOT / "prompt_cookbooks"
         ).get("minimax.h3.i2v.direct", "0.1.0")
+        cls.camera_owned_cookbook = LocalPromptCookbookCatalog(
+            PROJECT_ROOT / "prompt_cookbooks"
+        ).get("minimax.h3.i2v.direct", "0.2.0")
 
     def test_profile_is_direct_multimodal_and_first_frame_only(self):
         self.assertEqual(
@@ -75,6 +78,64 @@ class DirectI2VCatalogTest(unittest.TestCase):
         self.assertIn("[Shot 1] The target video is one continuous N-second shot.", system)
         for placeholder in ("{{BRIEF}}", "{{PLAN}}", "{{REFERENCE_MAPPING}}"):
             self.assertIn(placeholder, self.cookbook.final_prompt_user_prompt)
+
+    def test_camera_owned_recipe_versions_only_the_writer_contract(self):
+        previous = self.cookbook
+        current = self.camera_owned_cookbook
+
+        self.assertEqual(
+            current.output_contract,
+            "minimax.h3.i2va.direct_supervised_h3_v2",
+        )
+        self.assertEqual(
+            current.preset,
+            "direct-first-frame-supervised-h3-v2-camera-owned",
+        )
+        self.assertEqual(current.slots, previous.slots)
+        self.assertEqual(current.writer_projection, previous.writer_projection)
+        self.assertEqual(
+            current.beat_sheet_system_prompt,
+            previous.beat_sheet_system_prompt,
+        )
+        self.assertEqual(
+            current.beat_sheet_user_prompt,
+            previous.beat_sheet_user_prompt,
+        )
+        self.assertEqual(
+            current.beat_sheet_reconcile_system_prompt,
+            previous.beat_sheet_reconcile_system_prompt,
+        )
+        self.assertEqual(
+            current.beat_sheet_reconcile_user_prompt,
+            previous.beat_sheet_reconcile_user_prompt,
+        )
+
+        writer_prompts = "\n".join((
+            current.final_prompt_system_prompt,
+            current.final_prompt_user_prompt,
+            current.revision_system_prompt,
+            current.revision_user_prompt,
+        ))
+        self.assertNotIn("[[camera:", writer_prompts)
+        self.assertIn("Camera scheduling is application-owned", writer_prompts)
+        self.assertNotIn("camera_directives", writer_prompts)
+        self.assertIn("camera_landmarks_ms", writer_prompts)
+        self.assertIn("At MM:SS.mmm,", writer_prompts)
+        self.assertIn("output no camera placeholder", writer_prompts)
+
+    def test_direct_i2v_versions_remain_independently_loadable(self):
+        cookbooks = LocalPromptCookbookCatalog(
+            PROJECT_ROOT / "prompt_cookbooks"
+        ).list()
+
+        self.assertEqual(
+            [
+                item.reference.version
+                for item in cookbooks
+                if item.reference.cookbook_id == "minimax.h3.i2v.direct"
+            ],
+            ["0.1.0", "0.2.0"],
+        )
 
 
 if __name__ == "__main__":

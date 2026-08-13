@@ -158,14 +158,14 @@ class PromptCompositionWebTest(unittest.TestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("prompt-composition.js", page.text)
-        self.assertIn('data-lab-view="i2v"', page.text)
+        self.assertIn('data-archive-view="i2v"', page.text)
         self.assertIn('id="i2v-observation-step"', page.text)
         self.assertIn('id="i2v-brief-step"', page.text)
         self.assertIn('id="i2v-prompt-step"', page.text)
         self.assertIn('id="i2v-cookbook"', page.text)
-        self.assertIn('i2v-prompt.js?v=20260811.1', page.text)
+        self.assertIn('i2v-prompt.js?v=20260813.1', page.text)
         self.assertIn('data-lab-view="i2v-direct"', page.text)
-        self.assertIn('i2v-direct.js?v=20260812.1', page.text)
+        self.assertIn('i2v-direct.js?v=20260813.3', page.text)
         self.assertEqual(script.status_code, 200)
         self.assertIn("required_uses", script.text)
         self.assertEqual(i2v_script.status_code, 200)
@@ -173,12 +173,14 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('preferredCookbookVersion = "0.3.0"', i2v_script.text)
         self.assertIn('fallbackCookbookVersion = "0.2.0"', i2v_script.text)
         self.assertIn('core.request("/api/prompt-lab/cookbooks")', i2v_script.text)
+        self.assertIn('/api/prompt-lab/sessions?limit=200', i2v_script.text)
+        self.assertIn('session.session_mode === "analyzed"', i2v_script.text)
         self.assertIn('Canonique expérimental', i2v_script.text)
         self.assertIn('Témoin de comparaison', i2v_script.text)
         self.assertIn("PanelForgeModelPicker.populate", i2v_script.text)
         self.assertEqual(ref2v_script.status_code, 200)
         self.assertIn('id="ref2v-cookbook"', page.text)
-        self.assertIn('ref2v-prompt.js?v=20260811.2', page.text)
+        self.assertIn('ref2v-prompt.js?v=20260813.1', page.text)
         self.assertIn('preferredCookbookVersion = "0.11.0"', ref2v_script.text)
         self.assertIn('fallbackCookbookVersion = "0.10.0"', ref2v_script.text)
         self.assertIn(
@@ -188,6 +190,8 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('const visible = Boolean(', ref2v_script.text)
         self.assertIn('supervised || (', ref2v_script.text)
         self.assertIn('core.request("/api/prompt-lab/cookbooks")', ref2v_script.text)
+        self.assertIn('/api/prompt-lab/sessions?limit=200', ref2v_script.text)
+        self.assertIn('session.session_mode === "analyzed"', ref2v_script.text)
         self.assertIn('Continuité physique expérimentale', ref2v_script.text)
         self.assertIn('evidencePolicyForSlot', ref2v_script.text)
         self.assertIn('selectCookbookForSessionEvidence', ref2v_script.text)
@@ -209,9 +213,9 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('id="ref2v-apply-arbitrations"', page.text)
         self.assertIn("beat-sheet/reconcile/stream", ref2v_script.text)
         self.assertEqual(direct_script.status_code, 200)
-        self.assertIn('ref2v-direct.js?v=20260812.3', page.text)
+        self.assertIn('ref2v-direct.js?v=20260813.3', page.text)
         self.assertIn('id="ref2vd-cookbook"', page.text)
-        self.assertIn('preferredCookbookVersion = "0.3.2"', direct_script.text)
+        self.assertIn('preferredCookbookVersion = "0.3.3"', direct_script.text)
         self.assertIn('multishotCookbookId = "minimax.h3.ref2v.direct.multishot"', direct_script.text)
         self.assertIn('option.value = cookbookValue(cookbook)', direct_script.text)
         self.assertIn('id="ref2vd-multishot-summary"', page.text)
@@ -222,6 +226,11 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-accept-all-arbitrations"', page.text)
         self.assertIn('id="ref2vd-apply-arbitrations"', page.text)
         self.assertIn("beat-sheet/reconcile/stream", direct_script.text)
+        self.assertIn('id="ref2vd-mode-warning"', page.text)
+        self.assertIn('id="ref2vd-role-warning"', page.text)
+        self.assertIn('id="ref2vd-role-confirmation"', page.text)
+        self.assertIn("intentionRequestsMultipleShots", direct_script.text)
+        self.assertIn("allAdditionalReferencesAreSubjects", direct_script.text)
         direct_v2 = next(
             item for item in catalog
             if item["id"] == "minimax.h3.ref2v.direct"
@@ -235,7 +244,7 @@ class PromptCompositionWebTest(unittest.TestCase):
         direct_compact = next(
             item for item in catalog
             if item["id"] == "minimax.h3.ref2v.direct"
-            and item["version"] == "0.3.2"
+            and item["version"] == "0.3.3"
         )
         self.assertFalse(direct_v2["supports_plan_reconciliation"])
         self.assertTrue(direct_v3["supports_plan_reconciliation"])

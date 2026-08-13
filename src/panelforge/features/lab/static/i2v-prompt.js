@@ -142,9 +142,11 @@
   }
 
   async function loadSessions() {
-    const payload = await core.request("/api/prompt-lab/sessions?limit=20");
+    const payload = await core.request("/api/prompt-lab/sessions?limit=200");
     const sessions = (payload.sessions || []).filter(
-      (session) => session.references.length === 1
+      (session) => session.session_mode === "analyzed"
+        && session.profile && session.profile.id === "minimax.h3.reference"
+        && session.references.length === 1
         && session.references[0].role === "i2v_first_frame",
     );
     elements.sessionList.replaceChildren();
@@ -376,7 +378,7 @@
       });
     }
     lint.append(result);
-    $("#i2v-copy-prompt").disabled = state.busy || !complete || stale || draft || Boolean(errors.length);
+    $("#i2v-copy-prompt").disabled = state.busy || !active || !elements.prompt.content.value.trim();
   }
 
   async function promptAction(action, payload = null) {

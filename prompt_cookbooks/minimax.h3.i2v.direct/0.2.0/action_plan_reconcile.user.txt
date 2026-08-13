@@ -1,0 +1,20 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+FIRST-FRAME EVIDENCE
+{{REFERENCES}}
+
+CURRENT PLAN
+{{CURRENT_PLAN}}
+
+HUMAN DECISIONS
+{{DECISIONS}}
+
+GLOBAL INSTRUCTION
+{{GLOBAL_INSTRUCTION}}
+
+REQUIRED DIRECT I2VA JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Relook at the first frame, apply the decisions to both risk.resolution and the real plan semantics, then return only the complete JSON object.
+

@@ -69,9 +69,9 @@ Les `<Picture N>` sont numérotées localement et de façon contiguë selon l’
 
 Le preset V1 reste volontairement étroit : 15 secondes, 16:9, six actions lisibles, clash final et textes/HUD réservés à la postproduction. Ces choix seront rendus paramétrables après les premiers tests qualitatifs.
 
-### I2V simple — première frame vers prompt H3
+### Archive — I2V simple
 
-Un onglet séparé expose par défaut `minimax.h3.i2v.simple@0.3.0/single-first-frame-natural-motion-canonical-v1` avec trois étapes visibles seulement :
+La vue `Archives` conserve `minimax.h3.i2v.simple@0.3.0/single-first-frame-natural-motion-canonical-v1` et ses versions antérieures en lecture seule. Les sessions existantes restent ouvrables et leur contenu actif peut être copié, mais aucun nouveau parcours ni aucune modification ne sont proposés dans cette interface historique :
 
 ```text
 image de première frame
@@ -90,9 +90,9 @@ Les marqueurs tels que `<d>[French] ...</d>` sont maintenant normalisés par cod
 
 Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Le journal distingue désormais le résultat du transport modèle (`succeeded`, `truncated`, etc.) de l’issue applicative (`accepted` ou `rejected`) : un LLM terminé correctement n’est plus confondu avec un document accepté par le compilateur.
 
-### I2V Direct — première frame, plan supervisé, prompt I2VA
+### I2V — première frame, plan supervisé, prompt I2VA
 
-Le nouvel onglet expérimental `I2V Direct` transpose le parcours court validé en Ref2V à une seule image d’entrée :
+L’onglet principal `I2V` utilise le parcours multimodal Direct à une seule image d’entrée :
 
 ```text
 première frame native + intention simple
@@ -103,13 +103,13 @@ première frame native + intention simple
 
 Le profil `minimax.h3.i2v.direct@0.1.0` relit directement l’image pendant le Brief et ses révisions. Le planner reçoit à nouveau cette même image comme `<Picture 1>` et réutilise le Plan V2 générique de Ref2V Direct : beats majeurs, contacts, objets persistants, risques, caméra typée et `final_hold_ms`. Le code dérive le début de l’état final et la durée totale ; les durées longues restent des avertissements.
 
-Le writer reste textuel et ne décide plus de la caméra. Il produit uniquement `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`, avec les placeholders du Plan. PanelForge compile ensuite l’instruction I2VA officielle à `0.00` seconde, les clauses caméra canoniques et les timestamps dérivés. Une révision réhydrate ce contexte au lieu de le faire réinventer au modèle.
+`minimax.h3.i2v.direct@0.2.0` est sélectionnée par défaut. Le writer reste textuel et ne décide plus de la caméra : il produit uniquement `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`, et ne reçoit du Plan que les instants d’insertion `camera_landmarks_ms`, jamais le mouvement ni un placeholder. PanelForge compile ensuite l’instruction I2VA officielle à `0.00` seconde et insère les phrases caméra canoniques aux jalons approuvés. Une révision retire temporairement ces seules phrases avant l’appel, puis les réinsère depuis le contexte persistant. La `0.1.0` reste chargeable comme témoin historique à placeholders.
 
-Le parcours accepte exactement une première frame et aucun last frame : une seconde référence appartient au contrat Ref2V. L’ancien onglet `I2V simple` et `minimax.h3.i2v.simple@0.3.0` restent disponibles comme témoins A/B jusqu’à qualification visuelle du nouveau parcours.
+Le parcours accepte exactement une première frame et aucun last frame : une seconde référence appartient au contrat Ref2V. L’ancien I2V simple et ses cookbooks restent immuables dans les Archives uniquement pour relire les compositions historiques.
 
-### Ref2V — undressing mono-plan
+### Archive — Ref2V undressing mono-plan
 
-L’onglet séparé `Ref2V` utilise par défaut le cookbook à deux références `undressing.single_shot@0.11.0`. La `0.10.0` reste son témoin H3. Le parcours reste supervisé étape par étape :
+La vue `Archives` conserve le cookbook spécialisé à deux références `undressing.single_shot@0.11.0`, ses témoins et leurs sessions. Ce parcours reste documenté pour la compatibilité historique, mais sa création et ses modifications ne sont plus exposées dans le produit :
 
 ```text
 première frame habillée + référence corporelle du même sujet
@@ -157,9 +157,9 @@ L’interface permet d’analyser les deux images en une action ou de relancer, 
 
 Les neuf titres du Brief sont normalisés par code avec ou sans tiret initial, puis validés exactement une fois et dans le bon ordre avant persistance. Après chaque génération, les éditeurs reviennent en haut du document.
 
-### Ref2V Direct — brief multimodal sans observation intermédiaire
+### Ref2V — brief multimodal sans observation intermédiaire
 
-L’onglet indépendant `Ref2V Direct` conserve l’ancien Ref2V comme témoin et propose un parcours générique plus court :
+L’onglet principal `Ref2V` utilise le parcours Direct générique :
 
 ```text
 1 à 3 images natives + intention simple
@@ -170,11 +170,11 @@ L’onglet indépendant `Ref2V Direct` conserve l’ancien Ref2V comme témoin e
 
 Le profil `minimax.h3.ref2v.direct@0.1.0` ne crée aucune fiche d’observation. Le modèle reçoit directement les images pendant la génération du Brief et à chaque révision de celui-ci. Le planner reçoit à nouveau les mêmes pixels, dans le même ordre, avec le Brief approuvé. Le writer final reste textuel : il ne reçoit que le mapping immuable et le Plan approuvé.
 
-Chaque image porte un rôle fermé — première ou dernière frame, keyframe, sujet, décor, composition, style ou mouvement — et l’ordre affiché fixe le mapping `<Image N> → <Picture N>`. Le sélecteur Ref2V Direct propose toutes les versions du catalogue avant la création du Plan, puis verrouille la version dans la composition. `minimax.h3.ref2v.direct@0.3.2` est sélectionnée par défaut ; `0.3.1` reste son témoin compact, `0.3.0` le témoin verrouillé complet, `0.2.0` le témoin temporel V2 et `0.1.0` le témoin historique.
+Chaque image porte un rôle fermé — première ou dernière frame, keyframe, sujet, décor, composition, style ou mouvement — et l’ordre affiché fixe le mapping `<Image N> → <Picture N>`. Avant création, l’interface affiche ce mapping et exige sa confirmation ; toute image ajoutée, retirée, déplacée ou requalifiée invalide cette confirmation. Un warning non bloquant signale aussi une intention explicitement multi-plan lorsque la recette mono-plan est active. Le sélecteur propose toutes les versions Direct avant la création du Plan, puis verrouille la recette dans la composition et conserve ce choix après `Nouveau`. `minimax.h3.ref2v.direct@0.3.3` est sélectionnée par défaut ; `0.3.2` reste le témoin mono-plan à placeholders, `0.3.1` son témoin compact précédent, `0.3.0` le témoin verrouillé complet, `0.2.0` le témoin temporel V2 et `0.1.0` le témoin historique.
 
-Le Plan est volontairement générique : personnes, vêtements, accessoires, objets rigides ou articulés utilisent le même contrat de contacts, trajectoires, appuis, relâchement et état observable. Depuis `0.2.0`, le LLM cadence uniquement les actions et choisit `final_hold_ms`; le code place l’état final à la fin du dernier beat et calcule la durée totale, sans retimer ni interpréter les gestes. La `0.3.0` ajoute l’arbitrage supervisé des risques. La `0.3.1` compacte les instructions et le contexte writer. La `0.3.2` ne change ni Plan ni orchestration : elle précise seulement que les labels `<Picture N>` appartiennent à l’en-tête compilé et ne doivent pas être répétés dans les quatre champs produits par le writer. Cette recette mono-plan reste la voie robuste sélectionnée par défaut.
+Le Plan est volontairement générique : personnes, vêtements, accessoires, objets rigides ou articulés utilisent le même contrat de contacts, trajectoires, appuis, relâchement et état observable. Depuis `0.2.0`, le LLM cadence uniquement les actions et choisit `final_hold_ms`; le code place l’état final à la fin du dernier beat et calcule la durée totale, sans retimer ni interpréter les gestes. La `0.3.0` ajoute l’arbitrage supervisé des risques. La `0.3.1` compacte les instructions et le contexte writer. La `0.3.2` réserve les labels `<Picture N>` à l’en-tête compilé. La `0.3.3` retire aussi toute sémantique caméra du contexte du writer : celui-ci ne voit que `camera_landmarks_ms`, tandis que PanelForge insère déterministiquement la clause officielle depuis le Plan approuvé. Cette dernière recette mono-plan est la voie robuste sélectionnée par défaut.
 
-Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés restent des avertissements. JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants. Les écarts caméra sans ambiguïté sont réparés avant validation avec un warning traçable : cible optionnelle invalide, amplitude/vitesse incompatibles avec `static_shot`, `shake.*` ou `pov`, point final redondant après `[[camera:camera_N]]` et placeholder placé sur la ligne `shot_1:`. Un placeholder réellement enchâssé dans une phrase reste rejeté.
+Une tenue finale faible, une durée dérivée supérieure à 15 secondes et les risques non arbitrés restent des avertissements. JSON illisible, intervalles impossibles, mouvement caméra inconnu ou mapping altéré restent bloquants. Dans la `0.3.3`, landmark absent ou dupliqué, placeholder résiduel et prose de mouvement caméra réintroduite par le writer sont rejetés avant compilation ; la casse de la phrase sujet suivant l’insertion est normalisée mécaniquement. Ces contrôles sont propres au nouveau contrat et ne modifient pas les compositions historiques.
 
 `minimax.h3.ref2v.direct.multishot@0.1.0` ajoute à côté une recette expérimentale distincte : une à trois références, exactement trois plans et deux coupes franches. Elle réutilise le même Brief multimodal, le Plan éditable et l’arbitrage. Le LLM choisit une action dominante et une durée pour chaque plan ; PanelForge dérive les deux timestamps de coupe, les headings H3, la durée totale ainsi que les IDs et clauses caméra. Le writer ne produit que six champs internes — `scene_setup`, `shot_1`, `shot_2`, `shot_3`, `overall_soundscape`, `non_diegetic_music` — puis le code compile l’en-tête dynamique et la chronologie finale.
 
@@ -224,9 +224,8 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 ### 1. Qualifier les parcours courts I2V et Ref2V
 
-- comparer en A/B le mono-plan robuste `minimax.h3.ref2v.direct@0.3.2` et le trois-plans expérimental `minimax.h3.ref2v.direct.multishot@0.1.0` sur les mêmes références et intentions ; mesurer conformité des coupes, fidélité aux rôles, continuité, rythme et clipping ;
-- qualifier `minimax.h3.i2v.direct@0.1.0` face à `minimax.h3.i2v.simple@0.3.0` sur les mêmes premières frames et intentions : conformité I2VA, qualité du Brief et du Plan, rythme, continuité, caméra, clipping, tags, voix et synchronisation labiale ;
-- comparer en A/B `undressing.single_shot@0.11.0` à son témoin `0.10.0` sur plusieurs constructions de vêtements : topologie, passages par les ouvertures, continuité des prises, clipping, rythme et caméra ;
+- comparer en A/B le mono-plan robuste `minimax.h3.ref2v.direct@0.3.3` et le trois-plans expérimental `minimax.h3.ref2v.direct.multishot@0.1.0` sur les mêmes références et intentions ; mesurer conformité des coupes, fidélité aux rôles, continuité, rythme et clipping ;
+- qualifier `minimax.h3.i2v.direct@0.2.0` sur plusieurs premières frames, intentions et familles de modèles : conformité I2VA, qualité du Brief et du Plan, rythme, continuité, caméra compilée, clipping, tags, voix et synchronisation labiale ;
 - versionner une nouvelle recette seulement à partir de défauts reproduits sur plusieurs rendus, en conservant prompts, contexte compilateur et observations de test.
 
 Les transitions stylisées, le dialogue continu à travers les coupes et un nombre flexible de plans restent hors scope tant que ce premier A/B n’est pas qualifié.
@@ -277,4 +276,4 @@ Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie p
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 366 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 380 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

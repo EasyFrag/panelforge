@@ -16,6 +16,11 @@ from .minimax_h3_protocol import (
     compile_camera_motion,
     parse_camera_directives,
 )
+from .timed_camera_compiler import (
+    TimedCameraPlacement,
+    insert_ref2v_camera_clauses,
+    remove_ref2v_camera_clauses,
+)
 from .direct_ref2v_plan import parse_direct_ref2v_action_plan_v2
 
 
@@ -397,6 +402,71 @@ def rehydrate_direct_ref2v_editable_document(
     return editable
 
 
+def insert_camera_owned_direct_ref2v_clauses(
+    content: str,
+    placements: tuple[TimedCameraPlacement, ...],
+) -> str:
+    """Insert plan-owned camera clauses into the editable Shot 1 body."""
+
+    value = _strip_fence(content).replace("\r\n", "\n")
+    shot = _inline_field_body(value, "shot_1", "overall_soundscape").strip()
+    if not shot:
+        raise ValueError("direct Ref2V writer document is missing shot_1")
+    compiled = insert_ref2v_camera_clauses(shot, placements)
+    marker = re.search(r"(?m)^shot_1:[ \t]*", value)
+    next_marker = re.search(r"(?m)^overall_soundscape:[ \t]*", value)
+    if marker is None or next_marker is None or next_marker.start() <= marker.end():
+        raise ValueError("direct Ref2V writer fields are malformed")
+    return value[: marker.end()] + "\n" + compiled + "\n\n" + value[next_marker.start() :]
+
+
+def rehydrate_camera_owned_direct_ref2v_document(
+    content: str,
+    header: str,
+    placements: tuple[TimedCameraPlacement, ...],
+) -> str:
+    """Rebuild the writer envelope and remove compiler-owned camera clauses."""
+
+    editable = _compiled_ref2v_to_editable(content, header)
+    shot = _inline_field_body(editable, "shot_1", "overall_soundscape").strip()
+    restored = remove_ref2v_camera_clauses(shot, placements)
+    marker = re.search(r"(?m)^shot_1:[ \t]*", editable)
+    next_marker = re.search(r"(?m)^overall_soundscape:[ \t]*", editable)
+    if marker is None or next_marker is None:
+        raise ValueError("direct Ref2V editable fields are malformed")
+    return (
+        editable[: marker.end()]
+        + "\n"
+        + restored
+        + "\n\n"
+        + editable[next_marker.start() :]
+    ).strip()
+
+
+def _compiled_ref2v_to_editable(content: str, header: str) -> str:
+    prefix = header + "\n\n"
+    value = _strip_fence(content).replace("\r\n", "\n")
+    if not value.startswith(prefix):
+        raise ValueError("direct Ref2V prompt is missing its compiled mapping")
+    body = value[len(prefix) :]
+    shot_marker = re.search(r"(?m)^Shot 1:[ \t]*", body)
+    if shot_marker is None:
+        raise ValueError("direct Ref2V prompt is missing Shot 1")
+    scene = body[: shot_marker.start()].strip()
+    shot_and_audio = body[shot_marker.start() :]
+    shot = _inline_field_body(shot_and_audio, "Shot 1", "overall_soundscape").strip()
+    soundscape = _inline_field_body(
+        shot_and_audio, "overall_soundscape", "non_diegetic_music"
+    ).strip()
+    music = _inline_field_body(shot_and_audio, "non_diegetic_music", None).strip()
+    return (
+        f"scene_setup:\n{scene}\n\n"
+        f"shot_1:\n{shot}\n\n"
+        f"overall_soundscape:\n{soundscape}\n\n"
+        f"non_diegetic_music:\n{music}"
+    )
+
+
 def _reference_rule(role: str, picture_number: int) -> str:
     try:
         return _REFERENCE_RULES[role].format(number=picture_number)
@@ -457,8 +527,10 @@ __all__ = [
     "direct_reference_mapping",
     "encode_direct_ref2v_context",
     "is_direct_ref2v_context",
+    "insert_camera_owned_direct_ref2v_clauses",
     "lint_direct_ref2v_prompt",
     "normalize_direct_ref2v_camera_placeholders",
     "rehydrate_direct_ref2v_editable_document",
+    "rehydrate_camera_owned_direct_ref2v_document",
     "validate_direct_ref2v_labels",
 ]

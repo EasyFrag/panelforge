@@ -1,0 +1,10 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+FIRST-FRAME MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+COMPACT APPROVED PLAN WITH DERIVED TIMING
+{{PLAN}}
+
+Write the complete three-field H3 I2VA document. The first frame owns the exact state at 0.00 seconds; the plan owns action, timing, continuity, scene, audio, and final state. Preserve an exact `At MM:SS.mmm,` subject/state landmark for every non-zero camera start, but output no camera placeholder, directive ID, or camera movement prose. Output neither the official compiled header nor an input envelope.

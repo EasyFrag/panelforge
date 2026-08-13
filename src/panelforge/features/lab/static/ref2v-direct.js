@@ -8,7 +8,7 @@
   const profileVersion = "0.1.0";
   const cookbookId = "minimax.h3.ref2v.direct";
   const multishotCookbookId = "minimax.h3.ref2v.direct.multishot";
-  const preferredCookbookVersion = "0.3.2";
+  const preferredCookbookVersion = "0.3.3";
   const preferredCookbookValue = `${cookbookId}@${preferredCookbookVersion}`;
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame"],
@@ -29,6 +29,7 @@
     session: null,
     composition: null,
     busy: false,
+    rolesConfirmed: false,
     arbitrationDecisions: {},
     arbitrationRevisionId: null,
   };
@@ -41,12 +42,16 @@
     activeCookbook: $("#ref2vd-active-cookbook"),
     imageInput: $("#ref2vd-image-input"),
     referenceList: $("#ref2vd-reference-list"),
+    roleSummary: $("#ref2vd-role-summary"),
+    roleWarning: $("#ref2vd-role-warning"),
+    roleConfirmation: $("#ref2vd-role-confirmation"),
     intention: $("#ref2vd-intention"),
     freedom: $("#ref2vd-freedom"),
     freedomValue: $("#ref2vd-freedom-value"),
     freedomLabel: $("#ref2vd-freedom-label"),
     start: $("#ref2vd-start"),
     setupMessage: $("#ref2vd-setup-message"),
+    modeWarning: $("#ref2vd-mode-warning"),
     refreshSessions: $("#ref2vd-refresh-sessions"),
     sessionList: $("#ref2vd-session-list"),
     empty: $("#ref2vd-empty"),
@@ -138,8 +143,9 @@
       return `${cookbook.id}@${cookbook.version} — Trois plans · expérimental`;
     }
     const qualifier = cookbook.version === preferredCookbookVersion
-      ? "Mono-plan · robuste · défaut"
-      : cookbook.version === "0.3.1" ? "Compacte · témoin"
+      ? "Mono-plan · caméra compilée · défaut"
+      : cookbook.version === "0.3.2" ? "Mono-plan · placeholders · témoin"
+        : cookbook.version === "0.3.1" ? "Compacte · témoin"
         : cookbook.version === "0.3.0" ? "Verrouillée · témoin"
         : cookbook.version === "0.2.0" ? "Témoin V2" : "Historique";
     return `${cookbook.id}@${cookbook.version} — ${qualifier}`;
@@ -238,7 +244,8 @@
 
   function addFiles(fileList) {
     const available = Math.max(0, 3 - state.drafts.length);
-    [...fileList].slice(0, available).forEach((file) => {
+    const addedFiles = [...fileList].slice(0, available);
+    addedFiles.forEach((file) => {
       const role = state.drafts.length === 0 ? "first_frame" : "subject_reference";
       state.drafts.push({
         file,
@@ -246,6 +253,7 @@
         role,
       });
     });
+    if (addedFiles.length) invalidateRoleConfirmation();
     elements.imageInput.value = "";
     if (fileList.length > available) {
       showSetupMessage("Ref2V Direct accepte trois images au maximum.");
@@ -286,6 +294,7 @@
       select.disabled = Boolean(state.session);
       select.addEventListener("change", () => {
         draft.role = select.value;
+        invalidateRoleConfirmation();
         render();
       });
       const actions = document.createElement("div");
@@ -316,6 +325,7 @@
     const target = index + delta;
     if (target < 0 || target >= state.drafts.length) return;
     [state.drafts[index], state.drafts[target]] = [state.drafts[target], state.drafts[index]];
+    invalidateRoleConfirmation();
     renderDraftReferences();
     render();
   }
@@ -323,6 +333,7 @@
   function removeDraft(index) {
     const [removed] = state.drafts.splice(index, 1);
     if (removed) URL.revokeObjectURL(removed.previewUrl);
+    invalidateRoleConfirmation();
     renderDraftReferences();
     render();
   }
@@ -332,10 +343,61 @@
     return item ? item[2] : null;
   }
 
+  function invalidateRoleConfirmation() {
+    state.rolesConfirmed = false;
+    elements.roleConfirmation.checked = false;
+  }
+
+  function renderRoleReview() {
+    const references = state.session ? state.session.references : state.drafts;
+    elements.roleSummary.replaceChildren();
+    if (!references.length) {
+      const item = document.createElement("li");
+      item.textContent = "Aucun rôle à vérifier.";
+      elements.roleSummary.append(item);
+    } else {
+      references.forEach((reference, index) => {
+        const role = roleOptions.find(([value]) => value === reference.role);
+        const item = document.createElement("li");
+        item.textContent = `<Image ${index + 1}> → <Picture ${index + 1}> · ${role ? role[1] : reference.role}`;
+        elements.roleSummary.append(item);
+      });
+    }
+    const allAdditionalReferencesAreSubjects = references.length > 1
+      && references.slice(1).every((reference) => reference.role === "subject_reference");
+    elements.roleWarning.textContent = allAdditionalReferencesAreSubjects
+      ? "Toutes les images supplémentaires utilisent « Sujet / identité ». Vérifiez si certaines servent plutôt de décor, composition, style ou mouvement."
+      : "";
+    elements.roleWarning.hidden = !elements.roleWarning.textContent;
+    elements.roleConfirmation.checked = Boolean(state.session) || state.rolesConfirmed;
+    elements.roleConfirmation.disabled = state.busy || Boolean(state.session) || !state.drafts.length;
+  }
+
+  function intentionRequestsMultipleShots(value) {
+    const text = String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    if (/\b(?:multi[ -]?(?:plan|shot)s?|plusieurs plans?|multiple shots?)\b/.test(text)) return true;
+    if (/\b(?:[2-9]|[1-9]\d+|deux|trois|quatre|cinq|six)\s+(?:plans?|shots?)\b/.test(text)) return true;
+    return /\b(?:plan|shot)\s*1\b/.test(text) && /\b(?:plan|shot)\s*2\b/.test(text);
+  }
+
+  function renderSetupWarnings() {
+    const recipeMismatch = !state.session
+      && !isMultishotCookbook(activeCookbookSpec())
+      && intentionRequestsMultipleShots(elements.intention.value);
+    elements.modeWarning.textContent = recipeMismatch
+      ? "L’intention décrit plusieurs plans, mais la recette active est mono-plan. Vous pouvez continuer ou sélectionner Multi-plan avant de générer le Plan."
+      : "";
+    elements.modeWarning.hidden = !elements.modeWarning.textContent;
+  }
+
   function setupValidationError() {
     if (!selectedProfile() || !state.cookbook) return "Le profil Direct est encore en cours de chargement.";
     if (!state.drafts.length) return "Ajoutez au moins une image.";
     if (state.drafts.length > 3) return "Trois images au maximum.";
+    if (!state.rolesConfirmed) return "Vérifiez et confirmez le rôle attribué à chaque image.";
     if (!elements.model.value) return "Choisissez un modèle multimodal.";
     if (!elements.intention.value.trim()) return "Décrivez votre intention.";
     for (const role of ["first_frame", "last_frame"]) {
@@ -389,6 +451,8 @@
       ? state.composition.cookbook : null;
     const selectedCookbook = compositionReference || state.cookbook;
     const activeCookbook = activeCookbookSpec();
+    renderRoleReview();
+    renderSetupWarnings();
     if (selectedCookbook) elements.cookbook.value = cookbookValue(selectedCookbook);
     elements.cookbook.disabled = state.busy || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
@@ -993,12 +1057,18 @@
   }
 
   function resetSession() {
+    const preservedCookbook = activeCookbookSpec() || state.cookbook;
     state.session = null;
     state.composition = null;
-    resetCookbookSelection();
+    state.cookbook = preservedCookbook && directCookbooks().find(
+      (item) => cookbookValue(item) === cookbookValue(preservedCookbook),
+    ) || null;
+    if (!state.cookbook) resetCookbookSelection();
+    else elements.cookbook.value = cookbookValue(state.cookbook);
     resetArbitrations();
     state.drafts.forEach((draft) => URL.revokeObjectURL(draft.previewUrl));
     state.drafts = [];
+    invalidateRoleConfirmation();
     renderDraftReferences();
     elements.intention.value = "";
     elements.freedom.value = "35";
@@ -1026,6 +1096,10 @@
   elements.intention.addEventListener("input", render);
   elements.model.addEventListener("change", render);
   elements.freedom.addEventListener("input", () => { updateFreedom(); render(); });
+  elements.roleConfirmation.addEventListener("change", () => {
+    state.rolesConfirmed = elements.roleConfirmation.checked;
+    render();
+  });
   elements.newSession.addEventListener("click", resetSession);
 
   elements.brief.content.addEventListener("input", render);

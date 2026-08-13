@@ -119,9 +119,14 @@ def final_document(
     with_camera: bool = True,
     duration: str = "12",
     camera_layout: str = "canonical",
+    camera_owned: bool = False,
 ) -> str:
     camera = (
-        "At 00:08.000, [[camera:camera_1]]\n"
+        (
+            "At 00:08.000, The recipient secures the parcel.\n"
+            if camera_owned
+            else "At 00:08.000, [[camera:camera_1]]\n"
+        )
         if with_camera
         else "At 00:08.000, the transfer is complete.\n"
     )
@@ -156,9 +161,11 @@ class DirectGateway:
         *,
         with_camera: bool = True,
         camera_layout: str = "canonical",
+        camera_owned: bool = False,
     ) -> None:
         self.with_camera = with_camera
         self.camera_layout = camera_layout
+        self.camera_owned = camera_owned
         self.requests: list[CompletionRequest] = []
 
     def complete(self, request: CompletionRequest) -> CompletionResult:
@@ -175,6 +182,7 @@ class DirectGateway:
                 with_camera=self.with_camera,
                 duration="12",
                 camera_layout=self.camera_layout,
+                camera_owned=self.camera_owned,
             )
         return CompletionResult(
             model_id=request.model_id,
@@ -187,6 +195,7 @@ class DirectGateway:
         content = final_document(
             with_camera=self.with_camera,
             camera_layout=self.camera_layout,
+            camera_owned=self.camera_owned,
         )
         yield CompletionStreamEvent(
             kind=StreamEventKind.DELTA,
@@ -332,7 +341,10 @@ def configured_service(
     session, contents = direct_session(assets, reference_count)
     sessions = LocalPromptSessionStore(directory)
     sessions.create(session)
-    gateway = DirectGateway(with_camera=with_camera)
+    gateway = DirectGateway(
+        with_camera=with_camera,
+        camera_owned=cookbook_version == "0.3.3",
+    )
     service = PromptCompositionService(
         gateway=gateway,
         cookbooks=LocalPromptCookbookCatalog(COOKBOOK_ROOT),
@@ -355,6 +367,50 @@ def configured_service(
 
 
 class DirectRef2VCompositionTest(unittest.TestCase):
+    def test_camera_owned_mono_writer_uses_landmarks_and_code_inserts_camera(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway, _ = configured_service(
+                directory,
+                2,
+                cookbook_version="0.3.3",
+            )
+            service.generate("direct-session", CompositionStage.BEAT_SHEET)
+            service.approve("direct-session", CompositionStage.BEAT_SHEET)
+
+            composition = service.generate(
+                "direct-session",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+            request = gateway.requests[-1]
+            self.assertNotIn('"camera_directives"', request.user_prompt)
+            self.assertIn('"camera_landmarks_ms": [', request.user_prompt)
+            self.assertIn("8000", request.user_prompt)
+            self.assertNotIn("[[camera:", request.system_prompt + request.user_prompt)
+            final = composition.final_prompt.active_revision
+            self.assertIn(
+                "At 00:08.000, The camera pushes in with small amplitude at slow "
+                "speed toward the parcel held by the recipient. The recipient",
+                final.content,
+            )
+            self.assertNotIn("[[camera:", final.content)
+
+            revised = service.revise(
+                "direct-session",
+                CompositionStage.FINAL_PROMPT,
+                "Shorten only the soundscape.",
+            )
+            revision_request = gateway.requests[-1]
+            self.assertNotIn("[[camera:", revision_request.user_prompt)
+            self.assertNotIn("The camera pushes", revision_request.user_prompt)
+            self.assertEqual(
+                revised.final_prompt.active_revision.content.count(
+                    "The camera pushes in with small amplitude at slow speed "
+                    "toward the parcel held by the recipient."
+                ),
+                1,
+            )
+
     def test_compact_recipe_keeps_supervision_out_of_the_writer_request(self):
         with tempfile.TemporaryDirectory() as directory:
             service, _, _ = configured_service(

@@ -7,7 +7,7 @@
   const profileId = "minimax.h3.i2v.direct";
   const profileVersion = "0.1.0";
   const cookbookId = "minimax.h3.i2v.direct";
-  const preferredCookbookVersion = "0.1.0";
+  const preferredCookbookVersion = "0.2.0";
 
   const state = {
     spec: null,
@@ -252,7 +252,9 @@
     const compositionReference = state.composition && state.composition.cookbook
       ? state.composition.cookbook : null;
     const activeCookbook = activeCookbookSpec();
-    if (compositionReference) elements.cookbook.value = compositionReference.version;
+    elements.cookbook.value = compositionReference
+      ? compositionReference.version
+      : state.cookbook ? state.cookbook.version : "";
     elements.cookbook.disabled = state.busy || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
       ? compositionReference
@@ -719,6 +721,10 @@
   }
 
   function resetSession() {
+    const selectedCookbook = directCookbooks().find(
+      (item) => item.version === elements.cookbook.value,
+    );
+    if (selectedCookbook) state.cookbook = selectedCookbook;
     state.session = null;
     state.composition = null;
     resetArbitrations();
