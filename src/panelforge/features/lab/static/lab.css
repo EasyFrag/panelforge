@@ -369,6 +369,15 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .ref2vd-role-help-panel thead th { color: var(--muted); font-size: .56rem; letter-spacing: .05em; text-transform: uppercase; }
 .ref2vd-role-help-panel tbody th { width: 34%; color: var(--ink); }
 .ref2vd-role-help-panel p { margin: .5rem .3rem 0; color: var(--muted); font-size: .59rem; line-height: 1.4; }
+.quick-mode-option { display: flex; gap: .55rem; align-items: flex-start; margin: .75rem 0; padding: .65rem; border: 1px solid var(--line); border-radius: .7rem; background: #f7f5f0; }
+.quick-mode-option input { margin-top: .14rem; accent-color: var(--green); }
+.quick-mode-option span { display: grid; gap: .12rem; }
+.quick-mode-option b { font-size: .7rem; }
+.quick-mode-option small { color: var(--muted); font-size: .61rem; line-height: 1.4; }
+.quick-mode-status { display: flex; gap: .55rem; align-items: center; justify-content: space-between; margin-top: .55rem; padding: .5rem .6rem; border: 1px solid #b7d3c6; border-radius: .65rem; color: var(--green); background: var(--green-soft); font-size: .64rem; font-weight: 750; line-height: 1.4; }
+.quick-mode-status.stopped, .quick-mode-status.interrupted { border-color: #e2c995; color: #8a570d; background: #fffaf0; }
+.quick-mode-status.completed { border-color: #9bc5b2; }
+.quick-mode-status .text-button { flex: none; }
 .ref2vd-reference-list { display: grid; gap: .55rem; margin-top: .65rem; }
 .ref2vd-reference-card {
   display: grid;

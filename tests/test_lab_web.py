@@ -119,8 +119,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260813.2", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260813.5", page.text)
+        self.assertIn("/static/lab.css?v=20260813.3", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260813.6", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -218,7 +218,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260813.3', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260813.4', page.text)
         self.assertIn('const preferredCookbookVersion = "0.2.0"', script.text)
         self.assertIn('elements.cookbook.value = compositionReference', script.text)
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
@@ -234,6 +234,38 @@ class LabWebTest(unittest.TestCase):
             'elements.i2vDirect.hidden = view !== "i2v-direct"',
             prompt_script.text,
         )
+
+    def test_exposes_shared_quick_mode_for_both_direct_workspaces(self):
+        page = self.client.get("/")
+        quick = self.client.get("/static/quick-pipeline.js")
+        i2v = self.client.get("/static/i2v-direct.js")
+        ref2v = self.client.get("/static/ref2v-direct.js")
+
+        self.assertEqual(quick.status_code, 200)
+        self.assertIn('/static/quick-pipeline.js?v=20260813.1', page.text)
+        for prefix in ("i2vd", "ref2vd"):
+            self.assertIn(f'id="{prefix}-quick-mode" type="checkbox"', page.text)
+            self.assertIn(f'id="{prefix}-quick-status"', page.text)
+            self.assertIn(f'id="{prefix}-quick-resume"', page.text)
+        ordered_actions = (
+            'action: "generateBrief"',
+            'action: "approveBrief"',
+            'action: "generatePlan"',
+            'action: "approvePlan"',
+            'action: "generatePrompt"',
+            'action: "approvePrompt"',
+        )
+        positions = [quick.text.index(action) for action in ordered_actions]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('if (snapshot()[step.complete]) continue', quick.text)
+        self.assertIn('status: "interrupted"', quick.text)
+        self.assertNotIn("reconcile", quick.text)
+        for script in (i2v.text, ref2v.text):
+            self.assertIn("quickPipeline.runDirect", script)
+            self.assertIn('generateBrief: () => streamBrief(false)', script)
+            self.assertIn('approvePrompt: () => documentAction("final-prompt", "approve")', script)
+            self.assertIn("!(documentState.validation_errors || []).length", script)
+            self.assertNotIn("validation_warnings || []", script.split("function quickSnapshot()", 1)[1].split("function renderQuickStatus()", 1)[0])
 
     def test_unloads_the_external_model_runtime(self):
         response = self.client.post("/api/model-runtime/unload")

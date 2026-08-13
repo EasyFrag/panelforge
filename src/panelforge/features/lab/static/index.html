@@ -4,14 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260813.2">
+  <link rel="stylesheet" href="/static/lab.css?v=20260813.3">
   <script src="/static/lab.js?v=20260810.1" defer></script>
   <script src="/static/prompt-lab.js?v=20260813.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260813.3" defer></script>
+  <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260813.4" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260813.5" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260813.6" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -594,7 +595,15 @@
           </div>
         </section>
         <p id="i2vd-setup-message" class="error" role="alert" hidden></p>
+        <label class="quick-mode-option">
+          <input id="i2vd-quick-mode" type="checkbox">
+          <span><b>Mode rapide</b><small>Générer et valider automatiquement Brief, Plan et Prompt.</small></span>
+        </label>
         <button id="i2vd-start" class="primary" type="submit" disabled>Créer le parcours</button>
+        <div id="i2vd-quick-status" class="quick-mode-status" role="status" aria-live="polite" hidden>
+          <span id="i2vd-quick-status-label"></span>
+          <button id="i2vd-quick-resume" class="text-button" type="button" hidden>Reprendre</button>
+        </div>
       </form>
 
       <div class="recent-sessions">
@@ -900,7 +909,15 @@
         </section>
         <p id="ref2vd-mode-warning" class="warning" role="status" hidden></p>
         <p id="ref2vd-setup-message" class="error" role="alert" hidden></p>
+        <label class="quick-mode-option">
+          <input id="ref2vd-quick-mode" type="checkbox">
+          <span><b>Mode rapide</b><small>Générer et valider automatiquement Brief, Plan et Prompt.</small></span>
+        </label>
         <button id="ref2vd-start" class="primary" type="submit" disabled>Créer le parcours</button>
+        <div id="ref2vd-quick-status" class="quick-mode-status" role="status" aria-live="polite" hidden>
+          <span id="ref2vd-quick-status-label"></span>
+          <button id="ref2vd-quick-resume" class="text-button" type="button" hidden>Reprendre</button>
+        </div>
       </form>
 
       <div class="recent-sessions">

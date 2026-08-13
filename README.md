@@ -92,6 +92,8 @@ Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journa
 
 ### I2V — première frame, plan supervisé, prompt I2VA
 
+Les parcours Direct I2V et Ref2V proposent aussi un `Mode rapide` avant leur création. Cette option orchestre les mêmes opérations que l’interface manuelle — génération puis approbation du Brief, du Plan et du Prompt final — sans créer de recette ni d’appel LLM supplémentaire. Les recommandations et warnings restent visibles mais ne déclenchent aucun arbitrage et ne bloquent pas la chaîne. Une erreur de contrat, une réponse tronquée ou un échec réseau arrête immédiatement le parcours ; les étapes déjà approuvées sont conservées et un bouton permet de reprendre depuis la première étape incomplète. Un rechargement ne relance jamais silencieusement une génération.
+
 L’onglet principal `I2V` utilise le parcours multimodal Direct à une seule image d’entrée :
 
 ```text

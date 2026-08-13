@@ -2,7 +2,8 @@
   "use strict";
 
   const core = window.PanelForgePromptLab;
-  if (!core) return;
+  const quickPipeline = window.PanelForgeQuickPipeline;
+  if (!core || !quickPipeline) return;
   const $ = (selector) => document.querySelector(selector);
   const profileId = "minimax.h3.i2v.direct";
   const profileVersion = "0.1.0";
@@ -18,6 +19,8 @@
     session: null,
     composition: null,
     busy: false,
+    quickRunning: false,
+    quickRecord: null,
     arbitrationDecisions: {},
     arbitrationRevisionId: null,
   };
@@ -38,6 +41,10 @@
     freedomLabel: $("#i2vd-freedom-label"),
     start: $("#i2vd-start"),
     setupMessage: $("#i2vd-setup-message"),
+    quickMode: $("#i2vd-quick-mode"),
+    quickStatus: $("#i2vd-quick-status"),
+    quickStatusLabel: $("#i2vd-quick-status-label"),
+    quickResume: $("#i2vd-quick-resume"),
     refreshSessions: $("#i2vd-refresh-sessions"),
     sessionList: $("#i2vd-session-list"),
     empty: $("#i2vd-empty"),
@@ -172,8 +179,10 @@
   }
 
   async function openSession(session) {
+    if (state.quickRunning) return;
     state.session = session;
     state.composition = null;
+    state.quickRecord = quickPipeline.load(session.id);
     if (session.active_brief) {
       elements.intention.value = session.active_brief.source_text || "";
       elements.freedom.value = String(session.active_brief.creative_freedom ?? 35);
@@ -226,10 +235,14 @@
     body.append("model_id", elements.model.value);
     body.append("profile_id", profile.id);
     body.append("profile_version", profile.version);
+    const quickRequested = elements.quickMode.checked;
+    let created = false;
     setBusy(true);
     try {
       state.session = await core.request("/api/prompt-lab/sessions", { method: "POST", body });
       state.composition = null;
+      state.quickRecord = null;
+      created = true;
       render();
       await loadSessions();
       elements.brief.message.textContent = "Parcours créé. Lancez le Brief quand vous êtes prêt.";
@@ -238,6 +251,7 @@
     } finally {
       setBusy(false);
     }
+    if (created && quickRequested) await runQuickMode();
   }
 
   function updateFreedom() {
@@ -245,6 +259,90 @@
     elements.freedomValue.value = String(value);
     elements.freedomLabel.textContent = value <= 20
       ? "Très factuelle" : value <= 45 ? "Encadrée" : value <= 70 ? "Cinématographique" : "Très libre";
+  }
+
+  function interactionLocked() {
+    return state.busy || state.quickRunning;
+  }
+
+  function currentBriefInputs() {
+    const brief = state.session && state.session.active_brief;
+    return Boolean(brief
+      && (brief.source_text || "").trim() === elements.intention.value.trim()
+      && Number(brief.creative_freedom) === Number(elements.freedom.value));
+  }
+
+  function generatedDocument(documentState) {
+    return Boolean(documentState && documentState.active_revision_id
+      && !documentState.stale && !documentState.blocked_reason
+      && !(documentState.validation_errors || []).length);
+  }
+
+  function quickSnapshot() {
+    const documents = state.composition ? state.composition.documents || {} : {};
+    const plan = documents.beat_sheet || null;
+    const prompt = documents.final_prompt || null;
+    const briefGenerated = currentBriefInputs();
+    const briefApproved = Boolean(briefGenerated && state.session.brief_complete);
+    const planGenerated = Boolean(briefApproved && generatedDocument(plan));
+    const planApproved = Boolean(planGenerated && plan.complete);
+    const promptGenerated = Boolean(planApproved && generatedDocument(prompt));
+    return {
+      briefGenerated,
+      briefApproved,
+      planGenerated,
+      planApproved,
+      promptGenerated,
+      promptApproved: Boolean(promptGenerated && prompt.complete),
+    };
+  }
+
+  function renderQuickStatus() {
+    elements.quickMode.disabled = interactionLocked() || Boolean(state.session);
+    const record = state.quickRecord;
+    elements.quickStatus.hidden = !record;
+    if (!record) return;
+    const completedBecameIncomplete = record.status === "completed"
+      && state.session && !quickSnapshot().promptApproved;
+    const visibleStatus = completedBecameIncomplete ? "interrupted" : record.status;
+    elements.quickStatus.className = `quick-mode-status ${visibleStatus}`;
+    elements.quickResume.hidden = !["stopped", "interrupted"].includes(visibleStatus);
+    elements.quickResume.disabled = interactionLocked();
+    if (completedBecameIncomplete) {
+      elements.quickStatusLabel.textContent = "Parcours modifié après le mode rapide · reprise disponible.";
+    } else if (record.status === "running") {
+      elements.quickStatusLabel.textContent = `Mode rapide · ${record.stepLabel}…`;
+    } else if (record.status === "completed") {
+      elements.quickStatusLabel.textContent = "Mode rapide terminé · Prompt validé.";
+    } else {
+      elements.quickStatusLabel.textContent = `Mode rapide arrêté à « ${record.stepLabel} »${record.error ? ` · ${record.error}` : ""}`;
+    }
+  }
+
+  async function runQuickMode() {
+    if (!state.session || state.quickRunning) return;
+    const sessionId = state.session.id;
+    state.quickRunning = true;
+    render();
+    try {
+      await quickPipeline.runDirect({
+        sessionId,
+        snapshot: quickSnapshot,
+        isCurrent: () => Boolean(state.session && state.session.id === sessionId),
+        actions: {
+          generateBrief: () => streamBrief(false),
+          approveBrief: () => briefAction("approve"),
+          generatePlan: () => streamCompositionStage("beat-sheet"),
+          approvePlan: () => documentAction("beat-sheet", "approve"),
+          generatePrompt: () => streamCompositionStage("final-prompt"),
+          approvePrompt: () => documentAction("final-prompt", "approve"),
+        },
+        onState: (record) => { state.quickRecord = record; render(); },
+      });
+    } finally {
+      state.quickRunning = false;
+      render();
+    }
   }
 
   function render() {
@@ -255,7 +353,9 @@
     elements.cookbook.value = compositionReference
       ? compositionReference.version
       : state.cookbook ? state.cookbook.version : "";
-    elements.cookbook.disabled = state.busy || Boolean(compositionReference);
+    const locked = interactionLocked();
+    renderQuickStatus();
+    elements.cookbook.disabled = locked || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
       ? compositionReference
         ? `${activeCookbook.display_name} · ${activeCookbook.id}@${activeCookbook.version} verrouillée`
@@ -263,9 +363,15 @@
       : "Cookbook indisponible";
     elements.empty.hidden = Boolean(session);
     elements.editor.hidden = !session;
-    elements.start.disabled = state.busy || Boolean(session) || Boolean(setupValidationError());
-    elements.imageInput.disabled = state.busy || Boolean(session);
-    elements.model.disabled = state.busy || Boolean(session);
+    elements.start.disabled = locked || Boolean(session) || Boolean(setupValidationError());
+    elements.imageInput.disabled = locked || Boolean(session);
+    elements.model.disabled = locked || Boolean(session);
+    elements.refreshModels.disabled = locked;
+    elements.refreshSessions.disabled = locked;
+    elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
+    elements.intention.disabled = locked;
+    elements.freedom.disabled = locked;
+    elements.newSession.disabled = locked;
     if (!session) return;
 
     renderDock();
@@ -303,7 +409,7 @@
     setChip(elements.chips.brief, briefState.ready, !briefState.ready);
     setChip(elements.chips.plan, planState.ready, briefState.ready && !planState.ready);
     setChip(elements.chips.prompt, promptState.ready, planState.ready && !promptState.ready);
-    elements.copyPrompt.disabled = state.busy || !promptState.ready;
+    elements.copyPrompt.disabled = locked || !promptState.ready;
   }
 
   function renderDock() {
@@ -327,12 +433,13 @@
     elements.brief.review.textContent = ready ? "Validé"
       : brief && !inputsCurrent ? "Intention modifiée" : brief ? "À valider" : "À générer";
     elements.brief.review.className = `review-pill ${ready ? "approved" : "pending"}`;
-    elements.brief.generate.disabled = state.busy || !elements.intention.value.trim();
-    elements.brief.content.disabled = state.busy;
-    elements.brief.save.disabled = state.busy || !brief || !draft || !elements.brief.content.value.trim();
-    elements.brief.approve.disabled = state.busy || !brief || complete || draft || !inputsCurrent;
-    elements.brief.instruction.disabled = state.busy || !brief || !inputsCurrent || draft;
-    elements.brief.rewrite.disabled = state.busy || !brief || !inputsCurrent || draft
+    const locked = interactionLocked();
+    elements.brief.generate.disabled = locked || !elements.intention.value.trim();
+    elements.brief.content.disabled = locked;
+    elements.brief.save.disabled = locked || !brief || !draft || !elements.brief.content.value.trim();
+    elements.brief.approve.disabled = locked || !brief || complete || draft || !inputsCurrent;
+    elements.brief.instruction.disabled = locked || !brief || !inputsCurrent || draft;
+    elements.brief.rewrite.disabled = locked || !brief || !inputsCurrent || draft
       || !elements.brief.instruction.value.trim();
     return { draft, ready };
   }
@@ -454,7 +561,7 @@
       elements.arbitrationList.dataset.renderKey = renderKey;
     }
     const ready = Boolean(
-      !state.busy && prerequisite && !planState.draft && !planState.stale
+      !interactionLocked() && prerequisite && !planState.draft && !planState.stale
       && !planState.diagnostics.length,
     );
     elements.arbitrations.dataset.ready = String(ready);
@@ -482,15 +589,16 @@
     view.review.textContent = ready ? "Validé" : !prerequisite ? missingLabel
       : stale ? "Obsolète" : active ? "À valider" : "À générer";
     view.review.className = `review-pill ${ready ? "approved" : "pending"}`;
-    view.generate.disabled = state.busy || !prerequisite;
-    view.content.disabled = state.busy || !prerequisite || !state.composition;
-    view.save.disabled = state.busy || !state.composition || !prerequisite || stale
+    const locked = interactionLocked();
+    view.generate.disabled = locked || !prerequisite;
+    view.content.disabled = locked || !prerequisite || !state.composition;
+    view.save.disabled = locked || !state.composition || !prerequisite || stale
       || !draft || !view.content.value.trim();
-    view.approve.disabled = state.busy || !prerequisite || !active || complete || stale
+    view.approve.disabled = locked || !prerequisite || !active || complete || stale
       || draft || Boolean(diagnostics.length);
     if (view.instruction) {
-      view.instruction.disabled = state.busy || !prerequisite || !active || stale || draft;
-      view.rewrite.disabled = state.busy || !prerequisite || !active || stale || draft
+      view.instruction.disabled = locked || !prerequisite || !active || stale || draft;
+      view.rewrite.disabled = locked || !prerequisite || !active || stale || draft
         || !view.instruction.value.trim();
     }
     renderDiagnostics(view.lint, diagnostics, warnings, draft);
@@ -548,6 +656,7 @@
       if (revision) elements.brief.instruction.value = "";
       await refreshComposition();
     }
+    return completed;
   }
 
   async function refreshComposition() {
@@ -594,8 +703,10 @@
         revision ? "Révision enregistrée." : stageName === "beat-sheet" ? "Plan proposé." : "Prompt H3 compilé.",
       );
       if (completed && revision) view.instruction.value = "";
+      return completed;
     } catch (error) {
       showStageError(view, error, false);
+      return false;
     }
   }
 
@@ -675,8 +786,10 @@
       );
       await refreshComposition();
       elements.brief.message.textContent = action === "approve" ? "Brief validé." : "Brief enregistré.";
+      return true;
     } catch (error) {
       showStageError(elements.brief, error, false);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -696,8 +809,10 @@
       );
       state.composition = response.composition;
       view.message.textContent = action === "approve" ? "Étape validée." : "Correction enregistrée.";
+      return true;
     } catch (error) {
       showStageError(view, error, false);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -721,12 +836,14 @@
   }
 
   function resetSession() {
+    if (state.quickRunning) return;
     const selectedCookbook = directCookbooks().find(
       (item) => item.version === elements.cookbook.value,
     );
     if (selectedCookbook) state.cookbook = selectedCookbook;
     state.session = null;
     state.composition = null;
+    state.quickRecord = null;
     resetArbitrations();
     if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
     state.file = null;
@@ -738,6 +855,7 @@
     elements.uploadCaption.textContent = "PNG, JPEG ou WebP · 25 Mio maximum";
     elements.intention.value = "";
     elements.freedom.value = "35";
+    elements.quickMode.checked = false;
     updateFreedom();
     for (const view of [elements.brief, elements.plan, elements.prompt]) {
       view.message.textContent = "";
@@ -761,6 +879,7 @@
   elements.model.addEventListener("change", render);
   elements.freedom.addEventListener("input", () => { updateFreedom(); render(); });
   elements.newSession.addEventListener("click", resetSession);
+  elements.quickResume.addEventListener("click", runQuickMode);
 
   elements.brief.content.addEventListener("input", render);
   elements.brief.instruction.addEventListener("input", render);
