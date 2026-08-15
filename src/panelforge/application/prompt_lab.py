@@ -442,6 +442,32 @@ class PromptLabService:
         )
         return self.sessions.create(session)
 
+    def fork_session(
+        self,
+        session_id: str,
+        *,
+        model_id: str | None = None,
+    ) -> PromptLabSession:
+        """Create a clean session that reuses another session's image assets."""
+        source = self.sessions.get(session_id)
+        for reference in source.references:
+            self.assets.get(reference.asset_id)
+        return self.create_session(
+            model_id=source.model_id if model_id is None else model_id,
+            profile_id=source.profile_id,
+            profile_version=source.profile_version,
+            references=tuple(
+                NewReference(
+                    asset_id=reference.asset_id,
+                    role=reference.role,
+                    label=reference.label,
+                    uses=reference.uses,
+                    evidence_policy=reference.evidence_policy,
+                )
+                for reference in source.references
+            ),
+        )
+
     def analyze_reference(
         self,
         session_id: str,

@@ -104,6 +104,10 @@ class BriefStructureBody(BaseModel):
     creative_freedom: int
 
 
+class PromptSessionForkBody(BaseModel):
+    model_id: str | None = None
+
+
 class CompositionConfigureBody(BaseModel):
     cookbook_id: str
     cookbook_version: str
@@ -497,6 +501,27 @@ def create_app(
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="prompt session not found") from error
         except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/fork",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def fork_prompt_lab_session(
+        session_id: str,
+        body: PromptSessionForkBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_lab(prompt_lab)
+        try:
+            return serialize_prompt_session(
+                service.fork_session(session_id, model_id=body.model_id)
+            )
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="prompt session or reference asset not found",
+            ) from error
+        except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post(

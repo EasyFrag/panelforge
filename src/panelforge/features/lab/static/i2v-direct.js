@@ -16,11 +16,15 @@
     cookbook: null,
     file: null,
     previewUrl: null,
+    forkSource: null,
     session: null,
     composition: null,
     busy: false,
     quickRunning: false,
+    compoundRunning: false,
     quickRecord: null,
+    openRequestId: 0,
+    openingSessionId: null,
     arbitrationDecisions: {},
     arbitrationRevisionId: null,
   };
@@ -49,9 +53,15 @@
     empty: $("#i2vd-empty"),
     editor: $("#i2vd-editor"),
     sessionTitle: $("#i2vd-session-title"),
+    sessionConfig: $("#i2vd-session-config"),
     progress: $("#i2vd-session-progress"),
     newSession: $("#i2vd-new-session"),
+    forkSession: $("#i2vd-fork-session"),
     dock: $("#i2vd-reference-dock"),
+    steps: {
+      plan: $("#i2vd-plan-step"),
+      prompt: $("#i2vd-prompt-step"),
+    },
     chips: {
       brief: $("#i2vd-chip-brief"),
       plan: $("#i2vd-chip-plan"),
@@ -61,11 +71,13 @@
     plan: stage("plan"),
     prompt: stage("prompt"),
     copyPrompt: $("#i2vd-copy-prompt"),
+    promptReferences: $("#i2vd-prompt-references"),
     arbitrations: $("#i2vd-arbitrations"),
     arbitrationList: $("#i2vd-arbitration-list"),
     arbitrationInstruction: $("#i2vd-arbitration-instruction"),
     acceptAllArbitrations: $("#i2vd-accept-all-arbitrations"),
     applyArbitrations: $("#i2vd-apply-arbitrations"),
+    applyApproveArbitrations: $("#i2vd-apply-approve-arbitrations"),
   };
 
   function stage(name) {
@@ -78,6 +90,7 @@
       message: $(`#i2vd-${name}-message`),
       instruction: $(`#i2vd-${name}-instruction`),
       rewrite: $(`#i2vd-rewrite-${name}`),
+      rewriteApprove: $(`#i2vd-rewrite-approve-${name}`),
       lint: $(`#i2vd-${name}-lint`),
       stream: {
         container: $(`#i2vd-${name}-stream-state`),
@@ -177,25 +190,99 @@
     });
   }
 
-  async function openSession(session) {
+  function selectModel(modelId) {
+    if (!modelId) return;
+    let option = [...elements.model.options].find((item) => item.value === modelId);
+    if (!option) {
+      option = document.createElement("option");
+      option.value = modelId;
+      option.textContent = `${modelId} · modèle du parcours`;
+      option.dataset.sessionModel = "true";
+      elements.model.append(option);
+    }
+    elements.model.value = modelId;
+  }
+
+  function showReferencePreview(reference, caption) {
+    if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+    state.previewUrl = null;
+    state.file = null;
+    elements.imageInput.value = "";
+    if (!reference) {
+      elements.uploadPreview.removeAttribute("src");
+      elements.uploadPreview.hidden = true;
+      elements.uploadTitle.textContent = "Choisir une image";
+      elements.uploadCaption.textContent = "PNG, JPEG ou WebP · 25 Mio maximum";
+      return;
+    }
+    elements.uploadPreview.src = reference.content_url;
+    elements.uploadPreview.hidden = false;
+    elements.uploadTitle.textContent = reference.label;
+    elements.uploadCaption.textContent = caption;
+  }
+
+  async function openSession(sessionSummary) {
     if (state.quickRunning) return;
-    state.session = session;
-    state.composition = null;
-    state.quickRecord = quickPipeline.load(session.id);
-    if (session.active_brief) {
-      elements.intention.value = session.active_brief.source_text || "";
-      setFreedom(session.active_brief.creative_freedom ?? 35);
-    } else {
-      elements.intention.value = "";
-      setFreedom(35);
-    }
-    try {
-      const payload = await core.request(`/api/prompt-lab/sessions/${session.id}/composition`);
-      state.composition = payload.composition;
-    } catch (_) {
-      state.composition = null;
-    }
+    const sessionId = sessionSummary.id;
+    const requestId = ++state.openRequestId;
+    state.openingSessionId = sessionId;
     render();
+    try {
+      const [session, compositionPayload] = await Promise.all([
+        core.request(`/api/prompt-lab/sessions/${sessionId}`),
+        core.request(`/api/prompt-lab/sessions/${sessionId}/composition`).catch(() => null),
+      ]);
+      if (requestId !== state.openRequestId) return;
+      clearStageDrafts();
+      state.forkSource = null;
+      state.session = session;
+      state.composition = compositionPayload ? compositionPayload.composition : null;
+      state.quickRecord = quickPipeline.load(session.id);
+      selectModel(session.model_id);
+      showReferencePreview(session.references[0], "Première frame de ce parcours");
+      if (session.active_brief) {
+        elements.intention.value = session.active_brief.source_text || "";
+        setFreedom(session.active_brief.creative_freedom ?? 35);
+      } else {
+        elements.intention.value = "";
+        setFreedom(35);
+      }
+    } catch (error) {
+      if (requestId === state.openRequestId) showSetupMessage(error.message);
+    } finally {
+      if (requestId === state.openRequestId) {
+        state.openingSessionId = null;
+        render();
+      }
+    }
+  }
+
+  function prepareFork() {
+    if (!state.session || state.openingSessionId || interactionLocked()) return;
+    const source = state.session;
+    const sourceCookbook = state.composition && state.composition.cookbook;
+    const matchingCookbook = sourceCookbook && directCookbooks().find(
+      (item) => item.id === sourceCookbook.id && item.version === sourceCookbook.version,
+    );
+    if (matchingCookbook) state.cookbook = matchingCookbook;
+    state.forkSource = source;
+    state.session = null;
+    state.composition = null;
+    state.quickRecord = null;
+    resetArbitrations();
+    selectModel(source.model_id);
+    showReferencePreview(
+      source.references[0],
+      "Première frame réutilisée · modèle et recette modifiables",
+    );
+    const brief = source.active_brief;
+    elements.intention.value = brief ? brief.source_text || "" : "";
+    setFreedom(brief ? brief.creative_freedom ?? 35 : 35);
+    elements.quickMode.checked = false;
+    clearStageDrafts();
+    showSetupMessage("");
+    render();
+    elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function selectFile() {
@@ -214,7 +301,7 @@
 
   function setupValidationError() {
     if (!selectedProfile() || !state.cookbook) return "Le profil Direct est encore en cours de chargement.";
-    if (!state.file) return "Ajoutez la première frame.";
+    if (!state.file && !state.forkSource) return "Ajoutez la première frame.";
     if (!elements.model.value) return "Choisissez un modèle multimodal.";
     if (!elements.intention.value.trim()) return "Décrivez votre intention.";
     return "";
@@ -224,20 +311,33 @@
     event.preventDefault();
     const error = setupValidationError();
     if (error) return showSetupMessage(error);
-    const profile = selectedProfile();
-    const body = new FormData();
-    body.append("images", state.file, state.file.name);
-    body.append("roles", "first_frame");
-    body.append("usages", "first_frame");
-    body.append("evidence_policies", "full");
-    body.append("model_id", elements.model.value);
-    body.append("profile_id", profile.id);
-    body.append("profile_version", profile.version);
+    const forkSource = state.forkSource;
     const quickRequested = elements.quickMode.checked;
     let created = false;
     setBusy(true);
     try {
-      state.session = await core.request("/api/prompt-lab/sessions", { method: "POST", body });
+      if (forkSource) {
+        state.session = await core.request(
+          `/api/prompt-lab/sessions/${forkSource.id}/fork`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model_id: elements.model.value }),
+          },
+        );
+      } else {
+        const profile = selectedProfile();
+        const body = new FormData();
+        body.append("images", state.file, state.file.name);
+        body.append("roles", "first_frame");
+        body.append("usages", "first_frame");
+        body.append("evidence_policies", "full");
+        body.append("model_id", elements.model.value);
+        body.append("profile_id", profile.id);
+        body.append("profile_version", profile.version);
+        state.session = await core.request("/api/prompt-lab/sessions", { method: "POST", body });
+      }
+      state.forkSource = null;
       state.composition = null;
       state.quickRecord = null;
       created = true;
@@ -289,7 +389,8 @@
   }
 
   function interactionLocked() {
-    return state.busy || state.quickRunning;
+    return state.busy || state.quickRunning || state.compoundRunning
+      || Boolean(state.openingSessionId);
   }
 
   function currentBriefInputs() {
@@ -390,16 +491,23 @@
       : "Cookbook indisponible";
     elements.empty.hidden = Boolean(session);
     elements.editor.hidden = !session;
-    elements.start.disabled = locked || Boolean(session) || Boolean(setupValidationError());
-    elements.imageInput.disabled = locked || Boolean(session);
+    elements.start.textContent = state.forkSource ? "Créer le nouveau parcours" : "Créer le parcours";
+    elements.start.disabled = locked || Boolean(state.openingSessionId)
+      || Boolean(session) || Boolean(setupValidationError());
+    elements.imageInput.disabled = locked || Boolean(session) || Boolean(state.forkSource);
     elements.model.disabled = locked || Boolean(session);
     elements.refreshModels.disabled = locked;
     elements.refreshSessions.disabled = locked;
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
     elements.intention.disabled = locked;
     elements.freedom.disabled = locked;
-    elements.newSession.disabled = locked;
-    if (!session) return;
+    elements.newSession.hidden = !session && !state.forkSource;
+    elements.newSession.disabled = locked || Boolean(state.openingSessionId);
+    elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
+    if (!session) {
+      elements.promptReferences.hidden = true;
+      return;
+    }
 
     renderDock();
     const brief = session.active_brief;
@@ -430,6 +538,10 @@
     );
     elements.sessionTitle.textContent = session.references[0]
       ? session.references[0].label : "Première frame";
+    const recipeLabel = compositionReference
+      ? `${compositionReference.id}@${compositionReference.version}`
+      : state.cookbook ? `${state.cookbook.id}@${state.cookbook.version} · à verrouiller` : "non sélectionnée";
+    elements.sessionConfig.textContent = `Modèle : ${session.model_id} · Recette : ${recipeLabel}`;
     elements.progress.textContent = !briefState.ready ? "Brief requis"
       : !planState.ready ? "Plan requis" : !promptState.ready ? "Prompt requis" : "Parcours validé";
     elements.progress.className = `run-status ${promptState.ready ? "success" : "active"}`;
@@ -437,6 +549,7 @@
     setChip(elements.chips.plan, planState.ready, briefState.ready && !planState.ready);
     setChip(elements.chips.prompt, promptState.ready, planState.ready && !promptState.ready);
     elements.copyPrompt.disabled = locked || !promptState.ready;
+    renderPromptReferences(prompt);
   }
 
   function renderDock() {
@@ -451,6 +564,41 @@
     caption.textContent = "<Image 1> → <Picture 1> · Première frame exacte";
     card.append(image, caption);
     elements.dock.append(card);
+  }
+
+  function renderPromptReferences(documentState) {
+    const visible = Boolean(
+      (documentState && documentState.active_revision_id)
+      || elements.prompt.content.value.trim(),
+    );
+    elements.promptReferences.hidden = !visible;
+    if (!visible) return;
+    const references = state.session.references || [];
+    const renderKey = `${state.session.id}:${references.map((reference) => reference.label).join("|")}`;
+    if (elements.promptReferences.dataset.renderKey === renderKey) return;
+    elements.promptReferences.replaceChildren();
+    const title = document.createElement("small");
+    title.className = "prompt-reference-copy-title";
+    title.textContent = "Noms des images";
+    elements.promptReferences.append(title);
+    references.forEach((reference, index) => {
+      const row = document.createElement("div");
+      row.className = "prompt-reference-copy-row";
+      const label = document.createElement("code");
+      label.textContent = `<Picture ${index + 1}> · ${reference.label}`;
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.textContent = "Copier le nom";
+      copy.setAttribute("aria-label", `Copier le nom ${reference.label}`);
+      copy.addEventListener("click", async () => {
+        const copied = await copyText(reference.label);
+        copy.textContent = copied ? "Copié" : "Échec de copie";
+        window.setTimeout(() => { copy.textContent = "Copier le nom"; }, 1400);
+      });
+      row.append(label, copy);
+      elements.promptReferences.append(row);
+    });
+    elements.promptReferences.dataset.renderKey = renderKey;
   }
 
   function renderBrief(brief, complete, inputsCurrent) {
@@ -468,6 +616,7 @@
     elements.brief.instruction.disabled = locked || !brief || !inputsCurrent || draft;
     elements.brief.rewrite.disabled = locked || !brief || !inputsCurrent || draft
       || !elements.brief.instruction.value.trim();
+    elements.brief.rewriteApprove.disabled = elements.brief.rewrite.disabled;
     return { draft, ready };
   }
 
@@ -494,7 +643,9 @@
       (value) => value && value.trim(),
     );
     const hasInstruction = Boolean(elements.arbitrationInstruction.value.trim());
-    elements.applyArbitrations.disabled = !ready || (!hasDecision && !hasInstruction);
+    const disabled = !ready || (!hasDecision && !hasInstruction);
+    elements.applyArbitrations.disabled = disabled;
+    elements.applyApproveArbitrations.disabled = disabled;
     elements.acceptAllArbitrations.disabled = !ready
       || elements.arbitrations.dataset.hasRecommendations !== "true";
   }
@@ -668,6 +819,16 @@
     chip.classList.toggle("future", !active && !complete);
   }
 
+  function revealNextStage(stageName) {
+    const next = stageName === "brief" ? elements.steps.plan
+      : stageName === "beat-sheet" ? elements.steps.prompt : null;
+    if (!next) return;
+    next.open = true;
+    window.requestAnimationFrame(() => {
+      next.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   async function streamBrief(revision) {
     const payload = revision
       ? { instruction: elements.brief.instruction.value.trim() }
@@ -684,6 +845,43 @@
       await refreshComposition();
     }
     return completed;
+  }
+
+  async function reviseAndApproveBrief() {
+    if (state.compoundRunning) return false;
+    state.compoundRunning = true;
+    render();
+    try {
+      const sessionId = state.session && state.session.id;
+      const previousRevisionId = state.session && state.session.active_brief_revision_id;
+      if (!sessionId || !await streamBrief(true)) return false;
+      const activeRevisionId = state.session && state.session.active_brief_revision_id;
+      if (state.session.id !== sessionId || !activeRevisionId
+        || activeRevisionId === previousRevisionId || !currentBriefInputs()) {
+        showStageError(
+          elements.brief,
+          new Error("La nouvelle version du Brief n’a pas pu être confirmée ; elle n’a pas été validée."),
+          false,
+        );
+        return false;
+      }
+      return briefAction("approve");
+    } finally {
+      state.compoundRunning = false;
+      render();
+    }
+  }
+
+  async function reconcileAndApprovePlan() {
+    if (state.compoundRunning) return false;
+    state.compoundRunning = true;
+    render();
+    try {
+      return await reconcilePlan(true);
+    } finally {
+      state.compoundRunning = false;
+      render();
+    }
   }
 
   async function refreshComposition() {
@@ -737,7 +935,11 @@
     }
   }
 
-  async function reconcilePlan() {
+  async function reconcilePlan(approveAfter = false) {
+    const sessionId = state.session && state.session.id;
+    const previousRevisionId = state.composition && state.composition.documents
+      && state.composition.documents.beat_sheet
+      ? state.composition.documents.beat_sheet.active_revision_id : null;
     const decisions = Object.fromEntries(
       Object.entries(state.arbitrationDecisions)
         .map(([riskId, value]) => [riskId, value.trim()])
@@ -751,7 +953,22 @@
       (event) => { if (event.composition) state.composition = event.composition; },
       "Arbitrages appliqués au plan. Vérifiez puis validez cette nouvelle version.",
     );
-    if (completed) resetArbitrations();
+    if (!completed) return false;
+    resetArbitrations();
+    render();
+    if (!approveAfter) return true;
+    const plan = state.composition && state.composition.documents
+      ? state.composition.documents.beat_sheet : null;
+    if (!state.session || state.session.id !== sessionId || !generatedDocument(plan)
+      || !plan.active_revision_id || plan.active_revision_id === previousRevisionId) {
+      showStageError(
+        elements.plan,
+        new Error("Le nouveau Plan n’a pas pu être confirmé ; il n’a pas été validé."),
+        false,
+      );
+      return false;
+    }
+    return documentAction("beat-sheet", "approve");
   }
 
   async function streamResult(url, payload, view, onEvent, successMessage) {
@@ -813,6 +1030,7 @@
       );
       await refreshComposition();
       elements.brief.message.textContent = action === "approve" ? "Brief validé." : "Brief enregistré.";
+      if (action === "approve") revealNextStage("brief");
       return true;
     } catch (error) {
       showStageError(elements.brief, error, false);
@@ -836,6 +1054,7 @@
       );
       state.composition = response.composition;
       view.message.textContent = action === "approve" ? "Étape validée." : "Correction enregistrée.";
+      if (action === "approve") revealNextStage(stageName);
       return true;
     } catch (error) {
       showStageError(view, error, false);
@@ -857,37 +1076,62 @@
     elements.setupMessage.hidden = !message;
   }
 
+  async function copyText(value) {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard indisponible");
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_) {
+      const fallback = document.createElement("textarea");
+      fallback.value = value;
+      fallback.setAttribute("readonly", "");
+      fallback.style.position = "fixed";
+      fallback.style.opacity = "0";
+      document.body.append(fallback);
+      fallback.select();
+      let copied = false;
+      try { copied = document.execCommand("copy"); } catch (_) { copied = false; }
+      fallback.remove();
+      return copied;
+    }
+  }
+
   function setBusy(value) {
     state.busy = value;
     render();
   }
 
-  function resetSession() {
-    if (state.quickRunning) return;
-    const selectedCookbook = directCookbooks().find(
-      (item) => item.version === elements.cookbook.value,
-    );
-    if (selectedCookbook) state.cookbook = selectedCookbook;
-    state.session = null;
-    state.composition = null;
-    state.quickRecord = null;
-    resetArbitrations();
-    if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
-    state.file = null;
-    state.previewUrl = null;
-    elements.imageInput.value = "";
-    elements.uploadPreview.removeAttribute("src");
-    elements.uploadPreview.hidden = true;
-    elements.uploadTitle.textContent = "Choisir une image";
-    elements.uploadCaption.textContent = "PNG, JPEG ou WebP · 25 Mio maximum";
-    elements.intention.value = "";
-    setFreedom(35);
-    elements.quickMode.checked = false;
+  function clearStageDrafts() {
     for (const view of [elements.brief, elements.plan, elements.prompt]) {
       view.message.textContent = "";
       if (view.instruction) view.instruction.value = "";
       view.content.dataset.hydrationKey = "";
+      view.content.value = "";
     }
+    elements.promptReferences.dataset.renderKey = "";
+    elements.promptReferences.replaceChildren();
+    elements.promptReferences.hidden = true;
+  }
+
+  function resetSession() {
+    if (state.quickRunning) return;
+    state.openRequestId += 1;
+    state.openingSessionId = null;
+    const selectedCookbook = directCookbooks().find(
+      (item) => item.version === elements.cookbook.value,
+    );
+    if (selectedCookbook) state.cookbook = selectedCookbook;
+    state.forkSource = null;
+    state.session = null;
+    state.composition = null;
+    state.quickRecord = null;
+    resetArbitrations();
+    showReferencePreview(null, "");
+    elements.intention.value = "";
+    setFreedom(35);
+    elements.quickMode.checked = false;
+    clearStageDrafts();
+    showSetupMessage("");
     render();
   }
 
@@ -905,6 +1149,7 @@
   elements.model.addEventListener("change", render);
   elements.freedom.addEventListener("change", () => { updateFreedom(); render(); });
   elements.newSession.addEventListener("click", resetSession);
+  elements.forkSession.addEventListener("click", prepareFork);
   elements.quickResume.addEventListener("click", runQuickMode);
 
   elements.brief.content.addEventListener("input", render);
@@ -913,6 +1158,7 @@
   elements.brief.save.addEventListener("click", () => briefAction("edit", { content: elements.brief.content.value.trim() }));
   elements.brief.approve.addEventListener("click", () => briefAction("approve"));
   elements.brief.rewrite.addEventListener("click", () => streamBrief(true));
+  elements.brief.rewriteApprove.addEventListener("click", reviseAndApproveBrief);
 
   elements.plan.content.addEventListener("input", render);
   elements.plan.generate.addEventListener("click", () => streamCompositionStage("beat-sheet"));
@@ -937,7 +1183,8 @@
       elements.plan.message.textContent = "Le plan actif ne peut pas être relu pour l’arbitrage.";
     }
   });
-  elements.applyArbitrations.addEventListener("click", reconcilePlan);
+  elements.applyArbitrations.addEventListener("click", () => reconcilePlan(false));
+  elements.applyApproveArbitrations.addEventListener("click", reconcileAndApprovePlan);
 
   elements.prompt.content.addEventListener("input", render);
   elements.prompt.instruction.addEventListener("input", render);
@@ -946,10 +1193,9 @@
   elements.prompt.approve.addEventListener("click", () => documentAction("final-prompt", "approve"));
   elements.prompt.rewrite.addEventListener("click", () => streamCompositionStage("final-prompt", true));
   elements.copyPrompt.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(elements.prompt.content.value);
+    if (await copyText(elements.prompt.content.value)) {
       elements.prompt.message.textContent = "Prompt copié.";
-    } catch (_) {
+    } else {
       elements.prompt.content.select();
       elements.prompt.message.textContent = "Utilisez Ctrl+C pour copier le prompt.";
     }

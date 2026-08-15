@@ -30,6 +30,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .brand > b { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; color: white; background: var(--ink); font-size: .7rem; }
 .brand small { margin-left: .25rem; color: var(--green); font-size: .65rem; letter-spacing: .1em; text-transform: uppercase; }
 .topbar-actions { display: flex; gap: .65rem; align-items: center; }
+.topbar-actions > span { display: inline-flex; }
+.topbar-actions > span[hidden] { display: none; }
 .runtime-button { min-height: 32px; padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 8px; color: var(--green); background: var(--panel); font-size: .65rem; font-weight: 800; }
 .runtime-button:hover:not(:disabled) { border-color: var(--green); background: var(--green-soft); }
 .runtime-message { max-width: 220px; color: var(--green); font-size: .62rem; font-weight: 700; text-align: right; }
@@ -199,6 +201,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .prompt-editor-head { display: flex; justify-content: space-between; align-items: center; }
 .prompt-head-actions { display: flex; gap: .55rem; align-items: center; }
 .prompt-head-actions > button { min-height: 34px; padding: .4rem .65rem; border: 1px solid var(--green); border-radius: 8px; color: var(--green); background: var(--green-soft); font-size: .62rem; font-weight: 800; }
+.session-config { margin: .2rem 0 0; color: var(--muted); font-size: .62rem; }
 .prompt-editor-head small, .analysis-panel .section-title > div > small { color: var(--green); font-size: .6rem; font-weight: 800; letter-spacing: .12em; }
 .prompt-editor-head h2 { margin-top: .15rem; font-size: 1.1rem; }
 .reference-rail { display: flex; gap: .55rem; margin: 1rem 0; padding-bottom: .25rem; overflow-x: auto; }
@@ -235,8 +238,9 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .analysis-actions .compact { width: auto; color: white; border: 0; background: var(--green); }
 .rewrite-box { margin-top: .85rem; padding: .75rem; border: 1px solid var(--line); border-radius: 10px; background: white; }
 .rewrite-box > label { display: block; margin-bottom: .45rem; font-size: .68rem; font-weight: 800; }
-.rewrite-box > div { display: flex; gap: .4rem; }
-.rewrite-box input { min-width: 0; flex: 1; padding: .55rem .6rem; border: 1px solid var(--line); border-radius: 8px; font-size: .68rem; }
+.rewrite-box > div { display: flex; flex-wrap: wrap; gap: .4rem; }
+.rewrite-box input { min-width: 14rem; flex: 1; padding: .55rem .6rem; border: 1px solid var(--line); border-radius: 8px; font-size: .68rem; }
+.rewrite-box .primary { width: auto; border: 0; color: white; background: var(--green); }
 .rewrite-box > small { display: block; margin-top: .4rem; }
 .revision-history { margin-top: .75rem; padding-bottom: 0; }
 .revision-history ol { display: grid; gap: .4rem; margin: .65rem 0 0; padding: 0; list-style: none; }
@@ -434,6 +438,9 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .ref2v-observation-card .cookbook-stage-output { min-height: 300px; }
 .arbitration-panel { display: grid; gap: .7rem; margin: .75rem 0; padding: .8rem; border: 1px solid #e2c995; border-radius: 10px; background: #fffaf0; }
 .arbitration-heading, .arbitration-footer { display: flex; gap: .75rem; align-items: center; justify-content: space-between; }
+.arbitration-actions { display: flex; flex-wrap: wrap; gap: .45rem; justify-content: flex-end; }
+.arbitration-actions button { min-height: 36px; padding: .4rem .65rem; border: 1px solid var(--line); border-radius: 8px; background: white; font-size: .63rem; font-weight: 750; }
+.arbitration-actions .primary { width: auto; border: 0; color: white; background: var(--green); }
 .arbitration-heading h3 { margin: 0 0 .15rem; font-size: .78rem; }
 .arbitration-heading p { margin: 0; color: var(--muted); font-size: .66rem; }
 .arbitration-list { display: grid; gap: .55rem; }
@@ -448,6 +455,12 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .arbitration-global { display: grid; gap: .35rem; font-size: .68rem; font-weight: 800; }
 .arbitration-global small, .arbitration-footer small { color: var(--muted); font-weight: 500; }
 .arbitration-footer small { max-width: 65ch; }
+.prompt-reference-copy { display: grid; gap: .35rem; margin-top: .65rem; padding: .55rem .65rem; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.prompt-reference-copy[hidden] { display: none; }
+.prompt-reference-copy-title { color: var(--muted); font-size: .62rem; font-weight: 800; }
+.prompt-reference-copy-row { display: flex; min-width: 0; gap: .5rem; align-items: center; }
+.prompt-reference-copy-row code { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: .62rem; }
+.prompt-reference-copy-row button { min-height: 28px; padding: .25rem .55rem; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); font-size: .6rem; font-weight: 750; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1050px) { .reference-workbench, .i2v-first-frame, .ref2v-observation-grid { grid-template-columns: 1fr; } .reference-image-stage { min-height: 380px; } }

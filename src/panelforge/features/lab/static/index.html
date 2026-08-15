@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260813.4">
+  <link rel="stylesheet" href="/static/lab.css?v=20260815.1">
   <script src="/static/lab.js?v=20260810.1" defer></script>
-  <script src="/static/prompt-lab.js?v=20260813.1" defer></script>
+  <script src="/static/prompt-lab.js?v=20260815.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260813.5" defer></script>
+  <script src="/static/i2v-direct.js?v=20260815.1" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260813.7" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260815.1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -26,6 +26,8 @@
     </nav>
     <div class="topbar-actions">
       <span id="runtime-message" class="runtime-message" role="status" aria-live="polite" hidden></span>
+      <span id="i2vd-topbar-new" hidden><button id="i2vd-new-session" class="runtime-button" type="button">Nouveau run</button></span>
+      <span id="ref2vd-topbar-new" hidden><button id="ref2vd-new-session" class="runtime-button" type="button">Nouveau run</button></span>
       <button id="release-vram" class="runtime-button" type="button" title="Décharge tous les modèles LLM. Une génération en cours peut être interrompue.">Libérer la VRAM</button>
       <div id="recipe-badge" class="recipe">character.change_view <span id="recipe-version">…</span></div>
     </div>
@@ -634,8 +636,8 @@
 
       <section id="i2vd-editor" class="prompt-editor" hidden>
         <div class="prompt-editor-head">
-          <div><small>I2V DIRECT · SESSION</small><h2 id="i2vd-session-title">Première frame</h2></div>
-          <div class="prompt-head-actions"><span id="i2vd-session-progress" class="run-status active">Brief requis</span><button id="i2vd-new-session" type="button">Nouveau</button></div>
+          <div><small>I2V DIRECT · SESSION</small><h2 id="i2vd-session-title">Première frame</h2><p id="i2vd-session-config" class="session-config"></p></div>
+          <div class="prompt-head-actions"><span id="i2vd-session-progress" class="run-status active">Brief requis</span><button id="i2vd-fork-session" type="button">Repartir de ce run</button></div>
         </div>
         <div id="i2vd-reference-dock" class="ref2vd-reference-dock"></div>
 
@@ -646,7 +648,7 @@
             <div id="i2vd-brief-stream-state" class="stream-state" hidden><div><span id="i2vd-brief-stream-label">Préparation…</span><output id="i2vd-brief-stream-percent"></output></div><progress id="i2vd-brief-stream-progress" max="1"></progress></div>
             <p id="i2vd-brief-message" class="message" aria-live="polite"></p>
             <textarea id="i2vd-brief-content" class="cookbook-stage-output" rows="22" placeholder="Le Brief fondé directement sur la première frame apparaîtra ici."></textarea>
-            <div class="rewrite-box"><label for="i2vd-brief-instruction">Discuter une modification avec le LLM</label><div><input id="i2vd-brief-instruction" type="text" placeholder="Ex. Conserve le décor et ralentis la première action." disabled><button id="i2vd-rewrite-brief" type="button" disabled>Proposer</button></div></div>
+            <div class="rewrite-box"><label for="i2vd-brief-instruction">Discuter une modification avec le LLM</label><div><input id="i2vd-brief-instruction" type="text" placeholder="Ex. Conserve le décor et ralentis la première action." disabled><button id="i2vd-rewrite-brief" type="button" disabled>Proposer</button><button id="i2vd-rewrite-approve-brief" class="primary compact" type="button" disabled>Proposer et valider</button></div></div>
           </div>
         </details>
 
@@ -669,7 +671,7 @@
               </label>
               <div class="arbitration-footer">
                 <small>Le planner relit la première frame et réécrit le plan à partir de vos décisions.</small>
-                <button id="i2vd-apply-arbitrations" class="primary compact" type="button" disabled>Appliquer les décisions au plan</button>
+                <div class="arbitration-actions"><button id="i2vd-apply-arbitrations" type="button" disabled>Appliquer les décisions au plan</button><button id="i2vd-apply-approve-arbitrations" class="primary compact" type="button" disabled>Appliquer et valider</button></div>
               </div>
             </section>
             <p class="muted">Le Plan reste éditable directement. Les erreurs de structure empêchent sa validation ; la densité et les durées longues restent des avertissements.</p>
@@ -684,6 +686,7 @@
             <p id="i2vd-prompt-message" class="message" aria-live="polite"></p>
             <textarea id="i2vd-prompt-content" class="cookbook-stage-output final-prompt-output" rows="26" placeholder="Le prompt I2VA compilé apparaîtra ici."></textarea>
             <div id="i2vd-prompt-lint" class="prompt-lint"><small>La première frame et la grammaire H3 seront contrôlées après génération.</small></div>
+            <section id="i2vd-prompt-references" class="prompt-reference-copy" aria-label="Noms des images de référence" hidden></section>
             <div class="rewrite-box"><label for="i2vd-prompt-instruction">Demander une modification ciblée</label><div><input id="i2vd-prompt-instruction" type="text" placeholder="Ex. Garde les actions mais rends le mouvement de caméra plus discret." disabled><button id="i2vd-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
           </div>
         </details>
@@ -954,8 +957,8 @@
 
       <section id="ref2vd-editor" class="prompt-editor" hidden>
         <div class="prompt-editor-head">
-          <div><small>REF2V DIRECT · SESSION</small><h2 id="ref2vd-session-title">Composition multimodale</h2></div>
-          <div class="prompt-head-actions"><span id="ref2vd-session-progress" class="run-status active">Brief requis</span><button id="ref2vd-new-session" type="button">Nouveau</button></div>
+          <div><small>REF2V DIRECT · SESSION</small><h2 id="ref2vd-session-title">Composition multimodale</h2><p id="ref2vd-session-config" class="session-config"></p></div>
+          <div class="prompt-head-actions"><span id="ref2vd-session-progress" class="run-status active">Brief requis</span><button id="ref2vd-fork-session" type="button">Repartir de ce run</button></div>
         </div>
         <div id="ref2vd-reference-dock" class="ref2vd-reference-dock"></div>
 
@@ -966,7 +969,7 @@
             <div id="ref2vd-brief-stream-state" class="stream-state" hidden><div><span id="ref2vd-brief-stream-label">Préparation…</span><output id="ref2vd-brief-stream-percent"></output></div><progress id="ref2vd-brief-stream-progress" max="1"></progress></div>
             <p id="ref2vd-brief-message" class="message" aria-live="polite"></p>
             <textarea id="ref2vd-brief-content" class="cookbook-stage-output" rows="22" placeholder="Le Brief fondé directement sur les images apparaîtra ici."></textarea>
-            <div class="rewrite-box"><label for="ref2vd-brief-instruction">Discuter une modification avec le LLM</label><div><input id="ref2vd-brief-instruction" type="text" placeholder="Ex. La seconde image ne définit que le style ; conserve le décor de la première." disabled><button id="ref2vd-rewrite-brief" type="button" disabled>Proposer</button></div></div>
+            <div class="rewrite-box"><label for="ref2vd-brief-instruction">Discuter une modification avec le LLM</label><div><input id="ref2vd-brief-instruction" type="text" placeholder="Ex. La seconde image ne définit que le style ; conserve le décor de la première." disabled><button id="ref2vd-rewrite-brief" type="button" disabled>Proposer</button><button id="ref2vd-rewrite-approve-brief" class="primary compact" type="button" disabled>Proposer et valider</button></div></div>
           </div>
         </details>
 
@@ -997,7 +1000,7 @@
               </label>
               <div class="arbitration-footer">
                 <small>Le planner relit les images et réécrit réellement le plan à partir de vos décisions.</small>
-                <button id="ref2vd-apply-arbitrations" class="primary compact" type="button" disabled>Appliquer les décisions au plan</button>
+                <div class="arbitration-actions"><button id="ref2vd-apply-arbitrations" type="button" disabled>Appliquer les décisions au plan</button><button id="ref2vd-apply-approve-arbitrations" class="primary compact" type="button" disabled>Appliquer et valider</button></div>
               </div>
             </section>
             <p class="muted">Le Plan reste éditable directement. Les erreurs de structure empêchent sa validation ; la densité et une durée supérieure à 15 s restent des avertissements.</p>
@@ -1012,6 +1015,7 @@
             <p id="ref2vd-prompt-message" class="message" aria-live="polite"></p>
             <textarea id="ref2vd-prompt-content" class="cookbook-stage-output final-prompt-output" rows="26" placeholder="Le prompt Ref2V compilé apparaîtra ici."></textarea>
             <div id="ref2vd-prompt-lint" class="prompt-lint"><small>Le mapping Picture N et la grammaire H3 seront contrôlés après génération.</small></div>
+            <section id="ref2vd-prompt-references" class="prompt-reference-copy" aria-label="Noms des images de référence" hidden></section>
             <div class="rewrite-box"><label for="ref2vd-prompt-instruction">Demander une modification ciblée</label><div><input id="ref2vd-prompt-instruction" type="text" placeholder="Ex. Garde la chorégraphie mais rends la prose plus fluide." disabled><button id="ref2vd-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
           </div>
         </details>

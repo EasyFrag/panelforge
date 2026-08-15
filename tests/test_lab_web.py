@@ -119,8 +119,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260813.4", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260813.7", page.text)
+        self.assertIn("/static/lab.css?v=20260815.1", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260815.1", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -147,7 +147,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(prompt_script.status_code, 200)
-        self.assertIn("/static/prompt-lab.js?v=20260813.1", page.text)
+        self.assertIn("/static/prompt-lab.js?v=20260815.1", page.text)
         self.assertIn('data-lab-view="archives"', page.text)
         self.assertIn('id="archives-workspace"', page.text)
         self.assertIn('data-archive-view="i2v"', page.text)
@@ -218,7 +218,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260813.5', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260815.1', page.text)
         self.assertIn('const preferredCookbookVersion = "0.2.0"', script.text)
         self.assertIn('elements.cookbook.value = compositionReference', script.text)
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
@@ -307,6 +307,96 @@ class LabWebTest(unittest.TestCase):
             self.assertIn('approvePrompt: () => documentAction("final-prompt", "approve")', script)
             self.assertIn("!(documentState.validation_errors || []).length", script)
             self.assertNotIn("validation_warnings || []", script.split("function quickSnapshot()", 1)[1].split("function renderQuickStatus()", 1)[0])
+
+    def test_exposes_direct_rerun_compound_actions_and_reference_name_copy(self):
+        page = self.client.get("/")
+        prompt_navigation = self.client.get("/static/prompt-lab.js")
+        scripts = {
+            "i2vd": self.client.get("/static/i2v-direct.js").text,
+            "ref2vd": self.client.get("/static/ref2v-direct.js").text,
+        }
+
+        self.assertEqual(page.status_code, 200)
+        self.assertLess(
+            page.text.index('id="i2vd-new-session"'),
+            page.text.index('id="release-vram"'),
+        )
+        self.assertLess(
+            page.text.index('id="ref2vd-new-session"'),
+            page.text.index('id="release-vram"'),
+        )
+        for prefix in scripts:
+            self.assertEqual(page.text.count(f'id="{prefix}-new-session"'), 1)
+            for suffix in (
+                "fork-session",
+                "session-config",
+                "rewrite-approve-brief",
+                "apply-approve-arbitrations",
+                "prompt-references",
+            ):
+                self.assertIn(f'id="{prefix}-{suffix}"', page.text)
+
+        self.assertIn(
+            'elements.i2vDirectNewRun.hidden = view !== "i2v-direct"',
+            prompt_navigation.text,
+        )
+        self.assertIn(
+            'elements.ref2vDirectNewRun.hidden = view !== "ref2v-direct"',
+            prompt_navigation.text,
+        )
+        for prefix, script in scripts.items():
+            self.assertIn("function prepareFork()", script)
+            self.assertIn("state.forkSource = source", script)
+            self.assertIn("/fork`", script)
+            self.assertIn("const requestId = ++state.openRequestId", script)
+            self.assertIn("requestId !== state.openRequestId", script)
+            self.assertIn(
+                "core.request(`/api/prompt-lab/sessions/${sessionId}`)",
+                script,
+            )
+            self.assertIn("clearStageDrafts()", script)
+            self.assertIn("state.openingSessionId", script)
+            self.assertIn("state.compoundRunning", script)
+            self.assertIn(
+                'JSON.stringify({ model_id: elements.model.value })',
+                script,
+            )
+            self.assertIn(
+                "elements.newSession.hidden = !session && !state.forkSource",
+                script,
+            )
+            self.assertIn("elements.sessionConfig.textContent", script)
+            self.assertIn("Modèle : ${session.model_id} · Recette : ${recipeLabel}", script)
+            self.assertIn("next.open = true", script)
+            self.assertIn(
+                'next.scrollIntoView({ behavior: "smooth", block: "start" })',
+                script,
+            )
+            self.assertIn("copyText(reference.label)", script)
+            self.assertIn("document.execCommand(\"copy\")", script)
+            self.assertIn("documentState.active_revision_id", script)
+            self.assertIn("previousRevisionId", script)
+            self.assertIn("generatedDocument(", script)
+            self.assertNotIn("copyText(label.textContent)", script)
+
+        self.assertIn(
+            'elements.brief.rewriteApprove.addEventListener("click", reviseAndApproveBrief)',
+            scripts["i2vd"],
+        )
+        self.assertIn(
+            'elements.brief.rewriteApprove.addEventListener("click", reviseAndApproveBrief)',
+            scripts["ref2vd"],
+        )
+        self.assertIn(
+            'elements.applyApproveArbitrations.addEventListener("click", reconcileAndApprovePlan)',
+            scripts["i2vd"],
+        )
+        self.assertIn(
+            'elements.applyApproveArbitrations.addEventListener("click", reconcileAndApprovePlan)',
+            scripts["ref2vd"],
+        )
+        self.assertIn("activeRevisionId", scripts["i2vd"])
+        self.assertIn("currentRevisionId", scripts["ref2vd"])
 
     def test_unloads_the_external_model_runtime(self):
         response = self.client.post("/api/model-runtime/unload")

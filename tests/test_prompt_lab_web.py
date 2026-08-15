@@ -313,6 +313,65 @@ class PromptLabWebTest(unittest.TestCase):
         )
         self.assertEqual(invalid.status_code, 422)
 
+    def test_forks_a_direct_session_without_copying_generated_state(self):
+        created = self.client.post(
+            "/api/prompt-lab/sessions",
+            data={
+                "roles": ["first_frame"],
+                "usages": ["first_frame"],
+                "model_id": "vision-small",
+                "profile_id": "minimax.h3.i2v.direct",
+                "profile_version": "0.1.0",
+            },
+            files=[("images", ("opening-frame.png", PNG + b"opening", "image/png"))],
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        source = created.json()
+        structured = self.client.post(
+            f"/api/prompt-lab/sessions/{source['id']}/brief/structure",
+            json={"source_text": "Walk forward.", "creative_freedom": 20},
+        )
+        self.assertEqual(structured.status_code, 200, structured.text)
+        approved = self.client.post(
+            f"/api/prompt-lab/sessions/{source['id']}/brief/approve"
+        )
+        self.assertEqual(approved.status_code, 200, approved.text)
+
+        response = self.client.post(
+            f"/api/prompt-lab/sessions/{source['id']}/fork",
+            json={"model_id": "Qwen3.6-35B-A3B-UD-Q8_K_XL-instruct"},
+        )
+
+        self.assertEqual(response.status_code, 201, response.text)
+        forked = response.json()
+        self.assertNotEqual(forked["id"], source["id"])
+        self.assertEqual(
+            forked["model_id"],
+            "Qwen3.6-35B-A3B-UD-Q8_K_XL-instruct",
+        )
+        self.assertEqual(forked["profile"], source["profile"])
+        self.assertEqual(
+            [reference["asset_id"] for reference in forked["references"]],
+            [reference["asset_id"] for reference in source["references"]],
+        )
+        self.assertNotEqual(
+            [reference["id"] for reference in forked["references"]],
+            [reference["id"] for reference in source["references"]],
+        )
+        self.assertIsNone(forked["active_brief"])
+        self.assertFalse(forked["brief_complete"])
+        self.assertTrue(
+            self.client.get(
+                f"/api/prompt-lab/sessions/{source['id']}"
+            ).json()["brief_complete"]
+        )
+
+        missing = self.client.post(
+            "/api/prompt-lab/sessions/prompt-missing/fork",
+            json={},
+        )
+        self.assertEqual(missing.status_code, 404)
+
     def test_runs_supervised_reference_actions_independently(self):
         session = self.create_session()
         session_id = session["id"]

@@ -870,6 +870,189 @@ class PromptLabServiceTest(unittest.TestCase):
                     ),
                 )
 
+    def test_forks_a_clean_session_while_reusing_validated_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = LocalAssetStore(directory, id_factory=lambda: "asset-first")
+            stored_asset = assets.create(PNG + b"first", "image/png")
+            sessions = LocalPromptSessionStore(directory)
+            service = PromptLabService(
+                gateway=DirectRecordingGateway(),
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=assets,
+                sessions=sessions,
+            )
+            source = service.create_session(
+                model_id="vision-model",
+                profile_id="minimax.h3.i2v.direct",
+                profile_version="0.1.0",
+                references=(
+                    NewReference(
+                        stored_asset.asset_id,
+                        "first_frame",
+                        "first.png",
+                        (ReferenceUse.FIRST_FRAME,),
+                    ),
+                ),
+            )
+            source = service.structure_brief(source.session_id, "Walk forward.", 20)
+            source = service.approve_brief(source.session_id)
+
+            forked = service.fork_session(
+                source.session_id,
+                model_id="another-vision-model",
+            )
+
+            self.assertNotEqual(forked.session_id, source.session_id)
+            self.assertEqual(forked.model_id, "another-vision-model")
+            self.assertEqual(forked.profile_id, source.profile_id)
+            self.assertEqual(forked.profile_version, source.profile_version)
+            self.assertEqual(forked.session_mode, source.session_mode)
+            self.assertEqual(
+                [reference.asset_id for reference in forked.references],
+                [reference.asset_id for reference in source.references],
+            )
+            self.assertNotEqual(
+                [reference.reference_id for reference in forked.references],
+                [reference.reference_id for reference in source.references],
+            )
+            self.assertEqual(
+                [
+                    (
+                        reference.role,
+                        reference.label,
+                        reference.uses,
+                        reference.evidence_policy,
+                    )
+                    for reference in forked.references
+                ],
+                [
+                    (
+                        reference.role,
+                        reference.label,
+                        reference.uses,
+                        reference.evidence_policy,
+                    )
+                    for reference in source.references
+                ],
+            )
+            self.assertEqual(forked.brief_revisions, ())
+            self.assertIsNone(forked.active_brief_revision_id)
+            self.assertIsNone(forked.approved_brief_revision_id)
+            self.assertTrue(sessions.get(source.session_id).brief_complete)
+
+    def test_forks_three_ref2v_references_in_order_without_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            asset_ids = iter(("asset-first", "asset-subject", "asset-room"))
+            assets = LocalAssetStore(directory, id_factory=lambda: next(asset_ids))
+            stored_assets = tuple(
+                assets.create(PNG + suffix, "image/png")
+                for suffix in (b"first", b"subject", b"room")
+            )
+            sessions = LocalPromptSessionStore(directory)
+            service = PromptLabService(
+                gateway=DirectRecordingGateway(),
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=assets,
+                sessions=sessions,
+            )
+            source = service.create_session(
+                model_id="vision-model",
+                profile_id="minimax.h3.ref2v.direct",
+                profile_version="0.1.0",
+                references=(
+                    NewReference(
+                        stored_assets[0].asset_id,
+                        "first_frame",
+                        "01-opening.png",
+                        (ReferenceUse.FIRST_FRAME, ReferenceUse.SUBJECT),
+                    ),
+                    NewReference(
+                        stored_assets[1].asset_id,
+                        "subject_reference",
+                        "02-subject.png",
+                        (ReferenceUse.SUBJECT, ReferenceUse.STYLE),
+                        ReferenceEvidencePolicy.APPEARANCE_ONLY_V1,
+                    ),
+                    NewReference(
+                        stored_assets[2].asset_id,
+                        "environment_reference",
+                        "03-room.png",
+                        (ReferenceUse.ENVIRONMENT, ReferenceUse.COMPOSITION),
+                    ),
+                ),
+            )
+            source = service.structure_brief(source.session_id, "Cross the room.", 35)
+            source = service.revise_brief(source.session_id, "Keep every reference role.")
+            source = service.approve_brief(source.session_id)
+
+            forked = service.fork_session(source.session_id)
+
+            self.assertEqual(forked.model_id, source.model_id)
+            self.assertEqual(
+                [
+                    (
+                        reference.asset_id,
+                        reference.role,
+                        reference.label,
+                        reference.uses,
+                        reference.evidence_policy,
+                    )
+                    for reference in forked.references
+                ],
+                [
+                    (
+                        reference.asset_id,
+                        reference.role,
+                        reference.label,
+                        reference.uses,
+                        reference.evidence_policy,
+                    )
+                    for reference in source.references
+                ],
+            )
+            self.assertEqual(forked.brief_revisions, ())
+            self.assertTrue(
+                all(
+                    reference.revisions == ()
+                    and reference.interpretations == ()
+                    and reference.active_revision_id is None
+                    and reference.approved_revision_id is None
+                    and reference.active_interpretation_id is None
+                    and reference.approved_interpretation_id is None
+                    for reference in forked.references
+                )
+            )
+            self.assertEqual(len(sessions.get(source.session_id).brief_revisions), 2)
+            self.assertTrue(sessions.get(source.session_id).brief_complete)
+
+    def test_fork_rejects_a_source_with_a_missing_reference_asset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sessions = LocalPromptSessionStore(directory)
+            service = PromptLabService(
+                gateway=DirectRecordingGateway(),
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=LocalAssetStore(directory),
+                sessions=sessions,
+            )
+            source = service.create_session(
+                model_id="vision-model",
+                profile_id="minimax.h3.i2v.direct",
+                profile_version="0.1.0",
+                references=(
+                    NewReference(
+                        "asset-missing",
+                        "first_frame",
+                        "missing.png",
+                        (ReferenceUse.FIRST_FRAME,),
+                    ),
+                ),
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                service.fork_session(source.session_id)
+
+            self.assertEqual(len(sessions.list(10)), 1)
+
     def test_direct_brief_and_llm_revisions_receive_native_images_in_order(self):
         with tempfile.TemporaryDirectory() as directory:
             ids = iter(("asset-1", "asset-2", "asset-3"))

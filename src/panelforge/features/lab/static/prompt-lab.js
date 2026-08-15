@@ -29,6 +29,8 @@
     ref2v: $("#ref2v-workspace"),
     ref2vDirect: $("#ref2vd-workspace"),
     recipeBadge: $("#recipe-badge"),
+    i2vDirectNewRun: $("#i2vd-topbar-new"),
+    ref2vDirectNewRun: $("#ref2vd-topbar-new"),
     nav: [...document.querySelectorAll("[data-lab-view]")],
     archiveLinks: [...document.querySelectorAll("[data-archive-view]")],
     form: $("#prompt-session-form"),
@@ -118,6 +120,8 @@
     elements.ref2v.hidden = view !== "ref2v";
     elements.ref2vDirect.hidden = view !== "ref2v-direct";
     elements.recipeBadge.hidden = view !== "change-view";
+    elements.i2vDirectNewRun.hidden = view !== "i2v-direct";
+    elements.ref2vDirectNewRun.hidden = view !== "ref2v-direct";
     elements.nav.forEach((button) => {
       button.classList.toggle(
         "active",
