@@ -279,8 +279,9 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .freedom-control label { display: grid; font-size: .68rem; }
 .freedom-control label small { margin-top: .12rem; color: var(--muted); }
 .freedom-control output { color: var(--green); font-size: .75rem; font-weight: 850; text-align: right; }
-.direct-freedom-control { grid-template-columns: minmax(210px, .85fr) minmax(220px, 1.15fr); margin-bottom: 0; }
-.direct-freedom-control .freedom-mode-description { grid-column: 2; color: var(--muted); font-size: .66rem; line-height: 1.4; }
+.direct-freedom-control { grid-template-columns: minmax(0, 1fr) minmax(140px, 220px); margin-bottom: 0; }
+.direct-freedom-control select { width: 100%; min-width: 0; }
+.direct-freedom-control .freedom-mode-description { grid-column: 1 / -1; color: var(--muted); font-size: .66rem; line-height: 1.4; text-align: right; }
 .cookbook-workflow { margin-top: 1rem; padding: 1rem; border: 1px solid #bfd7ca; border-radius: 14px; background: #f4f8f5; }
 .cookbook-workflow > .section-title { margin-bottom: .35rem; }
 .cookbook-workflow > .section-title small { color: var(--green); font-size: .6rem; font-weight: 800; letter-spacing: .12em; }
@@ -488,7 +489,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
   .freedom-control { grid-template-columns: 1fr 42px; }
   .freedom-control label { grid-column: 1 / -1; }
   .direct-freedom-control { grid-template-columns: 1fr; }
-  .direct-freedom-control label, .direct-freedom-control .freedom-mode-description { grid-column: 1; }
+  .direct-freedom-control label, .direct-freedom-control .freedom-mode-description { grid-column: 1; text-align: left; }
   .cookbook-selector, .fighter-direction-options { grid-template-columns: 1fr; }
   .cookbook-selector > p { text-align: left; }
   .cookbook-step > summary { grid-template-columns: auto minmax(0, 1fr) auto; }
