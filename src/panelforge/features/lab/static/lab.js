@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const preferredPromptModelId = "Qwen3.6-27B-Huihui-abliterated-Q8_0";
+const preferredPromptModelId = "Qwen3.8-27B";
 window.PanelForgeModelPicker = Object.freeze({
   preferredModelId: preferredPromptModelId,
   populate(select, models, currentValue = "") {
@@ -15,13 +15,7 @@ window.PanelForgeModelPicker = Object.freeze({
     });
     const preferredLower = preferredPromptModelId.toLowerCase();
     const preferred = identifiers.find((id) => id.toLowerCase() === preferredLower)
-      || identifiers.find((id) => {
-        const value = id.toLowerCase();
-        return value.includes("qwen3.6-27b")
-          && value.includes("huihui")
-          && value.includes("abliterated")
-          && value.includes("q8");
-      })
+      || identifiers.find((id) => id.toLowerCase().includes("qwen3.8-27b"))
       || identifiers.find((id) => id.toLowerCase().includes("qwen3.6-27b"))
       || identifiers[0]
       || "";
