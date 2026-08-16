@@ -46,7 +46,7 @@ Le Video Lab exécute la recette expérimentale et immuable
 
 Les slots d’images inutilisés sont retirés du workflow avant soumission. La durée est exposée entre 5 et 15 secondes à 24 fps, puis quantifiée par le workflow H3 ; par exemple, 10 secondes donnent 243 frames, soit 10,125 secondes effectives. Modifier la durée ne réécrit pas les timestamps du prompt.
 
-La preview passe par un relais WebSocket same-origin de PanelForge, connecté à ComfyUI avec l’identifiant client propre au Video Lab. Le lecteur final propose aussi un geste explicite `Lire avec le son`, réinitialise l’état muet conservé par le navigateur et affiche un diagnostic lorsque Chromium expose les octets audio décodés. La surveillance de température de la RTX 6000 et l’arbitrage automatique de VRAM entre llama.swap et ComfyUI restent volontairement hors de cette V1.
+La preview passe par un relais WebSocket same-origin de PanelForge, connecté à ComfyUI avec l’identifiant client propre au Video Lab. La sortie finale utilise simplement le lecteur vidéo HTML natif du navigateur, sans surcouche ni diagnostic audio. La surveillance de température de la RTX 6000 et l’arbitrage automatique de VRAM entre llama.swap et ComfyUI restent volontairement hors de cette V1.
 
 Si PanelForge redémarre pendant un rendu, l'identifiant ComfyUI persistant permet de réconcilier le run lors de sa prochaine consultation : une sortie déjà terminée est alors importée, tandis qu'un job encore actif reste suivi.
 

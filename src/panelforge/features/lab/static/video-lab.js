@@ -39,8 +39,6 @@
     output: $("video-lab-output"),
     outputEmpty: $("video-lab-output-empty"),
     outputCaption: $("video-lab-output-caption"),
-    playWithSound: $("video-lab-play-with-sound"),
-    outputDiagnostic: $("video-lab-output-diagnostic"),
     progress: $("video-lab-progress"),
     progressLabel: $("video-lab-progress-label"),
     runMessage: $("video-lab-run-message"),
@@ -65,8 +63,6 @@
     previewObjectUrl: null,
     previewConnection: "idle",
     outputCanonicalUrl: null,
-    outputPlaybackUrl: null,
-    audioDiagnosticTimer: null,
     specReady: false,
     pendingPrefill: null,
   };
@@ -546,125 +542,20 @@
   function setOutput(url, label) {
     const canonicalUrl = new URL(url, window.location.href).href;
     if (state.outputCanonicalUrl !== canonicalUrl) {
-      clearOutputAudioDiagnosticTimer();
-      setOutputDiagnostic("");
       elements.output.pause();
       elements.output.removeAttribute("src");
       elements.output.load();
       const playbackUrl = new URL(canonicalUrl);
       playbackUrl.searchParams.set("_pf_media", `${Date.now()}`);
       state.outputCanonicalUrl = canonicalUrl;
-      state.outputPlaybackUrl = playbackUrl.href;
-      elements.output.src = state.outputPlaybackUrl;
+      elements.output.src = playbackUrl.href;
       elements.output.load();
     }
-    elements.output.removeAttribute("muted");
-    elements.output.defaultMuted = false;
-    elements.output.muted = false;
-    if (elements.output.volume === 0) elements.output.volume = 1;
     elements.output.hidden = false;
     elements.outputEmpty.hidden = true;
-    elements.playWithSound.hidden = false;
-    elements.playWithSound.disabled = false;
-    elements.playWithSound.textContent = "Lire avec le son";
     elements.outputCaption.textContent = label;
     elements.download.href = canonicalUrl;
     elements.download.hidden = false;
-  }
-
-  function setOutputDiagnostic(message, kind = "") {
-    elements.outputDiagnostic.textContent = message || "";
-    elements.outputDiagnostic.hidden = !message;
-    elements.outputDiagnostic.dataset.kind = kind;
-    elements.outputDiagnostic.classList.toggle("error-text", kind === "error");
-  }
-
-  function detectableAudioTrackState() {
-    const tracks = elements.output.audioTracks;
-    if (tracks && typeof tracks.length === "number") return tracks.length > 0;
-    if (typeof elements.output.mozHasAudio === "boolean") return elements.output.mozHasAudio;
-    return null;
-  }
-
-  function decodedAudioByteCount() {
-    const value = Number(elements.output.webkitAudioDecodedByteCount);
-    return Number.isFinite(value) ? value : null;
-  }
-
-  function clearOutputAudioDiagnosticTimer() {
-    if (state.audioDiagnosticTimer !== null) window.clearTimeout(state.audioDiagnosticTimer);
-    state.audioDiagnosticTimer = null;
-  }
-
-  function reportDecodedOutputAudio() {
-    state.audioDiagnosticTimer = null;
-    const decodedBytes = decodedAudioByteCount();
-    if (decodedBytes !== null && decodedBytes > 0) {
-      const muted = elements.output.muted || elements.output.volume === 0;
-      setOutputDiagnostic(
-        `Piste audio décodée (${decodedBytes.toLocaleString("fr-FR")} octets)${muted ? ", mais le lecteur est en sourdine." : " · son activé."}`,
-        muted ? "audio" : "success",
-      );
-      return;
-    }
-    if (detectableAudioTrackState() === false) {
-      setOutputDiagnostic("Aucune piste audio détectée dans la vidéo finale.", "audio");
-      return;
-    }
-    if (!elements.output.paused && !elements.output.muted && elements.output.volume > 0) {
-      setOutputDiagnostic(
-        "La lecture est active, mais le navigateur ne confirme encore aucun octet audio décodé. Vérifiez aussi que ce site ou cet onglet n’est pas mis en sourdine.",
-        "audio",
-      );
-    }
-  }
-
-  function scheduleDecodedOutputAudioReport() {
-    clearOutputAudioDiagnosticTimer();
-    state.audioDiagnosticTimer = window.setTimeout(reportDecodedOutputAudio, 1500);
-  }
-
-  async function playOutputWithSound() {
-    if (!state.outputPlaybackUrl) return;
-    clearOutputAudioDiagnosticTimer();
-    elements.output.removeAttribute("muted");
-    elements.output.defaultMuted = false;
-    elements.output.muted = false;
-    elements.output.volume = 1;
-    const tracks = elements.output.audioTracks;
-    if (tracks && typeof tracks.length === "number") {
-      for (let index = 0; index < tracks.length; index += 1) tracks[index].enabled = true;
-    }
-    if (elements.output.ended) elements.output.currentTime = 0;
-    try {
-      await elements.output.play();
-      elements.playWithSound.textContent = "Son activé";
-      setOutputDiagnostic("Lecture avec son demandée au navigateur · vérification en cours.", "success");
-      scheduleDecodedOutputAudioReport();
-    } catch (error) {
-      setOutputDiagnostic(`Le navigateur refuse la lecture avec son : ${error.message}`, "error");
-    }
-  }
-
-  function diagnoseOutputAudio() {
-    const hasAudioTrack = detectableAudioTrackState();
-    if (hasAudioTrack === false) {
-      setOutputDiagnostic("Aucune piste audio détectée dans la vidéo finale.", "audio");
-    } else if (hasAudioTrack === true && elements.outputDiagnostic.dataset.kind === "audio") {
-      setOutputDiagnostic("");
-    }
-    if (decodedAudioByteCount() > 0) reportDecodedOutputAudio();
-  }
-
-  function diagnoseOutputError() {
-    const code = elements.output.error && elements.output.error.code;
-    const detail = {
-      1: "Lecture de la vidéo interrompue.",
-      2: "Erreur réseau pendant le chargement de la vidéo.",
-      3: "Le navigateur ne parvient pas à décoder la vidéo.",
-      4: "Format vidéo non pris en charge par le navigateur.",
-    }[code] || "La vidéo finale ne peut pas être lue.";
-    setOutputDiagnostic(detail, "error");
   }
 
   function resetOutputs() {
@@ -672,8 +563,6 @@
     state.previewObjectUrl = null;
     state.previewConnection = "idle";
     state.outputCanonicalUrl = null;
-    state.outputPlaybackUrl = null;
-    clearOutputAudioDiagnosticTimer();
     detachPreviewMedia();
     if (previousObjectUrl) URL.revokeObjectURL(previousObjectUrl);
     elements.previewEmpty.hidden = false;
@@ -685,10 +574,6 @@
     elements.output.hidden = true;
     elements.outputEmpty.hidden = false;
     elements.outputCaption.textContent = "Aucun rendu";
-    elements.playWithSound.hidden = true;
-    elements.playWithSound.disabled = true;
-    elements.playWithSound.textContent = "Lire avec le son";
-    setOutputDiagnostic("");
     elements.download.hidden = true;
     elements.progress.value = 0;
   }
@@ -1123,17 +1008,12 @@
   elements.cancel.addEventListener("click", cancelRun);
   elements.reuseSeed.addEventListener("click", reuseSeed);
   elements.refresh.addEventListener("click", loadHistory);
-  elements.playWithSound.addEventListener("click", playOutputWithSound);
-  elements.output.addEventListener("loadedmetadata", diagnoseOutputAudio);
-  elements.output.addEventListener("playing", scheduleDecodedOutputAudioReport);
-  elements.output.addEventListener("error", diagnoseOutputError);
   window.addEventListener("beforeunload", () => {
     stopPolling();
     closeSocket();
     clearReferences();
     if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
     state.previewObjectUrl = null;
-    clearOutputAudioDiagnosticTimer();
   });
 
   window.PanelForgeVideoLab = Object.freeze({ prefill, open: () => window.PanelForgeLabNavigation && window.PanelForgeLabNavigation.switchView("video-lab") });

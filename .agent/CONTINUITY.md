@@ -31,7 +31,7 @@
   - Le transport ComfyUI expose maintenant queue/statut normalisés, annulation ciblée via Jobs API avec fallback legacy prudent, et URL WebSocket client-scoped. La preview Video Lab passe par un relais WebSocket PanelForge same-origin qui transmet les événements texte/binaires et évite le rejet CORS du navigateur.
   - Le Video Lab exécute la recette immuable expérimentale `video.generate.ref2v/minimax-h3-ref2v@0.1.0` avec une à trois références ordonnées, prompt, ratio, mégapixels, durée, steps et seed. Il compile les slots réellement utilisés, conserve un historique séparé et limite l'exécution à un rendu actif.
   - Sa preview live consomme les événements KJ JPEG/WebP/MP4 sur un client WebSocket ComfyUI isolé ; l'interface distingue connexion, disponibilité et erreur du relais sans interrompre le rendu. La vidéo MP4 finale avec audio est importée comme asset. Une annulation cible le job exact et reste en `cancel_pending` si ComfyUI ne confirme pas l'arrêt.
-  - Les assets vidéo acceptent les requêtes HTTP Range nécessaires au lecteur natif. La sortie finale propose un geste explicite « Lire avec le son », recharge chaque asset via une URL anti-cache stable, force démutage/volume/pistes sous ce geste et affiche les octets audio réellement décodés quand Chromium les expose, ainsi que les erreurs média précises.
+  - Les assets vidéo acceptent les requêtes HTTP Range nécessaires au lecteur natif. La sortie finale conserve uniquement le lecteur vidéo HTML standard, sans bouton, avertissement ni diagnostic audio supplémentaire ; chaque nouvel asset reste chargé via une URL anti-cache stable.
   - Après un redémarrage de PanelForge, la lecture, l'annulation ou la réservation du slot réconcilie un run ComfyUI détaché : une sortie déjà terminée est importée, une erreur devient terminale et un job encore actif reste suivi par le polling UI.
   - Ref2V peut préremplir Video Lab avec ses images ordonnées, le prompt actuellement visible et la durée dérivée du Plan, sans lancer automatiquement le rendu.
   - Validation locale : 503 tests passent.
@@ -52,7 +52,7 @@
 
 ## Next steps
 
-1. Faire un smoke réel du Super rapide direct `0.2.0` avec Qwen3.8-27B, puis du Video Lab avec une, deux et trois images : qualité du prompt H3, trace debug, preview KJ, bouton « Lire avec le son », historique et annulation.
+1. Faire un smoke réel du Super rapide direct `0.2.0` avec Qwen3.8-27B, puis du Video Lab avec une, deux et trois images : qualité du prompt H3, trace debug, preview KJ, lecteur final natif, historique et annulation.
 2. Ajouter une télémétrie GPU read-only pour la RTX 6000 : température, VRAM, utilisation, puissance et file ComfyUI, avec états partiels si une source est indisponible.
 3. Concevoir la bascule VRAM sûre llama.swap ↔ ComfyUI sans interrompre une opération active.
 

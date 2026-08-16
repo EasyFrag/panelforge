@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260816.4">
+  <link rel="stylesheet" href="/static/lab.css?v=20260816.5">
   <script src="/static/lab.js?v=20260815.1" defer></script>
   <script src="/static/prompt-lab.js?v=20260816.2" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
@@ -12,7 +12,7 @@
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
   <script src="/static/i2v-direct.js?v=20260816.2" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/video-lab.js?v=20260816.5" defer></script>
+  <script src="/static/video-lab.js?v=20260816.6" defer></script>
   <script src="/static/ref2v-direct.js?v=20260816.3" defer></script>
 </head>
 <body>
@@ -1120,11 +1120,6 @@
               <p id="video-lab-output-empty">La vidéo finale avec audio apparaîtra ici.</p>
               <video id="video-lab-output" controls playsinline preload="metadata" hidden></video>
             </div>
-            <div class="video-lab-sound-row">
-              <button id="video-lab-play-with-sound" type="button" hidden>Lire avec le son</button>
-              <small>Force un geste utilisateur et recharge le lecteur si le navigateur a conservé un état muet.</small>
-            </div>
-            <p id="video-lab-output-diagnostic" class="video-lab-media-diagnostic" role="status" hidden></p>
           </figure>
         </div>
         <div class="video-lab-progress-row">
