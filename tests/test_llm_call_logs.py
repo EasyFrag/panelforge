@@ -153,6 +153,21 @@ class DeltaThenTerminalGateway(TerminalGateway):
         yield from super().stream(request)
 
 
+class ReasoningThenTerminalGateway(TerminalGateway):
+    def stream(self, request):
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.REASONING,
+            phase=StreamPhase.GENERATING,
+            text="Private reasoning that must not be journaled.",
+        )
+        yield CompletionStreamEvent(
+            kind=StreamEventKind.DELTA,
+            phase=StreamPhase.GENERATING,
+            text="Done",
+        )
+        yield from super().stream(request)
+
+
 class LoggedMultimodalGatewayTest(unittest.TestCase):
     def test_records_complete_and_truncated_stream_calls(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -265,6 +280,38 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
             record = store.list()[0]
             self.assertEqual(record.status, LlmCallStatus.CANCELLED)
             self.assertEqual(record.error_type, "GeneratorExit")
+
+    def test_reasoning_events_pass_through_but_never_enter_response_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalLlmCallStore(directory)
+            gateway = LoggedMultimodalGateway(
+                ReasoningThenTerminalGateway(),
+                store,
+                clock=lambda: START,
+                timer=iter((1.0, 1.1)).__next__,
+                id_factory=lambda: "call-reasoning",
+            )
+
+            events = list(
+                gateway.stream(
+                    CompletionRequest(
+                        "vision-model",
+                        "System",
+                        "User",
+                        include_reasoning=True,
+                    )
+                )
+            )
+
+            self.assertEqual(events[0].kind, StreamEventKind.REASONING)
+            self.assertEqual(
+                events[0].text,
+                "Private reasoning that must not be journaled.",
+            )
+            record = store.list()[0]
+            self.assertEqual(record.status, LlmCallStatus.SUCCEEDED)
+            self.assertEqual(record.response_text, "Done")
+            self.assertNotIn("Private reasoning", record.response_text)
 
 
 if __name__ == "__main__":

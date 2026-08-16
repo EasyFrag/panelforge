@@ -1,0 +1,13 @@
+APPROVED PLAN — READ ONLY
+{{PLAN}}
+
+REFERENCE MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+CURRENT INTERNAL DOCUMENT
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete revised internal document with exactly the approved numbered shot fields.

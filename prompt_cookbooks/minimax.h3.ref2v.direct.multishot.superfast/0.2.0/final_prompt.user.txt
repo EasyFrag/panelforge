@@ -1,0 +1,10 @@
+APPROVED SUPER-FAST BRIEF CAPSULE
+{{BRIEF}}
+
+CREATIVE FREEDOM
+{{CREATIVE_FREEDOM}}/100 · {{CREATIVE_POLICY}}
+
+ORDERED REFERENCE EVIDENCE
+{{REFERENCES}}
+
+The native images are attached in the same local <Picture N> order. Inspect them directly, make all compatible creative and continuity decisions now, choose the minimum sufficient two-to-six-shot hard-cut sequence, and return only the H3 body beginning with the scene setup. PanelForge adds the reference header. Do not return Plan JSON or an internal field document.

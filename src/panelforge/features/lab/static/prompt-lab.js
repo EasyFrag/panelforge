@@ -296,6 +296,94 @@
     view.progress.removeAttribute("value");
   }
 
+  function createReasoningTrace({ toggle, panel, label, output, empty }) {
+    const maximumCharacters = 100000;
+    let buffer = "";
+    let frame = null;
+    let received = false;
+
+    function enabled() {
+      return Boolean(toggle && toggle.checked);
+    }
+
+    function flush() {
+      frame = null;
+      if (!output) return;
+      output.textContent = buffer;
+      output.scrollTop = output.scrollHeight;
+    }
+
+    function scheduleFlush() {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(flush);
+    }
+
+    function reset() {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = null;
+      buffer = "";
+      received = false;
+      if (output) output.textContent = "";
+      if (empty) empty.hidden = false;
+      if (panel) panel.hidden = true;
+    }
+
+    function begin(stageLabel) {
+      if (!enabled()) {
+        reset();
+        return;
+      }
+      buffer = "";
+      received = false;
+      if (output) output.textContent = "";
+      if (empty) {
+        empty.textContent = "En attente d\u2019une trace s\u00e9par\u00e9e du mod\u00e8le\u2026";
+        empty.hidden = false;
+      }
+      if (label) label.textContent = `${stageLabel} \u00b7 direct`;
+      if (panel) {
+        panel.hidden = false;
+        panel.open = true;
+      }
+    }
+
+    function handle(event) {
+      if (!enabled() || !event || event.kind !== "reasoning" || !event.text) return;
+      received = true;
+      buffer += event.text;
+      if (buffer.length > maximumCharacters) {
+        buffer = `[\u2026 trace limit\u00e9e aux ${maximumCharacters.toLocaleString("fr-FR")} derniers caract\u00e8res \u2026]\n${buffer.slice(-maximumCharacters)}`;
+      }
+      if (empty) empty.hidden = true;
+      scheduleFlush();
+    }
+
+    function finish() {
+      if (!enabled()) return;
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+        flush();
+      }
+      if (!received && empty) {
+        empty.textContent = "Aucune trace s\u00e9par\u00e9e transmise par ce mod\u00e8le.";
+        empty.hidden = false;
+      }
+    }
+
+    function streamUrl(url) {
+      if (!enabled()) return url;
+      const target = new URL(url, window.location.href);
+      target.searchParams.set("include_reasoning", "true");
+      return `${target.pathname}${target.search}${target.hash}`;
+    }
+
+    if (toggle) toggle.addEventListener("change", () => {
+      if (!enabled()) reset();
+    });
+
+    return Object.freeze({ begin, handle, finish, reset, streamUrl, enabled });
+  }
+
   async function initialize() {
     state.initialized = true;
     showSetupError("");
@@ -1193,6 +1281,7 @@
     streamRequest,
     updateStreamState,
     failStreamState,
+    createReasoningTrace,
     setBusy,
   };
 })();

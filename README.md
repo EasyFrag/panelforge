@@ -46,7 +46,7 @@ Le Video Lab exécute la recette expérimentale et immuable
 
 Les slots d’images inutilisés sont retirés du workflow avant soumission. La durée est exposée entre 5 et 15 secondes à 24 fps, puis quantifiée par le workflow H3 ; par exemple, 10 secondes donnent 243 frames, soit 10,125 secondes effectives. Modifier la durée ne réécrit pas les timestamps du prompt.
 
-La preview passe directement du serveur ComfyUI au navigateur avec un identifiant client propre au Video Lab. La surveillance de température de la RTX 6000 et l’arbitrage automatique de VRAM entre llama.swap et ComfyUI restent volontairement hors de cette V1.
+La preview passe par un relais WebSocket same-origin de PanelForge, connecté à ComfyUI avec l’identifiant client propre au Video Lab. Le lecteur final propose aussi un geste explicite `Lire avec le son`, réinitialise l’état muet conservé par le navigateur et affiche un diagnostic lorsque Chromium expose les octets audio décodés. La surveillance de température de la RTX 6000 et l’arbitrage automatique de VRAM entre llama.swap et ComfyUI restent volontairement hors de cette V1.
 
 Si PanelForge redémarre pendant un rendu, l'identifiant ComfyUI persistant permet de réconcilier le run lors de sa prochaine consultation : une sortie déjà terminée est alors importée, tandis qu'un job encore actif reste suivi.
 
@@ -112,6 +112,10 @@ Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journa
 ### I2V — première frame, plan supervisé, prompt I2VA
 
 Les parcours Direct I2V et Ref2V proposent aussi un `Mode rapide` avant leur création. Cette option orchestre les mêmes opérations que l’interface manuelle — génération puis approbation du Brief, du Plan et du Prompt final — sans créer de recette ni d’appel LLM supplémentaire. Les recommandations et warnings restent visibles mais ne déclenchent aucun arbitrage et ne bloquent pas la chaîne. Une erreur de contrat, une réponse tronquée ou un échec réseau arrête immédiatement le parcours ; les étapes déjà approuvées sont conservées et un bouton permet de reprendre depuis la première étape incomplète. Un rechargement ne relance jamais silencieusement une génération.
+
+Ref2V multi-plan propose en plus le mode expérimental `Super rapide`. La recette interne courante `minimax.h3.ref2v.direct.multishot.superfast@0.2.0`, masquée du sélecteur manuel, crée une capsule de Brief sans LLM puis confie directement aux images, à l’intention et à la politique de liberté l’unique rédaction du corps H3. PanelForge ajoute seulement l’en-tête canonique des références, normalise les balises et auto-approuve le Prompt ; aucun Plan JSON ni writer intermédiaire n’est créé. Les écarts de caméra, de nombre de plans ou de timestamp restent des avertissements, tandis qu’un document vide, sans Shot 1, sans champs audio, avec labels invalides ou placeholders est bloqué. La `0.1.0` Plan-first reste chargeable pour les parcours historiques.
+
+Une option de debug peut afficher en direct la trace séparée transmise par le modèle. Elle n’active aucun raisonnement, ne parse pas de balises `<think>` et ne persiste rien : si le serveur ou le modèle ne fournit pas de canal `reasoning`, l’interface l’indique simplement.
 
 Dans ces deux parcours Direct, la liberté créative est présentée sous cinq modes explicites — Factuel strict, Conservateur, Équilibré, Cinématographique et Exploratoire — alignés sur les politiques déjà appliquées par le backend. Ce choix agit directement sur les propositions du Brief ; le Plan et le prompt final n’en héritent qu’indirectement par le Brief approuvé. Les anciennes valeurs numériques restent relisibles sans arrondi ni invalidation artificielle.
 
@@ -299,4 +303,4 @@ Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; l
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 465 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 503 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

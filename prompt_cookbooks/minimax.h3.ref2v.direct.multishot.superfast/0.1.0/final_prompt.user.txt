@@ -1,0 +1,10 @@
+APPROVED BRIEF
+{{BRIEF}}
+
+REFERENCE MAPPING — READ ONLY
+{{REFERENCE_MAPPING}}
+
+APPROVED PLAN
+{{PLAN}}
+
+Return only the complete ordered internal writer fields. PanelForge owns final compilation.

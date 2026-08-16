@@ -33,6 +33,8 @@ from panelforge.application import (
     PromptCompositionService,
     PromptLabService,
     PromptLabStreamEvent,
+    SUPER_FAST_REF2V_COOKBOOK_ID,
+    SUPER_FAST_REF2V_COOKBOOK_VERSION,
     VideoLabRunRequest,
     VideoLabRunner,
     composition_picture_mapping,
@@ -126,6 +128,11 @@ class CompositionConfigureBody(BaseModel):
 class PlanArbitrationBody(BaseModel):
     decisions: dict[str, str]
     instruction: str | None = None
+
+
+class SuperFastRef2VBody(BaseModel):
+    source_text: str
+    creative_freedom: int
 
 
 def create_app(
@@ -836,10 +843,15 @@ def create_app(
     def stream_prompt_reference_analysis(
         session_id: str,
         reference_id: str,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
-            service.stream_analyze_reference(session_id, reference_id)
+            service.stream_analyze_reference(
+                session_id,
+                reference_id,
+                include_reasoning=include_reasoning,
+            )
         )
 
     @app.post(
@@ -879,6 +891,7 @@ def create_app(
         session_id: str,
         reference_id: str,
         body: PromptRevisionBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
@@ -886,6 +899,7 @@ def create_app(
                 session_id,
                 reference_id,
                 body.instruction,
+                include_reasoning=include_reasoning,
             )
         )
 
@@ -933,10 +947,15 @@ def create_app(
     def stream_prompt_reference_interpretation(
         session_id: str,
         reference_id: str,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
-            service.stream_interpret_reference(session_id, reference_id)
+            service.stream_interpret_reference(
+                session_id,
+                reference_id,
+                include_reasoning=include_reasoning,
+            )
         )
 
     @app.post(
@@ -980,6 +999,7 @@ def create_app(
         session_id: str,
         reference_id: str,
         body: PromptRevisionBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
@@ -987,6 +1007,7 @@ def create_app(
                 session_id,
                 reference_id,
                 body.instruction,
+                include_reasoning=include_reasoning,
             )
         )
 
@@ -1020,6 +1041,7 @@ def create_app(
     def stream_prompt_brief(
         session_id: str,
         body: BriefStructureBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
@@ -1027,6 +1049,7 @@ def create_app(
                 session_id,
                 body.source_text,
                 body.creative_freedom,
+                include_reasoning=include_reasoning,
             )
         )
 
@@ -1052,10 +1075,15 @@ def create_app(
     def stream_prompt_brief_revision(
         session_id: str,
         body: PromptRevisionBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
-            service.stream_revise_brief(session_id, body.instruction)
+            service.stream_revise_brief(
+                session_id,
+                body.instruction,
+                include_reasoning=include_reasoning,
+            )
         )
 
     @app.post("/api/prompt-lab/sessions/{session_id}/brief/approve")
@@ -1125,6 +1153,15 @@ def create_app(
         body: CompositionConfigureBody,
     ) -> dict[str, object]:
         service = _require_prompt_composition(prompt_composition)
+        public_cookbooks = {
+            (cookbook.reference.cookbook_id, cookbook.reference.version)
+            for cookbook in service.list_cookbooks()
+        }
+        if (body.cookbook_id, body.cookbook_version) not in public_cookbooks:
+            raise HTTPException(
+                status_code=422,
+                detail="cookbook is not available for manual configuration",
+            )
         return _composition_action(
             service,
             lambda: service.configure(
@@ -1141,16 +1178,89 @@ def create_app(
             ),
         )
 
+    @app.post("/api/prompt-lab/sessions/{session_id}/super-fast/stream")
+    def stream_super_fast_ref2v(
+        session_id: str,
+        body: SuperFastRef2VBody,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        lab_service = _require_prompt_lab(prompt_lab)
+        composition_service = _require_prompt_composition(prompt_composition)
+        try:
+            source_session = lab_service.get_session(session_id)
+            if (
+                source_session.profile_id != "minimax.h3.ref2v.direct"
+                or source_session.profile_version != "0.1.0"
+                or source_session.session_mode.value != "direct_multimodal"
+            ):
+                raise ValueError(
+                    "super-fast generation is only available for Ref2V Direct sessions"
+                )
+            try:
+                existing_composition = composition_service.get(session_id)
+            except (KeyError, FileNotFoundError):
+                existing_composition = None
+            cookbook_version = SUPER_FAST_REF2V_COOKBOOK_VERSION
+            if existing_composition is not None:
+                if (
+                    existing_composition.cookbook.cookbook_id
+                    != SUPER_FAST_REF2V_COOKBOOK_ID
+                    or existing_composition.cookbook.version not in {"0.1.0", "0.2.0"}
+                ):
+                    raise ValueError(
+                        "this session already uses a non-super-fast cookbook"
+                    )
+                cookbook_version = existing_composition.cookbook.version
+            session = lab_service.create_super_fast_brief(
+                session_id,
+                body.source_text,
+                body.creative_freedom,
+                legacy_plan=cookbook_version == "0.1.0",
+            )
+            composition_service.configure(
+                session_id,
+                SUPER_FAST_REF2V_COOKBOOK_ID,
+                cookbook_version,
+                (
+                    CookbookBinding(
+                        slot_id="references",
+                        reference_ids=tuple(
+                            reference.reference_id
+                            for reference in session.references
+                        ),
+                    ),
+                ),
+            )
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="prompt session or internal cookbook not found",
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return _composition_stream_action(
+            composition_service,
+            lambda: composition_service.stream_generate_super_fast(
+                session_id,
+                include_reasoning=include_reasoning,
+            ),
+        )
+
     @app.post("/api/prompt-lab/sessions/{session_id}/{stage}/generate/stream")
     def stream_composition_generation(
         session_id: str,
         stage: str,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_composition(prompt_composition)
         composition_stage = _parse_composition_stage(stage)
         return _composition_stream_action(
             service,
-            lambda: service.stream_generate(session_id, composition_stage),
+            lambda: service.stream_generate(
+                session_id,
+                composition_stage,
+                include_reasoning=include_reasoning,
+            ),
         )
 
     @app.post(
@@ -1159,6 +1269,7 @@ def create_app(
     def stream_action_plan_reconciliation(
         session_id: str,
         body: PlanArbitrationBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_composition(prompt_composition)
         return _composition_stream_action(
@@ -1167,6 +1278,7 @@ def create_app(
                 session_id,
                 body.decisions,
                 body.instruction,
+                include_reasoning=include_reasoning,
             ),
         )
 
@@ -1188,6 +1300,7 @@ def create_app(
         session_id: str,
         stage: str,
         body: PromptRevisionBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_composition(prompt_composition)
         composition_stage = _parse_composition_stage(stage)
@@ -1197,6 +1310,7 @@ def create_app(
                 session_id,
                 composition_stage,
                 body.instruction,
+                include_reasoning=include_reasoning,
             ),
         )
 

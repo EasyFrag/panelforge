@@ -1,0 +1,16 @@
+SUPER-FAST BRIEF CAPSULE
+{{BRIEF}}
+
+ORDERED REFERENCE EVIDENCE
+{{REFERENCES}}
+
+CREATIVE FREEDOM
+{{CREATIVE_FREEDOM}}/100
+
+CREATIVE POLICY
+{{CREATIVE_POLICY}}
+
+REQUIRED DIRECT REF2V FLEXIBLE MULTI-SHOT JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Inspect every attached image, make every arbitration now, choose the minimum sufficient two-to-six-shot hard-cut sequence, and return only one complete schema-valid JSON object. Every risk resolution must be non-null and every prose value used by the final renderer must be natural English.

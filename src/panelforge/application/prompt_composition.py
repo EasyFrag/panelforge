@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import logging
 import re
@@ -34,6 +34,7 @@ from .prompt_lab import (
     PromptSessionStore,
     StreamEventKind,
     StreamPhase,
+    creative_freedom_policy,
     project_reference_evidence,
 )
 from .direct_i2v_prompt import (
@@ -72,6 +73,7 @@ from .direct_ref2v_multishot_plan import (
     parse_direct_ref2v_multishot_plan,
 )
 from .direct_ref2v_multishot_plan_v2 import (
+    auto_resolve_direct_ref2v_multishot_risks_v2,
     canonical_direct_ref2v_multishot_plan_v2,
     direct_ref2v_multishot_camera_directives_v2,
     direct_ref2v_multishot_plan_schema_v2,
@@ -98,6 +100,7 @@ from .direct_ref2v_multishot_prompt_v2 import (
     is_direct_ref2v_multishot_context_v2,
     lint_direct_ref2v_multishot_prompt_v2,
     rehydrate_direct_ref2v_multishot_editable_document_v2,
+    render_direct_ref2v_multishot_writer_document_v2,
 )
 from .direct_ref2v_prompt import (
     apply_direct_ref2v_timing_v2,
@@ -236,6 +239,12 @@ _REF2V_DIRECT_MULTISHOT_CONTRACT = (
 _REF2V_DIRECT_MULTISHOT_V2_CONTRACT = (
     "minimax.h3.ref2v.direct_multishot_compact_h3_v2"
 )
+SUPER_FAST_REF2V_COOKBOOK_ID = "minimax.h3.ref2v.direct.multishot.superfast"
+SUPER_FAST_REF2V_COOKBOOK_VERSION = "0.2.0"
+_SUPER_FAST_REF2V_LEGACY_VERSION = "0.1.0"
+_SUPER_FAST_REF2V_LEGACY_EXECUTION_MODE = "super_fast_ref2v_v1"
+_SUPER_FAST_REF2V_EXECUTION_MODE = "super_fast_ref2v_direct_v2"
+_SUPER_FAST_REF2V_DIRECT_CONTRACT = "minimax.h3.ref2v.direct_multishot_prompt_h3_v1"
 _REF2V_DIRECT_MULTISHOT_CONTRACTS = {
     _REF2V_DIRECT_MULTISHOT_CONTRACT,
     _REF2V_DIRECT_MULTISHOT_V2_CONTRACT,
@@ -277,6 +286,7 @@ _REF2V_SUPERVISED_CONTRACTS = {
     _REF2V_SUPERVISED_CANONICAL_CONTRACT,
 }
 _H3_PROTOCOL_CONTRACTS = {
+    _SUPER_FAST_REF2V_DIRECT_CONTRACT,
     _I2VA_CANONICAL_CONTRACT,
     *_I2VA_DIRECT_CONTRACTS,
     _REF2V_SUPERVISED_CANONICAL_CONTRACT,
@@ -377,6 +387,8 @@ class PromptCookbookPort(Protocol):
     require_distinct_references: bool
     invalid_camera_target_policy: str
     writer_projection: str
+    visibility: str
+    execution_mode: str
     sources: tuple[str, ...]
     slots: tuple[CookbookSlotPort, ...]
     reference_plan_system_prompt: str | None
@@ -465,8 +477,19 @@ class PromptCompositionService:
         self.application_outcomes = application_outcomes
         self.assets = assets
 
-    def list_cookbooks(self) -> tuple[PromptCookbookPort, ...]:
-        return self.cookbooks.list()
+    def list_cookbooks(
+        self,
+        *,
+        include_internal: bool = False,
+    ) -> tuple[PromptCookbookPort, ...]:
+        cookbooks = self.cookbooks.list()
+        if include_internal:
+            return cookbooks
+        return tuple(
+            cookbook
+            for cookbook in cookbooks
+            if getattr(cookbook, "visibility", "public") == "public"
+        )
 
     def get(self, source_session_id: str) -> PromptComposition:
         return self.compositions.get(source_session_id)
@@ -561,6 +584,10 @@ class PromptCompositionService:
             composition.cookbook.cookbook_id,
             composition.cookbook.version,
         )
+        if getattr(cookbook, "execution_mode", "supervised") != "supervised":
+            raise ValueError(
+                "this internal cookbook must be run with generate_super_fast"
+            )
         if (
             cookbook.output_contract in _PLANNED_CONTRACTS
             and cookbook.output_contract not in _REF2V_SUPERVISED_CONTRACTS
@@ -602,12 +629,18 @@ class PromptCompositionService:
         self,
         source_session_id: str,
         stage: CompositionStage,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[CompositionStreamEvent]:
         composition = self.compositions.get(source_session_id)
         cookbook = self.cookbooks.get(
             composition.cookbook.cookbook_id,
             composition.cookbook.version,
         )
+        if getattr(cookbook, "execution_mode", "supervised") != "supervised":
+            raise ValueError(
+                "this internal cookbook must be run with stream_generate_super_fast"
+            )
         if (
             cookbook.output_contract in _PLANNED_CONTRACTS
             and cookbook.output_contract not in _REF2V_SUPERVISED_CONTRACTS
@@ -618,12 +651,14 @@ class PromptCompositionService:
                 source_session_id,
                 CompositionStage.BEAT_SHEET,
                 instruction=None,
+                include_reasoning=include_reasoning,
             )
             return self._stream_planned_final(source_session_id, plan_request)
         session, composition, cookbook, expected, request, prefix = self._request(
             source_session_id,
             stage,
             instruction=None,
+            include_reasoning=include_reasoning,
         )
         return self._stream(
             request,
@@ -634,6 +669,442 @@ class PromptCompositionService:
             expected,
             prefix,
             RevisionOrigin.MODEL,
+        )
+
+    def generate_super_fast(self, source_session_id: str) -> PromptComposition:
+        """Produce and approve a final H3 prompt with exactly one LLM call."""
+
+        if self._is_legacy_super_fast(source_session_id):
+            return self._generate_legacy_super_fast(source_session_id)
+
+        request_values = self._super_fast_direct_request(source_session_id)
+        result = self.gateway.complete(request_values[4])
+        if result.finish_reason == "length":
+            raise ValueError(
+                "model response was truncated because its token budget was exhausted"
+            )
+        try:
+            composition = self._complete_super_fast_direct(
+                *request_values[:4],
+                result.content,
+            )
+        except Exception as error:
+            self._report_application_outcome(
+                result.call_id,
+                LlmCallApplicationOutcome.REJECTED,
+                error,
+            )
+            raise
+        self._report_application_outcome(
+            result.call_id,
+            LlmCallApplicationOutcome.ACCEPTED,
+        )
+        return composition
+
+    def _generate_legacy_super_fast(
+        self,
+        source_session_id: str,
+    ) -> PromptComposition:
+        """Keep persisted 0.1.0 compositions executable without changing them."""
+
+        plan_request = self._super_fast_plan_request(source_session_id)
+        result = self.gateway.complete(plan_request[4])
+        if result.finish_reason == "length":
+            raise ValueError(
+                "model response was truncated because its token budget was exhausted"
+            )
+        try:
+            composition = self._complete_super_fast_plan(
+                *plan_request[:4],
+                result.content,
+            )
+        except Exception as error:
+            self._report_application_outcome(
+                result.call_id,
+                LlmCallApplicationOutcome.REJECTED,
+                error,
+            )
+            raise
+        self._report_application_outcome(
+            result.call_id,
+            LlmCallApplicationOutcome.ACCEPTED,
+        )
+        return composition
+
+    def stream_generate_super_fast(
+        self,
+        source_session_id: str,
+        *,
+        include_reasoning: bool = False,
+    ) -> Iterator[CompositionStreamEvent]:
+        """Stream the sole direct H3 writer call and persist its approved prompt."""
+
+        if self._is_legacy_super_fast(source_session_id):
+            yield from self._stream_legacy_super_fast(
+                source_session_id,
+                include_reasoning=include_reasoning,
+            )
+            return
+
+        request_values = self._super_fast_direct_request(
+            source_session_id,
+            include_reasoning=include_reasoning,
+        )
+        session, composition, cookbook, expected, request = request_values
+        terminal = False
+        for event in self.gateway.stream(request):
+            if event.kind is StreamEventKind.COMPLETED:
+                if event.result is None:
+                    raise ValueError("stream completed without a result")
+                try:
+                    completed = self._complete_super_fast_direct(
+                        session,
+                        composition,
+                        cookbook,
+                        expected,
+                        event.result.content,
+                    )
+                except Exception as error:
+                    self._report_application_outcome(
+                        event.result.call_id,
+                        LlmCallApplicationOutcome.REJECTED,
+                        error,
+                    )
+                    raise
+                self._report_application_outcome(
+                    event.result.call_id,
+                    LlmCallApplicationOutcome.ACCEPTED,
+                )
+                terminal = True
+                final = completed.final_prompt.active_revision
+                if final is None:  # Defensive: guaranteed by the direct path.
+                    raise ValueError("super-fast final prompt was not persisted")
+                yield CompositionStreamEvent(
+                    kind=StreamEventKind.COMPLETED,
+                    phase=StreamPhase.COMPLETED,
+                    text=final.content,
+                    progress=1.0,
+                    composition=completed,
+                    finish_reason=event.result.finish_reason,
+                    max_tokens=request.max_tokens,
+                    document_stage=CompositionStage.FINAL_PROMPT,
+                )
+            elif event.kind is StreamEventKind.TRUNCATED:
+                terminal = True
+                yield CompositionStreamEvent(
+                    kind=StreamEventKind.TRUNCATED,
+                    phase=StreamPhase.TRUNCATED,
+                    text=event.result.content if event.result else event.text,
+                    finish_reason=(event.result.finish_reason if event.result else None),
+                    max_tokens=request.max_tokens,
+                    document_stage=CompositionStage.FINAL_PROMPT,
+                )
+            else:
+                yield CompositionStreamEvent(
+                    kind=event.kind,
+                    phase=event.phase,
+                    text=event.text,
+                    progress=event.progress,
+                    document_stage=CompositionStage.FINAL_PROMPT,
+                )
+        if not terminal:
+            raise ValueError("model stream ended before completion")
+
+    def _stream_legacy_super_fast(
+        self,
+        source_session_id: str,
+        *,
+        include_reasoning: bool = False,
+    ) -> Iterator[CompositionStreamEvent]:
+        """Run the immutable 0.1.0 Plan-first implementation for old sessions."""
+
+        plan_request = self._super_fast_plan_request(
+            source_session_id,
+            include_reasoning=include_reasoning,
+        )
+        session, composition, cookbook, expected, request, _ = plan_request
+        terminal = False
+        for event in self.gateway.stream(request):
+            if event.kind is StreamEventKind.COMPLETED:
+                if event.result is None:
+                    raise ValueError("stream completed without a result")
+                try:
+                    completed = self._complete_super_fast_plan(
+                        session,
+                        composition,
+                        cookbook,
+                        expected,
+                        event.result.content,
+                    )
+                except Exception as error:
+                    self._report_application_outcome(
+                        event.result.call_id,
+                        LlmCallApplicationOutcome.REJECTED,
+                        error,
+                    )
+                    raise
+                self._report_application_outcome(
+                    event.result.call_id,
+                    LlmCallApplicationOutcome.ACCEPTED,
+                )
+                yield CompositionStreamEvent(
+                    kind=StreamEventKind.STATUS,
+                    phase=StreamPhase.PREPARING,
+                    text="Plan arbitré et validé. Compilation déterministe du prompt H3…",
+                    composition=completed,
+                    document_stage=CompositionStage.FINAL_PROMPT,
+                )
+                terminal = True
+                final = completed.final_prompt.active_revision
+                if final is None:  # Defensive: guaranteed by the compiler path.
+                    raise ValueError("super-fast final prompt was not persisted")
+                yield CompositionStreamEvent(
+                    kind=StreamEventKind.COMPLETED,
+                    phase=StreamPhase.COMPLETED,
+                    text=final.content,
+                    progress=1.0,
+                    composition=completed,
+                    finish_reason=event.result.finish_reason,
+                    max_tokens=request.max_tokens,
+                    document_stage=CompositionStage.FINAL_PROMPT,
+                )
+            elif event.kind is StreamEventKind.TRUNCATED:
+                terminal = True
+                yield CompositionStreamEvent(
+                    kind=StreamEventKind.TRUNCATED,
+                    phase=StreamPhase.TRUNCATED,
+                    text=event.result.content if event.result else event.text,
+                    finish_reason=(event.result.finish_reason if event.result else None),
+                    max_tokens=request.max_tokens,
+                    document_stage=CompositionStage.BEAT_SHEET,
+                )
+            else:
+                yield CompositionStreamEvent(
+                    kind=event.kind,
+                    phase=event.phase,
+                    text=event.text,
+                    progress=event.progress,
+                    document_stage=CompositionStage.BEAT_SHEET,
+                )
+        if not terminal:
+            raise ValueError("model stream ended before completion")
+
+    def _is_legacy_super_fast(self, source_session_id: str) -> bool:
+        composition = self.compositions.get(source_session_id)
+        return (
+            composition.cookbook.cookbook_id == SUPER_FAST_REF2V_COOKBOOK_ID
+            and composition.cookbook.version == _SUPER_FAST_REF2V_LEGACY_VERSION
+        )
+
+    def _super_fast_direct_request(
+        self,
+        source_session_id: str,
+        *,
+        include_reasoning: bool = False,
+    ):
+        session = self.sessions.get(source_session_id)
+        composition = self.compositions.get(source_session_id)
+        cookbook = self._validated_cookbook(session, composition)
+        if (
+            cookbook.reference.cookbook_id != SUPER_FAST_REF2V_COOKBOOK_ID
+            or cookbook.reference.version != SUPER_FAST_REF2V_COOKBOOK_VERSION
+            or cookbook.output_contract != _SUPER_FAST_REF2V_DIRECT_CONTRACT
+            or getattr(cookbook, "visibility", None) != "internal"
+            or getattr(cookbook, "execution_mode", None)
+            != _SUPER_FAST_REF2V_EXECUTION_MODE
+        ):
+            raise ValueError(
+                "super-fast direct generation requires the internal Ref2V 0.2.0 cookbook"
+            )
+        expected = self._expected_sources(
+            session,
+            composition,
+            CompositionStage.FINAL_PROMPT,
+        )
+        brief = _approved_brief(session)
+        request = CompletionRequest(
+            model_id=session.model_id,
+            system_prompt=_required_prompt(
+                cookbook.final_prompt_system_prompt,
+                "final_prompt_system",
+            ),
+            user_prompt=_render(
+                _required_prompt(
+                    cookbook.final_prompt_user_prompt,
+                    "final_prompt_user",
+                ),
+                BRIEF=brief.content,
+                REFERENCES=direct_reference_mapping(
+                    session,
+                    composition_picture_mapping(composition),
+                ),
+                CREATIVE_FREEDOM=str(brief.creative_freedom),
+                CREATIVE_POLICY=creative_freedom_policy(
+                    brief.creative_freedom
+                ),
+            ),
+            images=self._direct_reference_images(session, composition),
+            temperature=0.2,
+            max_tokens=32768,
+            operation_id="ref2v.super_fast.prompt_direct.generate",
+            include_reasoning=include_reasoning,
+        )
+        return session, composition, cookbook, expected, request
+
+    def _complete_super_fast_direct(
+        self,
+        initial_session: PromptLabSession,
+        initial_composition: PromptComposition,
+        cookbook: PromptCookbookPort,
+        expected: tuple[str, ...],
+        result_content: str,
+    ) -> PromptComposition:
+        current_session = self.sessions.get(initial_session.session_id)
+        current = self.compositions.get(initial_session.session_id)
+        if current.cookbook != initial_composition.cookbook:
+            raise ValueError("cookbook changed while the model was generating")
+        if current.final_prompt.active_revision_id != initial_composition.final_prompt.active_revision_id:
+            raise ValueError("the final prompt changed while the model was generating")
+        if self._expected_sources(
+            current_session,
+            current,
+            CompositionStage.FINAL_PROMPT,
+        ) != expected:
+            raise ValueError("an upstream input changed while the model was generating")
+        content = _compile_super_fast_ref2v_prompt(
+            current_session,
+            current,
+            cookbook,
+            result_content,
+        )
+        completed = self._persist_if_current(
+            current_session,
+            current,
+            CompositionStage.FINAL_PROMPT,
+            expected,
+            content,
+            RevisionOrigin.MODEL,
+        )
+        generated_document = completed.final_prompt
+        return self.compositions.save_if_current(
+            completed,
+            completed.update_document(generated_document.approve(expected)),
+        )
+
+    def _super_fast_plan_request(
+        self,
+        source_session_id: str,
+        *,
+        include_reasoning: bool = False,
+    ):
+        request_values = self._request(
+            source_session_id,
+            CompositionStage.BEAT_SHEET,
+            instruction=None,
+            include_reasoning=include_reasoning,
+        )
+        cookbook = request_values[2]
+        if (
+            cookbook.reference.cookbook_id != SUPER_FAST_REF2V_COOKBOOK_ID
+            or cookbook.reference.version != _SUPER_FAST_REF2V_LEGACY_VERSION
+            or getattr(cookbook, "visibility", None) != "internal"
+            or getattr(cookbook, "execution_mode", None)
+            != _SUPER_FAST_REF2V_LEGACY_EXECUTION_MODE
+        ):
+            raise ValueError(
+                "super-fast generation requires the internal Ref2V V1 cookbook"
+            )
+        return (
+            *request_values[:4],
+            replace(
+                request_values[4],
+                operation_id="ref2v.super_fast.generate",
+            ),
+            request_values[5],
+        )
+
+    def _complete_super_fast_plan(
+        self,
+        initial_session: PromptLabSession,
+        initial_composition: PromptComposition,
+        cookbook: PromptCookbookPort,
+        expected: tuple[str, ...],
+        result_content: str,
+    ) -> PromptComposition:
+        plan_content, _ = _compile_content_with_context(
+            cookbook,
+            CompositionStage.BEAT_SHEET,
+            "",
+            result_content,
+        )
+        brief = _approved_brief(initial_session)
+        plan_content = auto_resolve_direct_ref2v_multishot_risks_v2(
+            plan_content,
+            brief.creative_freedom,
+        )
+        _raise_lint(cookbook, CompositionStage.BEAT_SHEET, plan_content)
+        generated_plan = self._persist_if_current(
+            initial_session,
+            initial_composition,
+            CompositionStage.BEAT_SHEET,
+            expected,
+            plan_content,
+            RevisionOrigin.MODEL,
+        )
+        approved_plan_document = generated_plan.beat_sheet
+        self.compositions.save_if_current(
+            generated_plan,
+            generated_plan.update_document(
+                approved_plan_document.approve(expected)
+            ),
+        )
+
+        current_session = self.sessions.get(initial_session.session_id)
+        current = self.compositions.get(initial_session.session_id)
+        current_cookbook = self._validated_cookbook(current_session, current)
+        final_expected = self._expected_sources(
+            current_session,
+            current,
+            CompositionStage.FINAL_PROMPT,
+        )
+        approved_plan = _approved_stage(
+            current,
+            CompositionStage.BEAT_SHEET,
+            self._expected_sources(
+                current_session,
+                current,
+                CompositionStage.BEAT_SHEET,
+            ),
+        )
+        compiler_context = _direct_ref2v_multishot_compiler_context_for(
+            current_session,
+            current,
+            current_cookbook,
+        )
+        writer_content = render_direct_ref2v_multishot_writer_document_v2(
+            approved_plan.content
+        )
+        final_content, final_context = _compile_content_with_context(
+            current_cookbook,
+            CompositionStage.FINAL_PROMPT,
+            compiler_context,
+            writer_content,
+        )
+        completed = self._persist_if_current(
+            current_session,
+            current,
+            CompositionStage.FINAL_PROMPT,
+            final_expected,
+            final_content,
+            RevisionOrigin.MODEL,
+            compiler_context=final_context,
+        )
+        generated_final_document = completed.final_prompt
+        return self.compositions.save_if_current(
+            completed,
+            completed.update_document(
+                generated_final_document.approve(final_expected)
+            ),
         )
 
     def _stream_planned_final(
@@ -677,7 +1148,10 @@ class PromptCompositionService:
                     document_stage=CompositionStage.BEAT_SHEET,
                 )
                 return
-            elif event.kind is StreamEventKind.DELTA:
+            elif event.kind in {
+                StreamEventKind.DELTA,
+                StreamEventKind.REASONING,
+            }:
                 yield CompositionStreamEvent(
                     kind=event.kind,
                     phase=event.phase,
@@ -704,6 +1178,7 @@ class PromptCompositionService:
             source_session_id,
             CompositionStage.FINAL_PROMPT,
             instruction=None,
+            include_reasoning=request.include_reasoning,
         )
         yield from self._stream(
             final_request[4],
@@ -769,13 +1244,13 @@ class PromptCompositionService:
             instruction=instruction,
         )
         result = self.gateway.complete(request)
-        revised = _revision_document_contract(
-            cookbook,
-            stage,
-            compiler_context=prefix or None,
-        ).extract(
-            result.content
-        )
+        revised = result.content
+        if cookbook.output_contract != _SUPER_FAST_REF2V_DIRECT_CONTRACT:
+            revised = _revision_document_contract(
+                cookbook,
+                stage,
+                compiler_context=prefix or None,
+            ).extract(result.content)
         content, compiler_context = _compile_content_with_context(
             cookbook,
             stage,
@@ -798,11 +1273,14 @@ class PromptCompositionService:
         source_session_id: str,
         stage: CompositionStage,
         instruction: str,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[CompositionStreamEvent]:
         session, composition, cookbook, expected, request, prefix = self._request(
             source_session_id,
             stage,
             instruction=instruction,
+            include_reasoning=include_reasoning,
         )
         return self._stream(
             request,
@@ -821,6 +1299,8 @@ class PromptCompositionService:
         source_session_id: str,
         decisions: Mapping[str, str],
         instruction: str | None = None,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[CompositionStreamEvent]:
         """Rewrite a supervised plan so human arbitration changes its real timeline."""
         session = self.sessions.get(source_session_id)
@@ -833,6 +1313,7 @@ class PromptCompositionService:
                 cookbook,
                 decisions,
                 instruction,
+                include_reasoning=include_reasoning,
             )
         if cookbook.output_contract not in _REF2V_SUPERVISED_CONTRACTS:
             raise ValueError(
@@ -905,6 +1386,7 @@ class PromptCompositionService:
             temperature=0.2,
             max_tokens=32768,
             operation_id="action_plan.reconcile",
+            include_reasoning=include_reasoning,
         )
         audit_instruction = json.dumps(
             {
@@ -975,6 +1457,8 @@ class PromptCompositionService:
         cookbook: PromptCookbookPort,
         decisions: Mapping[str, str],
         instruction: str | None,
+        *,
+        include_reasoning: bool,
     ) -> Iterator[CompositionStreamEvent]:
         """Apply human decisions to a Direct V2 plan using its native images."""
 
@@ -1037,6 +1521,7 @@ class PromptCompositionService:
             temperature=0.2,
             max_tokens=32768,
             operation_id="action_plan.reconcile",
+            include_reasoning=include_reasoning,
         )
         audit_instruction = json.dumps(
             {
@@ -1126,6 +1611,7 @@ class PromptCompositionService:
         stage: CompositionStage,
         *,
         instruction: str | None,
+        include_reasoning: bool = False,
     ):
         session = self.sessions.get(source_session_id)
         composition = self.compositions.get(source_session_id)
@@ -1156,6 +1642,18 @@ class PromptCompositionService:
             if current.source_ids != expected:
                 raise ValueError("the current document is stale; regenerate it first")
             editable_current = current.content
+            if (
+                cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT
+                and stage is CompositionStage.FINAL_PROMPT
+            ):
+                prefix = direct_reference_header(
+                    session,
+                    composition_picture_mapping(composition),
+                )
+                expected_prefix = prefix + "\n\n"
+                if not editable_current.startswith(expected_prefix):
+                    raise ValueError("the direct super-fast prompt has the wrong header")
+                editable_current = editable_current[len(expected_prefix) :]
             if (
                 cookbook.output_contract in _REF2V_DIRECT_MULTISHOT_CONTRACTS
                 and stage is CompositionStage.FINAL_PROMPT
@@ -1354,8 +1852,14 @@ class PromptCompositionService:
             user_prompt=user_prompt,
             images=(
                 self._direct_reference_images(session, composition)
-                if cookbook.output_contract in _DIRECT_MULTIMODAL_CONTRACTS
-                and stage is CompositionStage.BEAT_SHEET
+                if (
+                    cookbook.output_contract in _DIRECT_MULTIMODAL_CONTRACTS
+                    and stage is CompositionStage.BEAT_SHEET
+                )
+                or (
+                    cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT
+                    and stage is CompositionStage.FINAL_PROMPT
+                )
                 else ()
             ),
             temperature={
@@ -1365,6 +1869,7 @@ class PromptCompositionService:
             }[stage],
             max_tokens=32768,
             operation_id=f"{operation_stage}.{origin_operation}",
+            include_reasoning=include_reasoning,
         )
         return session, composition, cookbook, expected, request, prefix
 
@@ -1417,6 +1922,10 @@ class PromptCompositionService:
                             composition_picture_mapping(composition),
                         ),
                         ACTION_PLAN_SCHEMA=_direct_action_plan_schema(cookbook),
+                        CREATIVE_FREEDOM=str(brief.creative_freedom),
+                        CREATIVE_POLICY=creative_freedom_policy(
+                            brief.creative_freedom
+                        ),
                     ),
                 )
             if stage is not CompositionStage.FINAL_PROMPT:
@@ -1866,7 +2375,10 @@ class PromptCompositionService:
                 expected_directives=directives,
             )
         _raise_lint(cookbook, stage, content)
-        if cookbook.output_contract in _REF2V_ALL_DIRECT_CONTRACTS:
+        if cookbook.output_contract in {
+            _SUPER_FAST_REF2V_DIRECT_CONTRACT,
+            *_REF2V_ALL_DIRECT_CONTRACTS,
+        }:
             validate_direct_ref2v_labels(
                 self.sessions.get(composition.source_session_id),
                 composition_picture_mapping(composition),
@@ -1946,7 +2458,12 @@ class PromptCompositionService:
                     raise ValueError("stream completed without a result")
                 try:
                     result_content = event.result.content
-                    if origin is RevisionOrigin.REWRITE and extract_revision:
+                    if (
+                        origin is RevisionOrigin.REWRITE
+                        and extract_revision
+                        and cookbook.output_contract
+                        != _SUPER_FAST_REF2V_DIRECT_CONTRACT
+                    ):
                         result_content = _revision_document_contract(
                             cookbook,
                             stage,
@@ -2012,7 +2529,13 @@ class PromptCompositionService:
                     phase=event.phase,
                     text=event.text,
                     progress=event.progress,
-                    document_stage=document_stage,
+                    document_stage=(
+                        document_stage
+                        if document_stage is not None
+                        else stage
+                        if event.kind is StreamEventKind.REASONING
+                        else None
+                    ),
                 )
         if not terminal:
             raise ValueError("model stream ended before completion")
@@ -2098,6 +2621,10 @@ def lint_cookbook_document(
     stage: CompositionStage,
     content: str,
 ) -> tuple[str, ...]:
+    if cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT:
+        if stage is not CompositionStage.FINAL_PROMPT:
+            return (f"Stage {stage.value} does not belong to this cookbook.",)
+        return _lint_super_fast_ref2v_prompt(content)
     if cookbook.output_contract in _REF2V_DIRECT_MULTISHOT_CONTRACTS:
         if stage is CompositionStage.BEAT_SHEET:
             return (
@@ -2513,6 +3040,10 @@ def composition_document_warnings(
     *,
     composition: PromptComposition | None = None,
 ) -> tuple[str, ...]:
+    if cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT:
+        if stage is CompositionStage.FINAL_PROMPT:
+            return _super_fast_ref2v_prompt_warnings(content)
+        return ()
     if cookbook.output_contract in _REF2V_DIRECT_MULTISHOT_CONTRACTS:
         if stage is CompositionStage.BEAT_SHEET:
             return (
@@ -3556,6 +4087,165 @@ def _h3_protocol_warnings(
     )
 
 
+def _lint_super_fast_ref2v_prompt(content: str) -> tuple[str, ...]:
+    """Keep the direct fast path usable without recreating a Plan parser."""
+
+    if not isinstance(content, str) or not content.strip():
+        return ("Le prompt MiniMax direct est vide.",)
+    value = content.strip().replace("\r\n", "\n")
+    errors: list[str] = []
+    if "[[" in value or "]]" in value:
+        errors.append("Un placeholder non résolu reste dans le prompt direct.")
+    if re.search(r"(?i)@image\s*\d+|<Image\s+\d+>|<Subject\s+\d+>", value):
+        errors.append("Le prompt direct doit utiliser uniquement les labels <Picture N>.")
+    if len(re.findall(r"(?m)^\[Shot 1\](?=\s|$)", value)) != 1:
+        errors.append("Le prompt direct doit contenir exactement un heading [Shot 1].")
+    for field in ("overall_soundscape", "non_diegetic_music"):
+        if len(re.findall(rf"(?m)^{field}:[ \t]*", value)) != 1:
+            errors.append(f"Le champ {field}: doit apparaître exactement une fois.")
+    if value.count("<d>") != value.count("</d>"):
+        errors.append("Les balises de dialogue <d> ne sont pas équilibrées.")
+    picture_numbers = sorted(
+        {int(item) for item in re.findall(r"<Picture\s+(\d+)>", value)}
+    )
+    if not picture_numbers or picture_numbers != list(
+        range(1, len(picture_numbers) + 1)
+    ) or len(picture_numbers) > 3:
+        errors.append("Les labels Picture doivent être contigus de 1 à 3.")
+    for number in picture_numbers:
+        if value.count(f"<Picture {number}>") != 1:
+            errors.append(f"<Picture {number}> doit apparaître exactement une fois.")
+    return tuple(dict.fromkeys(errors))
+
+
+def _normalize_super_fast_ref2v_body(content: str) -> str:
+    """Remove common response wrappers without parsing or rewriting H3 prose."""
+
+    if not isinstance(content, str):
+        raise TypeError("content must be a string")
+    value = content.strip().replace("\r\n", "\n")
+    fence_count = value.count("```")
+    if fence_count:
+        if fence_count != 2:
+            raise ValueError(
+                "the direct super-fast response contains an incomplete or ambiguous Markdown fence"
+            )
+        match = re.search(r"```[^\n`]*\n(.*?)```", value, flags=re.DOTALL)
+        if match is None:
+            raise ValueError(
+                "the direct super-fast response contains an invalid Markdown fence"
+            )
+        value = match.group(1).strip()
+
+    leading_wrapper = re.compile(
+        r"[ \t]*(?:(?:certainly|sure|of course)[!,.:—\- ]*)?"
+        r"(?:here(?:'s| is)(?: the| your)?|below is(?: the)?|"
+        r"(?:the[ \t]+)?(?:final|revised|updated|complete))"
+        r"[^\n]*\bprompt\b[ \t]*:?[ \t]*",
+        flags=re.IGNORECASE,
+    )
+    trailing_wrapper = re.compile(
+        r"[ \t]*(?:i hope (?:this|that) helps|"
+        r"(?:please[ \t]+)?let me know if[^\n]*|"
+        r"(?:this (?:prompt )?is )?ready to use|done)[.!]?[ \t]*",
+        flags=re.IGNORECASE,
+    )
+    lines = value.splitlines()
+    while lines and (
+        re.fullmatch(r"[ \t]*#{1,6}[ \t]+.*", lines[0])
+        or leading_wrapper.fullmatch(lines[0])
+    ):
+        lines.pop(0)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+    if lines and trailing_wrapper.fullmatch(lines[-1]):
+        lines.pop()
+        while lines and not lines[-1].strip():
+            lines.pop()
+    value = "\n".join(lines).strip()
+    if "```" in value or re.search(r"(?m)^\s*#{1,6}\s+", value):
+        raise ValueError(
+            "the direct super-fast response still contains Markdown wrapper text"
+        )
+    return value
+
+
+def _super_fast_ref2v_prompt_warnings(content: str) -> tuple[str, ...]:
+    """Report likely H3 issues without blocking the experimental direct result."""
+
+    warnings = [issue.message for issue in lint_h3_prompt(H3ProtocolMode.REF2VA, content)]
+    headings = [
+        int(number)
+        for number in re.findall(r"(?m)^\[Shot\s+(\d+)\]", content)
+    ]
+    if len(headings) < 2:
+        warnings.append(
+            "Le mode multi-plan a produit moins de deux plans ; le prompt reste copiable."
+        )
+    elif headings != list(range(1, len(headings) + 1)):
+        warnings.append(
+            "Les numéros de plans ne sont pas contigus ; vérifiez le montage MiniMax."
+        )
+    if len(headings) > 6:
+        warnings.append(
+            "Le mode direct a produit plus de six plans ; vérifiez la densité du montage."
+        )
+    if re.search(r"(?m)^\[Shot 1\][ \t]+At[ \t]+\d{2}:\d{2}\.\d{3},", content):
+        warnings.append(
+            "[Shot 1] ne doit pas porter de timestamp H3 ; le prompt reste copiable."
+        )
+    for number in headings[1:]:
+        if re.search(
+            rf"(?m)^\[Shot {number}\] At \d{{2}}:\d{{2}}\.\d{{3}},",
+            content,
+        ) is None:
+            warnings.append(
+                f"[Shot {number}] n'a pas de timestamp H3 exact ; vérifiez la coupe."
+            )
+    timestamps = [
+        int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000
+        for minutes, seconds, milliseconds in re.findall(
+            r"\bAt\s+(\d{2}):(\d{2})\.(\d{3})\b",
+            content,
+        )
+    ]
+    if (
+        (timestamps and timestamps[0] <= 0)
+        or any(
+            current <= previous
+            for previous, current in zip(timestamps, timestamps[1:])
+        )
+    ):
+        warnings.append(
+            "Les timestamps de coupe ne sont pas strictement croissants."
+        )
+    if any(value > 15 for value in timestamps):
+        warnings.append(
+            "Un timestamp dépasse 15 secondes ; vérifiez la durée du moteur ciblé."
+        )
+    first_shot = re.search(r"(?m)^\[Shot 1\](?=\s|$)", content)
+    if first_shot is not None:
+        prefix_lines = [
+            line.strip()
+            for line in content[: first_shot.start()].splitlines()
+            if line.strip() and not line.startswith("For the target video,")
+        ]
+        if not prefix_lines:
+            warnings.append(
+                "Le prompt direct ne contient pas de mise en place visible avant [Shot 1]."
+            )
+    soundscape = re.search(
+        r"(?ms)^overall_soundscape:[ \t]*\n(.*?)(?=^non_diegetic_music:)",
+        content,
+    )
+    music = re.search(r"(?ms)^non_diegetic_music:[ \t]*\n(.*)\Z", content)
+    if soundscape is None or not soundscape.group(1).strip():
+        warnings.append("Le champ overall_soundscape: est vide ou mal ordonné.")
+    if music is None or not music.group(1).strip():
+        warnings.append("Le champ non_diegetic_music: est vide ou mal ordonné.")
+    return tuple(dict.fromkeys(warnings))
+
+
 def _raise_h3_protocol(
     mode: H3ProtocolMode,
     content: str,
@@ -3645,14 +4335,61 @@ def _compile_content_with_context(
     return content, compiler_context
 
 
+def _compile_super_fast_ref2v_prompt(
+    session: PromptLabSession,
+    composition: PromptComposition,
+    cookbook: PromptCookbookPort,
+    result: str,
+) -> str:
+    if cookbook.output_contract != _SUPER_FAST_REF2V_DIRECT_CONTRACT:
+        raise ValueError("the cookbook does not use the direct super-fast contract")
+    header = direct_reference_header(
+        session,
+        composition_picture_mapping(composition),
+    )
+    body = normalize_dialogue_language_tags(
+        _normalize_super_fast_ref2v_body(result)
+    )
+    exact_prefix = header + "\n\n"
+    if body.startswith(exact_prefix):
+        body = body[len(exact_prefix) :]
+    elif re.search(r"(?i)<\s*picture\b", body):
+        raise ValueError(
+            "the direct super-fast model body must not repeat application-owned Picture labels"
+        )
+    content = f"{header}\n\n{body}"
+    errors = _lint_super_fast_ref2v_prompt(content)
+    if errors:
+        raise ValueError(" ".join(errors))
+    return content
+
+
 def _compile_content(
     cookbook: PromptCookbookPort,
     stage: CompositionStage,
     prefix: str,
     result: str,
 ) -> str:
-    body = _strip_fence(result)
+    body = (
+        _normalize_super_fast_ref2v_body(result)
+        if cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT
+        else _strip_fence(result)
+    )
     if (
+        stage is CompositionStage.FINAL_PROMPT
+        and cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT
+    ):
+        if not prefix.strip():
+            raise ValueError("direct super-fast prompt header is missing")
+        exact_prefix = prefix.strip() + "\n\n"
+        if body.startswith(exact_prefix):
+            body = body[len(exact_prefix) :]
+        elif re.search(r"(?i)<\s*picture\b", body):
+            raise ValueError(
+                "the direct super-fast model body must not repeat application-owned Picture labels"
+            )
+        content = normalize_dialogue_language_tags(f"{prefix.strip()}\n\n{body}")
+    elif (
         stage is CompositionStage.FINAL_PROMPT
         and cookbook.output_contract == _I2VA_CANONICAL_CONTRACT
     ):
@@ -4074,6 +4811,15 @@ def _stage_contract(
     *,
     compiler_context: str | None = None,
 ) -> str:
+    if (
+        cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT
+        and stage is CompositionStage.FINAL_PROMPT
+    ):
+        return (
+            "Return only the complete H3 body: an unlabeled scene setup, contiguous "
+            "[Shot N] blocks, then overall_soundscape: and non_diegetic_music:. "
+            "Do not repeat any Picture label or reference header."
+        )
     if (
         cookbook.output_contract == _REF2V_DIRECT_MULTISHOT_V2_CONTRACT
         and stage is CompositionStage.FINAL_PROMPT

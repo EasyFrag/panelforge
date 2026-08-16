@@ -282,6 +282,58 @@ def canonical_direct_ref2v_multishot_plan_v2(
     return json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
+def auto_resolve_direct_ref2v_multishot_risks_v2(
+    content: str,
+    creative_freedom: int,
+) -> str:
+    """Resolve every remaining risk without another model call.
+
+    The planner receives the same creative-freedom policy and should normally
+    author its resolutions itself.  This deterministic fallback keeps the
+    one-call contract when a valid model response still leaves a resolution
+    null.  Existing model resolutions are never rewritten.
+    """
+
+    if (
+        isinstance(creative_freedom, bool)
+        or not isinstance(creative_freedom, int)
+        or not 0 <= creative_freedom <= 100
+    ):
+        raise ValueError("creative_freedom must be between 0 and 100")
+    plan = parse_direct_ref2v_multishot_plan_v2(content)
+    resolved_risks: list[DirectContinuityRisk] = []
+    for risk in plan.risks:
+        if risk.resolution is not None:
+            resolved_risks.append(risk)
+            continue
+        recommendation = risk.recommendation.rstrip().rstrip(".") + "."
+        if creative_freedom <= 20:
+            resolution = (
+                "Preserve the supplied evidence and continuity with the least "
+                f"inventive compatible choice. {recommendation}"
+            )
+        elif creative_freedom <= 40:
+            resolution = (
+                "Use only the minimum continuity-safe adjustment. "
+                f"{recommendation}"
+            )
+        elif creative_freedom <= 60:
+            resolution = recommendation
+        elif creative_freedom <= 80:
+            resolution = (
+                "Use a cinematic but reference-compatible interpretation. "
+                f"{recommendation}"
+            )
+        else:
+            resolution = (
+                "Use the recommendation as the continuity boundary while "
+                f"allowing compatible creative staging. {recommendation}"
+            )
+        resolved_risks.append(risk.model_copy(update={"resolution": resolution}))
+    resolved = plan.model_copy(update={"risks": tuple(resolved_risks)})
+    return json.dumps(resolved.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+
 def lint_direct_ref2v_multishot_plan_v2(content: str) -> tuple[str, ...]:
     """Return structural errors; semantic risks deliberately remain warnings."""
 
@@ -488,6 +540,7 @@ __all__ = [
     "DirectRef2VMultiShotPlanV2",
     "DirectRef2VMultiShotV2",
     "canonical_direct_ref2v_multishot_plan_v2",
+    "auto_resolve_direct_ref2v_multishot_risks_v2",
     "direct_ref2v_multishot_camera_directives_v2",
     "direct_ref2v_multishot_plan_schema_v2",
     "direct_ref2v_multishot_plan_warnings_v2",

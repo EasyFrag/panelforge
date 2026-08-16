@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260816.3">
+  <link rel="stylesheet" href="/static/lab.css?v=20260816.4">
   <script src="/static/lab.js?v=20260815.1" defer></script>
-  <script src="/static/prompt-lab.js?v=20260816.1" defer></script>
+  <script src="/static/prompt-lab.js?v=20260816.2" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260815.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260816.2" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/video-lab.js?v=20260816.4" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260816.1" defer></script>
+  <script src="/static/video-lab.js?v=20260816.5" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260816.3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -609,6 +609,10 @@
           <input id="i2vd-quick-mode" type="checkbox">
           <span><b>Mode rapide</b><small>Générer et valider automatiquement Brief, Plan et Prompt.</small></span>
         </label>
+        <label class="debug-reasoning-option">
+          <input id="i2vd-show-reasoning" type="checkbox">
+          <span><b>Afficher la trace transmise par le modèle</b><small>Debug uniquement · n’active pas le raisonnement du modèle et ne le sauvegarde pas.</small></span>
+        </label>
         <button id="i2vd-start" class="primary" type="submit" disabled>Créer le parcours</button>
         <div id="i2vd-quick-status" class="quick-mode-status" role="status" aria-live="polite" hidden>
           <span id="i2vd-quick-status-label"></span>
@@ -642,6 +646,11 @@
           <div class="prompt-head-actions"><span id="i2vd-session-progress" class="run-status active">Brief requis</span><button id="i2vd-fork-session" type="button">Repartir de ce run</button></div>
         </div>
         <div id="i2vd-reference-dock" class="ref2vd-reference-dock"></div>
+        <details id="i2vd-reasoning-panel" class="reasoning-trace" hidden>
+          <summary><b>Trace modèle</b><small id="i2vd-reasoning-label">Appel actif</small></summary>
+          <p id="i2vd-reasoning-empty" class="muted">En attente d’une trace séparée du modèle…</p>
+          <pre id="i2vd-reasoning-output"></pre>
+        </details>
 
         <details id="i2vd-brief-step" class="cookbook-step" open>
           <summary><span class="cookbook-step-index">1</span><span class="cookbook-step-copy"><b>Brief multimodal</b><small>Lire directement la première frame et cadrer l’intention.</small></span><span id="i2vd-brief-review" class="review-pill pending">À générer</span></summary>
@@ -926,9 +935,17 @@
         </section>
         <p id="ref2vd-mode-warning" class="warning" role="status" hidden></p>
         <p id="ref2vd-setup-message" class="error" role="alert" hidden></p>
-        <label class="quick-mode-option">
-          <input id="ref2vd-quick-mode" type="checkbox">
-          <span><b>Mode rapide</b><small>Générer et valider automatiquement Brief, Plan et Prompt.</small></span>
+        <label class="field-label generation-mode-control" for="ref2vd-execution-mode">Mode du parcours
+          <select id="ref2vd-execution-mode">
+            <option value="supervised" selected>Supervisé</option>
+            <option value="quick">Rapide · 3 appels LLM</option>
+            <option value="super_fast">Super rapide · 1 appel LLM · expérimental</option>
+          </select>
+          <small id="ref2vd-execution-mode-hint">Étapes manuelles et arbitrages humains.</small>
+        </label>
+        <label class="debug-reasoning-option">
+          <input id="ref2vd-show-reasoning" type="checkbox">
+          <span><b>Afficher la trace transmise par le modèle</b><small>Debug uniquement · n’active pas le raisonnement du modèle et ne le sauvegarde pas.</small></span>
         </label>
         <button id="ref2vd-start" class="primary" type="submit" disabled>Créer le parcours</button>
         <div id="ref2vd-quick-status" class="quick-mode-status" role="status" aria-live="polite" hidden>
@@ -963,6 +980,11 @@
           <div class="prompt-head-actions"><span id="ref2vd-session-progress" class="run-status active">Brief requis</span><button id="ref2vd-fork-session" type="button">Repartir de ce run</button></div>
         </div>
         <div id="ref2vd-reference-dock" class="ref2vd-reference-dock"></div>
+        <details id="ref2vd-reasoning-panel" class="reasoning-trace" hidden>
+          <summary><b>Trace modèle</b><small id="ref2vd-reasoning-label">Appel actif</small></summary>
+          <p id="ref2vd-reasoning-empty" class="muted">En attente d’une trace séparée du modèle…</p>
+          <pre id="ref2vd-reasoning-output"></pre>
+        </details>
 
         <details id="ref2vd-brief-step" class="cookbook-step" open>
           <summary><span class="cookbook-step-index">1</span><span class="cookbook-step-copy"><b>Brief multimodal</b><small>Lire directement toutes les images et cadrer l’intention.</small></span><span id="ref2vd-brief-review" class="review-pill pending">À générer</span></summary>
@@ -1097,6 +1119,10 @@
             <div class="video-lab-stage">
               <p id="video-lab-output-empty">La vidéo finale avec audio apparaîtra ici.</p>
               <video id="video-lab-output" controls playsinline preload="metadata" hidden></video>
+            </div>
+            <div class="video-lab-sound-row">
+              <button id="video-lab-play-with-sound" type="button" hidden>Lire avec le son</button>
+              <small>Force un geste utilisateur et recharge le lecteur si le navigateur a conservé un état muet.</small>
             </div>
             <p id="video-lab-output-diagnostic" class="video-lab-media-diagnostic" role="status" hidden></p>
           </figure>

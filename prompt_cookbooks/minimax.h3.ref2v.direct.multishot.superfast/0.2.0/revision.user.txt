@@ -1,0 +1,7 @@
+CURRENT H3 BODY
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return only the complete revised H3 body. Do not repeat the application-owned reference header. Preserve all untouched shot boundaries, timestamps, continuity, camera syntax, audio, and final state.

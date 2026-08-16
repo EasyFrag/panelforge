@@ -385,6 +385,18 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .quick-mode-status.stopped, .quick-mode-status.interrupted { border-color: #e2c995; color: #8a570d; background: #fffaf0; }
 .quick-mode-status.completed { border-color: #9bc5b2; }
 .quick-mode-status .text-button { flex: none; }
+.generation-mode-control { margin: .75rem 0 .5rem; }
+.generation-mode-control small { color: var(--muted); font-size: .61rem; line-height: 1.4; }
+.debug-reasoning-option { display: flex; gap: .5rem; align-items: flex-start; margin: .5rem 0 .75rem; color: var(--ink); }
+.debug-reasoning-option input { margin-top: .16rem; accent-color: var(--green); }
+.debug-reasoning-option span { display: grid; gap: .1rem; }
+.debug-reasoning-option b { font-size: .66rem; }
+.debug-reasoning-option small { color: var(--muted); font-size: .59rem; line-height: 1.35; }
+.reasoning-trace { margin: 0 0 .8rem; border: 1px solid #cbd5cf; border-radius: .7rem; background: #f4f7f5; }
+.reasoning-trace > summary { display: flex; gap: .5rem; align-items: baseline; padding: .55rem .65rem; cursor: pointer; }
+.reasoning-trace > summary small { color: var(--muted); font-size: .59rem; }
+.reasoning-trace > p { margin: 0; padding: 0 .65rem .65rem; }
+.reasoning-trace > pre { max-height: 18rem; margin: 0; padding: 0 .65rem .65rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #34443b; font: 500 .61rem/1.48 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .ref2vd-reference-list { display: grid; gap: .55rem; margin-top: .65rem; }
 .ref2vd-reference-card {
   display: grid;
@@ -493,6 +505,9 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .video-lab-stage { display: grid; min-height: clamp(260px, 35vw, 500px); place-items: center; overflow: hidden; background: #151a18; }
 .video-lab-stage > p { max-width: 230px; margin: 0; padding: 1rem; color: #aeb8b3; font-size: .7rem; line-height: 1.5; text-align: center; }
 .video-lab-stage img, .video-lab-stage video { display: block; width: 100%; height: 100%; max-height: 560px; object-fit: contain; }
+.video-lab-sound-row { display: flex; gap: .5rem; align-items: center; margin-top: .45rem; }
+.video-lab-sound-row button { min-height: 32px; padding: .35rem .55rem; border-color: var(--green); color: var(--green); background: var(--green-soft); font-size: .62rem; font-weight: 750; white-space: nowrap; }
+.video-lab-sound-row small { color: var(--muted); font-size: .59rem; line-height: 1.35; }
 .video-lab-media-diagnostic { margin: .35rem 0 0; color: var(--amber); font-size: .61rem; line-height: 1.4; }
 .video-lab-media-diagnostic.error-text { color: var(--red); }
 .video-lab-progress-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; align-items: center; margin-top: .8rem; }

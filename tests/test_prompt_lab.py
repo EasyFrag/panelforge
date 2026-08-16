@@ -660,6 +660,18 @@ class FakeCompletions:
 
 
 class OpenAICompatibleGatewayTest(unittest.TestCase):
+    def test_reasoning_trace_is_strictly_opt_in(self):
+        self.assertFalse(
+            CompletionRequest("vision-a", "System", "User").include_reasoning
+        )
+        with self.assertRaisesRegex(TypeError, "include_reasoning"):
+            CompletionRequest(
+                "vision-a",
+                "System",
+                "User",
+                include_reasoning="yes",
+            )
+
     def test_lists_models_and_preserves_ordered_multimodal_parts(self):
         completions = FakeCompletions()
         client = SimpleNamespace(
@@ -727,6 +739,143 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
         self.assertEqual(completed.result.content, "Bonjour")
         self.assertEqual(completed.result.prompt_tokens, 7)
         self.assertEqual(completed.result.completion_tokens, 2)
+
+    def test_opt_in_streams_reasoning_without_proxy_artifacts_or_final_text(self):
+        class ReasoningCompletions:
+            @staticmethod
+            def _chunk(*, reasoning=None, content=None, finish_reason=None):
+                return SimpleNamespace(
+                    model="thinking-model",
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason=finish_reason,
+                            delta=SimpleNamespace(
+                                content=content,
+                                reasoning_content=reasoning,
+                            ),
+                        )
+                    ],
+                    usage=None,
+                )
+
+            def create(self, **kwargs):
+                return iter(
+                    (
+                        self._chunk(reasoning="━━"),
+                        self._chunk(reasoning="━━━\nllama-swap loa"),
+                        self._chunk(
+                            reasoning="ding model: thinking-model\nQueue pos"
+                        ),
+                        self._chunk(reasoning="ition: #2\n"),
+                        self._chunk(reasoning="Hypothèse A. "),
+                        self._chunk(reasoning="Hypothèse B."),
+                        self._chunk(content="Réponse "),
+                        self._chunk(content="finale.", finish_reason="stop"),
+                    )
+                )
+
+        gateway = OpenAICompatibleGateway(
+            "http://bucket:8083/v1",
+            client=SimpleNamespace(
+                models=FakeModels(),
+                chat=SimpleNamespace(completions=ReasoningCompletions()),
+            ),
+        )
+
+        events = list(
+            gateway.stream(
+                CompletionRequest(
+                    model_id="thinking-model",
+                    system_prompt="Réponds.",
+                    user_prompt="Une demande.",
+                    include_reasoning=True,
+                )
+            )
+        )
+
+        reasoning = [
+            event.text
+            for event in events
+            if event.kind is StreamEventKind.REASONING
+        ]
+        self.assertEqual(reasoning, ["Hypothèse A. ", "Hypothèse B."])
+        self.assertTrue(
+            all(
+                event.phase is StreamPhase.GENERATING
+                for event in events
+                if event.kind is StreamEventKind.REASONING
+            )
+        )
+        self.assertIn(
+            "Chargement du modèle thinking-model…",
+            [event.text for event in events],
+        )
+        self.assertIn("Position dans la file : 2", [event.text for event in events])
+        terminal = events[-1]
+        self.assertEqual(terminal.kind, StreamEventKind.COMPLETED)
+        self.assertEqual(terminal.text, "Réponse finale.")
+        self.assertEqual(terminal.result.content, "Réponse finale.")
+        self.assertNotIn("Hypothèse", terminal.text)
+
+    def test_reasoning_filter_keeps_text_that_only_mentions_llama_swap(self):
+        class MentionCompletions:
+            def create(self, **kwargs):
+                return iter(
+                    (
+                        SimpleNamespace(
+                            model="thinking-model",
+                            choices=[
+                                SimpleNamespace(
+                                    finish_reason=None,
+                                    delta=SimpleNamespace(
+                                        content=None,
+                                        reasoning_content=(
+                                            "I inspected llama-swap loading model: "
+                                            "as ordinary text.\n"
+                                        ),
+                                    ),
+                                )
+                            ],
+                            usage=None,
+                        ),
+                        SimpleNamespace(
+                            model="thinking-model",
+                            choices=[
+                                SimpleNamespace(
+                                    finish_reason="stop",
+                                    delta=SimpleNamespace(
+                                        content="Final",
+                                        reasoning_content=None,
+                                    ),
+                                )
+                            ],
+                            usage=None,
+                        ),
+                    )
+                )
+
+        gateway = OpenAICompatibleGateway(
+            "http://bucket:8083/v1",
+            client=SimpleNamespace(
+                models=FakeModels(),
+                chat=SimpleNamespace(completions=MentionCompletions()),
+            ),
+        )
+        events = list(
+            gateway.stream(
+                CompletionRequest(
+                    "thinking-model",
+                    "System",
+                    "User",
+                    include_reasoning=True,
+                )
+            )
+        )
+
+        self.assertEqual(
+            [event.text for event in events if event.kind is StreamEventKind.REASONING],
+            ["I inspected llama-swap loading model: as ordinary text.\n"],
+        )
 
     def test_reports_length_as_a_truncated_terminal_event(self):
         class TruncatedCompletions:
@@ -806,6 +955,12 @@ class RecordingGateway:
 class DirectRecordingGateway(RecordingGateway):
     def stream(self, request):
         self.requests.append(request)
+        if request.include_reasoning:
+            yield CompletionStreamEvent(
+                kind=StreamEventKind.REASONING,
+                phase=StreamPhase.GENERATING,
+                text="Private trace",
+            )
         yield CompletionStreamEvent(
             kind=StreamEventKind.COMPLETED,
             phase=StreamPhase.COMPLETED,
@@ -833,6 +988,52 @@ class SingleProfileCatalog:
 
 
 class PromptLabServiceTest(unittest.TestCase):
+    def test_stream_reasoning_opt_in_is_forwarded_but_not_persisted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = LocalAssetStore(directory, id_factory=lambda: "asset-first")
+            source = assets.create(PNG + b"first", "image/png")
+            gateway = DirectRecordingGateway()
+            service = PromptLabService(
+                gateway=gateway,
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=assets,
+                sessions=LocalPromptSessionStore(directory),
+            )
+            session = service.create_session(
+                model_id="vision-model",
+                profile_id="minimax.h3.i2v.direct",
+                profile_version="0.1.0",
+                references=(
+                    NewReference(
+                        source.asset_id,
+                        "first_frame",
+                        "Start",
+                        (ReferenceUse.FIRST_FRAME,),
+                    ),
+                ),
+            )
+
+            events = list(
+                service.stream_structure_brief(
+                    session.session_id,
+                    "Walk forward.",
+                    20,
+                    include_reasoning=True,
+                )
+            )
+
+            self.assertTrue(gateway.requests[-1].include_reasoning)
+            self.assertEqual(
+                [
+                    event.text
+                    for event in events
+                    if event.kind is StreamEventKind.REASONING
+                ],
+                ["Private trace"],
+            )
+            persisted = events[-1].session.active_brief_revision.content
+            self.assertNotIn("Private trace", persisted)
+
     def test_i2v_direct_session_requires_one_first_frame_at_the_service_boundary(self):
         with tempfile.TemporaryDirectory() as directory:
             service = PromptLabService(

@@ -106,6 +106,12 @@ class FakeGateway:
             phase=StreamPhase.GENERATING,
             text="Génération…",
         )
+        if request.include_reasoning:
+            yield CompletionStreamEvent(
+                kind=StreamEventKind.REASONING,
+                phase=StreamPhase.GENERATING,
+                text="Private trace",
+            )
         yield CompletionStreamEvent(
             kind=StreamEventKind.DELTA,
             phase=StreamPhase.GENERATING,
@@ -384,6 +390,34 @@ class PromptCompositionServiceTest(unittest.TestCase):
         deltas = [event.text for event in events if event.kind is StreamEventKind.DELTA]
         self.assertTrue(deltas[0].startswith("subject_definitions:"))
         self.assertIsNotNone(events[-1].composition)
+
+    def test_stream_reasoning_opt_in_is_forwarded_but_not_persisted(self):
+        self.service.configure(
+            "session-1",
+            "fighter.arcade_versus",
+            "0.1.0",
+            bindings(),
+        )
+
+        events = list(
+            self.service.stream_generate(
+                "session-1",
+                CompositionStage.REFERENCE_PLAN,
+                include_reasoning=True,
+            )
+        )
+
+        self.assertTrue(self.gateway.requests[-1].include_reasoning)
+        self.assertEqual(
+            [
+                event.text
+                for event in events
+                if event.kind is StreamEventKind.REASONING
+            ],
+            ["Private trace"],
+        )
+        persisted = events[-1].composition.reference_plan.active_revision.content
+        self.assertNotIn("Private trace", persisted)
 
     def test_stream_marks_a_persisted_document_as_application_accepted(self):
         reporter = OutcomeReporter()

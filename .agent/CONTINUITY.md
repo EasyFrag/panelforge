@@ -12,6 +12,7 @@
   - Ref2V réalise 1–3 images natives → Brief multimodal → Plan JSON multimodal → prompt H3, sans Observation séparée.
   - `minimax.h3.ref2v.direct@0.3.3` est le mono-plan robuste par défaut. Son writer ne reçoit que `camera_landmarks_ms`; PanelForge insère les clauses caméra depuis le Plan. La `0.3.2` reste le témoin historique à placeholders.
   - `minimax.h3.ref2v.direct.multishot@0.2.0` ajoute séparément 2 à 6 plans et leurs coupes franches, avec le même Brief, Plan et arbitrage ; la `0.1.0` à trois plans reste un témoin immuable.
+  - Le cookbook interne courant `minimax.h3.ref2v.direct.multishot.superfast@0.2.0`, masqué des sélecteurs manuels, réalise le Ref2V multi-plan en un seul appel LLM direct : capsule Brief déterministe, images natives, mapping et liberté produisent immédiatement le corps H3. PanelForge ajoute seulement le header canonique, normalise les balises et auto-approuve le Prompt ; aucun Plan JSON n'est créé. La `0.1.0` Plan-first reste chargeable et son ancien cas Shot 1 sans caméra compile de nouveau correctement.
   - Le Plan multi V2 dérive les IDs, coupes, durée et `camera_N` depuis l’ordre du tableau, structure la composition d’ouverture et le raccord spatial/motion de chaque plan, et avertit sur les répétitions exactes entre plans adjacents.
   - Le writer multi V2 reçoit une projection dynamique sans caméra ni placeholder ; PanelForge compile ensuite les champs `shot_1` à `shot_N`, les headings, les timestamps et les phrases caméra canoniques. Arbitrage et révision conservent le nombre de plans approuvé.
   - I2V réalise une première frame native → Brief multimodal → Plan V2 arbitrable → prompt I2VA compilé avec `minimax.h3.i2v.direct@0.2.0`; la `0.1.0` reste le témoin à placeholders.
@@ -20,6 +21,7 @@
   - Ref2V conserve la recette sélectionnée après `Nouveau`, avertit sans bloquer si une intention multi-plan utilise le mono-plan et exige une confirmation explicite du mapping des rôles, invalidée à chaque modification.
   - L’aide `?` des références Ref2V résume dans un tableau compact et accessible le canal contrôlé par chacun des huit rôles d’image.
   - I2V et Ref2V proposent un Mode rapide partagé qui génère puis approuve Brief, Plan et Prompt sans nouvelle recette ni appel LLM ; il ignore les warnings et recommandations, s’arrête sur toute erreur bloquante et reprend sans rejouer les étapes déjà validées.
+  - I2V et Ref2V peuvent afficher en direct, sur option explicite, la trace séparée transmise par le modèle. Cette trace de debug reste éphémère, n’est jamais concaténée au document ni au journal, et n’est pas simulée lorsque le modèle n’en fournit pas.
   - I2V et Ref2V Direct remplacent le curseur de liberté créative par cinq modes discrets alignés sur les politiques backend. Le contrôle précise que son effet direct s’arrête au Brief, restaure exactement toute ancienne valeur numérique hors preset et reste aligné dans les colonnes étroites.
   - Les archives neutralisent création et écritures mais laissent ouvrir et copier tout prompt actif, même non approuvé ou obsolète ; leurs listes chargent jusqu’à 200 sessions avant filtrage.
   - Prompt Lab peut créer une session propre depuis une session existante en réutilisant ses assets validés, avec de nouveaux IDs et sans recopier Brief, approbations ni composition.
@@ -29,13 +31,14 @@
   - Le transport ComfyUI expose maintenant queue/statut normalisés, annulation ciblée via Jobs API avec fallback legacy prudent, et URL WebSocket client-scoped. La preview Video Lab passe par un relais WebSocket PanelForge same-origin qui transmet les événements texte/binaires et évite le rejet CORS du navigateur.
   - Le Video Lab exécute la recette immuable expérimentale `video.generate.ref2v/minimax-h3-ref2v@0.1.0` avec une à trois références ordonnées, prompt, ratio, mégapixels, durée, steps et seed. Il compile les slots réellement utilisés, conserve un historique séparé et limite l'exécution à un rendu actif.
   - Sa preview live consomme les événements KJ JPEG/WebP/MP4 sur un client WebSocket ComfyUI isolé ; l'interface distingue connexion, disponibilité et erreur du relais sans interrompre le rendu. La vidéo MP4 finale avec audio est importée comme asset. Une annulation cible le job exact et reste en `cancel_pending` si ComfyUI ne confirme pas l'arrêt.
-  - Les assets vidéo acceptent les requêtes HTTP Range nécessaires au lecteur natif. La sortie finale est explicitement démutée et n'affiche un diagnostic audio que si le navigateur confirme l'absence de piste, ou une erreur média précise.
+  - Les assets vidéo acceptent les requêtes HTTP Range nécessaires au lecteur natif. La sortie finale propose un geste explicite « Lire avec le son », recharge chaque asset via une URL anti-cache stable, force démutage/volume/pistes sous ce geste et affiche les octets audio réellement décodés quand Chromium les expose, ainsi que les erreurs média précises.
   - Après un redémarrage de PanelForge, la lecture, l'annulation ou la réservation du slot réconcilie un run ComfyUI détaché : une sortie déjà terminée est importée, une erreur devient terminale et un job encore actif reste suivi par le polling UI.
   - Ref2V peut préremplir Video Lab avec ses images ordonnées, le prompt actuellement visible et la durée dérivée du Plan, sans lancer automatiquement le rendu.
-  - Validation locale : 468 tests passent.
+  - Validation locale : 503 tests passent.
 - Broken / missing:
   - Le dialogue traversant une coupe et les transitions stylisées ne sont pas couverts par la recette multi-plan flexible.
   - Une référence secondaire brute peut encore influencer le décor malgré les frontières textuelles.
+  - Le Super rapide direct accepte volontairement les écarts H3 non fatals comme warnings ; qualifier l'obéissance réelle, la structure des coupes et la densité des prompts par modèle avant de l'élargir au mono-plan ou à I2V.
   - Les contrôleurs UI I2V Direct et Ref2V Direct partagent le backend mais gardent encore du code JavaScript dupliqué.
 
 ## Decisions
@@ -49,7 +52,7 @@
 
 ## Next steps
 
-1. Faire un smoke réel Video Lab avec une, deux puis trois images : ordre Picture N, preview KJ WebP/MP4, audio/finale, historique et annulation queued/running.
+1. Faire un smoke réel du Super rapide direct `0.2.0` avec Qwen3.8-27B, puis du Video Lab avec une, deux et trois images : qualité du prompt H3, trace debug, preview KJ, bouton « Lire avec le son », historique et annulation.
 2. Ajouter une télémétrie GPU read-only pour la RTX 6000 : température, VRAM, utilisation, puissance et file ComfyUI, avec états partiels si une source est indisponible.
 3. Concevoir la bascule VRAM sûre llama.swap ↔ ComfyUI sans interrompre une opération active.
 
