@@ -62,6 +62,7 @@
     freedomLabel: $("#ref2vd-freedom-label"),
     start: $("#ref2vd-start"),
     setupMessage: $("#ref2vd-setup-message"),
+    executionModeControl: $("#ref2vd-execution-mode-control"),
     executionMode: $("#ref2vd-execution-mode"),
     executionModeHint: $("#ref2vd-execution-mode-hint"),
     quickStatus: $("#ref2vd-quick-status"),
@@ -177,10 +178,14 @@
   }
 
   function directCookbooks() {
-    return state.cookbooks.filter(
-      (item) => [cookbookId, multishotCookbookId].includes(item.id)
+    const available = state.cookbooks.filter(
+      (item) => [cookbookId, multishotCookbookId, superFastCookbookId].includes(item.id)
         && item.target_mode === "ref2v_direct",
     );
+    if (!available.some(isDirectSuperFastReference)) {
+      available.push(superFastCookbookSpec());
+    }
+    return available;
   }
 
   function cookbookValue(cookbook) {
@@ -204,13 +209,22 @@
     return {
       id: superFastCookbookId,
       version: reference && reference.version ? reference.version : superFastCookbookVersion,
-      display_name: "Ref2V multi-plan super rapide",
+      display_name: "Ref2V multi-plan direct",
       target_mode: "ref2v_direct",
       supports_plan_reconciliation: false,
     };
   }
 
   function cookbookLabel(cookbook) {
+    if (isDirectSuperFastReference(cookbook)) {
+      return `Multi-plan direct · 1 appel · expérimental (${cookbook.version})`;
+    }
+    if (cookbook.id === multishotCookbookId && cookbook.version === "0.2.0") {
+      return `Multi-plan structuré · 2–6 plans (${cookbook.version})`;
+    }
+    if (cookbook.id === cookbookId && cookbook.version === preferredCookbookVersion) {
+      return `Mono-plan · standard (${cookbook.version})`;
+    }
     if (isMultishotCookbook(cookbook)) {
       const qualifier = cookbook.version === "0.2.0"
         ? "2–6 plans automatiques · caméra compilée · expérimental"
@@ -227,8 +241,13 @@
   }
 
   function orderedDirectCookbooks() {
+    const order = new Map([
+      [cookbookId, 0],
+      [multishotCookbookId, 1],
+      [superFastCookbookId, 2],
+    ]);
     return [...directCookbooks()].sort((left, right) => {
-      if (left.id !== right.id) return left.id === cookbookId ? -1 : 1;
+      if (left.id !== right.id) return order.get(left.id) - order.get(right.id);
       return right.version.localeCompare(left.version, undefined, { numeric: true });
     });
   }
@@ -253,14 +272,27 @@
     resetCookbookSelection();
   }
 
+  function showCookbookSelection(reference) {
+    if (!reference) return;
+    const value = cookbookValue(reference);
+    const previousHistorical = elements.cookbook.querySelector("option[data-historical-cookbook]");
+    if (previousHistorical && previousHistorical.value !== value) previousHistorical.remove();
+    let option = [...elements.cookbook.options].find((item) => item.value === value);
+    if (!option) {
+      option = document.createElement("option");
+      option.value = value;
+      option.dataset.historicalCookbook = "true";
+      option.textContent = `${reference.id}@${reference.version} — recette historique verrouillée`;
+      elements.cookbook.append(option);
+    }
+    elements.cookbook.value = value;
+  }
+
   function activeCookbookSpec() {
     const reference = state.composition && state.composition.cookbook
       ? state.composition.cookbook : state.cookbook;
     if (!reference) return null;
     if (isSuperFastReference(reference)) return superFastCookbookSpec(reference);
-    if (!state.composition && elements.executionMode.value === "super_fast") {
-      return superFastCookbookSpec();
-    }
     return state.cookbooks.find(
       (item) => item.id === reference.id && item.version === reference.version,
     ) || null;
@@ -335,8 +367,14 @@
       openedSuperFast = Boolean(
         state.composition && isSuperFastReference(state.composition.cookbook),
       );
+      const openedCookbook = state.composition && state.composition.cookbook;
+      const matchingCookbook = openedCookbook && directCookbooks().find(
+        (item) => item.id === openedCookbook.id && item.version === openedCookbook.version,
+      );
+      if (openedSuperFast) state.cookbook = superFastCookbookSpec();
+      else if (matchingCookbook) state.cookbook = matchingCookbook;
       state.superFastRecord = null;
-      elements.executionMode.value = openedSuperFast ? "super_fast" : "supervised";
+      elements.executionMode.value = "supervised";
       releaseDraftPreviews();
       state.drafts = session.references.map((reference) => ({
         sourceReferenceId: reference.id,
@@ -379,7 +417,8 @@
     const matchingCookbook = sourceCookbook && directCookbooks().find(
       (item) => item.id === sourceCookbook.id && item.version === sourceCookbook.version,
     );
-    if (matchingCookbook) state.cookbook = matchingCookbook;
+    if (isSuperFastReference(sourceCookbook)) state.cookbook = superFastCookbookSpec();
+    else if (matchingCookbook) state.cookbook = matchingCookbook;
     releaseDraftPreviews();
     state.drafts = source.references.map((reference) => ({
       sourceReferenceId: reference.id,
@@ -398,8 +437,7 @@
     const brief = source.active_brief;
     elements.intention.value = brief ? brief.source_text || "" : "";
     setFreedom(brief ? brief.creative_freedom ?? 35 : 35);
-    elements.executionMode.value = isSuperFastReference(sourceCookbook)
-      ? "super_fast" : "supervised";
+    elements.executionMode.value = "supervised";
     clearStageDrafts();
     showSetupMessage("");
     renderDraftReferences();
@@ -551,8 +589,8 @@
   }
 
   function renderSetupWarnings() {
-    if (!state.session && elements.executionMode.value === "super_fast") {
-      elements.modeWarning.textContent = "Super rapide utilise automatiquement la recette interne 0.2.0 : un seul appel LLM écrit directement le Prompt MiniMax, sans Plan intermédiaire affiché.";
+    if (!state.session && isDirectSuperFastReference(state.cookbook)) {
+      elements.modeWarning.textContent = "Cette recette multi-plan directe rédige et valide le Prompt MiniMax en un seul appel LLM, sans Plan intermédiaire affiché.";
       elements.modeWarning.hidden = false;
       return;
     }
@@ -586,6 +624,7 @@
     if (error) return showSetupMessage(error);
     const forkSource = state.forkSource;
     const requestedMode = elements.executionMode.value;
+    const requestedDirectRecipe = isDirectSuperFastReference(state.cookbook);
     let created = false;
     setBusy(true);
     try {
@@ -626,8 +665,8 @@
     } finally {
       setBusy(false);
     }
-    if (created && requestedMode === "quick") await runQuickMode();
-    if (created && requestedMode === "super_fast") await runSuperFastMode();
+    if (created && requestedDirectRecipe) await runSuperFastMode();
+    else if (created && requestedMode === "quick") await runQuickMode();
   }
 
   function freedomMode(value) {
@@ -706,7 +745,7 @@
   function directSuperFastModeActive() {
     const reference = state.composition && state.composition.cookbook;
     return reference ? isDirectSuperFastReference(reference)
-      : elements.executionMode.value === "super_fast";
+      : isDirectSuperFastReference(state.cookbook);
   }
 
   function superFastPromptApproved() {
@@ -743,7 +782,7 @@
       ? "Deux étapes, génération directe du prompt"
       : "Trois étapes, aucune observation séparée";
     elements.empty.querySelector("p").textContent = superFast
-      ? "Ajoutez les références, attribuez leur rôle, puis décrivez simplement la vidéo. Super rapide rédige directement le Prompt MiniMax sans afficher de Plan intermédiaire."
+      ? "Ajoutez les références, attribuez leur rôle, puis décrivez simplement la vidéo. La recette multi-plan directe rédige le Prompt MiniMax sans afficher de Plan intermédiaire."
       : "Ajoutez les références, attribuez leur rôle, puis décrivez simplement la vidéo. Les mêmes pixels restent disponibles pendant vos révisions du Brief et la création du Plan.";
   }
 
@@ -755,11 +794,16 @@
   }
 
   function renderQuickStatus() {
-    elements.executionMode.disabled = interactionLocked() || Boolean(state.session);
+    const recipeOwnsExecution = isSuperFastReference(
+      state.composition && state.composition.cookbook
+        ? state.composition.cookbook : state.cookbook,
+    );
+    elements.executionModeControl.hidden = recipeOwnsExecution;
+    elements.executionMode.disabled = interactionLocked() || Boolean(state.session)
+      || recipeOwnsExecution;
     const modeDescriptions = {
       supervised: "Étapes manuelles et arbitrages humains.",
       quick: "3 appels LLM · génération et validation automatiques.",
-      super_fast: "1 appel LLM · rédaction directe du Prompt MiniMax · expérimental.",
     };
     elements.executionModeHint.textContent = modeDescriptions[elements.executionMode.value]
       || modeDescriptions.supervised;
@@ -774,12 +818,12 @@
       elements.quickResume.textContent = completedBecameIncomplete ? "Régénérer" : "Réessayer";
       elements.quickResume.disabled = interactionLocked();
       elements.quickStatusLabel.textContent = completedBecameIncomplete
-        ? "Parcours Super rapide modifié · validation manuelle ou régénération disponible."
+        ? "Recette directe modifiée · validation manuelle ou régénération disponible."
         : record.status === "running"
-        ? "Super rapide · analyse des références et rédaction du Prompt MiniMax…"
+        ? "Recette directe · analyse des références et rédaction du Prompt MiniMax…"
         : record.status === "completed"
-          ? "Super rapide terminé · Prompt validé."
-          : `Super rapide arrêté${record.error ? ` · ${record.error}` : ""}`;
+          ? "Recette directe terminée · Prompt validé."
+          : `Recette directe arrêtée${record.error ? ` · ${record.error}` : ""}`;
       return;
     }
     const record = state.quickRecord;
@@ -855,12 +899,12 @@
         state.superFastRecord = {
           status: "stopped",
           error: streamView.message.textContent
-            || "Le parcours super rapide ne s’est pas terminé.",
+            || "La génération par la recette directe ne s’est pas terminée.",
         };
         return false;
       }
       if (!state.session || state.session.id !== sessionId) {
-        throw new Error("Le parcours super rapide ne s’est pas terminé.");
+        throw new Error("La génération par la recette directe ne s’est pas terminée.");
       }
       state.session = await core.request(`/api/prompt-lab/sessions/${sessionId}`);
       await refreshComposition();
@@ -894,7 +938,7 @@
   function generateSuperFastOrStage(stage) {
     const reference = state.composition && state.composition.cookbook;
     if ((reference && isSuperFastReference(reference))
-      || (!reference && elements.executionMode.value === "super_fast")) {
+      || (!reference && isDirectSuperFastReference(state.cookbook))) {
       runSuperFastMode();
       return;
     }
@@ -913,11 +957,8 @@
     renderQuickStatus();
     renderRoleReview();
     renderSetupWarnings();
-    if (selectedCookbook && !isSuperFastReference(selectedCookbook)) {
-      elements.cookbook.value = cookbookValue(selectedCookbook);
-    }
-    elements.cookbook.disabled = locked || Boolean(compositionReference)
-      || elements.executionMode.value === "super_fast";
+    if (selectedCookbook) showCookbookSelection(selectedCookbook);
+    elements.cookbook.disabled = locked || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
       ? compositionReference
         ? `${activeCookbook.display_name} · ${activeCookbook.id}@${activeCookbook.version} verrouillée`
@@ -1766,9 +1807,11 @@
     state.quickRecord = null;
     state.superFastRecord = null;
     state.forkSource = null;
-    state.cookbook = preservedCookbook && directCookbooks().find(
-      (item) => cookbookValue(item) === cookbookValue(preservedCookbook),
-    ) || null;
+    state.cookbook = isSuperFastReference(preservedCookbook)
+      ? superFastCookbookSpec()
+      : preservedCookbook && directCookbooks().find(
+        (item) => cookbookValue(item) === cookbookValue(preservedCookbook),
+      ) || null;
     if (!state.cookbook) resetCookbookSelection();
     else elements.cookbook.value = cookbookValue(state.cookbook);
     resetArbitrations();

@@ -13,7 +13,7 @@
   <script src="/static/i2v-direct.js?v=20260816.2" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/video-lab.js?v=20260816.6" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260816.3" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260816.4" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -935,11 +935,10 @@
         </section>
         <p id="ref2vd-mode-warning" class="warning" role="status" hidden></p>
         <p id="ref2vd-setup-message" class="error" role="alert" hidden></p>
-        <label class="field-label generation-mode-control" for="ref2vd-execution-mode">Mode du parcours
+        <label id="ref2vd-execution-mode-control" class="field-label generation-mode-control" for="ref2vd-execution-mode">Orchestration
           <select id="ref2vd-execution-mode">
             <option value="supervised" selected>Supervisé</option>
             <option value="quick">Rapide · 3 appels LLM</option>
-            <option value="super_fast">Super rapide · 1 appel LLM · expérimental</option>
           </select>
           <small id="ref2vd-execution-mode-hint">Étapes manuelles et arbitrages humains.</small>
         </label>
