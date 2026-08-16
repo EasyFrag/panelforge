@@ -17,6 +17,7 @@ from panelforge.application import (
     ChangeViewRunner,
     PromptCompositionService,
     PromptLabService,
+    VideoLabRunner,
 )
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.comfy import ComfyHttpClient
@@ -27,7 +28,9 @@ from panelforge.infrastructure.llm import (
 )
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
+    VideoLabPresetRecipe,
     load_change_view_preset,
+    load_video_lab_workflow,
 )
 from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
@@ -37,6 +40,7 @@ from panelforge.infrastructure.storage import (
     LocalPromptSessionStore,
     LocalPromptCompositionStore,
     LocalRunStore,
+    LocalVideoRunStore,
 )
 
 
@@ -46,6 +50,13 @@ PRESET_DIRECTORY = (
     / "character.change_view"
     / "qwen-edit-2511-multiple-angles"
     / "0.2.0"
+)
+VIDEO_PRESET_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "video.generate.ref2v"
+    / "minimax-h3-ref2v"
+    / "0.1.0"
 )
 
 
@@ -63,6 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--http-timeout", type=float, default=30.0)
     parser.add_argument("--run-timeout", type=float, default=600.0)
+    parser.add_argument("--video-run-timeout", type=float, default=3600.0)
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument(
         "--llm-base-url",
@@ -88,8 +100,12 @@ def parse_args() -> argparse.Namespace:
 
 def build_app(args: argparse.Namespace):
     recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
+    video_recipe = VideoLabPresetRecipe(
+        load_video_lab_workflow(VIDEO_PRESET_DIRECTORY)
+    )
     assets = LocalAssetStore(args.workspace)
     runs = LocalRunStore(args.workspace)
+    video_runs = LocalVideoRunStore(args.workspace)
     prompt_sessions = LocalPromptSessionStore(args.workspace)
     prompt_compositions = LocalPromptCompositionStore(args.workspace)
     llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
@@ -98,12 +114,25 @@ def build_app(args: argparse.Namespace):
         client_id=f"panelforge-lab-{uuid4().hex}",
         timeout=args.http_timeout,
     )
+    video_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-video-lab-{uuid4().hex}",
+        timeout=args.http_timeout,
+    )
     runner = ChangeViewRunner(
         recipe=recipe,
         comfy=comfy,
         assets=assets,
         runs=runs,
         run_timeout=args.run_timeout,
+        poll_interval=args.poll_interval,
+    )
+    video_lab = VideoLabRunner(
+        recipe=video_recipe,
+        comfy=video_comfy,
+        assets=assets,
+        runs=video_runs,
+        run_timeout=args.video_run_timeout,
         poll_interval=args.poll_interval,
     )
     gateway = LoggedMultimodalGateway(
@@ -132,6 +161,7 @@ def build_app(args: argparse.Namespace):
         runner,
         prompt_lab=prompt_lab,
         prompt_composition=prompt_composition,
+        video_lab=video_lab,
         model_runtime=LlamaSwapAdminClient(
             args.llm_base_url,
             api_key=args.llm_api_key,

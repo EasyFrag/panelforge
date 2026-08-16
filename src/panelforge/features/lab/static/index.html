@@ -4,15 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260815.2">
+  <link rel="stylesheet" href="/static/lab.css?v=20260816.3">
   <script src="/static/lab.js?v=20260815.1" defer></script>
-  <script src="/static/prompt-lab.js?v=20260815.1" defer></script>
+  <script src="/static/prompt-lab.js?v=20260816.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
   <script src="/static/i2v-direct.js?v=20260815.1" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260815.1" defer></script>
+  <script src="/static/video-lab.js?v=20260816.4" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260816.1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -22,6 +23,7 @@
       <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
       <button type="button" data-lab-view="i2v-direct">I2V</button>
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
+      <button type="button" data-lab-view="video-lab">Video Lab</button>
       <button type="button" data-lab-view="archives">Archives</button>
     </nav>
     <div class="topbar-actions">
@@ -1010,7 +1012,7 @@
         <details id="ref2vd-prompt-step" class="cookbook-step" open>
           <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler références, plan et caméra canonique.</small></span><span id="ref2vd-prompt-review" class="review-pill pending">Plan requis</span></summary>
           <div class="cookbook-step-body">
-            <div class="analysis-actions"><button id="ref2vd-generate-prompt" class="primary compact" type="button" disabled>Générer le Prompt</button><button id="ref2vd-save-prompt" type="button" disabled>Enregistrer</button><button id="ref2vd-approve-prompt" type="button" disabled>Valider</button><button id="ref2vd-copy-prompt" type="button" disabled>Copier</button></div>
+            <div class="analysis-actions"><button id="ref2vd-generate-prompt" class="primary compact" type="button" disabled>Générer le Prompt</button><button id="ref2vd-save-prompt" type="button" disabled>Enregistrer</button><button id="ref2vd-approve-prompt" type="button" disabled>Valider</button><button id="ref2vd-copy-prompt" type="button" disabled>Copier</button><button id="ref2vd-send-video-lab" type="button" disabled>Envoyer au Video Lab</button></div>
             <div id="ref2vd-prompt-stream-state" class="stream-state" hidden><div><span id="ref2vd-prompt-stream-label">Préparation…</span><output id="ref2vd-prompt-stream-percent"></output></div><progress id="ref2vd-prompt-stream-progress" max="1"></progress></div>
             <p id="ref2vd-prompt-message" class="message" aria-live="polite"></p>
             <textarea id="ref2vd-prompt-content" class="cookbook-stage-output final-prompt-output" rows="26" placeholder="Le prompt Ref2V compilé apparaîtra ici."></textarea>
@@ -1019,6 +1021,102 @@
             <div class="rewrite-box"><label for="ref2vd-prompt-instruction">Demander une modification ciblée</label><div><input id="ref2vd-prompt-instruction" type="text" placeholder="Ex. Garde la chorégraphie mais rends la prose plus fluide." disabled><button id="ref2vd-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
           </div>
         </details>
+      </section>
+    </div>
+  </main>
+
+  <main id="video-lab-workspace" class="video-lab-workspace" hidden>
+    <aside class="controls video-lab-controls">
+      <div class="title-row">
+        <div><small>COMFYUI · MINIMAX H3</small><h1>Video Lab</h1></div>
+        <span class="experimental">● Première version</span>
+      </div>
+      <p class="muted">Préparez puis lancez un rendu Ref2V avec une à trois images. Aucun lancement n’est automatique.</p>
+
+      <form id="video-lab-form">
+        <section>
+          <div class="section-title"><h2>1. Références</h2><small id="video-lab-image-count">0 / 3</small></div>
+          <label class="prompt-upload" for="video-lab-images">
+            <input id="video-lab-images" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+            <b>＋ Ajouter des images</b><small>L’ordre affiché devient Picture 1 à Picture 3.</small>
+          </label>
+          <div id="video-lab-reference-list" class="video-lab-reference-list"><p class="muted">Ajoutez au moins une image.</p></div>
+        </section>
+
+        <section>
+          <h2>2. Prompt H3</h2>
+          <textarea id="video-lab-prompt" rows="14" placeholder="Collez un prompt Ref2V complet…" required></textarea>
+        </section>
+
+        <section>
+          <h2>3. Réglages</h2>
+          <label class="field-label">Preset
+            <select id="video-lab-preset"><option value="h3-balanced">H3 équilibré</option></select>
+          </label>
+          <div class="video-lab-parameter-grid">
+            <label>Ratio<select id="video-lab-ratio"><option value="2:3 (Portrait Photo)">2:3 (Portrait Photo)</option></select></label>
+            <label>Mégapixels<select id="video-lab-megapixels"><option value="0.6">0,6 MP</option></select></label>
+            <label>Durée demandée<input id="video-lab-duration" type="number" min="5" max="15" step="any" value="10"></label>
+            <label>Steps<input id="video-lab-steps" type="number" min="1" max="100" step="1" value="32"></label>
+          </div>
+          <p id="video-lab-effective-duration" class="muted">Durée effective calculée à l’envoi.</p>
+          <p class="video-lab-duration-note">Modifier la durée ne réécrit pas les timestamps du prompt.</p>
+        </section>
+
+        <section>
+          <div class="section-title"><h2>4. Seed</h2><button id="video-lab-randomize-seed" class="text-button" type="button">Nouvelle seed</button></div>
+          <label class="seed-label">Seed
+            <input id="video-lab-seed" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="20" required>
+          </label>
+          <label class="video-lab-lock-seed"><input id="video-lab-seed-lock" type="checkbox"> Verrouiller pour les prochains rendus</label>
+          <small>Sans verrouillage, une nouvelle seed est tirée juste avant chaque lancement.</small>
+        </section>
+
+        <p id="video-lab-form-message" class="error" role="alert" hidden></p>
+        <button id="video-lab-generate" class="primary" type="submit" disabled>Générer la vidéo</button>
+      </form>
+    </aside>
+
+    <div class="content video-lab-content">
+      <section class="results video-lab-results">
+        <div class="result-head">
+          <div><small>RENDU ACTIF</small><h2>Preview et sortie finale</h2></div>
+          <span id="video-lab-status" class="run-status">● Prêt</span>
+        </div>
+        <div class="video-lab-output-grid">
+          <figure>
+            <figcaption>Preview live <small id="video-lab-preview-caption">En attente</small></figcaption>
+            <div class="video-lab-stage">
+              <p id="video-lab-preview-empty">La preview ComfyUI apparaîtra pendant le sampling.</p>
+              <img id="video-lab-preview" alt="Preview live du rendu" hidden>
+              <video id="video-lab-preview-video" aria-label="Preview vidéo live du rendu" autoplay muted loop playsinline hidden></video>
+            </div>
+          </figure>
+          <figure>
+            <figcaption>Vidéo finale <small id="video-lab-output-caption">Aucun rendu</small></figcaption>
+            <div class="video-lab-stage">
+              <p id="video-lab-output-empty">La vidéo finale avec audio apparaîtra ici.</p>
+              <video id="video-lab-output" controls playsinline preload="metadata" hidden></video>
+            </div>
+            <p id="video-lab-output-diagnostic" class="video-lab-media-diagnostic" role="status" hidden></p>
+          </figure>
+        </div>
+        <div class="video-lab-progress-row">
+          <progress id="video-lab-progress" max="1" value="0"></progress>
+          <output id="video-lab-progress-label">En attente</output>
+        </div>
+        <p id="video-lab-run-message" class="message" aria-live="polite"></p>
+        <div class="actions">
+          <button id="video-lab-cancel" type="button" disabled>Annuler</button>
+          <button id="video-lab-reuse-seed" type="button" disabled>Réutiliser la seed</button>
+          <a id="video-lab-download" class="video-lab-download" href="#" download hidden>Télécharger la vidéo</a>
+        </div>
+      </section>
+
+      <section class="history video-lab-history">
+        <div class="result-head"><div><small>RUNS RÉCENTS</small><h2>Historique Video Lab</h2></div><button id="video-lab-refresh" type="button" aria-label="Actualiser">↻</button></div>
+        <p id="video-lab-history-empty" class="muted">Aucun rendu enregistré.</p>
+        <ul id="video-lab-history-list"></ul>
       </section>
     </div>
   </main>

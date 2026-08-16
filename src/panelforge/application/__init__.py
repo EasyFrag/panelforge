@@ -8,6 +8,11 @@ from .change_view_runs import (
     extract_bound_image,
 )
 from .model_runtime import ModelRuntimeControl
+from .video_lab import (
+    VideoLabRunRequest,
+    VideoLabRunner,
+    extract_bound_video,
+)
 from .minimax_h3_protocol import (
     H3IssueSeverity,
     H3ProtocolIssue,
@@ -74,6 +79,8 @@ __all__ = [
     "LlmCallStatus",
     "ModelDescriptor",
     "ModelRuntimeControl",
+    "VideoLabRunRequest",
+    "VideoLabRunner",
     "MultimodalGateway",
     "NewReference",
     "PromptLabService",
@@ -97,4 +104,5 @@ __all__ = [
     "lint_ref2v_single_shot_prompt",
     "normalize_dialogue_language_tags",
     "parse_camera_directives",
+    "extract_bound_video",
 ]

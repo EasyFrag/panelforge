@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, Callable
 
 from fastapi import (
     BackgroundTasks,
@@ -13,7 +14,10 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Request,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -29,6 +33,8 @@ from panelforge.application import (
     PromptCompositionService,
     PromptLabService,
     PromptLabStreamEvent,
+    VideoLabRunRequest,
+    VideoLabRunner,
     composition_picture_mapping,
 )
 from panelforge.domain import (
@@ -41,6 +47,9 @@ from panelforge.domain import (
     ReferenceUse,
     RunRecord,
     RunReview,
+    VideoAspectRatio,
+    VideoLabRun,
+    VideoLabSettings,
 )
 from panelforge.domain.character import (
     CameraAzimuth,
@@ -124,8 +133,10 @@ def create_app(
     *,
     prompt_lab: PromptLabService | None = None,
     prompt_composition: PromptCompositionService | None = None,
+    video_lab: VideoLabRunner | None = None,
     model_runtime: ModelRuntimeControl | None = None,
     static_directory: Path | None = None,
+    video_preview_connector: Callable[[str], Any] | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
     static_root = (static_directory or _STATIC_DIRECTORY).resolve()
@@ -338,7 +349,7 @@ def create_app(
         }
 
     @app.get("/api/assets/{asset_id}/content")
-    def asset_content(asset_id: str) -> Response:
+    def asset_content(asset_id: str, request: Request) -> Response:
         try:
             asset = runner.assets.get(asset_id)
             content = runner.assets.read_bytes(asset_id)
@@ -346,11 +357,297 @@ def create_app(
             raise HTTPException(status_code=404, detail="asset not found") from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "private, max-age=31536000, immutable",
+        }
+        try:
+            byte_range = _parse_byte_range(
+                request.headers.get("range"),
+                len(content),
+            )
+        except ValueError:
+            return Response(
+                status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
+                headers={
+                    **headers,
+                    "Content-Range": f"bytes */{len(content)}",
+                },
+            )
+        if byte_range is not None:
+            start, end = byte_range
+            return Response(
+                content=content[start : end + 1],
+                status_code=status.HTTP_206_PARTIAL_CONTENT,
+                media_type=asset.media_type,
+                headers={
+                    **headers,
+                    "Content-Range": f"bytes {start}-{end}/{len(content)}",
+                },
+            )
         return Response(
             content=content,
             media_type=asset.media_type,
-            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+            headers=headers,
         )
+
+    @app.get("/api/video-lab/spec")
+    def video_lab_spec() -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        presets: list[dict[str, object]] = []
+        for preset in service.recipe.presets.values():
+            settings = VideoLabSettings(
+                aspect_ratio=preset.aspect_ratio,
+                megapixels=preset.megapixels,
+                duration_seconds=preset.duration_seconds,
+                steps=preset.steps,
+                seed=0,
+            )
+            presets.append(
+                {
+                    "id": preset.preset_id,
+                    "preset_id": preset.preset_id,
+                    "label": preset.label,
+                    "aspect_ratio": preset.aspect_ratio.value,
+                    "megapixels": preset.megapixels,
+                    "duration_seconds": preset.duration_seconds,
+                    "steps": preset.steps,
+                    "frames": settings.frame_count,
+                    "effective_duration_seconds": (
+                        settings.effective_duration_seconds
+                    ),
+                    "preview": {
+                        "frames": preset.preview_frames,
+                        "fps": preset.preview_fps,
+                        "jpeg_quality": preset.preview_jpeg_quality,
+                        "max_resolution": preset.preview_max_resolution,
+                    },
+                }
+            )
+        return {
+            "operation_id": service.recipe.reference.operation_id,
+            "recipe": {
+                "id": service.recipe.reference.recipe_id,
+                "version": service.recipe.reference.version,
+                "workflow_sha256": service.recipe.reference.workflow_sha256,
+                "status": service.recipe.status,
+            },
+            "presets": presets,
+            "defaults": {"preset_id": presets[0]["id"]},
+            "aspect_ratios": [ratio.value for ratio in VideoAspectRatio],
+            "megapixels": [0.3, 0.6, 1.0],
+            "fps": 24,
+            "limits": {
+                "reference_images": {"minimum": 1, "maximum": 3},
+                "megapixels": {"minimum": 0.1, "maximum": 16.0, "step": 0.1},
+                "duration_seconds": {"minimum": 5.0, "maximum": 15.0},
+                "steps": {"minimum": 1, "maximum": 100},
+            },
+            "preview_ws_url": "/api/video-lab/runs/{run_id}/events",
+            "preview_transport": "same-origin-relay",
+        }
+
+    @app.websocket("/api/video-lab/runs/{run_id}/events")
+    async def video_lab_events(websocket: WebSocket, run_id: str) -> None:
+        if video_lab is None:
+            await websocket.close(code=4403, reason="Video Lab is not configured")
+            return
+        try:
+            video_lab.runs.get(run_id)
+        except (KeyError, FileNotFoundError, ValueError):
+            await websocket.close(code=4404, reason="Video Lab run not found")
+            return
+
+        upstream_url = getattr(video_lab.comfy, "websocket_url", None)
+        if not isinstance(upstream_url, str) or not upstream_url.strip():
+            await websocket.close(code=1011, reason="Preview relay is not configured")
+            return
+
+        await websocket.accept()
+        connector = video_preview_connector or _connect_video_preview
+        try:
+            async with connector(upstream_url) as upstream:
+                await websocket.send_json(
+                    {
+                        "type": "panelforge_preview_status",
+                        "data": {"status": "connected", "run_id": run_id},
+                    }
+                )
+                await _relay_video_preview(websocket, upstream)
+        except WebSocketDisconnect:
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            try:
+                await websocket.send_json(
+                    {
+                        "type": "panelforge_preview_status",
+                        "data": {
+                            "status": "error",
+                            "run_id": run_id,
+                            "message": (
+                                "Preview live indisponible : PanelForge ne peut "
+                                "pas joindre le WebSocket ComfyUI."
+                            ),
+                        },
+                    }
+                )
+                await websocket.close(code=1011, reason="Preview relay unavailable")
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
+    @app.post("/api/video-lab/runs", status_code=status.HTTP_201_CREATED)
+    async def prepare_video_lab_run(
+        images: Annotated[list[UploadFile] | None, File()] = None,
+        source_asset_ids: Annotated[list[str] | None, Form()] = None,
+        source_labels: Annotated[list[str] | None, Form()] = None,
+        prompt: Annotated[str, Form()] = "",
+        preset_id: Annotated[str, Form()] = "h3-balanced",
+        aspect_ratio: Annotated[str | None, Form()] = None,
+        megapixels: Annotated[float | None, Form()] = None,
+        duration_seconds: Annotated[float | None, Form()] = None,
+        steps: Annotated[int | None, Form()] = None,
+        seed: Annotated[str | None, Form()] = None,
+        seed_locked: Annotated[bool, Form()] = False,
+    ) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        uploads = images or []
+        asset_ids = source_asset_ids or []
+        if bool(uploads) == bool(asset_ids):
+            await _close_uploads(uploads)
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "provide either 1-3 images or 1-3 source_asset_ids, "
+                    "but not both"
+                ),
+            )
+        if not 1 <= len(uploads or asset_ids) <= 3:
+            await _close_uploads(uploads)
+            raise HTTPException(
+                status_code=422,
+                detail="Video Lab requires between 1 and 3 source images",
+            )
+
+        try:
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError("prompt must not be empty")
+            parsed_ratio = (
+                VideoAspectRatio(aspect_ratio)
+                if aspect_ratio is not None
+                else None
+            )
+            parsed_seed = _parse_seed(seed) if seed is not None else None
+            preset = service.recipe.presets.get(preset_id)
+            if preset is None:
+                raise ValueError(f"unknown Video Lab preset {preset_id!r}")
+            # Validate all controls before persisting uploaded assets. The runner
+            # repeats this at the application boundary.
+            VideoLabSettings(
+                aspect_ratio=parsed_ratio or preset.aspect_ratio,
+                megapixels=(preset.megapixels if megapixels is None else megapixels),
+                duration_seconds=(
+                    preset.duration_seconds
+                    if duration_seconds is None
+                    else duration_seconds
+                ),
+                steps=preset.steps if steps is None else steps,
+                seed=0 if parsed_seed is None else parsed_seed,
+                seed_locked=seed_locked,
+            )
+            if uploads:
+                buffered: list[tuple[bytes, str, str]] = []
+                for index, upload in enumerate(uploads):
+                    content = await upload.read(MAX_IMAGE_BYTES + 1)
+                    if len(content) > MAX_IMAGE_BYTES:
+                        raise ValueError("source image exceeds the 25 MiB limit")
+                    media_type = detect_image_media_type(content)
+                    label = (
+                        source_labels[index]
+                        if source_labels and index < len(source_labels)
+                        else upload.filename or f"Picture {index + 1}"
+                    )
+                    buffered.append((content, media_type, label))
+                if source_labels and len(source_labels) != len(buffered):
+                    raise ValueError("source_labels must align with uploaded images")
+                created = [
+                    service.assets.create(content, media_type=media_type)
+                    for content, media_type, _ in buffered
+                ]
+                resolved_asset_ids = tuple(asset.asset_id for asset in created)
+                resolved_labels = tuple(label for _, _, label in buffered)
+            else:
+                resolved_asset_ids = tuple(asset_ids)
+                resolved_labels = tuple(source_labels or ())
+
+            request = VideoLabRunRequest(
+                source_asset_ids=resolved_asset_ids,
+                source_labels=resolved_labels,
+                prompt=prompt,
+                preset_id=preset_id,
+                aspect_ratio=parsed_ratio,
+                megapixels=megapixels,
+                duration_seconds=duration_seconds,
+                steps=steps,
+                seed=parsed_seed,
+                seed_locked=seed_locked,
+            )
+            run = service.prepare(request)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="source asset not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        finally:
+            await _close_uploads(uploads)
+        return serialize_video_lab_run(run)
+
+    @app.post(
+        "/api/video-lab/runs/{run_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def start_video_lab_run(
+        run_id: str,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        try:
+            run = service.queue(run_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="video run not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        background_tasks.add_task(service.execute, run.run_id)
+        return serialize_video_lab_run(run)
+
+    @app.get("/api/video-lab/runs")
+    def list_video_lab_runs(limit: int = 30) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        try:
+            runs = service.list(limit)
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"runs": [serialize_video_lab_run(run) for run in runs]}
+
+    @app.get("/api/video-lab/runs/{run_id}")
+    def get_video_lab_run(run_id: str) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        try:
+            return serialize_video_lab_run(service.get(run_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="video run not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/video-lab/runs/{run_id}/cancel")
+    def cancel_video_lab_run(run_id: str) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        try:
+            return serialize_video_lab_run(service.cancel(run_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="video run not found") from error
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/prompt-lab/spec")
     def prompt_lab_spec() -> dict[str, object]:
@@ -955,6 +1252,150 @@ def serialize_run(run: RunRecord) -> dict[str, object]:
     }
 
 
+def serialize_video_lab_run(run: VideoLabRun) -> dict[str, object]:
+    """Expose one Video Lab record without leaking local filesystem paths."""
+    references = [
+        {
+            "asset_id": asset_id,
+            "label": label,
+            "name": label,
+            "content_url": f"/api/assets/{asset_id}/content",
+        }
+        for asset_id, label in zip(run.source_asset_ids, run.source_labels)
+    ]
+    settings = {
+        "aspect_ratio": run.settings.aspect_ratio.value,
+        "megapixels": run.settings.megapixels,
+        "duration_seconds": run.settings.duration_seconds,
+        "steps": run.settings.steps,
+        "seed": str(run.settings.seed),
+        "seed_locked": run.settings.seed_locked,
+    }
+    return {
+        "id": run.run_id,
+        "run_id": run.run_id,
+        "status": run.status.value,
+        "recipe": {
+            "id": run.recipe.recipe_id,
+            "version": run.recipe.version,
+            "workflow_sha256": run.recipe.workflow_sha256,
+        },
+        "preset_id": run.preset_id,
+        "references": references,
+        "source_asset_ids": list(run.source_asset_ids),
+        "source_labels": list(run.source_labels),
+        "prompt": run.prompt,
+        "settings": settings,
+        "parameters": settings,
+        "seed": str(run.settings.seed),
+        "frames": run.settings.frame_count,
+        "frame_count": run.settings.frame_count,
+        "effective_duration_seconds": run.settings.effective_duration_seconds,
+        "resolution": {
+            "width": run.settings.resolution[0],
+            "height": run.settings.resolution[1],
+        },
+        "execution_id": run.execution_id,
+        "events_url": f"/api/video-lab/runs/{run.run_id}/events",
+        "compiled_workflow_sha256": run.compiled_workflow_sha256,
+        "output_asset_id": run.output_asset_id,
+        "output_url": (
+            f"/api/assets/{run.output_asset_id}/content"
+            if run.output_asset_id is not None
+            else None
+        ),
+        "error": run.error,
+    }
+
+
+def _connect_video_preview(url: str):
+    """Open the ComfyUI preview channel used by the same-origin relay."""
+    try:
+        from websockets.asyncio.client import connect
+    except ImportError as error:  # pragma: no cover - installation failure
+        raise RuntimeError(
+            "The 'websockets' dependency is required for Video Lab previews"
+        ) from error
+    return connect(
+        url,
+        open_timeout=10,
+        close_timeout=5,
+        max_size=None,
+    )
+
+
+async def _relay_video_preview(websocket: WebSocket, upstream: Any) -> None:
+    """Forward ComfyUI text/binary events until either peer disconnects."""
+
+    async def forward_upstream() -> None:
+        while True:
+            message = await upstream.recv()
+            if isinstance(message, str):
+                await websocket.send_text(message)
+            else:
+                await websocket.send_bytes(bytes(message))
+
+    async def watch_browser() -> None:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                return
+
+    upstream_task = asyncio.create_task(forward_upstream())
+    browser_task = asyncio.create_task(watch_browser())
+    done, pending = await asyncio.wait(
+        {upstream_task, browser_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    for task in done:
+        task.result()
+
+
+async def _close_uploads(uploads: list[UploadFile]) -> None:
+    for upload in uploads:
+        await upload.close()
+
+
+def _parse_byte_range(value: str | None, content_length: int) -> tuple[int, int] | None:
+    """Parse one HTTP bytes range, rejecting malformed or unsatisfiable ranges."""
+    if value is None:
+        return None
+    if content_length < 0:
+        raise ValueError("content_length must not be negative")
+    unit, separator, raw_range = value.partition("=")
+    if separator != "=" or unit.strip().lower() != "bytes":
+        raise ValueError("unsupported range unit")
+    raw_range = raw_range.strip()
+    if not raw_range or "," in raw_range:
+        raise ValueError("exactly one byte range is supported")
+    raw_start, dash, raw_end = raw_range.partition("-")
+    if dash != "-":
+        raise ValueError("invalid byte range")
+    raw_start = raw_start.strip()
+    raw_end = raw_end.strip()
+
+    if raw_start:
+        if not raw_start.isdecimal() or (raw_end and not raw_end.isdecimal()):
+            raise ValueError("invalid byte range")
+        start = int(raw_start)
+        if start >= content_length:
+            raise ValueError("unsatisfiable byte range")
+        end = content_length - 1 if not raw_end else int(raw_end)
+        if end < start:
+            raise ValueError("invalid byte range")
+        return start, min(end, content_length - 1)
+
+    if not raw_end or not raw_end.isdecimal():
+        raise ValueError("invalid suffix byte range")
+    suffix_length = int(raw_end)
+    if suffix_length <= 0 or content_length == 0:
+        raise ValueError("unsatisfiable suffix byte range")
+    return max(content_length - suffix_length, 0), content_length - 1
+
+
 def detect_image_media_type(content: bytes) -> str:
     if content.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -1160,6 +1601,12 @@ def _require_prompt_composition(
             status_code=503,
             detail="Prompt composition is not configured",
         )
+    return value
+
+
+def _require_video_lab(value: VideoLabRunner | None) -> VideoLabRunner:
+    if value is None:
+        raise HTTPException(status_code=503, detail="Video Lab is not configured")
     return value
 
 

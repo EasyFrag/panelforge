@@ -213,7 +213,7 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('id="ref2v-apply-arbitrations"', page.text)
         self.assertIn("beat-sheet/reconcile/stream", ref2v_script.text)
         self.assertEqual(direct_script.status_code, 200)
-        self.assertIn('ref2v-direct.js?v=20260815.1', page.text)
+        self.assertIn('ref2v-direct.js?v=20260816.1', page.text)
         self.assertIn('id="ref2vd-cookbook"', page.text)
         self.assertIn('preferredCookbookVersion = "0.3.3"', direct_script.text)
         self.assertIn('multishotCookbookId = "minimax.h3.ref2v.direct.multishot"', direct_script.text)

@@ -26,7 +26,13 @@
   - I2V et Ref2V permettent de préparer ce nouveau parcours depuis un run récent en changeant modèle, recette, intention, liberté ou Mode rapide. Les actions combinées proposent/appliquent puis approuvent sans franchir une erreur, l’étape suivante s’ouvre avec défilement, et le prompt expose les noms complets des images à copier.
   - `Nouveau parcours` est disponible dans la barre supérieure à côté de la libération VRAM ; les ouvertures de runs et les chaînes combinées sont protégées contre les réponses asynchrones obsolètes.
   - Les nouveaux parcours préfèrent automatiquement un modèle dont l’identifiant contient `Qwen3.8-27B`, avec repli sur Qwen 3.6 puis sur le premier modèle exposé.
-  - Validation locale : 429 tests passent.
+  - Le transport ComfyUI expose maintenant queue/statut normalisés, annulation ciblée via Jobs API avec fallback legacy prudent, et URL WebSocket client-scoped. La preview Video Lab passe par un relais WebSocket PanelForge same-origin qui transmet les événements texte/binaires et évite le rejet CORS du navigateur.
+  - Le Video Lab exécute la recette immuable expérimentale `video.generate.ref2v/minimax-h3-ref2v@0.1.0` avec une à trois références ordonnées, prompt, ratio, mégapixels, durée, steps et seed. Il compile les slots réellement utilisés, conserve un historique séparé et limite l'exécution à un rendu actif.
+  - Sa preview live consomme les événements KJ JPEG/WebP/MP4 sur un client WebSocket ComfyUI isolé ; l'interface distingue connexion, disponibilité et erreur du relais sans interrompre le rendu. La vidéo MP4 finale avec audio est importée comme asset. Une annulation cible le job exact et reste en `cancel_pending` si ComfyUI ne confirme pas l'arrêt.
+  - Les assets vidéo acceptent les requêtes HTTP Range nécessaires au lecteur natif. La sortie finale est explicitement démutée et n'affiche un diagnostic audio que si le navigateur confirme l'absence de piste, ou une erreur média précise.
+  - Après un redémarrage de PanelForge, la lecture, l'annulation ou la réservation du slot réconcilie un run ComfyUI détaché : une sortie déjà terminée est importée, une erreur devient terminale et un job encore actif reste suivi par le polling UI.
+  - Ref2V peut préremplir Video Lab avec ses images ordonnées, le prompt actuellement visible et la durée dérivée du Plan, sans lancer automatiquement le rendu.
+  - Validation locale : 468 tests passent.
 - Broken / missing:
   - Le dialogue traversant une coupe et les transitions stylisées ne sont pas couverts par la recette multi-plan flexible.
   - Une référence secondaire brute peut encore influencer le décor malgré les frontières textuelles.
@@ -43,9 +49,9 @@
 
 ## Next steps
 
-1. Qualifier le multi-plan `0.2.0` en A/B sur 2, 3, 4 et 6 plans, notamment la variété des cadrages et les raccords de trajectoire.
-2. Qualifier les nouvelles recettes camera-owned avec Qwen et Gemma, notamment les révisions et les plans sans caméra.
-3. Traiter ensuite, séparément, transitions stylisées et dialogue cross-cut.
+1. Faire un smoke réel Video Lab avec une, deux puis trois images : ordre Picture N, preview KJ WebP/MP4, audio/finale, historique et annulation queued/running.
+2. Ajouter une télémétrie GPU read-only pour la RTX 6000 : température, VRAM, utilisation, puissance et file ComfyUI, avec états partiels si une source est indisponible.
+3. Concevoir la bascule VRAM sûre llama.swap ↔ ComfyUI sans interrompre une opération active.
 
 ## Risks / open questions
 
@@ -54,3 +60,6 @@
 - FL2VA n’entre pas dans ce parcours : ne pas laisser une seconde image modifier silencieusement le contrat I2VA.
 - Les modes de liberté restent une politique globale du Brief ; de vrais axes indépendants « enrichissement visuel » et « caméra/rythme » exigeraient un futur contrat explicite et ne doivent pas être simulés par l’UX seule.
 - Les Archives chargent aujourd’hui 200 sessions avant filtrage client ; une pagination ou un filtre serveur sera nécessaire si le volume dépasse ce seuil.
+- La durée Video Lab et les timestamps écrits dans le prompt restent deux entrées indépendantes ; l'interface affiche la durée effective quantifiée mais ne réécrit jamais le prompt silencieusement.
+- Le workflow H3 conserve en V1 l'historique et l'archive Spectrum en VRAM ; mesurer son coût réel avant d'automatiser la cohabitation avec llama.swap.
+- Une coupure de PanelForge entre la soumission ComfyUI et la persistance de son identifiant reste une fenêtre transactionnelle externe non récupérable sans idempotence côté serveur.

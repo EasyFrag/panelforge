@@ -28,6 +28,7 @@
     i2vDirect: $("#i2vd-workspace"),
     ref2v: $("#ref2v-workspace"),
     ref2vDirect: $("#ref2vd-workspace"),
+    videoLab: $("#video-lab-workspace"),
     recipeBadge: $("#recipe-badge"),
     i2vDirectNewRun: $("#i2vd-topbar-new"),
     ref2vDirectNewRun: $("#ref2vd-topbar-new"),
@@ -119,6 +120,7 @@
     elements.i2vDirect.hidden = view !== "i2v-direct";
     elements.ref2v.hidden = view !== "ref2v";
     elements.ref2vDirect.hidden = view !== "ref2v-direct";
+    elements.videoLab.hidden = view !== "video-lab";
     elements.recipeBadge.hidden = view !== "change-view";
     elements.i2vDirectNewRun.hidden = view !== "i2v-direct";
     elements.ref2vDirectNewRun.hidden = view !== "ref2v-direct";
@@ -130,6 +132,8 @@
     });
     if (promptActive && !state.initialized) initialize();
   }
+
+  window.PanelForgeLabNavigation = Object.freeze({ switchView });
 
   elements.nav.forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.labView));

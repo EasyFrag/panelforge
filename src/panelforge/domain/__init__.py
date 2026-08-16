@@ -12,6 +12,14 @@ from .recipes import (
     VariationPolicy,
 )
 from .runs import RunRecord, RunReview, RunStatus
+from .video_lab import (
+    RESOLUTION_MULTIPLE,
+    VIDEO_FPS,
+    VideoAspectRatio,
+    VideoLabRun,
+    VideoLabRunStatus,
+    VideoLabSettings,
+)
 from .minimax_h3 import (
     H3CameraAmplitude,
     H3CameraDirective,
@@ -75,9 +83,15 @@ __all__ = [
     "RunRecord",
     "RunReview",
     "RunStatus",
+    "RESOLUTION_MULTIPLE",
     "StageDocument",
     "VariationMethod",
     "VariationPolicy",
+    "VIDEO_FPS",
+    "VideoAspectRatio",
+    "VideoLabRun",
+    "VideoLabRunStatus",
+    "VideoLabSettings",
     "h3_media_label",
     "direct_reference_required_use",
 ]

@@ -86,6 +86,7 @@
     plan: stage("plan"),
     prompt: stage("prompt"),
     copyPrompt: $("#ref2vd-copy-prompt"),
+    sendVideoLab: $("#ref2vd-send-video-lab"),
     promptReferences: $("#ref2vd-prompt-references"),
     arbitrations: $("#ref2vd-arbitrations"),
     arbitrationList: $("#ref2vd-arbitration-list"),
@@ -766,6 +767,8 @@
     setChip(elements.chips.plan, planState.ready, briefState.ready && !planState.ready);
     setChip(elements.chips.prompt, promptState.ready, planState.ready && !promptState.ready);
     elements.copyPrompt.disabled = locked || !promptState.ready;
+    elements.sendVideoLab.disabled = locked || !prompt
+      || !prompt.active_revision_id || !elements.prompt.content.value.trim();
     renderPromptReferences(prompt);
   }
 
@@ -851,6 +854,50 @@
     const number = finiteNumber(value);
     if (number === null) return null;
     return unit === "seconds" ? Math.round(number * 1000) : Math.round(number);
+  }
+
+  function planDurationSeconds(documentState) {
+    if (!documentState || !documentState.active_content) return null;
+    let plan = null;
+    try { plan = JSON.parse(documentState.active_content); } catch (_) { return null; }
+    const derived = plan.derived_timing || {};
+    const directMilliseconds = finiteNumber(derived.duration_ms, plan.duration_ms);
+    if (directMilliseconds !== null) return directMilliseconds / 1000;
+    const directSeconds = finiteNumber(derived.duration_seconds, plan.duration_seconds);
+    if (directSeconds !== null) return directSeconds;
+    const hold = finiteNumber(plan.final_state && plan.final_state.final_hold_ms) || 0;
+    if (Array.isArray(plan.shots) && plan.shots.length) {
+      const durations = plan.shots.map((shot) => finiteNumber(shot && shot.duration_ms));
+      if (durations.every((duration) => duration !== null)) {
+        return (durations.reduce((total, duration) => total + duration, 0) + hold) / 1000;
+      }
+    }
+    if (Array.isArray(plan.beats) && plan.beats.length) {
+      const lastEnd = Math.max(...plan.beats.map((beat) => finiteNumber(beat && beat.end_ms) || 0));
+      if (lastEnd > 0) return (lastEnd + hold) / 1000;
+    }
+    return null;
+  }
+
+  function sendToVideoLab() {
+    const documents = state.composition ? state.composition.documents || {} : {};
+    const prompt = documents.final_prompt || null;
+    const visiblePrompt = elements.prompt.content.value.trim();
+    if (!state.session || !prompt || !prompt.active_revision_id || !visiblePrompt) return;
+    if (!window.PanelForgeVideoLab) {
+      elements.prompt.message.textContent = "Video Lab n’est pas disponible.";
+      return;
+    }
+    window.PanelForgeVideoLab.prefill({
+      source: "ref2v",
+      references: state.session.references.slice(0, 3).map((reference) => ({
+        asset_id: reference.asset_id,
+        content_url: reference.content_url,
+        label: reference.label,
+      })),
+      prompt: visiblePrompt,
+      duration_seconds: planDurationSeconds(documents.beat_sheet || null),
+    });
   }
 
   function shotTiming(shots) {
@@ -1574,6 +1621,7 @@
       elements.prompt.message.textContent = "Utilisez Ctrl+C pour copier le prompt.";
     }
   });
+  elements.sendVideoLab.addEventListener("click", sendToVideoLab);
 
   updateFreedom();
   renderRoleHelp();

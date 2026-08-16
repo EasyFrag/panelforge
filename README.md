@@ -31,11 +31,30 @@ image source
   → asset réutilisable
 ```
 
+### Video Lab — MiniMax H3 Ref2V
+
+Le Video Lab exécute la recette expérimentale et immuable
+`video.generate.ref2v/minimax-h3-ref2v@0.1.0` :
+
+- une à trois images ordonnées, reliées à `<Picture 1>` jusqu’à `<Picture 3>` ;
+- prompt H3 libre, ratio, mégapixels, durée et nombre de steps modifiables ;
+- preset initial `h3-balanced` (`2:3`, `0,6 MP`, `10 s`, `32 steps`) ;
+- seed aléatoire par défaut, verrouillable et réutilisable depuis l’historique ;
+- preview live depuis le WebSocket natif de ComfyUI, puis lecture et téléchargement de la vidéo MP4 finale avec audio ;
+- historique local, annulation ciblée et un seul rendu Video Lab actif à la fois ;
+- bouton « Envoyer au Video Lab » dans Ref2V, qui préremplit images, prompt visible et durée du Plan sans lancer automatiquement le rendu.
+
+Les slots d’images inutilisés sont retirés du workflow avant soumission. La durée est exposée entre 5 et 15 secondes à 24 fps, puis quantifiée par le workflow H3 ; par exemple, 10 secondes donnent 243 frames, soit 10,125 secondes effectives. Modifier la durée ne réécrit pas les timestamps du prompt.
+
+La preview passe directement du serveur ComfyUI au navigateur avec un identifiant client propre au Video Lab. La surveillance de température de la RTX 6000 et l’arbitrage automatique de VRAM entre llama.swap et ComfyUI restent volontairement hors de cette V1.
+
+Si PanelForge redémarre pendant un rendu, l'identifiant ComfyUI persistant permet de réconcilier le run lors de sa prochaine consultation : une sortie déjà terminée est alors importée, tandis qu'un job encore actif reste suivi.
+
 ### Prompt Lab — du brief au prompt H3
 
 Le premier jalon du générateur de prompt est également disponible :
 
-- catalogue de modèles découvert dynamiquement via llama.swap ; `Qwen3.6-27B-Huihui-abliterated-Q8_0` est présélectionné lorsqu’il est disponible, avec repli gracieux et conservation d’un choix manuel ;
+- catalogue de modèles découvert dynamiquement via llama.swap ; une variante `Qwen3.8-27B` est présélectionnée lorsqu’elle est disponible, avec repli gracieux vers Qwen 3.6 puis conservation d’un choix manuel ;
 - profils de prompting immuables et versionnés ; `minimax.h3.reference@0.3.0` ajoute le Brief sans modifier les versions précédentes ;
 - import cumulatif de une à huit images, suppression individuelle et rôle libre ;
 - observation vision lancée séparément pour chaque image, avec action, interactions, état initial et composition ;
@@ -201,7 +220,7 @@ python scripts\run_lab.py `
 
 Puis ouvrir `http://127.0.0.1:7860`.
 
-Les données locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`.
+Les données locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/video_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`.
 
 Le Lab appelle seulement les API du serveur. llama.swap reste responsable du chargement, du swap et de la mémoire GPU ; aucune bibliothèque d’inférence n’est installée par PanelForge. Le bouton global `Libérer la VRAM` passe par PanelForge puis appelle l’endpoint administratif officiel de llama.swap : tous les modèles LLM actifs sont déchargés et le prochain appel recharge automatiquement le modèle demandé. Cette action peut interrompre une génération LLM en cours.
 
@@ -272,7 +291,7 @@ Les transitions stylisées et le dialogue continu à travers les coupes restent 
 - constituer des reference packs approuvés ;
 - planifier les panels par `asset_id`, puis les rendre avec les recettes qualifiées.
 
-Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie pour l’instant les prompts. Limitation V1 : une session Prompt Lab ne porte encore qu’une seule composition/cookbook. PanelForge ne cherche pas à devenir un éditeur universel de graphes ComfyUI ni à découvrir automatiquement leurs paramètres.
+Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; les autres workflows vidéo restent à qualifier avant intégration. Limitation V1 : une session Prompt Lab ne porte encore qu’une seule composition/cookbook. PanelForge ne cherche pas à devenir un éditeur universel de graphes ComfyUI ni à découvrir automatiquement leurs paramètres.
 
 ## Vérification
 
@@ -280,4 +299,4 @@ Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie p
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 422 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 465 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
