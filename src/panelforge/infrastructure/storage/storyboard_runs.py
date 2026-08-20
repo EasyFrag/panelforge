@@ -225,4 +225,3 @@ def _list(value: Any, label: str) -> list[Any]:
     if not isinstance(value, list):
         raise TypeError(f"{label} must be a list")
     return value
-
