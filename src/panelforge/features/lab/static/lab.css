@@ -199,7 +199,12 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .remove-reference { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 7px; color: var(--red); background: white; }
 .recent-sessions { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .recent-sessions > .section-title { margin-bottom: .55rem; }
-.session-link { display: grid; width: 100%; gap: .15rem; margin-top: .35rem; padding: .55rem .6rem; border: 1px solid var(--line); border-radius: 8px; color: inherit; background: white; text-align: left; }
+.session-link { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; gap: .15rem; margin-top: .35rem; padding: .55rem .6rem; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; color: inherit; background: white; text-align: left; }
+.session-link.has-session-thumbnails { grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: .45rem; }
+.session-link-copy { display: grid; min-width: 0; gap: .15rem; overflow: hidden; }
+.session-link-thumbnails { display: flex; flex: 0 0 auto; align-items: center; padding-left: .35rem; }
+.session-link-thumbnail { width: 1.45rem; height: 1.65rem; margin-left: -.3rem; object-fit: cover; object-position: center; border: 1px solid white; border-radius: 5px; background: var(--cream); box-shadow: 0 0 0 1px rgba(20, 45, 35, .15); }
+.session-link-thumbnail:first-child { margin-left: 0; }
 .session-link b { overflow: hidden; text-overflow: ellipsis; font-size: .66rem; }
 .session-link small { font-size: .58rem; }
 .session-link:hover { border-color: var(--green); }

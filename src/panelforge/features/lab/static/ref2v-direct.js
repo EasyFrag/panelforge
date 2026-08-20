@@ -329,6 +329,7 @@
       const detail = document.createElement("small");
       detail.textContent = `${session.references.length} image${session.references.length > 1 ? "s" : ""} · ${session.brief_complete ? "Brief validé" : "Brief à préparer"}`;
       button.append(title, detail);
+      core.decorateSessionLink(button, session.references);
       button.addEventListener("click", () => openSession(session));
       elements.sessionList.append(button);
     });

@@ -52,7 +52,9 @@
   - L’extraction de durée H3 Base privilégie désormais une consigne totale explicite (`plan de N secondes`, `durée : N secondes`) sur les durées incidentes présentes dans un ancien prompt collé comme contre-exemple. Deux consignes explicites réellement incompatibles restent bloquantes.
   - Validation locale : 654 tests passent, dont le parcours H3 Base `0.2.0` complet en exactement trois appels, citations omises/paraphrasées/mal formées, placement temporel compiler-owned, relais caméra, jalon final, édition/révision et chargement legacy `0.1.0`.
   - Image Lab borne maintenant les noms longs de checkpoints, les pastilles de métadonnées et les entrées de l’historique KREA2 ; ils ne peuvent plus élargir la grille ni créer un défilement horizontal de page. Le cache CSS a été incrémenté et 23 tests UI/Web ciblés passent.
+  - Les listes `Parcours récents` de H3 Base et Ref2V affichent jusqu’à trois petites miniatures superposées à droite, dans la largeur et la hauteur compactes existantes. Les images utilisent les assets déjà sérialisés, se chargent paresseusement et disparaissent proprement en cas d’échec ; les parcours T2VA sans image gardent la carte texte originale. Validation ciblée : 45 tests UI/Web verts.
 - Broken / missing:
+  - Aucun défaut contractuel connu sur les miniatures récentes ; un smoke visuel avec une longue liste de runs reste à faire pour confirmer le coût mémoire du chargement lazy des assets originaux.
   - Les deux échecs historiques H3 Base Gemma (`prompt-0283335687c3478a8ca1a68722e4efa6`) dus aux chevauchements partiels sont couverts par le correctif déterministe, et le candidat joint se canonicalise en un step par beat avec une durée totale exacte de 7 s. Le faux conflit 12 s courant / 13 s ancien contre-exemple est également couvert ; un nouveau smoke UI réel reste à lancer pour confirmer le flux complet.
   - Le premier smoke FL2VA (`prompt-8c186641201146d097988b15aef0cf3c`) avait révélé une confusion entre état final à 6,0 s et fin à 6,5 s. Le contrat et le calcul distinguent désormais début de l’état final et ancrage final, mais le rendu H3 réel doit encore être requalifié.
   - Le nouveau parcours H3 Base est validé contractuellement mais n’a pas encore de smoke qualitatif réel sur T2VA/I2VA/L2VA/FL2VA.
@@ -78,7 +80,7 @@
 
 ## Next steps
 
-1. Rejouer la même intention dialoguée avec Qwen3.8, Qwen3.6 et Gemma sur H3 Base `0.2.0`, en vérifiant les citations exactes, locuteurs, timing, relais caméra et résultat audio/labial H3.
+1. Faire un smoke visuel des miniatures H3 Base/Ref2V, puis rejouer la même intention dialoguée avec Qwen3.8, Qwen3.6 et Gemma sur H3 Base `0.2.0`.
 2. Prototyper une recette Ref2V mono `0.4.0` compacte en A/B : Brief projeté, schéma compact et writer sans Brief intégral ; conserver `0.3.3` intacte.
 3. Faire un smoke navigateur du bandeau runtime avec ComfyUI et llama.swap alternativement arrêtés, puis vérifier la commande ComfyUI au repos et son refus pendant un rendu.
 
@@ -98,3 +100,4 @@
 - Les historiques sont actuellement répartis entre `D:\Code\panelforge\workspace` et `.panelpatch\workspace` selon la copie de code lancée ; cette séparation peut faire croire à deux versions de Python et fragmenter l’audit des runs.
 - Le poids dominant des prompts Ref2V vient des données répétées (Brief, schéma, Plan), pas des seules règles système ; supprimer des garde-fous avant de réduire ces duplications risquerait de dégrader la qualité sans gain principal.
 - L’extraction déterministe H3 Base ne considère que les citations explicites entre guillemets ; une parole demandée sans citation exacte reste une décision sémantique du modèle. Si un cue entier est absent, le texte est garanti mais la langue et le locuteur de repli restent génériques jusqu’au smoke multi-modèles.
+- Les miniatures récentes utilisent pour l’instant l’asset image original avec `loading=lazy`, faute de dérivé miniature côté serveur ; limiter la liste à 30 runs et trois images par carte évite d’élargir le scope, mais un endpoint miniature deviendra pertinent si les assets très lourds affectent la mémoire navigateur.
