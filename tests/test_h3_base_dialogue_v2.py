@@ -276,6 +276,58 @@ class H3BaseDialogueV2Test(unittest.TestCase):
             self.assertEqual(content.count("Bienvenue."), 1)
             self.assertIn("At 00:08.000,", content)
 
+    def test_writer_placeholders_and_inline_field_values_compile_before_final_lint(self):
+        source = (
+            "Plan unique de 8 secondes. Elle dit Â«Bonjour !Â» puis il rÃ©pond "
+            '"Bienvenue."'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = configured_service(
+                directory,
+                ("first_frame",),
+                source_text=source,
+                profile_version="0.2.0",
+                cookbook_version="0.2.0",
+            )
+            compact_writer = (
+                writer_body()
+                .replace(
+                    "integrated_multimodal_description:\n",
+                    "integrated_multimodal_description:",
+                )
+                .replace(
+                    "The two speakers remain",
+                    "[[dialogue:dialogue_1]] The two speakers remain",
+                )
+                .replace(
+                    "their joined hands enter the frame.",
+                    "their joined hands enter the frame. [[dialogue:dialogue_2]]",
+                )
+                .replace("overall_soundscape:\n", "overall_soundscape:")
+                .replace("non_diegetic_music:\n", "non_diegetic_music:")
+            )
+
+            def response(request):
+                if request.operation_id == "action_plan.generate":
+                    return json.dumps(dialogue_plan())
+                return compact_writer
+
+            gateway._content = response
+            service.generate("h3-base-session", CompositionStage.BEAT_SHEET)
+            service.approve("h3-base-session", CompositionStage.BEAT_SHEET)
+            completed = service.generate(
+                "h3-base-session",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+            content = completed.final_prompt.active_revision.content
+            self.assertNotIn("[[", content)
+            self.assertEqual(content.count("<d>"), 2)
+            self.assertEqual(content.count("Bonjour !"), 1)
+            self.assertEqual(content.count("Bienvenue."), 1)
+            self.assertIn("The camera pushes in", content)
+            self.assertIn("The camera tilts down", content)
+
     def test_complete_journey_stays_at_three_llm_calls_and_revision_recompiles(self):
         source = 'Elle dit «Bonjour !» puis il répond "Bienvenue."'
         with tempfile.TemporaryDirectory() as directory:

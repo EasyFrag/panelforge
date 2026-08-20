@@ -4895,11 +4895,15 @@ def _compile_content(
         and cookbook.output_contract in _FL2VA_DIRECT_CONTRACTS
     ):
         context = decode_direct_fl2va_context(prefix)
+        body = _normalize_inline_h3_base_field_markers(body)
         editable = _FL2VA_DIRECT_EDITABLE_CONTRACT.extract(body)
         content = normalize_dialogue_language_tags(
             compile_direct_fl2va_document(
                 normalize_dialogue_language_tags(editable),
                 context,
+                allow_dialogue_placeholders=(
+                    cookbook.output_contract == _FL2VA_DIRECT_V2_CONTRACT
+                ),
             )
         )
     elif (
@@ -5085,6 +5089,19 @@ def _compile_content(
         content = body
     _raise_lint(cookbook, stage, content)
     return content
+
+
+def _normalize_inline_h3_base_field_markers(content: str) -> str:
+    """Accept compact ``field:value`` writer output without broad repair."""
+
+    value = content
+    for field in DIRECT_I2VA_FIELDS:
+        value = re.sub(
+            rf"(?m)^({re.escape(field)}:)(?=\S)",
+            r"\1 ",
+            value,
+        )
+    return value
 
 
 def _writer_action_plan(cookbook: PromptCookbookPort, content: str) -> str:
