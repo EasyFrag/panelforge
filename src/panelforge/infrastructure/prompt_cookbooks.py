@@ -37,6 +37,8 @@ class PromptCookbook:
     require_distinct_references: bool
     invalid_camera_target_policy: str
     writer_projection: str
+    visibility: str
+    execution_mode: str
     sources: tuple[str, ...]
     slots: tuple[CookbookSlot, ...]
     reference_plan_system_prompt: str | None
@@ -91,7 +93,7 @@ class LocalPromptCookbookCatalog:
         if not isinstance(manifest, dict):
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
         schema_version = manifest.get("schema_version")
-        if schema_version not in {2, 3, 4, 5}:
+        if schema_version not in {2, 3, 4, 5, 6}:
             raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         expected = {
             "schema_version",
@@ -113,6 +115,8 @@ class LocalPromptCookbookCatalog:
             expected.add("invalid_camera_target_policy")
         if schema_version >= 5:
             expected.add("writer_projection")
+        if schema_version >= 6:
+            expected |= {"visibility", "execution_mode"}
         if set(manifest) != expected:
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
         engine = manifest["engine_contract"]
@@ -237,6 +241,26 @@ class LocalPromptCookbookCatalog:
             "compact_multishot_v2_camera_owned",
         }:
             raise ValueError(f"invalid writer projection: {writer_projection}")
+        visibility = (
+            _text(manifest["visibility"], "visibility")
+            if schema_version >= 6
+            else "public"
+        )
+        if visibility not in {"public", "internal"}:
+            raise ValueError(f"invalid cookbook visibility: {visibility}")
+        execution_mode = (
+            _text(manifest["execution_mode"], "execution_mode")
+            if schema_version >= 6
+            else "supervised"
+        )
+        if execution_mode not in {
+            "supervised",
+            "super_fast_ref2v_v1",
+            "super_fast_ref2v_direct_v2",
+        }:
+            raise ValueError(f"invalid cookbook execution mode: {execution_mode}")
+        if execution_mode.startswith("super_fast_ref2v_") and visibility != "internal":
+            raise ValueError("super-fast cookbooks must be internal")
 
         def load_template(key: str) -> str:
             filename = _text(templates[key], f"template {key}")
@@ -272,6 +296,8 @@ class LocalPromptCookbookCatalog:
             ),
             invalid_camera_target_policy=invalid_camera_target_policy,
             writer_projection=writer_projection,
+            visibility=visibility,
+            execution_mode=execution_mode,
             sources=sources,
             slots=tuple(slots),
             reference_plan_system_prompt=optional_template("reference_plan_system"),

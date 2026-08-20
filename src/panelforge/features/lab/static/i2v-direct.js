@@ -48,6 +48,11 @@
     quickStatus: $("#i2vd-quick-status"),
     quickStatusLabel: $("#i2vd-quick-status-label"),
     quickResume: $("#i2vd-quick-resume"),
+    showReasoning: $("#i2vd-show-reasoning"),
+    reasoningPanel: $("#i2vd-reasoning-panel"),
+    reasoningLabel: $("#i2vd-reasoning-label"),
+    reasoningOutput: $("#i2vd-reasoning-output"),
+    reasoningEmpty: $("#i2vd-reasoning-empty"),
     refreshSessions: $("#i2vd-refresh-sessions"),
     sessionList: $("#i2vd-session-list"),
     empty: $("#i2vd-empty"),
@@ -79,6 +84,14 @@
     applyArbitrations: $("#i2vd-apply-arbitrations"),
     applyApproveArbitrations: $("#i2vd-apply-approve-arbitrations"),
   };
+
+  const reasoningTrace = core.createReasoningTrace({
+    toggle: elements.showReasoning,
+    panel: elements.reasoningPanel,
+    label: elements.reasoningLabel,
+    output: elements.reasoningOutput,
+    empty: elements.reasoningEmpty,
+  });
 
   function stage(name) {
     return {
@@ -501,6 +514,7 @@
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
     elements.intention.disabled = locked;
     elements.freedom.disabled = locked;
+    elements.showReasoning.disabled = locked;
     elements.newSession.hidden = !session && !state.forkSource;
     elements.newSession.disabled = locked || Boolean(state.openingSessionId);
     elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
@@ -979,13 +993,17 @@
     view.content.value = "";
     view.message.className = "message";
     view.message.textContent = "";
+    const traceLabel = view === elements.brief ? "Brief"
+      : view === elements.plan ? "Plan" : "Prompt H3";
+    reasoningTrace.begin(traceLabel);
     core.updateStreamState(view.stream, { phase: "preparing", text: "Préparation ou chargement du modèle…", progress: null });
     try {
-      await core.streamRequest(url, {
+      await core.streamRequest(reasoningTrace.streamUrl(url), {
         method: "POST",
         headers: payload ? { "Content-Type": "application/json" } : undefined,
         body: payload ? JSON.stringify(payload) : undefined,
       }, (event) => {
+        reasoningTrace.handle(event);
         core.updateStreamState(view.stream, event);
         if (event.kind === "delta" && event.text) {
           received = true;
@@ -1013,6 +1031,7 @@
       core.failStreamState(view.stream, error.message);
       return false;
     } finally {
+      reasoningTrace.finish();
       setBusy(false);
     }
   }
@@ -1102,6 +1121,7 @@
   }
 
   function clearStageDrafts() {
+    reasoningTrace.reset();
     for (const view of [elements.brief, elements.plan, elements.prompt]) {
       view.message.textContent = "";
       if (view.instruction) view.instruction.value = "";

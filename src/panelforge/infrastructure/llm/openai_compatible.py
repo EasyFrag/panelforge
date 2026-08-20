@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterator
+import re
 
 from openai import OpenAI
 
@@ -15,6 +16,19 @@ from panelforge.application import (
     StreamEventKind,
     StreamPhase,
 )
+
+
+_LLAMA_SWAP_SEPARATOR = "━━━━━"
+_LLAMA_SWAP_MODEL_PREFIX = "llama-swap loading model:"
+_LLAMA_SWAP_QUEUE_PREFIX = "Queue position: #"
+_LLAMA_SWAP_MODEL_LINE = re.compile(
+    rf"{re.escape(_LLAMA_SWAP_MODEL_PREFIX)} ([^\r\n]+)"
+)
+_LLAMA_SWAP_QUEUE_LINE = re.compile(
+    rf"{re.escape(_LLAMA_SWAP_QUEUE_PREFIX)}([0-9]+)"
+)
+_MAX_OPERATIONAL_LINE = 4096
+
 
 class OpenAICompatibleGateway:
     def __init__(
@@ -93,6 +107,9 @@ class OpenAICompatibleGateway:
         loading_announced = False
         queue_position: str | None = None
         finish_reason: str | None = None
+        reasoning_filter = (
+            _ReasoningTraceFilter() if request.include_reasoning else None
+        )
         for chunk in stream:
             chunk_model = getattr(chunk, "model", None)
             if isinstance(chunk_model, str) and chunk_model:
@@ -140,9 +157,25 @@ class OpenAICompatibleGateway:
                             phase=StreamPhase.LOADING,
                             text=f"Position dans la file : {queue_position}",
                         )
+            if reasoning and reasoning_filter is not None:
+                visible_reasoning = reasoning_filter.feed(reasoning)
+                if visible_reasoning:
+                    yield CompletionStreamEvent(
+                        kind=StreamEventKind.REASONING,
+                        phase=StreamPhase.GENERATING,
+                        text=visible_reasoning,
+                    )
             text = getattr(delta, "content", None)
             if isinstance(text, str) and text:
                 if not generating:
+                    if reasoning_filter is not None:
+                        visible_reasoning = reasoning_filter.finish()
+                        if visible_reasoning:
+                            yield CompletionStreamEvent(
+                                kind=StreamEventKind.REASONING,
+                                phase=StreamPhase.GENERATING,
+                                text=visible_reasoning,
+                            )
                     generating = True
                     yield CompletionStreamEvent(
                         kind=StreamEventKind.STATUS,
@@ -154,6 +187,15 @@ class OpenAICompatibleGateway:
                     kind=StreamEventKind.DELTA,
                     phase=StreamPhase.GENERATING,
                     text=text,
+                )
+
+        if reasoning_filter is not None:
+            visible_reasoning = reasoning_filter.finish()
+            if visible_reasoning:
+                yield CompletionStreamEvent(
+                    kind=StreamEventKind.REASONING,
+                    phase=StreamPhase.GENERATING,
+                    text=visible_reasoning,
                 )
 
         content = "".join(content_parts).strip()
@@ -235,27 +277,95 @@ def _finish_reason(value) -> str | None:
 
 
 def _llama_swap_model_name(text: str) -> str | None:
-    marker = "llama-swap loading model:"
-    marker_index = text.find(marker)
-    if marker_index < 0:
-        return None
-    value_start = marker_index + len(marker)
-    value_end = text.find("\n", value_start)
-    if value_end < 0:
-        return None
-    value = text[value_start:value_end].strip()
-    return value or None
+    for line in text.splitlines(keepends=True):
+        if not line.endswith(("\n", "\r")):
+            continue
+        match = _LLAMA_SWAP_MODEL_LINE.fullmatch(line.rstrip("\r\n"))
+        if match is not None:
+            value = match.group(1)
+            return value if value == value.strip() else None
+    return None
 
 
 def _llama_swap_queue_position(text: str) -> str | None:
-    marker = "Queue position: #"
-    marker_index = text.rfind(marker)
-    if marker_index < 0:
-        return None
-    value_start = marker_index + len(marker)
-    digits: list[str] = []
-    for character in text[value_start:]:
-        if not character.isdecimal():
-            break
-        digits.append(character)
-    return "".join(digits) or None
+    for line in reversed(text.splitlines()):
+        match = _LLAMA_SWAP_QUEUE_LINE.fullmatch(line.rstrip("\r"))
+        if match is not None:
+            return match.group(1)
+    return None
+
+
+class _ReasoningTraceFilter:
+    """Remove only a verified leading llama.swap operational preamble.
+
+    llama.swap uses the provider reasoning field for its loading separator,
+    model name and queue position. Those records are transport diagnostics, not
+    model reasoning. Filtering stops permanently at the first non-operational
+    text so a later model sentence that merely discusses llama.swap is kept.
+    """
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self._filtering_preamble = True
+
+    def feed(self, text: str) -> str:
+        if not self._filtering_preamble:
+            return text
+        self._pending += text
+        return self._drain(final=False)
+
+    def finish(self) -> str:
+        if not self._filtering_preamble:
+            return ""
+        visible = self._drain(final=True)
+        self._filtering_preamble = False
+        return visible
+
+    def _drain(self, *, final: bool) -> str:
+        while self._pending:
+            line_end = self._pending.find("\n")
+            if line_end >= 0:
+                line = self._pending[:line_end].rstrip("\r")
+                if _is_llama_swap_operational_line(line):
+                    self._pending = self._pending[line_end + 1 :]
+                    continue
+                return self._reveal()
+
+            if _is_possible_llama_swap_operational_prefix(self._pending):
+                if not final and len(self._pending) <= _MAX_OPERATIONAL_LINE:
+                    return ""
+                if final and _is_llama_swap_operational_line(self._pending):
+                    self._pending = ""
+                    return ""
+            return self._reveal()
+        return ""
+
+    def _reveal(self) -> str:
+        visible = self._pending
+        self._pending = ""
+        self._filtering_preamble = False
+        return visible
+
+
+def _is_llama_swap_operational_line(text: str) -> bool:
+    if text == _LLAMA_SWAP_SEPARATOR:
+        return True
+    model = _LLAMA_SWAP_MODEL_LINE.fullmatch(text)
+    if model is not None:
+        value = model.group(1)
+        return value == value.strip()
+    return _LLAMA_SWAP_QUEUE_LINE.fullmatch(text) is not None
+
+
+def _is_possible_llama_swap_operational_prefix(text: str) -> bool:
+    if _LLAMA_SWAP_SEPARATOR.startswith(text):
+        return True
+    if _LLAMA_SWAP_MODEL_PREFIX.startswith(text):
+        return True
+    if text.startswith(_LLAMA_SWAP_MODEL_PREFIX):
+        return "\r" not in text and "\n" not in text
+    if _LLAMA_SWAP_QUEUE_PREFIX.startswith(text):
+        return True
+    if text.startswith(_LLAMA_SWAP_QUEUE_PREFIX):
+        return text.removeprefix(_LLAMA_SWAP_QUEUE_PREFIX).isdecimal()
+    return False

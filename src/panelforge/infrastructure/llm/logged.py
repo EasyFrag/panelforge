@@ -102,6 +102,8 @@ class LoggedMultimodalGateway:
         error: BaseException | None = None
         try:
             for event in self._delegate.stream(request):
+                # Reasoning events are deliberately pass-through only. The
+                # journal stores the model's final answer, never its trace.
                 if event.kind is StreamEventKind.DELTA:
                     parts.append(event.text)
                 if event.kind in {

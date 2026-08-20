@@ -14,6 +14,9 @@ import re
 
 from panelforge.domain import H3CameraDirective
 
+from .direct_ref2v_multishot_plan_v2 import (
+    parse_direct_ref2v_multishot_plan_v2,
+)
 from .minimax_h3_protocol import (
     compile_camera_motion,
     compile_shot_heading,
@@ -223,6 +226,73 @@ def compile_direct_ref2v_multishot_document_v2(
     if errors:
         raise ValueError(" ".join(errors))
     return content
+
+
+def render_direct_ref2v_multishot_writer_document_v2(plan_content: str) -> str:
+    """Render V2 plan semantics into camera-free writer fields.
+
+    This intentionally performs no creative rewrite: the super-fast planner is
+    asked for English, render-ready values and this renderer only gives them a
+    stable sentence order before the existing H3 compiler takes ownership of
+    mappings, headings, cuts, clocks, and camera clauses.
+    """
+
+    plan = parse_direct_ref2v_multishot_plan_v2(plan_content)
+    sections = [
+        "scene_setup:\n"
+        + _render_sentences((plan.scene_setup, *plan.continuity_invariants))
+    ]
+    for shot_number, shot in enumerate(plan.shots, 1):
+        composition = shot.opening_composition
+        fragments: list[str] = [
+            (
+                "The visible opening composition is "
+                f"{composition.scale}; {composition.angle}; {composition.axis}; "
+                f"{composition.perspective}"
+            ),
+        ]
+        if shot.continuity_from_previous is not None:
+            continuity = shot.continuity_from_previous
+            fragments.extend((
+                continuity.spatial_anchor,
+                continuity.subject_position,
+                continuity.travel_direction,
+                continuity.motion_phase,
+            ))
+        fragments.extend((shot.purpose, shot.new_information, *shot.actions))
+        fragments.append(shot.observable_end_state)
+        if shot_number == len(plan.shots):
+            fragments.extend((
+                plan.final_state.description,
+                (
+                    "The resulting state remains clearly readable while movement, "
+                    "materials, and sound settle"
+                ),
+            ))
+        sections.append(
+            f"shot_{shot_number}:\n" + _render_sentences(tuple(fragments))
+        )
+    sections.extend((
+        "overall_soundscape:\n" + _render_sentences((plan.overall_soundscape,)),
+        "non_diegetic_music:\n" + _render_sentences((plan.non_diegetic_music,)),
+    ))
+    rendered = "\n\n".join(sections)
+    direct_ref2v_multishot_editable_contract_v2(len(plan.shots)).extract(rendered)
+    return rendered
+
+
+def _render_sentences(values: tuple[str, ...]) -> str:
+    sentences: list[str] = []
+    for raw in values:
+        value = " ".join(raw.split()).strip()
+        if not value:
+            raise ValueError("super-fast plan prose must not be empty")
+        if value[0].isalpha():
+            value = value[0].upper() + value[1:]
+        if not value.endswith((".", "!", "?")):
+            value += "."
+        sentences.append(value)
+    return " ".join(sentences)
 
 
 def lint_direct_ref2v_multishot_prompt_v2(
@@ -633,4 +703,5 @@ __all__ = [
     "is_direct_ref2v_multishot_context_v2",
     "lint_direct_ref2v_multishot_prompt_v2",
     "rehydrate_direct_ref2v_multishot_editable_document_v2",
+    "render_direct_ref2v_multishot_writer_document_v2",
 ]

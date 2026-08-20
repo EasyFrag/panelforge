@@ -22,16 +22,20 @@
 
   const elements = {
     changeView: $("#change-view-workspace"),
+    krea2ImageLab: $("#krea2-image-lab-workspace"),
+    storyboardLab: $("#storyboard-lab-workspace"),
     promptLab: $("#prompt-lab-workspace"),
     archives: $("#archives-workspace"),
     i2v: $("#i2v-workspace"),
     i2vDirect: $("#i2vd-workspace"),
     ref2v: $("#ref2v-workspace"),
     ref2vDirect: $("#ref2vd-workspace"),
+    videoLab: $("#video-lab-workspace"),
     recipeBadge: $("#recipe-badge"),
     i2vDirectNewRun: $("#i2vd-topbar-new"),
     ref2vDirectNewRun: $("#ref2vd-topbar-new"),
     nav: [...document.querySelectorAll("[data-lab-view]")],
+    imageLabModes: [...document.querySelectorAll("[data-image-lab-mode]")],
     archiveLinks: [...document.querySelectorAll("[data-archive-view]")],
     form: $("#prompt-session-form"),
     model: $("#prompt-model"),
@@ -112,24 +116,33 @@
   function switchView(view) {
     const promptActive = view === "prompt-lab";
     const archiveActive = ["archives", "i2v", "ref2v"].includes(view);
+    const imageLabActive = ["change-view", "krea2-image-lab"].includes(view);
     elements.changeView.hidden = view !== "change-view";
+    elements.krea2ImageLab.hidden = view !== "krea2-image-lab";
+    elements.storyboardLab.hidden = view !== "storyboard-lab";
     elements.promptLab.hidden = !promptActive;
     elements.archives.hidden = view !== "archives";
     elements.i2v.hidden = view !== "i2v";
     elements.i2vDirect.hidden = view !== "i2v-direct";
     elements.ref2v.hidden = view !== "ref2v";
     elements.ref2vDirect.hidden = view !== "ref2v-direct";
+    elements.videoLab.hidden = view !== "video-lab";
     elements.recipeBadge.hidden = view !== "change-view";
     elements.i2vDirectNewRun.hidden = view !== "i2v-direct";
     elements.ref2vDirectNewRun.hidden = view !== "ref2v-direct";
     elements.nav.forEach((button) => {
       button.classList.toggle(
         "active",
-        button.dataset.labView === (archiveActive ? "archives" : view),
+        button.dataset.labView === (archiveActive ? "archives" : imageLabActive ? "change-view" : view),
       );
+    });
+    elements.imageLabModes.forEach((button) => {
+      button.classList.toggle("active", button.dataset.imageLabMode === view);
     });
     if (promptActive && !state.initialized) initialize();
   }
+
+  window.PanelForgeLabNavigation = Object.freeze({ switchView });
 
   elements.nav.forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.labView));
@@ -290,6 +303,105 @@
     view.label.textContent = message;
     view.percent.textContent = "";
     view.progress.removeAttribute("value");
+  }
+
+  function createReasoningTrace({ toggle, panel, label, output, empty }) {
+    const maximumCharacters = 100000;
+    const preferenceKey = "panelforge.debug.show_reasoning";
+    let buffer = "";
+    let frame = null;
+    let received = false;
+
+    if (toggle) {
+      try {
+        const stored = window.localStorage.getItem(preferenceKey);
+        if (stored !== null) toggle.checked = stored === "true";
+      } catch (_) { /* storage can be unavailable in private/embed contexts */ }
+    }
+
+    function enabled() {
+      return Boolean(toggle && toggle.checked);
+    }
+
+    function flush() {
+      frame = null;
+      if (!output) return;
+      output.textContent = buffer;
+      output.scrollTop = output.scrollHeight;
+    }
+
+    function scheduleFlush() {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(flush);
+    }
+
+    function reset() {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = null;
+      buffer = "";
+      received = false;
+      if (output) output.textContent = "";
+      if (empty) empty.hidden = false;
+      if (panel) panel.hidden = true;
+    }
+
+    function begin(stageLabel) {
+      if (!enabled()) {
+        reset();
+        return;
+      }
+      buffer = "";
+      received = false;
+      if (output) output.textContent = "";
+      if (empty) {
+        empty.textContent = "En attente d\u2019une trace s\u00e9par\u00e9e du mod\u00e8le\u2026";
+        empty.hidden = false;
+      }
+      if (label) label.textContent = `${stageLabel} \u00b7 direct`;
+      if (panel) {
+        panel.hidden = false;
+        panel.open = true;
+      }
+    }
+
+    function handle(event) {
+      if (!enabled() || !event || event.kind !== "reasoning" || !event.text) return;
+      received = true;
+      buffer += event.text;
+      if (buffer.length > maximumCharacters) {
+        buffer = `[\u2026 trace limit\u00e9e aux ${maximumCharacters.toLocaleString("fr-FR")} derniers caract\u00e8res \u2026]\n${buffer.slice(-maximumCharacters)}`;
+      }
+      if (empty) empty.hidden = true;
+      scheduleFlush();
+    }
+
+    function finish() {
+      if (!enabled()) return;
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+        flush();
+      }
+      if (!received && empty) {
+        empty.textContent = "Aucune trace s\u00e9par\u00e9e transmise par ce mod\u00e8le.";
+        empty.hidden = false;
+      }
+    }
+
+    function streamUrl(url) {
+      if (!enabled()) return url;
+      const target = new URL(url, window.location.href);
+      target.searchParams.set("include_reasoning", "true");
+      return `${target.pathname}${target.search}${target.hash}`;
+    }
+
+    if (toggle) toggle.addEventListener("change", () => {
+      try {
+        window.localStorage.setItem(preferenceKey, String(enabled()));
+      } catch (_) { /* the trace remains usable without persistence */ }
+      if (!enabled()) reset();
+    });
+
+    return Object.freeze({ begin, handle, finish, reset, streamUrl, enabled });
   }
 
   async function initialize() {
@@ -1189,6 +1301,7 @@
     streamRequest,
     updateStreamState,
     failStreamState,
+    createReasoningTrace,
     setBusy,
   };
 })();

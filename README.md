@@ -31,11 +31,73 @@ image source
   → asset réutilisable
 ```
 
+### Video Lab — MiniMax H3 Ref2V
+
+Le Video Lab exécute la recette expérimentale et immuable
+`video.generate.ref2v/minimax-h3-ref2v@0.1.0` :
+
+- une à trois images ordonnées, reliées à `<Picture 1>` jusqu’à `<Picture 3>` ;
+- prompt H3 libre, ratio, mégapixels, durée et nombre de steps modifiables ;
+- preset initial `h3-balanced` (`2:3`, `0,6 MP`, `10 s`, `32 steps`) ;
+- seed aléatoire par défaut, verrouillable et réutilisable depuis l’historique ;
+- preview live depuis le WebSocket natif de ComfyUI, puis lecture et téléchargement de la vidéo MP4 finale avec audio ;
+- historique local, annulation ciblée et un seul rendu Video Lab actif à la fois ;
+- bouton « Envoyer au Video Lab » dans Ref2V, qui préremplit images, prompt visible et durée du Plan sans lancer automatiquement le rendu.
+
+Les slots d’images inutilisés sont retirés du workflow avant soumission. La durée est exposée entre 5 et 15 secondes à 24 fps, puis quantifiée par le workflow H3 ; par exemple, 10 secondes donnent 243 frames, soit 10,125 secondes effectives. Modifier la durée ne réécrit pas les timestamps du prompt.
+
+La preview passe par un relais WebSocket same-origin de PanelForge, connecté à ComfyUI avec l’identifiant client propre au Video Lab. La sortie finale utilise simplement le lecteur vidéo HTML natif du navigateur, sans surcouche ni diagnostic audio. La surveillance de température de la RTX 6000 et l’arbitrage automatique de VRAM entre llama.swap et ComfyUI restent volontairement hors de cette V1.
+
+Si PanelForge redémarre pendant un rendu, l'identifiant ComfyUI persistant permet de réconcilier le run lors de sa prochaine consultation : une sortie déjà terminée est alors importée, tandis qu'un job encore actif reste suivi.
+
+### Storyboard Lab — prompt KREA2 depuis un texte
+
+Le Storyboard Lab transforme une intention ou une courte histoire en un prompt de
+planche KREA2 prêt à copier. La recette immuable
+`krea2.storyboard.from_text@0.1.0` sépare volontairement deux responsabilités :
+
+- un unique appel LLM produit les variables narratives structurées — personnages,
+  environnement, continuité et beat visuel de chaque panel ;
+- un compilateur déterministe injecte ces variables dans le squelette KREA2 fixe,
+  sans laisser le modèle modifier la grille, le ratio des panels ou leur ordre.
+
+Les formats V1 sont 2 panels (`2 × 1`, planche `4:3`), 4 panels (`2 × 2`,
+planche `2:3`), 6 panels (`3 × 2`, planche `1:1`) et 9 panels (`3 × 3`,
+planche `2:3`). Chaque cellule reste une photographie verticale `2:3`, en pied ou
+trois-quarts. L’interface permet de choisir le modèle, consulter les variables,
+éditer et copier le prompt compilé, rouvrir l’historique et relancer une intention.
+
+Une réponse JSON invalide ou tronquée n’est jamais réparée par un second appel :
+elle reste visible comme brouillon diagnostic. Le bouton « Envoyer à Image Lab »
+transfère le prompt actuellement visible, sa provenance et le ratio de planche
+correspondant, sans lancer automatiquement le rendu. Cette V1 ne découpe pas
+encore la planche générée en assets indépendants.
+
+### Image Lab — génération KREA2
+
+Le second mode de l’Image Lab exécute la recette immuable expérimentale
+`image.generate.t2i/krea2@0.1.0` à partir d’un prompt texte :
+
+- modèle UNET KREA2 choisi parmi la liste qualifiée et réellement installée ;
+- découverte dynamique des checkpoints via ComfyUI, avec actualisation manuelle ;
+- ratio, résolution de `0,5` à `4,0` mégapixels et seed aléatoire par défaut ;
+- seed verrouillable ou réutilisable depuis un ancien run ;
+- sortie PNG finale, historique local, relance et annulation ciblée ;
+- un seul rendu KREA2 actif à la fois et reprise d’un résultat ComfyUI terminé
+  après redémarrage de PanelForge.
+
+Le preset `krea2-base` utilise par défaut
+`Krea2/krea2GPTGrandPUSSYTruth_gptINT4INT8Convrot.safetensors`, un ratio `2:3`
+et `3 MP`. Le sampling reste volontairement fixe à huit steps, CFG `1`, Euler,
+scheduler `simple`, denoise `1`, avec le CLIP et le VAE du workflow qualifié.
+La recette publiée ne contient ni branche LoRA, ni refine prompt, ni preview :
+ces capacités nécessiteront de nouvelles versions explicites.
+
 ### Prompt Lab — du brief au prompt H3
 
 Le premier jalon du générateur de prompt est également disponible :
 
-- catalogue de modèles découvert dynamiquement via llama.swap ; `Qwen3.6-27B-Huihui-abliterated-Q8_0` est présélectionné lorsqu’il est disponible, avec repli gracieux et conservation d’un choix manuel ;
+- catalogue de modèles découvert dynamiquement via llama.swap ; une variante `Qwen3.8-27B` est présélectionnée lorsqu’elle est disponible, avec repli gracieux vers Qwen 3.6 puis conservation d’un choix manuel ;
 - profils de prompting immuables et versionnés ; `minimax.h3.reference@0.3.0` ajoute le Brief sans modifier les versions précédentes ;
 - import cumulatif de une à huit images, suppression individuelle et rôle libre ;
 - observation vision lancée séparément pour chaque image, avec action, interactions, état initial et composition ;
@@ -93,6 +155,10 @@ Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journa
 ### I2V — première frame, plan supervisé, prompt I2VA
 
 Les parcours Direct I2V et Ref2V proposent aussi un `Mode rapide` avant leur création. Cette option orchestre les mêmes opérations que l’interface manuelle — génération puis approbation du Brief, du Plan et du Prompt final — sans créer de recette ni d’appel LLM supplémentaire. Les recommandations et warnings restent visibles mais ne déclenchent aucun arbitrage et ne bloquent pas la chaîne. Une erreur de contrat, une réponse tronquée ou un échec réseau arrête immédiatement le parcours ; les étapes déjà approuvées sont conservées et un bouton permet de reprendre depuis la première étape incomplète. Un rechargement ne relance jamais silencieusement une génération.
+
+Ref2V propose trois familles de recettes dans le même sélecteur : mono-plan standard, multi-plan structuré et multi-plan direct expérimental. Cette dernière correspond à `minimax.h3.ref2v.direct.multishot.superfast@0.2.0` et impose son exécution en un seul appel : elle crée une capsule de Brief sans LLM puis confie directement aux images, à l’intention et à la politique de liberté l’unique rédaction du corps H3. PanelForge ajoute seulement l’en-tête canonique des références, normalise les balises et auto-approuve le Prompt ; aucun Plan JSON ni writer intermédiaire n’est créé. `Supervisé` et `Rapide` restent des choix d’orchestration séparés pour les recettes standard. Les écarts de caméra, de nombre de plans ou de timestamp restent des avertissements, tandis qu’un document vide, sans Shot 1, sans champs audio, avec labels invalides ou placeholders est bloqué. La `0.1.0` Plan-first reste chargeable pour les parcours historiques sans être proposée aux nouveaux runs.
+
+Une option de debug peut afficher en direct la trace séparée transmise par le modèle. Elle n’active aucun raisonnement, ne parse pas de balises `<think>` et ne persiste rien : si le serveur ou le modèle ne fournit pas de canal `reasoning`, l’interface l’indique simplement.
 
 Dans ces deux parcours Direct, la liberté créative est présentée sous cinq modes explicites — Factuel strict, Conservateur, Équilibré, Cinématographique et Exploratoire — alignés sur les politiques déjà appliquées par le backend. Ce choix agit directement sur les propositions du Brief ; le Plan et le prompt final n’en héritent qu’indirectement par le Brief approuvé. Les anciennes valeurs numériques restent relisibles sans arrondi ni invalidation artificielle.
 
@@ -201,7 +267,7 @@ python scripts\run_lab.py `
 
 Puis ouvrir `http://127.0.0.1:7860`.
 
-Les données locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`.
+Les données locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/video_runs`, `workspace/storyboard_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`.
 
 Le Lab appelle seulement les API du serveur. llama.swap reste responsable du chargement, du swap et de la mémoire GPU ; aucune bibliothèque d’inférence n’est installée par PanelForge. Le bouton global `Libérer la VRAM` passe par PanelForge puis appelle l’endpoint administratif officiel de llama.swap : tous les modèles LLM actifs sont déchargés et le prochain appel recharge automatiquement le modèle demandé. Cette action peut interrompre une génération LLM en cours.
 
@@ -220,6 +286,7 @@ Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opérat
 - `features/lab` : fine interface FastAPI et HTML/CSS/JavaScript natif ;
 - `prompt_profiles` : instructions LLM immuables, versionnées et modifiables indépendamment ;
 - `prompt_cookbooks` : recettes vidéo versionnées, slots, contrats et templates propres à un cas d’usage ;
+- `storyboard_recipes` : recettes texte-vers-storyboard immuables et compilateurs de prompts KREA2 ;
 - `workflows` : snapshots ComfyUI et manifests explicites.
 
 Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni de ComfyUI, ni d’un fournisseur LLM.
@@ -254,11 +321,12 @@ Les transitions stylisées et le dialogue continu à travers les coupes restent 
 - évaluer la matrice visuelle sur plusieurs personnages ;
 - ajuster les bornes LoRA uniquement à partir des résultats observés.
 
-### 5. Ajouter le mode Generate
+### 5. Qualifier la génération KREA2
 
-- promouvoir l’expérience `character.bootstrap` en recette versionnée ;
-- exposer prompt positif/négatif, résolution et LoRAs déclarées ;
-- générer et comparer plusieurs candidats de personnage.
+- faire un smoke réel des ratios et résolutions de `image.generate.t2i/krea2@0.1.0` ;
+- comparer les checkpoints qualifiés sur les mêmes prompts Storyboard et seeds ;
+- ajouter les LoRAs dans une nouvelle version seulement après qualification de
+  leur chargement, de leur ordre et de leurs poids.
 
 ### 6. Étendre l’édition d’image
 
@@ -272,7 +340,7 @@ Les transitions stylisées et le dialogue continu à travers les coupes restent 
 - constituer des reference packs approuvés ;
 - planifier les panels par `asset_id`, puis les rendre avec les recettes qualifiées.
 
-Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie pour l’instant les prompts. Limitation V1 : une session Prompt Lab ne porte encore qu’une seule composition/cookbook. PanelForge ne cherche pas à devenir un éditeur universel de graphes ComfyUI ni à découvrir automatiquement leurs paramètres.
+Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; les autres workflows vidéo restent à qualifier avant intégration. Limitation V1 : une session Prompt Lab ne porte encore qu’une seule composition/cookbook. PanelForge ne cherche pas à devenir un éditeur universel de graphes ComfyUI ni à découvrir automatiquement leurs paramètres.
 
 ## Vérification
 
@@ -280,4 +348,4 @@ Le rendu et l’export vidéo restent ultérieurs ; ce Lab produit et qualifie p
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 422 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 535 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

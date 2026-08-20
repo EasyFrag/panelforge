@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "operation": "image.generate.t2i",
+  "recipe_id": "krea2",
+  "version": "0.1.0",
+  "status": "experimental",
+  "scope": {
+    "output_media_type": "image/png",
+    "minimum_megapixels": 0.5,
+    "maximum_megapixels": 4.0,
+    "resolution_multiple": 8
+  },
+  "workflow": {
+    "file": "workflow_api.json",
+    "sha256": "53245f60e6876dbfee27842adbad4e661b0f0b461d3a16dd448eda09529a697b"
+  },
+  "models": {
+    "default": "Krea2/krea2GPTGrandPUSSYTruth_gptINT4INT8Convrot.safetensors",
+    "qualified": [
+      "Krea2/artaix_v10Krea2.safetensors",
+      "Krea2/darkBeast30BF16INT8_darkBeastKREA2FP8.safetensors",
+      "Krea2/darkBeast30BF16_darkBeast330krea2.safetensors",
+      "Krea2/krea2GPTGrandPUSSYTruth_gptINT4INT8Convrot.safetensors",
+      "Krea2/krea2_turbo_bf16.safetensors",
+      "Krea2/kroma-v0.2-turbo.safetensors",
+      "Krea2/lustifyNSFWCheckpoint_v10Krea2.safetensors",
+      "Krea2/moodyCutieMixKrea2_v40.safetensors",
+      "Krea2/moodyKrea2Mix_v60BF16.safetensors",
+      "Krea2/moodyKrea2Mix_v6seAsianFever4K.safetensors",
+      "Krea2/moodyKrea2Mix_v6seAsianFever4KBF16.safetensors",
+      "Krea2/moodyKrea2Mix_v70.safetensors",
+      "Krea2/redcraft23INT8INT4FP8_30Krea2.safetensors",
+      "sickOllie_krea2.safetensors"
+    ]
+  },
+  "bindings": {
+    "positive_prompt": {
+      "node_id": "30:19",
+      "input": "value",
+      "sentinel": "PANELFORGE_PROMPT_REQUIRED"
+    },
+    "aspect_ratio": {
+      "node_id": "49",
+      "input": "aspect_ratio"
+    },
+    "megapixels": {
+      "node_id": "49",
+      "input": "megapixels"
+    },
+    "model_name": {
+      "node_id": "30:10",
+      "input": "unet_name"
+    },
+    "seed": {
+      "node_id": "30:3",
+      "input": "seed"
+    },
+    "output_filename_prefix": {
+      "node_id": "29",
+      "input": "filename_prefix",
+      "sentinel": "PANELFORGE_KREA2_OUTPUT_REQUIRED"
+    },
+    "output_image": {
+      "node_id": "29",
+      "history_field": "images"
+    }
+  },
+  "presets": [
+    {
+      "id": "krea2-base",
+      "label": "KREA2 base",
+      "aspect_ratio": "2:3 (Portrait Photo)",
+      "megapixels": 3.0,
+      "model_name": "Krea2/krea2GPTGrandPUSSYTruth_gptINT4INT8Convrot.safetensors"
+    }
+  ],
+  "workflow_assertions": [
+    {
+      "id": "resolution_multiple",
+      "node_id": "49",
+      "input": "multiple",
+      "equals": 8
+    },
+    {
+      "id": "batch_size",
+      "node_id": "30:5",
+      "input": "batch_size",
+      "equals": 1
+    },
+    {
+      "id": "steps",
+      "node_id": "30:3",
+      "input": "steps",
+      "equals": 8
+    },
+    {
+      "id": "cfg",
+      "node_id": "30:3",
+      "input": "cfg",
+      "equals": 1
+    },
+    {
+      "id": "sampler",
+      "node_id": "30:3",
+      "input": "sampler_name",
+      "equals": "euler"
+    },
+    {
+      "id": "scheduler",
+      "node_id": "30:3",
+      "input": "scheduler",
+      "equals": "simple"
+    },
+    {
+      "id": "denoise",
+      "node_id": "30:3",
+      "input": "denoise",
+      "equals": 1
+    },
+    {
+      "id": "unet_dtype",
+      "node_id": "30:10",
+      "input": "weight_dtype",
+      "equals": "default"
+    },
+    {
+      "id": "clip",
+      "node_id": "30:11",
+      "input": "clip_name",
+      "equals": "qwen3vl_4b_bf16.safetensors"
+    },
+    {
+      "id": "clip_type",
+      "node_id": "30:11",
+      "input": "type",
+      "equals": "krea2"
+    },
+    {
+      "id": "clip_device",
+      "node_id": "30:11",
+      "input": "device",
+      "equals": "default"
+    },
+    {
+      "id": "vae",
+      "node_id": "30:12",
+      "input": "vae_name",
+      "equals": "qwen_image_vae.safetensors"
+    },
+    {
+      "id": "sampler_model_direct",
+      "node_id": "30:3",
+      "input": "model",
+      "equals": [
+        "30:10",
+        0
+      ]
+    }
+  ],
+  "known_limits": [
+    "This version produces one final PNG and deliberately has no preview path.",
+    "Only qualified installed UNET models should be selectable by the interface.",
+    "LoRA selection and prompt refinement are outside version 0.1.0."
+  ]
+}

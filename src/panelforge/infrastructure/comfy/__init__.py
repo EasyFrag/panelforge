@@ -1,5 +1,27 @@
 """ComfyUI transport adapter."""
 
-from .client import ComfyHttpClient, ComfyImageRef
+from .client import (
+    ComfyCancelAction,
+    ComfyCancellationError,
+    ComfyCancellationResult,
+    ComfyHttpClient,
+    ComfyImageRef,
+    ComfyPromptPhase,
+    ComfyPromptStatus,
+    ComfyQueueEntry,
+    ComfyQueueSnapshot,
+    build_websocket_url,
+)
 
-__all__ = ["ComfyHttpClient", "ComfyImageRef"]
+__all__ = [
+    "ComfyCancelAction",
+    "ComfyCancellationError",
+    "ComfyCancellationResult",
+    "ComfyHttpClient",
+    "ComfyImageRef",
+    "ComfyPromptPhase",
+    "ComfyPromptStatus",
+    "ComfyQueueEntry",
+    "ComfyQueueSnapshot",
+    "build_websocket_url",
+]

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
+from datetime import UTC, datetime
+import hashlib
 import json
 from pathlib import Path
-from typing import Annotated
+from threading import Lock
+from typing import Annotated, Any, Callable
 
 from fastapi import (
     BackgroundTasks,
@@ -13,7 +17,10 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Request,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -24,23 +31,40 @@ from panelforge.application import (
     ChangeViewRunRequest,
     ChangeViewRunner,
     CompositionStreamEvent,
+    Krea2LabRunRequest,
+    Krea2LabRunner,
     ModelRuntimeControl,
     NewReference,
     PromptCompositionService,
     PromptLabService,
     PromptLabStreamEvent,
+    StoryboardLabService,
+    StoryboardRunRequest,
+    StoryboardStreamEvent,
+    SUPER_FAST_REF2V_COOKBOOK_ID,
+    SUPER_FAST_REF2V_COOKBOOK_VERSION,
+    VideoLabRunRequest,
+    VideoLabRunner,
     composition_picture_mapping,
 )
 from panelforge.domain import (
     CompositionStage,
     ControlKind,
     CookbookBinding,
+    Krea2AspectRatio,
+    Krea2LabRun,
     PromptComposition,
     PromptLabSession,
     ReferenceEvidencePolicy,
     ReferenceUse,
     RunRecord,
     RunReview,
+    StoryboardRun,
+    VideoAspectRatio,
+    VideoLabRun,
+    VideoLabSettings,
+    normalize_krea2_model_name,
+    storyboard_layout,
 )
 from panelforge.domain.character import (
     CameraAzimuth,
@@ -119,13 +143,44 @@ class PlanArbitrationBody(BaseModel):
     instruction: str | None = None
 
 
+class SuperFastRef2VBody(BaseModel):
+    source_text: str
+    creative_freedom: int
+
+
+class StoryboardCreateBody(BaseModel):
+    source_text: str
+    panel_count: int
+    model_id: str
+
+
+class Krea2CreateBody(BaseModel):
+    prompt: str
+    preset_id: str = "krea2-base"
+    model_id: str | None = None
+    aspect_ratio: str | None = None
+    megapixels: float | None = None
+    seed: str | int | None = None
+    seed_locked: bool = False
+    source_storyboard_run_id: str | None = None
+    source_prompt_sha256: str | None = None
+
+
+_STORYBOARD_RECIPE_ID = "krea2.storyboard.from_text"
+_STORYBOARD_RECIPE_VERSION = "0.1.0"
+
+
 def create_app(
     runner: ChangeViewRunner,
     *,
     prompt_lab: PromptLabService | None = None,
     prompt_composition: PromptCompositionService | None = None,
+    video_lab: VideoLabRunner | None = None,
+    storyboard_lab: StoryboardLabService | None = None,
+    krea2_lab: Krea2LabRunner | None = None,
     model_runtime: ModelRuntimeControl | None = None,
     static_directory: Path | None = None,
+    video_preview_connector: Callable[[str], Any] | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
     static_root = (static_directory or _STATIC_DIRECTORY).resolve()
@@ -134,6 +189,11 @@ def create_app(
         raise FileNotFoundError(index_path)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0")
+    krea2_models = (
+        _Krea2ModelDiscovery(krea2_lab)
+        if krea2_lab is not None
+        else None
+    )
 
     @app.middleware("http")
     async def disable_lab_asset_cache(request, call_next):
@@ -147,6 +207,92 @@ def create_app(
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/storyboard-lab/spec")
+    def storyboard_lab_spec() -> dict[str, object]:
+        service = _require_storyboard_lab(storyboard_lab)
+        recipe = _storyboard_recipe(service)
+        return {
+            "recipe": {
+                "id": recipe.recipe_id,
+                "version": recipe.version,
+                "display_name": recipe.display_name,
+                "description": recipe.description,
+                "template_sha256": recipe.template_sha256,
+            },
+            "panel_options": [
+                {
+                    "panel_count": layout.panel_count,
+                    "columns": layout.columns,
+                    "rows": layout.rows,
+                    "page_aspect_ratio": layout.page_aspect_ratio,
+                    "page_orientation": layout.page_orientation,
+                    "panel_aspect_ratio": "2:3",
+                }
+                for layout in (
+                    storyboard_layout(panel_count)
+                    for panel_count in recipe.panel_counts
+                )
+            ],
+            "models": [
+                {"id": model.model_id}
+                for model in service.list_models()
+            ],
+        }
+
+    @app.post("/api/storyboard-lab/runs", status_code=status.HTTP_201_CREATED)
+    def create_storyboard_run(body: StoryboardCreateBody) -> dict[str, object]:
+        service = _require_storyboard_lab(storyboard_lab)
+        recipe = _storyboard_recipe(service)
+        try:
+            run = service.prepare(
+                StoryboardRunRequest(
+                    intention=body.source_text,
+                    panel_count=body.panel_count,
+                    model_id=body.model_id,
+                    recipe_id=recipe.recipe_id,
+                    recipe_version=recipe.version,
+                )
+            )
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"run": serialize_storyboard_run(run)}
+
+    @app.get("/api/storyboard-lab/runs")
+    def list_storyboard_runs(limit: int = 30) -> dict[str, object]:
+        service = _require_storyboard_lab(storyboard_lab)
+        try:
+            return {
+                "runs": [
+                    serialize_storyboard_run(run)
+                    for run in service.list(limit)
+                ]
+            }
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/storyboard-lab/runs/{run_id}")
+    def get_storyboard_run(run_id: str) -> dict[str, object]:
+        service = _require_storyboard_lab(storyboard_lab)
+        try:
+            return {"run": serialize_storyboard_run(service.get(run_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="storyboard run not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/storyboard-lab/runs/{run_id}/generate/stream")
+    def stream_storyboard_run(
+        run_id: str,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        service = _require_storyboard_lab(storyboard_lab)
+        return _storyboard_stream_response(
+            service.stream_generate(
+                run_id,
+                include_reasoning=include_reasoning,
+            )
+        )
 
     @app.post("/api/model-runtime/unload")
     def unload_model_runtime() -> dict[str, str]:
@@ -338,7 +484,7 @@ def create_app(
         }
 
     @app.get("/api/assets/{asset_id}/content")
-    def asset_content(asset_id: str) -> Response:
+    def asset_content(asset_id: str, request: Request) -> Response:
         try:
             asset = runner.assets.get(asset_id)
             content = runner.assets.read_bytes(asset_id)
@@ -346,11 +492,454 @@ def create_app(
             raise HTTPException(status_code=404, detail="asset not found") from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "private, max-age=31536000, immutable",
+        }
+        try:
+            byte_range = _parse_byte_range(
+                request.headers.get("range"),
+                len(content),
+            )
+        except ValueError:
+            return Response(
+                status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
+                headers={
+                    **headers,
+                    "Content-Range": f"bytes */{len(content)}",
+                },
+            )
+        if byte_range is not None:
+            start, end = byte_range
+            return Response(
+                content=content[start : end + 1],
+                status_code=status.HTTP_206_PARTIAL_CONTENT,
+                media_type=asset.media_type,
+                headers={
+                    **headers,
+                    "Content-Range": f"bytes {start}-{end}/{len(content)}",
+                },
+            )
         return Response(
             content=content,
             media_type=asset.media_type,
-            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+            headers=headers,
         )
+
+    @app.get("/api/image-lab/krea2/spec")
+    def krea2_lab_spec() -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        discovery = _require_krea2_discovery(krea2_models)
+        presets = [
+            {
+                "id": preset.preset_id,
+                "preset_id": preset.preset_id,
+                "label": preset.label,
+                "model_id": preset.model_name,
+                "aspect_ratio": preset.aspect_ratio.value,
+                "megapixels": preset.megapixels,
+            }
+            for preset in service.recipe.presets.values()
+        ]
+        default_preset = service.recipe.presets.get("krea2-base")
+        if default_preset is None:
+            raise HTTPException(
+                status_code=503,
+                detail="The current KREA2 base preset is not installed",
+            )
+        model_snapshot = discovery.snapshot()
+        default_model = next(
+            (
+                str(model["id"])
+                for model in model_snapshot["models"]
+                if isinstance(model, dict) and model.get("default") is True
+            ),
+            service.recipe.default_model,
+        )
+        return {
+            "operation_id": service.recipe.reference.operation_id,
+            "recipe": {
+                "id": service.recipe.reference.recipe_id,
+                "version": service.recipe.reference.version,
+                "workflow_sha256": service.recipe.reference.workflow_sha256,
+                "status": service.recipe.status,
+            },
+            "presets": presets,
+            "defaults": {
+                "preset_id": default_preset.preset_id,
+                "model_id": default_model,
+                "aspect_ratio": default_preset.aspect_ratio.value,
+                "megapixels": default_preset.megapixels,
+            },
+            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
+            "megapixels": [0.5, 1.0, 2.0, 3.0, 4.0],
+            "limits": {
+                "megapixels": {"minimum": 0.5, "maximum": 4.0, "step": 0.1},
+            },
+            **model_snapshot,
+        }
+
+    @app.post("/api/image-lab/krea2/models/refresh")
+    def refresh_krea2_models() -> dict[str, object]:
+        _require_krea2_lab(krea2_lab)
+        discovery = _require_krea2_discovery(krea2_models)
+        return discovery.snapshot(refresh=True)
+
+    @app.post(
+        "/api/image-lab/krea2/runs",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def prepare_krea2_run(body: Krea2CreateBody) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        discovery = _require_krea2_discovery(krea2_models)
+        try:
+            source_prompt_sha256: str | None = None
+            if body.source_storyboard_run_id is not None:
+                source_service = _require_storyboard_lab(storyboard_lab)
+                try:
+                    source_service.get(body.source_storyboard_run_id)
+                except (KeyError, FileNotFoundError) as error:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Storyboard source run not found",
+                    ) from error
+                source_prompt_sha256 = hashlib.sha256(
+                    body.prompt.encode("utf-8")
+                ).hexdigest()
+            elif body.source_prompt_sha256 is not None:
+                raise ValueError(
+                    "source_prompt_sha256 requires source_storyboard_run_id"
+                )
+            model_name = discovery.resolve(body.model_id)
+            aspect_ratio = (
+                Krea2AspectRatio(body.aspect_ratio)
+                if body.aspect_ratio is not None
+                else None
+            )
+            seed = _parse_json_seed(body.seed)
+            run = service.prepare(
+                Krea2LabRunRequest(
+                    prompt=body.prompt,
+                    preset_id=body.preset_id,
+                    model_name=model_name,
+                    aspect_ratio=aspect_ratio,
+                    megapixels=body.megapixels,
+                    seed=seed,
+                    seed_locked=body.seed_locked,
+                    source_storyboard_run_id=body.source_storyboard_run_id,
+                    source_prompt_sha256=source_prompt_sha256,
+                )
+            )
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 resource not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return serialize_krea2_run(run)
+
+    @app.post(
+        "/api/image-lab/krea2/runs/{run_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def start_krea2_run(
+        run_id: str,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        try:
+            run = service.queue(run_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        background_tasks.add_task(service.execute, run.run_id)
+        return serialize_krea2_run(run)
+
+    @app.get("/api/image-lab/krea2/runs")
+    def list_krea2_runs(limit: int = 30) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        try:
+            runs = service.list(limit)
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"runs": [serialize_krea2_run(run) for run in runs]}
+
+    @app.get("/api/image-lab/krea2/runs/{run_id}")
+    def get_krea2_run(run_id: str) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        try:
+            return serialize_krea2_run(service.get(run_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2/runs/{run_id}/cancel")
+    def cancel_krea2_run(run_id: str) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        try:
+            return serialize_krea2_run(service.cancel(run_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/video-lab/spec")
+    def video_lab_spec() -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        presets: list[dict[str, object]] = []
+        for preset in service.recipe.presets.values():
+            settings = VideoLabSettings(
+                aspect_ratio=preset.aspect_ratio,
+                megapixels=preset.megapixels,
+                duration_seconds=preset.duration_seconds,
+                steps=preset.steps,
+                seed=0,
+            )
+            presets.append(
+                {
+                    "id": preset.preset_id,
+                    "preset_id": preset.preset_id,
+                    "label": preset.label,
+                    "aspect_ratio": preset.aspect_ratio.value,
+                    "megapixels": preset.megapixels,
+                    "duration_seconds": preset.duration_seconds,
+                    "steps": preset.steps,
+                    "frames": settings.frame_count,
+                    "effective_duration_seconds": (
+                        settings.effective_duration_seconds
+                    ),
+                    "preview": {
+                        "frames": preset.preview_frames,
+                        "fps": preset.preview_fps,
+                        "jpeg_quality": preset.preview_jpeg_quality,
+                        "max_resolution": preset.preview_max_resolution,
+                    },
+                }
+            )
+        return {
+            "operation_id": service.recipe.reference.operation_id,
+            "recipe": {
+                "id": service.recipe.reference.recipe_id,
+                "version": service.recipe.reference.version,
+                "workflow_sha256": service.recipe.reference.workflow_sha256,
+                "status": service.recipe.status,
+            },
+            "presets": presets,
+            "defaults": {"preset_id": presets[0]["id"]},
+            "aspect_ratios": [ratio.value for ratio in VideoAspectRatio],
+            "megapixels": [0.3, 0.6, 1.0],
+            "fps": 24,
+            "limits": {
+                "reference_images": {"minimum": 1, "maximum": 3},
+                "megapixels": {"minimum": 0.1, "maximum": 16.0, "step": 0.1},
+                "duration_seconds": {"minimum": 5.0, "maximum": 15.0},
+                "steps": {"minimum": 1, "maximum": 100},
+            },
+            "preview_ws_url": "/api/video-lab/runs/{run_id}/events",
+            "preview_transport": "same-origin-relay",
+        }
+
+    @app.websocket("/api/video-lab/runs/{run_id}/events")
+    async def video_lab_events(websocket: WebSocket, run_id: str) -> None:
+        if video_lab is None:
+            await websocket.close(code=4403, reason="Video Lab is not configured")
+            return
+        try:
+            video_lab.runs.get(run_id)
+        except (KeyError, FileNotFoundError, ValueError):
+            await websocket.close(code=4404, reason="Video Lab run not found")
+            return
+
+        upstream_url = getattr(video_lab.comfy, "websocket_url", None)
+        if not isinstance(upstream_url, str) or not upstream_url.strip():
+            await websocket.close(code=1011, reason="Preview relay is not configured")
+            return
+
+        await websocket.accept()
+        connector = video_preview_connector or _connect_video_preview
+        try:
+            async with connector(upstream_url) as upstream:
+                await websocket.send_json(
+                    {
+                        "type": "panelforge_preview_status",
+                        "data": {"status": "connected", "run_id": run_id},
+                    }
+                )
+                await _relay_video_preview(websocket, upstream)
+        except WebSocketDisconnect:
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            try:
+                await websocket.send_json(
+                    {
+                        "type": "panelforge_preview_status",
+                        "data": {
+                            "status": "error",
+                            "run_id": run_id,
+                            "message": (
+                                "Preview live indisponible : PanelForge ne peut "
+                                "pas joindre le WebSocket ComfyUI."
+                            ),
+                        },
+                    }
+                )
+                await websocket.close(code=1011, reason="Preview relay unavailable")
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
+    @app.post("/api/video-lab/runs", status_code=status.HTTP_201_CREATED)
+    async def prepare_video_lab_run(
+        images: Annotated[list[UploadFile] | None, File()] = None,
+        source_asset_ids: Annotated[list[str] | None, Form()] = None,
+        source_labels: Annotated[list[str] | None, Form()] = None,
+        prompt: Annotated[str, Form()] = "",
+        preset_id: Annotated[str, Form()] = "h3-balanced",
+        aspect_ratio: Annotated[str | None, Form()] = None,
+        megapixels: Annotated[float | None, Form()] = None,
+        duration_seconds: Annotated[float | None, Form()] = None,
+        steps: Annotated[int | None, Form()] = None,
+        seed: Annotated[str | None, Form()] = None,
+        seed_locked: Annotated[bool, Form()] = False,
+    ) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        uploads = images or []
+        asset_ids = source_asset_ids or []
+        if bool(uploads) == bool(asset_ids):
+            await _close_uploads(uploads)
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "provide either 1-3 images or 1-3 source_asset_ids, "
+                    "but not both"
+                ),
+            )
+        if not 1 <= len(uploads or asset_ids) <= 3:
+            await _close_uploads(uploads)
+            raise HTTPException(
+                status_code=422,
+                detail="Video Lab requires between 1 and 3 source images",
+            )
+
+        try:
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError("prompt must not be empty")
+            parsed_ratio = (
+                VideoAspectRatio(aspect_ratio)
+                if aspect_ratio is not None
+                else None
+            )
+            parsed_seed = _parse_seed(seed) if seed is not None else None
+            preset = service.recipe.presets.get(preset_id)
+            if preset is None:
+                raise ValueError(f"unknown Video Lab preset {preset_id!r}")
+            # Validate all controls before persisting uploaded assets. The runner
+            # repeats this at the application boundary.
+            VideoLabSettings(
+                aspect_ratio=parsed_ratio or preset.aspect_ratio,
+                megapixels=(preset.megapixels if megapixels is None else megapixels),
+                duration_seconds=(
+                    preset.duration_seconds
+                    if duration_seconds is None
+                    else duration_seconds
+                ),
+                steps=preset.steps if steps is None else steps,
+                seed=0 if parsed_seed is None else parsed_seed,
+                seed_locked=seed_locked,
+            )
+            if uploads:
+                buffered: list[tuple[bytes, str, str]] = []
+                for index, upload in enumerate(uploads):
+                    content = await upload.read(MAX_IMAGE_BYTES + 1)
+                    if len(content) > MAX_IMAGE_BYTES:
+                        raise ValueError("source image exceeds the 25 MiB limit")
+                    media_type = detect_image_media_type(content)
+                    label = (
+                        source_labels[index]
+                        if source_labels and index < len(source_labels)
+                        else upload.filename or f"Picture {index + 1}"
+                    )
+                    buffered.append((content, media_type, label))
+                if source_labels and len(source_labels) != len(buffered):
+                    raise ValueError("source_labels must align with uploaded images")
+                created = [
+                    service.assets.create(content, media_type=media_type)
+                    for content, media_type, _ in buffered
+                ]
+                resolved_asset_ids = tuple(asset.asset_id for asset in created)
+                resolved_labels = tuple(label for _, _, label in buffered)
+            else:
+                resolved_asset_ids = tuple(asset_ids)
+                resolved_labels = tuple(source_labels or ())
+
+            request = VideoLabRunRequest(
+                source_asset_ids=resolved_asset_ids,
+                source_labels=resolved_labels,
+                prompt=prompt,
+                preset_id=preset_id,
+                aspect_ratio=parsed_ratio,
+                megapixels=megapixels,
+                duration_seconds=duration_seconds,
+                steps=steps,
+                seed=parsed_seed,
+                seed_locked=seed_locked,
+            )
+            run = service.prepare(request)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="source asset not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        finally:
+            await _close_uploads(uploads)
+        return serialize_video_lab_run(run)
+
+    @app.post(
+        "/api/video-lab/runs/{run_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def start_video_lab_run(
+        run_id: str,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        try:
+            run = service.queue(run_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="video run not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        background_tasks.add_task(service.execute, run.run_id)
+        return serialize_video_lab_run(run)
+
+    @app.get("/api/video-lab/runs")
+    def list_video_lab_runs(limit: int = 30) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        try:
+            runs = service.list(limit)
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"runs": [serialize_video_lab_run(run) for run in runs]}
+
+    @app.get("/api/video-lab/runs/{run_id}")
+    def get_video_lab_run(run_id: str) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        try:
+            return serialize_video_lab_run(service.get(run_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="video run not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/video-lab/runs/{run_id}/cancel")
+    def cancel_video_lab_run(run_id: str) -> dict[str, object]:
+        service = _require_video_lab(video_lab)
+        try:
+            return serialize_video_lab_run(service.cancel(run_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="video run not found") from error
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/prompt-lab/spec")
     def prompt_lab_spec() -> dict[str, object]:
@@ -539,10 +1128,15 @@ def create_app(
     def stream_prompt_reference_analysis(
         session_id: str,
         reference_id: str,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
-            service.stream_analyze_reference(session_id, reference_id)
+            service.stream_analyze_reference(
+                session_id,
+                reference_id,
+                include_reasoning=include_reasoning,
+            )
         )
 
     @app.post(
@@ -582,6 +1176,7 @@ def create_app(
         session_id: str,
         reference_id: str,
         body: PromptRevisionBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
@@ -589,6 +1184,7 @@ def create_app(
                 session_id,
                 reference_id,
                 body.instruction,
+                include_reasoning=include_reasoning,
             )
         )
 
@@ -636,10 +1232,15 @@ def create_app(
     def stream_prompt_reference_interpretation(
         session_id: str,
         reference_id: str,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
-            service.stream_interpret_reference(session_id, reference_id)
+            service.stream_interpret_reference(
+                session_id,
+                reference_id,
+                include_reasoning=include_reasoning,
+            )
         )
 
     @app.post(
@@ -683,6 +1284,7 @@ def create_app(
         session_id: str,
         reference_id: str,
         body: PromptRevisionBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
@@ -690,6 +1292,7 @@ def create_app(
                 session_id,
                 reference_id,
                 body.instruction,
+                include_reasoning=include_reasoning,
             )
         )
 
@@ -723,6 +1326,7 @@ def create_app(
     def stream_prompt_brief(
         session_id: str,
         body: BriefStructureBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
@@ -730,6 +1334,7 @@ def create_app(
                 session_id,
                 body.source_text,
                 body.creative_freedom,
+                include_reasoning=include_reasoning,
             )
         )
 
@@ -755,10 +1360,15 @@ def create_app(
     def stream_prompt_brief_revision(
         session_id: str,
         body: PromptRevisionBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_lab(prompt_lab)
         return _prompt_stream_response(
-            service.stream_revise_brief(session_id, body.instruction)
+            service.stream_revise_brief(
+                session_id,
+                body.instruction,
+                include_reasoning=include_reasoning,
+            )
         )
 
     @app.post("/api/prompt-lab/sessions/{session_id}/brief/approve")
@@ -828,6 +1438,15 @@ def create_app(
         body: CompositionConfigureBody,
     ) -> dict[str, object]:
         service = _require_prompt_composition(prompt_composition)
+        public_cookbooks = {
+            (cookbook.reference.cookbook_id, cookbook.reference.version)
+            for cookbook in service.list_cookbooks()
+        }
+        if (body.cookbook_id, body.cookbook_version) not in public_cookbooks:
+            raise HTTPException(
+                status_code=422,
+                detail="cookbook is not available for manual configuration",
+            )
         return _composition_action(
             service,
             lambda: service.configure(
@@ -844,16 +1463,89 @@ def create_app(
             ),
         )
 
+    @app.post("/api/prompt-lab/sessions/{session_id}/super-fast/stream")
+    def stream_super_fast_ref2v(
+        session_id: str,
+        body: SuperFastRef2VBody,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        lab_service = _require_prompt_lab(prompt_lab)
+        composition_service = _require_prompt_composition(prompt_composition)
+        try:
+            source_session = lab_service.get_session(session_id)
+            if (
+                source_session.profile_id != "minimax.h3.ref2v.direct"
+                or source_session.profile_version != "0.1.0"
+                or source_session.session_mode.value != "direct_multimodal"
+            ):
+                raise ValueError(
+                    "super-fast generation is only available for Ref2V Direct sessions"
+                )
+            try:
+                existing_composition = composition_service.get(session_id)
+            except (KeyError, FileNotFoundError):
+                existing_composition = None
+            cookbook_version = SUPER_FAST_REF2V_COOKBOOK_VERSION
+            if existing_composition is not None:
+                if (
+                    existing_composition.cookbook.cookbook_id
+                    != SUPER_FAST_REF2V_COOKBOOK_ID
+                    or existing_composition.cookbook.version not in {"0.1.0", "0.2.0"}
+                ):
+                    raise ValueError(
+                        "this session already uses a non-super-fast cookbook"
+                    )
+                cookbook_version = existing_composition.cookbook.version
+            session = lab_service.create_super_fast_brief(
+                session_id,
+                body.source_text,
+                body.creative_freedom,
+                legacy_plan=cookbook_version == "0.1.0",
+            )
+            composition_service.configure(
+                session_id,
+                SUPER_FAST_REF2V_COOKBOOK_ID,
+                cookbook_version,
+                (
+                    CookbookBinding(
+                        slot_id="references",
+                        reference_ids=tuple(
+                            reference.reference_id
+                            for reference in session.references
+                        ),
+                    ),
+                ),
+            )
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="prompt session or internal cookbook not found",
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return _composition_stream_action(
+            composition_service,
+            lambda: composition_service.stream_generate_super_fast(
+                session_id,
+                include_reasoning=include_reasoning,
+            ),
+        )
+
     @app.post("/api/prompt-lab/sessions/{session_id}/{stage}/generate/stream")
     def stream_composition_generation(
         session_id: str,
         stage: str,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_composition(prompt_composition)
         composition_stage = _parse_composition_stage(stage)
         return _composition_stream_action(
             service,
-            lambda: service.stream_generate(session_id, composition_stage),
+            lambda: service.stream_generate(
+                session_id,
+                composition_stage,
+                include_reasoning=include_reasoning,
+            ),
         )
 
     @app.post(
@@ -862,6 +1554,7 @@ def create_app(
     def stream_action_plan_reconciliation(
         session_id: str,
         body: PlanArbitrationBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_composition(prompt_composition)
         return _composition_stream_action(
@@ -870,6 +1563,7 @@ def create_app(
                 session_id,
                 body.decisions,
                 body.instruction,
+                include_reasoning=include_reasoning,
             ),
         )
 
@@ -891,6 +1585,7 @@ def create_app(
         session_id: str,
         stage: str,
         body: PromptRevisionBody,
+        include_reasoning: bool = False,
     ) -> StreamingResponse:
         service = _require_prompt_composition(prompt_composition)
         composition_stage = _parse_composition_stage(stage)
@@ -900,6 +1595,7 @@ def create_app(
                 session_id,
                 composition_stage,
                 body.instruction,
+                include_reasoning=include_reasoning,
             ),
         )
 
@@ -955,6 +1651,200 @@ def serialize_run(run: RunRecord) -> dict[str, object]:
     }
 
 
+def serialize_krea2_run(run: Krea2LabRun) -> dict[str, object]:
+    """Expose a KREA2 render without local paths or workflow internals."""
+    settings = {
+        "model_id": run.settings.model_name,
+        "model_name": run.settings.model_name,
+        "aspect_ratio": run.settings.aspect_ratio.value,
+        "megapixels": run.settings.megapixels,
+        "seed": str(run.settings.seed),
+        "seed_locked": run.settings.seed_locked,
+    }
+    output_url = (
+        f"/api/assets/{run.output_asset_id}/content"
+        if run.output_asset_id is not None
+        else None
+    )
+    return {
+        "id": run.run_id,
+        "run_id": run.run_id,
+        "status": run.status.value,
+        "recipe": {
+            "id": run.recipe.recipe_id,
+            "version": run.recipe.version,
+            "workflow_sha256": run.recipe.workflow_sha256,
+        },
+        "preset_id": run.preset_id,
+        "prompt": run.prompt,
+        "model_id": run.settings.model_name,
+        "model_name": run.settings.model_name,
+        "aspect_ratio": run.settings.aspect_ratio.value,
+        "megapixels": run.settings.megapixels,
+        "seed": str(run.settings.seed),
+        "seed_locked": run.settings.seed_locked,
+        "settings": settings,
+        "parameters": settings,
+        "resolution": {
+            "width": run.settings.resolution[0],
+            "height": run.settings.resolution[1],
+        },
+        "source_storyboard_run_id": run.source_storyboard_run_id,
+        "source_prompt_sha256": run.source_prompt_sha256,
+        "execution_id": run.execution_id,
+        "compiled_workflow_sha256": run.compiled_workflow_sha256,
+        "output_asset_id": run.output_asset_id,
+        "output_url": output_url,
+        "output_content_url": output_url,
+        "result_url": output_url,
+        "error": run.error,
+    }
+
+
+def serialize_video_lab_run(run: VideoLabRun) -> dict[str, object]:
+    """Expose one Video Lab record without leaking local filesystem paths."""
+    references = [
+        {
+            "asset_id": asset_id,
+            "label": label,
+            "name": label,
+            "content_url": f"/api/assets/{asset_id}/content",
+        }
+        for asset_id, label in zip(run.source_asset_ids, run.source_labels)
+    ]
+    settings = {
+        "aspect_ratio": run.settings.aspect_ratio.value,
+        "megapixels": run.settings.megapixels,
+        "duration_seconds": run.settings.duration_seconds,
+        "steps": run.settings.steps,
+        "seed": str(run.settings.seed),
+        "seed_locked": run.settings.seed_locked,
+    }
+    return {
+        "id": run.run_id,
+        "run_id": run.run_id,
+        "status": run.status.value,
+        "recipe": {
+            "id": run.recipe.recipe_id,
+            "version": run.recipe.version,
+            "workflow_sha256": run.recipe.workflow_sha256,
+        },
+        "preset_id": run.preset_id,
+        "references": references,
+        "source_asset_ids": list(run.source_asset_ids),
+        "source_labels": list(run.source_labels),
+        "prompt": run.prompt,
+        "settings": settings,
+        "parameters": settings,
+        "seed": str(run.settings.seed),
+        "frames": run.settings.frame_count,
+        "frame_count": run.settings.frame_count,
+        "effective_duration_seconds": run.settings.effective_duration_seconds,
+        "resolution": {
+            "width": run.settings.resolution[0],
+            "height": run.settings.resolution[1],
+        },
+        "execution_id": run.execution_id,
+        "events_url": f"/api/video-lab/runs/{run.run_id}/events",
+        "compiled_workflow_sha256": run.compiled_workflow_sha256,
+        "output_asset_id": run.output_asset_id,
+        "output_url": (
+            f"/api/assets/{run.output_asset_id}/content"
+            if run.output_asset_id is not None
+            else None
+        ),
+        "error": run.error,
+    }
+
+
+def _connect_video_preview(url: str):
+    """Open the ComfyUI preview channel used by the same-origin relay."""
+    try:
+        from websockets.asyncio.client import connect
+    except ImportError as error:  # pragma: no cover - installation failure
+        raise RuntimeError(
+            "The 'websockets' dependency is required for Video Lab previews"
+        ) from error
+    return connect(
+        url,
+        open_timeout=10,
+        close_timeout=5,
+        max_size=None,
+    )
+
+
+async def _relay_video_preview(websocket: WebSocket, upstream: Any) -> None:
+    """Forward ComfyUI text/binary events until either peer disconnects."""
+
+    async def forward_upstream() -> None:
+        while True:
+            message = await upstream.recv()
+            if isinstance(message, str):
+                await websocket.send_text(message)
+            else:
+                await websocket.send_bytes(bytes(message))
+
+    async def watch_browser() -> None:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                return
+
+    upstream_task = asyncio.create_task(forward_upstream())
+    browser_task = asyncio.create_task(watch_browser())
+    done, pending = await asyncio.wait(
+        {upstream_task, browser_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    for task in done:
+        task.result()
+
+
+async def _close_uploads(uploads: list[UploadFile]) -> None:
+    for upload in uploads:
+        await upload.close()
+
+
+def _parse_byte_range(value: str | None, content_length: int) -> tuple[int, int] | None:
+    """Parse one HTTP bytes range, rejecting malformed or unsatisfiable ranges."""
+    if value is None:
+        return None
+    if content_length < 0:
+        raise ValueError("content_length must not be negative")
+    unit, separator, raw_range = value.partition("=")
+    if separator != "=" or unit.strip().lower() != "bytes":
+        raise ValueError("unsupported range unit")
+    raw_range = raw_range.strip()
+    if not raw_range or "," in raw_range:
+        raise ValueError("exactly one byte range is supported")
+    raw_start, dash, raw_end = raw_range.partition("-")
+    if dash != "-":
+        raise ValueError("invalid byte range")
+    raw_start = raw_start.strip()
+    raw_end = raw_end.strip()
+
+    if raw_start:
+        if not raw_start.isdecimal() or (raw_end and not raw_end.isdecimal()):
+            raise ValueError("invalid byte range")
+        start = int(raw_start)
+        if start >= content_length:
+            raise ValueError("unsatisfiable byte range")
+        end = content_length - 1 if not raw_end else int(raw_end)
+        if end < start:
+            raise ValueError("invalid byte range")
+        return start, min(end, content_length - 1)
+
+    if not raw_end or not raw_end.isdecimal():
+        raise ValueError("invalid suffix byte range")
+    suffix_length = int(raw_end)
+    if suffix_length <= 0 or content_length == 0:
+        raise ValueError("unsatisfiable suffix byte range")
+    return max(content_length - suffix_length, 0), content_length - 1
+
+
 def detect_image_media_type(content: bytes) -> str:
     if content.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -967,6 +1857,40 @@ def detect_image_media_type(content: bytes) -> str:
     ):
         return "image/webp"
     raise ValueError("source must be a PNG, JPEG or WebP image")
+
+
+def serialize_storyboard_run(run: StoryboardRun) -> dict[str, object]:
+    layout = storyboard_layout(run.panel_count)
+    return {
+        "id": run.run_id,
+        "run_id": run.run_id,
+        "source_text": run.intention,
+        "intention": run.intention,
+        "panel_count": run.panel_count,
+        "model_id": run.model_id,
+        "recipe": {
+            "id": run.recipe_id,
+            "version": run.recipe_version,
+            "template_sha256": run.template_sha256,
+        },
+        "recipe_id": run.recipe_id,
+        "recipe_version": run.recipe_version,
+        "template_sha256": run.template_sha256,
+        "layout": {
+            "panel_count": layout.panel_count,
+            "columns": layout.columns,
+            "rows": layout.rows,
+            "page_aspect_ratio": layout.page_aspect_ratio,
+            "page_orientation": layout.page_orientation,
+            "panel_aspect_ratio": "2:3",
+        },
+        "status": run.status.value,
+        "raw_response": run.raw_response,
+        "spec": run.spec.to_payload() if run.spec is not None else None,
+        "compiled_prompt": run.compiled_prompt,
+        "warnings": list(run.warnings),
+        "error": run.error,
+    }
 
 
 def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
@@ -1088,6 +2012,135 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
     }
 
 
+class _Krea2ModelDiscovery:
+    """Small lazy cache around ComfyUI's read-only model inventory."""
+
+    def __init__(self, service: Krea2LabRunner) -> None:
+        self._service = service
+        self._lock = Lock()
+        self._initialized = False
+        self._installed: tuple[str, ...] | None = None
+        self._status = "unavailable"
+        self._refreshed_at: str | None = None
+        self._error: str | None = None
+
+    def snapshot(self, *, refresh: bool = False) -> dict[str, object]:
+        with self._lock:
+            if refresh or not self._initialized:
+                self._refresh_locked()
+            installed = self._installed
+            status_value = self._status
+            refreshed_at = self._refreshed_at
+            error = self._error
+        return {
+            "models": self._model_entries(installed),
+            "model_discovery": {
+                "status": status_value,
+                "refreshed_at": refreshed_at,
+                "error": error,
+            },
+        }
+
+    def resolve(self, requested_model: str | None) -> str:
+        requested = requested_model or self._service.recipe.default_model
+        if not isinstance(requested, str) or not requested.strip():
+            raise ValueError("model_id must not be empty")
+        requested_key = normalize_krea2_model_name(requested)
+        canonical = next(
+            (
+                model
+                for model in self._service.recipe.qualified_models
+                if normalize_krea2_model_name(model) == requested_key
+            ),
+            None,
+        )
+        if canonical is None:
+            raise ValueError(f"unqualified KREA2 model {requested!r}")
+
+        snapshot = self.snapshot()
+        entry = next(
+            item
+            for item in snapshot["models"]
+            if isinstance(item, dict)
+            and normalize_krea2_model_name(str(item.get("id", "")))
+            == normalize_krea2_model_name(canonical)
+        )
+        if entry["installed"] is False:
+            raise ValueError(f"KREA2 model {canonical!r} is not installed")
+        return str(entry["id"])
+
+    def _refresh_locked(self) -> None:
+        self._initialized = True
+        try:
+            installed = tuple(self._service.comfy.list_unet_models())
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
+            self._status = "stale" if self._installed is not None else "unavailable"
+            self._error = str(error) or error.__class__.__name__
+            return
+        self._installed = installed
+        self._status = "available"
+        self._refreshed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        self._error = None
+
+    def _model_entries(
+        self,
+        installed: tuple[str, ...] | None,
+    ) -> list[dict[str, object]]:
+        installed_by_key: dict[str, str] | None = None
+        if installed is not None:
+            installed_by_key = {}
+            for model in installed:
+                installed_by_key.setdefault(
+                    normalize_krea2_model_name(model),
+                    model,
+                )
+        entries: list[dict[str, object]] = []
+        qualified_keys: set[str] = set()
+        for model in self._service.recipe.qualified_models:
+            key = normalize_krea2_model_name(model)
+            qualified_keys.add(key)
+            exact_model = (
+                model
+                if installed_by_key is None
+                else installed_by_key.get(key, model)
+            )
+            is_installed = (
+                None if installed_by_key is None else key in installed_by_key
+            )
+            entries.append(
+                {
+                    "id": exact_model,
+                    "label": exact_model,
+                    "installed": is_installed,
+                    "qualified": True,
+                    "selectable": is_installed is not False,
+                    "default": (
+                        key
+                        == normalize_krea2_model_name(
+                            self._service.recipe.default_model
+                        )
+                    ),
+                }
+            )
+
+        if installed is not None:
+            discovered = sorted(installed, key=str.casefold)
+            for model in discovered:
+                key = normalize_krea2_model_name(model)
+                if key in qualified_keys or "krea2" not in key:
+                    continue
+                entries.append(
+                    {
+                        "id": model,
+                        "label": model,
+                        "installed": True,
+                        "qualified": False,
+                        "selectable": False,
+                        "default": False,
+                    }
+                )
+        return entries
+
 def serialize_prompt_composition(
     composition: PromptComposition,
     service: PromptCompositionService,
@@ -1161,6 +2214,93 @@ def _require_prompt_composition(
             detail="Prompt composition is not configured",
         )
     return value
+
+
+def _require_video_lab(value: VideoLabRunner | None) -> VideoLabRunner:
+    if value is None:
+        raise HTTPException(status_code=503, detail="Video Lab is not configured")
+    return value
+
+
+def _require_krea2_lab(value: Krea2LabRunner | None) -> Krea2LabRunner:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KREA2 Image Lab is not configured",
+        )
+    return value
+
+
+def _require_krea2_discovery(
+    value: _Krea2ModelDiscovery | None,
+) -> _Krea2ModelDiscovery:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KREA2 model discovery is not configured",
+        )
+    return value
+
+
+def _require_storyboard_lab(
+    value: StoryboardLabService | None,
+) -> StoryboardLabService:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Storyboard Lab is not configured",
+        )
+    return value
+
+
+def _storyboard_recipe(service: StoryboardLabService):
+    try:
+        return service.get_recipe(
+            _STORYBOARD_RECIPE_ID,
+            _STORYBOARD_RECIPE_VERSION,
+        )
+    except KeyError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="The current Storyboard recipe is not installed",
+        ) from error
+
+
+def _storyboard_stream_response(
+    events: Iterator[StoryboardStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                    "finish_reason": event.finish_reason,
+                    "max_tokens": event.max_tokens,
+                }
+                if event.run is not None:
+                    payload["run"] = serialize_storyboard_run(event.run)
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {
+                    "kind": "error",
+                    "phase": "failed",
+                    "message": str(error),
+                },
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _prompt_action(action) -> dict[str, object]:
@@ -1333,6 +2473,18 @@ def _parse_seed(value: str) -> int:
     if not 0 <= seed < 2**64:
         raise ValueError("seed must be between 0 and 2^64 - 1")
     return seed
+
+
+def _parse_json_seed(value: str | int | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("seed must be an unsigned decimal integer")
+    if isinstance(value, int):
+        value = str(value)
+    if not isinstance(value, str):
+        raise ValueError("seed must be an unsigned decimal integer")
+    return _parse_seed(value)
 
 
 def _get_run_or_404(runner: ChangeViewRunner, run_id: str) -> RunRecord:

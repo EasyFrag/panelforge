@@ -400,6 +400,75 @@ class DirectRef2VPlanV2Test(unittest.TestCase):
             ["camera_modifiers_dropped:camera_1"],
         )
 
+    def test_exact_full_beat_parallel_steps_can_be_merged_deterministically(self):
+        plan = plan_v2()
+        plan["beats"][0]["steps"] = [
+            {
+                "step_id": "step_left_hand",
+                "start_ms": 0,
+                "end_ms": 8000,
+                "action": "The left hand steadies the cup",
+                "continuity_after": "The cup remains upright",
+            },
+            {
+                "step_id": "step_right_hand",
+                "start_ms": 0,
+                "end_ms": 8000,
+                "action": "The right hand clears the table",
+                "continuity_after": "The table surface remains clear",
+            },
+        ]
+
+        with self.assertRaisesRegex(ValueError, "steps must be contiguous"):
+            canonical_direct_ref2v_action_plan_v2(json.dumps(plan))
+
+        canonical = canonical_direct_ref2v_action_plan_v2(
+            json.dumps(plan),
+            recover_parallel_steps=True,
+        )
+        recovered = json.loads(canonical)
+        steps = recovered["beats"][0]["steps"]
+
+        self.assertEqual(len(steps), 1)
+        self.assertEqual((steps[0]["start_ms"], steps[0]["end_ms"]), (0, 8000))
+        self.assertIn("left hand", steps[0]["action"])
+        self.assertIn("right hand", steps[0]["action"])
+        self.assertEqual(
+            recovered["technical_adjustments"],
+            ["parallel_steps_merged:beat_1"],
+        )
+        self.assertTrue(
+            any(
+                "exactement paralleles" in warning
+                for warning in direct_ref2v_action_plan_warnings_v2(canonical)
+            )
+        )
+
+    def test_parallel_recovery_never_repairs_partial_overlaps(self):
+        plan = plan_v2()
+        plan["beats"][0]["steps"] = [
+            {
+                "step_id": "step_1",
+                "start_ms": 0,
+                "end_ms": 5000,
+                "action": "The subject lifts the cup.",
+                "continuity_after": "The cup is raised.",
+            },
+            {
+                "step_id": "step_2",
+                "start_ms": 3000,
+                "end_ms": 8000,
+                "action": "The subject turns toward the table.",
+                "continuity_after": "The subject faces the table.",
+            },
+        ]
+
+        with self.assertRaisesRegex(ValueError, "steps must be contiguous"):
+            canonical_direct_ref2v_action_plan_v2(
+                json.dumps(plan),
+                recover_parallel_steps=True,
+            )
+
     def test_v1_contract_is_unchanged(self):
         schema = json.loads(direct_ref2v_action_plan_schema())
         self.assertIn("duration_seconds", schema["properties"])

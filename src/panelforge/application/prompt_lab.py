@@ -109,6 +109,11 @@ class CompletionRequest:
     temperature: float = 0.2
     max_tokens: int = 32768
     operation_id: str = "unspecified"
+    include_reasoning: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.include_reasoning, bool):
+            raise TypeError("include_reasoning must be a boolean")
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +129,7 @@ class CompletionResult:
 class StreamEventKind(StrEnum):
     STATUS = "status"
     DELTA = "delta"
+    REASONING = "reasoning"
     COMPLETED = "completed"
     TRUNCATED = "truncated"
 
@@ -500,6 +506,8 @@ class PromptLabService:
         self,
         session_id: str,
         reference_id: str,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[PromptLabStreamEvent]:
         session = self.sessions.get(session_id)
         reference = session.reference(reference_id)
@@ -514,6 +522,7 @@ class PromptLabService:
             ),
             images=(self._image(reference),),
             operation_id="reference.observe",
+            include_reasoning=include_reasoning,
         )
         yield from self._stream_completion(
             request,
@@ -581,6 +590,8 @@ class PromptLabService:
         session_id: str,
         reference_id: str,
         instruction: str,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[PromptLabStreamEvent]:
         session = self.sessions.get(session_id)
         reference = session.reference(reference_id)
@@ -598,6 +609,7 @@ class PromptLabService:
             ),
             images=(self._image(reference),),
             operation_id="reference.observe.revise",
+            include_reasoning=include_reasoning,
         )
         yield from self._stream_completion(
             request,
@@ -668,6 +680,8 @@ class PromptLabService:
         self,
         session_id: str,
         reference_id: str,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[PromptLabStreamEvent]:
         session = self.sessions.get(session_id)
         reference = session.reference(reference_id)
@@ -686,6 +700,7 @@ class PromptLabService:
                 current_analysis=analysis.content,
             ),
             operation_id="reference.interpret",
+            include_reasoning=include_reasoning,
         )
         yield from self._stream_completion(
             request,
@@ -757,6 +772,8 @@ class PromptLabService:
         session_id: str,
         reference_id: str,
         instruction: str,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[PromptLabStreamEvent]:
         session = self.sessions.get(session_id)
         reference = session.reference(reference_id)
@@ -777,6 +794,7 @@ class PromptLabService:
                 instruction=instruction,
             ),
             operation_id="reference.interpret.revise",
+            include_reasoning=include_reasoning,
         )
         yield from self._stream_completion(
             request,
@@ -841,6 +859,8 @@ class PromptLabService:
         session_id: str,
         source_text: str,
         creative_freedom: int,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[PromptLabStreamEvent]:
         session = self.sessions.get(session_id)
         profile = self._profile(session)
@@ -857,6 +877,7 @@ class PromptLabService:
             ),
             images=self._brief_images(session),
             operation_id="brief.structure",
+            include_reasoning=include_reasoning,
         )
         yield from self._stream_completion(
             request,
@@ -925,6 +946,8 @@ class PromptLabService:
         self,
         session_id: str,
         instruction: str,
+        *,
+        include_reasoning: bool = False,
     ) -> Iterator[PromptLabStreamEvent]:
         session = self.sessions.get(session_id)
         current = _current_brief(session)
@@ -944,6 +967,7 @@ class PromptLabService:
             ),
             images=self._brief_images(session),
             operation_id="brief.revise",
+            include_reasoning=include_reasoning,
         )
         yield from self._stream_completion(
             request,
@@ -961,6 +985,85 @@ class PromptLabService:
     def approve_brief(self, session_id: str) -> PromptLabSession:
         session = self.sessions.get(session_id)
         return self.sessions.save(session.approve_brief())
+
+    def create_super_fast_brief(
+        self,
+        session_id: str,
+        source_text: str,
+        creative_freedom: int,
+        *,
+        legacy_plan: bool = False,
+    ) -> PromptLabSession:
+        """Persist and approve a deterministic Brief capsule without an LLM call."""
+
+        session = self.sessions.get(session_id)
+        exact_source_text = _required_text(source_text, "source_text")
+        intention = _inline_text(exact_source_text)
+        freedom = _creative_freedom(creative_freedom)
+        _, snapshots = _brief_inputs(session)
+        reference_lines = []
+        for picture_index, reference in enumerate(session.references, 1):
+            reference_lines.append(
+                f"<Picture {picture_index}>: name={_inline_text(reference.label)}; "
+                f"role={reference.role}; uses="
+                + ", ".join(use.value for use in reference.uses)
+                + f"; evidence_policy={reference.evidence_policy.value}."
+            )
+        policy = creative_freedom_policy(freedom)
+        camera_instruction = (
+            "Choose the minimum sufficient two-to-six-shot hard-cut sequence; "
+            "keep typed camera motion optional and continuity-safe."
+            if legacy_plan
+            else "Choose the minimum sufficient two-to-six-shot hard-cut sequence "
+            "directly in the final H3 prompt; keep camera motion optional and "
+            "continuity-safe."
+        )
+        ambiguity_instruction = (
+            "every material ambiguity explicitly in the Plan according to the "
+            "creative-freedom policy."
+            if legacy_plan
+            else "every material ambiguity directly in the final prompt according "
+            "to the creative-freedom policy."
+        )
+        content = "\n\n".join((
+            "- INTENTION CENTRALE\n" + intention,
+            "- RÉFÉRENCES CITÉES ET RÔLES\n" + "\n".join(reference_lines),
+            (
+                "- SUJETS ET IDENTITÉS À PRÉSERVER\n"
+                "Preserve identities and stable appearance only through each "
+                "reference's declared role, uses, and evidence policy."
+            ),
+            (
+                "- DÉCOR ET ÉTAT INITIAL\n"
+                "Derive visible initial state, environment, composition, and style "
+                "only from the attached native images within their declared roles."
+            ),
+            "- CHRONOLOGIE ET ACTIONS DEMANDÉES\n" + intention,
+            (
+                "- CAMÉRA, LUMIÈRE ET MISE EN SCÈNE\n"
+                + camera_instruction
+            ),
+            (
+                "- CONTRAINTES STRICTES\n"
+                "Respect every reference boundary, preserve physical and spatial "
+                "continuity across cuts, and introduce no unsupported visual fact."
+            ),
+            f"- LIBERTÉS AUTORISÉES\nCreative freedom {freedom}/100. {policy}",
+            (
+                "- QUESTIONS OU AMBIGUÏTÉS\n"
+                "No interactive recommendation step in Super rapide mode. Resolve "
+                + ambiguity_instruction
+            ),
+        ))
+        updated = self._append_brief(
+            session,
+            source_text=exact_source_text,
+            content=_normalize_brief_document(content),
+            creative_freedom=freedom,
+            references=snapshots,
+            origin=RevisionOrigin.MANUAL,
+        )
+        return self.sessions.save(updated.approve_brief())
 
     def _profile(self, session: PromptLabSession) -> PromptProfile:
         return self.profiles.get(session.profile_id, session.profile_version)
@@ -1275,6 +1378,10 @@ def _creative_freedom(value: int) -> int:
 
 
 def _creative_policy(value: int) -> str:
+    return creative_freedom_policy(value)
+
+
+def creative_freedom_policy(value: int) -> str:
     value = _creative_freedom(value)
     if value <= 20:
         return "Factuel strict : n'ajoute aucun détail absent des entrées."
@@ -1285,6 +1392,10 @@ def _creative_policy(value: int) -> str:
     if value <= 80:
         return "Cinématographique : enrichis caméra, rythme et ambiance sans contredire les contraintes."
     return "Exploratoire : propose librement des détails compatibles et marque-les comme libertés."
+
+
+def _inline_text(value: str) -> str:
+    return " ".join(value.split())
 
 
 def _required_text(value: str, name: str) -> str:

@@ -12,6 +12,32 @@ from .recipes import (
     VariationPolicy,
 )
 from .runs import RunRecord, RunReview, RunStatus
+from .krea2_lab import (
+    KREA2_RESOLUTION_MULTIPLE,
+    Krea2AspectRatio,
+    Krea2LabRun,
+    Krea2LabRunStatus,
+    Krea2LabSettings,
+    normalize_krea2_model_name,
+)
+from .video_lab import (
+    RESOLUTION_MULTIPLE,
+    VIDEO_FPS,
+    VideoAspectRatio,
+    VideoLabRun,
+    VideoLabRunStatus,
+    VideoLabSettings,
+)
+from .storyboard import (
+    SUPPORTED_STORYBOARD_PANEL_COUNTS,
+    StoryboardCharacter,
+    StoryboardEnvironment,
+    StoryboardLayout,
+    StoryboardPanel,
+    StoryboardSpec,
+    storyboard_layout,
+)
+from .storyboard_runs import StoryboardRun, StoryboardRunStatus
 from .minimax_h3 import (
     H3CameraAmplitude,
     H3CameraDirective,
@@ -53,6 +79,12 @@ __all__ = [
     "CookbookBinding",
     "CookbookRef",
     "InterpretationRevision",
+    "KREA2_RESOLUTION_MULTIPLE",
+    "Krea2AspectRatio",
+    "Krea2LabRun",
+    "Krea2LabRunStatus",
+    "Krea2LabSettings",
+    "normalize_krea2_model_name",
     "H3CameraAmplitude",
     "H3CameraDirective",
     "H3CameraMotion",
@@ -75,9 +107,24 @@ __all__ = [
     "RunRecord",
     "RunReview",
     "RunStatus",
+    "RESOLUTION_MULTIPLE",
     "StageDocument",
+    "SUPPORTED_STORYBOARD_PANEL_COUNTS",
+    "StoryboardCharacter",
+    "StoryboardEnvironment",
+    "StoryboardLayout",
+    "StoryboardPanel",
+    "StoryboardRun",
+    "StoryboardRunStatus",
+    "StoryboardSpec",
     "VariationMethod",
     "VariationPolicy",
+    "VIDEO_FPS",
+    "VideoAspectRatio",
+    "VideoLabRun",
+    "VideoLabRunStatus",
+    "VideoLabSettings",
+    "storyboard_layout",
     "h3_media_label",
     "direct_reference_required_use",
 ]

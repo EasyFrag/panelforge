@@ -9,6 +9,8 @@
   const profileVersion = "0.1.0";
   const cookbookId = "minimax.h3.ref2v.direct";
   const multishotCookbookId = "minimax.h3.ref2v.direct.multishot";
+  const superFastCookbookId = "minimax.h3.ref2v.direct.multishot.superfast";
+  const superFastCookbookVersion = "0.2.0";
   const preferredCookbookVersion = "0.3.3";
   const preferredCookbookValue = `${cookbookId}@${preferredCookbookVersion}`;
   const roleOptions = [
@@ -32,8 +34,10 @@
     composition: null,
     busy: false,
     quickRunning: false,
+    superFastRunning: false,
     compoundRunning: false,
     quickRecord: null,
+    superFastRecord: null,
     openRequestId: 0,
     openingSessionId: null,
     rolesConfirmed: false,
@@ -58,10 +62,17 @@
     freedomLabel: $("#ref2vd-freedom-label"),
     start: $("#ref2vd-start"),
     setupMessage: $("#ref2vd-setup-message"),
-    quickMode: $("#ref2vd-quick-mode"),
+    executionModeControl: $("#ref2vd-execution-mode-control"),
+    executionMode: $("#ref2vd-execution-mode"),
+    executionModeHint: $("#ref2vd-execution-mode-hint"),
     quickStatus: $("#ref2vd-quick-status"),
     quickStatusLabel: $("#ref2vd-quick-status-label"),
     quickResume: $("#ref2vd-quick-resume"),
+    showReasoning: $("#ref2vd-show-reasoning"),
+    reasoningPanel: $("#ref2vd-reasoning-panel"),
+    reasoningLabel: $("#ref2vd-reasoning-label"),
+    reasoningOutput: $("#ref2vd-reasoning-output"),
+    reasoningEmpty: $("#ref2vd-reasoning-empty"),
     modeWarning: $("#ref2vd-mode-warning"),
     refreshSessions: $("#ref2vd-refresh-sessions"),
     sessionList: $("#ref2vd-session-list"),
@@ -86,6 +97,7 @@
     plan: stage("plan"),
     prompt: stage("prompt"),
     copyPrompt: $("#ref2vd-copy-prompt"),
+    sendVideoLab: $("#ref2vd-send-video-lab"),
     promptReferences: $("#ref2vd-prompt-references"),
     arbitrations: $("#ref2vd-arbitrations"),
     arbitrationList: $("#ref2vd-arbitration-list"),
@@ -97,6 +109,14 @@
     multishotSummaryBadge: $("#ref2vd-multishot-summary-badge"),
     multishotSummaryList: $("#ref2vd-multishot-summary-list"),
   };
+
+  const reasoningTrace = core.createReasoningTrace({
+    toggle: elements.showReasoning,
+    panel: elements.reasoningPanel,
+    label: elements.reasoningLabel,
+    output: elements.reasoningOutput,
+    empty: elements.reasoningEmpty,
+  });
 
   function stage(name) {
     return {
@@ -158,10 +178,14 @@
   }
 
   function directCookbooks() {
-    return state.cookbooks.filter(
-      (item) => [cookbookId, multishotCookbookId].includes(item.id)
+    const available = state.cookbooks.filter(
+      (item) => [cookbookId, multishotCookbookId, superFastCookbookId].includes(item.id)
         && item.target_mode === "ref2v_direct",
     );
+    if (!available.some(isDirectSuperFastReference)) {
+      available.push(superFastCookbookSpec());
+    }
+    return available;
   }
 
   function cookbookValue(cookbook) {
@@ -169,10 +193,38 @@
   }
 
   function isMultishotCookbook(cookbook) {
-    return Boolean(cookbook && cookbook.id === multishotCookbookId);
+    return Boolean(cookbook && [multishotCookbookId, superFastCookbookId].includes(cookbook.id));
+  }
+
+  function isSuperFastReference(reference) {
+    return Boolean(reference && reference.id === superFastCookbookId);
+  }
+
+  function isDirectSuperFastReference(reference) {
+    return Boolean(isSuperFastReference(reference)
+      && reference.version === superFastCookbookVersion);
+  }
+
+  function superFastCookbookSpec(reference = null) {
+    return {
+      id: superFastCookbookId,
+      version: reference && reference.version ? reference.version : superFastCookbookVersion,
+      display_name: "Ref2V multi-plan direct",
+      target_mode: "ref2v_direct",
+      supports_plan_reconciliation: false,
+    };
   }
 
   function cookbookLabel(cookbook) {
+    if (isDirectSuperFastReference(cookbook)) {
+      return `Multi-plan direct · 1 appel · expérimental (${cookbook.version})`;
+    }
+    if (cookbook.id === multishotCookbookId && cookbook.version === "0.2.0") {
+      return `Multi-plan structuré · 2–6 plans (${cookbook.version})`;
+    }
+    if (cookbook.id === cookbookId && cookbook.version === preferredCookbookVersion) {
+      return `Mono-plan · standard (${cookbook.version})`;
+    }
     if (isMultishotCookbook(cookbook)) {
       const qualifier = cookbook.version === "0.2.0"
         ? "2–6 plans automatiques · caméra compilée · expérimental"
@@ -189,8 +241,13 @@
   }
 
   function orderedDirectCookbooks() {
+    const order = new Map([
+      [cookbookId, 0],
+      [multishotCookbookId, 1],
+      [superFastCookbookId, 2],
+    ]);
     return [...directCookbooks()].sort((left, right) => {
-      if (left.id !== right.id) return left.id === cookbookId ? -1 : 1;
+      if (left.id !== right.id) return order.get(left.id) - order.get(right.id);
       return right.version.localeCompare(left.version, undefined, { numeric: true });
     });
   }
@@ -215,10 +272,27 @@
     resetCookbookSelection();
   }
 
+  function showCookbookSelection(reference) {
+    if (!reference) return;
+    const value = cookbookValue(reference);
+    const previousHistorical = elements.cookbook.querySelector("option[data-historical-cookbook]");
+    if (previousHistorical && previousHistorical.value !== value) previousHistorical.remove();
+    let option = [...elements.cookbook.options].find((item) => item.value === value);
+    if (!option) {
+      option = document.createElement("option");
+      option.value = value;
+      option.dataset.historicalCookbook = "true";
+      option.textContent = `${reference.id}@${reference.version} — recette historique verrouillée`;
+      elements.cookbook.append(option);
+    }
+    elements.cookbook.value = value;
+  }
+
   function activeCookbookSpec() {
     const reference = state.composition && state.composition.cookbook
       ? state.composition.cookbook : state.cookbook;
     if (!reference) return null;
+    if (isSuperFastReference(reference)) return superFastCookbookSpec(reference);
     return state.cookbooks.find(
       (item) => item.id === reference.id && item.version === reference.version,
     ) || null;
@@ -273,9 +347,10 @@
   }
 
   async function openSession(sessionSummary) {
-    if (state.quickRunning) return;
+    if (state.quickRunning || state.superFastRunning) return;
     const sessionId = sessionSummary.id;
     const requestId = ++state.openRequestId;
+    let openedSuperFast = false;
     state.openingSessionId = sessionId;
     render();
     try {
@@ -289,6 +364,17 @@
       state.session = session;
       state.composition = compositionPayload ? compositionPayload.composition : null;
       state.quickRecord = quickPipeline.load(session.id);
+      openedSuperFast = Boolean(
+        state.composition && isSuperFastReference(state.composition.cookbook),
+      );
+      const openedCookbook = state.composition && state.composition.cookbook;
+      const matchingCookbook = openedCookbook && directCookbooks().find(
+        (item) => item.id === openedCookbook.id && item.version === openedCookbook.version,
+      );
+      if (openedSuperFast) state.cookbook = superFastCookbookSpec();
+      else if (matchingCookbook) state.cookbook = matchingCookbook;
+      state.superFastRecord = null;
+      elements.executionMode.value = "supervised";
       releaseDraftPreviews();
       state.drafts = session.references.map((reference) => ({
         sourceReferenceId: reference.id,
@@ -306,12 +392,20 @@
         elements.intention.value = "";
         setFreedom(35);
       }
+      if (openedSuperFast) {
+        const completed = superFastRunApproved();
+        state.superFastRecord = {
+          status: completed ? "completed" : "stopped",
+          error: completed ? "" : "Parcours interrompu avant la validation du Prompt.",
+        };
+      }
     } catch (error) {
       if (requestId === state.openRequestId) showSetupMessage(error.message);
     } finally {
       if (requestId === state.openRequestId) {
         state.openingSessionId = null;
         render();
+        if (openedSuperFast) revealSuperFastPrompt();
       }
     }
   }
@@ -323,7 +417,8 @@
     const matchingCookbook = sourceCookbook && directCookbooks().find(
       (item) => item.id === sourceCookbook.id && item.version === sourceCookbook.version,
     );
-    if (matchingCookbook) state.cookbook = matchingCookbook;
+    if (isSuperFastReference(sourceCookbook)) state.cookbook = superFastCookbookSpec();
+    else if (matchingCookbook) state.cookbook = matchingCookbook;
     releaseDraftPreviews();
     state.drafts = source.references.map((reference) => ({
       sourceReferenceId: reference.id,
@@ -335,13 +430,14 @@
     state.session = null;
     state.composition = null;
     state.quickRecord = null;
+    state.superFastRecord = null;
     state.rolesConfirmed = true;
     resetArbitrations();
     selectModel(source.model_id);
     const brief = source.active_brief;
     elements.intention.value = brief ? brief.source_text || "" : "";
     setFreedom(brief ? brief.creative_freedom ?? 35 : 35);
-    elements.quickMode.checked = false;
+    elements.executionMode.value = "supervised";
     clearStageDrafts();
     showSetupMessage("");
     renderDraftReferences();
@@ -493,6 +589,11 @@
   }
 
   function renderSetupWarnings() {
+    if (!state.session && isDirectSuperFastReference(state.cookbook)) {
+      elements.modeWarning.textContent = "Cette recette multi-plan directe rédige et valide le Prompt MiniMax en un seul appel LLM, sans Plan intermédiaire affiché.";
+      elements.modeWarning.hidden = false;
+      return;
+    }
     const recipeMismatch = !state.session
       && !isMultishotCookbook(activeCookbookSpec())
       && intentionRequestsMultipleShots(elements.intention.value);
@@ -522,7 +623,8 @@
     const error = setupValidationError();
     if (error) return showSetupMessage(error);
     const forkSource = state.forkSource;
-    const quickRequested = elements.quickMode.checked;
+    const requestedMode = elements.executionMode.value;
+    const requestedDirectRecipe = isDirectSuperFastReference(state.cookbook);
     let created = false;
     setBusy(true);
     try {
@@ -552,6 +654,7 @@
       state.forkSource = null;
       state.composition = null;
       state.quickRecord = null;
+      state.superFastRecord = null;
       created = true;
       renderDraftReferences();
       render();
@@ -562,7 +665,8 @@
     } finally {
       setBusy(false);
     }
-    if (created && quickRequested) await runQuickMode();
+    if (created && requestedDirectRecipe) await runSuperFastMode();
+    else if (created && requestedMode === "quick") await runQuickMode();
   }
 
   function freedomMode(value) {
@@ -602,7 +706,7 @@
   }
 
   function interactionLocked() {
-    return state.busy || state.quickRunning || state.compoundRunning
+    return state.busy || state.quickRunning || state.superFastRunning || state.compoundRunning
       || Boolean(state.openingSessionId);
   }
 
@@ -638,8 +742,90 @@
     };
   }
 
+  function directSuperFastModeActive() {
+    const reference = state.composition && state.composition.cookbook;
+    return reference ? isDirectSuperFastReference(reference)
+      : isDirectSuperFastReference(state.cookbook);
+  }
+
+  function superFastPromptApproved() {
+    const documents = state.composition ? state.composition.documents || {} : {};
+    const prompt = documents.final_prompt || null;
+    return Boolean(generatedDocument(prompt) && prompt.complete);
+  }
+
+  function superFastRunApproved() {
+    return directSuperFastModeActive()
+      ? superFastPromptApproved() : quickSnapshot().promptApproved;
+  }
+
+  function renderWorkflowShape(superFast) {
+    const planWasHidden = elements.steps.plan.hidden;
+    elements.steps.plan.hidden = superFast;
+    elements.chips.plan.hidden = superFast;
+    if (elements.chips.plan.previousElementSibling) {
+      elements.chips.plan.previousElementSibling.hidden = false;
+    }
+    if (elements.chips.plan.nextElementSibling) {
+      elements.chips.plan.nextElementSibling.hidden = superFast;
+    }
+    if (superFast) elements.steps.plan.open = false;
+    else if (planWasHidden) elements.steps.plan.open = true;
+
+    const promptNumber = superFast ? "2" : "3";
+    elements.chips.prompt.querySelector("b").textContent = promptNumber;
+    elements.steps.prompt.querySelector(".cookbook-step-index").textContent = promptNumber;
+    elements.steps.prompt.querySelector(".cookbook-step-copy small").textContent = superFast
+      ? "Rédiger directement le prompt H3 depuis les références et l’intention."
+      : "Compiler références, plan et caméra canonique.";
+    elements.empty.querySelector("b").textContent = superFast
+      ? "Deux étapes, génération directe du prompt"
+      : "Trois étapes, aucune observation séparée";
+    elements.empty.querySelector("p").textContent = superFast
+      ? "Ajoutez les références, attribuez leur rôle, puis décrivez simplement la vidéo. La recette multi-plan directe rédige le Prompt MiniMax sans afficher de Plan intermédiaire."
+      : "Ajoutez les références, attribuez leur rôle, puis décrivez simplement la vidéo. Les mêmes pixels restent disponibles pendant vos révisions du Brief et la création du Plan.";
+  }
+
+  function revealSuperFastPrompt() {
+    elements.steps.prompt.open = true;
+    window.requestAnimationFrame(() => {
+      elements.steps.prompt.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   function renderQuickStatus() {
-    elements.quickMode.disabled = interactionLocked() || Boolean(state.session);
+    const recipeOwnsExecution = isSuperFastReference(
+      state.composition && state.composition.cookbook
+        ? state.composition.cookbook : state.cookbook,
+    );
+    elements.executionModeControl.hidden = recipeOwnsExecution;
+    elements.executionMode.disabled = interactionLocked() || Boolean(state.session)
+      || recipeOwnsExecution;
+    const modeDescriptions = {
+      supervised: "Étapes manuelles et arbitrages humains.",
+      quick: "3 appels LLM · génération et validation automatiques.",
+    };
+    elements.executionModeHint.textContent = modeDescriptions[elements.executionMode.value]
+      || modeDescriptions.supervised;
+    if (state.superFastRecord) {
+      const record = state.superFastRecord;
+      const completedBecameIncomplete = record.status === "completed"
+        && state.session && !superFastRunApproved();
+      const visibleStatus = completedBecameIncomplete ? "interrupted" : record.status;
+      elements.quickStatus.hidden = false;
+      elements.quickStatus.className = `quick-mode-status ${visibleStatus}`;
+      elements.quickResume.hidden = !["stopped", "interrupted"].includes(visibleStatus);
+      elements.quickResume.textContent = completedBecameIncomplete ? "Régénérer" : "Réessayer";
+      elements.quickResume.disabled = interactionLocked();
+      elements.quickStatusLabel.textContent = completedBecameIncomplete
+        ? "Recette directe modifiée · validation manuelle ou régénération disponible."
+        : record.status === "running"
+        ? "Recette directe · analyse des références et rédaction du Prompt MiniMax…"
+        : record.status === "completed"
+          ? "Recette directe terminée · Prompt validé."
+          : `Recette directe arrêtée${record.error ? ` · ${record.error}` : ""}`;
+      return;
+    }
     const record = state.quickRecord;
     elements.quickStatus.hidden = !record;
     if (!record) return;
@@ -648,6 +834,7 @@
     const visibleStatus = completedBecameIncomplete ? "interrupted" : record.status;
     elements.quickStatus.className = `quick-mode-status ${visibleStatus}`;
     elements.quickResume.hidden = !["stopped", "interrupted"].includes(visibleStatus);
+    elements.quickResume.textContent = "Reprendre";
     elements.quickResume.disabled = interactionLocked();
     if (completedBecameIncomplete) {
       elements.quickStatusLabel.textContent = "Parcours modifié après le mode rapide · reprise disponible.";
@@ -686,6 +873,78 @@
     }
   }
 
+  async function runSuperFastMode() {
+    if (!state.session || state.superFastRunning) return false;
+    const sessionId = state.session.id;
+    const directToPrompt = directSuperFastModeActive();
+    const streamView = directToPrompt ? elements.prompt : elements.plan;
+    state.superFastRunning = true;
+    state.superFastRecord = { status: "running", error: "" };
+    state.quickRecord = null;
+    render();
+    if (directToPrompt) revealSuperFastPrompt();
+    try {
+      const completed = await streamResult(
+        `/api/prompt-lab/sessions/${sessionId}/super-fast/stream`,
+        {
+          source_text: elements.intention.value.trim(),
+          creative_freedom: Number(elements.freedom.value),
+        },
+        streamView,
+        (event) => { if (event.composition) state.composition = event.composition; },
+        directToPrompt ? "Prompt H3 rédigé et validé directement."
+          : "Plan automatique compilé en prompt H3.",
+      );
+      if (!completed) {
+        state.superFastRecord = {
+          status: "stopped",
+          error: streamView.message.textContent
+            || "La génération par la recette directe ne s’est pas terminée.",
+        };
+        return false;
+      }
+      if (!state.session || state.session.id !== sessionId) {
+        throw new Error("La génération par la recette directe ne s’est pas terminée.");
+      }
+      state.session = await core.request(`/api/prompt-lab/sessions/${sessionId}`);
+      await refreshComposition();
+      if (!superFastRunApproved()) {
+        throw new Error("Le prompt final n’a pas pu être validé automatiquement.");
+      }
+      state.superFastRecord = { status: "completed", error: "" };
+      elements.prompt.message.className = "message";
+      elements.prompt.message.textContent = "Prompt H3 compilé et validé en un appel LLM.";
+      if (directToPrompt) revealSuperFastPrompt();
+      return true;
+    } catch (error) {
+      state.superFastRecord = { status: "stopped", error: error.message };
+      showStageError(streamView, error, Boolean(streamView.content.value.trim()));
+      if (directToPrompt) revealSuperFastPrompt();
+      return false;
+    } finally {
+      state.superFastRunning = false;
+      render();
+    }
+  }
+
+  function resumeAutomaticMode() {
+    if (state.superFastRecord) {
+      runSuperFastMode();
+      return;
+    }
+    runQuickMode();
+  }
+
+  function generateSuperFastOrStage(stage) {
+    const reference = state.composition && state.composition.cookbook;
+    if ((reference && isSuperFastReference(reference))
+      || (!reference && isDirectSuperFastReference(state.cookbook))) {
+      runSuperFastMode();
+      return;
+    }
+    streamCompositionStage(stage);
+  }
+
   function render() {
     const session = state.session;
     const compositionReference = state.composition && state.composition.cookbook
@@ -693,15 +952,17 @@
     const selectedCookbook = compositionReference || state.cookbook;
     const activeCookbook = activeCookbookSpec();
     const locked = interactionLocked();
+    const directSuperFast = directSuperFastModeActive();
+    renderWorkflowShape(directSuperFast);
     renderQuickStatus();
     renderRoleReview();
     renderSetupWarnings();
-    if (selectedCookbook) elements.cookbook.value = cookbookValue(selectedCookbook);
+    if (selectedCookbook) showCookbookSelection(selectedCookbook);
     elements.cookbook.disabled = locked || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
       ? compositionReference
         ? `${activeCookbook.display_name} · ${activeCookbook.id}@${activeCookbook.version} verrouillée`
-        : `${activeCookbook.display_name} · verrouillée à la création du Plan`
+        : `${activeCookbook.display_name} · verrouillée ${directSuperFast ? "au lancement" : "à la création du Plan"}`
       : "Cookbook indisponible";
     elements.empty.hidden = Boolean(session);
     elements.editor.hidden = !session;
@@ -716,6 +977,7 @@
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
     elements.intention.disabled = locked;
     elements.freedom.disabled = locked;
+    elements.showReasoning.disabled = locked;
     elements.newSession.disabled = locked || Boolean(state.openingSessionId);
     elements.newSession.hidden = !session && !state.forkSource;
     elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
@@ -738,34 +1000,41 @@
       Boolean(session.brief_complete && briefInputsCurrent),
       briefInputsCurrent,
     );
-    const planState = renderDocument(
-      elements.plan,
-      plan,
-      briefState.ready,
-      briefState.draft ? "Brief modifié" : "Brief requis",
-    );
-    renderMultishotSummary();
-    renderArbitrations(plan, planState, briefState.ready);
+    const planState = directSuperFast ? { draft: false, ready: false, stale: false, diagnostics: [] }
+      : renderDocument(
+        elements.plan,
+        plan,
+        briefState.ready,
+        briefState.draft ? "Brief modifié" : "Brief requis",
+      );
+    if (!directSuperFast) {
+      renderMultishotSummary();
+      renderArbitrations(plan, planState, briefState.ready);
+    }
+    const promptPrerequisite = directSuperFast ? briefState.ready : planState.ready;
     const promptState = renderDocument(
       elements.prompt,
       prompt,
-      planState.ready,
-      planState.draft ? "Plan modifié" : "Plan requis",
+      promptPrerequisite,
+      directSuperFast ? (briefState.draft ? "Brief modifié" : "Brief requis")
+        : (planState.draft ? "Plan modifié" : "Plan requis"),
     );
     elements.sessionTitle.textContent = session.references.map((item) => item.label).join(" + ");
-    const recipeLabel = compositionReference
-      ? `${compositionReference.id}@${compositionReference.version}`
-      : state.cookbook
-        ? `${state.cookbook.id}@${state.cookbook.version} · à verrouiller`
+    const recipeReference = compositionReference || (directSuperFast ? activeCookbook : state.cookbook);
+    const recipeLabel = recipeReference
+      ? `${recipeReference.id}@${recipeReference.version}${compositionReference ? "" : " · à verrouiller"}`
         : "non sélectionnée";
     elements.sessionConfig.textContent = `Modèle : ${session.model_id} · Recette : ${recipeLabel}`;
     elements.progress.textContent = !briefState.ready ? "Brief requis"
-      : !planState.ready ? "Plan requis" : !promptState.ready ? "Prompt requis" : "Parcours validé";
+      : !directSuperFast && !planState.ready ? "Plan requis"
+        : !promptState.ready ? "Prompt requis" : "Parcours validé";
     elements.progress.className = `run-status ${promptState.ready ? "success" : "active"}`;
     setChip(elements.chips.brief, briefState.ready, !briefState.ready);
-    setChip(elements.chips.plan, planState.ready, briefState.ready && !planState.ready);
-    setChip(elements.chips.prompt, promptState.ready, planState.ready && !promptState.ready);
+    if (!directSuperFast) setChip(elements.chips.plan, planState.ready, briefState.ready && !planState.ready);
+    setChip(elements.chips.prompt, promptState.ready, promptPrerequisite && !promptState.ready);
     elements.copyPrompt.disabled = locked || !promptState.ready;
+    elements.sendVideoLab.disabled = locked || !prompt
+      || !prompt.active_revision_id || !elements.prompt.content.value.trim();
     renderPromptReferences(prompt);
   }
 
@@ -851,6 +1120,50 @@
     const number = finiteNumber(value);
     if (number === null) return null;
     return unit === "seconds" ? Math.round(number * 1000) : Math.round(number);
+  }
+
+  function planDurationSeconds(documentState) {
+    if (!documentState || !documentState.active_content) return null;
+    let plan = null;
+    try { plan = JSON.parse(documentState.active_content); } catch (_) { return null; }
+    const derived = plan.derived_timing || {};
+    const directMilliseconds = finiteNumber(derived.duration_ms, plan.duration_ms);
+    if (directMilliseconds !== null) return directMilliseconds / 1000;
+    const directSeconds = finiteNumber(derived.duration_seconds, plan.duration_seconds);
+    if (directSeconds !== null) return directSeconds;
+    const hold = finiteNumber(plan.final_state && plan.final_state.final_hold_ms) || 0;
+    if (Array.isArray(plan.shots) && plan.shots.length) {
+      const durations = plan.shots.map((shot) => finiteNumber(shot && shot.duration_ms));
+      if (durations.every((duration) => duration !== null)) {
+        return (durations.reduce((total, duration) => total + duration, 0) + hold) / 1000;
+      }
+    }
+    if (Array.isArray(plan.beats) && plan.beats.length) {
+      const lastEnd = Math.max(...plan.beats.map((beat) => finiteNumber(beat && beat.end_ms) || 0));
+      if (lastEnd > 0) return (lastEnd + hold) / 1000;
+    }
+    return null;
+  }
+
+  function sendToVideoLab() {
+    const documents = state.composition ? state.composition.documents || {} : {};
+    const prompt = documents.final_prompt || null;
+    const visiblePrompt = elements.prompt.content.value.trim();
+    if (!state.session || !prompt || !prompt.active_revision_id || !visiblePrompt) return;
+    if (!window.PanelForgeVideoLab) {
+      elements.prompt.message.textContent = "Video Lab n’est pas disponible.";
+      return;
+    }
+    window.PanelForgeVideoLab.prefill({
+      source: "ref2v",
+      references: state.session.references.slice(0, 3).map((reference) => ({
+        asset_id: reference.asset_id,
+        content_url: reference.content_url,
+        label: reference.label,
+      })),
+      prompt: visiblePrompt,
+      duration_seconds: planDurationSeconds(documents.beat_sheet || null),
+    });
   }
 
   function shotTiming(shots) {
@@ -1354,13 +1667,17 @@
     view.content.value = "";
     view.message.className = "message";
     view.message.textContent = "";
+    const traceLabel = view === elements.brief ? "Brief"
+      : view === elements.plan ? "Plan" : "Prompt H3";
+    reasoningTrace.begin(traceLabel);
     core.updateStreamState(view.stream, { phase: "preparing", text: "Préparation ou chargement du modèle…", progress: null });
     try {
-      await core.streamRequest(url, {
+      await core.streamRequest(reasoningTrace.streamUrl(url), {
         method: "POST",
         headers: payload ? { "Content-Type": "application/json" } : undefined,
         body: payload ? JSON.stringify(payload) : undefined,
       }, (event) => {
+        reasoningTrace.handle(event);
         core.updateStreamState(view.stream, event);
         if (event.kind === "delta" && event.text) {
           received = true;
@@ -1388,6 +1705,7 @@
       core.failStreamState(view.stream, error.message);
       return false;
     } finally {
+      reasoningTrace.finish();
       setBusy(false);
     }
   }
@@ -1467,6 +1785,7 @@
   }
 
   function clearStageDrafts() {
+    reasoningTrace.reset();
     for (const view of [elements.brief, elements.plan, elements.prompt]) {
       view.message.textContent = "";
       if (view.instruction) view.instruction.value = "";
@@ -1479,17 +1798,20 @@
   }
 
   function resetSession() {
-    if (state.quickRunning) return;
+    if (state.quickRunning || state.superFastRunning) return;
     state.openRequestId += 1;
     state.openingSessionId = null;
     const preservedCookbook = activeCookbookSpec() || state.cookbook;
     state.session = null;
     state.composition = null;
     state.quickRecord = null;
+    state.superFastRecord = null;
     state.forkSource = null;
-    state.cookbook = preservedCookbook && directCookbooks().find(
-      (item) => cookbookValue(item) === cookbookValue(preservedCookbook),
-    ) || null;
+    state.cookbook = isSuperFastReference(preservedCookbook)
+      ? superFastCookbookSpec()
+      : preservedCookbook && directCookbooks().find(
+        (item) => cookbookValue(item) === cookbookValue(preservedCookbook),
+      ) || null;
     if (!state.cookbook) resetCookbookSelection();
     else elements.cookbook.value = cookbookValue(state.cookbook);
     resetArbitrations();
@@ -1499,7 +1821,7 @@
     renderDraftReferences();
     elements.intention.value = "";
     setFreedom(35);
-    elements.quickMode.checked = false;
+    elements.executionMode.value = "supervised";
     clearStageDrafts();
     render();
   }
@@ -1523,7 +1845,8 @@
   });
   elements.newSession.addEventListener("click", resetSession);
   elements.forkSession.addEventListener("click", prepareFork);
-  elements.quickResume.addEventListener("click", runQuickMode);
+  elements.quickResume.addEventListener("click", resumeAutomaticMode);
+  elements.executionMode.addEventListener("change", render);
 
   elements.brief.content.addEventListener("input", render);
   elements.brief.instruction.addEventListener("input", render);
@@ -1534,7 +1857,7 @@
   elements.brief.rewriteApprove.addEventListener("click", reviseAndApproveBrief);
 
   elements.plan.content.addEventListener("input", render);
-  elements.plan.generate.addEventListener("click", () => streamCompositionStage("beat-sheet"));
+  elements.plan.generate.addEventListener("click", () => generateSuperFastOrStage("beat-sheet"));
   elements.plan.save.addEventListener("click", () => documentAction("beat-sheet", "edit", { content: elements.plan.content.value.trim() }));
   elements.plan.approve.addEventListener("click", () => documentAction("beat-sheet", "approve"));
   elements.arbitrationInstruction.addEventListener("input", updateArbitrationActions);
@@ -1561,7 +1884,7 @@
 
   elements.prompt.content.addEventListener("input", render);
   elements.prompt.instruction.addEventListener("input", render);
-  elements.prompt.generate.addEventListener("click", () => streamCompositionStage("final-prompt"));
+  elements.prompt.generate.addEventListener("click", () => generateSuperFastOrStage("final-prompt"));
   elements.prompt.save.addEventListener("click", () => documentAction("final-prompt", "edit", { content: elements.prompt.content.value.trim() }));
   elements.prompt.approve.addEventListener("click", () => documentAction("final-prompt", "approve"));
   elements.prompt.rewrite.addEventListener("click", () => streamCompositionStage("final-prompt", true));
@@ -1574,6 +1897,7 @@
       elements.prompt.message.textContent = "Utilisez Ctrl+C pour copier le prompt.";
     }
   });
+  elements.sendVideoLab.addEventListener("click", sendToVideoLab);
 
   updateFreedom();
   renderRoleHelp();

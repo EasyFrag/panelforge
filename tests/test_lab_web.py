@@ -81,6 +81,7 @@ class LabWebTest(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
         assets = LocalAssetStore(self.temporary_directory.name)
+        self.assets = assets
         runs = LocalRunStore(self.temporary_directory.name)
         recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
         self.comfy = ImmediateComfy()
@@ -121,8 +122,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260815.2", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260815.1", page.text)
+        self.assertIn("/static/lab.css?v=20260820.1", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260816.4", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -144,12 +145,12 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("const preservedCookbook = activeCookbookSpec() || state.cookbook", direct_script.text)
         self.assertNotIn("state.composition = null;\n    resetCookbookSelection();", direct_script.text)
         self.assertIn("const selectedCookbook = compositionReference || state.cookbook", direct_script.text)
-        self.assertIn("elements.cookbook.value = cookbookValue(selectedCookbook)", direct_script.text)
+        self.assertIn("if (selectedCookbook) showCookbookSelection(selectedCookbook)", direct_script.text)
         self.assertIn('bindings: { references:', direct_script.text)
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(prompt_script.status_code, 200)
-        self.assertIn("/static/prompt-lab.js?v=20260815.1", page.text)
+        self.assertIn("/static/prompt-lab.js?v=20260820.1", page.text)
         self.assertIn('data-lab-view="archives"', page.text)
         self.assertIn('id="archives-workspace"', page.text)
         self.assertIn('data-archive-view="i2v"', page.text)
@@ -220,7 +221,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260815.1', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260816.2', page.text)
         self.assertIn('const preferredCookbookVersion = "0.2.0"', script.text)
         self.assertIn('elements.cookbook.value = compositionReference', script.text)
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
@@ -236,6 +237,110 @@ class LabWebTest(unittest.TestCase):
             'elements.i2vDirect.hidden = view !== "i2v-direct"',
             prompt_script.text,
         )
+
+    def test_serves_video_lab_and_ref2v_prefill_bridge(self):
+        page = self.client.get("/")
+        script = self.client.get("/static/video-lab.js")
+        ref2v_script = self.client.get("/static/ref2v-direct.js")
+        navigation = self.client.get("/static/prompt-lab.js")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(script.status_code, 200)
+        self.assertIn('data-lab-view="video-lab"', page.text)
+        self.assertIn('id="video-lab-workspace"', page.text)
+        self.assertIn('id="video-lab-images"', page.text)
+        self.assertIn('id="video-lab-preview"', page.text)
+        self.assertIn('id="video-lab-preview-video"', page.text)
+        self.assertIn('autoplay muted loop playsinline', page.text)
+        self.assertIn('id="video-lab-output"', page.text)
+        self.assertNotIn('id="video-lab-play-with-sound"', page.text)
+        self.assertNotIn('id="video-lab-output-diagnostic"', page.text)
+        self.assertIn('preload="metadata"', page.text)
+        self.assertIn('id="video-lab-cancel"', page.text)
+        self.assertIn('id="video-lab-history-list"', page.text)
+        self.assertIn('value="h3-balanced"', page.text)
+        self.assertIn('value="2:3 (Portrait Photo)"', page.text)
+        self.assertIn('min="5" max="15"', page.text)
+        self.assertIn('Modifier la durée ne réécrit pas les timestamps du prompt.', page.text)
+        self.assertIn('/static/video-lab.js?v=20260816.6', page.text)
+
+        self.assertIn('request("/api/video-lab/runs"', script.text)
+        self.assertIn('/start`, { method: "POST" }', script.text)
+        self.assertIn('/cancel`, { method: "POST" }', script.text)
+        self.assertIn('body.append("source_asset_ids"', script.text)
+        self.assertIn('body.append("source_labels"', script.text)
+        self.assertIn('body.append("images"', script.text)
+        self.assertIn('function runId(run)', script.text)
+        self.assertIn('run.id || run.run_id', script.text)
+        self.assertIn('new WebSocket(websocketUrl(run))', script.text)
+        self.assertIn('type === "panelforge_preview_status"', script.text)
+        self.assertIn("window.setTimeout(finish, 12000)", script.text)
+        self.assertIn('playbackUrl.searchParams.set("_pf_media"', script.text)
+        self.assertNotIn('function playOutputWithSound()', script.text)
+        self.assertNotIn('elements.output.webkitAudioDecodedByteCount', script.text)
+        self.assertNotIn('elements.output.audioTracks', script.text)
+        self.assertIn('buffer.slice(8)', script.text)
+        self.assertIn('imageFormat === 3 ? "image/webp"', script.text)
+        self.assertIn('view.getUint32(0, false) !== 1', script.text)
+        self.assertIn('type === "kj_preview_override"', script.text)
+        self.assertIn('previewBlobFromBase64(data.image, mime)', script.text)
+        self.assertIn('startsWith("video/")', script.text)
+        self.assertIn('renderSocketProgress(data.step, data.total)', script.text)
+        self.assertIn('renderSelect(elements.megapixels', script.text)
+        self.assertIn('state.busy || isActive(state.activeRun)', script.text)
+        self.assertIn('elements.historyList.querySelectorAll("button")', script.text)
+        self.assertGreaterEqual(script.text.count('if (state.busy || isActive(state.activeRun)) return;'), 3)
+        self.assertIn('panelforge.video-lab.seed-lock', script.text)
+        self.assertIn('eventExecutionId !== activeExecutionId', script.text)
+        self.assertIn('cancel_pending: "Annulation à confirmer"', script.text)
+
+        self.assertIn('id="ref2vd-send-video-lab"', page.text)
+        self.assertIn('window.PanelForgeVideoLab.prefill({', ref2v_script.text)
+        self.assertIn('prompt: visiblePrompt', ref2v_script.text)
+        self.assertIn('duration_seconds: planDurationSeconds', ref2v_script.text)
+        self.assertIn('!prompt.active_revision_id', ref2v_script.text)
+        self.assertIn('videoLab: $("#video-lab-workspace")', navigation.text)
+        self.assertIn('PanelForgeLabNavigation', navigation.text)
+
+    def test_asset_content_supports_full_and_partial_byte_reads(self):
+        content = b"0123456789"
+        asset = self.assets.create(content, media_type="video/mp4")
+        url = f"/api/assets/{asset.asset_id}/content"
+
+        full = self.client.get(url)
+        bounded = self.client.get(url, headers={"Range": "bytes=2-5"})
+        open_ended = self.client.get(url, headers={"Range": "bytes=7-"})
+        suffix = self.client.get(url, headers={"Range": "bytes=-3"})
+        clamped = self.client.get(url, headers={"Range": "bytes=8-99"})
+
+        self.assertEqual(full.status_code, 200)
+        self.assertEqual(full.content, content)
+        self.assertEqual(full.headers["accept-ranges"], "bytes")
+        self.assertEqual(full.headers["content-type"], "video/mp4")
+        for response, expected, content_range in (
+            (bounded, b"2345", "bytes 2-5/10"),
+            (open_ended, b"789", "bytes 7-9/10"),
+            (suffix, b"789", "bytes 7-9/10"),
+            (clamped, b"89", "bytes 8-9/10"),
+        ):
+            self.assertEqual(response.status_code, 206)
+            self.assertEqual(response.content, expected)
+            self.assertEqual(response.headers["content-range"], content_range)
+            self.assertEqual(response.headers["accept-ranges"], "bytes")
+            self.assertEqual(response.headers["content-type"], "video/mp4")
+            self.assertEqual(response.headers["content-length"], str(len(expected)))
+
+    def test_asset_content_rejects_invalid_or_unsatisfiable_ranges(self):
+        asset = self.assets.create(b"0123456789", media_type="video/mp4")
+        url = f"/api/assets/{asset.asset_id}/content"
+
+        for value in ("bytes=10-", "bytes=5-2", "bytes=-0", "bytes=0-1,4-5"):
+            with self.subTest(value=value):
+                response = self.client.get(url, headers={"Range": value})
+                self.assertEqual(response.status_code, 416)
+                self.assertEqual(response.content, b"")
+                self.assertEqual(response.headers["content-range"], "bytes */10")
+                self.assertEqual(response.headers["accept-ranges"], "bytes")
 
     def test_direct_creative_freedom_uses_discrete_modes(self):
         page = self.client.get("/")
@@ -286,10 +391,19 @@ class LabWebTest(unittest.TestCase):
 
         self.assertEqual(quick.status_code, 200)
         self.assertIn('/static/quick-pipeline.js?v=20260813.1', page.text)
+        self.assertIn('id="i2vd-quick-mode" type="checkbox"', page.text)
+        self.assertIn('id="ref2vd-execution-mode"', page.text)
+        self.assertIn('id="ref2vd-execution-mode-control"', page.text)
+        self.assertIn('>Orchestration', page.text)
+        self.assertIn('<option value="supervised" selected>', page.text)
+        self.assertIn('<option value="quick">', page.text)
+        self.assertIn('3 appels LLM', page.text)
+        self.assertNotIn('<option value="super_fast">', page.text)
         for prefix in ("i2vd", "ref2vd"):
-            self.assertIn(f'id="{prefix}-quick-mode" type="checkbox"', page.text)
             self.assertIn(f'id="{prefix}-quick-status"', page.text)
             self.assertIn(f'id="{prefix}-quick-resume"', page.text)
+            self.assertIn(f'id="{prefix}-show-reasoning" type="checkbox"', page.text)
+            self.assertIn(f'id="{prefix}-reasoning-panel"', page.text)
         ordered_actions = (
             'action: "generateBrief"',
             'action: "approveBrief"',
@@ -309,6 +423,48 @@ class LabWebTest(unittest.TestCase):
             self.assertIn('approvePrompt: () => documentAction("final-prompt", "approve")', script)
             self.assertIn("!(documentState.validation_errors || []).length", script)
             self.assertNotIn("validation_warnings || []", script.split("function quickSnapshot()", 1)[1].split("function renderQuickStatus()", 1)[0])
+            self.assertIn("reasoningTrace.streamUrl", script)
+        self.assertIn("async function runSuperFastMode", ref2v.text)
+        self.assertIn("/super-fast/stream", ref2v.text)
+        self.assertIn("minimax.h3.ref2v.direct.multishot.superfast", ref2v.text)
+        self.assertIn("Multi-plan direct · 1 appel · expérimental", ref2v.text)
+        self.assertIn("Multi-plan structuré · 2–6 plans", ref2v.text)
+        self.assertIn("Mono-plan · standard", ref2v.text)
+        self.assertIn("available.push(superFastCookbookSpec())", ref2v.text)
+        self.assertIn("if (created && requestedDirectRecipe) await runSuperFastMode()", ref2v.text)
+        self.assertIn("else if (created && requestedMode === \"quick\") await runQuickMode()", ref2v.text)
+        self.assertIn("elements.executionModeControl.hidden = recipeOwnsExecution", ref2v.text)
+        self.assertIn("state.cookbook = isSuperFastReference(preservedCookbook)", ref2v.text)
+        self.assertNotIn('elements.executionMode.value === "super_fast"', ref2v.text)
+        self.assertIn("openedSuperFast = Boolean(", ref2v.text)
+        self.assertIn("Parcours interrompu avant la validation du Prompt", ref2v.text)
+        self.assertIn("completedBecameIncomplete", ref2v.text)
+        self.assertIn('const superFastCookbookVersion = "0.2.0"', ref2v.text)
+        self.assertIn("elements.steps.plan.hidden = superFast", ref2v.text)
+        self.assertIn(
+            "const promptPrerequisite = directSuperFast ? briefState.ready : planState.ready",
+            ref2v.text,
+        )
+        super_fast_body = ref2v.text.split("async function runSuperFastMode()", 1)[1].split(
+            "function resumeAutomaticMode()", 1
+        )[0]
+        self.assertIn(
+            "const streamView = directToPrompt ? elements.prompt : elements.plan",
+            super_fast_body,
+        )
+        self.assertIn("streamView,", super_fast_body)
+        self.assertIn("superFastRunApproved()", super_fast_body)
+        self.assertIn("if (directToPrompt) revealSuperFastPrompt()", super_fast_body)
+        self.assertIn("showStageError(streamView", super_fast_body)
+        self.assertIn("function generateSuperFastOrStage(stage)", ref2v.text)
+        self.assertIn(
+            'elements.plan.generate.addEventListener("click", () => generateSuperFastOrStage("beat-sheet"))',
+            ref2v.text,
+        )
+        self.assertIn(
+            'elements.prompt.generate.addEventListener("click", () => generateSuperFastOrStage("final-prompt"))',
+            ref2v.text,
+        )
 
     def test_exposes_direct_rerun_compound_actions_and_reference_name_copy(self):
         page = self.client.get("/")

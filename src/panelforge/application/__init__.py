@@ -7,7 +7,22 @@ from .change_view_runs import (
     ChangeViewRunner,
     extract_bound_image,
 )
+from .krea2_lab import (
+    Krea2LabRunRequest,
+    Krea2LabRunner,
+    extract_bound_image as extract_bound_krea2_image,
+)
 from .model_runtime import ModelRuntimeControl
+from .video_lab import (
+    VideoLabRunRequest,
+    VideoLabRunner,
+    extract_bound_video,
+)
+from .storyboard_lab import (
+    StoryboardLabService,
+    StoryboardRunRequest,
+    StoryboardStreamEvent,
+)
 from .minimax_h3_protocol import (
     H3IssueSeverity,
     H3ProtocolIssue,
@@ -41,11 +56,14 @@ from .prompt_lab import (
     PromptProfile,
     StreamEventKind,
     StreamPhase,
+    creative_freedom_policy,
 )
 from .prompt_composition import (
     CompositionStageStatus,
     CompositionStreamEvent,
     PromptCompositionService,
+    SUPER_FAST_REF2V_COOKBOOK_ID,
+    SUPER_FAST_REF2V_COOKBOOK_VERSION,
     composition_picture_mapping,
     lint_compiled_ref2v_single_shot_prompt,
     lint_composition_document,
@@ -63,6 +81,8 @@ __all__ = [
     "CompositionStageStatus",
     "CompositionStreamEvent",
     "ImageInput",
+    "Krea2LabRunRequest",
+    "Krea2LabRunner",
     "H3IssueSeverity",
     "H3ProtocolIssue",
     "H3ProtocolMode",
@@ -74,6 +94,8 @@ __all__ = [
     "LlmCallStatus",
     "ModelDescriptor",
     "ModelRuntimeControl",
+    "VideoLabRunRequest",
+    "VideoLabRunner",
     "MultimodalGateway",
     "NewReference",
     "PromptLabService",
@@ -82,6 +104,12 @@ __all__ = [
     "PromptProfile",
     "StreamEventKind",
     "StreamPhase",
+    "StoryboardLabService",
+    "StoryboardRunRequest",
+    "StoryboardStreamEvent",
+    "SUPER_FAST_REF2V_COOKBOOK_ID",
+    "SUPER_FAST_REF2V_COOKBOOK_VERSION",
+    "creative_freedom_policy",
     "direct_reference_required_use",
     "composition_picture_mapping",
     "compile_camera_draft",
@@ -97,4 +125,6 @@ __all__ = [
     "lint_ref2v_single_shot_prompt",
     "normalize_dialogue_language_tags",
     "parse_camera_directives",
+    "extract_bound_video",
+    "extract_bound_krea2_image",
 ]
