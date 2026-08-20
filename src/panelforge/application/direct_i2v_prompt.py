@@ -7,7 +7,10 @@ import re
 
 from panelforge.domain import H3CameraDirective
 
-from .direct_ref2v_plan import parse_direct_ref2v_action_plan_v2
+from .direct_ref2v_plan import (
+    parse_direct_ref2v_action_plan_v2,
+    parse_direct_ref2v_action_plan_v3,
+)
 from .minimax_h3_protocol import compile_camera_motion
 from .timed_camera_compiler import (
     TimedCameraPlacement,
@@ -33,6 +36,8 @@ def apply_direct_i2v_timing(
     *,
     preserve_field_linebreak: bool = False,
     contract_name: str = "direct I2VA",
+    dialogue_aware: bool = False,
+    insert_missing_final_landmark: bool = False,
 ) -> str:
     """Compile the derived duration and validate plan-owned landmarks.
 
@@ -42,7 +47,11 @@ def apply_direct_i2v_timing(
     editable I2VA document.
     """
 
-    plan = parse_direct_ref2v_action_plan_v2(plan_content)
+    plan = (
+        parse_direct_ref2v_action_plan_v3(plan_content)
+        if dialogue_aware
+        else parse_direct_ref2v_action_plan_v2(plan_content)
+    )
     value = _strip_fence(content).replace("\r\n", "\n")
     integrated = _field_body(
         value,
@@ -66,10 +75,13 @@ def apply_direct_i2v_timing(
 
     final_landmark = _format_timestamp(plan.final_start_ms)
     if final_landmark not in integrated:
-        raise ValueError(
-            f"{contract_name} final prompt must contain the derived final-state "
-            f"landmark {final_landmark}"
-        )
+        if not insert_missing_final_landmark:
+            raise ValueError(
+                f"{contract_name} final prompt must contain the derived final-state "
+                f"landmark {final_landmark}"
+            )
+        final_description = _as_sentence(plan.final_state.description)
+        integrated = f"{integrated.rstrip()} {final_landmark} {final_description}"
 
     for camera in plan.camera_directives:
         if camera.start_ms == 0:
@@ -114,6 +126,94 @@ def apply_direct_i2v_timing(
     )
     separator = "\n" if preserve_field_linebreak else ""
     return value[:start] + separator + integrated.strip() + "\n" + value[end:]
+
+
+def compile_direct_i2v_dialogue_cues(
+    content: str,
+    plan_content: str,
+    *,
+    contract_name: str = "H3 Base",
+) -> tuple[str, tuple[str, ...]]:
+    """Replace cue placeholders and restore omitted exact quotations."""
+
+    plan = parse_direct_ref2v_action_plan_v3(plan_content)
+    value = _strip_fence(content).replace("\r\n", "\n")
+    start, end = _field_span(
+        value,
+        "integrated_multimodal_description",
+        "overall_soundscape",
+        contract_name=contract_name,
+    )
+    integrated = value[start:end].strip()
+    recovered: list[str] = []
+    for cue in plan.dialogue_cues:
+        speaker = cue.speaker.rstrip(" .:")
+        delivery = re.sub(
+            r"(?i)^(?:says?|speaks?)\s+",
+            "",
+            cue.delivery.strip().rstrip(" .:"),
+        )
+        delivery_clause = f" {delivery}" if delivery else ""
+        clause = (
+            f"{speaker} ({cue.speaker_id}) says{delivery_clause}: "
+            f"<d>[{cue.language}] {cue.text}</d>"
+        )
+        placeholder = f"[[dialogue:{cue.cue_id}]]"
+        count = integrated.count(placeholder)
+        if count > 1:
+            raise ValueError(f"{contract_name} repeats {placeholder}")
+        if count == 1:
+            integrated = re.sub(
+                rf"(?:\bAt\s+\d{{2}}:\d{{2}}\.\d{{3}},\s*)?"
+                rf"{re.escape(placeholder)}\.?\s*",
+                "",
+                integrated,
+                count=1,
+            )
+            integrated = _insert_timed_dialogue(integrated, cue.start_ms, clause)
+            continue
+        tagged = re.compile(
+            rf"<d>\[[^\]\r\n]+\]\s*{re.escape(cue.text)}</d>"
+        )
+        tagged_matches = list(tagged.finditer(integrated))
+        if len(tagged_matches) > 1:
+            raise ValueError(
+                f"{contract_name} repeats the exact text of {cue.cue_id}"
+            )
+        if tagged_matches:
+            match = tagged_matches[0]
+            canonical_tag = f"<d>[{cue.language}] {cue.text}</d>"
+            nearby = integrated[max(0, match.start() - 120) : match.start()]
+            replacement = (
+                canonical_tag
+                if f"({cue.speaker_id})" in nearby
+                else f"({cue.speaker_id}) {canonical_tag}"
+            )
+            integrated = (
+                integrated[: match.start()]
+                + replacement
+                + integrated[match.end() :]
+            )
+            continue
+        plain_count = integrated.count(cue.text)
+        if plain_count > 1:
+            raise ValueError(
+                f"{contract_name} repeats the exact text of {cue.cue_id}"
+            )
+        if plain_count == 1:
+            integrated = integrated.replace(
+                cue.text,
+                f"({cue.speaker_id}) <d>[{cue.language}] {cue.text}</d>",
+                1,
+            )
+            recovered.append(cue.cue_id)
+            continue
+        integrated = _insert_timed_dialogue(integrated, cue.start_ms, clause)
+        recovered.append(cue.cue_id)
+    return (
+        value[:start] + "\n" + integrated.strip() + "\n" + value[end:],
+        tuple(recovered),
+    )
 
 
 def normalize_direct_i2v_camera_placeholders(content: str) -> str:
@@ -237,6 +337,58 @@ def _format_timestamp(milliseconds: int) -> str:
     minutes, remainder = divmod(milliseconds, 60_000)
     seconds, millis = divmod(remainder, 1_000)
     return f"At {minutes:02d}:{seconds:02d}.{millis:03d},"
+
+
+def _as_sentence(value: str) -> str:
+    stripped = value.strip()
+    return stripped if stripped.endswith((".", "!", "?")) else stripped + "."
+
+
+def _insert_timed_dialogue(integrated: str, start_ms: int, clause: str) -> str:
+    clause_sentence = clause + "."
+    if start_ms == 0:
+        opening = re.match(
+            r"^\[Shot 1\]\s+The target video is one continuous "
+            r"[^\r\n]+?-second shot\.",
+            integrated,
+        )
+        if opening is not None:
+            return (
+                integrated[: opening.end()]
+                + " "
+                + clause_sentence
+                + " "
+                + integrated[opening.end() :].lstrip()
+            )
+        marker = "[Shot 1]"
+        if integrated.startswith(marker):
+            return (
+                marker
+                + " "
+                + clause_sentence
+                + " "
+                + integrated[len(marker) :].lstrip()
+            )
+        return clause_sentence + " " + integrated
+    later = None
+    for match in re.finditer(r"\bAt\s+(\d{2}):(\d{2})\.(\d{3}),", integrated):
+        minutes, seconds, milliseconds = (int(part) for part in match.groups())
+        timestamp_ms = minutes * 60_000 + seconds * 1_000 + milliseconds
+        if timestamp_ms == start_ms:
+            return (
+                integrated[: match.end()]
+                + " "
+                + clause_sentence
+                + " "
+                + integrated[match.end() :].lstrip()
+            )
+        if timestamp_ms > start_ms:
+            later = match.start()
+            break
+    sentence = f"{_format_timestamp(start_ms)} {clause_sentence}"
+    if later is None:
+        return integrated.rstrip() + " " + sentence
+    return integrated[:later].rstrip() + " " + sentence + " " + integrated[later:]
 
 
 def _strip_fence(content: str) -> str:

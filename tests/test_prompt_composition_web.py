@@ -165,7 +165,7 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('id="i2v-cookbook"', page.text)
         self.assertIn('i2v-prompt.js?v=20260813.1', page.text)
         self.assertIn('data-lab-view="i2v-direct"', page.text)
-        self.assertIn('i2v-direct.js?v=20260820.2', page.text)
+        self.assertIn('i2v-direct.js?v=20260820.3', page.text)
         self.assertEqual(script.status_code, 200)
         self.assertIn("required_uses", script.text)
         self.assertEqual(i2v_script.status_code, 200)

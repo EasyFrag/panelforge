@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 import json
+import re
 from typing import Literal
 
 from pydantic import (
@@ -99,6 +100,18 @@ class DirectFinalStateV2(_StrictModel):
 
     description: str = Field(min_length=1)
     final_hold_ms: int = Field(ge=0)
+
+
+class DirectDialogueCue(_StrictModel):
+    """One timed quotation whose exact text can be application-owned."""
+
+    cue_id: str = Field(pattern=r"^dialogue_[1-9][0-9]*$")
+    speaker_id: str = Field(pattern=r"^S[1-9][0-9]*$")
+    speaker: str = Field(min_length=1)
+    start_ms: int = Field(ge=0)
+    language: str = Field(min_length=1)
+    delivery: str = Field(min_length=1)
+    text: str = Field(min_length=1)
 
 
 class DirectCameraPlan(_StrictModel):
@@ -268,6 +281,28 @@ class DirectRef2VActionPlanV2(_StrictModel):
         return self
 
 
+class DirectRef2VActionPlanV3(DirectRef2VActionPlanV2):
+    """V2 timeline plus explicit, compiler-owned dialogue cues."""
+
+    dialogue_cues: tuple[DirectDialogueCue, ...]
+
+    @model_validator(mode="after")
+    def validate_dialogue_cues(self) -> DirectRef2VActionPlanV3:
+        expected_ids = [
+            f"dialogue_{index}" for index in range(1, len(self.dialogue_cues) + 1)
+        ]
+        if [cue.cue_id for cue in self.dialogue_cues] != expected_ids:
+            raise ValueError("dialogue cue IDs must be contiguous and chronological")
+        if any(cue.start_ms > self.final_start_ms for cue in self.dialogue_cues):
+            raise ValueError("dialogue cues must start before the final hold")
+        speaker_names: dict[str, str] = {}
+        for cue in self.dialogue_cues:
+            previous = speaker_names.setdefault(cue.speaker_id, cue.speaker)
+            if previous != cue.speaker:
+                raise ValueError("one speaker ID must keep one speaker description")
+        return self
+
+
 def direct_ref2v_action_plan_schema() -> str:
     """Return the exact closed JSON schema supplied to the local planner."""
 
@@ -282,6 +317,14 @@ def direct_ref2v_action_plan_schema_v2() -> str:
     """Return the V2 schema, excluding all application-derived timestamps."""
 
     schema = DirectRef2VActionPlanV2.model_json_schema()
+    schema["properties"]["technical_adjustments"]["maxItems"] = 0
+    return json.dumps(schema, ensure_ascii=False, indent=2)
+
+
+def direct_ref2v_action_plan_schema_v3() -> str:
+    """Return the dialogue-aware V3 schema used by H3 Base 0.2."""
+
+    schema = DirectRef2VActionPlanV3.model_json_schema()
     schema["properties"]["technical_adjustments"]["maxItems"] = 0
     return json.dumps(schema, ensure_ascii=False, indent=2)
 
@@ -304,6 +347,16 @@ def parse_direct_ref2v_action_plan_v2(content: str) -> DirectRef2VActionPlanV2:
         return DirectRef2VActionPlanV2.model_validate(value)
     except ValidationError as error:
         raise ValueError(f"invalid direct Ref2V action plan V2: {error}") from error
+
+
+def parse_direct_ref2v_action_plan_v3(content: str) -> DirectRef2VActionPlanV3:
+    """Extract and validate one dialogue-aware direct plan."""
+
+    value = _json_object(content)
+    try:
+        return DirectRef2VActionPlanV3.model_validate(value)
+    except ValidationError as error:
+        raise ValueError(f"invalid direct Ref2V action plan V3: {error}") from error
 
 
 def canonical_direct_ref2v_action_plan(
@@ -358,6 +411,37 @@ def canonical_direct_ref2v_action_plan_v2(
     return json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
+def canonical_direct_ref2v_action_plan_v3(
+    content: str,
+    *,
+    recover_invalid_target: bool = False,
+    recover_parallel_steps: bool = False,
+    recover_camera_overlaps: bool = False,
+    expected_dialogues: tuple[str, ...] = (),
+) -> str:
+    """Validate V3 while restoring only application-owned dialogue text."""
+
+    value = _json_object(content)
+    raw_adjustments = value.get("technical_adjustments", [])
+    if raw_adjustments not in ([], ()):
+        raise ValueError(
+            "invalid direct Ref2V action plan V3: technical_adjustments is "
+            "application-owned and must be empty"
+        )
+    if recover_invalid_target:
+        _recover_invalid_camera_directives(value)
+    if recover_parallel_steps:
+        _recover_overlapping_parallel_steps(value)
+    if recover_camera_overlaps:
+        _recover_overlapping_camera_directives(value)
+    _canonicalize_dialogue_cues(value, expected_dialogues)
+    try:
+        plan = DirectRef2VActionPlanV3.model_validate(value)
+    except ValidationError as error:
+        raise ValueError(f"invalid direct Ref2V action plan V3: {error}") from error
+    return json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+
 def lint_direct_ref2v_action_plan(content: str) -> tuple[str, ...]:
     try:
         parse_direct_ref2v_action_plan(content)
@@ -369,6 +453,14 @@ def lint_direct_ref2v_action_plan(content: str) -> tuple[str, ...]:
 def lint_direct_ref2v_action_plan_v2(content: str) -> tuple[str, ...]:
     try:
         parse_direct_ref2v_action_plan_v2(content)
+    except (TypeError, ValueError) as error:
+        return (str(error),)
+    return ()
+
+
+def lint_direct_ref2v_action_plan_v3(content: str) -> tuple[str, ...]:
+    try:
+        parse_direct_ref2v_action_plan_v3(content)
     except (TypeError, ValueError) as error:
         return (str(error),)
     return ()
@@ -467,6 +559,81 @@ def direct_ref2v_action_plan_warnings_v2(content: str) -> tuple[str, ...]:
     return tuple(warnings)
 
 
+def direct_ref2v_action_plan_warnings_v3(content: str) -> tuple[str, ...]:
+    try:
+        plan = parse_direct_ref2v_action_plan_v3(content)
+    except (TypeError, ValueError):
+        return ()
+    warnings: list[str] = []
+    if plan.final_state.final_hold_ms == 0:
+        warnings.append(
+            "Aucune tenue finale n'est planifiee ; verifiez que l'etat final reste lisible."
+        )
+    elif plan.final_state.final_hold_ms < 1000:
+        warnings.append(
+            "La tenue finale planifiee est inferieure a 1 seconde ; verifiez sa lisibilite."
+        )
+    if plan.duration_ms > 15_000:
+        warnings.append(
+            "La duree derivee depasse 15 secondes ; verifiez la duree acceptee "
+            "par le moteur video cible."
+        )
+    unresolved = [risk.risk_id for risk in plan.risks if risk.resolution is None]
+    if unresolved:
+        warnings.append("Arbitrage conseille pour : " + ", ".join(unresolved) + ".")
+    for adjustment in plan.technical_adjustments:
+        if adjustment.startswith("camera_target_dropped:"):
+            directive_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"La cible optionnelle de {directive_id} a ete omise apres "
+                "validation ; le mouvement de camera est conserve."
+            )
+        elif adjustment.startswith("camera_modifiers_dropped:"):
+            directive_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"Les modificateurs incompatibles de {directive_id} ont ete "
+                "omis ; le mouvement de camera est conserve."
+            )
+        elif adjustment.startswith("parallel_steps_merged:"):
+            continue
+        elif adjustment.startswith("final_hold_adjusted:"):
+            _, old_ms, new_ms = adjustment.split(":", 2)
+            warnings.append(
+                "La tenue finale a ete ajustee de "
+                f"{old_ms} ms a {new_ms} ms pour respecter la duree totale demandee."
+            )
+        elif adjustment == "dialogue_cues_compiler_owned":
+            warnings.append(
+                "Les dialogues explicites sont conserves mot pour mot et compiles "
+                "par PanelForge."
+            )
+        elif adjustment.startswith("dialogue_cue_recovered:"):
+            cue_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"{cue_id} oublie par le modele a ete restaure depuis l'intention."
+            )
+        elif adjustment.startswith("dialogue_text_restored:"):
+            cue_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"Le texte paraphrase de {cue_id} a ete remplace par la citation exacte."
+            )
+        elif adjustment.startswith("dialogue_metadata_recovered:"):
+            cue_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"Le locuteur, la langue, le rendu ou le timing invalide de {cue_id} "
+                "a ete complete deterministiquement."
+            )
+        elif adjustment.startswith("camera_overlap_sequentialized:"):
+            _, camera_id, old_end, new_end = adjustment.split(":", 3)
+            warnings.append(
+                f"Le chevauchement de {camera_id} a ete sequentialise : fin ajustee "
+                f"de {old_end} ms a {new_end} ms."
+            )
+        else:
+            warnings.append(f"Ajustement technique applique : {adjustment}.")
+    return tuple(dict.fromkeys(warnings))
+
+
 def direct_ref2v_camera_directives(
     content: str,
 ) -> tuple[H3CameraDirective, ...]:
@@ -487,6 +654,22 @@ def direct_ref2v_camera_directives_v2(
     content: str,
 ) -> tuple[H3CameraDirective, ...]:
     plan = parse_direct_ref2v_action_plan_v2(content)
+    return tuple(
+        H3CameraDirective(
+            directive_id=item.directive_id,
+            motion=item.motion,
+            amplitude=item.amplitude,
+            speed=item.speed,
+            target_clause=item.target_clause or "",
+        )
+        for item in plan.camera_directives
+    )
+
+
+def direct_ref2v_camera_directives_v3(
+    content: str,
+) -> tuple[H3CameraDirective, ...]:
+    plan = parse_direct_ref2v_action_plan_v3(content)
     return tuple(
         H3CameraDirective(
             directive_id=item.directive_id,
@@ -560,6 +743,107 @@ def direct_ref2v_writer_plan_v2_camera_owned(content: str) -> str:
     return json.dumps(writer_value, ensure_ascii=False, indent=2)
 
 
+def direct_ref2v_writer_plan_v3_camera_owned(content: str) -> str:
+    """Small writer projection retaining exact dialogue and visible chronology."""
+
+    plan = parse_direct_ref2v_action_plan_v3(content)
+    writer_value = {
+        "scene_setup": plan.scene_setup,
+        "continuity_invariants": list(plan.continuity_invariants),
+        "beats": [
+            {
+                "start_ms": beat.start_ms,
+                "end_ms": beat.end_ms,
+                "steps": [
+                    {
+                        "start_ms": step.start_ms,
+                        "end_ms": step.end_ms,
+                        "action": step.action,
+                        "continuity_after": step.continuity_after,
+                    }
+                    for step in beat.steps
+                ],
+                "observable_end_state": beat.observable_end_state,
+            }
+            for beat in plan.beats
+        ],
+        "final_state": plan.final_state.model_dump(mode="json"),
+        "dialogue_cues": [cue.model_dump(mode="json") for cue in plan.dialogue_cues],
+        "camera_landmarks_ms": [
+            item.start_ms for item in plan.camera_directives
+        ],
+        "derived_timing": {
+            "final_state_start_ms": plan.final_start_ms,
+            "duration_ms": plan.duration_ms,
+            "duration_seconds": plan.duration_ms / 1000,
+        },
+        "overall_soundscape": plan.overall_soundscape,
+        "non_diegetic_music": plan.non_diegetic_music,
+    }
+    return json.dumps(writer_value, ensure_ascii=False, indent=2)
+
+
+_EXPLICIT_DIALOGUE_PATTERNS = (
+    re.compile(r"«\s*([^«»\r\n]+?)\s*»"),
+    re.compile(r"“\s*([^“”\r\n]+?)\s*”"),
+    re.compile(r'"\s*([^"\r\n]+?)\s*"'),
+)
+
+
+def extract_explicit_dialogues(source_text: str) -> tuple[str, ...]:
+    """Extract bounded verbatim quotations without interpreting their meaning."""
+
+    if not isinstance(source_text, str):
+        raise TypeError("source_text must be text")
+    matches: list[tuple[int, str]] = []
+    occupied: list[tuple[int, int]] = []
+    for pattern_index, pattern in enumerate(_EXPLICIT_DIALOGUE_PATTERNS):
+        for match in pattern.finditer(source_text):
+            span = match.span()
+            if any(span[0] < end and start < span[1] for start, end in occupied):
+                continue
+            text = match.group(1).strip()
+            if (
+                not text
+                or len(text) > 500
+                or _looks_like_structural_quote(text)
+                or (
+                    pattern_index == 2
+                    and _straight_quote_looks_like_json(source_text, span)
+                )
+            ):
+                continue
+            occupied.append(span)
+            matches.append((span[0], text))
+    matches.sort(key=lambda item: item[0])
+    if len(matches) > 12:
+        raise ValueError("H3 Base supports at most 12 explicit dialogue quotations")
+    return tuple(text for _, text in matches)
+
+
+def explicit_dialogue_ledger(source_text: str) -> str:
+    cues = [
+        {"cue_id": f"dialogue_{index}", "text": text}
+        for index, text in enumerate(extract_explicit_dialogues(source_text), 1)
+    ]
+    return json.dumps(cues, ensure_ascii=False, separators=(",", ":"))
+
+
+def validate_expected_dialogues(
+    content: str,
+    expected_dialogues: tuple[str, ...],
+) -> None:
+    """Keep source-owned quotations immutable across manual plan edits."""
+
+    plan = parse_direct_ref2v_action_plan_v3(content)
+    planned = tuple(cue.text for cue in plan.dialogue_cues[: len(expected_dialogues)])
+    if planned != expected_dialogues:
+        raise ValueError(
+            "H3 Base dialogue cues must preserve every explicit quotation "
+            "from the intention in source order"
+        )
+
+
 def _json_object(content: str) -> dict[str, object]:
     if not isinstance(content, str) or not content.strip():
         raise ValueError("direct Ref2V action plan must not be empty")
@@ -599,6 +883,8 @@ _CAMERA_MOTIONS_WITHOUT_TARGET = frozenset(
 def align_direct_ref2v_action_plan_v2_duration(
     content: str,
     requested_duration_ms: int,
+    *,
+    dialogue_aware: bool = False,
 ) -> str:
     """Include the final hold in an explicit requested total duration.
 
@@ -614,7 +900,11 @@ def align_direct_ref2v_action_plan_v2_duration(
         raise TypeError("requested_duration_ms must be an integer")
     if requested_duration_ms <= 0:
         raise ValueError("requested_duration_ms must be positive")
-    plan = parse_direct_ref2v_action_plan_v2(content)
+    plan = (
+        parse_direct_ref2v_action_plan_v3(content)
+        if dialogue_aware
+        else parse_direct_ref2v_action_plan_v2(content)
+    )
     if plan.final_start_ms > requested_duration_ms:
         raise ValueError(
             "the planned action timeline exceeds the explicitly requested "
@@ -630,7 +920,11 @@ def align_direct_ref2v_action_plan_v2_duration(
         "final_hold_adjusted:"
         f"{plan.final_state.final_hold_ms}:{adjusted_hold_ms}",
     )
-    adjusted = DirectRef2VActionPlanV2.model_validate(value)
+    adjusted = (
+        DirectRef2VActionPlanV3.model_validate(value)
+        if dialogue_aware
+        else DirectRef2VActionPlanV2.model_validate(value)
+    )
     return json.dumps(adjusted.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
@@ -777,6 +1071,188 @@ def _merge_parallel_group(
 
 def _as_sentence(value: str) -> str:
     return value if value.endswith((".", "!", "?")) else value + "."
+
+
+def _looks_like_structural_quote(value: str) -> bool:
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", value):
+        return True
+    return value.startswith(("{", "[")) or value.endswith(("}", "]"))
+
+
+def _straight_quote_looks_like_json(
+    source_text: str,
+    span: tuple[int, int],
+) -> bool:
+    before = source_text[: span[0]].rstrip()
+    after = source_text[span[1] :].lstrip()
+    return before.endswith(":") or after.startswith(":")
+
+
+def _recover_overlapping_camera_directives(value: dict[str, object]) -> None:
+    """Turn a later-start overlap into an unambiguous sequential handoff."""
+
+    directives = value.get("camera_directives")
+    if not isinstance(directives, list) or len(directives) < 2:
+        return
+    adjustments = value.get("technical_adjustments")
+    if not isinstance(adjustments, list):
+        adjustments = []
+        value["technical_adjustments"] = adjustments
+    for current, following in zip(directives, directives[1:]):
+        if not isinstance(current, dict) or not isinstance(following, dict):
+            continue
+        current_start = current.get("start_ms")
+        current_end = current.get("end_ms")
+        following_start = following.get("start_ms")
+        if any(
+            isinstance(item, bool) or not isinstance(item, int)
+            for item in (current_start, current_end, following_start)
+        ):
+            continue
+        # Equal starts are ambiguous: the application cannot choose which
+        # movement should happen first. Those remain a validation error.
+        if current_start < following_start < current_end:
+            current["end_ms"] = following_start
+            _append_adjustment(
+                adjustments,
+                "camera_overlap_sequentialized:"
+                f"{current.get('directive_id', 'unknown')}:"
+                f"{current_end}:{following_start}",
+            )
+
+
+def _canonicalize_dialogue_cues(
+    value: dict[str, object],
+    expected_dialogues: tuple[str, ...],
+) -> None:
+    raw_cues = value.get("dialogue_cues")
+    if not isinstance(raw_cues, list):
+        raw_cues = []
+    adjustments = value.get("technical_adjustments")
+    if not isinstance(adjustments, list):
+        adjustments = []
+        value["technical_adjustments"] = adjustments
+    final_start_ms = _raw_final_start_ms(value)
+    normalized: list[dict[str, object]] = []
+    used_indexes: set[int] = set()
+    for index, exact_text in enumerate(expected_dialogues, 1):
+        cue_id = f"dialogue_{index}"
+        match_index = next(
+            (
+                candidate_index
+                for candidate_index, candidate in enumerate(raw_cues)
+                if candidate_index not in used_indexes
+                and isinstance(candidate, dict)
+                and (
+                    candidate.get("cue_id") == cue_id
+                    or candidate.get("text") == exact_text
+                )
+            ),
+            None,
+        )
+        if match_index is None:
+            cue = _fallback_dialogue_cue(
+                cue_id,
+                exact_text,
+                index,
+                len(expected_dialogues),
+                final_start_ms,
+            )
+            _append_adjustment(adjustments, f"dialogue_cue_recovered:{cue_id}")
+        else:
+            used_indexes.add(match_index)
+            candidate = raw_cues[match_index]
+            cue = dict(candidate)
+            cue["cue_id"] = cue_id
+            fallback = _fallback_dialogue_cue(
+                cue_id,
+                exact_text,
+                index,
+                len(expected_dialogues),
+                final_start_ms,
+            )
+            recovered_metadata = False
+            if not isinstance(cue.get("speaker_id"), str) or re.fullmatch(
+                r"S[1-9][0-9]*",
+                cue["speaker_id"],
+            ) is None:
+                cue["speaker_id"] = fallback["speaker_id"]
+                recovered_metadata = True
+            for field in ("speaker", "language", "delivery"):
+                if not isinstance(cue.get(field), str) or not cue[field].strip():
+                    cue[field] = fallback[field]
+                    recovered_metadata = True
+            start_ms = cue.get("start_ms")
+            if (
+                isinstance(start_ms, bool)
+                or not isinstance(start_ms, int)
+                or start_ms < 0
+                or start_ms > final_start_ms
+            ):
+                cue["start_ms"] = fallback["start_ms"]
+                recovered_metadata = True
+            if recovered_metadata:
+                _append_adjustment(
+                    adjustments,
+                    f"dialogue_metadata_recovered:{cue_id}",
+                )
+            if cue.get("text") != exact_text:
+                _append_adjustment(
+                    adjustments,
+                    f"dialogue_text_restored:{cue_id}",
+                )
+            cue["text"] = exact_text
+        normalized.append(cue)
+    extras = [
+        dict(candidate)
+        for candidate_index, candidate in enumerate(raw_cues)
+        if candidate_index not in used_indexes and isinstance(candidate, dict)
+    ]
+    for extra in extras:
+        extra["cue_id"] = f"dialogue_{len(normalized) + 1}"
+        normalized.append(extra)
+    speaker_names: dict[str, str] = {}
+    for cue in normalized[: len(expected_dialogues)]:
+        speaker_id = cue["speaker_id"]
+        speaker = cue["speaker"]
+        canonical_speaker = speaker_names.setdefault(speaker_id, speaker)
+        if canonical_speaker != speaker:
+            cue["speaker"] = canonical_speaker
+            _append_adjustment(
+                adjustments,
+                f"dialogue_metadata_recovered:{cue['cue_id']}",
+            )
+    value["dialogue_cues"] = normalized
+    if expected_dialogues:
+        _append_adjustment(adjustments, "dialogue_cues_compiler_owned")
+
+
+def _raw_final_start_ms(value: dict[str, object]) -> int:
+    beats = value.get("beats")
+    if isinstance(beats, list) and beats and isinstance(beats[-1], dict):
+        end_ms = beats[-1].get("end_ms")
+        if not isinstance(end_ms, bool) and isinstance(end_ms, int) and end_ms > 0:
+            return end_ms
+    return 1000
+
+
+def _fallback_dialogue_cue(
+    cue_id: str,
+    text: str,
+    index: int,
+    total: int,
+    final_start_ms: int,
+) -> dict[str, object]:
+    start_ms = max(0, (index * final_start_ms) // (total + 1))
+    return {
+        "cue_id": cue_id,
+        "speaker_id": f"S{index}",
+        "speaker": f"speaker associated with {cue_id} in the intention",
+        "start_ms": start_ms,
+        "language": "French",
+        "delivery": "as requested",
+        "text": text,
+    }
 
 
 def _recover_invalid_camera_directives(value: dict[str, object]) -> None:

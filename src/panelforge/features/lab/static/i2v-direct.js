@@ -6,10 +6,10 @@
   if (!core || !quickPipeline) return;
   const $ = (selector) => document.querySelector(selector);
   const profileId = "minimax.h3.fl2va.direct";
-  const profileVersion = "0.1.0";
+  const profileVersion = "0.2.0";
   const legacyProfileId = "minimax.h3.i2v.direct";
   const cookbookId = "minimax.h3.fl2va.direct";
-  const preferredCookbookVersion = "0.1.0";
+  const preferredCookbookVersion = "0.2.0";
 
   const state = {
     spec: null,

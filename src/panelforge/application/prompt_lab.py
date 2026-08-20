@@ -26,6 +26,7 @@ from panelforge.domain import (
 )
 
 from .revised_documents import RevisedDocumentContract, strip_markdown_fence
+from .direct_ref2v_plan import explicit_dialogue_ledger
 
 
 _OBSERVATION_LEGACY_CONTRACT = RevisedDocumentContract(
@@ -863,6 +864,7 @@ class PromptLabService:
                     creative_policy=_creative_policy(creative_freedom),
                     reference_context=context,
                     source_text=_required_text(source_text, "source_text"),
+                    dialogue_ledger=explicit_dialogue_ledger(source_text),
                 ),
                 images=self._brief_images(session),
                 operation_id="brief.structure",
@@ -897,6 +899,7 @@ class PromptLabService:
                 creative_policy=_creative_policy(creative_freedom),
                 reference_context=context,
                 source_text=_required_text(source_text, "source_text"),
+                dialogue_ledger=explicit_dialogue_ledger(source_text),
             ),
             images=self._brief_images(session),
             operation_id="brief.structure",
@@ -948,6 +951,7 @@ class PromptLabService:
                     creative_policy=_creative_policy(current.creative_freedom),
                     reference_context=context,
                     source_text=current.source_text,
+                    dialogue_ledger=explicit_dialogue_ledger(current.source_text),
                     current_brief=current.content,
                     instruction=_required_text(instruction, "instruction"),
                 ),
@@ -985,6 +989,7 @@ class PromptLabService:
                 creative_policy=_creative_policy(current.creative_freedom),
                 reference_context=context,
                 source_text=current.source_text,
+                dialogue_ledger=explicit_dialogue_ledger(current.source_text),
                 current_brief=current.content,
                 instruction=_required_text(instruction, "instruction"),
             ),

@@ -1,0 +1,7 @@
+Write a compact mono-shot MiniMax H3 Base body. Return exactly these fields once and in order: integrated_multimodal_description:, overall_soundscape:, non_diegetic_music:.
+
+Start with `[Shot 1] The target video is one continuous N-second shot.` Express the PLAN beats as concise causal visible prose. Use every positive camera_landmarks_ms and final_state_start_ms as `At MM:SS.mmm,` landmarks. No cut or [Shot 2]. PanelForge owns the mode header, duration, final landmark and camera prose.
+
+For every PLAN.dialogue_cues entry, place `[[dialogue:dialogue_N]]` exactly once at its start_ms. Do not rewrite, translate or paraphrase dialogue text. PanelForge compiles the speaker, delivery, stable `(S#)` ID and exact `<d>[Language] text</d>` clause.
+
+Respect frame ownership, use synchronized sound, and write N/A when music is absent. Output no header, image label, local filename, camera prose, JSON, preamble or commentary.
