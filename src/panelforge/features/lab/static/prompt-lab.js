@@ -1305,12 +1305,46 @@
     elements.setupError.hidden = !message;
   }
 
+  function decorateSessionLink(button, references) {
+    const items = (Array.isArray(references) ? references : [])
+      .filter((reference) => reference && reference.content_url)
+      .slice(0, 3);
+    if (!items.length) return;
+    const copy = document.createElement("span");
+    copy.className = "session-link-copy";
+    copy.append(...button.childNodes);
+    const thumbnails = document.createElement("span");
+    thumbnails.className = "session-link-thumbnails";
+    thumbnails.setAttribute("aria-hidden", "true");
+    items.forEach((reference) => {
+      const image = document.createElement("img");
+      image.className = "session-link-thumbnail";
+      image.src = reference.content_url;
+      image.alt = "";
+      image.title = reference.label || "Image du parcours";
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.draggable = false;
+      image.addEventListener("error", () => {
+        image.remove();
+        if (!thumbnails.childElementCount) {
+          thumbnails.remove();
+          button.classList.remove("has-session-thumbnails");
+        }
+      }, { once: true });
+      thumbnails.append(image);
+    });
+    button.classList.add("has-session-thumbnails");
+    button.append(copy, thumbnails);
+  }
+
   window.PanelForgePromptLab = {
     request,
     streamRequest,
     updateStreamState,
     failStreamState,
     createReasoningTrace,
+    decorateSessionLink,
     setBusy,
   };
 })();
