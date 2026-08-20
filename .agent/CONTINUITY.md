@@ -39,6 +39,7 @@
   - L’inventaire des UNET est découvert dynamiquement via ComfyUI et recoupé avec l’allowlist qualifiée ; la chaîne exacte annoncée par le serveur est conservée. KREA2 fournit PNG final, historique, relance et annulation, sans preview ni LoRA en V1.
   - Storyboard Lab peut préremplir KREA2 avec le prompt actuellement édité et une provenance vérifiée côté serveur, sans lancer automatiquement le rendu. Les runs détachés ou en annulation incertaine sont réconciliés avec ComfyUI avant de réserver le slot, afin d’importer une sortie tardive plutôt que de la perdre.
   - La sortie PNG KREA2 conserve maintenant son ratio naturel dans un cadre plafonné à 760 × 600 px environ, sans étirement à toute la largeur ou hauteur de la zone de résultat.
+  - La grille KREA2 borne aussi ses largeurs intrinsèques : les longs noms de checkpoints sont tronqués dans le sélecteur, peuvent se replier dans les métadonnées et les prompts des cartes d’historique restent ellipsés sans provoquer de défilement horizontal de la page.
   - Storyboard affiche désormais en option la trace modèle séparée pendant la génération, via le même composant borné et la même préférence locale que les parcours Direct ; cette trace reste éphémère et absente des runs.
   - Les Plans Direct mono récupèrent uniquement le cas non ambigu où plusieurs steps couvrent exactement tout le même beat : ils sont fusionnés en une tranche simultanée avec provenance et warning. Les chevauchements partiels, trous et intervalles distincts restent bloquants.
   - Validation locale : 607 tests passent.

@@ -517,7 +517,15 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 }
 .image-lab-modebar button { min-height: 34px; padding: .4rem .75rem; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: .68rem; font-weight: 750; }
 .image-lab-modebar button.active { color: var(--green); background: white; box-shadow: 0 2px 8px #27302b15; }
-.krea2-image-lab-workspace { grid-template-columns: minmax(320px, 390px) minmax(0, 1fr); }
+.krea2-image-lab-workspace { grid-template-columns: minmax(320px, 390px) minmax(0, 1fr); width: 100%; }
+.krea2-image-lab-controls,
+.krea2-image-lab-content,
+.krea2-image-lab-results,
+.krea2-image-lab-output,
+.krea2-image-lab-stage { min-width: 0; max-width: 100%; }
+.krea2-image-lab-controls .field-label,
+.krea2-image-lab-controls select { min-width: 0; max-width: 100%; }
+.krea2-image-lab-controls select { display: block; text-overflow: ellipsis; }
 .krea2-image-lab-controls textarea { min-height: 12rem; color: var(--ink); background: white; font: .7rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .krea2-image-lab-parameter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; margin-top: .65rem; }
 .krea2-image-lab-parameter-grid label { display: grid; gap: .3rem; color: var(--muted); font-size: .64rem; font-weight: 700; }
@@ -534,8 +542,20 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-image-lab-progress-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; align-items: center; margin-top: .8rem; }
 .krea2-image-lab-progress-row progress { width: 100%; accent-color: var(--green); }
 .krea2-image-lab-progress-row output { color: var(--muted); font-size: .65rem; font-weight: 750; }
-.krea2-image-lab-results .storyboard-metadata { margin: .75rem 0 0; }
-.krea2-image-lab-history li { flex-wrap: wrap; }
+.krea2-image-lab-results .storyboard-metadata { min-width: 0; margin: .75rem 0 0; }
+.krea2-image-lab-results .storyboard-metadata span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.krea2-image-lab-history,
+.krea2-image-lab-history ul { min-width: 0; max-width: 100%; overflow: hidden; }
+.krea2-image-lab-history li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.krea2-image-lab-history li > div { min-width: 0; max-width: 100%; overflow: hidden; }
+.krea2-image-lab-history li b,
+.krea2-image-lab-history li small { max-width: 100%; }
 #krea2-image-lab-refresh { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: white; font-weight: 750; }
 
 .storyboard-lab-workspace { grid-template-columns: minmax(320px, 390px) minmax(0, 1fr); }

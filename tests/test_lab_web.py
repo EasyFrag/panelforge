@@ -122,7 +122,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260820.1", page.text)
+        self.assertIn("/static/lab.css?v=20260820.3", page.text)
         self.assertIn("/static/ref2v-direct.js?v=20260816.4", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
