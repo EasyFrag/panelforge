@@ -136,6 +136,44 @@ class DirectFL2VAPromptTest(unittest.TestCase):
                 self.assertEqual(rehydrate_direct_fl2va_document(compiled, context), BODY)
                 self.assertEqual(decode_direct_fl2va_context(encode_direct_fl2va_context(context)), context)
 
+    def test_only_reserved_dialogue_placeholders_can_cross_the_intermediate_lint(self):
+        context = DirectFL2VAContext(
+            mode=H3BaseInputMode.T2VA,
+            header="",
+            duration_ms=6000,
+            placements=(),
+        )
+        pending = BODY.replace(
+            "A runner crosses",
+            "[[dialogue:dialogue_1]] A runner crosses",
+        )
+
+        with self.assertRaisesRegex(ValueError, "unresolved camera placeholder"):
+            compile_direct_fl2va_document(pending, context)
+        compiled = compile_direct_fl2va_document(
+            pending,
+            context,
+            allow_dialogue_placeholders=True,
+        )
+
+        self.assertIn("[[dialogue:dialogue_1]]", compiled)
+        self.assertEqual(
+            lint_direct_fl2va_prompt(
+                compiled,
+                context,
+                allow_dialogue_placeholders=True,
+            ),
+            (),
+        )
+        self.assertTrue(lint_direct_fl2va_prompt(compiled, context))
+        malformed = pending.replace("dialogue_1", "unknown")
+        with self.assertRaisesRegex(ValueError, "unresolved camera placeholder"):
+            compile_direct_fl2va_document(
+                malformed,
+                context,
+                allow_dialogue_placeholders=True,
+            )
+
     def test_rejects_reversed_first_and_last_frame_bindings(self):
         session = session_for("first_frame", "last_frame")
         with self.assertRaisesRegex(ValueError, "first frame before last frame"):

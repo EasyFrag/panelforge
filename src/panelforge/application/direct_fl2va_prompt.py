@@ -236,6 +236,8 @@ def decode_direct_fl2va_context(value: str) -> DirectFL2VAContext:
 def compile_direct_fl2va_document(
     editable: str,
     context: DirectFL2VAContext,
+    *,
+    allow_dialogue_placeholders: bool = False,
 ) -> str:
     body = insert_camera_owned_direct_i2v_clauses(
         editable,
@@ -243,7 +245,11 @@ def compile_direct_fl2va_document(
         contract_name="H3 Base",
     )
     content = f"{context.header}\n\n{body}" if context.header else body
-    errors = lint_direct_fl2va_prompt(content, context)
+    errors = lint_direct_fl2va_prompt(
+        content,
+        context,
+        allow_dialogue_placeholders=allow_dialogue_placeholders,
+    )
     if errors:
         raise ValueError(" ".join(errors))
     return content
@@ -272,6 +278,8 @@ def rehydrate_direct_fl2va_document(
 def lint_direct_fl2va_prompt(
     content: str,
     context: DirectFL2VAContext,
+    *,
+    allow_dialogue_placeholders: bool = False,
 ) -> tuple[str, ...]:
     if not isinstance(content, str) or not content.strip():
         return ("Le prompt H3 Base est vide.",)
@@ -320,11 +328,23 @@ def lint_direct_fl2va_prompt(
     if re.search(r"(?i)<Picture\s+\d+>", body):
         errors.append("Les labels Picture appartiennent uniquement au header compilé.")
     expected_directives = tuple(item.directive for item in context.placements)
+    protocol_value = value
+    if allow_dialogue_placeholders:
+        # Dialogue placeholders exist only between the prose writer and the
+        # deterministic dialogue compiler.  Hide exactly that reserved form
+        # from the generic H3 linter, whose catch-all ``[[...]]`` diagnostic is
+        # intentionally phrased for historical camera placeholders.  Unknown
+        # or malformed placeholders remain visible and are still rejected.
+        protocol_value = re.sub(
+            r"\[\[dialogue:dialogue_[1-9][0-9]*\]\]",
+            "pending dialogue",
+            protocol_value,
+        )
     errors.extend(
         issue.message
         for issue in lint_h3_prompt(
             context.protocol_mode,
-            value,
+            protocol_value,
             expected_directives=expected_directives,
         )
         if issue.severity is H3IssueSeverity.ERROR

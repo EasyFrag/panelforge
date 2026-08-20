@@ -53,7 +53,9 @@
   - Validation locale : 654 tests passent, dont le parcours H3 Base `0.2.0` complet en exactement trois appels, citations omises/paraphrasées/mal formées, placement temporel compiler-owned, relais caméra, jalon final, édition/révision et chargement legacy `0.1.0`.
   - Image Lab borne maintenant les noms longs de checkpoints, les pastilles de métadonnées et les entrées de l’historique KREA2 ; ils ne peuvent plus élargir la grille ni créer un défilement horizontal de page. Le cache CSS a été incrémenté et 23 tests UI/Web ciblés passent.
   - Les listes `Parcours récents` de H3 Base et Ref2V affichent jusqu’à trois petites miniatures superposées à droite, dans la largeur et la hauteur compactes existantes. Les images utilisent les assets déjà sérialisés, se chargent paresseusement et disparaissent proprement en cas d’échec ; les parcours T2VA sans image gardent la carte texte originale. Validation ciblée : 45 tests UI/Web verts.
+  - H3 Base `0.2.0` distingue maintenant les placeholders temporaires `[[dialogue:dialogue_N]]` des anciens placeholders caméra pendant la compilation intermédiaire, puis exige toujours leur disparition avant le lint final. Les sorties compactes `field:value` sans espace sont normalisées sur les trois champs H3. Les candidats réels Gemma, Qwen 3.6 et Qwen 3.8 se recompilent chacun avec deux balises `<d>`, toutes leurs caméras et aucun placeholder ; 656 tests passent.
 - Broken / missing:
+  - Les trois parcours dialogués historiques `prompt-41fff1fef5cb4fa59854572905205d81`, `prompt-4aba62f17cf5488d8a36b036d78cd710` et `prompt-55d53b6a3ead48a5abbc2f1042a3c0a8` conservent leur Plan approuvé mais aucun Prompt final, car ils ont été rejetés avant ce correctif. Ils doivent être régénérés ; aucune migration silencieuse de leur historique n'est faite.
   - Aucun défaut contractuel connu sur les miniatures récentes ; un smoke visuel avec une longue liste de runs reste à faire pour confirmer le coût mémoire du chargement lazy des assets originaux.
   - Les deux échecs historiques H3 Base Gemma (`prompt-0283335687c3478a8ca1a68722e4efa6`) dus aux chevauchements partiels sont couverts par le correctif déterministe, et le candidat joint se canonicalise en un step par beat avec une durée totale exacte de 7 s. Le faux conflit 12 s courant / 13 s ancien contre-exemple est également couvert ; un nouveau smoke UI réel reste à lancer pour confirmer le flux complet.
   - Le premier smoke FL2VA (`prompt-8c186641201146d097988b15aef0cf3c`) avait révélé une confusion entre état final à 6,0 s et fin à 6,5 s. Le contrat et le calcul distinguent désormais début de l’état final et ancrage final, mais le rendu H3 réel doit encore être requalifié.
@@ -80,7 +82,7 @@
 
 ## Next steps
 
-1. Faire un smoke visuel des miniatures H3 Base/Ref2V, puis rejouer la même intention dialoguée avec Qwen3.8, Qwen3.6 et Gemma sur H3 Base `0.2.0`.
+1. Rejouer la même intention dialoguée avec Qwen3.8, Qwen3.6 et Gemma sur H3 Base `0.2.0`, puis faire un smoke visuel des miniatures H3 Base/Ref2V.
 2. Prototyper une recette Ref2V mono `0.4.0` compacte en A/B : Brief projeté, schéma compact et writer sans Brief intégral ; conserver `0.3.3` intacte.
 3. Faire un smoke navigateur du bandeau runtime avec ComfyUI et llama.swap alternativement arrêtés, puis vérifier la commande ComfyUI au repos et son refus pendant un rendu.
 
