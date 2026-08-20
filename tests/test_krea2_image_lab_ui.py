@@ -70,11 +70,18 @@ class Krea2ImageLabUiTest(unittest.TestCase):
             ".krea2-image-lab-results .storyboard-metadata span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
             self.styles,
         )
-        self.assertIn(".krea2-image-lab-history { overflow-x: hidden; }", self.styles)
+        self.assertIn(".krea2-image-lab-history ul { min-width: 0; max-width: 100%; overflow: hidden; }", self.styles)
         self.assertIn(
-            ".krea2-image-lab-history li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; min-width: 0; max-width: 100%; }",
+            "grid-template-columns: minmax(0, 1fr) auto auto;",
             self.styles,
         )
+
+    def test_long_checkpoint_names_cannot_expand_the_krea2_workspace(self):
+        self.assertIn(".krea2-image-lab-workspace { grid-template-columns: minmax(320px, 390px) minmax(0, 1fr); width: 100%; min-width: 0; }", self.styles)
+        self.assertIn(".krea2-image-lab-controls select { min-width: 0; max-width: 100%; }", self.styles)
+        self.assertIn(".krea2-image-lab-controls select { display: block; text-overflow: ellipsis; }", self.styles)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) auto auto", self.styles)
+        self.assertIn(".krea2-image-lab-history li > div { min-width: 0; max-width: 100%; overflow: hidden; }", self.styles)
 
     def test_uses_the_krea2_api_and_dynamic_model_refresh(self):
         for route in (
