@@ -43,6 +43,8 @@ def configured_service(
     roles: tuple[str, ...],
     *,
     source_text: str = "A runner crosses the room and settles.",
+    profile_version: str = "0.1.0",
+    cookbook_version: str = "0.1.0",
 ):
     asset_numbers = iter(range(1, len(roles) + 1))
     assets = LocalAssetStore(
@@ -66,7 +68,7 @@ def configured_service(
         session_id="h3-base-session",
         model_id="vision-model",
         profile_id="minimax.h3.fl2va.direct",
-        profile_version="0.1.0",
+        profile_version=profile_version,
         references=references_tuple,
         session_mode=PromptSessionMode.H3_BASE,
     )
@@ -101,7 +103,7 @@ def configured_service(
     service.configure(
         session.session_id,
         "minimax.h3.fl2va.direct",
-        "0.1.0",
+        cookbook_version,
         (
             CookbookBinding("first_frame", ((by_role["first_frame"],) if "first_frame" in by_role else ())),
             CookbookBinding("last_frame", ((by_role["last_frame"],) if "last_frame" in by_role else ())),

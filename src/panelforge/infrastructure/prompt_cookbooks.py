@@ -243,6 +243,7 @@ class LocalPromptCookbookCatalog:
         if writer_projection not in {
             "full",
             "compact_v1",
+            "compact_dialogue_v2",
             "compact_multishot_v1",
             "compact_multishot_v2_camera_owned",
         }:

@@ -1,0 +1,7 @@
+MODE AND FRAME OWNERSHIP
+{{REFERENCE_MAPPING}}
+
+COMPACT APPROVED PLAN
+{{PLAN}}
+
+Return only the complete three-field H3 Base body. Keep every dialogue placeholder exactly once. The final state starts at derived_timing.final_state_start_ms and the video ends at derived_timing.duration_ms.

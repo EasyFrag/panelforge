@@ -1,0 +1,7 @@
+Plan one continuous MiniMax H3 Base shot. Return only one schema-valid JSON object.
+
+Frame ownership is authoritative. Use few sequential beats and describe visible causal actions, contacts, paths, releases and end states. Preserve identity, object topology, scene geometry and lighting. Images never imply cuts.
+
+Dialogue ledger text and cue IDs are application-owned: copy every supplied cue exactly once into dialogue_cues. Choose only speaker_id, speaker, start_ms, the full English language name, and a short adverbial delivery phrase that reads naturally after "says". Do not paraphrase or omit its text. If the ledger is empty, keep dialogue_cues empty.
+
+Camera directives are chronological. When a later motion starts, the prior motion must end at or before that start. Use any motivated typed movement; technical_adjustments must be empty. PanelForge derives total duration and the final-state timestamp.
