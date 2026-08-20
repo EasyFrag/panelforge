@@ -35,6 +35,12 @@ const state = {
   previewRequest: 0,
   pollFailures: 0,
   runtimeMessageTimer: null,
+  runtimeStatus: null,
+  runtimePollTimer: null,
+  runtimePollActive: false,
+  runtimeSocket: null,
+  runtimeSocketTimer: null,
+  runtimeTelemetryAt: 0,
 };
 
 const angleIcons = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"];
@@ -49,10 +55,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     "source-caption", "source-empty", "source-large", "result-caption",
     "result-empty", "result-loading", "result-image", "run-message", "keep",
     "reject", "reuse", "refresh", "history-empty", "history-list",
-    "release-vram", "runtime-message",
+    "release-llm-vram", "release-comfy-vram", "runtime-message",
+    "runtime-monitor", "runtime-vram", "runtime-temp",
+    "runtime-services",
   ]) ui[id] = $(id);
 
   bindEvents();
+  startRuntimeMonitor();
   await Promise.allSettled([loadSpec(), loadHistory()]);
 });
 
@@ -83,38 +92,210 @@ function bindEvents() {
   ui.reject.addEventListener("click", () => review("rejected"));
   ui.reuse.addEventListener("click", reuseResult);
   ui.refresh.addEventListener("click", loadHistory);
-  ui["release-vram"].addEventListener("click", releaseVram);
-  window.addEventListener("beforeunload", revokeObjectUrl);
+  ui["release-llm-vram"].addEventListener("click", releaseLlmVram);
+  ui["release-comfy-vram"].addEventListener("click", releaseComfyVram);
+  document.addEventListener("visibilitychange", handleRuntimeVisibility);
+  window.addEventListener("beforeunload", () => {
+    stopRuntimeMonitor();
+    revokeObjectUrl();
+  });
 }
 
-async function releaseVram() {
-  const button = ui["release-vram"];
+async function releaseLlmVram() {
+  await releaseRuntime({
+    button: ui["release-llm-vram"],
+    url: "/api/model-runtime/unload",
+    busyLabel: "LLM…",
+    idleLabel: "VRAM LLM",
+  });
+}
+
+async function releaseComfyVram() {
+  await releaseRuntime({
+    button: ui["release-comfy-vram"],
+    url: "/api/comfy-runtime/free",
+    busyLabel: "Comfy…",
+    idleLabel: "VRAM Comfy",
+  });
+}
+
+async function releaseRuntime({ button, url, busyLabel, idleLabel }) {
   button.disabled = true;
-  button.textContent = "Déchargement…";
-  showRuntimeMessage("Déchargement des modèles LLM…");
+  button.textContent = busyLabel;
   try {
-    const result = await json("/api/model-runtime/unload", { method: "POST" });
-    showRuntimeMessage(result.message || "VRAM disponible");
+    const result = await json(url, { method: "POST" });
+    showRuntimeMessage(result.message || "Nettoyage demandé.");
   } catch (error) {
-    showRuntimeMessage(error.message, true);
+    showRuntimeMessage(error.message, "warning");
   } finally {
-    button.disabled = false;
-    button.textContent = "Libérer la VRAM";
+    button.textContent = idleLabel;
+    await refreshRuntimeStatus();
   }
 }
 
-function showRuntimeMessage(message, failed = false) {
+function showRuntimeMessage(message, tone = "success") {
   const view = ui["runtime-message"];
   if (state.runtimeMessageTimer !== null) {
     window.clearTimeout(state.runtimeMessageTimer);
   }
   view.textContent = message;
-  view.classList.toggle("failed", failed);
+  view.classList.toggle("failed", tone === "failed");
+  view.classList.toggle("warning", tone === "warning");
   view.hidden = false;
   state.runtimeMessageTimer = window.setTimeout(() => {
     view.hidden = true;
     state.runtimeMessageTimer = null;
-  }, failed ? 8000 : 5000);
+  }, tone === "success" ? 5000 : 8000);
+}
+
+function startRuntimeMonitor() {
+  refreshRuntimeStatus();
+  connectRuntimeMonitor();
+}
+
+function stopRuntimeMonitor() {
+  if (state.runtimePollTimer !== null) window.clearTimeout(state.runtimePollTimer);
+  if (state.runtimeSocketTimer !== null) window.clearTimeout(state.runtimeSocketTimer);
+  state.runtimePollTimer = null;
+  state.runtimeSocketTimer = null;
+  if (state.runtimeSocket) state.runtimeSocket.close();
+  state.runtimeSocket = null;
+}
+
+function handleRuntimeVisibility() {
+  if (document.visibilityState !== "visible") return;
+  refreshRuntimeStatus();
+  if (!state.runtimeSocket || state.runtimeSocket.readyState > WebSocket.OPEN) {
+    connectRuntimeMonitor();
+  }
+}
+
+async function refreshRuntimeStatus() {
+  if (state.runtimePollActive) return;
+  if (state.runtimePollTimer !== null) window.clearTimeout(state.runtimePollTimer);
+  state.runtimePollTimer = null;
+  if (document.visibilityState !== "visible") {
+    scheduleRuntimePoll();
+    return;
+  }
+  state.runtimePollActive = true;
+  try {
+    state.runtimeStatus = await json("/api/runtime/status");
+    renderRuntimeStatus();
+  } catch (_) {
+    state.runtimeStatus = null;
+    renderRuntimeStatus();
+  } finally {
+    state.runtimePollActive = false;
+    scheduleRuntimePoll();
+  }
+}
+
+function scheduleRuntimePoll() {
+  if (state.runtimePollTimer !== null) window.clearTimeout(state.runtimePollTimer);
+  state.runtimePollTimer = window.setTimeout(refreshRuntimeStatus, 1000);
+}
+
+function renderRuntimeStatus() {
+  const snapshot = state.runtimeStatus;
+  const gpu = snapshot && snapshot.gpu;
+  const comfy = snapshot && snapshot.comfy;
+  const llm = snapshot && snapshot.llm;
+  const liveTelemetry = Date.now() - state.runtimeTelemetryAt < 5000;
+  if (!liveTelemetry) {
+    ui["runtime-temp"].textContent = "Temp —";
+    setRuntimeMeter(ui["runtime-temp"], 0, null);
+  }
+  if (gpu && gpu.available) {
+    const used = formatBytes(gpu.used_bytes);
+    const total = formatBytes(gpu.total_bytes);
+    const percent = Number(gpu.used_percent);
+    ui["runtime-vram"].textContent = `VRAM ${percent.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}% · ${used}/${total}`;
+    renderVramMeter(percent);
+    ui["runtime-monitor"].title = `${gpu.name} · VRAM globale, sans attribution par processus.`;
+  } else {
+    ui["runtime-vram"].textContent = "VRAM —";
+    setRuntimeMeter(ui["runtime-vram"], 0, null);
+  }
+  const serviceWarnings = [];
+  if (!comfy?.available) serviceWarnings.push("Comfy indisponible");
+  if (!llm?.available) serviceWarnings.push("LLM indisponible");
+  ui["runtime-services"].textContent = serviceWarnings.join(" · ");
+  ui["runtime-services"].hidden = serviceWarnings.length === 0;
+  ui["release-comfy-vram"].disabled = !comfy?.available || !comfy.cleanup_allowed;
+  ui["release-comfy-vram"].title = !comfy?.available
+    ? "ComfyUI indisponible."
+    : !comfy.cleanup_allowed
+      ? "Nettoyage indisponible pendant un rendu ComfyUI actif ou en attente."
+      : "Décharge les modèles et caches ComfyUI.";
+  ui["release-llm-vram"].disabled = !llm?.available;
+  ui["release-llm-vram"].title = llm?.available
+    ? "Décharge les modèles actuellement chargés par llama.swap."
+    : "llama.swap indisponible.";
+}
+
+function connectRuntimeMonitor() {
+  if (document.visibilityState !== "visible") return;
+  if (state.runtimeSocket && state.runtimeSocket.readyState <= WebSocket.OPEN) return;
+  if (state.runtimeSocketTimer !== null) window.clearTimeout(state.runtimeSocketTimer);
+  state.runtimeSocketTimer = null;
+  const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(`${scheme}//${window.location.host}/api/runtime/events`);
+  state.runtimeSocket = socket;
+  socket.addEventListener("message", (event) => {
+    let payload;
+    try { payload = JSON.parse(event.data); } catch (_) { return; }
+    if (payload.type !== "crystools.monitor" || !payload.data) return;
+    renderCrystools(payload.data);
+  });
+  socket.addEventListener("close", () => {
+    if (state.runtimeSocket === socket) state.runtimeSocket = null;
+    scheduleRuntimeReconnect();
+  });
+  socket.addEventListener("error", () => socket.close());
+}
+
+function scheduleRuntimeReconnect() {
+  if (state.runtimeSocketTimer !== null || document.visibilityState !== "visible") return;
+  state.runtimeSocketTimer = window.setTimeout(() => {
+    state.runtimeSocketTimer = null;
+    connectRuntimeMonitor();
+  }, 4000);
+}
+
+function renderCrystools(data) {
+  const gpus = Array.isArray(data.gpus) ? data.gpus : [];
+  const gpu = gpus[0];
+  if (!gpu) return;
+  const temperature = Number(gpu.gpu_temperature);
+  if (Number.isFinite(temperature)) {
+    state.runtimeTelemetryAt = Date.now();
+    renderTemperatureMeter(temperature);
+  }
+}
+
+function renderVramMeter(percent) {
+  setRuntimeMeter(ui["runtime-vram"], percent, percent > 30 ? "yellow" : "green");
+}
+
+function renderTemperatureMeter(temperature) {
+  const gaugePercent = ((temperature - 25) / (100 - 25)) * 100;
+  const tone = temperature <= 60 ? "green" : temperature <= 80 ? "orange" : "red";
+  ui["runtime-temp"].textContent = `Temp ${Math.round(temperature)}°C`;
+  setRuntimeMeter(ui["runtime-temp"], gaugePercent, tone);
+}
+
+function setRuntimeMeter(element, percent, tone) {
+  const clamped = Math.max(0, Math.min(100, Number(percent) || 0));
+  element.style.setProperty("--runtime-meter-percent", `${clamped}%`);
+  element.classList.remove("meter-green", "meter-yellow", "meter-orange", "meter-red");
+  if (tone) element.classList.add(`meter-${tone}`);
+}
+
+function formatBytes(value) {
+  const gib = Number(value) / (1024 ** 3);
+  if (!Number.isFinite(gib)) return "—";
+  return `${gib.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Gio`;
 }
 
 async function loadSpec() {

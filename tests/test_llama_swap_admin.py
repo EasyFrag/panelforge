@@ -1,6 +1,7 @@
 import sys
 import unittest
 import urllib.error
+import json
 from pathlib import Path
 
 
@@ -14,8 +15,9 @@ from panelforge.infrastructure.llm import LlamaSwapAdminClient
 class FakeResponse:
     status = 200
 
-    def __init__(self) -> None:
+    def __init__(self, payload=b'{}') -> None:
         self.read_limit = None
+        self.payload = payload
 
     def __enter__(self):
         return self
@@ -25,7 +27,7 @@ class FakeResponse:
 
     def read(self, limit):
         self.read_limit = limit
-        return b'{}'
+        return self.payload
 
 
 class LlamaSwapAdminClientTest(unittest.TestCase):
@@ -68,6 +70,50 @@ class LlamaSwapAdminClientTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ConnectionError, "offline"):
             client.unload_all()
+
+    def test_lists_running_models_from_strings_and_objects(self):
+        calls = []
+        response = FakeResponse(
+            json.dumps(
+                {
+                    "running": [
+                        "Qwen3.8-27B",
+                        {"model": "Gemma-4-31B"},
+                        {"model_id": "Qwen3.8-27B"},
+                    ]
+                }
+            ).encode("utf-8")
+        )
+
+        def open_request(request, *, timeout):
+            calls.append((request, timeout))
+            return response
+
+        client = LlamaSwapAdminClient(
+            "http://bucket:8083/v1",
+            api_key="secret",
+            timeout=2.0,
+            opener=open_request,
+        )
+
+        self.assertEqual(
+            client.running_models(),
+            ("Qwen3.8-27B", "Gemma-4-31B"),
+        )
+        request, timeout = calls[0]
+        self.assertEqual(request.full_url, "http://bucket:8083/running")
+        self.assertEqual(request.method, "GET")
+        self.assertEqual(request.get_header("Authorization"), "Bearer secret")
+        self.assertEqual(timeout, 2.0)
+
+    def test_rejects_a_malformed_running_model_response(self):
+        client = LlamaSwapAdminClient(
+            "http://bucket:8083/v1",
+            opener=lambda *_args, **_kwargs: FakeResponse(b'{"running":{}}'),
+        )
+
+        with self.assertRaisesRegex(ValueError, "running-model list"):
+            client.running_models()
 
 
 if __name__ == "__main__":

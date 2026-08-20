@@ -22,6 +22,7 @@ from panelforge.domain import (
     ReferenceEvidencePolicy,
     ReferenceUse,
     RevisionOrigin,
+    direct_reference_required_use,
 )
 
 from .revised_documents import RevisedDocumentContract, strip_markdown_fence
@@ -428,6 +429,22 @@ class PromptLabService:
                 raise ValueError(
                     "I2V Direct requires the image role and use first_frame"
                 )
+        if profile.profile_id == "minimax.h3.fl2va.direct":
+            if len(references) > 2:
+                raise ValueError("H3 Base accepts at most a first and a last frame")
+            roles = [reference.role for reference in references]
+            if any(role not in {"first_frame", "last_frame"} for role in roles):
+                raise ValueError(
+                    "H3 Base images must use first_frame or last_frame roles"
+                )
+            if len(roles) != len(set(roles)):
+                raise ValueError("H3 Base accepts at most one frame for each role")
+            for reference in references:
+                required = direct_reference_required_use(reference.role)
+                if required not in reference.uses:
+                    raise ValueError(
+                        f"H3 Base role {reference.role} requires use {required.value}"
+                    )
         session = PromptLabSession(
             session_id=f"prompt-{uuid4().hex}",
             model_id=model_id,
@@ -453,15 +470,21 @@ class PromptLabService:
         session_id: str,
         *,
         model_id: str | None = None,
+        profile_id: str | None = None,
+        profile_version: str | None = None,
     ) -> PromptLabSession:
         """Create a clean session that reuses another session's image assets."""
+        if (profile_id is None) != (profile_version is None):
+            raise ValueError("fork profile id and version must be provided together")
         source = self.sessions.get(session_id)
         for reference in source.references:
             self.assets.get(reference.asset_id)
         return self.create_session(
             model_id=source.model_id if model_id is None else model_id,
-            profile_id=source.profile_id,
-            profile_version=source.profile_version,
+            profile_id=source.profile_id if profile_id is None else profile_id,
+            profile_version=(
+                source.profile_version if profile_version is None else profile_version
+            ),
             references=tuple(
                 NewReference(
                     asset_id=reference.asset_id,
@@ -1077,7 +1100,10 @@ class PromptLabService:
         )
 
     def _brief_images(self, session: PromptLabSession) -> tuple[ImageInput, ...]:
-        if session.session_mode is not PromptSessionMode.DIRECT_MULTIMODAL:
+        if session.session_mode not in {
+            PromptSessionMode.DIRECT_MULTIMODAL,
+            PromptSessionMode.H3_BASE,
+        }:
             return ()
         images: list[ImageInput] = []
         for index, reference in enumerate(session.references, 1):
@@ -1086,7 +1112,11 @@ class PromptLabService:
                 ImageInput(
                     media_type=image.media_type,
                     content=image.content,
-                    label=f"<Image {index}> · {reference.label}",
+                    label=(
+                        f"<Image {index}> · role={reference.role}"
+                        if session.session_mode is PromptSessionMode.H3_BASE
+                        else f"<Image {index}> · {reference.label}"
+                    ),
                 )
             )
         return tuple(images)
@@ -1270,12 +1300,17 @@ def _brief_inputs(
                 evidence_policy=reference.evidence_policy,
             )
         )
-        if session.session_mode is PromptSessionMode.DIRECT_MULTIMODAL:
+        if session.session_mode in {
+            PromptSessionMode.DIRECT_MULTIMODAL,
+            PromptSessionMode.H3_BASE,
+        }:
+            identity_lines = [f"<Image {index}>"]
+            if session.session_mode is not PromptSessionMode.H3_BASE:
+                identity_lines.append(f"Name: {reference.label}")
             context.append(
                 "\n".join(
                     (
-                        f"<Image {index}>",
-                        f"Name: {reference.label}",
+                        *identity_lines,
                         f"User role: {reference.role}",
                         "Uses: " + ", ".join(
                             use.value for use in reference.uses

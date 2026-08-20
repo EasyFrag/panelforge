@@ -72,6 +72,7 @@ from panelforge.domain.character import (
     ChangeView,
     ShotSize,
 )
+from panelforge.infrastructure.comfy import ComfyBusyError
 
 
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
@@ -130,6 +131,8 @@ class BriefStructureBody(BaseModel):
 
 class PromptSessionForkBody(BaseModel):
     model_id: str | None = None
+    profile_id: str | None = None
+    profile_version: str | None = None
 
 
 class CompositionConfigureBody(BaseModel):
@@ -179,8 +182,10 @@ def create_app(
     storyboard_lab: StoryboardLabService | None = None,
     krea2_lab: Krea2LabRunner | None = None,
     model_runtime: ModelRuntimeControl | None = None,
+    comfy_runtime: Any | None = None,
     static_directory: Path | None = None,
     video_preview_connector: Callable[[str], Any] | None = None,
+    runtime_monitor_connector: Callable[[str], Any] | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
     static_root = (static_directory or _STATIC_DIRECTORY).resolve()
@@ -310,8 +315,73 @@ def create_app(
             ) from error
         return {
             "status": "unloaded",
-            "message": "Modèles LLM déchargés · VRAM disponible",
+            "message": "Modèles LLM déchargés.",
         }
+
+    @app.get("/api/runtime/status")
+    def runtime_status() -> dict[str, object]:
+        """Return partial runtime data even when one service is offline."""
+        return _runtime_status(model_runtime=model_runtime, comfy_runtime=comfy_runtime)
+
+    @app.post("/api/comfy-runtime/free")
+    def free_comfy_runtime() -> dict[str, str]:
+        if comfy_runtime is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Le contrôle ComfyUI n’est pas configuré.",
+            )
+        try:
+            comfy_runtime.free_vram()
+        except ComfyBusyError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (OSError, RuntimeError, ValueError) as error:
+            raise HTTPException(
+                status_code=502,
+                detail="Impossible de joindre ComfyUI pour libérer sa VRAM.",
+            ) from error
+        return {
+            "status": "unloaded",
+            "message": "Modèles et caches ComfyUI déchargés.",
+        }
+
+    @app.websocket("/api/runtime/events")
+    async def runtime_events(websocket: WebSocket) -> None:
+        await websocket.accept()
+        upstream_url = getattr(comfy_runtime, "websocket_url", None)
+        if not isinstance(upstream_url, str) or not upstream_url.strip():
+            await websocket.send_json(
+                {
+                    "type": "panelforge_runtime_status",
+                    "data": {"status": "unavailable"},
+                }
+            )
+            await websocket.close(code=1000)
+            return
+        connector = runtime_monitor_connector or _connect_video_preview
+        try:
+            async with connector(upstream_url) as upstream:
+                await websocket.send_json(
+                    {
+                        "type": "panelforge_runtime_status",
+                        "data": {"status": "connected"},
+                    }
+                )
+                await _relay_runtime_monitor(websocket, upstream)
+        except WebSocketDisconnect:
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            try:
+                await websocket.send_json(
+                    {
+                        "type": "panelforge_runtime_status",
+                        "data": {"status": "unavailable"},
+                    }
+                )
+                await websocket.close(code=1011, reason="Runtime monitor unavailable")
+            except (RuntimeError, WebSocketDisconnect):
+                pass
 
     @app.get("/api/change-view/spec")
     def change_view_spec() -> dict[str, object]:
@@ -975,19 +1045,21 @@ def create_app(
 
     @app.post("/api/prompt-lab/sessions", status_code=status.HTTP_201_CREATED)
     async def create_prompt_lab_session(
-        images: Annotated[list[UploadFile], File()],
-        roles: Annotated[list[str], Form()],
         model_id: Annotated[str, Form()],
         profile_id: Annotated[str, Form()],
         profile_version: Annotated[str, Form()],
+        images: Annotated[list[UploadFile] | None, File()] = None,
+        roles: Annotated[list[str] | None, Form()] = None,
         usages: Annotated[list[str] | None, Form()] = None,
         evidence_policies: Annotated[list[str] | None, Form()] = None,
     ) -> dict[str, object]:
         service = _require_prompt_lab(prompt_lab)
-        if not images or len(images) > MAX_PROMPT_REFERENCES:
+        images = images or []
+        roles = roles or []
+        if len(images) > MAX_PROMPT_REFERENCES:
             raise HTTPException(
                 status_code=422,
-                detail=f"provide between 1 and {MAX_PROMPT_REFERENCES} images",
+                detail=f"provide at most {MAX_PROMPT_REFERENCES} images",
             )
         if len(images) != len(roles):
             raise HTTPException(
@@ -1103,7 +1175,12 @@ def create_app(
         service = _require_prompt_lab(prompt_lab)
         try:
             return serialize_prompt_session(
-                service.fork_session(session_id, model_id=body.model_id)
+                service.fork_session(
+                    session_id,
+                    model_id=body.model_id,
+                    profile_id=body.profile_id,
+                    profile_version=body.profile_version,
+                )
             )
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(
@@ -1757,6 +1834,90 @@ def serialize_video_lab_run(run: VideoLabRun) -> dict[str, object]:
     }
 
 
+def _runtime_status(*, model_runtime: Any | None, comfy_runtime: Any | None) -> dict[str, object]:
+    observed_at = datetime.now(UTC).isoformat()
+    gpu: dict[str, object] = {
+        "available": False,
+        "name": None,
+        "total_bytes": None,
+        "free_bytes": None,
+        "used_bytes": None,
+        "used_percent": None,
+    }
+    comfy: dict[str, object] = {
+        "available": False,
+        "queue_running": None,
+        "queue_pending": None,
+        "cleanup_allowed": False,
+        "warning": None,
+    }
+    if comfy_runtime is None:
+        comfy["warning"] = "ComfyUI non configuré."
+    else:
+        stats_ok = False
+        queue_ok = False
+        try:
+            stats = comfy_runtime.get_system_stats()
+            stats_ok = True
+            devices = tuple(getattr(stats, "devices", ()))
+            if devices:
+                device = devices[0]
+                total = int(device.vram_total)
+                free = int(device.vram_free)
+                used = max(0, total - free)
+                gpu.update(
+                    {
+                        "available": True,
+                        "name": device.name,
+                        "total_bytes": total,
+                        "free_bytes": free,
+                        "used_bytes": used,
+                        "used_percent": round((used / total) * 100, 1) if total else 0.0,
+                    }
+                )
+        except Exception:
+            pass
+        try:
+            queue = comfy_runtime.get_queue()
+            queue_ok = True
+            running = len(queue.running)
+            pending = len(queue.pending)
+            comfy.update(
+                {
+                    "queue_running": running,
+                    "queue_pending": pending,
+                    "cleanup_allowed": running == 0 and pending == 0,
+                }
+            )
+        except Exception:
+            pass
+        comfy["available"] = stats_ok or queue_ok
+        if not comfy["available"]:
+            comfy["warning"] = "ComfyUI indisponible."
+        elif not stats_ok or not queue_ok:
+            comfy["warning"] = "Statut ComfyUI partiel."
+
+    llm: dict[str, object] = {
+        "available": False,
+        "running_models": [],
+        "warning": None,
+    }
+    if model_runtime is None:
+        llm["warning"] = "llama.swap non configuré."
+    else:
+        try:
+            llm["running_models"] = list(model_runtime.running_models())
+            llm["available"] = True
+        except Exception:
+            llm["warning"] = "llama.swap indisponible."
+    return {
+        "observed_at": observed_at,
+        "gpu": gpu,
+        "comfy": comfy,
+        "llm": llm,
+    }
+
+
 def _connect_video_preview(url: str):
     """Open the ComfyUI preview channel used by the same-origin relay."""
     try:
@@ -1783,6 +1944,43 @@ async def _relay_video_preview(websocket: WebSocket, upstream: Any) -> None:
                 await websocket.send_text(message)
             else:
                 await websocket.send_bytes(bytes(message))
+
+    async def watch_browser() -> None:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                return
+
+    upstream_task = asyncio.create_task(forward_upstream())
+    browser_task = asyncio.create_task(watch_browser())
+    done, pending = await asyncio.wait(
+        {upstream_task, browser_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    for task in done:
+        task.result()
+
+
+async def _relay_runtime_monitor(websocket: WebSocket, upstream: Any) -> None:
+    """Forward only Crystools telemetry, never ComfyUI prompt events."""
+
+    async def forward_upstream() -> None:
+        while True:
+            message = await upstream.recv()
+            if not isinstance(message, str):
+                continue
+            try:
+                payload = json.loads(message)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict) or payload.get("type") != "crystools.monitor":
+                continue
+            data = payload.get("data")
+            if isinstance(data, dict):
+                await websocket.send_json({"type": "crystools.monitor", "data": data})
 
     async def watch_browser() -> None:
         while True:

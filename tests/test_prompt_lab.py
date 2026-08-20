@@ -105,6 +105,29 @@ def sample_session() -> PromptLabSession:
 
 
 class PromptLabDomainTest(unittest.TestCase):
+    def test_h3_base_brief_context_uses_roles_without_local_filenames(self):
+        session = PromptLabSession(
+            session_id="h3-base-context",
+            model_id="vision-model",
+            profile_id="minimax.h3.fl2va.direct",
+            profile_version="0.1.0",
+            references=(
+                PromptReference(
+                    reference_id="reference-first",
+                    asset_id="asset-first",
+                    role="first_frame",
+                    label="private_start_name.png",
+                    uses=(ReferenceUse.FIRST_FRAME,),
+                ),
+            ),
+            session_mode=PromptSessionMode.H3_BASE,
+        )
+
+        context, _ = _brief_inputs(session)
+
+        self.assertIn("User role: first_frame", context)
+        self.assertNotIn("private_start_name.png", context)
+
     def test_appearance_only_evidence_keeps_only_age_and_stable_appearance(self):
         observation = """- SUJETS VISIBLES
 One adult subject in a garden.
@@ -1140,6 +1163,19 @@ class PromptLabServiceTest(unittest.TestCase):
             self.assertIsNone(forked.active_brief_revision_id)
             self.assertIsNone(forked.approved_brief_revision_id)
             self.assertTrue(sessions.get(source.session_id).brief_complete)
+
+            migrated = service.fork_session(
+                source.session_id,
+                profile_id="minimax.h3.fl2va.direct",
+                profile_version="0.1.0",
+            )
+            self.assertEqual(migrated.profile_id, "minimax.h3.fl2va.direct")
+            self.assertEqual(migrated.profile_version, "0.1.0")
+            self.assertIs(migrated.session_mode, PromptSessionMode.H3_BASE)
+            self.assertEqual(
+                [reference.asset_id for reference in migrated.references],
+                [reference.asset_id for reference in source.references],
+            )
 
     def test_forks_three_ref2v_references_in_order_without_history(self):
         with tempfile.TemporaryDirectory() as directory:

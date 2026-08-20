@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260820.1">
-  <script src="/static/lab.js?v=20260815.1" defer></script>
-  <script src="/static/prompt-lab.js?v=20260820.1" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260820.5">
+  <script src="/static/lab.js?v=20260820.2" defer></script>
+  <script src="/static/prompt-lab.js?v=20260820.2" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260816.2" defer></script>
+  <script src="/static/i2v-direct.js?v=20260820.2" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/video-lab.js?v=20260816.6" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260816.4" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260820.1" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260817.1" defer></script>
   <script src="/static/storyboard-lab.js?v=20260820.1" defer></script>
 </head>
@@ -24,16 +24,24 @@
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
       <button type="button" data-lab-view="storyboard-lab">Storyboard</button>
       <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
-      <button type="button" data-lab-view="i2v-direct">I2V</button>
+      <button type="button" data-lab-view="i2v-direct">H3 Base</button>
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
       <button type="button" data-lab-view="video-lab">Video Lab</button>
       <button type="button" data-lab-view="archives">Archives</button>
     </nav>
     <div class="topbar-actions">
+      <div id="runtime-monitor" class="runtime-monitor" title="Statistiques globales du GPU ; la VRAM n’est pas attribuée par processus.">
+        <span id="runtime-vram" class="runtime-meter runtime-vram">VRAM —</span>
+        <span id="runtime-temp" class="runtime-meter runtime-temp">Temp —</span>
+        <span id="runtime-services" class="runtime-services warning" hidden></span>
+      </div>
       <span id="runtime-message" class="runtime-message" role="status" aria-live="polite" hidden></span>
-      <span id="i2vd-topbar-new" hidden><button id="i2vd-new-session" class="runtime-button" type="button">Nouveau run</button></span>
-      <span id="ref2vd-topbar-new" hidden><button id="ref2vd-new-session" class="runtime-button" type="button">Nouveau run</button></span>
-      <button id="release-vram" class="runtime-button" type="button" title="Décharge tous les modèles LLM. Une génération en cours peut être interrompue.">Libérer la VRAM</button>
+      <span id="i2vd-topbar-new" class="run-actions" hidden><button id="i2vd-new-session" class="runtime-button" type="button">Nouveau run</button><button id="i2vd-fork-session" class="runtime-button" type="button" hidden>Repartir de ce run</button></span>
+      <span id="ref2vd-topbar-new" class="run-actions" hidden><button id="ref2vd-new-session" class="runtime-button" type="button">Nouveau run</button><button id="ref2vd-fork-session" class="runtime-button" type="button" hidden>Repartir de ce run</button></span>
+      <span class="runtime-maintenance">
+        <button id="release-llm-vram" class="runtime-button" type="button" title="État du serveur en cours de lecture." disabled>VRAM LLM</button>
+        <button id="release-comfy-vram" class="runtime-button" type="button" title="État du serveur en cours de lecture." disabled>VRAM Comfy</button>
+      </span>
       <div id="recipe-badge" class="recipe">character.change_view <span id="recipe-version">…</span></div>
     </div>
   </header>
@@ -648,7 +656,7 @@
         <span class="archive-badge">Lecture seule</span>
       </div>
       <p class="muted">Ancien parcours conservé pour relire et copier ses résultats. Recette : <code id="i2v-active-cookbook">chargement…</code></p>
-      <p class="archive-notice">La création et les modifications sont désactivées. Utilisez le nouvel onglet <b>I2V</b> pour un nouveau parcours.</p>
+      <p class="archive-notice">La création et les modifications sont désactivées. Utilisez le nouvel onglet <b>H3 Base</b> pour un nouveau parcours.</p>
 
       <form id="i2v-session-form">
         <section>
@@ -755,10 +763,10 @@
   <main id="i2vd-workspace" class="prompt-workspace i2v-workspace" hidden>
     <aside class="controls prompt-setup">
       <div class="title-row">
-        <div><small>COOKBOOK · I2V</small><h1>Animer depuis la première frame</h1></div>
+        <div><small>MINIMAX H3 · BASE FL2VA</small><h1>Créer depuis le texte et les frames</h1></div>
         <span class="current-badge">Parcours actuel</span>
       </div>
-      <p class="muted">La première frame est relue directement par le LLM pendant le Brief et le Plan. Aucun texte d’observation intermédiaire.</p>
+      <p class="muted">Ajoutez aucune, une ou deux frames. PanelForge choisit automatiquement la grammaire officielle T2VA, I2VA, L2VA ou FL2VA.</p>
 
       <form id="i2vd-session-form">
         <section>
@@ -772,13 +780,22 @@
           <p class="muted" id="i2vd-active-cookbook">La version sera verrouillée à la création du Plan.</p>
         </section>
         <section>
-          <div class="section-title"><h2>Première frame</h2><small>1 image obligatoire</small></div>
-          <label class="prompt-upload i2v-upload" for="i2vd-image-input">
-            <input id="i2vd-image-input" type="file" accept="image/png,image/jpeg,image/webp">
-            <img id="i2vd-upload-preview" alt="Aperçu de la première frame" hidden>
-            <b id="i2vd-upload-title">Choisir une image</b>
-            <small id="i2vd-upload-caption">PNG, JPEG ou WebP · 25 Mio maximum</small>
-          </label>
+          <div class="section-title"><h2>Frames d’ancrage</h2><small>0 à 2 images</small></div>
+          <div class="h3-base-frame-inputs">
+            <label class="prompt-upload i2v-upload" for="i2vd-image-input">
+              <input id="i2vd-image-input" type="file" accept="image/png,image/jpeg,image/webp">
+              <img id="i2vd-upload-preview" alt="Aperçu de la première frame" hidden>
+              <b id="i2vd-upload-title">Ajouter une première frame</b>
+              <small id="i2vd-upload-caption">Facultatif · PNG, JPEG ou WebP · 25 Mio maximum</small>
+            </label>
+            <label class="prompt-upload i2v-upload" for="i2vd-last-image-input">
+              <input id="i2vd-last-image-input" type="file" accept="image/png,image/jpeg,image/webp">
+              <img id="i2vd-last-upload-preview" alt="Aperçu de la dernière frame" hidden>
+              <b id="i2vd-last-upload-title">Ajouter une dernière frame</b>
+              <small id="i2vd-last-upload-caption">Facultatif · PNG, JPEG ou WebP · 25 Mio maximum</small>
+            </label>
+          </div>
+          <p id="i2vd-input-mode" class="h3-base-input-mode">Mode détecté : T2VA · texte seul</p>
         </section>
         <section>
           <h2>Intention simple</h2>
@@ -818,23 +835,23 @@
     </aside>
 
     <div class="prompt-content">
-      <section class="prompt-stagebar" aria-label="Étapes I2V Direct">
-        <div id="i2vd-chip-brief" class="stage-chip active"><b>1</b><span>Brief<small>Image + intention</small></span></div>
+      <section class="prompt-stagebar" aria-label="Étapes H3 Base">
+        <div id="i2vd-chip-brief" class="stage-chip active"><b>1</b><span>Brief<small>Entrées + intention</small></span></div>
         <i></i>
         <div id="i2vd-chip-plan" class="stage-chip future"><b>2</b><span>Plan<small>JSON physique</small></span></div>
         <i></i>
-        <div id="i2vd-chip-prompt" class="stage-chip future"><b>3</b><span>Prompt H3<small>I2VA compilé</small></span></div>
+        <div id="i2vd-chip-prompt" class="stage-chip future"><b>3</b><span>Prompt H3<small>Grammaire compilée</small></span></div>
       </section>
 
       <section id="i2vd-empty" class="prompt-empty">
-        <b>Trois étapes, une première frame stricte</b>
-        <p>Ajoutez l’image de départ puis décrivez simplement la vidéo. Les mêmes pixels restent disponibles pendant les révisions du Brief et la création du Plan.</p>
+        <b>Trois étapes, quatre modes d’entrée</b>
+        <p>Décrivez la vidéo et ajoutez seulement les frames utiles. Les images restent disponibles pendant les révisions du Brief et la création du Plan.</p>
       </section>
 
       <section id="i2vd-editor" class="prompt-editor" hidden>
         <div class="prompt-editor-head">
-          <div><small>I2V DIRECT · SESSION</small><h2 id="i2vd-session-title">Première frame</h2><p id="i2vd-session-config" class="session-config"></p></div>
-          <div class="prompt-head-actions"><span id="i2vd-session-progress" class="run-status active">Brief requis</span><button id="i2vd-fork-session" type="button">Repartir de ce run</button></div>
+          <div><small>H3 BASE · SESSION</small><h2 id="i2vd-session-title">Mode d’entrée</h2><p id="i2vd-session-config" class="session-config"></p></div>
+          <div class="prompt-head-actions"><span id="i2vd-session-progress" class="run-status active">Brief requis</span></div>
         </div>
         <div id="i2vd-reference-dock" class="ref2vd-reference-dock"></div>
         <details id="i2vd-reasoning-panel" class="reasoning-trace" hidden>
@@ -844,12 +861,12 @@
         </details>
 
         <details id="i2vd-brief-step" class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">1</span><span class="cookbook-step-copy"><b>Brief multimodal</b><small>Lire directement la première frame et cadrer l’intention.</small></span><span id="i2vd-brief-review" class="review-pill pending">À générer</span></summary>
+          <summary><span class="cookbook-step-index">1</span><span class="cookbook-step-copy"><b>Brief compact</b><small>Lire les frames présentes et cadrer l’intention.</small></span><span id="i2vd-brief-review" class="review-pill pending">À générer</span></summary>
           <div class="cookbook-step-body">
             <div class="analysis-actions"><button id="i2vd-generate-brief" class="primary compact" type="button">Générer le Brief</button><button id="i2vd-save-brief" type="button" disabled>Enregistrer</button><button id="i2vd-approve-brief" type="button" disabled>Valider</button></div>
             <div id="i2vd-brief-stream-state" class="stream-state" hidden><div><span id="i2vd-brief-stream-label">Préparation…</span><output id="i2vd-brief-stream-percent"></output></div><progress id="i2vd-brief-stream-progress" max="1"></progress></div>
             <p id="i2vd-brief-message" class="message" aria-live="polite"></p>
-            <textarea id="i2vd-brief-content" class="cookbook-stage-output" rows="22" placeholder="Le Brief fondé directement sur la première frame apparaîtra ici."></textarea>
+            <textarea id="i2vd-brief-content" class="cookbook-stage-output" rows="18" placeholder="Le Brief compact fondé sur les entrées disponibles apparaîtra ici."></textarea>
             <div class="rewrite-box"><label for="i2vd-brief-instruction">Discuter une modification avec le LLM</label><div><input id="i2vd-brief-instruction" type="text" placeholder="Ex. Conserve le décor et ralentis la première action." disabled><button id="i2vd-rewrite-brief" type="button" disabled>Proposer</button><button id="i2vd-rewrite-approve-brief" class="primary compact" type="button" disabled>Proposer et valider</button></div></div>
           </div>
         </details>
@@ -872,7 +889,7 @@
                 <textarea id="i2vd-arbitration-instruction" rows="3" placeholder="Ex. Garde le rythme, mais stabilise le décor et clarifie les contacts."></textarea>
               </label>
               <div class="arbitration-footer">
-                <small>Le planner relit la première frame et réécrit le plan à partir de vos décisions.</small>
+                <small>Le planner relit les frames disponibles et réécrit le plan à partir de vos décisions.</small>
                 <div class="arbitration-actions"><button id="i2vd-apply-arbitrations" type="button" disabled>Appliquer les décisions au plan</button><button id="i2vd-apply-approve-arbitrations" class="primary compact" type="button" disabled>Appliquer et valider</button></div>
               </div>
             </section>
@@ -881,13 +898,13 @@
         </details>
 
         <details id="i2vd-prompt-step" class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler la première frame, le plan et la caméra canonique.</small></span><span id="i2vd-prompt-review" class="review-pill pending">Plan requis</span></summary>
+          <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler le mode d’entrée, le plan et la caméra canonique.</small></span><span id="i2vd-prompt-review" class="review-pill pending">Plan requis</span></summary>
           <div class="cookbook-step-body">
             <div class="analysis-actions"><button id="i2vd-generate-prompt" class="primary compact" type="button" disabled>Générer le Prompt</button><button id="i2vd-save-prompt" type="button" disabled>Enregistrer</button><button id="i2vd-approve-prompt" type="button" disabled>Valider</button><button id="i2vd-copy-prompt" type="button" disabled>Copier</button></div>
             <div id="i2vd-prompt-stream-state" class="stream-state" hidden><div><span id="i2vd-prompt-stream-label">Préparation…</span><output id="i2vd-prompt-stream-percent"></output></div><progress id="i2vd-prompt-stream-progress" max="1"></progress></div>
             <p id="i2vd-prompt-message" class="message" aria-live="polite"></p>
-            <textarea id="i2vd-prompt-content" class="cookbook-stage-output final-prompt-output" rows="26" placeholder="Le prompt I2VA compilé apparaîtra ici."></textarea>
-            <div id="i2vd-prompt-lint" class="prompt-lint"><small>La première frame et la grammaire H3 seront contrôlées après génération.</small></div>
+            <textarea id="i2vd-prompt-content" class="cookbook-stage-output final-prompt-output" rows="26" placeholder="Le prompt T2VA, I2VA, L2VA ou FL2VA compilé apparaîtra ici."></textarea>
+            <div id="i2vd-prompt-lint" class="prompt-lint"><small>Le mode d’entrée et la grammaire H3 seront contrôlés après génération.</small></div>
             <section id="i2vd-prompt-references" class="prompt-reference-copy" aria-label="Noms des images de référence" hidden></section>
             <div class="rewrite-box"><label for="i2vd-prompt-instruction">Demander une modification ciblée</label><div><input id="i2vd-prompt-instruction" type="text" placeholder="Ex. Garde les actions mais rends le mouvement de caméra plus discret." disabled><button id="i2vd-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
           </div>
@@ -1167,7 +1184,7 @@
       <section id="ref2vd-editor" class="prompt-editor" hidden>
         <div class="prompt-editor-head">
           <div><small>REF2V DIRECT · SESSION</small><h2 id="ref2vd-session-title">Composition multimodale</h2><p id="ref2vd-session-config" class="session-config"></p></div>
-          <div class="prompt-head-actions"><span id="ref2vd-session-progress" class="run-status active">Brief requis</span><button id="ref2vd-fork-session" type="button">Repartir de ce run</button></div>
+          <div class="prompt-head-actions"><span id="ref2vd-session-progress" class="run-status active">Brief requis</span></div>
         </div>
         <div id="ref2vd-reference-dock" class="ref2vd-reference-dock"></div>
         <details id="ref2vd-reasoning-panel" class="reasoning-trace" hidden>

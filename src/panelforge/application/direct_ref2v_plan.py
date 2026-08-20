@@ -324,7 +324,7 @@ def canonical_direct_ref2v_action_plan(
     if recover_invalid_target:
         _recover_invalid_camera_directives(value)
     if recover_parallel_steps:
-        _recover_exact_parallel_steps(value)
+        _recover_overlapping_parallel_steps(value)
     try:
         plan = DirectRef2VActionPlan.model_validate(value)
     except ValidationError as error:
@@ -350,7 +350,7 @@ def canonical_direct_ref2v_action_plan_v2(
     if recover_invalid_target:
         _recover_invalid_camera_directives(value)
     if recover_parallel_steps:
-        _recover_exact_parallel_steps(value)
+        _recover_overlapping_parallel_steps(value)
     try:
         plan = DirectRef2VActionPlanV2.model_validate(value)
     except ValidationError as error:
@@ -404,10 +404,13 @@ def direct_ref2v_action_plan_warnings(content: str) -> tuple[str, ...]:
                 "omis ; le mouvement de caméra est conservé."
             )
         elif adjustment.startswith("parallel_steps_merged:"):
-            beat_id = adjustment.partition(":")[2]
+            # Keep provenance in the plan without surfacing a routine recovery.
+            continue
+        elif adjustment.startswith("final_hold_adjusted:"):
+            _, old_ms, new_ms = adjustment.split(":", 2)
             warnings.append(
-                f"Les actions exactement parallèles de {beat_id} ont été "
-                "regroupées dans une même étape temporelle."
+                "La tenue finale a été ajustée de "
+                f"{old_ms} ms à {new_ms} ms pour respecter la durée totale demandée."
             )
         else:
             warnings.append(f"Ajustement technique appliqué : {adjustment}.")
@@ -451,10 +454,13 @@ def direct_ref2v_action_plan_warnings_v2(content: str) -> tuple[str, ...]:
                 "omis ; le mouvement de camera est conserve."
             )
         elif adjustment.startswith("parallel_steps_merged:"):
-            beat_id = adjustment.partition(":")[2]
+            # Keep provenance in the plan without surfacing a routine recovery.
+            continue
+        elif adjustment.startswith("final_hold_adjusted:"):
+            _, old_ms, new_ms = adjustment.split(":", 2)
             warnings.append(
-                f"Les actions exactement paralleles de {beat_id} ont ete "
-                "regroupees dans une meme etape temporelle."
+                "La tenue finale a ete ajustee de "
+                f"{old_ms} ms a {new_ms} ms pour respecter la duree totale demandee."
             )
         else:
             warnings.append(f"Ajustement technique applique : {adjustment}.")
@@ -590,13 +596,52 @@ _CAMERA_MOTIONS_WITHOUT_TARGET = frozenset(
 )
 
 
-def _recover_exact_parallel_steps(value: dict[str, object]) -> None:
-    """Merge only the unambiguous full-beat parallel-step model failure.
+def align_direct_ref2v_action_plan_v2_duration(
+    content: str,
+    requested_duration_ms: int,
+) -> str:
+    """Include the final hold in an explicit requested total duration.
 
-    Some planners express simultaneous actions as several steps that all use
-    the beat's exact start and end. The authored schema is sequential, so the
-    application folds only that exact shape into one time slice. Partial
-    overlaps, gaps, malformed steps, and distinct intervals remain invalid.
+    Authored action timestamps remain untouched. Only the trailing hold is
+    derived again. An action timeline that already exceeds the requested total
+    is rejected instead of being silently compressed.
+    """
+
+    if (
+        isinstance(requested_duration_ms, bool)
+        or not isinstance(requested_duration_ms, int)
+    ):
+        raise TypeError("requested_duration_ms must be an integer")
+    if requested_duration_ms <= 0:
+        raise ValueError("requested_duration_ms must be positive")
+    plan = parse_direct_ref2v_action_plan_v2(content)
+    if plan.final_start_ms > requested_duration_ms:
+        raise ValueError(
+            "the planned action timeline exceeds the explicitly requested "
+            "total duration"
+        )
+    adjusted_hold_ms = requested_duration_ms - plan.final_start_ms
+    if adjusted_hold_ms == plan.final_state.final_hold_ms:
+        return json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2)
+    value = plan.model_dump(mode="json")
+    value["final_state"]["final_hold_ms"] = adjusted_hold_ms
+    _append_adjustment(
+        value["technical_adjustments"],
+        "final_hold_adjusted:"
+        f"{plan.final_state.final_hold_ms}:{adjusted_hold_ms}",
+    )
+    adjusted = DirectRef2VActionPlanV2.model_validate(value)
+    return json.dumps(adjusted.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+
+def _recover_overlapping_parallel_steps(value: dict[str, object]) -> None:
+    """Collapse overlap-connected actions without inventing timeline slices.
+
+    When valid intervals jointly cover a beat without a gap, each connected
+    overlap group is folded into one composite step. Existing sequential
+    boundaries are kept, so recovery can only reduce the authored step count.
+    Gaps, out-of-bounds intervals, duplicate IDs, and malformed entries remain
+    invalid.
     """
 
     raw_beats = value.get("beats")
@@ -613,53 +658,121 @@ def _recover_exact_parallel_steps(value: dict[str, object]) -> None:
         start_ms = beat.get("start_ms")
         end_ms = beat.get("end_ms")
         steps = beat.get("steps")
-        if (
-            not isinstance(beat_id, str)
-            or not beat_id.strip()
-            or not isinstance(steps, list)
-            or len(steps) < 2
-            or not all(_is_full_beat_step(item, start_ms, end_ms) for item in steps)
-        ):
+        if not _valid_parallel_beat(beat_id, start_ms, end_ms, steps):
             continue
-        step_ids = [item["step_id"] for item in steps]
+        ordered_steps = [
+            item
+            for _, item in sorted(
+                enumerate(steps),
+                key=lambda pair: (
+                    pair[1]["start_ms"],
+                    pair[1]["end_ms"],
+                    pair[0],
+                ),
+            )
+        ]
+        step_ids = [item["step_id"] for item in ordered_steps]
         if len(step_ids) != len(set(step_ids)):
             continue
-        actions = [item["action"].strip() for item in steps]
-        continuity = _unique_text(item["continuity_after"].strip() for item in steps)
-        beat["steps"] = [
-            {
-                "step_id": step_ids[0],
-                "start_ms": start_ms,
-                "end_ms": end_ms,
-                "action": "Simultaneous actions: "
-                + " ".join(_as_sentence(item) for item in actions),
-                "continuity_after": "Combined continuity after the simultaneous actions: "
-                + " ".join(_as_sentence(item) for item in continuity),
-            }
-        ]
-        _append_adjustment(adjustments, f"parallel_steps_merged:{beat_id.strip()}")
+        coverage_end = start_ms
+        has_overlap = False
+        for item in ordered_steps:
+            if item["start_ms"] > coverage_end:
+                break
+            if item["start_ms"] < coverage_end:
+                has_overlap = True
+            coverage_end = max(coverage_end, item["end_ms"])
+        else:
+            if coverage_end == end_ms and has_overlap:
+                groups = _overlap_groups(ordered_steps)
+                beat["steps"] = [
+                    _merge_parallel_group(group) if len(group) > 1 else group[0]
+                    for group in groups
+                ]
+                _append_adjustment(
+                    adjustments,
+                    f"parallel_steps_merged:{beat_id.strip()}",
+                )
 
 
-def _is_full_beat_step(item: object, start_ms: object, end_ms: object) -> bool:
-    return (
-        isinstance(item, dict)
-        and isinstance(item.get("step_id"), str)
-        and bool(item["step_id"].strip())
-        and isinstance(item.get("action"), str)
-        and bool(item["action"].strip())
-        and isinstance(item.get("continuity_after"), str)
-        and bool(item["continuity_after"].strip())
-        and item.get("start_ms") == start_ms
-        and item.get("end_ms") == end_ms
-    )
+def _valid_parallel_beat(
+    beat_id: object,
+    start_ms: object,
+    end_ms: object,
+    steps: object,
+) -> bool:
+    if (
+        not isinstance(beat_id, str)
+        or not beat_id.strip()
+        or isinstance(start_ms, bool)
+        or not isinstance(start_ms, int)
+        or isinstance(end_ms, bool)
+        or not isinstance(end_ms, int)
+        or end_ms <= start_ms
+        or not isinstance(steps, list)
+        or len(steps) < 2
+    ):
+        return False
+    for item in steps:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("step_id"), str)
+            or not item["step_id"].strip()
+            or not isinstance(item.get("action"), str)
+            or not item["action"].strip()
+            or not isinstance(item.get("continuity_after"), str)
+            or not item["continuity_after"].strip()
+            or isinstance(item.get("start_ms"), bool)
+            or not isinstance(item.get("start_ms"), int)
+            or isinstance(item.get("end_ms"), bool)
+            or not isinstance(item.get("end_ms"), int)
+            or item["start_ms"] < start_ms
+            or item["end_ms"] > end_ms
+            or item["end_ms"] <= item["start_ms"]
+        ):
+            return False
+    return True
 
 
-def _unique_text(values) -> list[str]:
-    unique: list[str] = []
-    for value in values:
-        if value not in unique:
-            unique.append(value)
-    return unique
+def _overlap_groups(steps: list[dict[str, object]]) -> list[list[dict[str, object]]]:
+    groups: list[list[dict[str, object]]] = []
+    current = [steps[0]]
+    current_end = steps[0]["end_ms"]
+    for item in steps[1:]:
+        if item["start_ms"] < current_end:
+            current.append(item)
+            current_end = max(current_end, item["end_ms"])
+        else:
+            groups.append(current)
+            current = [item]
+            current_end = item["end_ms"]
+    groups.append(current)
+    return groups
+
+
+def _merge_parallel_group(
+    steps: list[dict[str, object]],
+) -> dict[str, object]:
+    return {
+        "step_id": steps[0]["step_id"],
+        "start_ms": min(item["start_ms"] for item in steps),
+        "end_ms": max(item["end_ms"] for item in steps),
+        "action": "Concurrent timed actions: "
+        + " ".join(
+            _as_sentence(
+                f"From {item['start_ms']} ms to {item['end_ms']} ms, "
+                f"{item['action'].strip()}"
+            )
+            for item in steps
+        ),
+        "continuity_after": "Timed continuity: "
+        + " ".join(
+            _as_sentence(
+                f"By {item['end_ms']} ms, {item['continuity_after'].strip()}"
+            )
+            for item in steps
+        ),
+    }
 
 
 def _as_sentence(value: str) -> str:

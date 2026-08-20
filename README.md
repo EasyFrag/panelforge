@@ -152,9 +152,9 @@ Les marqueurs tels que `<d>[French] ...</d>` sont maintenant normalisés par cod
 
 Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Le journal distingue désormais le résultat du transport modèle (`succeeded`, `truncated`, etc.) de l’issue applicative (`accepted` ou `rejected`) : un LLM terminé correctement n’est plus confondu avec un document accepté par le compilateur.
 
-### I2V — première frame, plan supervisé, prompt I2VA
+### H3 Base / FL2VA — texte et frames frontières facultatives
 
-Les parcours Direct I2V et Ref2V proposent aussi un `Mode rapide` avant leur création. Cette option orchestre les mêmes opérations que l’interface manuelle — génération puis approbation du Brief, du Plan et du Prompt final — sans créer de recette ni d’appel LLM supplémentaire. Les recommandations et warnings restent visibles mais ne déclenchent aucun arbitrage et ne bloquent pas la chaîne. Une erreur de contrat, une réponse tronquée ou un échec réseau arrête immédiatement le parcours ; les étapes déjà approuvées sont conservées et un bouton permet de reprendre depuis la première étape incomplète. Un rechargement ne relance jamais silencieusement une génération.
+Les parcours H3 Base et Ref2V proposent aussi un `Mode rapide` avant leur création. Cette option orchestre les mêmes opérations que l’interface manuelle — génération puis approbation du Brief, du Plan et du Prompt final — sans créer de recette ni d’appel LLM supplémentaire. Les recommandations et warnings restent visibles mais ne déclenchent aucun arbitrage et ne bloquent pas la chaîne. Une erreur de contrat, une réponse tronquée ou un échec réseau arrête immédiatement le parcours ; les étapes déjà approuvées sont conservées et un bouton permet de reprendre depuis la première étape incomplète. Un rechargement ne relance jamais silencieusement une génération.
 
 Ref2V propose trois familles de recettes dans le même sélecteur : mono-plan standard, multi-plan structuré et multi-plan direct expérimental. Cette dernière correspond à `minimax.h3.ref2v.direct.multishot.superfast@0.2.0` et impose son exécution en un seul appel : elle crée une capsule de Brief sans LLM puis confie directement aux images, à l’intention et à la politique de liberté l’unique rédaction du corps H3. PanelForge ajoute seulement l’en-tête canonique des références, normalise les balises et auto-approuve le Prompt ; aucun Plan JSON ni writer intermédiaire n’est créé. `Supervisé` et `Rapide` restent des choix d’orchestration séparés pour les recettes standard. Les écarts de caméra, de nombre de plans ou de timestamp restent des avertissements, tandis qu’un document vide, sans Shot 1, sans champs audio, avec labels invalides ou placeholders est bloqué. La `0.1.0` Plan-first reste chargeable pour les parcours historiques sans être proposée aux nouveaux runs.
 
@@ -162,20 +162,21 @@ Une option de debug peut afficher en direct la trace séparée transmise par le 
 
 Dans ces deux parcours Direct, la liberté créative est présentée sous cinq modes explicites — Factuel strict, Conservateur, Équilibré, Cinématographique et Exploratoire — alignés sur les politiques déjà appliquées par le backend. Ce choix agit directement sur les propositions du Brief ; le Plan et le prompt final n’en héritent qu’indirectement par le Brief approuvé. Les anciennes valeurs numériques restent relisibles sans arrondi ni invalidation artificielle.
 
-L’onglet principal `I2V` utilise le parcours multimodal Direct à une seule image d’entrée :
+L’onglet principal `H3 Base` utilise le checkpoint MiniMax H3-Base-FL2VA. La présence des deux emplacements facultatifs détermine automatiquement le mode de prompt, sans demander un choix technique supplémentaire :
 
 ```text
-première frame native + intention simple
-  → Brief multimodal éditable et approuvé
+intention + [première frame] + [dernière frame]
+  → T2VA / I2VA / L2VA / FL2VA déduit par les entrées
+  → Brief compact éditable et approuvé
   → Plan JSON physique éditable, arbitrable et approuvé
-  → prompt MiniMax H3 I2VA compilé et approuvé
+  → prompt MiniMax H3 Base compilé et approuvé
 ```
 
-Le profil `minimax.h3.i2v.direct@0.1.0` relit directement l’image pendant le Brief et ses révisions. Le planner reçoit à nouveau cette même image comme `<Picture 1>` et réutilise le Plan V2 générique de Ref2V Direct : beats majeurs, contacts, objets persistants, risques, caméra typée et `final_hold_ms`. Le code dérive le début de l’état final et la durée totale ; les durées longues restent des avertissements.
+Le profil `minimax.h3.fl2va.direct@0.1.0` relit directement zéro, une ou deux images pendant le Brief et ses révisions. La recette `minimax.h3.fl2va.direct@0.1.0` réutilise le Plan V2 mono-plan — beats, contacts, risques, caméra typée et `final_hold_ms` — mais compacte le Brief et le schéma transmis au planner. Le writer reçoit uniquement le mode, la propriété des frames et la projection compacte du Plan ; le Brief complet n’est pas répété.
 
-`minimax.h3.i2v.direct@0.2.0` est sélectionnée par défaut. Le writer reste textuel et ne décide plus de la caméra : il produit uniquement `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`, et ne reçoit du Plan que les instants d’insertion `camera_landmarks_ms`, jamais le mouvement ni un placeholder. PanelForge compile ensuite l’instruction I2VA officielle à `0.00` seconde et insère les phrases caméra canoniques aux jalons approuvés. Une révision retire temporairement ces seules phrases avant l’appel, puis les réinsère depuis le contexte persistant. La `0.1.0` reste chargeable comme témoin historique à placeholders.
+PanelForge compile ensuite l’enveloppe officielle : aucun header image en T2VA, ancrage de départ en I2VA, ancrage terminal en L2VA, ou double alignement en FL2VA. Il insère aussi les phrases caméra canoniques aux jalons approuvés. Le modèle ne peut donc ni confondre la frame finale avec l’ouverture, ni modifier l’enveloppe, ni réinventer la caméra lors d’une révision.
 
-Le parcours accepte exactement une première frame et aucun last frame : une seconde référence appartient au contrat Ref2V. L’ancien I2V simple et ses cookbooks restent immuables dans les Archives uniquement pour relire les compositions historiques.
+Les anciennes recettes `minimax.h3.i2v.direct@0.1.0` et `0.2.0` restent immuables et relisibles. L’action « Repartir de ce run » migre leur première frame vers une nouvelle session H3 Base propre, sans copier le Brief, le Plan ni le Prompt historiques.
 
 ### Archive — Ref2V undressing mono-plan
 

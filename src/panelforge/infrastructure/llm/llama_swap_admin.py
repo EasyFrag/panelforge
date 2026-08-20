@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,9 +27,7 @@ class LlamaSwapAdminClient:
         self._opener = opener or urllib.request.urlopen
 
     def unload_all(self) -> None:
-        headers = {"Accept": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        headers = self._headers()
         request = urllib.request.Request(
             f"{self.base_url}/api/models/unload",
             data=b"",
@@ -43,6 +42,54 @@ class LlamaSwapAdminClient:
             raise ConnectionError(f"llama.swap is unreachable: {error.reason}") from error
         if not 200 <= status < 300:
             raise RuntimeError(f"llama.swap returned HTTP {status}")
+
+    def running_models(self) -> tuple[str, ...]:
+        """Return the model identifiers currently loaded by llama.swap."""
+        request = urllib.request.Request(
+            f"{self.base_url}/running",
+            headers=self._headers(),
+            method="GET",
+        )
+        try:
+            with self._opener(request, timeout=self.timeout) as response:
+                status = getattr(response, "status", 200)
+                raw = response.read(1024 * 1024)
+        except urllib.error.URLError as error:
+            raise ConnectionError(f"llama.swap is unreachable: {error.reason}") from error
+        if not 200 <= status < 300:
+            raise RuntimeError(f"llama.swap returned HTTP {status}")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("llama.swap returned invalid JSON") from error
+        if not isinstance(payload, dict) or not isinstance(payload.get("running"), list):
+            raise ValueError("llama.swap returned an invalid running-model list")
+        identifiers: list[str] = []
+        for entry in payload["running"]:
+            if isinstance(entry, str):
+                identifier = entry
+            elif isinstance(entry, dict):
+                identifier = next(
+                    (
+                        entry.get(key)
+                        for key in ("model", "model_id", "id")
+                        if isinstance(entry.get(key), str)
+                    ),
+                    None,
+                )
+            else:
+                identifier = None
+            if not isinstance(identifier, str) or not identifier.strip():
+                raise ValueError("llama.swap returned an invalid running model")
+            if identifier not in identifiers:
+                identifiers.append(identifier)
+        return tuple(identifiers)
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
 
 def _llama_swap_base_url(openai_base_url: str) -> str:

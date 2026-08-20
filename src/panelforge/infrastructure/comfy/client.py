@@ -58,6 +58,31 @@ class ComfyCancellationError(RuntimeError):
     """Raised when PanelForge cannot prove it owns the target ComfyUI job."""
 
 
+class ComfyBusyError(RuntimeError):
+    """Raised when a destructive cleanup is unsafe while jobs are queued."""
+
+
+@dataclass(frozen=True, slots=True)
+class ComfyDeviceStats:
+    """Stable GPU memory counters exposed by ComfyUI ``/system_stats``."""
+
+    name: str
+    device_type: str
+    index: int
+    vram_total: int
+    vram_free: int
+    torch_vram_total: int | None = None
+    torch_vram_free: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ComfySystemStats:
+    """Small read-only projection of ComfyUI runtime statistics."""
+
+    comfyui_version: str | None
+    devices: tuple[ComfyDeviceStats, ...]
+
+
 @dataclass(frozen=True, slots=True)
 class ComfyQueueEntry:
     """Relevant, stable fields extracted from ComfyUI's queue tuple."""
@@ -265,6 +290,38 @@ class ComfyHttpClient:
                 response.get("queue_pending"),
                 phase=ComfyPromptPhase.PENDING,
             ),
+        )
+
+    def get_system_stats(self) -> ComfySystemStats:
+        """Return GPU memory counters without exposing ComfyUI's raw payload."""
+        request = urllib.request.Request(
+            f"{self.base_url}/system_stats",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        response = self._read_json(request)
+        if not isinstance(response, Mapping):
+            raise ValueError("ComfyUI returned an invalid system_stats response")
+        system = response.get("system")
+        version = system.get("comfyui_version") if isinstance(system, Mapping) else None
+        if version is not None and not isinstance(version, str):
+            raise ValueError("ComfyUI returned an invalid version")
+        raw_devices = response.get("devices")
+        if not isinstance(raw_devices, Sequence) or isinstance(raw_devices, (str, bytes)):
+            raise ValueError("ComfyUI returned invalid device statistics")
+        devices = tuple(_parse_device_stats(device) for device in raw_devices)
+        return ComfySystemStats(comfyui_version=version, devices=devices)
+
+    def free_vram(self) -> None:
+        """Unload ComfyUI models and caches only when its queue is idle."""
+        snapshot = self.get_queue()
+        if snapshot.running or snapshot.pending:
+            raise ComfyBusyError(
+                "ComfyUI exécute ou attend encore un rendu ; nettoyage refusé."
+            )
+        self._post_json_without_response(
+            "/free",
+            {"unload_models": True, "free_memory": True},
         )
 
     def get_prompt_status(self, prompt_id: str) -> ComfyPromptStatus:
@@ -536,6 +593,43 @@ def _history_phase(record: Mapping[str, Any]) -> tuple[ComfyPromptPhase, str | N
     }:
         return ComfyPromptPhase.COMPLETED, status_text
     return ComfyPromptPhase.UNKNOWN, status_text
+
+
+def _parse_device_stats(payload: Any) -> ComfyDeviceStats:
+    if not isinstance(payload, Mapping):
+        raise ValueError("ComfyUI returned an invalid device entry")
+    name = payload.get("name")
+    device_type = payload.get("type")
+    index = payload.get("index")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("ComfyUI returned an invalid device name")
+    if not isinstance(device_type, str) or not device_type.strip():
+        raise ValueError("ComfyUI returned an invalid device type")
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise ValueError("ComfyUI returned an invalid device index")
+
+    def memory_value(key: str, *, optional: bool = False) -> int | None:
+        value = payload.get(key)
+        if optional and value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"ComfyUI returned an invalid {key}")
+        return value
+
+    total = memory_value("vram_total")
+    free = memory_value("vram_free")
+    assert total is not None and free is not None
+    if free > total:
+        raise ValueError("ComfyUI returned impossible VRAM counters")
+    return ComfyDeviceStats(
+        name=name.strip(),
+        device_type=device_type.strip(),
+        index=index,
+        vram_total=total,
+        vram_free=free,
+        torch_vram_total=memory_value("torch_vram_total", optional=True),
+        torch_vram_free=memory_value("torch_vram_free", optional=True),
+    )
 
 
 def _validate_prompt_id(prompt_id: Any) -> None:

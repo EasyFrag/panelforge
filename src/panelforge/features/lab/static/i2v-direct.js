@@ -5,17 +5,20 @@
   const quickPipeline = window.PanelForgeQuickPipeline;
   if (!core || !quickPipeline) return;
   const $ = (selector) => document.querySelector(selector);
-  const profileId = "minimax.h3.i2v.direct";
+  const profileId = "minimax.h3.fl2va.direct";
   const profileVersion = "0.1.0";
-  const cookbookId = "minimax.h3.i2v.direct";
-  const preferredCookbookVersion = "0.2.0";
+  const legacyProfileId = "minimax.h3.i2v.direct";
+  const cookbookId = "minimax.h3.fl2va.direct";
+  const preferredCookbookVersion = "0.1.0";
 
   const state = {
     spec: null,
     cookbooks: [],
     cookbook: null,
-    file: null,
-    previewUrl: null,
+    firstFile: null,
+    lastFile: null,
+    firstPreviewUrl: null,
+    lastPreviewUrl: null,
     forkSource: null,
     session: null,
     composition: null,
@@ -39,6 +42,11 @@
     uploadPreview: $("#i2vd-upload-preview"),
     uploadTitle: $("#i2vd-upload-title"),
     uploadCaption: $("#i2vd-upload-caption"),
+    lastImageInput: $("#i2vd-last-image-input"),
+    lastUploadPreview: $("#i2vd-last-upload-preview"),
+    lastUploadTitle: $("#i2vd-last-upload-title"),
+    lastUploadCaption: $("#i2vd-last-upload-caption"),
+    inputMode: $("#i2vd-input-mode"),
     intention: $("#i2vd-intention"),
     freedom: $("#i2vd-freedom"),
     freedomLabel: $("#i2vd-freedom-label"),
@@ -64,6 +72,7 @@
     forkSession: $("#i2vd-fork-session"),
     dock: $("#i2vd-reference-dock"),
     steps: {
+      brief: $("#i2vd-brief-step"),
       plan: $("#i2vd-plan-step"),
       prompt: $("#i2vd-prompt-step"),
     },
@@ -123,8 +132,8 @@
       state.spec = spec;
       state.cookbooks = cookbooks.cookbooks || [];
       populateCookbooks();
-      if (!selectedProfile()) throw new Error("Profil I2V Direct indisponible.");
-      if (!state.cookbook) throw new Error("Cookbook I2V Direct indisponible.");
+      if (!selectedProfile()) throw new Error("Profil H3 Base indisponible.");
+      if (!state.cookbook) throw new Error("Recette H3 Base indisponible.");
       await Promise.all([loadModels(), loadSessions()]);
       render();
     } catch (error) {
@@ -140,7 +149,7 @@
 
   function directCookbooks() {
     return state.cookbooks.filter(
-      (item) => item.id === cookbookId && item.target_mode === "i2v_direct",
+      (item) => item.id === cookbookId && item.target_mode === "fl2va_direct",
     );
   }
 
@@ -177,15 +186,16 @@
   async function loadSessions() {
     const payload = await core.request("/api/prompt-lab/sessions?limit=30");
     const sessions = (payload.sessions || []).filter(
-      (item) => item.session_mode === "direct_multimodal"
-        && item.profile && item.profile.id === profileId
-        && item.profile.version === profileVersion,
+      (item) => item.profile && (
+        (item.session_mode === "h3_base" && item.profile.id === profileId)
+        || (item.session_mode === "direct_multimodal" && item.profile.id === legacyProfileId)
+      ),
     );
     elements.sessionList.replaceChildren();
     if (!sessions.length) {
       const empty = document.createElement("p");
       empty.className = "muted";
-      empty.textContent = "Aucun parcours I2V Direct enregistré.";
+      empty.textContent = "Aucun parcours H3 Base enregistré.";
       elements.sessionList.append(empty);
       return;
     }
@@ -194,7 +204,7 @@
       button.type = "button";
       button.className = "session-link";
       const title = document.createElement("b");
-      title.textContent = session.references[0] ? session.references[0].label : "Première frame";
+      title.textContent = sessionInputModeLabel(session);
       const detail = document.createElement("small");
       detail.textContent = session.brief_complete ? "Brief validé" : "Brief à préparer";
       button.append(title, detail);
@@ -216,22 +226,52 @@
     elements.model.value = modelId;
   }
 
-  function showReferencePreview(reference, caption) {
-    if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
-    state.previewUrl = null;
-    state.file = null;
-    elements.imageInput.value = "";
+  function referenceForRole(session, role) {
+    return session && (session.references || []).find((item) => item.role === role) || null;
+  }
+
+  function sessionInputModeLabel(session) {
+    const first = Boolean(referenceForRole(session, "first_frame"));
+    const last = Boolean(referenceForRole(session, "last_frame"));
+    if (first && last) return "Première + dernière frame · FL2VA";
+    if (first) return "Première frame · I2VA";
+    if (last) return "Dernière frame · L2VA";
+    return "Texte seul · T2VA";
+  }
+
+  function currentInputModeLabel() {
+    const source = state.forkSource;
+    const first = Boolean(state.firstFile || referenceForRole(source, "first_frame"));
+    const last = Boolean(state.lastFile || referenceForRole(source, "last_frame"));
+    if (first && last) return "Mode détecté : FL2VA · première + dernière frame";
+    if (first) return "Mode détecté : I2VA · première frame";
+    if (last) return "Mode détecté : L2VA · dernière frame";
+    return "Mode détecté : T2VA · texte seul";
+  }
+
+  function showReferencePreview(slot, reference, caption) {
+    const first = slot === "first";
+    const urlKey = first ? "firstPreviewUrl" : "lastPreviewUrl";
+    const fileKey = first ? "firstFile" : "lastFile";
+    const input = first ? elements.imageInput : elements.lastImageInput;
+    const preview = first ? elements.uploadPreview : elements.lastUploadPreview;
+    const title = first ? elements.uploadTitle : elements.lastUploadTitle;
+    const captionNode = first ? elements.uploadCaption : elements.lastUploadCaption;
+    if (state[urlKey]) URL.revokeObjectURL(state[urlKey]);
+    state[urlKey] = null;
+    state[fileKey] = null;
+    input.value = "";
     if (!reference) {
-      elements.uploadPreview.removeAttribute("src");
-      elements.uploadPreview.hidden = true;
-      elements.uploadTitle.textContent = "Choisir une image";
-      elements.uploadCaption.textContent = "PNG, JPEG ou WebP · 25 Mio maximum";
+      preview.removeAttribute("src");
+      preview.hidden = true;
+      title.textContent = first ? "Ajouter une première frame" : "Ajouter une dernière frame";
+      captionNode.textContent = "Facultatif · PNG, JPEG ou WebP · 25 Mio maximum";
       return;
     }
-    elements.uploadPreview.src = reference.content_url;
-    elements.uploadPreview.hidden = false;
-    elements.uploadTitle.textContent = reference.label;
-    elements.uploadCaption.textContent = caption;
+    preview.src = reference.content_url;
+    preview.hidden = false;
+    title.textContent = reference.label;
+    captionNode.textContent = caption;
   }
 
   async function openSession(sessionSummary) {
@@ -252,7 +292,8 @@
       state.composition = compositionPayload ? compositionPayload.composition : null;
       state.quickRecord = quickPipeline.load(session.id);
       selectModel(session.model_id);
-      showReferencePreview(session.references[0], "Première frame de ce parcours");
+      showReferencePreview("first", referenceForRole(session, "first_frame"), "Première frame de ce parcours");
+      showReferencePreview("last", referenceForRole(session, "last_frame"), "Dernière frame de ce parcours");
       if (session.active_brief) {
         elements.intention.value = session.active_brief.source_text || "";
         setFreedom(session.active_brief.creative_freedom ?? 35);
@@ -284,10 +325,8 @@
     state.quickRecord = null;
     resetArbitrations();
     selectModel(source.model_id);
-    showReferencePreview(
-      source.references[0],
-      "Première frame réutilisée · modèle et recette modifiables",
-    );
+    showReferencePreview("first", referenceForRole(source, "first_frame"), "Première frame réutilisée");
+    showReferencePreview("last", referenceForRole(source, "last_frame"), "Dernière frame réutilisée");
     const brief = source.active_brief;
     elements.intention.value = brief ? brief.source_text || "" : "";
     setFreedom(brief ? brief.creative_freedom ?? 35 : 35);
@@ -298,23 +337,29 @@
     elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function selectFile() {
-    const file = elements.imageInput.files && elements.imageInput.files[0];
+  function selectFile(slot) {
+    const first = slot === "first";
+    const input = first ? elements.imageInput : elements.lastImageInput;
+    const preview = first ? elements.uploadPreview : elements.lastUploadPreview;
+    const title = first ? elements.uploadTitle : elements.lastUploadTitle;
+    const caption = first ? elements.uploadCaption : elements.lastUploadCaption;
+    const urlKey = first ? "firstPreviewUrl" : "lastPreviewUrl";
+    const fileKey = first ? "firstFile" : "lastFile";
+    const file = input.files && input.files[0];
     if (!file) return;
-    if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
-    state.file = file;
-    state.previewUrl = URL.createObjectURL(file);
-    elements.uploadPreview.src = state.previewUrl;
-    elements.uploadPreview.hidden = false;
-    elements.uploadTitle.textContent = file.name;
-    elements.uploadCaption.textContent = `${Math.ceil(file.size / 1024)} Kio · cliquer pour remplacer`;
+    if (state[urlKey]) URL.revokeObjectURL(state[urlKey]);
+    state[fileKey] = file;
+    state[urlKey] = URL.createObjectURL(file);
+    preview.src = state[urlKey];
+    preview.hidden = false;
+    title.textContent = file.name;
+    caption.textContent = `${Math.ceil(file.size / 1024)} Kio · cliquer pour remplacer`;
     showSetupMessage("");
     render();
   }
 
   function setupValidationError() {
     if (!selectedProfile() || !state.cookbook) return "Le profil Direct est encore en cours de chargement.";
-    if (!state.file && !state.forkSource) return "Ajoutez la première frame.";
     if (!elements.model.value) return "Choisissez un modèle multimodal.";
     if (!elements.intention.value.trim()) return "Décrivez votre intention.";
     return "";
@@ -335,16 +380,28 @@
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model_id: elements.model.value }),
+            body: JSON.stringify({
+              model_id: elements.model.value,
+              profile_id: profileId,
+              profile_version: profileVersion,
+            }),
           },
         );
       } else {
         const profile = selectedProfile();
         const body = new FormData();
-        body.append("images", state.file, state.file.name);
-        body.append("roles", "first_frame");
-        body.append("usages", "first_frame");
-        body.append("evidence_policies", "full");
+        if (state.firstFile) {
+          body.append("images", state.firstFile, state.firstFile.name);
+          body.append("roles", "first_frame");
+          body.append("usages", "first_frame");
+          body.append("evidence_policies", "full");
+        }
+        if (state.lastFile) {
+          body.append("images", state.lastFile, state.lastFile.name);
+          body.append("roles", "last_frame");
+          body.append("usages", "last_frame");
+          body.append("evidence_policies", "full");
+        }
         body.append("model_id", elements.model.value);
         body.append("profile_id", profile.id);
         body.append("profile_version", profile.version);
@@ -508,6 +565,10 @@
     elements.start.disabled = locked || Boolean(state.openingSessionId)
       || Boolean(session) || Boolean(setupValidationError());
     elements.imageInput.disabled = locked || Boolean(session) || Boolean(state.forkSource);
+    elements.lastImageInput.disabled = locked || Boolean(session) || Boolean(state.forkSource);
+    elements.inputMode.textContent = session
+      ? `Mode verrouillé : ${sessionInputModeLabel(session)}`
+      : currentInputModeLabel();
     elements.model.disabled = locked || Boolean(session);
     elements.refreshModels.disabled = locked;
     elements.refreshSessions.disabled = locked;
@@ -517,6 +578,7 @@
     elements.showReasoning.disabled = locked;
     elements.newSession.hidden = !session && !state.forkSource;
     elements.newSession.disabled = locked || Boolean(state.openingSessionId);
+    elements.forkSession.hidden = !session;
     elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
     if (!session) {
       elements.promptReferences.hidden = true;
@@ -550,8 +612,7 @@
       planState.ready,
       planState.draft ? "Plan modifié" : "Plan requis",
     );
-    elements.sessionTitle.textContent = session.references[0]
-      ? session.references[0].label : "Première frame";
+    elements.sessionTitle.textContent = sessionInputModeLabel(session);
     const recipeLabel = compositionReference
       ? `${compositionReference.id}@${compositionReference.version}`
       : state.cookbook ? `${state.cookbook.id}@${state.cookbook.version} · à verrouiller` : "non sélectionnée";
@@ -568,16 +629,25 @@
 
   function renderDock() {
     elements.dock.replaceChildren();
-    const reference = state.session.references[0];
-    if (!reference) return;
-    const card = document.createElement("figure");
-    const image = document.createElement("img");
-    image.src = reference.content_url;
-    image.alt = reference.label;
-    const caption = document.createElement("figcaption");
-    caption.textContent = "<Image 1> → <Picture 1> · Première frame exacte";
-    card.append(image, caption);
-    elements.dock.append(card);
+    const references = state.session.references || [];
+    if (!references.length) {
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = "T2VA · aucune frame d’ancrage";
+      elements.dock.append(note);
+      return;
+    }
+    references.forEach((reference, index) => {
+      const card = document.createElement("figure");
+      const image = document.createElement("img");
+      image.src = reference.content_url;
+      image.alt = reference.label;
+      const caption = document.createElement("figcaption");
+      const role = reference.role === "last_frame" ? "Dernière frame exacte" : "Première frame exacte";
+      caption.textContent = `<Image ${index + 1}> → <Picture ${index + 1}> · ${role}`;
+      card.append(image, caption);
+      elements.dock.append(card);
+    });
   }
 
   function renderPromptReferences(documentState) {
@@ -640,7 +710,7 @@
     identity: "Identité",
     object: "Objet et continuité",
     physical: "Plausibilité physique",
-    reference: "Influence de la première frame",
+    reference: "Influence des frames d’ancrage",
     other: "Autre point",
   };
 
@@ -852,7 +922,7 @@
       payload,
       elements.brief,
       (event) => { if (event.session) state.session = event.session; },
-      revision ? "Brief révisé à partir de la première frame." : "Brief multimodal généré.",
+      revision ? "Brief révisé à partir des entrées." : "Brief H3 Base généré.",
     );
     if (completed) {
       if (revision) elements.brief.instruction.value = "";
@@ -911,9 +981,9 @@
 
   async function ensureComposition() {
     if (state.composition) return;
-    if (!state.cookbook) throw new Error("Choisissez une recette I2V Direct.");
-    const reference = state.session.references[0];
-    if (!reference) throw new Error("La première frame de la session est introuvable.");
+    if (!state.cookbook) throw new Error("Choisissez une recette H3 Base.");
+    const first = referenceForRole(state.session, "first_frame");
+    const last = referenceForRole(state.session, "last_frame");
     const response = await core.request(
       `/api/prompt-lab/sessions/${state.session.id}/composition`,
       {
@@ -922,7 +992,10 @@
         body: JSON.stringify({
           cookbook_id: state.cookbook.id,
           cookbook_version: state.cookbook.version,
-          bindings: { first_frame: [reference.id] },
+          bindings: {
+            first_frame: first ? [first.id] : [],
+            last_frame: last ? [last.id] : [],
+          },
         }),
       },
     );
@@ -995,7 +1068,9 @@
     view.message.textContent = "";
     const traceLabel = view === elements.brief ? "Brief"
       : view === elements.plan ? "Plan" : "Prompt H3";
-    reasoningTrace.begin(traceLabel);
+    const traceStep = view === elements.brief ? elements.steps.brief
+      : view === elements.plan ? elements.steps.plan : elements.steps.prompt;
+    reasoningTrace.begin(traceLabel, traceStep);
     core.updateStreamState(view.stream, { phase: "preparing", text: "Préparation ou chargement du modèle…", progress: null });
     try {
       await core.streamRequest(reasoningTrace.streamUrl(url), {
@@ -1146,7 +1221,8 @@
     state.composition = null;
     state.quickRecord = null;
     resetArbitrations();
-    showReferencePreview(null, "");
+    showReferencePreview("first", null, "");
+    showReferencePreview("last", null, "");
     elements.intention.value = "";
     setFreedom(35);
     elements.quickMode.checked = false;
@@ -1155,7 +1231,8 @@
     render();
   }
 
-  elements.imageInput.addEventListener("change", selectFile);
+  elements.imageInput.addEventListener("change", () => selectFile("first"));
+  elements.lastImageInput.addEventListener("change", () => selectFile("last"));
   elements.form.addEventListener("submit", createSession);
   elements.refreshModels.addEventListener("click", () => loadModels().catch((error) => showSetupMessage(error.message)));
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupMessage(error.message)));

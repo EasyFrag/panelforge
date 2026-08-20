@@ -2,6 +2,7 @@ import json
 import unittest
 
 from panelforge.application.direct_ref2v_plan import (
+    align_direct_ref2v_action_plan_v2_duration,
     canonical_direct_ref2v_action_plan,
     canonical_direct_ref2v_action_plan_v2,
     direct_ref2v_action_plan_schema,
@@ -437,14 +438,14 @@ class DirectRef2VPlanV2Test(unittest.TestCase):
             recovered["technical_adjustments"],
             ["parallel_steps_merged:beat_1"],
         )
-        self.assertTrue(
+        self.assertFalse(
             any(
-                "exactement paralleles" in warning
+                "paralle" in warning.lower()
                 for warning in direct_ref2v_action_plan_warnings_v2(canonical)
             )
         )
 
-    def test_parallel_recovery_never_repairs_partial_overlaps(self):
+    def test_partial_overlaps_are_collapsed_without_creating_steps(self):
         plan = plan_v2()
         plan["beats"][0]["steps"] = [
             {
@@ -463,10 +464,104 @@ class DirectRef2VPlanV2Test(unittest.TestCase):
             },
         ]
 
+        canonical = canonical_direct_ref2v_action_plan_v2(
+            json.dumps(plan),
+            recover_parallel_steps=True,
+        )
+        recovered = json.loads(canonical)
+        steps = recovered["beats"][0]["steps"]
+        self.assertEqual(len(steps), 1)
+        self.assertEqual((steps[0]["start_ms"], steps[0]["end_ms"]), (0, 8000))
+        self.assertIn("From 0 ms to 5000 ms", steps[0]["action"])
+        self.assertIn("From 3000 ms to 8000 ms", steps[0]["action"])
+        self.assertEqual(
+            recovered["technical_adjustments"],
+            ["parallel_steps_merged:beat_1"],
+        )
+
+    def test_parallel_recovery_preserves_sequential_boundaries_and_never_adds_steps(self):
+        plan = plan_v2()
+        plan["beats"][0]["steps"] = [
+            {
+                "step_id": "step_1",
+                "start_ms": 0,
+                "end_ms": 3000,
+                "action": "The subject lifts the cup.",
+                "continuity_after": "The cup is raised.",
+            },
+            {
+                "step_id": "step_2",
+                "start_ms": 1000,
+                "end_ms": 5000,
+                "action": "Light moves across the table.",
+                "continuity_after": "The table remains illuminated.",
+            },
+            {
+                "step_id": "step_3",
+                "start_ms": 5000,
+                "end_ms": 8000,
+                "action": "The subject lowers the cup.",
+                "continuity_after": "The cup rests on the table.",
+            },
+        ]
+
+        canonical = canonical_direct_ref2v_action_plan_v2(
+            json.dumps(plan),
+            recover_parallel_steps=True,
+        )
+        steps = json.loads(canonical)["beats"][0]["steps"]
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(
+            [(item["start_ms"], item["end_ms"]) for item in steps],
+            [(0, 5000), (5000, 8000)],
+        )
+
+    def test_parallel_recovery_keeps_gaps_invalid(self):
+        plan = plan_v2()
+        plan["beats"][0]["steps"] = [
+            {
+                "step_id": "step_1",
+                "start_ms": 0,
+                "end_ms": 3000,
+                "action": "The subject lifts the cup.",
+                "continuity_after": "The cup is raised.",
+            },
+            {
+                "step_id": "step_2",
+                "start_ms": 4000,
+                "end_ms": 8000,
+                "action": "The subject lowers the cup.",
+                "continuity_after": "The cup rests on the table.",
+            },
+        ]
+
         with self.assertRaisesRegex(ValueError, "steps must be contiguous"):
             canonical_direct_ref2v_action_plan_v2(
                 json.dumps(plan),
                 recover_parallel_steps=True,
+            )
+
+    def test_explicit_total_duration_rederives_only_the_final_hold(self):
+        plan = plan_v2()
+        self.assertEqual(plan["final_state"]["final_hold_ms"], 2000)
+
+        canonical = align_direct_ref2v_action_plan_v2_duration(
+            json.dumps(plan),
+            8000,
+        )
+        recovered = json.loads(canonical)
+        self.assertEqual(recovered["beats"][0]["end_ms"], 8000)
+        self.assertEqual(recovered["final_state"]["final_hold_ms"], 0)
+        self.assertEqual(
+            recovered["technical_adjustments"],
+            ["final_hold_adjusted:2000:0"],
+        )
+
+    def test_explicit_total_duration_never_compresses_authored_actions(self):
+        with self.assertRaisesRegex(ValueError, "action timeline exceeds"):
+            align_direct_ref2v_action_plan_v2_duration(
+                json.dumps(plan_v2()),
+                7000,
             )
 
     def test_v1_contract_is_unchanged(self):

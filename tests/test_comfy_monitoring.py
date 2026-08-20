@@ -13,6 +13,7 @@ sys.path.insert(0, str(SRC_ROOT))
 
 from panelforge.infrastructure.comfy import (
     ComfyCancelAction,
+    ComfyBusyError,
     ComfyCancellationError,
     ComfyHttpClient,
     ComfyPromptPhase,
@@ -39,6 +40,63 @@ def queue_entry(prompt_id, *, client_id="video-lab", number=1):
 
 
 class ComfyMonitoringTest(unittest.TestCase):
+    @patch("panelforge.infrastructure.comfy.client.urllib.request.urlopen")
+    def test_reads_comfy_system_gpu_memory_stats(self, urlopen):
+        payload = {
+            "system": {"comfyui_version": "0.33.2"},
+            "devices": [
+                {
+                    "name": "NVIDIA RTX PRO 6000",
+                    "type": "cuda",
+                    "index": 0,
+                    "vram_total": 103079215104,
+                    "vram_free": 64424509440,
+                    "torch_vram_total": 42949672960,
+                    "torch_vram_free": 32212254720,
+                }
+            ],
+        }
+        urlopen.return_value = FakeHttpResponse(json.dumps(payload).encode("utf-8"))
+        client = ComfyHttpClient("http://127.0.0.1:8188", client_id="runtime")
+
+        stats = client.get_system_stats()
+
+        self.assertEqual(stats.comfyui_version, "0.33.2")
+        self.assertEqual(stats.devices[0].name, "NVIDIA RTX PRO 6000")
+        self.assertEqual(stats.devices[0].vram_free, 64424509440)
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:8188/system_stats")
+
+    @patch("panelforge.infrastructure.comfy.client.urllib.request.urlopen")
+    def test_frees_comfy_models_and_cache_only_when_queue_is_idle(self, urlopen):
+        urlopen.side_effect = [
+            FakeHttpResponse(queue_payload()),
+            FakeHttpResponse(b""),
+        ]
+        client = ComfyHttpClient("http://127.0.0.1:8188", client_id="runtime")
+
+        client.free_vram()
+
+        request = urlopen.call_args_list[1].args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:8188/free")
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(
+            json.loads(request.data),
+            {"unload_models": True, "free_memory": True},
+        )
+
+    @patch("panelforge.infrastructure.comfy.client.urllib.request.urlopen")
+    def test_refuses_to_free_comfy_while_a_job_is_running(self, urlopen):
+        urlopen.return_value = FakeHttpResponse(
+            queue_payload(running=[queue_entry("running-1")])
+        )
+        client = ComfyHttpClient("http://127.0.0.1:8188", client_id="runtime")
+
+        with self.assertRaises(ComfyBusyError):
+            client.free_vram()
+
+        self.assertEqual(urlopen.call_count, 1)
+
     @patch("panelforge.infrastructure.comfy.client.urllib.request.urlopen")
     def test_get_queue_normalizes_running_and_pending_entries(self, urlopen):
         urlopen.return_value = FakeHttpResponse(

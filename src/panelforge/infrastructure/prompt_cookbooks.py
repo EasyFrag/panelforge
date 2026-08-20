@@ -93,7 +93,7 @@ class LocalPromptCookbookCatalog:
         if not isinstance(manifest, dict):
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
         schema_version = manifest.get("schema_version")
-        if schema_version not in {2, 3, 4, 5, 6}:
+        if schema_version not in {2, 3, 4, 5, 6, 7}:
             raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         expected = {
             "schema_version",
@@ -169,8 +169,14 @@ class LocalPromptCookbookCatalog:
                     "required_shots",
                     allow_empty=schema_version >= 4,
                 ),
-                minimum_references=_positive_int(
-                    raw_slot["minimum_references"], "minimum_references"
+                minimum_references=(
+                    _nonnegative_int(
+                        raw_slot["minimum_references"], "minimum_references"
+                    )
+                    if schema_version >= 7
+                    else _positive_int(
+                        raw_slot["minimum_references"], "minimum_references"
+                    )
                 ),
                 maximum_references=_positive_int(
                     raw_slot["maximum_references"], "maximum_references"
@@ -326,6 +332,12 @@ def _text(value: object, name: str) -> str:
 def _positive_int(value: object, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _nonnegative_int(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
     return value
 
 

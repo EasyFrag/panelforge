@@ -1,0 +1,7 @@
+MODE AND FRAME OWNERSHIP
+{{REFERENCE_MAPPING}}
+
+COMPACT APPROVED PLAN
+{{PLAN}}
+
+Return only the complete three-field H3 Base body. The final state begins at derived_timing.final_state_start_ms and reaches the final frame anchor at derived_timing.duration_ms. Do not repeat the Brief, any local filename, or any application-owned header.

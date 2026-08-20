@@ -40,6 +40,7 @@ class PromptSessionMode(StrEnum):
 
     ANALYZED = "analyzed"
     DIRECT_MULTIMODAL = "direct_multimodal"
+    H3_BASE = "h3_base"
 
 
 _DIRECT_REFERENCE_REQUIRED_USES = {
@@ -158,8 +159,8 @@ class BriefRevision:
             raise ValueError("creative_freedom must be between 0 and 100")
         if not isinstance(self.origin, RevisionOrigin):
             raise TypeError("origin must be a RevisionOrigin")
-        if not isinstance(self.references, tuple) or not self.references:
-            raise ValueError("references must be a non-empty tuple")
+        if not isinstance(self.references, tuple):
+            raise TypeError("references must be a tuple")
         reference_ids: set[str] = set()
         for reference in self.references:
             if not isinstance(reference, BriefReferenceSnapshot):
@@ -530,15 +531,17 @@ class PromptLabSession:
             _require_text(value, name)
         if not isinstance(self.references, tuple):
             raise TypeError("references must be a tuple")
-        if not self.references:
-            raise ValueError("references must not be empty")
         if not isinstance(self.session_mode, PromptSessionMode):
             raise TypeError("session_mode must be a PromptSessionMode")
+        if not self.references and self.session_mode is not PromptSessionMode.H3_BASE:
+            raise ValueError("references must not be empty")
         if (
             self.session_mode is PromptSessionMode.DIRECT_MULTIMODAL
             and len(self.references) > 3
         ):
             raise ValueError("direct multimodal sessions support at most 3 references")
+        if self.session_mode is PromptSessionMode.H3_BASE and len(self.references) > 2:
+            raise ValueError("H3 Base sessions support at most 2 frame references")
         reference_ids: set[str] = set()
         for reference in self.references:
             if not isinstance(reference, PromptReference):
@@ -546,7 +549,17 @@ class PromptLabSession:
             if reference.reference_id in reference_ids:
                 raise ValueError("references must have unique IDs")
             reference_ids.add(reference.reference_id)
-        if self.session_mode is PromptSessionMode.DIRECT_MULTIMODAL:
+        if self.session_mode in {
+            PromptSessionMode.DIRECT_MULTIMODAL,
+            PromptSessionMode.H3_BASE,
+        }:
+            if self.session_mode is PromptSessionMode.H3_BASE and any(
+                reference.role not in {"first_frame", "last_frame"}
+                for reference in self.references
+            ):
+                raise ValueError(
+                    "H3 Base references must be first_frame or last_frame"
+                )
             for role in ("first_frame", "last_frame"):
                 if sum(reference.role == role for reference in self.references) > 1:
                     raise ValueError(
@@ -567,6 +580,13 @@ class PromptLabSession:
                 raise TypeError("brief_revisions must contain BriefRevision values")
             if revision.revision_id in brief_revision_ids:
                 raise ValueError("brief revisions must have unique IDs")
+            if (
+                self.session_mode is not PromptSessionMode.H3_BASE
+                and not revision.references
+            ):
+                raise ValueError(
+                    "non-H3-Base brief revisions require reference snapshots"
+                )
             if self.session_mode is PromptSessionMode.ANALYZED and any(
                 reference.analysis_revision_id is None
                 for reference in revision.references
@@ -574,7 +594,10 @@ class PromptLabSession:
                 raise ValueError(
                     "analyzed brief snapshots require analysis revision IDs"
                 )
-            if self.session_mode is PromptSessionMode.DIRECT_MULTIMODAL and any(
+            if self.session_mode in {
+                PromptSessionMode.DIRECT_MULTIMODAL,
+                PromptSessionMode.H3_BASE,
+            } and any(
                 reference.analysis_revision_id is not None
                 for reference in revision.references
             ):

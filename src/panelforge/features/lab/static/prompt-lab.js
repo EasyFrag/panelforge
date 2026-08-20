@@ -345,7 +345,7 @@
       if (panel) panel.hidden = true;
     }
 
-    function begin(stageLabel) {
+    function begin(stageLabel, anchor = null) {
       if (!enabled()) {
         reset();
         return;
@@ -359,8 +359,17 @@
       }
       if (label) label.textContent = `${stageLabel} \u00b7 direct`;
       if (panel) {
+        if (anchor && typeof anchor.before === "function") {
+          anchor.open = true;
+          anchor.before(panel);
+        }
         panel.hidden = false;
         panel.open = true;
+        if (anchor) {
+          window.requestAnimationFrame(() => {
+            panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          });
+        }
       }
     }
 

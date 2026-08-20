@@ -8,14 +8,15 @@
 
 - Works:
   - Image Lab exécute `character.change_view@0.2.0`; Prompt Lab fournit streaming, carillon de fin renforcé, révisions, approbations et journal borné des appels LLM.
-  - Les onglets produits sont désormais `I2V` et `Ref2V`, fondés sur les parcours Direct ; les anciens I2V simple et Ref2V spécialisé sont relégués dans une vue Archives en lecture seule sans supprimer leurs cookbooks ni leurs compositions.
+  - Les onglets vidéo produits sont désormais `H3 Base` et `Ref2V`, fondés sur les parcours Direct ; les anciens I2V simple et Ref2V spécialisé sont relégués dans une vue Archives en lecture seule sans supprimer leurs cookbooks ni leurs compositions.
   - Ref2V réalise 1–3 images natives → Brief multimodal → Plan JSON multimodal → prompt H3, sans Observation séparée.
   - `minimax.h3.ref2v.direct@0.3.3` est le mono-plan robuste par défaut. Son writer ne reçoit que `camera_landmarks_ms`; PanelForge insère les clauses caméra depuis le Plan. La `0.3.2` reste le témoin historique à placeholders.
   - `minimax.h3.ref2v.direct.multishot@0.2.0` ajoute séparément 2 à 6 plans et leurs coupes franches, avec le même Brief, Plan et arbitrage ; la `0.1.0` à trois plans reste un témoin immuable.
   - Le sélecteur Ref2V sépare maintenant les recettes `Mono-plan standard`, `Multi-plan structuré` et `Multi-plan direct`. Cette dernière correspond au cookbook interne `minimax.h3.ref2v.direct.multishot.superfast@0.2.0` et impose un seul appel LLM direct : capsule Brief déterministe, images natives, mapping et liberté produisent immédiatement le corps H3. PanelForge ajoute seulement le header canonique, normalise les balises et auto-approuve le Prompt ; aucun Plan JSON n'est créé. La `0.1.0` Plan-first reste chargeable comme recette historique mais n'est pas proposée aux nouveaux runs.
   - Le Plan multi V2 dérive les IDs, coupes, durée et `camera_N` depuis l’ordre du tableau, structure la composition d’ouverture et le raccord spatial/motion de chaque plan, et avertit sur les répétitions exactes entre plans adjacents.
   - Le writer multi V2 reçoit une projection dynamique sans caméra ni placeholder ; PanelForge compile ensuite les champs `shot_1` à `shot_N`, les headings, les timestamps et les phrases caméra canoniques. Arbitrage et révision conservent le nombre de plans approuvé.
-  - I2V réalise une première frame native → Brief multimodal → Plan V2 arbitrable → prompt I2VA compilé avec `minimax.h3.i2v.direct@0.2.0`; la `0.1.0` reste le témoin à placeholders.
+  - H3 Base utilise le nouveau profil/cookbook `minimax.h3.fl2va.direct@0.1.0` : intention avec zéro, une ou deux frames facultatives → Brief compact → Plan V2 arbitrable → prompt H3 compilé. La présence des rôles first/last dérive T2VA, I2VA, L2VA ou FL2VA ; le writer ne reçoit ni le Brief complet, ni le header, ni la caméra.
+  - Les anciens `minimax.h3.i2v.direct@0.1.0` et `0.2.0` restent immuables et relisibles. Repartir d’un ancien run crée une session H3 Base propre avec les mêmes assets et de nouveaux IDs.
   - Pour I2V `0.2.0` et Ref2V mono `0.3.3`, le contexte persiste directive et horaire, le writer ne voit aucun mouvement/placeholder, et génération, édition ou révision réinsèrent déterministiquement la phrase canonique au bon jalon.
   - Les recettes restent sélectionnables par `id@version` avant le Plan puis verrouillées dans la composition; le multi-plan dérive headings, coupes, durée et caméra sans horloge redondante du LLM.
   - Ref2V conserve la recette sélectionnée après `Nouveau`, avertit sans bloquer si une intention multi-plan utilise le mono-plan et exige une confirmation explicite du mapping des rôles, invalidée à chaque modification.
@@ -29,6 +30,9 @@
   - `Nouveau parcours` est disponible dans la barre supérieure à côté de la libération VRAM ; les ouvertures de runs et les chaînes combinées sont protégées contre les réponses asynchrones obsolètes.
   - Les nouveaux parcours préfèrent automatiquement un modèle dont l’identifiant contient `Qwen3.8-27B`, avec repli sur Qwen 3.6 puis sur le premier modèle exposé.
   - Le transport ComfyUI expose maintenant queue/statut normalisés, annulation ciblée via Jobs API avec fallback legacy prudent, et URL WebSocket client-scoped. La preview Video Lab passe par un relais WebSocket PanelForge same-origin qui transmet les événements texte/binaires et évite le rejet CORS du navigateur.
+  - Audit runtime du 20/08 : ComfyUI `0.33.2` expose nativement `GET /system_stats` et `POST /free`. Sur la RTX PRO 6000, `system_stats` fournit VRAM totale/libre globale et compteurs PyTorch Comfy, sans attribution fiable par processus ; `/free` accepte `unload_models` et `free_memory`. L’extension installée `ComfyUI-Crystools` diffuse déjà utilisation GPU, VRAM et température via l’événement WebSocket `crystools.monitor`.
+  - La topbar interroge à 1 Hz la VRAM GPU globale, la file ComfyUI et les modèles llama.swap, avec une température Crystools transmise par relais WebSocket same-origin. Les pannes restent partielles et non bloquantes, les nettoyages LLM/Comfy sont séparés et le nettoyage Comfy refuse toute file active. Dans H3 Base/Ref2V, `Repartir de ce run` est placé à côté de `Nouveau run` et la trace modèle se déplace juste au-dessus de l’étape active.
+  - Le bandeau runtime ne montre plus l’utilisation GPU. Il regroupe deux jauges compactes : VRAM globale verte jusqu’à 30 % puis jaune, et température ramenée sur une échelle 25–100 °C (verte jusqu’à 60, orange jusqu’à 80, rouge au-delà). Les services sains n’occupent plus de pastille ; seuls les services indisponibles affichent une alerte. Les actions de parcours et de maintenance sont séparées visuellement, dans l’ordre `VRAM LLM`, puis `VRAM Comfy`. Validation complète : 642 tests verts.
   - Le Video Lab exécute la recette immuable expérimentale `video.generate.ref2v/minimax-h3-ref2v@0.1.0` avec une à trois références ordonnées, prompt, ratio, mégapixels, durée, steps et seed. Il compile les slots réellement utilisés, conserve un historique séparé et limite l'exécution à un rendu actif.
   - Sa preview live consomme les événements KJ JPEG/WebP/MP4 sur un client WebSocket ComfyUI isolé ; l'interface distingue connexion, disponibilité et erreur du relais sans interrompre le rendu. La vidéo MP4 finale avec audio est importée comme asset. Une annulation cible le job exact et reste en `cancel_pending` si ComfyUI ne confirme pas l'arrêt.
   - Les assets vidéo acceptent les requêtes HTTP Range nécessaires au lecteur natif. La sortie finale conserve uniquement le lecteur vidéo HTML standard, sans bouton, avertissement ni diagnostic audio supplémentaire ; chaque nouvel asset reste chargé via une URL anti-cache stable.
@@ -40,15 +44,22 @@
   - Storyboard Lab peut préremplir KREA2 avec le prompt actuellement édité et une provenance vérifiée côté serveur, sans lancer automatiquement le rendu. Les runs détachés ou en annulation incertaine sont réconciliés avec ComfyUI avant de réserver le slot, afin d’importer une sortie tardive plutôt que de la perdre.
   - La sortie PNG KREA2 conserve maintenant son ratio naturel dans un cadre plafonné à 760 × 600 px environ, sans étirement à toute la largeur ou hauteur de la zone de résultat.
   - Storyboard affiche désormais en option la trace modèle séparée pendant la génération, via le même composant borné et la même préférence locale que les parcours Direct ; cette trace reste éphémère et absente des runs.
-  - Les Plans Direct mono récupèrent uniquement le cas non ambigu où plusieurs steps couvrent exactement tout le même beat : ils sont fusionnés en une tranche simultanée avec provenance et warning. Les chevauchements partiels, trous et intervalles distincts restent bloquants.
-  - Validation locale : 607 tests passent.
+  - Les Plans Direct mono réparent désormais silencieusement les actions parallèles dont les intervalles se chevauchent et couvrent leur beat sans trou : chaque groupe connecté est fusionné en un seul step composite avec ses timings internes, les frontières déjà séquentielles restent intactes et aucun step artificiel n’est créé. Les trous, bornes hors beat et formes ambiguës restent bloquants.
+  - H3 Base rend une durée explicite dans l’intention autoritaire sur le total vidéo, hold inclus, sans retimer les actions : le hold seul est recalculé et une timeline d’action déjà trop longue reste bloquée. Le writer distingue maintenant `final_state_start_ms` du dernier ancrage `duration_ms`, les noms locaux de fichiers sont retirés des entrées LLM et interdits dans le prompt final, et les diagnostics propres à ce parcours utilisent « H3 Base » plutôt que l’ancien nom Direct I2VA.
+  - L’extraction de durée H3 Base privilégie désormais une consigne totale explicite (`plan de N secondes`, `durée : N secondes`) sur les durées incidentes présentes dans un ancien prompt collé comme contre-exemple. Deux consignes explicites réellement incompatibles restent bloquantes.
+  - Validation locale : 633 tests passent, dont le candidat Gemma réel à chevauchements partiels, durée totale, contre-exemple à durée différente, suppression des filenames, diagnostics H3 Base, les quatre modes d’entrée, génération/révision compilée et non-régressions legacy.
+  - Image Lab borne maintenant les noms longs de checkpoints, les pastilles de métadonnées et les entrées de l’historique KREA2 ; ils ne peuvent plus élargir la grille ni créer un défilement horizontal de page. Le cache CSS a été incrémenté et 23 tests UI/Web ciblés passent.
 - Broken / missing:
+  - Les deux échecs historiques H3 Base Gemma (`prompt-0283335687c3478a8ca1a68722e4efa6`) dus aux chevauchements partiels sont couverts par le correctif déterministe, et le candidat joint se canonicalise en un step par beat avec une durée totale exacte de 7 s. Le faux conflit 12 s courant / 13 s ancien contre-exemple est également couvert ; un nouveau smoke UI réel reste à lancer pour confirmer le flux complet.
+  - Le premier smoke FL2VA (`prompt-8c186641201146d097988b15aef0cf3c`) avait révélé une confusion entre état final à 6,0 s et fin à 6,5 s. Le contrat et le calcul distinguent désormais début de l’état final et ancrage final, mais le rendu H3 réel doit encore être requalifié.
+  - Le nouveau parcours H3 Base est validé contractuellement mais n’a pas encore de smoke qualitatif réel sur T2VA/I2VA/L2VA/FL2VA.
   - Le dialogue traversant une coupe et les transitions stylisées ne sont pas couverts par la recette multi-plan flexible.
+  - Le dernier run H3 Base a montré une perte de dialogue exact : les citations de l’intention ont été paraphrasées dans le Brief compact, puis la réponse parlée a disparu du Plan. Le writer ne recevant que ce Plan, le compilateur ne pouvait pas la restaurer. Sujet à surveiller ; aucun changement de recette dans le patch runtime.
   - Une référence secondaire brute peut encore influencer le décor malgré les frontières textuelles.
-  - Le Super rapide direct accepte volontairement les écarts H3 non fatals comme warnings ; qualifier l'obéissance réelle, la structure des coupes et la densité des prompts par modèle avant de l'élargir au mono-plan ou à I2V.
-  - Les contrôleurs UI I2V Direct et Ref2V Direct partagent le backend mais gardent encore du code JavaScript dupliqué.
+  - Le Super rapide direct accepte volontairement les écarts H3 non fatals comme warnings ; qualifier l'obéissance réelle, la structure des coupes et la densité des prompts par modèle avant de l'élargir au mono-plan.
+  - Les contrôleurs UI H3 Base et Ref2V Direct partagent le backend mais gardent encore du code JavaScript dupliqué.
   - KREA2 V1 ne gère ni LoRA, ni preview, ni découpe automatique de la planche en panels indépendants, ni transfert de ces panels vers Ref2V.
-  - Les autres formes d'overlap temporel restent volontairement strictes ; la récupération ne couvre que plusieurs steps tous identiques aux bornes exactes de leur beat.
+  - La récupération temporelle refuse volontairement tout trou, intervalle hors beat ou timeline d’action dépassant une durée totale explicite ; elle ne compresse jamais silencieusement les actions.
   - Deux arrêts llama.swap `upstream command exited prematurely` sont présents dans les historiques disponibles ; ils sont distincts des rejets contractuels et les relances suivantes réussissent.
   - Audit de poids Ref2V : sur le dernier Plan Qwen, le user prompt fait 18 103 caractères, dont 8 815 de Brief et 8 921 de schéma/tail ; le writer reçoit ensuite 15 329 caractères, dont le même Brief. Les moyennes Qwen observées atteignent environ 21,9 k caractères d’entrée pour le Plan, 21,6 k pour le writer et 32,8 k pour reconcile.
 
@@ -57,26 +68,27 @@
 - Les recettes publiées restent immuables et une composition conserve sa version.
 - Les variantes partagent leurs contrats et leur orchestration; les différences de contexte writer sont déclarées dans le manifeste.
 - Les warnings n’empêchent pas la validation; seules les erreurs structurelles ou contractuelles bloquent.
-- I2V et Ref2V restent deux produits et deux contrôleurs séparés ; seuls streaming, stockage, son et protocole H3 sont partagés.
+- H3 Base/FL2VA et Ref2V restent deux produits et deux contrôleurs séparés ; H3 Base déduit T2VA, I2VA, L2VA ou FL2VA depuis la présence facultative des frames initiale/finale, tandis que Ref2V conserve ses références libres.
 - Les cookbooks legacy publiés restent immuables et chargeables, mais ne sont plus proposés pour créer un parcours depuis l’interface.
-- I2V accepte exactement une première frame : I2VA uniquement. FL2VA reste hors périmètre.
+- Le parcours I2V historique reste immuable et lisible ; les nouveaux parcours H3 Base utilisent une nouvelle recette/version et ne présentent pas I2VA comme un checkpoint distinct de H3-Base-FL2VA.
 - KREA2 est une recette Image Lab dédiée et versionnée ; le modèle, le ratio, les mégapixels et la seed sont variables, tandis que le sampling et les modèles auxiliaires restent immuables dans la V1.
 
 ## Next steps
 
-1. Ajouter ensemble une recette I2V mono compacte et une recette FL2V dédiée (première frame requise, dernière frame facultative côté UX), sans modifier I2V `0.2.0`.
-2. Prototyper ensuite une recette Ref2V mono `0.4.0` compacte en A/B : Brief projeté, schéma compact et writer sans Brief intégral ; conserver `0.3.3` intacte.
-3. Faire un smoke réel KREA2 puis ajouter la télémétrie GPU read-only avant toute bascule automatique de VRAM.
+1. Relancer le cas Gemma I2VA de 7 s puis faire un smoke H3 Base sur T2VA/I2VA/L2VA/FL2VA avec Qwen3.8, en vérifiant total exact, état final et absence de filename.
+2. Prototyper une recette Ref2V mono `0.4.0` compacte en A/B : Brief projeté, schéma compact et writer sans Brief intégral ; conserver `0.3.3` intacte.
+3. Faire un smoke navigateur du bandeau runtime avec ComfyUI et llama.swap alternativement arrêtés, puis vérifier la commande ComfyUI au repos et son refus pendant un rendu.
 
 ## Risks / open questions
 
 - Le garde-fou rejette exhaustivement les formulations caméra canoniques et garde une détection volontairement étroite des paraphrases libres pour ne pas confondre mouvement du sujet et caméra ; qualifier ses faux positifs/négatifs sur des sorties réelles.
 - Un Plan cohérent ne garantit pas à lui seul la fidélité du moteur vidéo aux références brutes.
-- FL2VA n’entre pas dans ce parcours : ne pas laisser une seconde image modifier silencieusement le contrat I2VA.
+- La grammaire H3 Base dépend de l’entrée : aucun header image en T2VA, ancrage 0,00 s en I2VA, ancrage terminal en L2VA et double ancrage en FL2VA ; le compilateur doit en rester la source de vérité.
 - Les modes de liberté restent une politique globale du Brief ; de vrais axes indépendants « enrichissement visuel » et « caméra/rythme » exigeraient un futur contrat explicite et ne doivent pas être simulés par l’UX seule.
 - Les Archives chargent aujourd’hui 200 sessions avant filtrage client ; une pagination ou un filtre serveur sera nécessaire si le volume dépasse ce seuil.
 - La durée Video Lab et les timestamps écrits dans le prompt restent deux entrées indépendantes ; l'interface affiche la durée effective quantifiée mais ne réécrit jamais le prompt silencieusement.
 - Le workflow H3 conserve en V1 l'historique et l'archive Spectrum en VRAM ; mesurer son coût réel avant d'automatiser la cohabitation avec llama.swap.
+- `system_stats` mesure bien la VRAM GPU globale mais ne permet pas d'isoler exactement llama.swap, ComfyUI et les autres processus ; afficher une telle répartition comme exacte serait trompeur sans endpoint NVML/nvidia-smi sur le serveur GPU.
 - Une coupure de PanelForge entre la soumission ComfyUI et la persistance de son identifiant reste une fenêtre transactionnelle externe non récupérable sans idempotence côté serveur.
 - La recette Storyboard exige un JSON strict en un seul essai : la qualité dépendra de la discipline structurelle du modèle. KREA2 peut encore fusionner des cellules ou perdre des détails, surtout sur une grille de neuf panels ; les premiers A/B doivent mesurer ces écarts avant de modifier le squelette fixe.
 - La présence d’un modèle dans ComfyUI ne suffit pas à le qualifier : seuls les checkpoints de l’allowlist sont sélectionnables, et les performances/consommations 3–4 MP doivent encore être mesurées sur la RTX 6000.

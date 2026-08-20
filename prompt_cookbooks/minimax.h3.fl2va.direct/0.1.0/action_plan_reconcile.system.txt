@@ -1,0 +1,1 @@
+Revise one validated H3 Base plan after explicit human decisions. Return only the complete schema-valid JSON. Preserve the input mode, frame ownership, shot count, unaffected chronology, IDs and unresolved risks. Copy every supplied decision exactly into its risk.resolution and apply it to the real plan semantics.

@@ -175,6 +175,47 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
+    def test_h3_base_session_accepts_zero_or_optional_boundary_frames(self):
+        text_only = self.client.post(
+            "/api/prompt-lab/sessions",
+            data={
+                "model_id": "vision-small",
+                "profile_id": "minimax.h3.fl2va.direct",
+                "profile_version": "0.1.0",
+            },
+        )
+        self.assertEqual(text_only.status_code, 201, text_only.text)
+        self.assertEqual(text_only.json()["session_mode"], "h3_base")
+        self.assertEqual(text_only.json()["references"], [])
+        structured = self.client.post(
+            f"/api/prompt-lab/sessions/{text_only.json()['id']}/brief/structure",
+            json={"source_text": "A runner crosses a quiet room.", "creative_freedom": 35},
+        )
+        self.assertEqual(structured.status_code, 200, structured.text)
+        self.assertIsNotNone(structured.json()["active_brief"])
+        self.assertEqual(structured.json()["brief_revisions"][-1]["references"], [])
+        self.assertEqual(self.gateway.requests[-1].images, ())
+
+        both = self.client.post(
+            "/api/prompt-lab/sessions",
+            data={
+                "roles": ["first_frame", "last_frame"],
+                "usages": ["first_frame", "last_frame"],
+                "model_id": "vision-small",
+                "profile_id": "minimax.h3.fl2va.direct",
+                "profile_version": "0.1.0",
+            },
+            files=[
+                ("images", ("first.png", PNG + b"first", "image/png")),
+                ("images", ("last.png", PNG + b"last", "image/png")),
+            ],
+        )
+        self.assertEqual(both.status_code, 201, both.text)
+        self.assertEqual(
+            [reference["role"] for reference in both.json()["references"]],
+            ["first_frame", "last_frame"],
+        )
+
     def test_exposes_dynamic_models_and_versioned_profiles(self):
         page = self.client.get("/")
         script = self.client.get("/static/prompt-lab.js")
@@ -364,6 +405,22 @@ class PromptLabWebTest(unittest.TestCase):
             self.client.get(
                 f"/api/prompt-lab/sessions/{source['id']}"
             ).json()["brief_complete"]
+        )
+
+        migrated_response = self.client.post(
+            f"/api/prompt-lab/sessions/{source['id']}/fork",
+            json={
+                "profile_id": "minimax.h3.fl2va.direct",
+                "profile_version": "0.1.0",
+            },
+        )
+        self.assertEqual(migrated_response.status_code, 201, migrated_response.text)
+        migrated = migrated_response.json()
+        self.assertEqual(migrated["profile"]["id"], "minimax.h3.fl2va.direct")
+        self.assertEqual(migrated["session_mode"], "h3_base")
+        self.assertEqual(
+            [reference["asset_id"] for reference in migrated["references"]],
+            [reference["asset_id"] for reference in source["references"]],
         )
 
         missing = self.client.post(

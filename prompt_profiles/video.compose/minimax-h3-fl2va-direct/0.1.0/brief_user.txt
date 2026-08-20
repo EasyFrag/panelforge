@@ -1,0 +1,9 @@
+LIBERTÉ : {creative_freedom}/100 — {creative_policy}
+
+FRAMES NATIVES ET RÔLES
+{reference_context}
+
+INTENTION
+{source_text}
+
+Relis les éventuelles images natives et retourne le Brief compact aux neuf sections exactes. Si aucune image n'est jointe, écris explicitement « aucune frame fournie » dans la section des références.

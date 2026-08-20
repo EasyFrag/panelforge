@@ -38,8 +38,8 @@ class CookbookBinding:
 
     def __post_init__(self) -> None:
         _require_text(self.slot_id, "slot_id")
-        if not isinstance(self.reference_ids, tuple) or not self.reference_ids:
-            raise ValueError("reference_ids must be a non-empty tuple")
+        if not isinstance(self.reference_ids, tuple):
+            raise TypeError("reference_ids must be a tuple")
         if len(set(self.reference_ids)) != len(self.reference_ids):
             raise ValueError("reference_ids must not contain duplicates")
         for reference_id in self.reference_ids:

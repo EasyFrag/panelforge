@@ -85,6 +85,7 @@
     forkSession: $("#ref2vd-fork-session"),
     dock: $("#ref2vd-reference-dock"),
     steps: {
+      brief: $("#ref2vd-brief-step"),
       plan: $("#ref2vd-plan-step"),
       prompt: $("#ref2vd-prompt-step"),
     },
@@ -980,6 +981,7 @@
     elements.showReasoning.disabled = locked;
     elements.newSession.disabled = locked || Boolean(state.openingSessionId);
     elements.newSession.hidden = !session && !state.forkSource;
+    elements.forkSession.hidden = !session;
     elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
     if (!session) {
       elements.promptReferences.hidden = true;
@@ -1669,7 +1671,9 @@
     view.message.textContent = "";
     const traceLabel = view === elements.brief ? "Brief"
       : view === elements.plan ? "Plan" : "Prompt H3";
-    reasoningTrace.begin(traceLabel);
+    const traceStep = view === elements.brief ? elements.steps.brief
+      : view === elements.plan ? elements.steps.plan : elements.steps.prompt;
+    reasoningTrace.begin(traceLabel, traceStep);
     core.updateStreamState(view.stream, { phase: "preparing", text: "Préparation ou chargement du modèle…", progress: null });
     try {
       await core.streamRequest(reasoningTrace.streamUrl(url), {

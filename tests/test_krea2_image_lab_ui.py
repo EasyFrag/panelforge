@@ -56,10 +56,25 @@ class Krea2ImageLabUiTest(unittest.TestCase):
         self.assertNotIn("preview", self.script.lower())
 
     def test_final_png_is_contained_without_being_stretched(self):
-        self.assertIn('/static/lab.css?v=20260820.1', self.page)
+        self.assertIn('/static/lab.css?v=20260820.5', self.page)
         self.assertIn(".krea2-image-lab-output { width: min(100%, 760px)", self.styles)
         self.assertIn("min-height: clamp(300px, 42vw, 600px)", self.styles)
         self.assertIn("width: auto; height: auto; max-width: 100%; max-height: 580px", self.styles)
+
+    def test_long_krea2_names_and_history_entries_cannot_widen_the_page(self):
+        self.assertIn(
+            ".krea2-image-lab-parameter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr))",
+            self.styles,
+        )
+        self.assertIn(
+            ".krea2-image-lab-results .storyboard-metadata span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+            self.styles,
+        )
+        self.assertIn(".krea2-image-lab-history { overflow-x: hidden; }", self.styles)
+        self.assertIn(
+            ".krea2-image-lab-history li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; min-width: 0; max-width: 100%; }",
+            self.styles,
+        )
 
     def test_uses_the_krea2_api_and_dynamic_model_refresh(self):
         for route in (

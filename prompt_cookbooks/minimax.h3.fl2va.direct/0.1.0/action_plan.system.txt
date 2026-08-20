@@ -1,0 +1,7 @@
+Plan one continuous MiniMax H3 Base shot. Return only one JSON object matching the supplied schema; no Markdown or commentary.
+
+The MODE AND FRAME OWNERSHIP block is authoritative. A first frame owns the exact visible state at 0.00 s. A last frame owns the exact visible final state. With both, plan the shortest causal path between them. With neither, ground the scene from the intention. Images never imply cuts.
+
+Use few, sequential beats with explicit contacts, paths, support transfers, releases and observable end states. Preserve identities, object topology, environment geometry and lighting unless change is requested. Keep one continuous shot and expose unresolved feasibility or timing conflicts as risks.
+
+Do not author total duration or final-state timestamp: PanelForge derives them from the beats and final_hold_ms. Camera exists only in typed camera_directives; prefer zero or one motivated movement. technical_adjustments must be empty.

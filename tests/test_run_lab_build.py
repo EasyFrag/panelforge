@@ -39,6 +39,7 @@ class RunLabBuildTest(unittest.TestCase):
                 host="127.0.0.1",
                 port=7860,
                 http_timeout=12.0,
+                runtime_timeout=2.5,
                 run_timeout=600.0,
                 video_run_timeout=3600.0,
                 krea2_run_timeout=2400.0,
@@ -61,7 +62,7 @@ class RunLabBuildTest(unittest.TestCase):
             self.assertEqual(history.status_code, 200)
             self.assertEqual(history.json(), {"runs": []})
             self.assertTrue((Path(workspace) / "krea2_runs").is_dir())
-            self.assertEqual(len(BuildComfyClient.instances), 3)
+            self.assertEqual(len(BuildComfyClient.instances), 4)
             clients = {client.client_id: client for client in BuildComfyClient.instances}
             krea2_ids = [
                 client_id
@@ -70,6 +71,13 @@ class RunLabBuildTest(unittest.TestCase):
             ]
             self.assertEqual(len(krea2_ids), 1)
             self.assertEqual(clients[krea2_ids[0]].timeout, 12.0)
+            runtime_ids = [
+                client_id
+                for client_id in clients
+                if client_id.startswith("panelforge-runtime-")
+            ]
+            self.assertEqual(len(runtime_ids), 1)
+            self.assertEqual(clients[runtime_ids[0]].timeout, 2.5)
 
 
 if __name__ == "__main__":

@@ -87,6 +87,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--http-timeout", type=float, default=30.0)
+    parser.add_argument("--runtime-timeout", type=float, default=2.0)
     parser.add_argument("--run-timeout", type=float, default=600.0)
     parser.add_argument("--video-run-timeout", type=float, default=3600.0)
     parser.add_argument("--krea2-run-timeout", type=float, default=3600.0)
@@ -143,6 +144,11 @@ def build_app(args: argparse.Namespace):
         args.base_url,
         client_id=f"panelforge-krea2-lab-{uuid4().hex}",
         timeout=args.http_timeout,
+    )
+    runtime_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-runtime-{uuid4().hex}",
+        timeout=args.runtime_timeout,
     )
     runner = ChangeViewRunner(
         recipe=recipe,
@@ -206,7 +212,9 @@ def build_app(args: argparse.Namespace):
         model_runtime=LlamaSwapAdminClient(
             args.llm_base_url,
             api_key=args.llm_api_key,
+            timeout=args.runtime_timeout,
         ),
+        comfy_runtime=runtime_comfy,
     )
 
 

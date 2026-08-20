@@ -32,6 +32,7 @@ def apply_direct_i2v_timing(
     plan_content: str,
     *,
     preserve_field_linebreak: bool = False,
+    contract_name: str = "direct I2VA",
 ) -> str:
     """Compile the derived duration and validate plan-owned landmarks.
 
@@ -47,6 +48,7 @@ def apply_direct_i2v_timing(
         value,
         "integrated_multimodal_description",
         "overall_soundscape",
+        contract_name=contract_name,
     )
     duration_pattern = re.compile(
         r"The target video is one continuous [^\r\n]+?-second shot\."
@@ -54,7 +56,7 @@ def apply_direct_i2v_timing(
     matches = list(duration_pattern.finditer(integrated))
     if len(matches) != 1:
         raise ValueError(
-            "direct I2VA requires exactly one continuous-shot duration sentence"
+            f"{contract_name} requires exactly one continuous-shot duration sentence"
         )
     duration_seconds = _format_duration_seconds(plan.duration_ms)
     replacement = (
@@ -65,7 +67,7 @@ def apply_direct_i2v_timing(
     final_landmark = _format_timestamp(plan.final_start_ms)
     if final_landmark not in integrated:
         raise ValueError(
-            "direct I2VA final prompt must contain the derived final-state "
+            f"{contract_name} final prompt must contain the derived final-state "
             f"landmark {final_landmark}"
         )
 
@@ -91,7 +93,7 @@ def apply_direct_i2v_timing(
             )
         ):
             raise ValueError(
-                "direct I2VA camera directive "
+                f"{contract_name} camera directive "
                 f"{camera.directive_id} must start at {expected_landmark}"
             )
 
@@ -100,7 +102,7 @@ def apply_direct_i2v_timing(
         timestamp_ms = minutes * 60_000 + seconds * 1_000 + milliseconds
         if seconds >= 60 or timestamp_ms > plan.duration_ms:
             raise ValueError(
-                "direct I2VA final prompt contains a timestamp beyond the "
+                f"{contract_name} final prompt contains a timestamp beyond the "
                 "derived duration"
             )
 
@@ -108,6 +110,7 @@ def apply_direct_i2v_timing(
         value,
         "integrated_multimodal_description",
         "overall_soundscape",
+        contract_name=contract_name,
     )
     separator = "\n" if preserve_field_linebreak else ""
     return value[:start] + separator + integrated.strip() + "\n" + value[end:]
@@ -124,6 +127,8 @@ def normalize_direct_i2v_camera_placeholders(content: str) -> str:
 def insert_camera_owned_direct_i2v_clauses(
     content: str,
     placements: tuple[TimedCameraPlacement, ...],
+    *,
+    contract_name: str = "direct I2VA",
 ) -> str:
     """Insert plan-owned camera clauses into the I2VA writer envelope."""
 
@@ -132,6 +137,7 @@ def insert_camera_owned_direct_i2v_clauses(
         value,
         "integrated_multimodal_description",
         "overall_soundscape",
+        contract_name=contract_name,
     )
     integrated = insert_i2v_camera_clauses(value[start:end].strip(), placements)
     return value[:start] + "\n" + integrated + "\n" + value[end:]
@@ -140,18 +146,21 @@ def insert_camera_owned_direct_i2v_clauses(
 def rehydrate_camera_owned_direct_i2v_document(
     content: str,
     placements: tuple[TimedCameraPlacement, ...],
+    *,
+    contract_name: str = "direct I2VA",
 ) -> str:
     """Remove only compiler-inserted camera clauses for a writer revision."""
 
     value = _strip_fence(content).replace("\r\n", "\n")
     prefix = I2VA_FIXED_INSTRUCTION + "\n\n"
     if not value.startswith(prefix):
-        raise ValueError("direct I2VA prompt is missing its fixed instruction")
+        raise ValueError(f"{contract_name} prompt is missing its fixed instruction")
     body = value[len(prefix) :]
     start, end = _field_span(
         body,
         "integrated_multimodal_description",
         "overall_soundscape",
+        contract_name=contract_name,
     )
     integrated = remove_i2v_camera_clauses(body[start:end].strip(), placements)
     return (body[:start] + "\n" + integrated + "\n" + body[end:]).strip()
@@ -184,20 +193,37 @@ def rehydrate_direct_i2v_editable_document(
     return body.strip()
 
 
-def _field_body(content: str, field: str, next_field: str | None) -> str:
-    start, end = _field_span(content, field, next_field)
+def _field_body(
+    content: str,
+    field: str,
+    next_field: str | None,
+    *,
+    contract_name: str = "direct I2VA",
+) -> str:
+    start, end = _field_span(
+        content,
+        field,
+        next_field,
+        contract_name=contract_name,
+    )
     return content[start:end].strip()
 
 
-def _field_span(content: str, field: str, next_field: str | None) -> tuple[int, int]:
+def _field_span(
+    content: str,
+    field: str,
+    next_field: str | None,
+    *,
+    contract_name: str = "direct I2VA",
+) -> tuple[int, int]:
     marker = re.search(rf"(?m)^{re.escape(field)}:[ \t]*", content)
     if marker is None:
-        raise ValueError(f"direct I2VA document is missing {field}:")
+        raise ValueError(f"{contract_name} document is missing {field}:")
     if next_field is None:
         return marker.end(), len(content)
     next_marker = re.search(rf"(?m)^{re.escape(next_field)}:[ \t]*", content)
     if next_marker is None or next_marker.start() <= marker.end():
-        raise ValueError(f"direct I2VA document is missing {next_field}:")
+        raise ValueError(f"{contract_name} document is missing {next_field}:")
     return marker.end(), next_marker.start()
 
 

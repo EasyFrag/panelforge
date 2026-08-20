@@ -2,8 +2,11 @@ import sys
 import tempfile
 import unittest
 import re
+import asyncio
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -76,6 +79,76 @@ class FakeModelRuntime:
     def unload_all(self):
         self.unload_calls += 1
 
+    def running_models(self):
+        return ("Qwen3.8-27B",)
+
+
+class FakeComfyRuntime:
+    def __init__(self):
+        self.free_calls = 0
+
+    @property
+    def websocket_url(self):
+        return "ws://gpu.test:8188/ws?clientId=runtime"
+
+    def get_system_stats(self):
+        return SimpleNamespace(
+            devices=(
+                SimpleNamespace(
+                    name="NVIDIA RTX PRO 6000",
+                    vram_total=1000,
+                    vram_free=375,
+                ),
+            )
+        )
+
+    def get_queue(self):
+        return SimpleNamespace(running=(), pending=())
+
+    def free_vram(self):
+        self.free_calls += 1
+
+
+class FakeRuntimeSocket:
+    def __init__(self):
+        self.messages = [
+            json.dumps({"type": "progress", "data": {"value": 2}}),
+            json.dumps(
+                {
+                    "type": "crystools.monitor",
+                    "data": {
+                        "gpus": [
+                            {
+                                "gpu_utilization": 71,
+                                "gpu_temperature": 62,
+                                "vram_used_percent": 29,
+                            }
+                        ]
+                    },
+                }
+            ),
+        ]
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def recv(self):
+        if self.messages:
+            return self.messages.pop(0)
+        await asyncio.Future()
+
+
+class FakeRuntimeConnector:
+    def __init__(self):
+        self.urls = []
+
+    def __call__(self, url):
+        self.urls.append(url)
+        return FakeRuntimeSocket()
+
 
 class LabWebTest(unittest.TestCase):
     def setUp(self):
@@ -86,6 +159,8 @@ class LabWebTest(unittest.TestCase):
         recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
         self.comfy = ImmediateComfy()
         self.model_runtime = FakeModelRuntime()
+        self.comfy_runtime = FakeComfyRuntime()
+        self.runtime_connector = FakeRuntimeConnector()
         runner = ChangeViewRunner(
             recipe=recipe,
             comfy=self.comfy,
@@ -93,7 +168,12 @@ class LabWebTest(unittest.TestCase):
             runs=runs,
         )
         self.client = TestClient(
-            create_app(runner, model_runtime=self.model_runtime)
+            create_app(
+                runner,
+                model_runtime=self.model_runtime,
+                comfy_runtime=self.comfy_runtime,
+                runtime_monitor_connector=self.runtime_connector,
+            )
         )
 
     def tearDown(self):
@@ -107,13 +187,30 @@ class LabWebTest(unittest.TestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("PanelForge", page.text)
-        self.assertIn('id="release-vram"', page.text)
-        self.assertIn("/static/lab.js?v=20260815.1", page.text)
+        self.assertIn('id="release-llm-vram"', page.text)
+        self.assertIn('id="release-comfy-vram"', page.text)
+        self.assertIn('id="runtime-monitor"', page.text)
+        self.assertIn('id="runtime-services" class="runtime-services warning" hidden', page.text)
+        self.assertLess(
+            page.text.index('id="release-llm-vram"'),
+            page.text.index('id="release-comfy-vram"'),
+        )
+        self.assertIn("/static/lab.js?v=20260820.2", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(script.headers["cache-control"], "no-store")
         self.assertIn("/api/change-view/preview", script.text)
         self.assertIn("/api/model-runtime/unload", script.text)
+        self.assertIn("/api/comfy-runtime/free", script.text)
+        self.assertIn("/api/runtime/status", script.text)
+        self.assertIn("/api/runtime/events", script.text)
+        self.assertIn("window.setTimeout(refreshRuntimeStatus, 1000)", script.text)
+        self.assertNotIn('id="runtime-gpu"', page.text)
+        self.assertNotIn('ui["runtime-gpu"]', script.text)
+        self.assertIn('percent > 30 ? "yellow" : "green"', script.text)
+        self.assertIn("((temperature - 25) / (100 - 25)) * 100", script.text)
+        self.assertIn('temperature <= 60 ? "green" : temperature <= 80 ? "orange" : "red"', script.text)
+        self.assertIn('ui["runtime-services"].hidden = serviceWarnings.length === 0', script.text)
         self.assertIn('preferredPromptModelId = "Qwen3.8-27B"', script.text)
         self.assertIn('includes("qwen3.8-27b")', script.text)
         self.assertIn('includes("qwen3.6-27b")', script.text)
@@ -122,8 +219,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260820.1", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260816.4", page.text)
+        self.assertIn("/static/lab.css?v=20260820.5", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260820.1", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -150,7 +247,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(prompt_script.status_code, 200)
-        self.assertIn("/static/prompt-lab.js?v=20260820.1", page.text)
+        self.assertIn("/static/prompt-lab.js?v=20260820.2", page.text)
         self.assertIn('data-lab-view="archives"', page.text)
         self.assertIn('id="archives-workspace"', page.text)
         self.assertIn('data-archive-view="i2v"', page.text)
@@ -204,7 +301,7 @@ class LabWebTest(unittest.TestCase):
         )
         self.assertIsInstance(payload["controls"]["seed"]["default"], str)
 
-    def test_serves_the_parallel_direct_i2v_workspace(self):
+    def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
         page = self.client.get("/")
         script = self.client.get("/static/i2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
@@ -212,8 +309,11 @@ class LabWebTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertEqual(script.status_code, 200)
         self.assertIn('data-lab-view="i2v-direct"', page.text)
+        self.assertIn('data-lab-view="i2v-direct">H3 Base</button>', page.text)
         self.assertIn('id="i2vd-workspace"', page.text)
         self.assertIn('id="i2vd-image-input" type="file"', page.text)
+        self.assertIn('id="i2vd-last-image-input" type="file"', page.text)
+        self.assertIn('id="i2vd-input-mode"', page.text)
         self.assertNotIn(
             'id="i2vd-image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple',
             page.text,
@@ -221,16 +321,20 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260816.2', page.text)
-        self.assertIn('const preferredCookbookVersion = "0.2.0"', script.text)
+        self.assertIn('/static/i2v-direct.js?v=20260820.2', page.text)
+        self.assertIn('const preferredCookbookVersion = "0.1.0"', script.text)
         self.assertIn('elements.cookbook.value = compositionReference', script.text)
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
-        self.assertIn('const profileId = "minimax.h3.i2v.direct"', script.text)
-        self.assertIn('const cookbookId = "minimax.h3.i2v.direct"', script.text)
-        self.assertIn('item.target_mode === "i2v_direct"', script.text)
+        self.assertIn('const profileId = "minimax.h3.fl2va.direct"', script.text)
+        self.assertIn('const cookbookId = "minimax.h3.fl2va.direct"', script.text)
+        self.assertIn('item.target_mode === "fl2va_direct"', script.text)
         self.assertIn('body.append("roles", "first_frame")', script.text)
         self.assertIn('body.append("usages", "first_frame")', script.text)
-        self.assertIn('bindings: { first_frame: [reference.id] }', script.text)
+        self.assertIn('body.append("roles", "last_frame")', script.text)
+        self.assertIn('body.append("usages", "last_frame")', script.text)
+        self.assertIn('first_frame: first ? [first.id] : []', script.text)
+        self.assertIn('last_frame: last ? [last.id] : []', script.text)
+        self.assertIn('sessionInputModeLabel(session)', script.text)
         self.assertIn("beat-sheet/reconcile/stream", script.text)
         self.assertIn('i2vDirect: $("#i2vd-workspace")', prompt_script.text)
         self.assertIn(
@@ -477,11 +581,19 @@ class LabWebTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertLess(
             page.text.index('id="i2vd-new-session"'),
-            page.text.index('id="release-vram"'),
+            page.text.index('id="release-llm-vram"'),
         )
         self.assertLess(
             page.text.index('id="ref2vd-new-session"'),
-            page.text.index('id="release-vram"'),
+            page.text.index('id="release-llm-vram"'),
+        )
+        self.assertLess(
+            page.text.index('id="i2vd-new-session"'),
+            page.text.index('id="i2vd-fork-session"'),
+        )
+        self.assertLess(
+            page.text.index('id="ref2vd-new-session"'),
+            page.text.index('id="ref2vd-fork-session"'),
         )
         for prefix in scripts:
             self.assertEqual(page.text.count(f'id="{prefix}-new-session"'), 1)
@@ -515,10 +627,9 @@ class LabWebTest(unittest.TestCase):
             self.assertIn("clearStageDrafts()", script)
             self.assertIn("state.openingSessionId", script)
             self.assertIn("state.compoundRunning", script)
-            self.assertIn(
-                'JSON.stringify({ model_id: elements.model.value })',
-                script,
-            )
+            self.assertIn("elements.forkSession.hidden = !session", script)
+            self.assertIn("reasoningTrace.begin(traceLabel, traceStep)", script)
+            self.assertIn(f'brief: $("#{prefix}-brief-step")', script)
             self.assertIn(
                 "elements.newSession.hidden = !session && !state.forkSource",
                 script,
@@ -536,6 +647,16 @@ class LabWebTest(unittest.TestCase):
             self.assertIn("previousRevisionId", script)
             self.assertIn("generatedDocument(", script)
             self.assertNotIn("copyText(label.textContent)", script)
+
+        self.assertIn('anchor.before(panel)', prompt_navigation.text)
+        self.assertIn('panel.scrollIntoView({ behavior: "smooth", block: "nearest" })', prompt_navigation.text)
+
+        self.assertIn(
+            'JSON.stringify({ model_id: elements.model.value })',
+            scripts["ref2vd"],
+        )
+        self.assertIn("profile_id: profileId", scripts["i2vd"])
+        self.assertIn("profile_version: profileVersion", scripts["i2vd"])
 
         self.assertIn(
             'elements.brief.rewriteApprove.addEventListener("click", reviseAndApproveBrief)',
@@ -562,6 +683,68 @@ class LabWebTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["status"], "unloaded")
         self.assertEqual(self.model_runtime.unload_calls, 1)
+
+    def test_runtime_status_combines_gpu_queue_and_llama_without_errors(self):
+        response = self.client.get("/api/runtime/status")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["gpu"]["used_bytes"], 625)
+        self.assertEqual(payload["gpu"]["used_percent"], 62.5)
+        self.assertEqual(payload["comfy"]["queue_running"], 0)
+        self.assertTrue(payload["comfy"]["cleanup_allowed"])
+        self.assertEqual(payload["llm"]["running_models"], ["Qwen3.8-27B"])
+
+    def test_runtime_status_degrades_to_warnings_when_services_are_offline(self):
+        class Offline:
+            def __getattr__(self, _name):
+                raise OSError("private infrastructure detail")
+
+        with tempfile.TemporaryDirectory() as workspace:
+            assets = LocalAssetStore(workspace)
+            runs = LocalRunStore(workspace)
+            recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
+            app = create_app(
+                ChangeViewRunner(
+                    recipe=recipe,
+                    comfy=ImmediateComfy(),
+                    assets=assets,
+                    runs=runs,
+                ),
+                model_runtime=Offline(),
+                comfy_runtime=Offline(),
+            )
+            with TestClient(app) as client:
+                response = client.get("/api/runtime/status")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["comfy"]["available"])
+        self.assertFalse(payload["llm"]["available"])
+        self.assertEqual(payload["comfy"]["warning"], "ComfyUI indisponible.")
+        self.assertEqual(payload["llm"]["warning"], "llama.swap indisponible.")
+        self.assertNotIn("private infrastructure detail", response.text)
+
+    def test_unloads_comfy_only_when_requested(self):
+        response = self.client.post("/api/comfy-runtime/free")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.comfy_runtime.free_calls, 1)
+
+    def test_runtime_websocket_forwards_only_crystools_telemetry(self):
+        with self.client.websocket_connect("/api/runtime/events") as websocket:
+            connected = websocket.receive_json()
+            telemetry = websocket.receive_json()
+            websocket.close()
+
+        self.assertEqual(connected["type"], "panelforge_runtime_status")
+        self.assertEqual(connected["data"]["status"], "connected")
+        self.assertEqual(telemetry["type"], "crystools.monitor")
+        self.assertEqual(telemetry["data"]["gpus"][0]["gpu_temperature"], 62)
+        self.assertEqual(
+            self.runtime_connector.urls,
+            [self.comfy_runtime.websocket_url],
+        )
 
     def test_preview_uses_the_protected_angle_grammar(self):
         response = self.client.post(

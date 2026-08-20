@@ -29,7 +29,10 @@ UPSTREAM_BLOBS = {
 
 
 class H3ProtocolMode(StrEnum):
+    T2VA = "t2va"
     I2VA = "i2va"
+    L2VA = "l2va"
+    FL2VA = "fl2va"
     REF2VA = "ref2va"
 
 
@@ -481,7 +484,12 @@ def lint_h3_prompt(
                 "use canonical <Picture N> labels instead of @image or <Image N>",
             )
         )
-    if mode is H3ProtocolMode.I2VA and re.search(r"<Subject\s+\d+>", content):
+    if mode in {
+        H3ProtocolMode.T2VA,
+        H3ProtocolMode.I2VA,
+        H3ProtocolMode.L2VA,
+        H3ProtocolMode.FL2VA,
+    } and re.search(r"<Subject\s+\d+>", content):
         issues.append(
             H3ProtocolIssue(
                 H3IssueSeverity.ERROR,
