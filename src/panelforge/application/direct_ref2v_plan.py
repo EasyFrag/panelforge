@@ -310,8 +310,9 @@ def canonical_direct_ref2v_action_plan(
     content: str,
     *,
     recover_invalid_target: bool = False,
+    recover_parallel_steps: bool = False,
 ) -> str:
-    """Validate and serialize a plan with optional deterministic camera recovery."""
+    """Validate and serialize a plan with narrow deterministic recoveries."""
 
     value = _json_object(content)
     raw_adjustments = value.get("technical_adjustments", [])
@@ -322,6 +323,8 @@ def canonical_direct_ref2v_action_plan(
         )
     if recover_invalid_target:
         _recover_invalid_camera_directives(value)
+    if recover_parallel_steps:
+        _recover_exact_parallel_steps(value)
     try:
         plan = DirectRef2VActionPlan.model_validate(value)
     except ValidationError as error:
@@ -333,8 +336,9 @@ def canonical_direct_ref2v_action_plan_v2(
     content: str,
     *,
     recover_invalid_target: bool = False,
+    recover_parallel_steps: bool = False,
 ) -> str:
-    """Validate V2 with optional deterministic camera recovery."""
+    """Validate V2 with narrow deterministic recoveries."""
 
     value = _json_object(content)
     raw_adjustments = value.get("technical_adjustments", [])
@@ -345,6 +349,8 @@ def canonical_direct_ref2v_action_plan_v2(
         )
     if recover_invalid_target:
         _recover_invalid_camera_directives(value)
+    if recover_parallel_steps:
+        _recover_exact_parallel_steps(value)
     try:
         plan = DirectRef2VActionPlanV2.model_validate(value)
     except ValidationError as error:
@@ -397,6 +403,12 @@ def direct_ref2v_action_plan_warnings(content: str) -> tuple[str, ...]:
                 f"Les modificateurs incompatibles de {directive_id} ont été "
                 "omis ; le mouvement de caméra est conservé."
             )
+        elif adjustment.startswith("parallel_steps_merged:"):
+            beat_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"Les actions exactement parallèles de {beat_id} ont été "
+                "regroupées dans une même étape temporelle."
+            )
         else:
             warnings.append(f"Ajustement technique appliqué : {adjustment}.")
     return tuple(warnings)
@@ -437,6 +449,12 @@ def direct_ref2v_action_plan_warnings_v2(content: str) -> tuple[str, ...]:
             warnings.append(
                 f"Les modificateurs incompatibles de {directive_id} ont ete "
                 "omis ; le mouvement de camera est conserve."
+            )
+        elif adjustment.startswith("parallel_steps_merged:"):
+            beat_id = adjustment.partition(":")[2]
+            warnings.append(
+                f"Les actions exactement paralleles de {beat_id} ont ete "
+                "regroupees dans une meme etape temporelle."
             )
         else:
             warnings.append(f"Ajustement technique applique : {adjustment}.")
@@ -570,6 +588,82 @@ _CAMERA_MOTIONS_WITHOUT_TARGET = frozenset(
         H3CameraMotion.POV.value,
     }
 )
+
+
+def _recover_exact_parallel_steps(value: dict[str, object]) -> None:
+    """Merge only the unambiguous full-beat parallel-step model failure.
+
+    Some planners express simultaneous actions as several steps that all use
+    the beat's exact start and end. The authored schema is sequential, so the
+    application folds only that exact shape into one time slice. Partial
+    overlaps, gaps, malformed steps, and distinct intervals remain invalid.
+    """
+
+    raw_beats = value.get("beats")
+    if not isinstance(raw_beats, list):
+        return
+    adjustments = value.get("technical_adjustments")
+    if not isinstance(adjustments, list):
+        adjustments = []
+        value["technical_adjustments"] = adjustments
+    for beat in raw_beats:
+        if not isinstance(beat, dict):
+            continue
+        beat_id = beat.get("beat_id")
+        start_ms = beat.get("start_ms")
+        end_ms = beat.get("end_ms")
+        steps = beat.get("steps")
+        if (
+            not isinstance(beat_id, str)
+            or not beat_id.strip()
+            or not isinstance(steps, list)
+            or len(steps) < 2
+            or not all(_is_full_beat_step(item, start_ms, end_ms) for item in steps)
+        ):
+            continue
+        step_ids = [item["step_id"] for item in steps]
+        if len(step_ids) != len(set(step_ids)):
+            continue
+        actions = [item["action"].strip() for item in steps]
+        continuity = _unique_text(item["continuity_after"].strip() for item in steps)
+        beat["steps"] = [
+            {
+                "step_id": step_ids[0],
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "action": "Simultaneous actions: "
+                + " ".join(_as_sentence(item) for item in actions),
+                "continuity_after": "Combined continuity after the simultaneous actions: "
+                + " ".join(_as_sentence(item) for item in continuity),
+            }
+        ]
+        _append_adjustment(adjustments, f"parallel_steps_merged:{beat_id.strip()}")
+
+
+def _is_full_beat_step(item: object, start_ms: object, end_ms: object) -> bool:
+    return (
+        isinstance(item, dict)
+        and isinstance(item.get("step_id"), str)
+        and bool(item["step_id"].strip())
+        and isinstance(item.get("action"), str)
+        and bool(item["action"].strip())
+        and isinstance(item.get("continuity_after"), str)
+        and bool(item["continuity_after"].strip())
+        and item.get("start_ms") == start_ms
+        and item.get("end_ms") == end_ms
+    )
+
+
+def _unique_text(values) -> list[str]:
+    unique: list[str] = []
+    for value in values:
+        if value not in unique:
+            unique.append(value)
+    return unique
+
+
+def _as_sentence(value: str) -> str:
+    return value if value.endswith((".", "!", "?")) else value + "."
 
 
 def _recover_invalid_camera_directives(value: dict[str, object]) -> None:

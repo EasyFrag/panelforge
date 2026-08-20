@@ -15,8 +15,10 @@ sys.path.insert(0, str(SRC_ROOT))
 
 from panelforge.application import (
     ChangeViewRunner,
+    Krea2LabRunner,
     PromptCompositionService,
     PromptLabService,
+    StoryboardLabService,
     VideoLabRunner,
 )
 from panelforge.features.lab.web import create_app
@@ -28,18 +30,23 @@ from panelforge.infrastructure.llm import (
 )
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
+    Krea2T2IRecipe,
     VideoLabPresetRecipe,
     load_change_view_preset,
+    load_krea2_t2i_workflow,
     load_video_lab_workflow,
 )
 from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
+from panelforge.infrastructure.storyboard_recipes import LocalStoryboardRecipeCatalog
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
     LocalLlmCallStore,
+    LocalKrea2RunStore,
     LocalPromptSessionStore,
     LocalPromptCompositionStore,
     LocalRunStore,
+    LocalStoryboardRunStore,
     LocalVideoRunStore,
 )
 
@@ -56,6 +63,13 @@ VIDEO_PRESET_DIRECTORY = (
     / "workflows"
     / "video.generate.ref2v"
     / "minimax-h3-ref2v"
+    / "0.1.0"
+)
+KREA2_PRESET_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "image.generate.t2i"
+    / "krea2"
     / "0.1.0"
 )
 
@@ -75,6 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--http-timeout", type=float, default=30.0)
     parser.add_argument("--run-timeout", type=float, default=600.0)
     parser.add_argument("--video-run-timeout", type=float, default=3600.0)
+    parser.add_argument("--krea2-run-timeout", type=float, default=3600.0)
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument(
         "--llm-base-url",
@@ -103,9 +118,14 @@ def build_app(args: argparse.Namespace):
     video_recipe = VideoLabPresetRecipe(
         load_video_lab_workflow(VIDEO_PRESET_DIRECTORY)
     )
+    krea2_recipe = Krea2T2IRecipe(
+        load_krea2_t2i_workflow(KREA2_PRESET_DIRECTORY)
+    )
     assets = LocalAssetStore(args.workspace)
     runs = LocalRunStore(args.workspace)
     video_runs = LocalVideoRunStore(args.workspace)
+    krea2_runs = LocalKrea2RunStore(args.workspace)
+    storyboard_runs = LocalStoryboardRunStore(args.workspace)
     prompt_sessions = LocalPromptSessionStore(args.workspace)
     prompt_compositions = LocalPromptCompositionStore(args.workspace)
     llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
@@ -117,6 +137,11 @@ def build_app(args: argparse.Namespace):
     video_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-video-lab-{uuid4().hex}",
+        timeout=args.http_timeout,
+    )
+    krea2_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-krea2-lab-{uuid4().hex}",
         timeout=args.http_timeout,
     )
     runner = ChangeViewRunner(
@@ -133,6 +158,14 @@ def build_app(args: argparse.Namespace):
         assets=assets,
         runs=video_runs,
         run_timeout=args.video_run_timeout,
+        poll_interval=args.poll_interval,
+    )
+    krea2_lab = Krea2LabRunner(
+        recipe=krea2_recipe,
+        comfy=krea2_comfy,
+        assets=assets,
+        runs=krea2_runs,
+        run_timeout=args.krea2_run_timeout,
         poll_interval=args.poll_interval,
     )
     gateway = LoggedMultimodalGateway(
@@ -157,11 +190,19 @@ def build_app(args: argparse.Namespace):
         application_outcomes=gateway,
         assets=assets,
     )
+    storyboard_lab = StoryboardLabService(
+        gateway=gateway,
+        recipes=LocalStoryboardRecipeCatalog(PROJECT_ROOT / "storyboard_recipes"),
+        runs=storyboard_runs,
+        application_outcomes=gateway,
+    )
     return create_app(
         runner,
         prompt_lab=prompt_lab,
         prompt_composition=prompt_composition,
         video_lab=video_lab,
+        krea2_lab=krea2_lab,
+        storyboard_lab=storyboard_lab,
         model_runtime=LlamaSwapAdminClient(
             args.llm_base_url,
             api_key=args.llm_api_key,

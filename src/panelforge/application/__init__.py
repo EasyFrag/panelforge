@@ -7,11 +7,21 @@ from .change_view_runs import (
     ChangeViewRunner,
     extract_bound_image,
 )
+from .krea2_lab import (
+    Krea2LabRunRequest,
+    Krea2LabRunner,
+    extract_bound_image as extract_bound_krea2_image,
+)
 from .model_runtime import ModelRuntimeControl
 from .video_lab import (
     VideoLabRunRequest,
     VideoLabRunner,
     extract_bound_video,
+)
+from .storyboard_lab import (
+    StoryboardLabService,
+    StoryboardRunRequest,
+    StoryboardStreamEvent,
 )
 from .minimax_h3_protocol import (
     H3IssueSeverity,
@@ -71,6 +81,8 @@ __all__ = [
     "CompositionStageStatus",
     "CompositionStreamEvent",
     "ImageInput",
+    "Krea2LabRunRequest",
+    "Krea2LabRunner",
     "H3IssueSeverity",
     "H3ProtocolIssue",
     "H3ProtocolMode",
@@ -92,6 +104,9 @@ __all__ = [
     "PromptProfile",
     "StreamEventKind",
     "StreamPhase",
+    "StoryboardLabService",
+    "StoryboardRunRequest",
+    "StoryboardStreamEvent",
     "SUPER_FAST_REF2V_COOKBOOK_ID",
     "SUPER_FAST_REF2V_COOKBOOK_VERSION",
     "creative_freedom_policy",
@@ -111,4 +126,5 @@ __all__ = [
     "normalize_dialogue_language_tags",
     "parse_camera_directives",
     "extract_bound_video",
+    "extract_bound_krea2_image",
 ]

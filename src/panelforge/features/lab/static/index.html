@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260816.5">
+  <link rel="stylesheet" href="/static/lab.css?v=20260820.1">
   <script src="/static/lab.js?v=20260815.1" defer></script>
-  <script src="/static/prompt-lab.js?v=20260816.2" defer></script>
+  <script src="/static/prompt-lab.js?v=20260820.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
@@ -14,12 +14,15 @@
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/video-lab.js?v=20260816.6" defer></script>
   <script src="/static/ref2v-direct.js?v=20260816.4" defer></script>
+  <script src="/static/krea2-image-lab.js?v=20260817.1" defer></script>
+  <script src="/static/storyboard-lab.js?v=20260820.1" defer></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
     <nav class="lab-nav" aria-label="Ateliers">
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
+      <button type="button" data-lab-view="storyboard-lab">Storyboard</button>
       <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
       <button type="button" data-lab-view="i2v-direct">I2V</button>
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
@@ -36,6 +39,10 @@
   </header>
 
   <main id="change-view-workspace">
+    <nav class="image-lab-modebar" aria-label="Modes Image Lab">
+      <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
+    </nav>
     <aside class="controls">
       <div class="title-row">
         <div><small>OPÉRATION</small><h1>Changer la vue</h1></div>
@@ -124,6 +131,190 @@
         <div class="result-head"><div><small>RUNS RÉCENTS</small><h2>Historique</h2></div><button id="refresh" type="button" aria-label="Actualiser">↻</button></div>
         <p id="history-empty" class="muted">Aucun run enregistré.</p>
         <ul id="history-list"></ul>
+      </section>
+    </div>
+  </main>
+
+  <main id="krea2-image-lab-workspace" class="krea2-image-lab-workspace" hidden>
+    <nav class="image-lab-modebar" aria-label="Modes Image Lab">
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button class="active" type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
+    </nav>
+
+    <aside class="controls krea2-image-lab-controls">
+      <div class="title-row">
+        <div><small>COMFYUI · KREA2</small><h1>Générer une image</h1></div>
+        <span class="experimental">● Première version</span>
+      </div>
+      <p class="muted">Lancez le prompt tel quel avec le modèle, le ratio et la résolution choisis. Aucune preview intermédiaire.</p>
+
+      <form id="krea2-image-lab-form">
+        <section>
+          <h2>1. Prompt</h2>
+          <textarea id="krea2-image-lab-prompt" rows="13" placeholder="Décrivez l’image ou collez un prompt Storyboard KREA2…" required></textarea>
+          <p id="krea2-image-lab-provenance" class="krea2-image-lab-provenance" hidden></p>
+        </section>
+
+        <section>
+          <div class="section-title"><h2>2. Modèle KREA2</h2><button id="krea2-image-lab-refresh-models" class="text-button" type="button">Actualiser</button></div>
+          <label class="field-label">Checkpoint installé
+            <select id="krea2-image-lab-model" required><option value="">Chargement…</option></select>
+          </label>
+          <small>La liste est relue depuis ComfyUI. Les modèles non qualifiés restent signalés.</small>
+        </section>
+
+        <section>
+          <h2>3. Format et résolution</h2>
+          <div class="krea2-image-lab-parameter-grid">
+            <label>Ratio
+              <select id="krea2-image-lab-ratio" required><option value="">Chargement…</option></select>
+            </label>
+            <label>Mégapixels
+              <input id="krea2-image-lab-megapixels" type="number" min="0.5" max="4" step="0.1" value="3" required>
+            </label>
+          </div>
+          <p id="krea2-image-lab-resolution" class="muted">La résolution exacte sera calculée par le workflow.</p>
+        </section>
+
+        <section>
+          <div class="section-title"><h2>4. Seed</h2><button id="krea2-image-lab-randomize-seed" class="text-button" type="button">Nouvelle seed</button></div>
+          <label class="seed-label">Seed
+            <input id="krea2-image-lab-seed" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="20" required>
+          </label>
+          <label class="krea2-image-lab-lock-seed"><input id="krea2-image-lab-seed-lock" type="checkbox"> Verrouiller pour les prochains rendus</label>
+          <small>Sans verrouillage, une nouvelle seed est tirée juste avant chaque lancement.</small>
+        </section>
+
+        <p id="krea2-image-lab-form-message" class="error" role="alert" hidden></p>
+        <button id="krea2-image-lab-generate" class="primary" type="submit" disabled>Générer l’image</button>
+      </form>
+    </aside>
+
+    <div class="content krea2-image-lab-content">
+      <section class="results krea2-image-lab-results">
+        <div class="result-head">
+          <div><small>RENDU KREA2</small><h2>Image finale</h2></div>
+          <span id="krea2-image-lab-status" class="run-status">● Prêt</span>
+        </div>
+        <figure class="krea2-image-lab-output">
+          <figcaption>Sortie PNG <small id="krea2-image-lab-output-caption">Aucun rendu</small></figcaption>
+          <div class="krea2-image-lab-stage">
+            <p id="krea2-image-lab-output-empty">L’image finale apparaîtra ici lorsque ComfyUI aura terminé.</p>
+            <p id="krea2-image-lab-output-loading" class="loading" hidden><i></i>Génération en cours…</p>
+            <img id="krea2-image-lab-output" alt="Image KREA2 générée" hidden>
+          </div>
+        </figure>
+        <div class="krea2-image-lab-progress-row">
+          <progress id="krea2-image-lab-progress" max="1" value="0"></progress>
+          <output id="krea2-image-lab-progress-label">En attente</output>
+        </div>
+        <div id="krea2-image-lab-metadata" class="storyboard-metadata" aria-label="Configuration du rendu"></div>
+        <p id="krea2-image-lab-run-message" class="message" aria-live="polite"></p>
+        <div class="actions">
+          <button id="krea2-image-lab-cancel" type="button" disabled>Annuler</button>
+          <button id="krea2-image-lab-reuse-seed" type="button" disabled>Réutiliser la seed</button>
+          <a id="krea2-image-lab-download" class="video-lab-download" href="#" download="krea2-output.png" hidden>Télécharger le PNG</a>
+        </div>
+      </section>
+
+      <section class="history krea2-image-lab-history">
+        <div class="result-head"><div><small>RUNS RÉCENTS</small><h2>Historique KREA2</h2></div><button id="krea2-image-lab-refresh" type="button" aria-label="Actualiser">↻</button></div>
+        <p id="krea2-image-lab-history-empty" class="muted">Aucun rendu enregistré.</p>
+        <ul id="krea2-image-lab-history-list"></ul>
+      </section>
+    </div>
+  </main>
+
+  <main id="storyboard-lab-workspace" class="storyboard-lab-workspace" hidden>
+    <aside class="controls storyboard-lab-controls">
+      <div class="title-row">
+        <div><small>IMAGE · KREA2</small><h1>Storyboard</h1></div>
+        <span class="experimental">● Première version</span>
+      </div>
+      <p class="muted">Transformez une intention ou une histoire courte en un prompt unique pour une planche cohérente.</p>
+
+      <form id="storyboard-lab-form">
+        <section>
+          <h2>1. Intention ou histoire</h2>
+          <textarea id="storyboard-lab-source" rows="11" placeholder="Décrivez la séquence, les personnages, le lieu et la progression souhaitée…" required></textarea>
+        </section>
+
+        <section>
+          <h2>2. Nombre de panels</h2>
+          <fieldset id="storyboard-lab-panel-options" class="storyboard-panel-options">
+            <legend class="sr-only">Nombre de panels</legend>
+            <label><input type="radio" name="storyboard-panel-count" value="2"><span><b>2</b><small>2 colonnes × 1 ligne · 4:3</small></span></label>
+            <label><input type="radio" name="storyboard-panel-count" value="4"><span><b>4</b><small>2 colonnes × 2 lignes · 2:3</small></span></label>
+            <label><input type="radio" name="storyboard-panel-count" value="6" checked><span><b>6</b><small>3 colonnes × 2 lignes · 1:1</small></span></label>
+            <label><input type="radio" name="storyboard-panel-count" value="9"><span><b>9</b><small>3 colonnes × 3 lignes · 2:3</small></span></label>
+          </fieldset>
+        </section>
+
+        <section>
+          <h2>3. Génération</h2>
+          <label class="field-label">Modèle servi par llama.swap
+            <select id="storyboard-lab-model" required><option value="">Chargement…</option></select>
+          </label>
+          <label class="field-label">Recette immuable
+            <input id="storyboard-lab-recipe" type="text" value="KREA2 Storyboard photo · v1" readonly>
+          </label>
+          <small>Un seul appel LLM produit les variables narratives ; PanelForge compile le squelette KREA2 fixe.</small>
+          <label class="debug-reasoning-option">
+            <input id="storyboard-lab-show-reasoning" type="checkbox">
+            <span><b>Afficher la trace modèle (debug)</b><small>Montre en direct la trace séparée transmise par le modèle, sans l’enregistrer dans le run.</small></span>
+          </label>
+        </section>
+
+        <p id="storyboard-lab-form-message" class="error" role="alert" hidden></p>
+        <button id="storyboard-lab-generate" class="primary" type="submit" disabled>Générer le prompt</button>
+      </form>
+
+      <section class="recent-sessions storyboard-lab-history">
+        <div class="section-title"><h2>Historique</h2><button id="storyboard-lab-refresh" class="text-button" type="button">Actualiser</button></div>
+        <p id="storyboard-lab-history-empty" class="muted">Aucun storyboard enregistré.</p>
+        <ul id="storyboard-lab-history-list"></ul>
+      </section>
+    </aside>
+
+    <div class="content storyboard-lab-content">
+      <section class="results storyboard-lab-result">
+        <div class="result-head">
+          <div><small>PROMPT COMPILÉ</small><h2 id="storyboard-lab-result-title">Storyboard KREA2</h2></div>
+          <span id="storyboard-lab-status" class="run-status">● Prêt</span>
+        </div>
+
+        <div id="storyboard-lab-result-empty" class="storyboard-result-empty">
+          <b>Votre prompt apparaîtra ici</b>
+          <p>La grille, le ratio de la planche et les variables de continuité seront conservés avec le run.</p>
+        </div>
+
+        <div id="storyboard-lab-result-editor" hidden>
+          <div id="storyboard-lab-metadata" class="storyboard-metadata" aria-label="Configuration du storyboard"></div>
+          <div class="storyboard-result-actions">
+            <button id="storyboard-lab-copy" type="button" disabled>Copier le prompt</button>
+            <button id="storyboard-lab-send-to-image-lab" type="button" disabled>Envoyer à Image Lab</button>
+            <button id="storyboard-lab-relaunch" type="button" disabled>Relancer</button>
+          </div>
+          <div id="storyboard-lab-stream-state" class="stream-state" hidden>
+            <div><span id="storyboard-lab-stream-label">Préparation…</span><output id="storyboard-lab-stream-percent"></output></div>
+            <progress id="storyboard-lab-stream-progress" max="1"></progress>
+          </div>
+          <details id="storyboard-lab-reasoning-panel" class="reasoning-trace" hidden>
+            <summary><b>Trace modèle</b><small id="storyboard-lab-reasoning-label">Storyboard</small></summary>
+            <p id="storyboard-lab-reasoning-empty" class="muted">En attente d’une trace séparée du modèle…</p>
+            <pre id="storyboard-lab-reasoning-output"></pre>
+          </details>
+          <p id="storyboard-lab-run-message" class="message" aria-live="polite"></p>
+          <textarea id="storyboard-lab-prompt" class="storyboard-prompt-output" rows="34" placeholder="Le prompt KREA2 compilé apparaîtra ici."></textarea>
+          <section id="storyboard-lab-warning-panel" class="storyboard-warning-panel" hidden>
+            <b>Points à vérifier</b>
+            <ul id="storyboard-lab-warnings"></ul>
+          </section>
+          <details id="storyboard-lab-variables" class="storyboard-variables" hidden>
+            <summary>Variables narratives générées</summary>
+            <pre id="storyboard-lab-variables-content"></pre>
+          </details>
+        </div>
       </section>
     </div>
   </main>

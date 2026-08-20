@@ -135,7 +135,7 @@ class ComfyMonitoringTest(unittest.TestCase):
         client = ComfyHttpClient("http://127.0.0.1:8188", client_id="video-lab")
         client.submit_workflow({})
 
-        result = client.cancel_job("prompt-1")
+        result = client.cancel_execution("prompt-1")
 
         self.assertEqual(result.action, ComfyCancelAction.ALREADY_FINISHED)
 

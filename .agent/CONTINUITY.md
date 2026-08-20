@@ -34,12 +34,23 @@
   - Les assets vidéo acceptent les requêtes HTTP Range nécessaires au lecteur natif. La sortie finale conserve uniquement le lecteur vidéo HTML standard, sans bouton, avertissement ni diagnostic audio supplémentaire ; chaque nouvel asset reste chargé via une URL anti-cache stable.
   - Après un redémarrage de PanelForge, la lecture, l'annulation ou la réservation du slot réconcilie un run ComfyUI détaché : une sortie déjà terminée est importée, une erreur devient terminale et un job encore actif reste suivi par le polling UI.
   - Ref2V peut préremplir Video Lab avec ses images ordonnées, le prompt actuellement visible et la durée dérivée du Plan, sans lancer automatiquement le rendu.
-  - Validation locale : 503 tests passent.
+  - Storyboard Lab exécute la recette immuable `krea2.storyboard.from_text@0.1.0` : une intention, un modèle et 2, 4, 6 ou 9 panels produisent en exactement un appel LLM des variables narratives strictes, ensuite injectées par code dans le squelette KREA2 fixe. L’interface expose prompt éditable/copiable, variables, warnings, historique, ouverture et relance ; un JSON invalide ou tronqué reste disponible comme brouillon diagnostic sans second appel de réparation.
+  - Image Lab exécute désormais la recette immuable `image.generate.t2i/krea2@0.1.0` : prompt, modèle KREA2 installé, ratio, 0,5–4 MP et seed alimentent un workflow T2I nettoyé. Le modèle GPT KREA2 fourni est sélectionné par défaut, tandis que sampler, scheduler, CFG, steps, VAE et CLIP restent verrouillés par la recette.
+  - L’inventaire des UNET est découvert dynamiquement via ComfyUI et recoupé avec l’allowlist qualifiée ; la chaîne exacte annoncée par le serveur est conservée. KREA2 fournit PNG final, historique, relance et annulation, sans preview ni LoRA en V1.
+  - Storyboard Lab peut préremplir KREA2 avec le prompt actuellement édité et une provenance vérifiée côté serveur, sans lancer automatiquement le rendu. Les runs détachés ou en annulation incertaine sont réconciliés avec ComfyUI avant de réserver le slot, afin d’importer une sortie tardive plutôt que de la perdre.
+  - La sortie PNG KREA2 conserve maintenant son ratio naturel dans un cadre plafonné à 760 × 600 px environ, sans étirement à toute la largeur ou hauteur de la zone de résultat.
+  - Storyboard affiche désormais en option la trace modèle séparée pendant la génération, via le même composant borné et la même préférence locale que les parcours Direct ; cette trace reste éphémère et absente des runs.
+  - Les Plans Direct mono récupèrent uniquement le cas non ambigu où plusieurs steps couvrent exactement tout le même beat : ils sont fusionnés en une tranche simultanée avec provenance et warning. Les chevauchements partiels, trous et intervalles distincts restent bloquants.
+  - Validation locale : 607 tests passent.
 - Broken / missing:
   - Le dialogue traversant une coupe et les transitions stylisées ne sont pas couverts par la recette multi-plan flexible.
   - Une référence secondaire brute peut encore influencer le décor malgré les frontières textuelles.
   - Le Super rapide direct accepte volontairement les écarts H3 non fatals comme warnings ; qualifier l'obéissance réelle, la structure des coupes et la densité des prompts par modèle avant de l'élargir au mono-plan ou à I2V.
   - Les contrôleurs UI I2V Direct et Ref2V Direct partagent le backend mais gardent encore du code JavaScript dupliqué.
+  - KREA2 V1 ne gère ni LoRA, ni preview, ni découpe automatique de la planche en panels indépendants, ni transfert de ces panels vers Ref2V.
+  - Les autres formes d'overlap temporel restent volontairement strictes ; la récupération ne couvre que plusieurs steps tous identiques aux bornes exactes de leur beat.
+  - Deux arrêts llama.swap `upstream command exited prematurely` sont présents dans les historiques disponibles ; ils sont distincts des rejets contractuels et les relances suivantes réussissent.
+  - Audit de poids Ref2V : sur le dernier Plan Qwen, le user prompt fait 18 103 caractères, dont 8 815 de Brief et 8 921 de schéma/tail ; le writer reçoit ensuite 15 329 caractères, dont le même Brief. Les moyennes Qwen observées atteignent environ 21,9 k caractères d’entrée pour le Plan, 21,6 k pour le writer et 32,8 k pour reconcile.
 
 ## Decisions
 
@@ -49,12 +60,13 @@
 - I2V et Ref2V restent deux produits et deux contrôleurs séparés ; seuls streaming, stockage, son et protocole H3 sont partagés.
 - Les cookbooks legacy publiés restent immuables et chargeables, mais ne sont plus proposés pour créer un parcours depuis l’interface.
 - I2V accepte exactement une première frame : I2VA uniquement. FL2VA reste hors périmètre.
+- KREA2 est une recette Image Lab dédiée et versionnée ; le modèle, le ratio, les mégapixels et la seed sont variables, tandis que le sampling et les modèles auxiliaires restent immuables dans la V1.
 
 ## Next steps
 
-1. Faire un smoke réel du Super rapide direct `0.2.0` avec Qwen3.8-27B, puis du Video Lab avec une, deux et trois images : qualité du prompt H3, trace debug, preview KJ, lecteur final natif, historique et annulation.
-2. Ajouter une télémétrie GPU read-only pour la RTX 6000 : température, VRAM, utilisation, puissance et file ComfyUI, avec états partiels si une source est indisponible.
-3. Concevoir la bascule VRAM sûre llama.swap ↔ ComfyUI sans interrompre une opération active.
+1. Ajouter ensemble une recette I2V mono compacte et une recette FL2V dédiée (première frame requise, dernière frame facultative côté UX), sans modifier I2V `0.2.0`.
+2. Prototyper ensuite une recette Ref2V mono `0.4.0` compacte en A/B : Brief projeté, schéma compact et writer sans Brief intégral ; conserver `0.3.3` intacte.
+3. Faire un smoke réel KREA2 puis ajouter la télémétrie GPU read-only avant toute bascule automatique de VRAM.
 
 ## Risks / open questions
 
@@ -66,3 +78,7 @@
 - La durée Video Lab et les timestamps écrits dans le prompt restent deux entrées indépendantes ; l'interface affiche la durée effective quantifiée mais ne réécrit jamais le prompt silencieusement.
 - Le workflow H3 conserve en V1 l'historique et l'archive Spectrum en VRAM ; mesurer son coût réel avant d'automatiser la cohabitation avec llama.swap.
 - Une coupure de PanelForge entre la soumission ComfyUI et la persistance de son identifiant reste une fenêtre transactionnelle externe non récupérable sans idempotence côté serveur.
+- La recette Storyboard exige un JSON strict en un seul essai : la qualité dépendra de la discipline structurelle du modèle. KREA2 peut encore fusionner des cellules ou perdre des détails, surtout sur une grille de neuf panels ; les premiers A/B doivent mesurer ces écarts avant de modifier le squelette fixe.
+- La présence d’un modèle dans ComfyUI ne suffit pas à le qualifier : seuls les checkpoints de l’allowlist sont sélectionnables, et les performances/consommations 3–4 MP doivent encore être mesurées sur la RTX 6000.
+- Les historiques sont actuellement répartis entre `D:\Code\panelforge\workspace` et `.panelpatch\workspace` selon la copie de code lancée ; cette séparation peut faire croire à deux versions de Python et fragmenter l’audit des runs.
+- Le poids dominant des prompts Ref2V vient des données répétées (Brief, schéma, Plan), pas des seules règles système ; supprimer des garde-fous avant de réduire ces duplications risquerait de dégrader la qualité sans gain principal.

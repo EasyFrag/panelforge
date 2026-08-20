@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "recipe_id": "krea2.storyboard.from_text",
+  "version": "0.1.0",
+  "display_name": "KREA2 Storyboard photo",
+  "description": "Transforme une intention ou une histoire courte en une planche storyboard photoréaliste de 2, 4, 6 ou 9 panels verticaux.",
+  "target_model_family": "krea2",
+  "output_contract": "panelforge.storyboard.spec.v1",
+  "panel_counts": [2, 4, 6, 9],
+  "sources": [
+    "User-validated KREA2 storyboard prompt skeleton, 2026-08-16"
+  ],
+  "templates": {
+    "system": "storyboard.system.txt",
+    "user": "storyboard.user.txt",
+    "final_prompt": "storyboard.prompt.txt"
+  }
+}

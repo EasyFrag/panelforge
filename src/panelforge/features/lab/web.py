@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from datetime import UTC, datetime
+import hashlib
 import json
 from pathlib import Path
+from threading import Lock
 from typing import Annotated, Any, Callable
 
 from fastapi import (
@@ -28,11 +31,16 @@ from panelforge.application import (
     ChangeViewRunRequest,
     ChangeViewRunner,
     CompositionStreamEvent,
+    Krea2LabRunRequest,
+    Krea2LabRunner,
     ModelRuntimeControl,
     NewReference,
     PromptCompositionService,
     PromptLabService,
     PromptLabStreamEvent,
+    StoryboardLabService,
+    StoryboardRunRequest,
+    StoryboardStreamEvent,
     SUPER_FAST_REF2V_COOKBOOK_ID,
     SUPER_FAST_REF2V_COOKBOOK_VERSION,
     VideoLabRunRequest,
@@ -43,15 +51,20 @@ from panelforge.domain import (
     CompositionStage,
     ControlKind,
     CookbookBinding,
+    Krea2AspectRatio,
+    Krea2LabRun,
     PromptComposition,
     PromptLabSession,
     ReferenceEvidencePolicy,
     ReferenceUse,
     RunRecord,
     RunReview,
+    StoryboardRun,
     VideoAspectRatio,
     VideoLabRun,
     VideoLabSettings,
+    normalize_krea2_model_name,
+    storyboard_layout,
 )
 from panelforge.domain.character import (
     CameraAzimuth,
@@ -135,12 +148,36 @@ class SuperFastRef2VBody(BaseModel):
     creative_freedom: int
 
 
+class StoryboardCreateBody(BaseModel):
+    source_text: str
+    panel_count: int
+    model_id: str
+
+
+class Krea2CreateBody(BaseModel):
+    prompt: str
+    preset_id: str = "krea2-base"
+    model_id: str | None = None
+    aspect_ratio: str | None = None
+    megapixels: float | None = None
+    seed: str | int | None = None
+    seed_locked: bool = False
+    source_storyboard_run_id: str | None = None
+    source_prompt_sha256: str | None = None
+
+
+_STORYBOARD_RECIPE_ID = "krea2.storyboard.from_text"
+_STORYBOARD_RECIPE_VERSION = "0.1.0"
+
+
 def create_app(
     runner: ChangeViewRunner,
     *,
     prompt_lab: PromptLabService | None = None,
     prompt_composition: PromptCompositionService | None = None,
     video_lab: VideoLabRunner | None = None,
+    storyboard_lab: StoryboardLabService | None = None,
+    krea2_lab: Krea2LabRunner | None = None,
     model_runtime: ModelRuntimeControl | None = None,
     static_directory: Path | None = None,
     video_preview_connector: Callable[[str], Any] | None = None,
@@ -152,6 +189,11 @@ def create_app(
         raise FileNotFoundError(index_path)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0")
+    krea2_models = (
+        _Krea2ModelDiscovery(krea2_lab)
+        if krea2_lab is not None
+        else None
+    )
 
     @app.middleware("http")
     async def disable_lab_asset_cache(request, call_next):
@@ -165,6 +207,92 @@ def create_app(
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/storyboard-lab/spec")
+    def storyboard_lab_spec() -> dict[str, object]:
+        service = _require_storyboard_lab(storyboard_lab)
+        recipe = _storyboard_recipe(service)
+        return {
+            "recipe": {
+                "id": recipe.recipe_id,
+                "version": recipe.version,
+                "display_name": recipe.display_name,
+                "description": recipe.description,
+                "template_sha256": recipe.template_sha256,
+            },
+            "panel_options": [
+                {
+                    "panel_count": layout.panel_count,
+                    "columns": layout.columns,
+                    "rows": layout.rows,
+                    "page_aspect_ratio": layout.page_aspect_ratio,
+                    "page_orientation": layout.page_orientation,
+                    "panel_aspect_ratio": "2:3",
+                }
+                for layout in (
+                    storyboard_layout(panel_count)
+                    for panel_count in recipe.panel_counts
+                )
+            ],
+            "models": [
+                {"id": model.model_id}
+                for model in service.list_models()
+            ],
+        }
+
+    @app.post("/api/storyboard-lab/runs", status_code=status.HTTP_201_CREATED)
+    def create_storyboard_run(body: StoryboardCreateBody) -> dict[str, object]:
+        service = _require_storyboard_lab(storyboard_lab)
+        recipe = _storyboard_recipe(service)
+        try:
+            run = service.prepare(
+                StoryboardRunRequest(
+                    intention=body.source_text,
+                    panel_count=body.panel_count,
+                    model_id=body.model_id,
+                    recipe_id=recipe.recipe_id,
+                    recipe_version=recipe.version,
+                )
+            )
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"run": serialize_storyboard_run(run)}
+
+    @app.get("/api/storyboard-lab/runs")
+    def list_storyboard_runs(limit: int = 30) -> dict[str, object]:
+        service = _require_storyboard_lab(storyboard_lab)
+        try:
+            return {
+                "runs": [
+                    serialize_storyboard_run(run)
+                    for run in service.list(limit)
+                ]
+            }
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/storyboard-lab/runs/{run_id}")
+    def get_storyboard_run(run_id: str) -> dict[str, object]:
+        service = _require_storyboard_lab(storyboard_lab)
+        try:
+            return {"run": serialize_storyboard_run(service.get(run_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="storyboard run not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/storyboard-lab/runs/{run_id}/generate/stream")
+    def stream_storyboard_run(
+        run_id: str,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        service = _require_storyboard_lab(storyboard_lab)
+        return _storyboard_stream_response(
+            service.stream_generate(
+                run_id,
+                include_reasoning=include_reasoning,
+            )
+        )
 
     @app.post("/api/model-runtime/unload")
     def unload_model_runtime() -> dict[str, str]:
@@ -397,6 +525,163 @@ def create_app(
             media_type=asset.media_type,
             headers=headers,
         )
+
+    @app.get("/api/image-lab/krea2/spec")
+    def krea2_lab_spec() -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        discovery = _require_krea2_discovery(krea2_models)
+        presets = [
+            {
+                "id": preset.preset_id,
+                "preset_id": preset.preset_id,
+                "label": preset.label,
+                "model_id": preset.model_name,
+                "aspect_ratio": preset.aspect_ratio.value,
+                "megapixels": preset.megapixels,
+            }
+            for preset in service.recipe.presets.values()
+        ]
+        default_preset = service.recipe.presets.get("krea2-base")
+        if default_preset is None:
+            raise HTTPException(
+                status_code=503,
+                detail="The current KREA2 base preset is not installed",
+            )
+        model_snapshot = discovery.snapshot()
+        default_model = next(
+            (
+                str(model["id"])
+                for model in model_snapshot["models"]
+                if isinstance(model, dict) and model.get("default") is True
+            ),
+            service.recipe.default_model,
+        )
+        return {
+            "operation_id": service.recipe.reference.operation_id,
+            "recipe": {
+                "id": service.recipe.reference.recipe_id,
+                "version": service.recipe.reference.version,
+                "workflow_sha256": service.recipe.reference.workflow_sha256,
+                "status": service.recipe.status,
+            },
+            "presets": presets,
+            "defaults": {
+                "preset_id": default_preset.preset_id,
+                "model_id": default_model,
+                "aspect_ratio": default_preset.aspect_ratio.value,
+                "megapixels": default_preset.megapixels,
+            },
+            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
+            "megapixels": [0.5, 1.0, 2.0, 3.0, 4.0],
+            "limits": {
+                "megapixels": {"minimum": 0.5, "maximum": 4.0, "step": 0.1},
+            },
+            **model_snapshot,
+        }
+
+    @app.post("/api/image-lab/krea2/models/refresh")
+    def refresh_krea2_models() -> dict[str, object]:
+        _require_krea2_lab(krea2_lab)
+        discovery = _require_krea2_discovery(krea2_models)
+        return discovery.snapshot(refresh=True)
+
+    @app.post(
+        "/api/image-lab/krea2/runs",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def prepare_krea2_run(body: Krea2CreateBody) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        discovery = _require_krea2_discovery(krea2_models)
+        try:
+            source_prompt_sha256: str | None = None
+            if body.source_storyboard_run_id is not None:
+                source_service = _require_storyboard_lab(storyboard_lab)
+                try:
+                    source_service.get(body.source_storyboard_run_id)
+                except (KeyError, FileNotFoundError) as error:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Storyboard source run not found",
+                    ) from error
+                source_prompt_sha256 = hashlib.sha256(
+                    body.prompt.encode("utf-8")
+                ).hexdigest()
+            elif body.source_prompt_sha256 is not None:
+                raise ValueError(
+                    "source_prompt_sha256 requires source_storyboard_run_id"
+                )
+            model_name = discovery.resolve(body.model_id)
+            aspect_ratio = (
+                Krea2AspectRatio(body.aspect_ratio)
+                if body.aspect_ratio is not None
+                else None
+            )
+            seed = _parse_json_seed(body.seed)
+            run = service.prepare(
+                Krea2LabRunRequest(
+                    prompt=body.prompt,
+                    preset_id=body.preset_id,
+                    model_name=model_name,
+                    aspect_ratio=aspect_ratio,
+                    megapixels=body.megapixels,
+                    seed=seed,
+                    seed_locked=body.seed_locked,
+                    source_storyboard_run_id=body.source_storyboard_run_id,
+                    source_prompt_sha256=source_prompt_sha256,
+                )
+            )
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 resource not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return serialize_krea2_run(run)
+
+    @app.post(
+        "/api/image-lab/krea2/runs/{run_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def start_krea2_run(
+        run_id: str,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        try:
+            run = service.queue(run_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        background_tasks.add_task(service.execute, run.run_id)
+        return serialize_krea2_run(run)
+
+    @app.get("/api/image-lab/krea2/runs")
+    def list_krea2_runs(limit: int = 30) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        try:
+            runs = service.list(limit)
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"runs": [serialize_krea2_run(run) for run in runs]}
+
+    @app.get("/api/image-lab/krea2/runs/{run_id}")
+    def get_krea2_run(run_id: str) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        try:
+            return serialize_krea2_run(service.get(run_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2/runs/{run_id}/cancel")
+    def cancel_krea2_run(run_id: str) -> dict[str, object]:
+        service = _require_krea2_lab(krea2_lab)
+        try:
+            return serialize_krea2_run(service.cancel(run_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/video-lab/spec")
     def video_lab_spec() -> dict[str, object]:
@@ -1366,6 +1651,56 @@ def serialize_run(run: RunRecord) -> dict[str, object]:
     }
 
 
+def serialize_krea2_run(run: Krea2LabRun) -> dict[str, object]:
+    """Expose a KREA2 render without local paths or workflow internals."""
+    settings = {
+        "model_id": run.settings.model_name,
+        "model_name": run.settings.model_name,
+        "aspect_ratio": run.settings.aspect_ratio.value,
+        "megapixels": run.settings.megapixels,
+        "seed": str(run.settings.seed),
+        "seed_locked": run.settings.seed_locked,
+    }
+    output_url = (
+        f"/api/assets/{run.output_asset_id}/content"
+        if run.output_asset_id is not None
+        else None
+    )
+    return {
+        "id": run.run_id,
+        "run_id": run.run_id,
+        "status": run.status.value,
+        "recipe": {
+            "id": run.recipe.recipe_id,
+            "version": run.recipe.version,
+            "workflow_sha256": run.recipe.workflow_sha256,
+        },
+        "preset_id": run.preset_id,
+        "prompt": run.prompt,
+        "model_id": run.settings.model_name,
+        "model_name": run.settings.model_name,
+        "aspect_ratio": run.settings.aspect_ratio.value,
+        "megapixels": run.settings.megapixels,
+        "seed": str(run.settings.seed),
+        "seed_locked": run.settings.seed_locked,
+        "settings": settings,
+        "parameters": settings,
+        "resolution": {
+            "width": run.settings.resolution[0],
+            "height": run.settings.resolution[1],
+        },
+        "source_storyboard_run_id": run.source_storyboard_run_id,
+        "source_prompt_sha256": run.source_prompt_sha256,
+        "execution_id": run.execution_id,
+        "compiled_workflow_sha256": run.compiled_workflow_sha256,
+        "output_asset_id": run.output_asset_id,
+        "output_url": output_url,
+        "output_content_url": output_url,
+        "result_url": output_url,
+        "error": run.error,
+    }
+
+
 def serialize_video_lab_run(run: VideoLabRun) -> dict[str, object]:
     """Expose one Video Lab record without leaking local filesystem paths."""
     references = [
@@ -1524,6 +1859,40 @@ def detect_image_media_type(content: bytes) -> str:
     raise ValueError("source must be a PNG, JPEG or WebP image")
 
 
+def serialize_storyboard_run(run: StoryboardRun) -> dict[str, object]:
+    layout = storyboard_layout(run.panel_count)
+    return {
+        "id": run.run_id,
+        "run_id": run.run_id,
+        "source_text": run.intention,
+        "intention": run.intention,
+        "panel_count": run.panel_count,
+        "model_id": run.model_id,
+        "recipe": {
+            "id": run.recipe_id,
+            "version": run.recipe_version,
+            "template_sha256": run.template_sha256,
+        },
+        "recipe_id": run.recipe_id,
+        "recipe_version": run.recipe_version,
+        "template_sha256": run.template_sha256,
+        "layout": {
+            "panel_count": layout.panel_count,
+            "columns": layout.columns,
+            "rows": layout.rows,
+            "page_aspect_ratio": layout.page_aspect_ratio,
+            "page_orientation": layout.page_orientation,
+            "panel_aspect_ratio": "2:3",
+        },
+        "status": run.status.value,
+        "raw_response": run.raw_response,
+        "spec": run.spec.to_payload() if run.spec is not None else None,
+        "compiled_prompt": run.compiled_prompt,
+        "warnings": list(run.warnings),
+        "error": run.error,
+    }
+
+
 def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
     return {
         "id": session.session_id,
@@ -1643,6 +2012,135 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
     }
 
 
+class _Krea2ModelDiscovery:
+    """Small lazy cache around ComfyUI's read-only model inventory."""
+
+    def __init__(self, service: Krea2LabRunner) -> None:
+        self._service = service
+        self._lock = Lock()
+        self._initialized = False
+        self._installed: tuple[str, ...] | None = None
+        self._status = "unavailable"
+        self._refreshed_at: str | None = None
+        self._error: str | None = None
+
+    def snapshot(self, *, refresh: bool = False) -> dict[str, object]:
+        with self._lock:
+            if refresh or not self._initialized:
+                self._refresh_locked()
+            installed = self._installed
+            status_value = self._status
+            refreshed_at = self._refreshed_at
+            error = self._error
+        return {
+            "models": self._model_entries(installed),
+            "model_discovery": {
+                "status": status_value,
+                "refreshed_at": refreshed_at,
+                "error": error,
+            },
+        }
+
+    def resolve(self, requested_model: str | None) -> str:
+        requested = requested_model or self._service.recipe.default_model
+        if not isinstance(requested, str) or not requested.strip():
+            raise ValueError("model_id must not be empty")
+        requested_key = normalize_krea2_model_name(requested)
+        canonical = next(
+            (
+                model
+                for model in self._service.recipe.qualified_models
+                if normalize_krea2_model_name(model) == requested_key
+            ),
+            None,
+        )
+        if canonical is None:
+            raise ValueError(f"unqualified KREA2 model {requested!r}")
+
+        snapshot = self.snapshot()
+        entry = next(
+            item
+            for item in snapshot["models"]
+            if isinstance(item, dict)
+            and normalize_krea2_model_name(str(item.get("id", "")))
+            == normalize_krea2_model_name(canonical)
+        )
+        if entry["installed"] is False:
+            raise ValueError(f"KREA2 model {canonical!r} is not installed")
+        return str(entry["id"])
+
+    def _refresh_locked(self) -> None:
+        self._initialized = True
+        try:
+            installed = tuple(self._service.comfy.list_unet_models())
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
+            self._status = "stale" if self._installed is not None else "unavailable"
+            self._error = str(error) or error.__class__.__name__
+            return
+        self._installed = installed
+        self._status = "available"
+        self._refreshed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        self._error = None
+
+    def _model_entries(
+        self,
+        installed: tuple[str, ...] | None,
+    ) -> list[dict[str, object]]:
+        installed_by_key: dict[str, str] | None = None
+        if installed is not None:
+            installed_by_key = {}
+            for model in installed:
+                installed_by_key.setdefault(
+                    normalize_krea2_model_name(model),
+                    model,
+                )
+        entries: list[dict[str, object]] = []
+        qualified_keys: set[str] = set()
+        for model in self._service.recipe.qualified_models:
+            key = normalize_krea2_model_name(model)
+            qualified_keys.add(key)
+            exact_model = (
+                model
+                if installed_by_key is None
+                else installed_by_key.get(key, model)
+            )
+            is_installed = (
+                None if installed_by_key is None else key in installed_by_key
+            )
+            entries.append(
+                {
+                    "id": exact_model,
+                    "label": exact_model,
+                    "installed": is_installed,
+                    "qualified": True,
+                    "selectable": is_installed is not False,
+                    "default": (
+                        key
+                        == normalize_krea2_model_name(
+                            self._service.recipe.default_model
+                        )
+                    ),
+                }
+            )
+
+        if installed is not None:
+            discovered = sorted(installed, key=str.casefold)
+            for model in discovered:
+                key = normalize_krea2_model_name(model)
+                if key in qualified_keys or "krea2" not in key:
+                    continue
+                entries.append(
+                    {
+                        "id": model,
+                        "label": model,
+                        "installed": True,
+                        "qualified": False,
+                        "selectable": False,
+                        "default": False,
+                    }
+                )
+        return entries
+
 def serialize_prompt_composition(
     composition: PromptComposition,
     service: PromptCompositionService,
@@ -1722,6 +2220,87 @@ def _require_video_lab(value: VideoLabRunner | None) -> VideoLabRunner:
     if value is None:
         raise HTTPException(status_code=503, detail="Video Lab is not configured")
     return value
+
+
+def _require_krea2_lab(value: Krea2LabRunner | None) -> Krea2LabRunner:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KREA2 Image Lab is not configured",
+        )
+    return value
+
+
+def _require_krea2_discovery(
+    value: _Krea2ModelDiscovery | None,
+) -> _Krea2ModelDiscovery:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KREA2 model discovery is not configured",
+        )
+    return value
+
+
+def _require_storyboard_lab(
+    value: StoryboardLabService | None,
+) -> StoryboardLabService:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Storyboard Lab is not configured",
+        )
+    return value
+
+
+def _storyboard_recipe(service: StoryboardLabService):
+    try:
+        return service.get_recipe(
+            _STORYBOARD_RECIPE_ID,
+            _STORYBOARD_RECIPE_VERSION,
+        )
+    except KeyError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="The current Storyboard recipe is not installed",
+        ) from error
+
+
+def _storyboard_stream_response(
+    events: Iterator[StoryboardStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                    "finish_reason": event.finish_reason,
+                    "max_tokens": event.max_tokens,
+                }
+                if event.run is not None:
+                    payload["run"] = serialize_storyboard_run(event.run)
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {
+                    "kind": "error",
+                    "phase": "failed",
+                    "message": str(error),
+                },
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _prompt_action(action) -> dict[str, object]:
@@ -1894,6 +2473,18 @@ def _parse_seed(value: str) -> int:
     if not 0 <= seed < 2**64:
         raise ValueError("seed must be between 0 and 2^64 - 1")
     return seed
+
+
+def _parse_json_seed(value: str | int | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("seed must be an unsigned decimal integer")
+    if isinstance(value, int):
+        value = str(value)
+    if not isinstance(value, str):
+        raise ValueError("seed must be an unsigned decimal integer")
+    return _parse_seed(value)
 
 
 def _get_run_or_404(runner: ChangeViewRunner, run_id: str) -> RunRecord:

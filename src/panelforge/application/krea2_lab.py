@@ -1,8 +1,8 @@
-"""Persistent orchestration for MiniMax H3 Video Lab renders."""
+"""Persistent orchestration for KREA2 text-to-image renders."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 import secrets
 from threading import RLock
@@ -10,30 +10,18 @@ import time
 from typing import Any, Protocol
 from uuid import uuid4
 
-from panelforge.domain import (
-    Asset,
-    RecipeRef,
-    VideoAspectRatio,
-    VideoLabRun,
-    VideoLabRunStatus,
-    VideoLabSettings,
+from panelforge.domain.assets import Asset
+from panelforge.domain.krea2_lab import (
+    Krea2AspectRatio,
+    Krea2LabRun,
+    Krea2LabRunStatus,
+    Krea2LabSettings,
+    normalize_krea2_model_name,
 )
+from panelforge.domain.recipes import RecipeRef
 
 
-class UploadedImage(Protocol):
-    @property
-    def workflow_value(self) -> str: ...
-
-
-class VideoComfyGateway(Protocol):
-    def upload_image(
-        self,
-        content: bytes,
-        *,
-        filename: str,
-        subfolder: str = "",
-    ) -> UploadedImage: ...
-
+class Krea2ComfyGateway(Protocol):
     def submit_workflow(self, workflow: Mapping[str, Any]) -> str: ...
 
     def get_history(self, prompt_id: str) -> dict[str, Any]: ...
@@ -49,7 +37,7 @@ class VideoComfyGateway(Protocol):
     def cancel_execution(self, prompt_id: str) -> object | None: ...
 
 
-class VideoAssetStore(Protocol):
+class Krea2AssetStore(Protocol):
     def create(
         self,
         content: bytes,
@@ -60,17 +48,15 @@ class VideoAssetStore(Protocol):
 
     def get(self, asset_id: str) -> Asset: ...
 
-    def read_bytes(self, asset_id: str) -> bytes: ...
 
+class Krea2RunStore(Protocol):
+    def create(self, run: Krea2LabRun) -> Krea2LabRun: ...
 
-class VideoRunStore(Protocol):
-    def create(self, run: VideoLabRun) -> VideoLabRun: ...
+    def save(self, run: Krea2LabRun) -> Krea2LabRun: ...
 
-    def save(self, run: VideoLabRun) -> VideoLabRun: ...
+    def get(self, run_id: str) -> Krea2LabRun: ...
 
-    def get(self, run_id: str) -> VideoLabRun: ...
-
-    def list(self, limit: int = 20) -> list[VideoLabRun]: ...
+    def list(self, limit: int = 20) -> list[Krea2LabRun]: ...
 
     def save_compiled_workflow(
         self,
@@ -79,20 +65,15 @@ class VideoRunStore(Protocol):
     ) -> str: ...
 
 
-class VideoPreset(Protocol):
+class Krea2Preset(Protocol):
     preset_id: str
     label: str
-    aspect_ratio: VideoAspectRatio
+    aspect_ratio: Krea2AspectRatio
     megapixels: float
-    duration_seconds: float
-    steps: int
-    preview_frames: int
-    preview_fps: int
-    preview_jpeg_quality: int
-    preview_max_resolution: int
+    model_name: str
 
 
-class VideoLabRecipe(Protocol):
+class Krea2LabRecipe(Protocol):
     @property
     def reference(self) -> RecipeRef: ...
 
@@ -100,7 +81,13 @@ class VideoLabRecipe(Protocol):
     def status(self) -> str: ...
 
     @property
-    def presets(self) -> Mapping[str, VideoPreset]: ...
+    def presets(self) -> Mapping[str, Krea2Preset]: ...
+
+    @property
+    def qualified_models(self) -> tuple[str, ...]: ...
+
+    @property
+    def default_model(self) -> str: ...
 
     @property
     def output_node_id(self) -> str: ...
@@ -111,48 +98,39 @@ class VideoLabRecipe(Protocol):
     def build_workflow(
         self,
         *,
-        source_images: Sequence[str],
         prompt: str,
-        settings: VideoLabSettings,
+        settings: Krea2LabSettings,
         output_filename_prefix: str,
     ) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True, slots=True)
-class VideoLabRunRequest:
-    source_asset_ids: tuple[str, ...]
+class Krea2LabRunRequest:
     prompt: str
-    preset_id: str
-    source_labels: tuple[str, ...] = ()
-    aspect_ratio: VideoAspectRatio | None = None
+    preset_id: str = "krea2-base"
+    model_name: str | None = None
+    aspect_ratio: Krea2AspectRatio | None = None
     megapixels: float | None = None
-    duration_seconds: float | None = None
-    steps: int | None = None
     seed: int | None = None
     seed_locked: bool = False
+    source_storyboard_run_id: str | None = None
+    source_prompt_sha256: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.source_asset_ids, tuple):
-            raise TypeError("source_asset_ids must be a tuple")
-        if not 1 <= len(self.source_asset_ids) <= 3:
-            raise ValueError("provide between 1 and 3 source images")
-        if len(set(self.source_asset_ids)) != len(self.source_asset_ids):
-            raise ValueError("source_asset_ids must not contain duplicates")
-        for asset_id in self.source_asset_ids:
-            _require_text(asset_id, "source_asset_ids item")
-        if not isinstance(self.source_labels, tuple):
-            raise TypeError("source_labels must be a tuple")
-        if self.source_labels and len(self.source_labels) != len(self.source_asset_ids):
-            raise ValueError("source_labels must align with source_asset_ids")
-        for label in self.source_labels:
-            _require_text(label, "source_labels item")
         _require_text(self.prompt, "prompt")
         _require_text(self.preset_id, "preset_id")
+        if self.model_name is not None:
+            _require_text(self.model_name, "model_name")
         if self.aspect_ratio is not None and not isinstance(
             self.aspect_ratio,
-            VideoAspectRatio,
+            Krea2AspectRatio,
         ):
-            raise TypeError("aspect_ratio must be a VideoAspectRatio")
+            raise TypeError("aspect_ratio must be a Krea2AspectRatio")
+        if self.megapixels is not None and (
+            isinstance(self.megapixels, bool)
+            or not isinstance(self.megapixels, (int, float))
+        ):
+            raise TypeError("megapixels must be a number")
         if self.seed is not None and (
             isinstance(self.seed, bool)
             or not isinstance(self.seed, int)
@@ -161,18 +139,25 @@ class VideoLabRunRequest:
             raise ValueError("seed must be between 0 and 2^64 - 1")
         if not isinstance(self.seed_locked, bool):
             raise TypeError("seed_locked must be a boolean")
+        if self.source_storyboard_run_id is not None:
+            _require_text(
+                self.source_storyboard_run_id,
+                "source_storyboard_run_id",
+            )
+        if self.source_prompt_sha256 is not None:
+            _require_sha256(self.source_prompt_sha256, "source_prompt_sha256")
 
 
-class VideoLabRunner:
-    """Prepare, queue, execute and cancel one Video Lab render at a time."""
+class Krea2LabRunner:
+    """Prepare, queue, execute and cancel one KREA2 render at a time."""
 
     def __init__(
         self,
         *,
-        recipe: VideoLabRecipe,
-        comfy: VideoComfyGateway,
-        assets: VideoAssetStore,
-        runs: VideoRunStore,
+        recipe: Krea2LabRecipe,
+        comfy: Krea2ComfyGateway,
+        assets: Krea2AssetStore,
+        runs: Krea2RunStore,
         run_timeout: float = 3600.0,
         poll_interval: float = 1.0,
         run_id_factory: Callable[[], str] | None = None,
@@ -191,7 +176,7 @@ class VideoLabRunner:
         self.run_timeout = run_timeout
         self.poll_interval = poll_interval
         self._run_id_factory = run_id_factory or (
-            lambda: f"video-{uuid4().hex}"
+            lambda: f"krea2-{uuid4().hex}"
         )
         self._seed_factory = seed_factory or (lambda: secrets.randbits(64))
         self._monotonic = monotonic
@@ -199,57 +184,59 @@ class VideoLabRunner:
         self._state_lock = RLock()
         self._claimed: set[str] = set()
 
-    def prepare(self, request: VideoLabRunRequest) -> VideoLabRun:
-        sources = tuple(self.assets.get(asset_id) for asset_id in request.source_asset_ids)
-        if any(not source.media_type.startswith("image/") for source in sources):
-            raise ValueError("every source asset must be an image")
+    def prepare(self, request: Krea2LabRunRequest) -> Krea2LabRun:
         preset = self.recipe.presets.get(request.preset_id)
         if preset is None:
-            raise ValueError(f"unknown Video Lab preset {request.preset_id!r}")
+            raise ValueError(f"unknown KREA2 preset {request.preset_id!r}")
+        model_name = request.model_name or preset.model_name
+        qualified_keys = {
+            normalize_krea2_model_name(value)
+            for value in self.recipe.qualified_models
+        }
+        if normalize_krea2_model_name(model_name) not in qualified_keys:
+            raise ValueError(f"unqualified KREA2 model {model_name!r}")
         seed = request.seed if request.seed is not None else self._seed_factory()
-        settings = VideoLabSettings(
+        settings = Krea2LabSettings(
+            model_name=model_name,
             aspect_ratio=request.aspect_ratio or preset.aspect_ratio,
             megapixels=(
                 preset.megapixels
                 if request.megapixels is None
                 else request.megapixels
             ),
-            duration_seconds=(
-                preset.duration_seconds
-                if request.duration_seconds is None
-                else request.duration_seconds
-            ),
-            steps=preset.steps if request.steps is None else request.steps,
             seed=seed,
             seed_locked=request.seed_locked,
         )
-        labels = request.source_labels or tuple(source.asset_id for source in sources)
-        run = VideoLabRun.create(
+        run = Krea2LabRun.create(
             run_id=self._run_id_factory(),
             recipe=self.recipe.reference,
             preset_id=preset.preset_id,
-            source_asset_ids=tuple(source.asset_id for source in sources),
-            source_labels=labels,
             prompt=request.prompt,
             settings=settings,
+            source_storyboard_run_id=request.source_storyboard_run_id,
+            source_prompt_sha256=request.source_prompt_sha256,
         )
         return self.runs.create(run)
 
-    def queue(self, run_id: str) -> VideoLabRun:
-        """Claim the single Video Lab slot before scheduling background work."""
+    def queue(self, run_id: str) -> Krea2LabRun:
+        """Claim the single KREA2 slot before scheduling background work."""
         with self._state_lock:
             run = self.runs.get(run_id)
             self._require_current_recipe(run)
             active = {
-                VideoLabRunStatus.QUEUED,
-                VideoLabRunStatus.RUNNING,
-                VideoLabRunStatus.CANCEL_PENDING,
+                Krea2LabRunStatus.QUEUED,
+                Krea2LabRunStatus.RUNNING,
+                Krea2LabRunStatus.CANCEL_PENDING,
             }
             candidates = self.runs.list(2**31 - 1)
             candidates = [
-                self._refresh_detached_running(candidate)
+                self._refresh_detached_active(candidate)
                 if (
-                    candidate.status is VideoLabRunStatus.RUNNING
+                    candidate.status
+                    in {
+                        Krea2LabRunStatus.RUNNING,
+                        Krea2LabRunStatus.CANCEL_PENDING,
+                    }
                     and candidate.run_id not in self._claimed
                     and candidate.recipe == self.recipe.reference
                 )
@@ -260,52 +247,39 @@ class VideoLabRunner:
                 candidate.run_id != run_id and candidate.status in active
                 for candidate in candidates
             ):
-                raise ValueError("another Video Lab render is already active")
+                raise ValueError("another KREA2 render is already active")
             run = run.queue()
             return self.runs.save(run)
 
-    def execute(self, run_id: str) -> VideoLabRun:
+    def execute(self, run_id: str) -> Krea2LabRun:
         """Execute a queued render; terminal errors remain visible in history."""
         with self._state_lock:
             run = self.runs.get(run_id)
-            if run.status is VideoLabRunStatus.CANCELLED:
+            if run.status is Krea2LabRunStatus.CANCELLED:
                 return run
-            if run.status is not VideoLabRunStatus.QUEUED:
-                raise ValueError(f"run {run_id!r} is not queued")
-            self._require_current_recipe(run)
             if run_id in self._claimed:
                 raise ValueError(f"run {run_id!r} is already being executed")
+            if run.status is not Krea2LabRunStatus.QUEUED:
+                raise ValueError(f"run {run_id!r} is not queued")
+            self._require_current_recipe(run)
             self._claimed.add(run_id)
 
         execution_id: str | None = None
         workflow_sha256: str | None = None
         try:
-            uploaded_values: list[str] = []
-            for asset_id in run.source_asset_ids:
-                if self._is_cancelled(run_id):
-                    return self.runs.get(run_id)
-                source = self.assets.get(asset_id)
-                uploaded = self.comfy.upload_image(
-                    self.assets.read_bytes(asset_id),
-                    filename=_comfy_filename(source),
-                    subfolder="panelforge/video-lab",
-                )
-                uploaded_values.append(uploaded.workflow_value)
-
             if self._is_cancelled(run_id):
                 return self.runs.get(run_id)
             workflow = self.recipe.build_workflow(
-                source_images=uploaded_values,
                 prompt=run.prompt,
                 settings=run.settings,
-                output_filename_prefix=f"video/PanelForge_H3_{run.run_id}",
+                output_filename_prefix=f"image/krea2/PanelForge_KREA2_{run.run_id}",
             )
             workflow_sha256 = self.runs.save_compiled_workflow(run.run_id, workflow)
             with self._state_lock:
                 current = self.runs.get(run_id)
                 if current.status in {
-                    VideoLabRunStatus.CANCELLED,
-                    VideoLabRunStatus.CANCEL_PENDING,
+                    Krea2LabRunStatus.CANCELLED,
+                    Krea2LabRunStatus.CANCEL_PENDING,
                 }:
                     return current
                 execution_id = self.comfy.submit_workflow(workflow)
@@ -315,7 +289,7 @@ class VideoLabRunner:
             history_run = self._wait_for_history(run_id, execution_id)
             if history_run is None:
                 return self.runs.get(run_id)
-            output_ref = extract_bound_video(
+            output_ref = extract_bound_image(
                 history_run,
                 node_id=self.recipe.output_node_id,
                 history_field=self.recipe.output_history_field,
@@ -325,19 +299,19 @@ class VideoLabRunner:
                 subfolder=output_ref["subfolder"],
                 folder_type=output_ref["type"],
             )
-            _validate_mp4(output_content, output_ref["filename"])
+            _validate_png(output_content, output_ref["filename"])
             with self._state_lock:
                 current = self.runs.get(run_id)
                 if current.status in {
-                    VideoLabRunStatus.CANCELLED,
-                    VideoLabRunStatus.CANCEL_PENDING,
+                    Krea2LabRunStatus.CANCELLED,
+                    Krea2LabRunStatus.CANCEL_PENDING,
                 }:
                     return current
-                if current.status is not VideoLabRunStatus.RUNNING:
+                if current.status is not Krea2LabRunStatus.RUNNING:
                     return current
                 output = self.assets.create(
                     output_content,
-                    media_type="video/mp4",
+                    media_type="image/png",
                     source_run_id=run_id,
                 )
                 run = current.succeed(output.asset_id)
@@ -346,13 +320,11 @@ class VideoLabRunner:
         except Exception as error:
             with self._state_lock:
                 current = self.runs.get(run_id)
-                if current.status in {
-                    VideoLabRunStatus.CREATED,
-                }:
+                if current.status is Krea2LabRunStatus.CREATED:
                     current = current.fail(_error_message(error))
                     self.runs.save(current)
                 elif (
-                    current.status is VideoLabRunStatus.QUEUED
+                    current.status is Krea2LabRunStatus.QUEUED
                     and execution_id is not None
                     and workflow_sha256 is not None
                 ):
@@ -362,63 +334,86 @@ class VideoLabRunner:
                         workflow_sha256,
                         error,
                     )
-                elif current.status is VideoLabRunStatus.QUEUED:
+                elif current.status is Krea2LabRunStatus.QUEUED:
                     current = current.fail(_error_message(error))
                     self.runs.save(current)
-                elif current.status is VideoLabRunStatus.RUNNING:
+                elif current.status is Krea2LabRunStatus.RUNNING:
                     current = self._stop_remote_after_failure(current, error)
                 return current
         finally:
             with self._state_lock:
                 self._claimed.discard(run_id)
 
-    def cancel(self, run_id: str) -> VideoLabRun:
+    def cancel(self, run_id: str) -> Krea2LabRun:
         with self._state_lock:
             run = self.runs.get(run_id)
             if (
-                run.status is VideoLabRunStatus.RUNNING
+                run.status
+                in {
+                    Krea2LabRunStatus.RUNNING,
+                    Krea2LabRunStatus.CANCEL_PENDING,
+                }
                 and run.run_id not in self._claimed
                 and run.recipe == self.recipe.reference
             ):
-                run = self._refresh_detached_running(run)
-                if run.status is not VideoLabRunStatus.RUNNING:
+                run = self._refresh_detached_active(run)
+                if run.status not in {
+                    Krea2LabRunStatus.RUNNING,
+                    Krea2LabRunStatus.CANCEL_PENDING,
+                }:
                     return run
             if run.status in {
-                VideoLabRunStatus.RUNNING,
-                VideoLabRunStatus.CANCEL_PENDING,
+                Krea2LabRunStatus.RUNNING,
+                Krea2LabRunStatus.CANCEL_PENDING,
             }:
                 assert run.execution_id is not None
                 try:
-                    self.comfy.cancel_execution(run.execution_id)
+                    cancellation = self.comfy.cancel_execution(run.execution_id)
                 except Exception as error:
-                    if run.status is VideoLabRunStatus.RUNNING:
+                    if run.status is Krea2LabRunStatus.RUNNING:
                         run = run.mark_cancel_pending(
                             "Remote cancellation failed: " + _error_message(error)
                         )
                     else:
                         run = _replace_cancel_error(run, error)
                     return self.runs.save(run)
+                if _cancellation_action(cancellation) == "already_finished":
+                    run = self._refresh_detached_active(
+                        run,
+                        interruption_is_cancelled=True,
+                    )
+                    if run.status not in {
+                        Krea2LabRunStatus.RUNNING,
+                        Krea2LabRunStatus.CANCEL_PENDING,
+                    }:
+                        return run
+                    run = _mark_history_reconciliation_pending(run)
+                    return self.runs.save(run)
             run = run.cancel()
             return self.runs.save(run)
 
-    def get(self, run_id: str) -> VideoLabRun:
+    def get(self, run_id: str) -> Krea2LabRun:
         with self._state_lock:
             run = self.runs.get(run_id)
             if (
-                run.status is VideoLabRunStatus.RUNNING
+                run.status
+                in {
+                    Krea2LabRunStatus.RUNNING,
+                    Krea2LabRunStatus.CANCEL_PENDING,
+                }
                 and run_id not in self._claimed
                 and run.recipe == self.recipe.reference
             ):
-                run = self._refresh_detached_running(run)
+                run = self._refresh_detached_active(run)
             return run
 
-    def list(self, limit: int = 20) -> list[VideoLabRun]:
+    def list(self, limit: int = 20) -> list[Krea2LabRun]:
         return self.runs.list(limit)
 
     def output_asset(self, run_id: str) -> Asset:
         run = self.runs.get(run_id)
-        if run.status is not VideoLabRunStatus.SUCCEEDED:
-            raise ValueError("only a successful run has a final video")
+        if run.status is not Krea2LabRunStatus.SUCCEEDED:
+            raise ValueError("only a successful run has a final image")
         assert run.output_asset_id is not None
         return self.assets.get(run.output_asset_id)
 
@@ -454,21 +449,21 @@ class VideoLabRunner:
 
     def _is_cancelled(self, run_id: str) -> bool:
         return self.runs.get(run_id).status in {
-            VideoLabRunStatus.CANCELLED,
-            VideoLabRunStatus.CANCEL_PENDING,
+            Krea2LabRunStatus.CANCELLED,
+            Krea2LabRunStatus.CANCEL_PENDING,
         }
 
-    def _require_current_recipe(self, run: VideoLabRun) -> None:
+    def _require_current_recipe(self, run: Krea2LabRun) -> None:
         if run.recipe != self.recipe.reference:
             raise ValueError(
-                "the run recipe version is not loaded; create a new Video Lab run"
+                "the run recipe version is not loaded; create a new KREA2 run"
             )
 
     def _stop_remote_after_failure(
         self,
-        run: VideoLabRun,
+        run: Krea2LabRun,
         error: Exception,
-    ) -> VideoLabRun:
+    ) -> Krea2LabRun:
         assert run.execution_id is not None
         execution_error = _error_message(error)
         try:
@@ -484,12 +479,11 @@ class VideoLabRunner:
 
     def _stop_unpersisted_submission(
         self,
-        run: VideoLabRun,
+        run: Krea2LabRun,
         execution_id: str,
         workflow_sha256: str,
         error: Exception,
-    ) -> VideoLabRun:
-        """Retain a known Comfy ID when persisting RUNNING initially failed."""
+    ) -> Krea2LabRun:
         submitted = run.start(execution_id, workflow_sha256)
         execution_error = _error_message(error)
         try:
@@ -503,8 +497,20 @@ class VideoLabRunner:
             submitted = submitted.fail(execution_error)
         return self.runs.save(submitted)
 
-    def _refresh_detached_running(self, run: VideoLabRun) -> VideoLabRun:
-        """Reconcile one persisted Comfy execution after a process restart."""
+    def _refresh_detached_active(
+        self,
+        run: Krea2LabRun,
+        *,
+        interruption_is_cancelled: bool = False,
+    ) -> Krea2LabRun:
+        """Reconcile a persisted Comfy execution after worker detachment."""
+        if run.status not in {
+            Krea2LabRunStatus.RUNNING,
+            Krea2LabRunStatus.CANCEL_PENDING,
+        }:
+            raise ValueError(
+                f"cannot refresh a detached {run.status.value} run"
+            )
         assert run.execution_id is not None
         try:
             history = self.comfy.get_history(run.execution_id)
@@ -518,11 +524,12 @@ class VideoLabRunner:
             return run
         completed = status.get("completed") is True
         status_name = status.get("status_str")
-        if not completed and status_name != "error":
+        terminal_kind = _history_terminal_kind(status)
+        if not completed and terminal_kind is None:
             return run
-        if completed and status_name == "success":
+        if terminal_kind == "success":
             try:
-                output_ref = extract_bound_video(
+                output_ref = extract_bound_image(
                     candidate,
                     node_id=self.recipe.output_node_id,
                     history_field=self.recipe.output_history_field,
@@ -532,15 +539,23 @@ class VideoLabRunner:
                     subfolder=output_ref["subfolder"],
                     folder_type=output_ref["type"],
                 )
-                _validate_mp4(content, output_ref["filename"])
+                _validate_png(content, output_ref["filename"])
                 output = self.assets.create(
                     content,
-                    media_type="video/mp4",
+                    media_type="image/png",
                     source_run_id=run.run_id,
                 )
                 return self.runs.save(run.succeed(output.asset_id))
             except Exception as error:
                 return self.runs.save(run.fail(_error_message(error)))
+        if (
+            terminal_kind == "interrupted"
+            and (
+                interruption_is_cancelled
+                or run.status is Krea2LabRunStatus.CANCEL_PENDING
+            )
+        ):
+            return self.runs.save(run.cancel())
         return self.runs.save(
             run.fail(
                 "ComfyUI execution failed after restart: "
@@ -549,34 +564,34 @@ class VideoLabRunner:
         )
 
 
-def extract_bound_video(
+def extract_bound_image(
     history_run: Mapping[str, Any],
     *,
     node_id: str,
     history_field: str,
 ) -> dict[str, str]:
-    """Read the exact SaveVideo result declared by the recipe manifest."""
+    """Read the exact SaveImage result declared by the recipe manifest."""
     outputs = history_run.get("outputs")
     if not isinstance(outputs, Mapping):
         raise ValueError("ComfyUI history has no outputs object")
     node_output = outputs.get(node_id)
     if not isinstance(node_output, Mapping):
         raise ValueError(f"ComfyUI history has no output for node {node_id!r}")
-    videos = node_output.get(history_field)
-    if not isinstance(videos, list) or not videos:
+    images = node_output.get(history_field)
+    if not isinstance(images, list) or not images:
         raise ValueError(
             f"ComfyUI node {node_id!r} has no {history_field!r} output"
         )
-    video = videos[0]
-    if not isinstance(video, Mapping):
-        raise ValueError("ComfyUI video output must be an object")
-    filename = video.get("filename")
-    subfolder = video.get("subfolder", "")
-    folder_type = video.get("type", "output")
+    image = images[0]
+    if not isinstance(image, Mapping):
+        raise ValueError("ComfyUI image output must be an object")
+    filename = image.get("filename")
+    subfolder = image.get("subfolder", "")
+    folder_type = image.get("type", "output")
     if not isinstance(filename, str) or not filename:
-        raise ValueError("ComfyUI video output has no filename")
+        raise ValueError("ComfyUI image output has no filename")
     if not isinstance(subfolder, str) or not isinstance(folder_type, str):
-        raise ValueError("ComfyUI video output has invalid location fields")
+        raise ValueError("ComfyUI image output has invalid location fields")
     return {
         "filename": filename,
         "subfolder": subfolder,
@@ -584,22 +599,11 @@ def extract_bound_video(
     }
 
 
-def _comfy_filename(asset: Asset) -> str:
-    extension = {
-        "image/png": ".png",
-        "image/jpeg": ".jpg",
-        "image/webp": ".webp",
-    }.get(asset.media_type)
-    if extension is None:
-        raise ValueError(f"unsupported source media type {asset.media_type!r}")
-    return f"{asset.asset_id}{extension}"
-
-
-def _validate_mp4(content: bytes, filename: str) -> None:
-    if not filename.lower().endswith(".mp4"):
-        raise ValueError("ComfyUI output is not an MP4 video")
-    if len(content) < 12 or content[4:8] != b"ftyp":
-        raise ValueError("ComfyUI output has no MP4 file signature")
+def _validate_png(content: bytes, filename: str) -> None:
+    if not filename.lower().endswith(".png"):
+        raise ValueError("ComfyUI output is not a PNG image")
+    if len(content) < 8 or content[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("ComfyUI output has no PNG file signature")
 
 
 def _require_text(value: object, label: str) -> str:
@@ -608,14 +612,76 @@ def _require_text(value: object, label: str) -> str:
     return value
 
 
+def _require_sha256(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} must be a lowercase SHA-256 hex digest")
+    return value
+
+
 def _error_message(error: Exception) -> str:
     detail = str(error).strip()
     return f"{type(error).__name__}: {detail}" if detail else type(error).__name__
 
 
-def _replace_cancel_error(run: VideoLabRun, error: Exception) -> VideoLabRun:
-    """Refresh a pending-cancellation diagnostic without losing provenance."""
+def _replace_cancel_error(run: Krea2LabRun, error: Exception) -> Krea2LabRun:
     return replace(
         run,
         error="Remote cancellation failed: " + _error_message(error),
     )
+
+
+def _cancellation_action(result: object | None) -> str | None:
+    action = getattr(result, "action", None)
+    value = getattr(action, "value", action)
+    return value if isinstance(value, str) else None
+
+
+def _mark_history_reconciliation_pending(run: Krea2LabRun) -> Krea2LabRun:
+    message = (
+        "ComfyUI reports the job already finished, but terminal history is "
+        "temporarily unavailable; reconciliation will retry"
+    )
+    if run.status is Krea2LabRunStatus.RUNNING:
+        return run.mark_cancel_pending(message)
+    if run.status is Krea2LabRunStatus.CANCEL_PENDING:
+        return replace(run, error=message)
+    raise ValueError(
+        f"cannot defer history reconciliation for a {run.status.value} run"
+    )
+
+
+def _history_terminal_kind(status: Mapping[str, Any]) -> str | None:
+    status_name = status.get("status_str")
+    normalized_status = (
+        status_name.casefold() if isinstance(status_name, str) else ""
+    )
+    event_names: set[str] = set()
+    messages = status.get("messages")
+    if isinstance(messages, list):
+        for message in messages:
+            if isinstance(message, Mapping):
+                event_name = message.get("type")
+            elif isinstance(message, (list, tuple)) and message:
+                event_name = message[0]
+            else:
+                event_name = None
+            if isinstance(event_name, str):
+                event_names.add(event_name.casefold())
+    if normalized_status in {"interrupted", "cancelled", "canceled"} or (
+        "execution_interrupted" in event_names
+    ):
+        return "interrupted"
+    if normalized_status in {"error", "failed", "failure"} or (
+        "execution_error" in event_names
+    ):
+        return "failed"
+    if normalized_status in {"success", "completed"} and (
+        status.get("completed") is True
+        or normalized_status == "completed"
+    ):
+        return "success"
+    return None

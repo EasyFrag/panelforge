@@ -216,6 +216,36 @@ class ComfyHttpClient:
         )
         return self._read_json(request)
 
+    def list_unet_models(self) -> tuple[str, ...]:
+        """Return the diffusion checkpoints exposed by ComfyUI's UNET loader.
+
+        ``/object_info/UNETLoader`` is the source closest to the workflow node
+        and therefore remains the preferred contract. Recent ComfyUI builds
+        also expose the underlying model folder through
+        ``/models/diffusion_models``; that route is used as a compatibility
+        fallback when the node description is unavailable or malformed.
+        Network and unexpected HTTP failures remain visible to callers.
+        """
+        request = urllib.request.Request(
+            f"{self.base_url}/object_info/UNETLoader",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        try:
+            return _parse_unet_loader_models(self._read_json(request))
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {404, 405}:
+                raise
+        except (KeyError, TypeError, ValueError):
+            pass
+
+        fallback = urllib.request.Request(
+            f"{self.base_url}/models/diffusion_models",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        return _parse_model_list(self._read_json(fallback))
+
     def get_queue(self) -> ComfyQueueSnapshot:
         """Return a normalized snapshot of ComfyUI's execution queue."""
         request = urllib.request.Request(
@@ -298,11 +328,12 @@ class ComfyHttpClient:
         """Backward-compatible name for :meth:`cancel_job`."""
         return self.cancel_job(prompt_id)
 
-    def cancel_execution(self, prompt_id: str) -> None:
+    def cancel_execution(self, prompt_id: str) -> ComfyCancellationResult:
         """Application-gateway facade for idempotent execution cancellation."""
         result = self.cancel_job(prompt_id)
         if result.action == ComfyCancelAction.NOT_FOUND:
             raise ValueError(f"ComfyUI job {prompt_id!r} was not found")
+        return result
 
     @property
     def websocket_url(self) -> str:
@@ -510,6 +541,46 @@ def _history_phase(record: Mapping[str, Any]) -> tuple[ComfyPromptPhase, str | N
 def _validate_prompt_id(prompt_id: Any) -> None:
     if not isinstance(prompt_id, str) or not prompt_id:
         raise ValueError("prompt_id must not be empty")
+
+
+def _parse_unet_loader_models(payload: Any) -> tuple[str, ...]:
+    if not isinstance(payload, Mapping):
+        raise ValueError("ComfyUI returned an invalid UNETLoader description")
+    node = payload.get("UNETLoader")
+    if not isinstance(node, Mapping):
+        raise ValueError("ComfyUI did not describe UNETLoader")
+    inputs = node.get("input")
+    if not isinstance(inputs, Mapping):
+        raise ValueError("ComfyUI returned invalid UNETLoader inputs")
+    required = inputs.get("required")
+    if not isinstance(required, Mapping):
+        raise ValueError("ComfyUI returned invalid UNETLoader required inputs")
+    model_input = required.get("unet_name")
+    if not isinstance(model_input, Sequence) or isinstance(
+        model_input, (str, bytes, bytearray)
+    ) or not model_input:
+        raise ValueError("ComfyUI returned an invalid UNETLoader model input")
+    return _parse_model_list(model_input[0])
+
+
+def _parse_model_list(payload: Any) -> tuple[str, ...]:
+    if isinstance(payload, Mapping):
+        payload = payload.get("models")
+    if not isinstance(payload, Sequence) or isinstance(
+        payload, (str, bytes, bytearray)
+    ):
+        raise ValueError("ComfyUI returned an invalid diffusion model list")
+
+    models: list[str] = []
+    seen: set[str] = set()
+    for value in payload:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("ComfyUI returned an invalid diffusion model name")
+        model_name = value.strip()
+        if model_name not in seen:
+            models.append(model_name)
+            seen.add(model_name)
+    return tuple(models)
 
 
 def build_websocket_url(base_url: str, *, client_id: str) -> str:

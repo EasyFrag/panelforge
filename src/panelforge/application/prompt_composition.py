@@ -4448,12 +4448,14 @@ def _compile_content(
         and cookbook.output_contract in _DIRECT_MULTIMODAL_CONTRACTS
     ):
         canonicalizer = _direct_action_plan_canonicalizer(cookbook)
-        content = canonicalizer(
-            body,
-            recover_invalid_target=(
+        recovery_options = {
+            "recover_invalid_target": (
                 cookbook.invalid_camera_target_policy == "drop_with_warning"
-            ),
-        )
+            )
+        }
+        if cookbook.output_contract not in _REF2V_DIRECT_MULTISHOT_CONTRACTS:
+            recovery_options["recover_parallel_steps"] = True
+        content = canonicalizer(body, **recovery_options)
     elif (
         stage is CompositionStage.BEAT_SHEET
         and cookbook.output_contract == _REF2V_SUPERVISED_CANONICAL_CONTRACT

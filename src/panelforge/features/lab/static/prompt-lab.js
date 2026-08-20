@@ -22,6 +22,8 @@
 
   const elements = {
     changeView: $("#change-view-workspace"),
+    krea2ImageLab: $("#krea2-image-lab-workspace"),
+    storyboardLab: $("#storyboard-lab-workspace"),
     promptLab: $("#prompt-lab-workspace"),
     archives: $("#archives-workspace"),
     i2v: $("#i2v-workspace"),
@@ -33,6 +35,7 @@
     i2vDirectNewRun: $("#i2vd-topbar-new"),
     ref2vDirectNewRun: $("#ref2vd-topbar-new"),
     nav: [...document.querySelectorAll("[data-lab-view]")],
+    imageLabModes: [...document.querySelectorAll("[data-image-lab-mode]")],
     archiveLinks: [...document.querySelectorAll("[data-archive-view]")],
     form: $("#prompt-session-form"),
     model: $("#prompt-model"),
@@ -113,7 +116,10 @@
   function switchView(view) {
     const promptActive = view === "prompt-lab";
     const archiveActive = ["archives", "i2v", "ref2v"].includes(view);
+    const imageLabActive = ["change-view", "krea2-image-lab"].includes(view);
     elements.changeView.hidden = view !== "change-view";
+    elements.krea2ImageLab.hidden = view !== "krea2-image-lab";
+    elements.storyboardLab.hidden = view !== "storyboard-lab";
     elements.promptLab.hidden = !promptActive;
     elements.archives.hidden = view !== "archives";
     elements.i2v.hidden = view !== "i2v";
@@ -127,8 +133,11 @@
     elements.nav.forEach((button) => {
       button.classList.toggle(
         "active",
-        button.dataset.labView === (archiveActive ? "archives" : view),
+        button.dataset.labView === (archiveActive ? "archives" : imageLabActive ? "change-view" : view),
       );
+    });
+    elements.imageLabModes.forEach((button) => {
+      button.classList.toggle("active", button.dataset.imageLabMode === view);
     });
     if (promptActive && !state.initialized) initialize();
   }
@@ -298,9 +307,17 @@
 
   function createReasoningTrace({ toggle, panel, label, output, empty }) {
     const maximumCharacters = 100000;
+    const preferenceKey = "panelforge.debug.show_reasoning";
     let buffer = "";
     let frame = null;
     let received = false;
+
+    if (toggle) {
+      try {
+        const stored = window.localStorage.getItem(preferenceKey);
+        if (stored !== null) toggle.checked = stored === "true";
+      } catch (_) { /* storage can be unavailable in private/embed contexts */ }
+    }
 
     function enabled() {
       return Boolean(toggle && toggle.checked);
@@ -378,6 +395,9 @@
     }
 
     if (toggle) toggle.addEventListener("change", () => {
+      try {
+        window.localStorage.setItem(preferenceKey, String(enabled()));
+      } catch (_) { /* the trace remains usable without persistence */ }
       if (!enabled()) reset();
     });
 

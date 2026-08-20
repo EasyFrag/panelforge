@@ -50,6 +50,49 @@ La preview passe par un relais WebSocket same-origin de PanelForge, connecté à
 
 Si PanelForge redémarre pendant un rendu, l'identifiant ComfyUI persistant permet de réconcilier le run lors de sa prochaine consultation : une sortie déjà terminée est alors importée, tandis qu'un job encore actif reste suivi.
 
+### Storyboard Lab — prompt KREA2 depuis un texte
+
+Le Storyboard Lab transforme une intention ou une courte histoire en un prompt de
+planche KREA2 prêt à copier. La recette immuable
+`krea2.storyboard.from_text@0.1.0` sépare volontairement deux responsabilités :
+
+- un unique appel LLM produit les variables narratives structurées — personnages,
+  environnement, continuité et beat visuel de chaque panel ;
+- un compilateur déterministe injecte ces variables dans le squelette KREA2 fixe,
+  sans laisser le modèle modifier la grille, le ratio des panels ou leur ordre.
+
+Les formats V1 sont 2 panels (`2 × 1`, planche `4:3`), 4 panels (`2 × 2`,
+planche `2:3`), 6 panels (`3 × 2`, planche `1:1`) et 9 panels (`3 × 3`,
+planche `2:3`). Chaque cellule reste une photographie verticale `2:3`, en pied ou
+trois-quarts. L’interface permet de choisir le modèle, consulter les variables,
+éditer et copier le prompt compilé, rouvrir l’historique et relancer une intention.
+
+Une réponse JSON invalide ou tronquée n’est jamais réparée par un second appel :
+elle reste visible comme brouillon diagnostic. Le bouton « Envoyer à Image Lab »
+transfère le prompt actuellement visible, sa provenance et le ratio de planche
+correspondant, sans lancer automatiquement le rendu. Cette V1 ne découpe pas
+encore la planche générée en assets indépendants.
+
+### Image Lab — génération KREA2
+
+Le second mode de l’Image Lab exécute la recette immuable expérimentale
+`image.generate.t2i/krea2@0.1.0` à partir d’un prompt texte :
+
+- modèle UNET KREA2 choisi parmi la liste qualifiée et réellement installée ;
+- découverte dynamique des checkpoints via ComfyUI, avec actualisation manuelle ;
+- ratio, résolution de `0,5` à `4,0` mégapixels et seed aléatoire par défaut ;
+- seed verrouillable ou réutilisable depuis un ancien run ;
+- sortie PNG finale, historique local, relance et annulation ciblée ;
+- un seul rendu KREA2 actif à la fois et reprise d’un résultat ComfyUI terminé
+  après redémarrage de PanelForge.
+
+Le preset `krea2-base` utilise par défaut
+`Krea2/krea2GPTGrandPUSSYTruth_gptINT4INT8Convrot.safetensors`, un ratio `2:3`
+et `3 MP`. Le sampling reste volontairement fixe à huit steps, CFG `1`, Euler,
+scheduler `simple`, denoise `1`, avec le CLIP et le VAE du workflow qualifié.
+La recette publiée ne contient ni branche LoRA, ni refine prompt, ni preview :
+ces capacités nécessiteront de nouvelles versions explicites.
+
 ### Prompt Lab — du brief au prompt H3
 
 Le premier jalon du générateur de prompt est également disponible :
@@ -224,7 +267,7 @@ python scripts\run_lab.py `
 
 Puis ouvrir `http://127.0.0.1:7860`.
 
-Les données locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/video_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`.
+Les données locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/video_runs`, `workspace/storyboard_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`.
 
 Le Lab appelle seulement les API du serveur. llama.swap reste responsable du chargement, du swap et de la mémoire GPU ; aucune bibliothèque d’inférence n’est installée par PanelForge. Le bouton global `Libérer la VRAM` passe par PanelForge puis appelle l’endpoint administratif officiel de llama.swap : tous les modèles LLM actifs sont déchargés et le prochain appel recharge automatiquement le modèle demandé. Cette action peut interrompre une génération LLM en cours.
 
@@ -243,6 +286,7 @@ Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opérat
 - `features/lab` : fine interface FastAPI et HTML/CSS/JavaScript natif ;
 - `prompt_profiles` : instructions LLM immuables, versionnées et modifiables indépendamment ;
 - `prompt_cookbooks` : recettes vidéo versionnées, slots, contrats et templates propres à un cas d’usage ;
+- `storyboard_recipes` : recettes texte-vers-storyboard immuables et compilateurs de prompts KREA2 ;
 - `workflows` : snapshots ComfyUI et manifests explicites.
 
 Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni de ComfyUI, ni d’un fournisseur LLM.
@@ -277,11 +321,12 @@ Les transitions stylisées et le dialogue continu à travers les coupes restent 
 - évaluer la matrice visuelle sur plusieurs personnages ;
 - ajuster les bornes LoRA uniquement à partir des résultats observés.
 
-### 5. Ajouter le mode Generate
+### 5. Qualifier la génération KREA2
 
-- promouvoir l’expérience `character.bootstrap` en recette versionnée ;
-- exposer prompt positif/négatif, résolution et LoRAs déclarées ;
-- générer et comparer plusieurs candidats de personnage.
+- faire un smoke réel des ratios et résolutions de `image.generate.t2i/krea2@0.1.0` ;
+- comparer les checkpoints qualifiés sur les mêmes prompts Storyboard et seeds ;
+- ajouter les LoRAs dans une nouvelle version seulement après qualification de
+  leur chargement, de leur ordre et de leurs poids.
 
 ### 6. Étendre l’édition d’image
 
@@ -303,4 +348,4 @@ Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; l
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 503 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 535 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
