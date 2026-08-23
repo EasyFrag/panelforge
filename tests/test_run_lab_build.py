@@ -31,7 +31,45 @@ class BuildComfyClient:
         return f"ws://gpu.test:8188/ws?clientId={self.client_id}"
 
 
+class BuildProjectExporter:
+    instances: list["BuildProjectExporter"] = []
+
+    def __init__(self, root) -> None:
+        self.root = Path(root).resolve()
+        self.instances.append(self)
+
+    def export(self, stages, assets):
+        raise AssertionError("the build test must not export a project")
+
+
+class BuildCreationExporter:
+    instances: list["BuildCreationExporter"] = []
+
+    def __init__(self, root) -> None:
+        self.root = Path(root).resolve()
+        self.instances.append(self)
+
+    def export(self, project, attempt, assets):
+        raise AssertionError("the build test must not export an assisted creation")
+
+
 class RunLabBuildTest(unittest.TestCase):
+    def test_default_krea2_resource_roots_match_the_server_layout(self):
+        with (
+            patch.object(run_lab.sys, "argv", ["run_lab.py"]),
+            patch.dict(run_lab.os.environ, {}, clear=True),
+        ):
+            args = run_lab.parse_args()
+
+        self.assertEqual(
+            args.krea2_models_root,
+            Path(r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion\_models\Krea2"),
+        )
+        self.assertEqual(
+            args.krea2_loras_root,
+            Path(r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\loras\krea2"),
+        )
+
     def test_build_app_configures_krea2_recipe_store_and_dedicated_transport(self):
         with tempfile.TemporaryDirectory() as workspace:
             args = Namespace(
@@ -43,6 +81,10 @@ class RunLabBuildTest(unittest.TestCase):
                 run_timeout=600.0,
                 video_run_timeout=3600.0,
                 krea2_run_timeout=2400.0,
+                krea2_batch_run_timeout=2500.0,
+                krea2_models_root=Path(workspace) / "models",
+                krea2_loras_root=Path(workspace) / "loras",
+                krea2_projects_root=Path(workspace) / "KREA2 Projects",
                 poll_interval=0.5,
                 llm_base_url="http://llm.test:8083/v1",
                 llm_api_key="local-test",
@@ -50,7 +92,21 @@ class RunLabBuildTest(unittest.TestCase):
                 workspace=workspace,
             )
             BuildComfyClient.instances = []
-            with patch.object(run_lab, "ComfyHttpClient", BuildComfyClient):
+            BuildProjectExporter.instances = []
+            BuildCreationExporter.instances = []
+            with (
+                patch.object(run_lab, "ComfyHttpClient", BuildComfyClient),
+                patch.object(
+                    run_lab,
+                    "LocalKrea2ProjectExporter",
+                    BuildProjectExporter,
+                ),
+                patch.object(
+                    run_lab,
+                    "LocalKrea2CreationExporter",
+                    BuildCreationExporter,
+                ),
+            ):
                 app = run_lab.build_app(args)
                 with TestClient(app) as client:
                     spec = client.get("/api/image-lab/krea2/spec")
@@ -59,10 +115,20 @@ class RunLabBuildTest(unittest.TestCase):
             self.assertEqual(spec.status_code, 200)
             self.assertEqual(spec.json()["defaults"]["model_id"], DEFAULT_MODEL)
             self.assertNotIn("preview_ws_url", spec.json())
+            self.assertEqual(len(BuildProjectExporter.instances), 1)
+            self.assertEqual(
+                BuildProjectExporter.instances[0].root,
+                (Path(workspace) / "KREA2 Projects").resolve(),
+            )
             self.assertEqual(history.status_code, 200)
             self.assertEqual(history.json(), {"runs": []})
             self.assertTrue((Path(workspace) / "krea2_runs").is_dir())
-            self.assertEqual(len(BuildComfyClient.instances), 4)
+            self.assertEqual(len(BuildCreationExporter.instances), 1)
+            self.assertEqual(
+                BuildCreationExporter.instances[0].root,
+                Path(r"D:\AI\PanelForge\KREA2 Creations").resolve(),
+            )
+            self.assertEqual(len(BuildComfyClient.instances), 7)
             clients = {client.client_id: client for client in BuildComfyClient.instances}
             krea2_ids = [
                 client_id
@@ -71,6 +137,29 @@ class RunLabBuildTest(unittest.TestCase):
             ]
             self.assertEqual(len(krea2_ids), 1)
             self.assertEqual(clients[krea2_ids[0]].timeout, 12.0)
+            batch_ids = [
+                client_id
+                for client_id in clients
+                if client_id.startswith("panelforge-krea2-batch-")
+            ]
+            self.assertEqual(len(batch_ids), 1)
+            self.assertEqual(clients[batch_ids[0]].timeout, 12.0)
+            edit_ids = [
+                client_id
+                for client_id in clients
+                if client_id.startswith("panelforge-krea2-edit-")
+            ]
+            self.assertEqual(len(edit_ids), 1)
+            self.assertEqual(clients[edit_ids[0]].timeout, 12.0)
+            self.assertTrue((Path(workspace) / "krea2_edits").is_dir())
+            assisted_ids = [
+                client_id
+                for client_id in clients
+                if client_id.startswith("panelforge-krea2-assisted-")
+            ]
+            self.assertEqual(len(assisted_ids), 1)
+            self.assertEqual(clients[assisted_ids[0]].timeout, 12.0)
+            self.assertTrue((Path(workspace) / "krea2_assisted").is_dir())
             runtime_ids = [
                 client_id
                 for client_id in clients

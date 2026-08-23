@@ -12,6 +12,22 @@ from .krea2_lab import (
     Krea2LabRunner,
     extract_bound_image as extract_bound_krea2_image,
 )
+from .krea2_batch import (
+    Krea2BatchRequest,
+    Krea2BatchService,
+    Krea2BatchStreamEvent,
+)
+from .krea2_assisted import (
+    Krea2AssistedService,
+    Krea2AssistedStreamEvent,
+    parse_krea2_assisted_recipe_draft,
+)
+from .krea2_edit import (
+    Krea2EditAttemptRequest,
+    Krea2EditService,
+    Krea2EditStreamEvent,
+    normalize_krea2_edit_prompt,
+)
 from .model_runtime import ModelRuntimeControl
 from .video_lab import (
     VideoLabRunRequest,
@@ -83,6 +99,12 @@ __all__ = [
     "ImageInput",
     "Krea2LabRunRequest",
     "Krea2LabRunner",
+    "Krea2BatchRequest",
+    "Krea2BatchService",
+    "Krea2BatchStreamEvent",
+    "Krea2EditAttemptRequest",
+    "Krea2EditService",
+    "Krea2EditStreamEvent",
     "H3IssueSeverity",
     "H3ProtocolIssue",
     "H3ProtocolMode",
@@ -127,4 +149,5 @@ __all__ = [
     "parse_camera_directives",
     "extract_bound_video",
     "extract_bound_krea2_image",
+    "normalize_krea2_edit_prompt",
 ]

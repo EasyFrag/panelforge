@@ -1,0 +1,33 @@
+{
+  "recipe_id": "space_megastructure_photoreal_v1",
+  "version": "0.1.0",
+  "display_name": "Mégastructure spatiale",
+  "description": "Un explorateur minuscule face à une civilisation orbitale monumentale.",
+  "identity": "A tiny lone explorer faces an impossibly large orbital civilization and giant planet in a credible wet cinematic science-fiction world.",
+  "invariants": [
+    "Exactly one very small rear-view explorer, around eight percent of image height.",
+    "Dense wet foreground with rock, puddles, mechanisms and leading lines; never an empty black lower third.",
+    "One enormous inhabited megastructure dominates the middle depth and one giant planet dominates the background.",
+    "Cold steel-blue, cyan and black palette balanced by sparse warm amber lights.",
+    "Vertical 9:16, asymmetric deep perspective and physically credible monumental scale."
+  ],
+  "variables": [
+    "Planet type and secondary celestial color.",
+    "Orbital city, arch, circular station, shipyard or alien ruin.",
+    "Volcanic, icy, metallic or mineral foreground.",
+    "Explorer, astronaut, small robot or tiny vehicle while preserving scale."
+  ],
+  "risks": [
+    "Empty lower third or oversized character.",
+    "Ordinary terrestrial city or small architecture.",
+    "Perfect central symmetry and repetitive waterfalls."
+  ],
+  "canonical_prompt": "Vertical 9:16 hyperrealistic cinematic science-fiction photograph of a lone explorer standing on a vast wet alien surface before an impossibly enormous orbital civilization. The camera is low and positioned behind the explorer, who occupies only about eight percent of the image height.\n\nThe lower foreground is densely filled with fractured black volcanic rock, reflective puddles, metallic plates, embedded cables, vents, small illuminated mechanisms and streams of cold water. These details create strong leading lines toward the distant city and prevent any empty dark foreground.\n\nIn the middle distance, a colossal suspended megastructure stretches across the entire image: layered circular platforms, monumental towers, illuminated districts, bridges, docks and waterfalls disappearing into clouds. The structure appears inhabited, intricate and physically immense.\n\nBehind the city, a gigantic pale gas planet fills much of the sky, with clearly visible atmospheric bands and a brilliant rim of blue light. Nebula clouds, stars and volumetric rays create depth without obscuring the architecture.\n\nCold blue and cyan light dominates, balanced by thousands of tiny warm amber windows. Wet surfaces reflect the city, planet and waterfalls. Hyperrealistic materials, atmospheric mist, extreme scale, deep perspective, cinematic HDR, crisp distant details, hyper HD 8K finish.\n\nExactly one small explorer. No empty black foreground, no oversized person, no close-up face, no duplicated character, no symmetrical central monument, no ordinary modern city, no text, no logo, no interface and no border.",
+  "model_name": "Krea2/krea2_turbo_bf16.safetensors",
+  "aspect_ratio": "9:16 (Portrait Widescreen)",
+  "megapixels": 2.1,
+  "loras": [],
+  "parent_version": null,
+  "status": "published",
+  "content_sha256": "c695951a95b2f522fde25b7ba9bfd7d129c410a2b197188b5aa1304b19e844f0"
+}

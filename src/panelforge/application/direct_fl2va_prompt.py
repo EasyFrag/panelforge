@@ -44,6 +44,19 @@ _ANY_DURATION_RE = re.compile(
     rf"{_DURATION_UNIT}(?!\w)",
     flags=re.IGNORECASE,
 )
+_DIALOGUE_BLOCK_RE = re.compile(r"<d>.*?</d>", flags=re.DOTALL)
+_LEGACY_IMAGE_LABEL_RE = re.compile(
+    r"(?:<Image\s+([0-9]+)>|@image\s*([0-9]+)\b)",
+    flags=re.IGNORECASE,
+)
+_BRACKETED_PICTURE_LABEL_RE = re.compile(
+    r"<Picture\s+([0-9]+)>",
+    flags=re.IGNORECASE,
+)
+_PLAIN_PICTURE_LABEL_RE = re.compile(
+    r"(?<!<)\bPicture\s+([0-9]+)\b",
+    flags=re.IGNORECASE,
+)
 
 
 class H3BaseInputMode(StrEnum):
@@ -77,6 +90,47 @@ class DirectFL2VAContext:
     @property
     def protocol_mode(self) -> H3ProtocolMode:
         return H3ProtocolMode(self.mode.value)
+
+
+def _outside_dialogue_blocks(content: str, transform) -> str:
+    """Apply a visual-prose transform without altering exact spoken content."""
+
+    chunks = _DIALOGUE_BLOCK_RE.split(content)
+    dialogues = _DIALOGUE_BLOCK_RE.findall(content)
+    output: list[str] = []
+    for index, chunk in enumerate(chunks):
+        output.append(transform(chunk))
+        if index < len(dialogues):
+            output.append(dialogues[index])
+    return "".join(output)
+
+
+def _visual_prose(content: str) -> str:
+    return _DIALOGUE_BLOCK_RE.sub("", content)
+
+
+def _normalize_h3_base_model_labels(
+    content: str,
+    mode: H3BaseInputMode,
+) -> str:
+    """Recover documented Picture labels emitted with legacy Image syntax."""
+
+    replacements: dict[int, str]
+    if mode in {H3BaseInputMode.I2VA, H3BaseInputMode.L2VA}:
+        replacements = {1: "<Picture 1>"}
+    elif mode is H3BaseInputMode.FL2VA:
+        replacements = {1: "Picture 1", 2: "Picture 2"}
+    else:
+        replacements = {}
+
+    def normalize(prose: str) -> str:
+        def replace(match: re.Match[str]) -> str:
+            number = int(match.group(1) or match.group(2))
+            return replacements.get(number, match.group(0))
+
+        return _LEGACY_IMAGE_LABEL_RE.sub(replace, prose)
+
+    return _outside_dialogue_blocks(content, normalize)
 
 
 def derive_h3_base_input_mode(
@@ -239,6 +293,7 @@ def compile_direct_fl2va_document(
     *,
     allow_dialogue_placeholders: bool = False,
 ) -> str:
+    editable = _normalize_h3_base_model_labels(editable, context.mode)
     body = insert_camera_owned_direct_i2v_clauses(
         editable,
         context.placements,
@@ -323,17 +378,41 @@ def lint_direct_fl2va_prompt(
             errors.append("overall_soundscape ne doit pas être vide.")
         if not music:
             errors.append("non_diegetic_music ne doit pas être vide.")
-    if re.search(r"(?i)@image\s*\d+|<Image\s+\d+>|<Subject\s+\d+>", value):
+    visual_value = _visual_prose(value)
+    visual_body = _visual_prose(body)
+    if re.search(
+        r"(?i)@image\s*\d+|<Image\s+\d+>|<Subject\s+\d+>",
+        visual_value,
+    ):
         errors.append("Le prompt final H3 Base contient un label visuel non autorisé.")
-    if re.search(r"(?i)<Picture\s+\d+>", body):
-        errors.append("Les labels Picture appartiennent uniquement au header compilé.")
+    bracketed = list(_BRACKETED_PICTURE_LABEL_RE.finditer(visual_body))
+    plain = list(_PLAIN_PICTURE_LABEL_RE.finditer(visual_body))
+    if context.mode is H3BaseInputMode.T2VA:
+        if bracketed or plain:
+            errors.append("Le mode T2VA ne doit contenir aucun label Picture.")
+    elif context.mode in {H3BaseInputMode.I2VA, H3BaseInputMode.L2VA}:
+        if plain or any(
+            int(match.group(1)) != 1 or match.group(0) != "<Picture 1>"
+            for match in bracketed
+        ):
+            errors.append(
+                "Les modes I2VA et L2VA utilisent uniquement le label canonique <Picture 1>."
+            )
+    elif bracketed or any(
+        int(match.group(1)) not in {1, 2}
+        or match.group(0) != f"Picture {int(match.group(1))}"
+        for match in plain
+    ):
+        errors.append(
+            "Le mode FL2VA utilise uniquement les labels canoniques Picture 1 et Picture 2."
+        )
     expected_directives = tuple(item.directive for item in context.placements)
     protocol_value = value
     if allow_dialogue_placeholders:
         # Dialogue placeholders exist only between the prose writer and the
         # deterministic dialogue compiler.  Hide exactly that reserved form
         # from the generic H3 linter, whose catch-all ``[[...]]`` diagnostic is
-        # intentionally phrased for historical camera placeholders.  Unknown
+        # intentionally generic. Unknown
         # or malformed placeholders remain visible and are still rejected.
         protocol_value = re.sub(
             r"\[\[dialogue:dialogue_[1-9][0-9]*\]\]",

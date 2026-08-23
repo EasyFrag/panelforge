@@ -93,6 +93,115 @@ scheduler `simple`, denoise `1`, avec le CLIP et le VAE du workflow qualifié.
 La recette publiée ne contient ni branche LoRA, ni refine prompt, ni preview :
 ces capacités nécessiteront de nouvelles versions explicites.
 
+### Image Lab — création assistée KREA2
+
+Le mode « Création assistée » organise la conception d’une image comme un projet
+conversationnel distinct de KREA2 Edit :
+
+- une intention et, facultativement, une image de référence descriptive sont
+  transmises au LLM ; la référence n’entre jamais dans le workflow ComfyUI T2I ;
+- chaque réponse conserve des questions d’affinage et un prompt anglais complet,
+  immédiatement éditable et exécutable ;
+- un résultat réussi peut devenir le feedback visuel du tour suivant, avec son
+  prompt exact, son checkpoint, son ratio, ses mégapixels, sa seed et ses LoRA ;
+- checkpoint, ratio, mégapixels, seed et quatre LoRA ordonnables restent
+  modifiables à chaque essai, tandis que le sampling communautaire reste fixe ;
+- les images sont regroupées en bas du projet et une image choisie peut être
+  exportée explicitement avec son sidecar sous
+  `D:\AI\PanelForge\KREA2 Creations` par défaut ;
+- une discussion dédiée peut produire un brouillon de recette (identité,
+  invariants, variables, risques et prompt canonique). Seul le bouton de
+  publication crée la version immuable `0.1.0`, immédiatement compatible avec
+  le catalogue Batch.
+
+La mémoire du projet contient les échanges, décisions, prompts et essais. La
+mémoire globale proposée au LLM reste limitée aux recettes déjà publiées et aux
+ressources réellement exposées ; un essai ou une discussion ne l’altère jamais.
+La racine d’export peut être remplacée par
+`PANELFORGE_KREA2_CREATIONS_ROOT` ou `--krea2-creations-root`.
+
+### Image Lab — batches de recettes KREA2
+
+Le mode Batch de l’Image Lab exécute le workflow communautaire versionné
+`image.generate.batch/krea2-community@0.2.0`. Il part d’une famille visuelle
+publiée et produit jusqu’à dix variations en un seul appel LLM, puis les rend
+séquentiellement dans ComfyUI :
+
+- six recettes initiales, dont `high_jewelry_animal_bust_v1` avec Kroma ;
+- direction facultative par batch et mémoire des signatures récentes pour éviter
+  les répétitions ;
+- checkpoint, ratio, mégapixels et pile ordonnée de zéro à quatre LoRA intégrés
+  à la version de recette ;
+- inventaires locaux limités aux dossiers KREA2 configurés, checkpoints classés
+  par favoris et précision, LoRA classées par favoris/SFW/NSFW ;
+- un gestionnaire repliable partagé avec KREA2 Edit permet de forcer BF16 ou
+  INT8 sur les checkpoints ambigus et de déplacer les LoRA par glisser-déposer
+  entre Favoris, SFW, NSFW et Non classés. Ces préférences sont persistées dans
+  le workspace et ne modifient pas silencieusement une recette publiée ;
+- liens CivitAI/CivitAI Red et vérification manuelle, purement informative, des
+  versions disponibles ; une ressource absente reste un warning non destructif ;
+- galerie unique, votes, commentaires, historique et révision facultative de la
+  recette, publiée seulement après validation humaine.
+- pour chaque PNG, un sidecar `.txt` de même nom est sauvegardé dans le même
+  dossier ComfyUI ; son JSON contient notamment le prompt exact, la recette, le
+  modèle, le ratio, les mégapixels, la seed et la pile LoRA réellement utilisée.
+
+Le sampling reste fixé par le workflow : ER SDE, scheduler `simple`, première
+passe de huit steps à CFG `1,1`, upscale latent Bislerp `×1,5`, puis seconde
+passe de deux steps à CFG `1` et denoise `0,3`. Aucun de ces réglages n’est
+exposé dans l’interface V1 et aucune preview intermédiaire n’est demandée.
+
+Lorsque le lecteur local des modèles est inaccessible, l’inventaire ComfyUI ne
+fournit que les noms : PanelForge utilise alors un marqueur explicite `BF16`,
+`INT8`, `INT4` ou `FP8` présent dans le nom, sinon conserve « précision
+inconnue » jusqu’au classement manuel. Une racine locale ou UNC accessible reste
+la seule manière de classer automatiquement les noms ambigus par taille.
+
+### Image Lab — modification KREA2
+
+Le mode de modification de l’Image Lab exécute la recette immuable
+`image.edit/krea2.identity_edit@0.1.0`. Il réunit dans un seul écran le backlog,
+la reconstruction du prompt et les essais de rendu :
+
+- les sorties réussies du Batch Lab rejoignent automatiquement le backlog ;
+  une image PNG, JPEG ou WebP externe peut aussi être ajoutée manuellement ;
+- un sidecar Batch ou les métadonnées PNG ComfyUI restaurent au mieux prompt,
+  checkpoint, ratio, mégapixels, seed et jusqu’à quatre LoRA générales ; les
+  informations absentes ou les ressources renommées produisent seulement un
+  avertissement et des valeurs par défaut éditables ;
+- chaque appel multimodal traite le prompt actuellement édité comme état
+  autoritaire et la nouvelle instruction comme le tour suivant de l’échange.
+  Sans prompt récupéré, le premier appel reconstruit la scène depuis l’image.
+  Un résultat réussi peut être choisi comme feedback visuel : le LLM le compare
+  à la cible, tandis que ComfyUI continue de repartir de la source immuable de
+  l’étape. La trace séparée reste affichable en option et n’est pas persistée ;
+- le prompt final reste éditable, puis les rendus peuvent être répétés sans
+  nouvel appel LLM en changeant checkpoint, LoRA, ratio, mégapixels, seed,
+  `ref_boost` ou nombre de steps ;
+- le workflow conserve la LoRA technique `krea2_identity_edit_v1_2` à force
+  `1`, ainsi que CFG, sampler, scheduler, CLIP, VAE et grounding qualifiés ;
+- « Valider et continuer » promeut explicitement un essai réussi en source de
+  l’étape suivante. Le backlog reste groupé par projet, avec chronologie des
+  étapes, révisions de prompt, essais et résultat validé ;
+- à chaque validation, l’image originale puis la chaîne des seuls résultats
+  acceptés sont recopiées dans un projet lisible hors du workspace technique.
+  L’utilisateur nomme le projet et chaque résultat validé ; chaque image reçoit
+  un sidecar `.txt` avec prompt et réglages, plus un manifeste `project.json`.
+  Les noms visibles sont bornés et ne répètent pas le nom du projet dans chaque
+  fichier, afin de rester compatibles avec les limites de chemins Windows ;
+- « Traité » retire tout le projet du backlog courant et « Masquer » l’archive
+  sans supprimer l’image originale, les étapes ni les essais déjà produits.
+
+La reconstruction accepte une description NSFW lorsque les personnes sont
+clairement adultes. Elle ne déduit jamais un âge adulte ambigu et n’ajoute pas
+d’acte ou de participant non demandé.
+
+La racine d’export est `D:\AI\PanelForge\KREA2 Projects` par défaut. Elle peut
+être remplacée avec `PANELFORGE_KREA2_PROJECTS_ROOT` ou
+`--krea2-projects-root`. Une panne de ce stockage produit un avertissement
+réessayable dans l’interface sans annuler la validation ni déplacer les fichiers
+techniques conservés par ComfyUI et PanelForge.
+
 ### Prompt Lab — du brief au prompt H3
 
 Le premier jalon du générateur de prompt est également disponible :
@@ -268,7 +377,17 @@ python scripts\run_lab.py `
 
 Puis ouvrir `http://127.0.0.1:7860`.
 
-Les données locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/video_runs`, `workspace/storyboard_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`.
+Les données techniques locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/krea2_batches`, `workspace/krea2_assisted`, `workspace/krea2_edits`, `workspace/video_runs`, `workspace/storyboard_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`. Les projets KREA2 Edit validés utilisent séparément `D:\AI\PanelForge\KREA2 Projects` ou la racine configurée par `PANELFORGE_KREA2_PROJECTS_ROOT`. Les créations assistées explicitement enregistrées utilisent `D:\AI\PanelForge\KREA2 Creations` ou `PANELFORGE_KREA2_CREATIONS_ROOT`.
+
+Le catalogue KREA2 utilise par défaut les chemins UNC stables du montage SSHFS :
+`\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion\_models\Krea2` pour
+les checkpoints et `\\sshfs.r\malmo@bucket\data\models\ComfyUi\loras\krea2`
+pour les LoRA. Ils correspondent au lecteur `Y:` sans dépendre de sa visibilité
+dans la session qui lance Python. Ces racines peuvent être remplacées par
+`PANELFORGE_KREA2_MODELS_ROOT` et `PANELFORGE_KREA2_LORAS_ROOT`. Lorsque le
+lecteur local n’est pas visible dans la session de PanelForge, l’inventaire des
+ressources `KREA2/` exposées par ComfyUI sert de secours ; taille, précision et
+métadonnées locales restent alors indiquées comme inconnues.
 
 Le Lab appelle seulement les API du serveur. llama.swap reste responsable du chargement, du swap et de la mémoire GPU ; aucune bibliothèque d’inférence n’est installée par PanelForge. Le bouton global `Libérer la VRAM` passe par PanelForge puis appelle l’endpoint administratif officiel de llama.swap : tous les modèles LLM actifs sont déchargés et le prochain appel recharge automatiquement le modèle demandé. Cette action peut interrompre une génération LLM en cours.
 
@@ -349,4 +468,4 @@ Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; l
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 535 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 698 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

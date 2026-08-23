@@ -1,0 +1,33 @@
+{
+  "recipe_id": "high_jewelry_animal_bust_v1",
+  "version": "0.1.0",
+  "display_name": "Buste animal haute joaillerie",
+  "description": "Un animal monumental entièrement construit comme une sculpture de haute joaillerie.",
+  "identity": "A monumental animal bust is physically constructed from gemstones, obsidian, diamonds, gold and platinum as a luxury advertising sculpture on deep black.",
+  "invariants": [
+    "Vertical 9:16 studio bust or medium close-up occupying about ninety percent of frame.",
+    "Complete head and ears, substantial neck, shoulders, chest and anatomically appropriate front limbs remain visible.",
+    "Calm majestic frontal pose looking at camera, with species-correct anatomy.",
+    "Every visible millimeter is continuous gemstones and precious metal; no natural fur, skin, collar or jewelry placed over an animal.",
+    "Deep black background, glossy obsidian base, luxury studio starbursts and gold rim light."
+  ],
+  "variables": [
+    "Jaguar, gorilla, lion, tiger, black panther, wolf, mandrill, owl, elephant or deer with fully rewritten anatomy.",
+    "Coherent obsidian-gold, emerald-platinum, ruby-rose-gold, sapphire-silver, amethyst-titanium or pearl-onyx palette.",
+    "Gem size, dark-to-clear ratio, visible gold, starburst density and filigree finesse."
+  ],
+  "risks": [
+    "Natural fur or skin surviving on face or body.",
+    "Jewelry becoming a collar, necklace, armor or separate mask.",
+    "Floating oversized head, missing neck or sparse undecorated torso.",
+    "Failure to rewrite limbs and exclusions for the chosen animal family."
+  ],
+  "canonical_prompt": "Vertical 9:16 medium close-up luxury studio portrait of a monumental jaguar entirely constructed as a single three-dimensional high-jewelry sculpture, seated majestically against a perfectly deep black background.\n\nThe framing shows the complete head, both ears, a clearly visible muscular neck, both shoulders, the entire chest and both front legs down to the paws. The sculpture occupies approximately ninety percent of the frame and leaves very little empty black space. It sits in a powerful symmetrical sphinx-like pose, faces the camera directly and rests both paws on glossy black obsidian.\n\nThis is not a living animal wearing jewelry. Every visible millimeter is physically made from gemstones, precious metals, crystal pavé, obsidian and intricate gold structures. No natural fur, skin or ordinary animal texture is visible. Broad jaguar skull, rounded ears, predatory eyes, muscular muzzle, thick neck, deep chest, strong shoulders and correct paws remain unmistakable.\n\nThousands of polished black diamonds, obsidian, smoky quartz and black spinel form one continuous organic mosaic. Natural rosettes are recreated entirely through black diamond clusters, molten-gold outlines, champagne diamonds and transparent crystals, continuing from face across neck, shoulders, chest and legs. Branching yellow-gold and dark-platinum veins connect every stone and follow the musculature.\n\nDeep black-opal eyes with molten-gold pupils look directly at camera. A smoky rose-quartz nose, closed obsidian mouth and fine platinum-crystal whiskers preserve anatomy. Powerful luxury studio lighting creates white starbursts, golden highlights, rainbow refractions and a thin gold rim around silhouette. The obsidian base subtly reflects both paws. Ultra-luxury high-jewelry advertising photography, physically accurate precious materials, dramatic contrast, hyper-detailed 8K finish.\n\nExactly one jeweled jaguar with one head, two ears, one visible neck, two shoulders, one chest, two front legs and two paws. No natural fur, no skin, no plain body, no jewelry over fur, no collar, no necklace, no floating head, no missing neck, no extra limbs, no crown, no mask, no armor, no clothing, no open mouth, no teeth, no text, no logo, no watermark, no interface and no border.",
+  "model_name": "Krea2/kroma-v0.2-turbo.safetensors",
+  "aspect_ratio": "9:16 (Portrait Widescreen)",
+  "megapixels": 2.1,
+  "loras": [],
+  "parent_version": null,
+  "status": "published",
+  "content_sha256": "7aff619bea48607730845f99144b68def6d7187403de3597c6e4ff484dff167a"
+}

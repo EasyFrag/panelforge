@@ -120,6 +120,21 @@ class ComfyModelDiscoveryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid diffusion model name"):
             client.list_unet_models()
 
+    @patch("panelforge.infrastructure.comfy.client.urllib.request.urlopen")
+    def test_lists_loras_from_comfy_model_inventory(self, urlopen):
+        urlopen.return_value = response(
+            ["krea2/style.safetensors", "other/detail.safetensors"]
+        )
+        client = ComfyHttpClient("http://gpu:8188", client_id="image-lab")
+
+        self.assertEqual(
+            client.list_lora_models(),
+            ("krea2/style.safetensors", "other/detail.safetensors"),
+        )
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://gpu:8188/models/loras")
+        self.assertEqual(request.get_method(), "GET")
+
 
 if __name__ == "__main__":
     unittest.main()

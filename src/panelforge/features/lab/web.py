@@ -31,8 +31,16 @@ from panelforge.application import (
     ChangeViewRunRequest,
     ChangeViewRunner,
     CompositionStreamEvent,
+    Krea2AssistedService,
+    Krea2AssistedStreamEvent,
     Krea2LabRunRequest,
     Krea2LabRunner,
+    Krea2BatchRequest,
+    Krea2BatchService,
+    Krea2BatchStreamEvent,
+    Krea2EditAttemptRequest,
+    Krea2EditService,
+    Krea2EditStreamEvent,
     ModelRuntimeControl,
     NewReference,
     PromptCompositionService,
@@ -46,12 +54,23 @@ from panelforge.application import (
     VideoLabRunRequest,
     VideoLabRunner,
     composition_picture_mapping,
+    parse_krea2_assisted_recipe_draft,
 )
 from panelforge.domain import (
     CompositionStage,
     ControlKind,
     CookbookBinding,
+    Krea2AssistedProject,
+    Krea2AssistedTurnMode,
     Krea2AspectRatio,
+    Krea2Batch,
+    Krea2BatchSettings,
+    Krea2EditSettings,
+    Krea2EditSource,
+    Krea2EditSourceState,
+    Krea2LoraSelection,
+    Krea2PromptLanguage,
+    Krea2ReviewDecision,
     Krea2LabRun,
     PromptComposition,
     PromptLabSession,
@@ -73,6 +92,12 @@ from panelforge.domain.character import (
     ShotSize,
 )
 from panelforge.infrastructure.comfy import ComfyBusyError
+from panelforge.infrastructure.krea2_resources import (
+    Krea2ResourcePrecision,
+    Krea2ResourceSafety,
+    serialize_krea2_resource,
+)
+from panelforge.infrastructure.krea2_image_metadata import recover_krea2_metadata
 
 
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
@@ -169,6 +194,134 @@ class Krea2CreateBody(BaseModel):
     source_prompt_sha256: str | None = None
 
 
+class Krea2BatchLoraBody(BaseModel):
+    name: str
+    strength: float
+
+
+class Krea2BatchCreateBody(BaseModel):
+    recipe_id: str
+    recipe_version: str
+    image_count: int
+    model_id: str
+    direction: str = ""
+    render_model_id: str | None = None
+    aspect_ratio: str | None = None
+    megapixels: float | None = None
+    loras: list[Krea2BatchLoraBody] | None = None
+
+
+class Krea2ResourcePreferenceBody(BaseModel):
+    favorite: bool | None = None
+    safety: str | None = None
+    precision: str | None = None
+
+
+class Krea2BatchReviewBody(BaseModel):
+    decision: str
+    comment: str = ""
+
+
+class Krea2BatchRecipeRevisionBody(BaseModel):
+    instruction: str
+    draft: str | None = None
+    model_id: str | None = None
+    render_model_id: str | None = None
+    aspect_ratio: str | None = None
+    megapixels: float | None = None
+    loras: list[Krea2BatchLoraBody] | None = None
+    prompt_language: str | None = None
+
+
+class Krea2BatchRecipeDraftBody(BaseModel):
+    draft: str
+    render_model_id: str | None = None
+    aspect_ratio: str | None = None
+    megapixels: float | None = None
+    loras: list[Krea2BatchLoraBody] | None = None
+    prompt_language: str | None = None
+
+
+class Krea2BatchRecipeTestBody(Krea2BatchRecipeDraftBody):
+    image_count: int = 3
+    model_id: str
+    direction: str = ""
+
+
+class Krea2BatchRecipePublishBody(BaseModel):
+    draft: str | None = None
+    render_model_id: str | None = None
+    aspect_ratio: str | None = None
+    megapixels: float | None = None
+    loras: list[Krea2BatchLoraBody] | None = None
+    prompt_language: str | None = None
+
+
+class Krea2EditPromptBody(BaseModel):
+    instruction: str
+    model_id: str
+    base_prompt: str | None = None
+    feedback_attempt_id: str | None = None
+    prompt_language: str | None = None
+
+
+class Krea2EditAttemptBody(BaseModel):
+    prompt: str
+    model_id: str
+    aspect_ratio: str
+    megapixels: float
+    seed: str | int
+    ref_boost: float = 2.5
+    steps: int = 10
+    loras: list[Krea2BatchLoraBody] | None = None
+
+
+class Krea2EditSourceStateBody(BaseModel):
+    state: str
+
+
+class Krea2EditPromotionBody(BaseModel):
+    project_name: str | None = None
+    step_name: str | None = None
+
+
+class Krea2AssistedChatBody(BaseModel):
+    message: str
+    mode: str = "creation"
+    feedback_attempt_id: str | None = None
+    prompt_language: str | None = None
+    guidance_asset_id: str | None = None
+    guidance_filename: str | None = None
+
+
+class Krea2AssistedAttemptBody(BaseModel):
+    prompt: str
+    model_id: str
+    aspect_ratio: str
+    megapixels: float
+    seed: str | int | None = None
+    loras: list[Krea2BatchLoraBody] | None = None
+
+
+class Krea2AssistedFeedbackBody(BaseModel):
+    attempt_id: str | None = None
+
+
+class Krea2AssistedRecipeDraftBody(BaseModel):
+    recipe_id: str
+    display_name: str
+    description: str
+    identity: str
+    invariants: list[str]
+    variables: list[str]
+    risks: list[str]
+    canonical_prompt: str
+
+
+class Krea2AssistedRecipePublishBody(BaseModel):
+    draft: Krea2AssistedRecipeDraftBody | None = None
+
+
 _STORYBOARD_RECIPE_ID = "krea2.storyboard.from_text"
 _STORYBOARD_RECIPE_VERSION = "0.1.0"
 
@@ -181,6 +334,9 @@ def create_app(
     video_lab: VideoLabRunner | None = None,
     storyboard_lab: StoryboardLabService | None = None,
     krea2_lab: Krea2LabRunner | None = None,
+    krea2_batch: Krea2BatchService | None = None,
+    krea2_edit: Krea2EditService | None = None,
+    krea2_assisted: Krea2AssistedService | None = None,
     model_runtime: ModelRuntimeControl | None = None,
     comfy_runtime: Any | None = None,
     static_directory: Path | None = None,
@@ -751,6 +907,797 @@ def create_app(
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="KREA2 run not found") from error
         except (OSError, RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-batch/spec")
+    def krea2_batch_spec() -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        models = service.resources.list_models()
+        loras = service.resources.list_loras()
+        return {
+            "recipes": [serialize_krea2_visual_recipe(recipe) for recipe in service.recipes.current()],
+            "llm_models": [{"id": model.model_id} for model in service.list_models()],
+            "render_models": [serialize_krea2_resource(resource) for resource in models],
+            "loras": [serialize_krea2_resource(resource) for resource in loras],
+            "resource_warnings": list(
+                getattr(service.resources, "inventory_warnings", lambda: ())()
+            ),
+            "limits": {"image_count": {"minimum": 1, "maximum": 10}, "lora_count": 4},
+            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
+            "megapixels": {"minimum": 0.5, "maximum": 4.0, "step": 0.1},
+            "workflow": {
+                "sampler": "er_sde",
+                "scheduler": "simple",
+                "first_pass": {"steps": 8, "cfg": 1.1, "denoise": 1.0},
+                "latent_upscale": {"method": "bislerp", "scale_by": 1.5},
+                "second_pass": {"steps": 2, "cfg": 1.0, "denoise": 0.3},
+            },
+        }
+
+    @app.post("/api/image-lab/krea2-batch/resources/{resource_id}/preference")
+    def update_krea2_resource_preference(
+        resource_id: str,
+        body: Krea2ResourcePreferenceBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            safety = Krea2ResourceSafety(body.safety) if body.safety is not None else None
+            reset_precision = body.precision == "auto"
+            precision = (
+                None
+                if body.precision is None or reset_precision
+                else Krea2ResourcePrecision(body.precision)
+            )
+            resource = service.resources.set_preference(
+                resource_id,
+                favorite=body.favorite,
+                safety=safety,
+                precision=precision,
+                reset_precision=reset_precision,
+            )
+            return serialize_krea2_resource(resource)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="KREA2 resource not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-batch/resources/{resource_id}/refresh")
+    def refresh_krea2_resource(resource_id: str) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            return serialize_krea2_resource(service.resources.refresh_remote(resource_id))
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="KREA2 resource not found") from error
+
+    @app.post("/api/image-lab/krea2-batch/batches", status_code=status.HTTP_201_CREATED)
+    def create_krea2_batch(body: Krea2BatchCreateBody) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            recipe = service.recipes.get(body.recipe_id, body.recipe_version)
+            settings = None
+            if any(value is not None for value in (body.render_model_id, body.aspect_ratio, body.megapixels, body.loras)):
+                settings = Krea2BatchSettings(
+                    model_name=body.render_model_id or recipe.settings.model_name,
+                    aspect_ratio=(Krea2AspectRatio(body.aspect_ratio) if body.aspect_ratio is not None else recipe.settings.aspect_ratio),
+                    megapixels=body.megapixels if body.megapixels is not None else recipe.settings.megapixels,
+                    loras=(
+                        tuple(Krea2LoraSelection(name=item.name, strength=item.strength) for item in body.loras)
+                        if body.loras is not None
+                        else recipe.settings.loras
+                    ),
+                )
+            batch = service.prepare(Krea2BatchRequest(
+                recipe_id=body.recipe_id,
+                recipe_version=body.recipe_version,
+                image_count=body.image_count,
+                model_id=body.model_id,
+                direction=body.direction,
+                settings=settings,
+            ))
+            return {"batch": serialize_krea2_batch(batch)}
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch recipe not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/prompts/stream")
+    def stream_krea2_batch_prompts(
+        batch_id: str,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        service = _require_krea2_batch(krea2_batch)
+        return _krea2_batch_stream_response(service.stream_generate_prompts(batch_id, include_reasoning=include_reasoning))
+
+    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/start", status_code=status.HTTP_202_ACCEPTED)
+    def start_krea2_batch(batch_id: str, background_tasks: BackgroundTasks) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            batch = service.start_rendering(batch_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        background_tasks.add_task(service.render, batch_id)
+        return {"batch": serialize_krea2_batch(batch)}
+
+    @app.get("/api/image-lab/krea2-batch/batches")
+    def list_krea2_batches(limit: int = 20) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            return {"batches": [serialize_krea2_batch(batch) for batch in service.list(limit)]}
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-batch/batches/{batch_id}")
+    def get_krea2_batch(batch_id: str) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            return {"batch": serialize_krea2_batch(service.get(batch_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
+
+    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/cancel")
+    def cancel_krea2_batch(batch_id: str) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            return {"batch": serialize_krea2_batch(service.cancel(batch_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/items/{item_id}/review")
+    def review_krea2_batch_item(batch_id: str, item_id: str, body: Krea2BatchReviewBody) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            batch = service.review_item(batch_id, item_id, Krea2ReviewDecision(body.decision), body.comment)
+            return {"batch": serialize_krea2_batch(batch)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch or image not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision")
+    def propose_krea2_recipe_revision(batch_id: str, body: Krea2BatchRecipeRevisionBody) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            settings = _krea2_revision_settings(body)
+            return {"batch": serialize_krea2_batch(service.propose_recipe_revision(
+                batch_id,
+                body.instruction,
+                draft=body.draft,
+                settings=settings,
+                model_id=body.model_id,
+                prompt_language=_krea2_prompt_language(body.prompt_language),
+            ))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/draft")
+    def save_krea2_recipe_revision_draft(batch_id: str, body: Krea2BatchRecipeDraftBody) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            batch = service.save_recipe_revision_draft(
+                batch_id,
+                body.draft,
+                settings=_krea2_revision_settings(body),
+                prompt_language=_krea2_prompt_language(body.prompt_language),
+            )
+            return {"batch": serialize_krea2_batch(batch)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/test",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def test_krea2_recipe_revision(batch_id: str, body: Krea2BatchRecipeTestBody) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            batch, workshop = service.prepare_recipe_revision_test(
+                batch_id,
+                image_count=body.image_count,
+                direction=body.direction,
+                model_id=body.model_id,
+                draft=body.draft,
+                settings=_krea2_revision_settings(body),
+                prompt_language=_krea2_prompt_language(body.prompt_language),
+            )
+            return {
+                "batch": serialize_krea2_batch(batch),
+                "workshop_batch": serialize_krea2_batch(workshop),
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/accept")
+    def accept_krea2_recipe_revision(
+        batch_id: str,
+        body: Krea2BatchRecipePublishBody | None = None,
+    ) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            return {"recipe": serialize_krea2_visual_recipe(service.accept_recipe_revision(
+                batch_id,
+                draft=body.draft if body is not None else None,
+                settings=_krea2_revision_settings(body) if body is not None else None,
+                prompt_language=(
+                    _krea2_prompt_language(body.prompt_language)
+                    if body is not None
+                    else None
+                ),
+            ))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-assisted/spec")
+    def krea2_assisted_spec() -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        models = service.resources.list_models()
+        loras = service.resources.list_loras()
+        return {
+            "llm_models": [{"id": model.model_id} for model in service.list_models()],
+            "render_models": [serialize_krea2_resource(resource) for resource in models],
+            "loras": [serialize_krea2_resource(resource) for resource in loras],
+            "resource_warnings": list(
+                getattr(service.resources, "inventory_warnings", lambda: ())()
+            ),
+            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
+            "defaults": {
+                "aspect_ratio": Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
+                "megapixels": 2.1,
+            },
+            "limits": {
+                "reference_bytes": MAX_IMAGE_BYTES,
+                "megapixels": {"minimum": 0.5, "maximum": 4.0, "step": 0.1},
+                "lora_count": 4,
+            },
+            "workflow": {
+                "recipe_id": getattr(service.workflow.reference, "recipe_id"),
+                "version": getattr(service.workflow.reference, "version"),
+                "sampler": "er_sde",
+                "scheduler": "simple",
+                "first_pass": {"steps": 8, "cfg": 1.1, "denoise": 1.0},
+                "latent_upscale": {"method": "bislerp", "scale_by": 1.5},
+                "second_pass": {"steps": 2, "cfg": 1.0, "denoise": 0.3},
+            },
+            "exports": {"enabled": service.export_root is not None, "root": service.export_root},
+        }
+
+    @app.post(
+        "/api/image-lab/krea2-assisted/projects",
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_krea2_assisted_project(
+        name: Annotated[str, Form()],
+        intention: Annotated[str, Form()],
+        model_id: Annotated[str, Form()],
+        reference: Annotated[UploadFile | None, File()] = None,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        asset_id = None
+        try:
+            if reference is not None:
+                content = await reference.read(MAX_IMAGE_BYTES + 1)
+                if len(content) > MAX_IMAGE_BYTES:
+                    raise ValueError("reference image exceeds the 25 MiB limit")
+                media_type = detect_image_media_type(content)
+                asset_id = runner.assets.create(content, media_type=media_type).asset_id
+            project = service.create_project(
+                name=name,
+                intention=intention,
+                model_id=model_id,
+                reference_asset_id=asset_id,
+                reference_filename=(reference.filename if reference is not None else None),
+            )
+            return {"project": serialize_krea2_assisted_project(project)}
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        finally:
+            if reference is not None:
+                await reference.close()
+
+    @app.get("/api/image-lab/krea2-assisted/projects")
+    def list_krea2_assisted_projects(limit: int = 30) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return {
+                "projects": [
+                    serialize_krea2_assisted_project(project)
+                    for project in service.list(limit)
+                ]
+            }
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-assisted/projects/{project_id}")
+    def get_krea2_assisted_project(project_id: str) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return {"project": serialize_krea2_assisted_project(service.get(project_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 assisted project not found") from error
+
+    @app.post(
+        "/api/image-lab/krea2-assisted/projects/{project_id}/guidance-images",
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def upload_krea2_assisted_guidance(
+        project_id: str,
+        image: Annotated[UploadFile, File()],
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            service.get(project_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="KREA2 assisted project not found",
+            ) from error
+        try:
+            content = await image.read(MAX_IMAGE_BYTES + 1)
+            if len(content) > MAX_IMAGE_BYTES:
+                raise ValueError("guidance image exceeds the 25 MiB limit")
+            media_type = detect_image_media_type(content)
+            asset = runner.assets.create(
+                content,
+                media_type=media_type,
+                source_run_id=project_id,
+            )
+            filename = image.filename or "guidance-image"
+            return {
+                "guidance": {
+                    "asset_id": asset.asset_id,
+                    "filename": filename,
+                    "url": f"/api/assets/{asset.asset_id}/content",
+                }
+            }
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        finally:
+            await image.close()
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/chat/stream")
+    def stream_krea2_assisted_chat(
+        project_id: str,
+        body: Krea2AssistedChatBody,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            mode = Krea2AssistedTurnMode(body.mode)
+            prompt_language = (
+                Krea2PromptLanguage(body.prompt_language)
+                if body.prompt_language is not None
+                else None
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return _krea2_assisted_stream_response(service.stream_chat(
+            project_id,
+            body.message,
+            mode=mode,
+            feedback_attempt_id=body.feedback_attempt_id,
+            prompt_language=prompt_language,
+            guidance_asset_id=body.guidance_asset_id,
+            guidance_filename=body.guidance_filename,
+            include_reasoning=include_reasoning,
+        ))
+
+    @app.post(
+        "/api/image-lab/krea2-assisted/projects/{project_id}/attempts",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def prepare_krea2_assisted_attempt(
+        project_id: str,
+        body: Krea2AssistedAttemptBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            seed = None if body.seed is None or str(body.seed).strip() == "" else _parse_json_seed(body.seed)
+            project = service.prepare_attempt(
+                project_id,
+                prompt=body.prompt,
+                settings=Krea2BatchSettings(
+                    model_name=body.model_id,
+                    aspect_ratio=Krea2AspectRatio(body.aspect_ratio),
+                    megapixels=body.megapixels,
+                    loras=tuple(
+                        Krea2LoraSelection(name=value.name, strength=value.strength)
+                        for value in (body.loras or [])
+                    ),
+                ),
+                seed=seed,
+            )
+            return {"project": serialize_krea2_assisted_project(project)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 assisted project not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def start_krea2_assisted_attempt(
+        project_id: str,
+        attempt_id: str,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            project = service.queue_attempt(project_id, attempt_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 assisted project or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        background_tasks.add_task(service.execute_attempt, project_id, attempt_id)
+        return {"project": serialize_krea2_assisted_project(project)}
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/cancel")
+    def cancel_krea2_assisted_attempt(project_id: str, attempt_id: str) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return {
+                "project": serialize_krea2_assisted_project(
+                    service.cancel_attempt(project_id, attempt_id)
+                )
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 assisted project or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/feedback")
+    def select_krea2_assisted_feedback(
+        project_id: str,
+        body: Krea2AssistedFeedbackBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return {
+                "project": serialize_krea2_assisted_project(
+                    service.select_feedback(project_id, body.attempt_id)
+                )
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 assisted project or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/save")
+    def save_krea2_assisted_image(project_id: str, attempt_id: str) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return {
+                "project": serialize_krea2_assisted_project(
+                    service.save_image(project_id, attempt_id)
+                )
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 assisted project or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.put("/api/image-lab/krea2-assisted/projects/{project_id}/recipe-draft")
+    def update_krea2_assisted_recipe_draft(
+        project_id: str,
+        body: Krea2AssistedRecipeDraftBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            draft = parse_krea2_assisted_recipe_draft(body.model_dump())
+            return {
+                "project": serialize_krea2_assisted_project(
+                    service.set_recipe_draft(project_id, draft)
+                )
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 assisted project not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/recipe/publish")
+    def publish_krea2_assisted_recipe(
+        project_id: str,
+        body: Krea2AssistedRecipePublishBody | None = None,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            draft = (
+                parse_krea2_assisted_recipe_draft(body.draft.model_dump())
+                if body is not None and body.draft is not None
+                else None
+            )
+            project, recipe = service.publish_recipe(project_id, draft)
+            return {
+                "project": serialize_krea2_assisted_project(project),
+                "recipe": serialize_krea2_visual_recipe(recipe),
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 assisted project not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-edit/spec")
+    def krea2_edit_spec() -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        render_models: list[object] = []
+        loras: list[object] = []
+        if krea2_batch is not None:
+            render_models = [
+                serialize_krea2_resource(resource)
+                for resource in krea2_batch.resources.list_models()
+            ]
+            loras = [
+                serialize_krea2_resource(resource)
+                for resource in krea2_batch.resources.list_loras()
+            ]
+        resource_warnings = (
+            list(
+                getattr(
+                    krea2_batch.resources,
+                    "inventory_warnings",
+                    lambda: (),
+                )()
+            )
+            if krea2_batch is not None
+            else []
+        )
+        return {
+            "recipe": {
+                "id": service.workflow.reference.recipe_id,
+                "version": service.workflow.reference.version,
+                "workflow_sha256": service.workflow.reference.workflow_sha256,
+                "status": service.workflow.status,
+            },
+            "llm_models": [{"id": model.model_id} for model in service.list_models()],
+            "render_models": render_models,
+            "loras": loras,
+            "resource_warnings": resource_warnings,
+            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
+            "defaults": {
+                "model_id": "Krea2/kroma-v0.2-turbo.safetensors",
+                "aspect_ratio": Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
+                "megapixels": 1.0,
+                "ref_boost": 2.5,
+                "steps": 10,
+            },
+            "limits": {
+                "megapixels": {"minimum": 0.5, "maximum": 4.0, "step": 0.1},
+                "ref_boost": {"minimum": 0.0, "maximum": 10.0, "step": 0.1},
+                "steps": {"minimum": 1, "maximum": 100},
+                "lora_count": 4,
+            },
+            "fixed": {
+                "identity_lora": "krea2/krea2_identity_edit_v1_2.safetensors",
+                "identity_lora_strength": 1.0,
+                "cfg": 1.0,
+                "sampler": "euler",
+                "scheduler": "simple",
+                "grounding_px": 768,
+            },
+            "project_exports": {
+                "enabled": service.project_export_root is not None,
+                "root": service.project_export_root,
+            },
+        }
+
+    @app.post("/api/image-lab/krea2-edit/sources", status_code=status.HTTP_201_CREATED)
+    async def create_krea2_edit_source(
+        source_image: Annotated[UploadFile, File()],
+        sidecar: Annotated[UploadFile | None, File()] = None,
+    ) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            content = await source_image.read(MAX_IMAGE_BYTES + 1)
+            if len(content) > MAX_IMAGE_BYTES:
+                raise ValueError("source image exceeds the 25 MiB limit")
+            media_type = detect_image_media_type(content)
+            sidecar_content = None
+            if sidecar is not None:
+                sidecar_content = await sidecar.read(2 * 1024 * 1024 + 1)
+                if len(sidecar_content) > 2 * 1024 * 1024:
+                    raise ValueError("metadata sidecar exceeds the 2 MiB limit")
+            asset = runner.assets.create(content, media_type=media_type)
+            metadata = recover_krea2_metadata(content, sidecar=sidecar_content)
+            source = service.add_source(
+                asset_id=asset.asset_id,
+                filename=source_image.filename or "source.png",
+                metadata=metadata,
+            )
+            return {"source": serialize_krea2_edit_source(source)}
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        finally:
+            await source_image.close()
+            if sidecar is not None:
+                await sidecar.close()
+
+    @app.get("/api/image-lab/krea2-edit/sources")
+    def list_krea2_edit_sources(
+        limit: int = 100,
+        include_hidden: bool = False,
+    ) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            return {
+                "sources": [
+                    serialize_krea2_edit_source(source)
+                    for source in service.list(limit, include_hidden=include_hidden)
+                ]
+            }
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-edit/sources/{source_id}")
+    def get_krea2_edit_source(source_id: str) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            return {"source": serialize_krea2_edit_source(service.get(source_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 edit source not found") from error
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/prompt/stream")
+    def stream_krea2_edit_prompt(
+        source_id: str,
+        body: Krea2EditPromptBody,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            prompt_language = (
+                Krea2PromptLanguage(body.prompt_language)
+                if body.prompt_language is not None
+                else None
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return _krea2_edit_stream_response(
+            service.stream_prepare_prompt(
+                source_id,
+                body.instruction,
+                body.model_id,
+                base_prompt=body.base_prompt,
+                feedback_attempt_id=body.feedback_attempt_id,
+                prompt_language=prompt_language,
+                include_reasoning=include_reasoning,
+            )
+        )
+
+    @app.post(
+        "/api/image-lab/krea2-edit/sources/{source_id}/attempts",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def prepare_krea2_edit_attempt(
+        source_id: str,
+        body: Krea2EditAttemptBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            source = service.prepare_attempt(
+                source_id,
+                Krea2EditAttemptRequest(
+                    prompt=body.prompt,
+                    settings=Krea2EditSettings(
+                        model_name=body.model_id,
+                        aspect_ratio=Krea2AspectRatio(body.aspect_ratio),
+                        megapixels=body.megapixels,
+                        seed=_parse_json_seed(body.seed),
+                        ref_boost=body.ref_boost,
+                        steps=body.steps,
+                        loras=tuple(
+                            Krea2LoraSelection(name=value.name, strength=value.strength)
+                            for value in (body.loras or [])
+                        ),
+                    ),
+                ),
+            )
+            return {"source": serialize_krea2_edit_source(source)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 edit source not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def start_krea2_edit_attempt(
+        source_id: str,
+        attempt_id: str,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            source = service.queue_attempt(source_id, attempt_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 edit source or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        background_tasks.add_task(service.execute_attempt, source_id, attempt_id)
+        return {"source": serialize_krea2_edit_source(source)}
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/cancel")
+    def cancel_krea2_edit_attempt(source_id: str, attempt_id: str) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            return {
+                "source": serialize_krea2_edit_source(
+                    service.cancel_attempt(source_id, attempt_id)
+                )
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 edit source or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/promote",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def promote_krea2_edit_attempt(
+        source_id: str,
+        attempt_id: str,
+        body: Krea2EditPromotionBody | None = None,
+    ) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            return {
+                "source": serialize_krea2_edit_source(
+                    service.promote_attempt(
+                        source_id,
+                        attempt_id,
+                        project_name=body.project_name if body else None,
+                        step_name=body.step_name if body else None,
+                    )
+                )
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="KREA2 edit source or attempt not found",
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/export")
+    def retry_krea2_edit_project_export(source_id: str) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            return {
+                "source": serialize_krea2_edit_source(
+                    service.retry_project_export(source_id)
+                )
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="KREA2 edit project not found",
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/state")
+    def update_krea2_edit_source_state(
+        source_id: str,
+        body: Krea2EditSourceStateBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            source = service.set_state(source_id, Krea2EditSourceState(body.state))
+            return {"source": serialize_krea2_edit_source(source)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 edit source not found") from error
+        except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/video-lab/spec")
@@ -1918,6 +2865,328 @@ def _runtime_status(*, model_runtime: Any | None, comfy_runtime: Any | None) -> 
     }
 
 
+def serialize_krea2_visual_recipe(recipe) -> dict[str, object]:
+    return {
+        "id": recipe.recipe_id,
+        "recipe_id": recipe.recipe_id,
+        "version": recipe.version,
+        "display_name": recipe.display_name,
+        "description": recipe.description,
+        "identity": recipe.identity,
+        "invariants": list(recipe.invariants),
+        "variables": list(recipe.variables),
+        "risks": list(recipe.risks),
+        "canonical_prompt": recipe.canonical_prompt,
+        "prompt_language": recipe.prompt_language.value,
+        "content_sha256": recipe.content_sha256,
+        "parent_version": recipe.parent_version,
+        "status": recipe.status,
+        "settings": {
+            "model_id": recipe.settings.model_name,
+            "aspect_ratio": recipe.settings.aspect_ratio.value,
+            "megapixels": recipe.settings.megapixels,
+            "loras": [
+                {"name": lora.name, "strength": lora.strength}
+                for lora in recipe.settings.loras
+            ],
+        },
+    }
+
+
+def _krea2_prompt_language(value: str | None) -> Krea2PromptLanguage | None:
+    return Krea2PromptLanguage(value) if value is not None else None
+
+
+def _krea2_revision_settings(body: object) -> Krea2BatchSettings | None:
+    model_name = getattr(body, "render_model_id", None)
+    aspect_ratio = getattr(body, "aspect_ratio", None)
+    megapixels = getattr(body, "megapixels", None)
+    loras = getattr(body, "loras", None)
+    if all(value is None for value in (model_name, aspect_ratio, megapixels, loras)):
+        return None
+    if model_name is None or aspect_ratio is None or megapixels is None:
+        raise ValueError("checkpoint, ratio and megapixels must be provided together")
+    return Krea2BatchSettings(
+        model_name=model_name,
+        aspect_ratio=Krea2AspectRatio(aspect_ratio),
+        megapixels=megapixels,
+        loras=tuple(
+            Krea2LoraSelection(name=item.name, strength=item.strength)
+            for item in (loras or [])
+        ),
+    )
+
+
+def serialize_krea2_batch(batch: Krea2Batch) -> dict[str, object]:
+    return {
+        "id": batch.batch_id,
+        "batch_id": batch.batch_id,
+        "recipe_id": batch.recipe_id,
+        "recipe_version": batch.recipe_version,
+        "recipe_sha256": batch.recipe_sha256,
+        "model_id": batch.model_id,
+        "image_count": batch.image_count,
+        "direction": batch.direction,
+        "status": batch.status.value,
+        "settings": {
+            "model_id": batch.settings.model_name,
+            "aspect_ratio": batch.settings.aspect_ratio.value,
+            "megapixels": batch.settings.megapixels,
+            "resolution": {
+                "width": batch.settings.resolution[0],
+                "height": batch.settings.resolution[1],
+            },
+            "loras": [
+                {"name": lora.name, "strength": lora.strength}
+                for lora in batch.settings.loras
+            ],
+        },
+        "items": [
+            {
+                "id": item.item_id,
+                "item_id": item.item_id,
+                "index": item.index,
+                "prompt": item.prompt,
+                "variation_signature": item.variation_signature,
+                "seed": str(item.seed),
+                "status": item.status.value,
+                "execution_id": item.execution_id,
+                "output_asset_id": item.output_asset_id,
+                "output_url": (
+                    f"/api/assets/{item.output_asset_id}/content"
+                    if item.output_asset_id is not None
+                    else None
+                ),
+                "error": item.error,
+                "review": item.review.value,
+                "comment": item.comment,
+            }
+            for item in batch.items
+        ],
+        "warnings": list(batch.warnings),
+        "error": batch.error,
+        "recipe_revision_draft": batch.recipe_revision_draft,
+        "recipe_workshop": (
+            json.loads(batch.recipe_workshop)
+            if batch.recipe_workshop is not None
+            else None
+        ),
+        "workshop_source_batch_id": batch.workshop_source_batch_id,
+    }
+
+
+def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str, object]:
+    draft = project.recipe_draft
+    return {
+        "id": project.project_id,
+        "project_id": project.project_id,
+        "name": project.name,
+        "intention": project.intention,
+        "model_id": project.model_id,
+        "prompt_language": project.prompt_language.value,
+        "reference_asset_id": project.reference_asset_id,
+        "reference_filename": project.reference_filename,
+        "reference_url": (
+            f"/api/assets/{project.reference_asset_id}/content"
+            if project.reference_asset_id is not None
+            else None
+        ),
+        "turns": [
+            {
+                "turn_id": turn.turn_id,
+                "mode": turn.mode.value,
+                "role": turn.role.value,
+                "content": turn.content,
+                "guidance_asset_id": turn.guidance_asset_id,
+                "guidance_filename": turn.guidance_filename,
+                "guidance_url": (
+                    f"/api/assets/{turn.guidance_asset_id}/content"
+                    if turn.guidance_asset_id is not None
+                    else None
+                ),
+                "questions": list(turn.questions),
+                "prompt": turn.prompt,
+                "recommendations": list(turn.recommendations),
+            }
+            for turn in project.turns
+        ],
+        "current_prompt": project.current_prompt,
+        "attempts": [
+            {
+                "id": attempt.attempt_id,
+                "attempt_id": attempt.attempt_id,
+                "index": attempt.index,
+                "prompt": attempt.prompt,
+                "seed": str(attempt.seed),
+                "status": attempt.status.value,
+                "execution_id": attempt.execution_id,
+                "output_asset_id": attempt.output_asset_id,
+                "output_url": (
+                    f"/api/assets/{attempt.output_asset_id}/content"
+                    if attempt.output_asset_id is not None
+                    else None
+                ),
+                "error": attempt.error,
+                "accepted": attempt.accepted,
+                "settings": {
+                    "model_id": attempt.settings.model_name,
+                    "aspect_ratio": attempt.settings.aspect_ratio.value,
+                    "megapixels": attempt.settings.megapixels,
+                    "resolution": {
+                        "width": attempt.settings.resolution[0],
+                        "height": attempt.settings.resolution[1],
+                    },
+                    "loras": [
+                        {"name": value.name, "strength": value.strength}
+                        for value in attempt.settings.loras
+                    ],
+                },
+            }
+            for attempt in project.attempts
+        ],
+        "feedback_attempt_id": project.feedback_attempt_id,
+        "accepted_attempt_id": project.accepted_attempt_id,
+        "recipe_draft": (
+            {
+                "recipe_id": draft.recipe_id,
+                "display_name": draft.display_name,
+                "description": draft.description,
+                "identity": draft.identity,
+                "invariants": list(draft.invariants),
+                "variables": list(draft.variables),
+                "risks": list(draft.risks),
+                "canonical_prompt": draft.canonical_prompt,
+                "prompt_language": draft.prompt_language.value,
+            }
+            if draft is not None
+            else None
+        ),
+        "published_recipe": (
+            {
+                "recipe_id": project.published_recipe_id,
+                "version": project.published_recipe_version,
+            }
+            if project.published_recipe_id is not None
+            else None
+        ),
+        "export": {
+            "status": (
+                "failed"
+                if project.export_error is not None
+                else "exported"
+                if project.export_path is not None
+                else "pending"
+            ),
+            "path": project.export_path,
+            "error": project.export_error,
+        },
+        "warnings": list(project.warnings),
+    }
+
+
+def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
+    metadata = source.metadata
+    return {
+        "id": source.source_id,
+        "source_id": source.source_id,
+        "source_asset_id": source.source_asset_id,
+        "source_url": f"/api/assets/{source.source_asset_id}/content",
+        "filename": source.filename,
+        "project_id": source.project_id,
+        "stage_index": source.stage_index,
+        "parent_source_id": source.parent_source_id,
+        "parent_attempt_id": source.parent_attempt_id,
+        "accepted_attempt_id": source.accepted_attempt_id,
+        "project_name": source.project_name,
+        "accepted_label": source.accepted_label,
+        "export": {
+            "status": (
+                "failed"
+                if source.export_error is not None
+                else "exported"
+                if source.export_path is not None
+                else "pending"
+            ),
+            "path": source.export_path,
+            "error": source.export_error,
+        },
+        "source_batch_id": source.source_batch_id,
+        "source_batch_item_id": source.source_batch_item_id,
+        "prompt_language": source.prompt_language.value,
+        "state": source.state.value,
+        "recipe": {
+            "id": source.recipe.recipe_id,
+            "version": source.recipe.version,
+            "workflow_sha256": source.recipe.workflow_sha256,
+        },
+        "metadata": {
+            "prompt": metadata.prompt,
+            "model_id": metadata.model_name,
+            "aspect_ratio": metadata.aspect_ratio.value if metadata.aspect_ratio else None,
+            "megapixels": metadata.megapixels,
+            "seed": str(metadata.seed) if metadata.seed is not None else None,
+            "loras": [
+                {"name": value.name, "strength": value.strength}
+                for value in metadata.loras
+            ],
+            "origin": metadata.origin,
+            "warnings": list(metadata.warnings),
+        },
+        "prompt_status": source.prompt_status.value,
+        "instruction": source.instruction,
+        "generated_prompt": source.generated_prompt,
+        "raw_prompt_response": source.raw_prompt_response,
+        "prompt_model_id": source.prompt_model_id,
+        "prompt_error": source.prompt_error,
+        "revisions": [
+            {
+                "revision_id": revision.revision_id,
+                "instruction": revision.instruction,
+                "base_prompt": revision.base_prompt,
+                "prompt": revision.prompt,
+                "model_id": revision.model_id,
+                "prompt_language": revision.prompt_language.value,
+                "feedback_attempt_id": revision.feedback_attempt_id,
+            }
+            for revision in source.revisions
+        ],
+        "attempts": [
+            {
+                "id": attempt.attempt_id,
+                "attempt_id": attempt.attempt_id,
+                "prompt": attempt.prompt,
+                "status": attempt.status.value,
+                "execution_id": attempt.execution_id,
+                "output_asset_id": attempt.output_asset_id,
+                "output_url": (
+                    f"/api/assets/{attempt.output_asset_id}/content"
+                    if attempt.output_asset_id is not None
+                    else None
+                ),
+                "error": attempt.error,
+                "accepted": attempt.attempt_id == source.accepted_attempt_id,
+                "settings": {
+                    "model_id": attempt.settings.model_name,
+                    "aspect_ratio": attempt.settings.aspect_ratio.value,
+                    "megapixels": attempt.settings.megapixels,
+                    "seed": str(attempt.settings.seed),
+                    "ref_boost": attempt.settings.ref_boost,
+                    "steps": attempt.settings.steps,
+                    "resolution": {
+                        "width": attempt.settings.resolution[0],
+                        "height": attempt.settings.resolution[1],
+                    },
+                    "loras": [
+                        {"name": value.name, "strength": value.strength}
+                        for value in attempt.settings.loras
+                    ],
+                },
+            }
+            for attempt in source.attempts
+        ],
+    }
+
+
 def _connect_video_preview(url: str):
     """Open the ComfyUI preview channel used by the same-origin relay."""
     try:
@@ -2429,6 +3698,35 @@ def _require_krea2_lab(value: Krea2LabRunner | None) -> Krea2LabRunner:
     return value
 
 
+def _require_krea2_batch(value: Krea2BatchService | None) -> Krea2BatchService:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KREA2 Batch Lab is not configured",
+        )
+    return value
+
+
+def _require_krea2_assisted(
+    value: Krea2AssistedService | None,
+) -> Krea2AssistedService:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KREA2 Assisted Creation is not configured",
+        )
+    return value
+
+
+def _require_krea2_edit(value: Krea2EditService | None) -> Krea2EditService:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KREA2 Edit Lab is not configured",
+        )
+    return value
+
+
 def _require_krea2_discovery(
     value: _Krea2ModelDiscovery | None,
 ) -> _Krea2ModelDiscovery:
@@ -2489,6 +3787,100 @@ def _storyboard_stream_response(
                     "phase": "failed",
                     "message": str(error),
                 },
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _krea2_batch_stream_response(
+    events: Iterator[Krea2BatchStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                }
+                if event.batch is not None:
+                    payload["batch"] = serialize_krea2_batch(event.batch)
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {"kind": "error", "phase": "failed", "message": str(error)},
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _krea2_assisted_stream_response(
+    events: Iterator[Krea2AssistedStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                    "error": event.error,
+                }
+                if event.project is not None:
+                    payload["project"] = serialize_krea2_assisted_project(event.project)
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {"kind": "error", "phase": "failed", "message": str(error)},
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _krea2_edit_stream_response(
+    events: Iterator[Krea2EditStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                }
+                if event.source is not None:
+                    payload["source"] = serialize_krea2_edit_source(event.source)
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {"kind": "error", "phase": "failed", "message": str(error)},
             )
 
     return StreamingResponse(

@@ -148,7 +148,7 @@ class DirectFL2VAPromptTest(unittest.TestCase):
             "[[dialogue:dialogue_1]] A runner crosses",
         )
 
-        with self.assertRaisesRegex(ValueError, "unresolved camera placeholder"):
+        with self.assertRaisesRegex(ValueError, "unresolved internal placeholder"):
             compile_direct_fl2va_document(pending, context)
         compiled = compile_direct_fl2va_document(
             pending,
@@ -167,7 +167,7 @@ class DirectFL2VAPromptTest(unittest.TestCase):
         )
         self.assertTrue(lint_direct_fl2va_prompt(compiled, context))
         malformed = pending.replace("dialogue_1", "unknown")
-        with self.assertRaisesRegex(ValueError, "unresolved camera placeholder"):
+        with self.assertRaisesRegex(ValueError, "unresolved internal placeholder"):
             compile_direct_fl2va_document(
                 malformed,
                 context,
@@ -181,6 +181,96 @@ class DirectFL2VAPromptTest(unittest.TestCase):
                 session,
                 (("reference-2", 1), ("reference-1", 2)),
             )
+
+    def test_normalizes_only_the_documented_picture_labels_for_all_four_modes(self):
+        cases = (
+            (H3BaseInputMode.T2VA, "<Image 1>", None),
+            (H3BaseInputMode.I2VA, "<Image 1>", "<Picture 1>"),
+            (H3BaseInputMode.L2VA, "@image 1", "<Picture 1>"),
+            (
+                H3BaseInputMode.FL2VA,
+                "<Image 1> transitions toward @image 2",
+                "Picture 1 transitions toward Picture 2",
+            ),
+        )
+        for mode, source, expected in cases:
+            with self.subTest(mode=mode):
+                context = DirectFL2VAContext(
+                    mode=mode,
+                    header=compile_h3_base_header(mode, 6000),
+                    duration_ms=6000,
+                    placements=(),
+                )
+                editable = BODY.replace("A runner crosses", f"{source}. A runner crosses")
+                if expected is None:
+                    with self.assertRaisesRegex(ValueError, "label visuel non autoris"):
+                        compile_direct_fl2va_document(editable, context)
+                    continue
+                compiled = compile_direct_fl2va_document(editable, context)
+                self.assertIn(expected, compiled)
+                self.assertNotIn("<Image ", compiled)
+                self.assertNotIn("@image", compiled.casefold())
+                self.assertEqual(lint_direct_fl2va_prompt(compiled, context), ())
+
+    def test_keeps_already_canonical_mode_labels_unchanged(self):
+        cases = (
+            (H3BaseInputMode.I2VA, "<Picture 1>"),
+            (H3BaseInputMode.L2VA, "<Picture 1>"),
+            (H3BaseInputMode.FL2VA, "Picture 1 transitions toward Picture 2"),
+        )
+        for mode, label in cases:
+            with self.subTest(mode=mode):
+                context = DirectFL2VAContext(
+                    mode=mode,
+                    header=compile_h3_base_header(mode, 6000),
+                    duration_ms=6000,
+                    placements=(),
+                )
+                editable = BODY.replace(
+                    "A runner crosses",
+                    f"{label}. A runner crosses",
+                )
+                compiled = compile_direct_fl2va_document(editable, context)
+                self.assertIn(label, compiled)
+                self.assertEqual(lint_direct_fl2va_prompt(compiled, context), ())
+
+    def test_rejects_out_of_range_or_wrong_mode_picture_labels(self):
+        cases = (
+            (H3BaseInputMode.T2VA, "<Picture 1>"),
+            (H3BaseInputMode.I2VA, "<Image 2>"),
+            (H3BaseInputMode.L2VA, "Picture 1"),
+            (H3BaseInputMode.FL2VA, "<Image 3>"),
+            (H3BaseInputMode.FL2VA, "<Picture 1>"),
+        )
+        for mode, label in cases:
+            with self.subTest(mode=mode, label=label):
+                context = DirectFL2VAContext(
+                    mode=mode,
+                    header=compile_h3_base_header(mode, 6000),
+                    duration_ms=6000,
+                    placements=(),
+                )
+                editable = BODY.replace("A runner crosses", f"{label}. A runner crosses")
+                with self.assertRaises(ValueError):
+                    compile_direct_fl2va_document(editable, context)
+
+    def test_never_rewrites_or_interprets_image_words_inside_dialogue(self):
+        context = DirectFL2VAContext(
+            mode=H3BaseInputMode.I2VA,
+            header=compile_h3_base_header(H3BaseInputMode.I2VA, 6000),
+            duration_ms=6000,
+            placements=(),
+        )
+        spoken = "<d>[English] Keep <Image 1> exactly as written.</d>"
+        editable = BODY.replace(
+            "A runner crosses",
+            f"<Image 1> anchors the opening. A runner says {spoken}, then crosses",
+        )
+        compiled = compile_direct_fl2va_document(editable, context)
+
+        self.assertIn("<Picture 1> anchors the opening", compiled)
+        self.assertIn(spoken, compiled)
+        self.assertEqual(lint_direct_fl2va_prompt(compiled, context), ())
 
 
 if __name__ == "__main__":

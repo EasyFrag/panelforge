@@ -1,0 +1,112 @@
+{
+  "29": {
+    "inputs": {
+      "filename_prefix": "image/krea2-edit/pending",
+      "output_folder": "output",
+      "caption": "[[SIDECAR_TEXT]]",
+      "caption_file_extension": ".txt",
+      "images": ["54", 0]
+    },
+    "class_type": "SaveImageKJ",
+    "_meta": {"title": "Save edited image and provenance"}
+  },
+  "53": {
+    "inputs": {
+      "seed": 0,
+      "steps": 10,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["79", 0],
+      "positive": ["84", 0],
+      "negative": ["85", 0],
+      "latent_image": ["82", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler"}
+  },
+  "54": {
+    "inputs": {"samples": ["53", 0], "vae": ["57", 0]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "55": {
+    "inputs": {"unet_name": "Krea2/kroma-v0.2-turbo.safetensors", "weight_dtype": "default"},
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load Diffusion Model"}
+  },
+  "56": {
+    "inputs": {"clip_name": "qwen3-vl-4b-heretic.safetensors", "type": "krea2", "device": "default"},
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "Load CLIP"}
+  },
+  "57": {
+    "inputs": {"vae_name": "qwen_image_vae.safetensors"},
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load VAE"}
+  },
+  "71": {
+    "inputs": {"lora_name": "krea2/krea2_identity_edit_v1_2.safetensors", "strength_model": 1, "model": ["113", 0]},
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {"title": "Fixed KREA2 identity edit LoRA"}
+  },
+  "72": {
+    "inputs": {"image": "source.png"},
+    "class_type": "LoadImage",
+    "_meta": {"title": "Source image"}
+  },
+  "73": {
+    "inputs": {"pixels": ["72", 0], "vae": ["57", 0]},
+    "class_type": "VAEEncode",
+    "_meta": {"title": "VAE Encode source"}
+  },
+  "79": {
+    "inputs": {
+      "ref_boost": 2.5,
+      "ref_boost_a": 1,
+      "fit_mode": "fit",
+      "model": ["71", 0],
+      "source_latent": ["73", 0],
+      "vae": ["57", 0],
+      "source_image": ["72", 0],
+      "target_latent": ["82", 0]
+    },
+    "class_type": "Krea2EditModelPatch",
+    "_meta": {"title": "KREA2 Edit source patch"}
+  },
+  "82": {
+    "inputs": {"width": ["83", 0], "height": ["83", 1], "batch_size": 1},
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {"title": "Target latent"}
+  },
+  "83": {
+    "inputs": {"aspect_ratio": "9:16 (Portrait Widescreen)", "megapixels": 1, "multiple": 8},
+    "class_type": "ResolutionSelector",
+    "_meta": {"title": "Resolution Selector"}
+  },
+  "84": {
+    "inputs": {"prompt": "[[PROMPT]]", "grounding_px": 768, "system_prompt": "", "clip": ["113", 1], "image": ["72", 0]},
+    "class_type": "Krea2EditGroundedEncode",
+    "_meta": {"title": "KREA2 Edit positive"}
+  },
+  "85": {
+    "inputs": {"prompt": "", "grounding_px": 768, "system_prompt": "", "clip": ["113", 1], "image": ["72", 0]},
+    "class_type": "Krea2EditGroundedEncode",
+    "_meta": {"title": "Negative (fixed empty)"}
+  },
+  "113": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+      "lora_1": {"on": false, "lora": "None", "strength": 0},
+      "lora_2": {"on": false, "lora": "None", "strength": 0},
+      "lora_3": {"on": false, "lora": "None", "strength": 0},
+      "lora_4": {"on": false, "lora": "None", "strength": 0},
+      "➕ Add Lora": "",
+      "model": ["55", 0],
+      "clip": ["56", 0]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {"title": "Four optional general LoRAs"}
+  }
+}

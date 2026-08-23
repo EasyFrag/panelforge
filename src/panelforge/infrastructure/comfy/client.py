@@ -271,6 +271,15 @@ class ComfyHttpClient:
         )
         return _parse_model_list(self._read_json(fallback))
 
+    def list_lora_models(self) -> tuple[str, ...]:
+        """Return the LoRA paths exposed by ComfyUI's model inventory."""
+        request = urllib.request.Request(
+            f"{self.base_url}/models/loras",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        return _parse_model_list(self._read_json(request))
+
     def get_queue(self) -> ComfyQueueSnapshot:
         """Return a normalized snapshot of ComfyUI's execution queue."""
         request = urllib.request.Request(

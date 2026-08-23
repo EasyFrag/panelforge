@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "operation_id": "image.edit",
+  "recipe_id": "krea2.identity_edit",
+  "version": "0.1.0",
+  "status": "experimental",
+  "workflow_file": "workflow_api.json",
+  "workflow_sha256": "fca18ce2912f630b482efda55a0b42fa522055598bc0477aae617a2a0cbdfab3",
+  "inputs": {
+    "source_image": {"node_id": "72", "input": "image"},
+    "prompt": {"node_id": "84", "input": "prompt"},
+    "model": {"node_id": "55", "input": "unet_name"},
+    "aspect_ratio": {"node_id": "83", "input": "aspect_ratio"},
+    "megapixels": {"node_id": "83", "input": "megapixels"},
+    "seed": {"node_id": "53", "input": "seed"},
+    "steps": {"node_id": "53", "input": "steps"},
+    "ref_boost": {"node_id": "79", "input": "ref_boost"},
+    "output_prefix": {"node_id": "29", "input": "filename_prefix"},
+    "sidecar_text": {"node_id": "29", "input": "caption"}
+  },
+  "lora_node_id": "113",
+  "lora_inputs": ["lora_1", "lora_2", "lora_3", "lora_4"],
+  "fixed_values": [
+    {"node_id": "53", "input": "cfg", "equals": 1},
+    {"node_id": "53", "input": "sampler_name", "equals": "euler"},
+    {"node_id": "53", "input": "scheduler", "equals": "simple"},
+    {"node_id": "53", "input": "denoise", "equals": 1},
+    {"node_id": "71", "input": "lora_name", "equals": "krea2/krea2_identity_edit_v1_2.safetensors"},
+    {"node_id": "71", "input": "strength_model", "equals": 1},
+    {"node_id": "79", "input": "ref_boost_a", "equals": 1},
+    {"node_id": "79", "input": "fit_mode", "equals": "fit"},
+    {"node_id": "83", "input": "multiple", "equals": 8},
+    {"node_id": "84", "input": "grounding_px", "equals": 768},
+    {"node_id": "84", "input": "system_prompt", "equals": ""},
+    {"node_id": "85", "input": "prompt", "equals": ""},
+    {"node_id": "85", "input": "grounding_px", "equals": 768}
+  ],
+  "output": {"node_id": "29", "history_field": "images", "media_type": "image/png"}
+}
