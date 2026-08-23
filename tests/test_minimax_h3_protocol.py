@@ -251,7 +251,7 @@ N/A"""
         self.assertEqual(
             {issue.code for issue in issues},
             {
-                "camera_placeholder",
+                "internal_placeholder",
                 "dialogue_balance",
                 "dialogue_language",
                 "legacy_image_label",

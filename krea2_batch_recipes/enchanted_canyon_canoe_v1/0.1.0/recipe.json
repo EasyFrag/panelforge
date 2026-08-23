@@ -1,0 +1,33 @@
+{
+  "recipe_id": "enchanted_canyon_canoe_v1",
+  "version": "0.1.0",
+  "display_name": "Canyon enchanté en canoë",
+  "description": "Voyage à la première personne sur une rivière turquoise au cœur d’une cité fantastique.",
+  "identity": "A first-person canoe journey through luminous turquoise water, monumental tropical cliffs and a warm inhabited fantasy city.",
+  "invariants": [
+    "The pointed canoe bow is visible in the lower foreground.",
+    "Transparent turquoise water, abundant lotus flowers, particles and reflections densely fill the lower image.",
+    "Monumental vertical cliffs frame both sides and warm architecture is integrated into them.",
+    "Waterfalls, a distant bridge and a luminous twilight or stellar sky create depth.",
+    "No visible foreground person; vertical 9:16 immersive first-person composition."
+  ],
+  "variables": [
+    "Water and lotus palette.",
+    "Fantasy architectural family.",
+    "Galaxy, aurora, sunset or full-moon sky.",
+    "Wooden, carved, transparent or raft-like single boat."
+  ],
+  "risks": [
+    "Empty river or sparse flowers.",
+    "Automatically added central person.",
+    "Distant dim city or overly clean symmetry."
+  ],
+  "canonical_prompt": "Vertical 9:16 first-person cinematic fantasy journey from the front seat of a narrow handcrafted wooden canoe moving slowly through an immense turquoise river hidden inside a monumental tropical canyon.\n\nThe pointed bow occupies the lower center and is decorated with richly colored woven fabric. Crystal-clear luminous water reveals polished stones, ancient submerged carvings, colorful mineral formations and soft bioluminescent currents.\n\nThe foreground and middle distance are densely filled with abundant pink, coral, white and golden lotus flowers at many scales, broad lily pads, floating petals, glowing pollen, tiny fireflies and thousands of warm reflections, with no large empty plain-water area.\n\nColossal cliffs rise vertically on both sides, covered with tropical trees, flowering vines and fantasy dwellings carved into the rock. Warm amber windows, lantern balconies, ornate roofs and winding stairs create inhabited layers. Numerous waterfalls descend into luminous mist.\n\nA graceful bridge leads toward a radiant sunset beneath a star-filled sky with turquoise and violet aurora. Hyper-detailed fantasy travel photography, believable water, intricate reflections, volumetric mist, cinematic HDR and hyper HD 8K finish.\n\nNo visible person, no standing man, no second boat, no empty foreground, no sparse lotus flowers, no dark unlit city, no modern buildings, no text, no logo, no interface and no border.",
+  "model_name": "Krea2/krea2_turbo_bf16.safetensors",
+  "aspect_ratio": "9:16 (Portrait Widescreen)",
+  "megapixels": 2.1,
+  "loras": [],
+  "parent_version": null,
+  "status": "published",
+  "content_sha256": "7826cb30523329ef8457dafc0dd64af5dbb9be4477d702b791c56d59b8eae178"
+}

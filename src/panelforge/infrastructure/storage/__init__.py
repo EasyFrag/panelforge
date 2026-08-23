@@ -6,12 +6,17 @@ from .prompt_compositions import LocalPromptCompositionStore
 from .prompt_sessions import LocalPromptSessionStore
 from .video_runs import LocalVideoRunStore
 from .krea2_runs import LocalKrea2RunStore
+from .krea2_batches import LocalKrea2BatchStore
+from .krea2_assisted import LocalKrea2AssistedProjectStore
+from .krea2_edits import LocalKrea2EditStore
 from .storyboard_runs import LocalStoryboardRunStore
 
 __all__ = [
     "LocalAssetStore",
     "LocalLlmCallStore",
     "LocalKrea2RunStore",
+    "LocalKrea2BatchStore",
+    "LocalKrea2EditStore",
     "LocalPromptCompositionStore",
     "LocalPromptSessionStore",
     "LocalVideoRunStore",

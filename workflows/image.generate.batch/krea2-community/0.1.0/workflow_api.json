@@ -1,0 +1,109 @@
+{
+  "279": {
+    "inputs": {"vae_name": "qwen_image_vae.safetensors"},
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load VAE"}
+  },
+  "280": {
+    "inputs": {"text": "[[PROMPT]]", "clip": ["418", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "Prompt"}
+  },
+  "281": {
+    "inputs": {
+      "clip_name": "Huihui-Qwen3-VL-4B-Instruct-abliterated.safetensors",
+      "type": "krea2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "Load CLIP"}
+  },
+  "285": {
+    "inputs": {"conditioning": ["280", 0]},
+    "class_type": "ConditioningZeroOut",
+    "_meta": {"title": "Conditioning Zero Out"}
+  },
+  "287": {
+    "inputs": {"seed": 0},
+    "class_type": "Seed (rgthree)",
+    "_meta": {"title": "Seed"}
+  },
+  "293": {
+    "inputs": {"unet_name": "Krea2/krea2_turbo_bf16.safetensors", "weight_dtype": "default"},
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load Diffusion Model"}
+  },
+  "294": {
+    "inputs": {"aspect_ratio": "9:16 (Portrait Widescreen)", "megapixels": 0.8, "multiple": 8},
+    "class_type": "ResolutionSelector",
+    "_meta": {"title": "Resolution Selector"}
+  },
+  "296": {
+    "inputs": {
+      "seed": ["287", 0],
+      "steps": 8,
+      "cfg": 1.1,
+      "sampler_name": "er_sde",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["418", 0],
+      "positive": ["280", 0],
+      "negative": ["285", 0],
+      "latent_image": ["413:282", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler · first pass"}
+  },
+  "297": {
+    "inputs": {"upscale_method": "bislerp", "scale_by": 1.5, "samples": ["296", 0]},
+    "class_type": "LatentUpscaleBy",
+    "_meta": {"title": "Latent upscale"}
+  },
+  "301": {
+    "inputs": {
+      "seed": ["287", 0],
+      "steps": 2,
+      "cfg": 1.0,
+      "sampler_name": "er_sde",
+      "scheduler": "simple",
+      "denoise": 0.3,
+      "model": ["418", 0],
+      "positive": ["280", 0],
+      "negative": ["285", 0],
+      "latent_image": ["297", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler · second pass"}
+  },
+  "309": {
+    "inputs": {"tile_size": 512, "overlap": 64, "temporal_size": 64, "temporal_overlap": 8, "samples": ["301", 0], "vae": ["279", 0]},
+    "class_type": "VAEDecodeTiled",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "413:282": {
+    "inputs": {"width": ["294", 0], "height": ["294", 1], "batch_size": 1},
+    "class_type": "EmptyLatentImage",
+    "_meta": {"title": "Empty latent"}
+  },
+  "418": {
+    "inputs": {
+      "lora_01": "None",
+      "strength_01": 0.0,
+      "lora_02": "None",
+      "strength_02": 0.0,
+      "lora_03": "None",
+      "strength_03": 0.0,
+      "lora_04": "None",
+      "strength_04": 0.0,
+      "model": ["293", 0],
+      "clip": ["281", 0]
+    },
+    "class_type": "Lora Loader Stack (rgthree)",
+    "_meta": {"title": "Four recipe LoRAs"}
+  },
+  "299": {
+    "inputs": {"filename_prefix": "image/krea2-batch/pending", "images": ["309", 0]},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

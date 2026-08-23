@@ -1,0 +1,32 @@
+{
+  "recipe_id": "cosmic_tropical_shore_v1",
+  "version": "0.1.0",
+  "display_name": "Rivage tropical cosmique",
+  "description": "Une plage miroir au ras de l’eau sous un ciel cosmique maximaliste.",
+  "identity": "A simple tropical shoreline seen from water level beneath an overwhelmingly saturated cosmic sky and giant blazing orb.",
+  "invariants": [
+    "Camera about thirty centimeters above the wet beach.",
+    "Diagonal wave line from lower right toward the horizon; coast, palms and small houses remain left.",
+    "One giant blazing orb slightly right of center and sky around sixty-five percent of frame.",
+    "Mirror-like lower beach strongly reflects the nebula with bioluminescent waves.",
+    "Maximalist saturated fantasy artwork, never restrained dark night photography."
+  ],
+  "variables": [
+    "One coherent palette applied to water, foam, reflections, orb, nebula and clouds.",
+    "Orb color and surface behavior.",
+    "Secondary star/cloud colors and house-light intensity."
+  ],
+  "risks": [
+    "Mostly black sky, ordinary moon or weak reflections.",
+    "Muted, peaceful or subtle treatment.",
+    "Changing color in only one sentence and creating an incoherent palette."
+  ],
+  "canonical_prompt": "Vertical 9:16 spectacular maximalist fantasy artwork of a tropical beach beneath an overwhelmingly luminous cosmic sky, captured from an extremely low viewpoint directly above the wet shoreline.\n\nThe image is intensely colorful and radiant, a hyper-detailed dreamscape with no large dark empty areas. Glossy wet sand and shallow reflective seawater fill the foreground. Small tropical waves move diagonally from lower right toward center, creating luminous foam and sweeping curves. Millions of bioluminescent particles sparkle in water and sand.\n\nThe beach behaves like a cosmic mirror, strongly reflecting nebula, celestial orb, stars and waves in long saturated streaks. The coastline curves from lower left toward the horizon; tall coconut palms and several warmly illuminated wooden beach houses line the left side.\n\nA gigantic blazing celestial orb touches the ocean slightly right of center, filled with plasma, luminous fractures and a brilliant corona, casting a wide river of light. The sky occupies about sixty-five percent and is completely filled by colossal luminous nebula clouds with bright cores, glowing filaments, sculpted dark edges and thousands of sharp stars.\n\nUse one extremely saturated coherent palette repeated across ocean, bioluminescence, nebula, clouds, orb and reflections. Ultra-detailed luminous fantasy landscape, premium digital matte painting, surreal tropical dreamscape, dramatic HDR, intense saturation, brilliant reflections, deep contrast, hyper HD 8K finish.\n\nNo people, no dark empty beach, no mostly black sky, no muted colors, no subtle lighting, no ordinary moon, no small celestial orb, no dim reflections, no city, no mountains, no boat, no multiple suns, no tsunami, no animal-shaped nebula, no text, no logo, no interface and no border.",
+  "model_name": "Krea2/krea2_turbo_bf16.safetensors",
+  "aspect_ratio": "9:16 (Portrait Widescreen)",
+  "megapixels": 2.1,
+  "loras": [],
+  "parent_version": null,
+  "status": "published",
+  "content_sha256": "e7c82a6d8a5a5ad2b5101772208b3fd30905b6a134d519ad7290ad3ae2391670"
+}

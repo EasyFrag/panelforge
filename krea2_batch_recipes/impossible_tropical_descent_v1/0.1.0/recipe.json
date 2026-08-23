@@ -1,0 +1,33 @@
+{
+  "recipe_id": "impossible_tropical_descent_v1",
+  "version": "0.1.0",
+  "display_name": "Descente tropicale impossible",
+  "description": "Une poursuite à très grande vitesse vers une cité tropicale futuriste.",
+  "identity": "A tiny rear-view rider descends a natural water-covered volcanic slope at high speed toward an immense tropical civilization.",
+  "invariants": [
+    "Chase camera behind and slightly above one rider occupying eight to ten percent of the frame.",
+    "Natural exposed volcanic slope with a shallow sheet of water, never an artificial water-park structure.",
+    "Curved or diagonal trajectory with local spray and motion blur while rider and vehicle remain sharp.",
+    "Readable immense tropical city, lagoons, mountains, waterfalls and vast bright sky below.",
+    "Vertical 9:16, strong parallax and spectacular scale."
+  ],
+  "variables": [
+    "Inflatable ring, shallow-water surfboard or futuristic sled, exactly one.",
+    "Coastal city, archipelago, urban valley or crater civilization.",
+    "Sunny, sunset, luminous storm or planetary sky.",
+    "Left or right curve and coherent rider/vehicle colors."
+  ],
+  "risks": [
+    "Words suggesting a slide, track or artificial channel.",
+    "Oversized static rider or straight central water road.",
+    "Unreadable distant city or global motion blur."
+  ],
+  "canonical_prompt": "Vertical 9:16 ultra-wide cinematic action photograph viewed from a fast-moving chase camera several meters behind and slightly above a single adventurous rider descending an impossibly steep tropical mountainside on a coral-orange inflatable river ring.\n\nThe rider is seen strictly from behind, located in the lower-left area and occupying only about nine percent of the image height. The ring is moving at high speed, tilted sideways while carving a broad curve, the rider leaning naturally and gripping both handles.\n\nThe descent is exposed natural dark volcanic rock covered by a broad shallow sheet of crystal-clear turquoise water. One side opens above immense misty cliffs; the other is bordered by wet rock and vegetation. Explosive spray, droplets toward camera, local directional blur and strong parallax convey speed while rider, ring and water contact remain sharp.\n\nFar below, an enormous tropical coastal civilization fills the middle depth: turquoise lagoons, white beaches, jungle islands, green mountains, waterfalls, organic futuristic towers, waterfront districts, bridges and tiny boats. Its architecture remains readable. Gigantic sculpted clouds rise into a brilliant sky with a subtle pale planet. Hyperrealistic action photography, impossible scale, deep perspective, rich tropical HDR, hyper HD 8K finish.\n\nExactly one rider and one inflatable ring. No visible face, no duplicated limbs, no oversized rider, no static pose, no perfectly straight central water road, no artificial channel, no concrete sides, no raised borders, no railings, no amusement-park construction, no text, no logo, no interface and no border.",
+  "model_name": "Krea2/krea2_turbo_bf16.safetensors",
+  "aspect_ratio": "9:16 (Portrait Widescreen)",
+  "megapixels": 2.1,
+  "loras": [],
+  "parent_version": null,
+  "status": "published",
+  "content_sha256": "2db96df04d8bc20be2f0f750f3958d9c0c59a55da8e27a3d64507abaae641400"
+}

@@ -23,6 +23,9 @@
   const elements = {
     changeView: $("#change-view-workspace"),
     krea2ImageLab: $("#krea2-image-lab-workspace"),
+    krea2AssistedLab: $("#krea2-assisted-lab-workspace"),
+    krea2BatchLab: $("#krea2-batch-lab-workspace"),
+    krea2EditLab: $("#krea2-edit-lab-workspace"),
     storyboardLab: $("#storyboard-lab-workspace"),
     promptLab: $("#prompt-lab-workspace"),
     archives: $("#archives-workspace"),
@@ -116,9 +119,12 @@
   function switchView(view) {
     const promptActive = view === "prompt-lab";
     const archiveActive = ["archives", "i2v", "ref2v"].includes(view);
-    const imageLabActive = ["change-view", "krea2-image-lab"].includes(view);
+    const imageLabActive = ["change-view", "krea2-image-lab", "krea2-assisted-lab", "krea2-batch-lab", "krea2-edit-lab"].includes(view);
     elements.changeView.hidden = view !== "change-view";
     elements.krea2ImageLab.hidden = view !== "krea2-image-lab";
+    elements.krea2AssistedLab.hidden = view !== "krea2-assisted-lab";
+    elements.krea2BatchLab.hidden = view !== "krea2-batch-lab";
+    elements.krea2EditLab.hidden = view !== "krea2-edit-lab";
     elements.storyboardLab.hidden = view !== "storyboard-lab";
     elements.promptLab.hidden = !promptActive;
     elements.archives.hidden = view !== "archives";
@@ -233,7 +239,7 @@
   document.addEventListener("pointerdown", prepareCompletionAudio, { capture: true });
   document.addEventListener("keydown", prepareCompletionAudio, { capture: true });
 
-  async function streamRequest(url, options, onEvent) {
+  async function streamRequest(url, options, onEvent, { completionTone = true } = {}) {
     const response = await fetch(url, options);
     if (!response.ok) {
       let detail = `Erreur HTTP ${response.status}`;
@@ -263,7 +269,7 @@
           const event = JSON.parse(data);
           if (event.kind === "error") throw new Error(event.message || "Le flux LLM a échoué.");
           onEvent(event);
-          if (event.kind === "completed") playCompletionTone();
+          if (event.kind === "completed" && completionTone) playCompletionTone();
         }
         boundary = buffer.indexOf("\n\n");
       }
@@ -1344,6 +1350,7 @@
     updateStreamState,
     failStreamState,
     createReasoningTrace,
+    playCompletionTone,
     decorateSessionLink,
     setBusy,
   };

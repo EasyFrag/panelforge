@@ -221,7 +221,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260820.6", page.text)
+        self.assertIn("/static/lab.css?v=20260823.4", page.text)
         self.assertIn("/static/ref2v-direct.js?v=20260820.2", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
@@ -256,7 +256,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(prompt_script.status_code, 200)
-        self.assertIn("/static/prompt-lab.js?v=20260820.3", page.text)
+        self.assertIn("/static/prompt-lab.js?v=20260821.1", page.text)
         self.assertIn('data-lab-view="archives"', page.text)
         self.assertIn('id="archives-workspace"', page.text)
         self.assertIn('data-archive-view="i2v"', page.text)
@@ -313,6 +313,7 @@ class LabWebTest(unittest.TestCase):
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
         page = self.client.get("/")
         script = self.client.get("/static/i2v-direct.js")
+        styles = self.client.get("/static/lab.css")
         prompt_script = self.client.get("/static/prompt-lab.js")
 
         self.assertEqual(page.status_code, 200)
@@ -330,7 +331,13 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260820.4', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260822.1', page.text)
+        self.assertIn(
+            ".h3-base-frame-inputs .i2v-upload > b,",
+            styles.text,
+        )
+        self.assertIn("text-overflow: ellipsis", styles.text)
+        self.assertIn('title.title = reference.label', script.text)
         self.assertIn('const profileVersion = "0.2.0"', script.text)
         self.assertIn('const preferredCookbookVersion = "0.2.0"', script.text)
         self.assertIn('elements.cookbook.value = compositionReference', script.text)

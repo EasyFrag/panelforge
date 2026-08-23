@@ -374,8 +374,8 @@ def lint_h3_prompt(
         issues.append(
             H3ProtocolIssue(
                 H3IssueSeverity.ERROR,
-                "camera_placeholder",
-                "an unresolved camera placeholder remains",
+                "internal_placeholder",
+                "an unresolved internal placeholder remains",
             )
         )
     expected_camera_clauses = Counter(
@@ -476,12 +476,14 @@ def lint_h3_prompt(
                     f"dialogue language must use a full canonical name: {label}",
                 )
             )
-    if re.search(r"(?i)@image\s*\d+|<Image\s+\d+>", content):
+    visual_prose = re.sub(r"<d>.*?</d>", "", content, flags=re.DOTALL)
+    if re.search(r"(?i)@image\s*\d+|<Image\s+\d+>", visual_prose):
         issues.append(
             H3ProtocolIssue(
                 H3IssueSeverity.ERROR,
                 "legacy_image_label",
-                "use canonical <Picture N> labels instead of @image or <Image N>",
+                "use the canonical Picture labels for the selected H3 mode "
+                "instead of @image or <Image N>",
             )
         )
     if mode in {
@@ -489,7 +491,7 @@ def lint_h3_prompt(
         H3ProtocolMode.I2VA,
         H3ProtocolMode.L2VA,
         H3ProtocolMode.FL2VA,
-    } and re.search(r"<Subject\s+\d+>", content):
+    } and re.search(r"<Subject\s+\d+>", visual_prose):
         issues.append(
             H3ProtocolIssue(
                 H3IssueSeverity.ERROR,

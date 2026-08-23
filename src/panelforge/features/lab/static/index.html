@@ -4,17 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260820.6">
+  <link rel="stylesheet" href="/static/lab.css?v=20260823.4">
   <script src="/static/lab.js?v=20260820.2" defer></script>
-  <script src="/static/prompt-lab.js?v=20260820.3" defer></script>
+  <script src="/static/prompt-lab.js?v=20260821.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260820.4" defer></script>
+  <script src="/static/i2v-direct.js?v=20260822.1" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/video-lab.js?v=20260816.6" defer></script>
   <script src="/static/ref2v-direct.js?v=20260820.2" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260817.1" defer></script>
+  <script src="/static/krea2-resource-ui.js?v=20260822.1" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260823.5" defer></script>
+  <script src="/static/krea2-batch-lab.js?v=20260823.1" defer></script>
+  <script src="/static/krea2-edit-lab.js?v=20260823.1" defer></script>
   <script src="/static/storyboard-lab.js?v=20260820.1" defer></script>
 </head>
 <body>
@@ -42,19 +46,21 @@
         <button id="release-llm-vram" class="runtime-button" type="button" title="État du serveur en cours de lecture." disabled>VRAM LLM</button>
         <button id="release-comfy-vram" class="runtime-button" type="button" title="État du serveur en cours de lecture." disabled>VRAM Comfy</button>
       </span>
-      <div id="recipe-badge" class="recipe">character.change_view <span id="recipe-version">…</span></div>
     </div>
   </header>
 
   <main id="change-view-workspace">
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
+      <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
+      <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
     </nav>
     <aside class="controls">
       <div class="title-row">
         <div><small>OPÉRATION</small><h1>Changer la vue</h1></div>
-        <span class="experimental">● Experimental</span>
+        <span id="recipe-badge" class="experimental">character.change_view · <span id="recipe-version">…</span></span>
       </div>
       <p class="muted">Explorez un angle sans remplacer l’image canonique.</p>
 
@@ -146,7 +152,10 @@
   <main id="krea2-image-lab-workspace" class="krea2-image-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button class="active" type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
+      <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
+      <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
     </nav>
 
     <aside class="controls krea2-image-lab-controls">
@@ -232,6 +241,376 @@
       </section>
     </div>
   </main>
+
+  <main id="krea2-assisted-lab-workspace" class="krea2-assisted-lab-workspace" hidden>
+    <nav class="image-lab-modebar" aria-label="Modes Image Lab">
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button class="active" type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
+      <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
+      <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+    </nav>
+
+    <aside class="controls krea2-assisted-controls">
+      <div class="title-row"><div><small>KREA2 · LLM</small><h1>Création assistée</h1></div><span class="experimental">● V1</span></div>
+      <p class="muted">Construisez un prompt en discutant, testez-le en T2I puis publiez éventuellement une recette Batch.</p>
+      <form id="krea2-assisted-new-form">
+        <section>
+          <h2>Nouveau projet</h2>
+          <label>Nom<input id="krea2-assisted-name" type="text" maxlength="120" placeholder="Ex. Zodiaque fantastique" required></label>
+          <label>Intention<textarea id="krea2-assisted-intention" rows="7" maxlength="12000" placeholder="Ex. une famille de tigres fantastiques inspirés du zodiaque chinois…" required></textarea></label>
+          <label>Image de référence facultative<input id="krea2-assisted-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
+          <label>Modèle LLM<select id="krea2-assisted-llm" required><option value="">Chargement…</option></select></label>
+          <button id="krea2-assisted-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
+          <p id="krea2-assisted-new-message" class="error" hidden></p>
+        </section>
+      </form>
+      <div class="section-title"><h2>Projets récents</h2><button id="krea2-assisted-refresh" class="text-button" type="button">Actualiser</button></div>
+      <p id="krea2-assisted-history-empty" class="muted">Aucun projet.</p>
+      <ul id="krea2-assisted-history" class="krea2-assisted-history"></ul>
+    </aside>
+
+    <div class="content krea2-assisted-content">
+      <section id="krea2-assisted-editor" class="results" hidden>
+        <div class="result-head">
+          <div><small>PROJET CONVERSATIONNEL</small><h2 id="krea2-assisted-title">Création</h2></div>
+          <span id="krea2-assisted-status" class="run-status">● Prêt</span>
+        </div>
+        <div id="krea2-assisted-warnings" class="krea2-batch-warnings" hidden></div>
+
+        <section class="krea2-assisted-conversation-panel">
+          <h3>Discussion</h3>
+          <div id="krea2-assisted-conversation" class="krea2-assisted-conversation"></div>
+          <label>Votre message<textarea id="krea2-assisted-message" rows="4" placeholder="Répondez aux questions, précisez le rendu ou demandez un ajustement…"></textarea></label>
+          <div class="krea2-assisted-guidance-compose">
+            <label class="krea2-assisted-guidance-add">＋ Image d’appoint
+              <input id="krea2-assisted-guidance-file" type="file" accept="image/png,image/jpeg,image/webp">
+            </label>
+            <div id="krea2-assisted-guidance-preview" class="krea2-assisted-guidance-preview" hidden>
+              <img id="krea2-assisted-guidance-image" alt="Image d’appoint du prochain échange">
+              <span><b id="krea2-assisted-guidance-name"></b><small>Prochain échange uniquement</small></span>
+              <button id="krea2-assisted-guidance-remove" type="button" aria-label="Retirer l’image d’appoint">Retirer</button>
+            </div>
+          </div>
+          <div class="krea2-assisted-chat-actions">
+            <label class="reasoning-toggle"><input id="krea2-assisted-show-reasoning" type="checkbox"> Trace modèle</label>
+            <label class="krea2-assisted-prompt-language">Langue du prompt
+              <select id="krea2-assisted-prompt-language" aria-label="Langue du prompt KREA2">
+                <option value="en" selected>English</option>
+                <option value="zh">中文</option>
+              </select>
+            </label>
+            <button id="krea2-assisted-chat" class="primary" type="button">Affiner le prompt</button>
+            <button id="krea2-assisted-recipe-chat" type="button">Préparer la recette</button>
+          </div>
+          <details id="krea2-assisted-reasoning" class="reasoning-trace" hidden open>
+            <summary><b>Trace modèle</b><small id="krea2-assisted-reasoning-label">Création</small></summary>
+            <p id="krea2-assisted-reasoning-empty" class="muted">En attente d’une trace séparée…</p>
+            <pre id="krea2-assisted-reasoning-content"></pre>
+          </details>
+        </section>
+
+        <section class="krea2-assisted-prompt-panel">
+          <label><b>Prompt KREA2 éditable</b><textarea id="krea2-assisted-prompt" rows="12" placeholder="Le prompt complet apparaîtra ici."></textarea></label>
+          <button id="krea2-assisted-copy-prompt" type="button">Copier le prompt</button>
+        </section>
+
+        <section class="krea2-edit-settings">
+          <h3>Paramètres du prochain rendu</h3>
+          <div class="krea2-edit-settings-grid">
+            <label>Checkpoint<select id="krea2-assisted-model"></select></label>
+            <label>Ratio<select id="krea2-assisted-ratio"></select></label>
+            <label>Mégapixels<input id="krea2-assisted-megapixels" type="number" min="0.5" max="4" step="0.1" value="2.1"></label>
+            <label>Seed<input id="krea2-assisted-seed" type="text" inputmode="numeric" pattern="[0-9]+" placeholder="Aléatoire"></label>
+          </div>
+          <div class="section-title"><h3>LoRA</h3><small>0 à 4 · quatre emplacements</small></div>
+          <div id="krea2-assisted-loras" class="krea2-lora-stack"></div>
+          <details class="krea2-catalog-manager">
+            <summary><b>Organiser le catalogue KREA2</b><small>Le classement est partagé avec Batch et Edit</small></summary>
+            <div id="krea2-assisted-catalog-manager"></div>
+          </details>
+          <div class="actions">
+            <button id="krea2-assisted-render" class="primary" type="button">Lancer un rendu</button>
+            <button id="krea2-assisted-cancel" type="button" disabled>Annuler</button>
+          </div>
+          <p id="krea2-assisted-message-state" class="message" aria-live="polite"></p>
+        </section>
+
+        <details id="krea2-assisted-recipe-panel" class="krea2-assisted-recipe-panel">
+          <summary><b>Recette Batch candidate</b><small>Publication uniquement après validation explicite</small></summary>
+          <p class="muted">Le JSON reste éditable. Les réglages techniques proviendront du rendu sélectionné.</p>
+          <textarea id="krea2-assisted-recipe-draft" rows="16" placeholder="Discutez avec le modèle pour obtenir un brouillon de recette."></textarea>
+          <div class="actions">
+            <button id="krea2-assisted-save-draft" type="button">Enregistrer le brouillon</button>
+            <button id="krea2-assisted-publish-recipe" type="button">Publier dans Batch</button>
+          </div>
+          <p id="krea2-assisted-recipe-message" class="message"></p>
+        </details>
+
+        <section class="krea2-assisted-gallery-section">
+          <div class="result-head"><div><small>IMAGES EN BAS DE PARCOURS</small><h2>Référence et essais</h2></div></div>
+          <div id="krea2-assisted-gallery" class="krea2-assisted-gallery"><p class="muted">Aucun rendu.</p></div>
+        </section>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="krea2-assisted-lightbox" class="krea2-edit-lightbox" aria-labelledby="krea2-assisted-lightbox-title">
+    <div class="krea2-edit-lightbox-head"><span id="krea2-assisted-lightbox-title">Image en taille réelle</span><button id="krea2-assisted-lightbox-close" type="button">Fermer</button></div>
+    <div class="krea2-edit-lightbox-body"><img id="krea2-assisted-lightbox-image" alt=""></div>
+  </dialog>
+
+  <main id="krea2-batch-lab-workspace" class="krea2-batch-lab-workspace" hidden>
+    <nav class="image-lab-modebar" aria-label="Modes Image Lab">
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
+      <button class="active" type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
+      <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+    </nav>
+
+    <aside class="controls krea2-batch-controls">
+      <div class="title-row">
+        <div><small>KREA2 · RECETTES</small><h1>Générer un batch</h1></div>
+        <span class="experimental">● V1</span>
+      </div>
+      <p class="muted">Un appel LLM produit jusqu’à dix variations, puis ComfyUI les rend séquentiellement.</p>
+
+      <form id="krea2-batch-form">
+        <section>
+          <h2>1. Recette et direction</h2>
+          <label class="field-label">Famille visuelle
+            <select id="krea2-batch-recipe" required><option value="">Chargement…</option></select>
+          </label>
+          <div class="krea2-batch-recipe-summary">
+            <p id="krea2-batch-recipe-description" class="muted"></p>
+            <span id="krea2-batch-recipe-language" class="krea2-language-badge" title="Langue verrouillée par la recette">EN</span>
+          </div>
+          <div class="krea2-image-lab-parameter-grid">
+            <label>Nombre d’images<input id="krea2-batch-count" type="number" min="1" max="10" step="1" value="5" required></label>
+            <label>Modèle LLM<select id="krea2-batch-llm" required><option value="">Chargement…</option></select></label>
+          </div>
+          <label class="field-label">Direction facultative
+            <textarea id="krea2-batch-direction" rows="3" placeholder="Ex. davantage de palettes froides, sans changer la composition…"></textarea>
+          </label>
+        </section>
+
+        <section>
+          <h2>2. Rendu de la recette</h2>
+          <label class="field-label">Checkpoint KREA2
+            <select id="krea2-batch-model" required><option value="">Chargement…</option></select>
+          </label>
+          <div id="krea2-batch-model-meta" class="krea2-resource-meta"></div>
+          <div class="krea2-image-lab-parameter-grid">
+            <label>Ratio<select id="krea2-batch-ratio" required></select></label>
+            <label>Mégapixels<input id="krea2-batch-megapixels" type="number" min="0.5" max="4" step="0.1" value="2.1" required></label>
+          </div>
+          <small>ER SDE · Simple · 8 steps · CFG 1,1 · upscale latent ×1,5 · seconde passe 2 steps.</small>
+        </section>
+
+        <section>
+          <div class="section-title"><div><h2>3. LoRA de la recette</h2><small>0 à 4 · glisser pour réordonner</small></div></div>
+          <div id="krea2-batch-lora-stack" class="krea2-lora-stack"></div>
+          <p class="muted">Une ressource absente reste dans la recette avec un warning et sera ignorée au rendu.</p>
+          <details class="krea2-catalog-manager">
+            <summary><b>Organiser le catalogue KREA2</b><small>Précision, favoris et classement des LoRA</small></summary>
+            <div id="krea2-batch-catalog-manager"></div>
+          </details>
+        </section>
+
+        <section>
+          <label class="reasoning-toggle"><input id="krea2-batch-show-reasoning" type="checkbox"> Afficher la trace transmise par le modèle</label>
+        </section>
+        <p id="krea2-batch-form-message" class="error" role="alert" hidden></p>
+        <button id="krea2-batch-generate" class="primary" type="submit" disabled>Générer le batch</button>
+      </form>
+    </aside>
+
+    <div class="content krea2-batch-content">
+      <section class="results krea2-batch-results">
+        <div class="result-head">
+          <div><small>BATCH KREA2</small><h2 id="krea2-batch-title">Variations</h2></div>
+          <span id="krea2-batch-status" class="run-status">● Prêt</span>
+        </div>
+        <div class="krea2-image-lab-progress-row">
+          <progress id="krea2-batch-progress" max="1" value="0"></progress>
+          <output id="krea2-batch-progress-label">En attente</output>
+        </div>
+        <details id="krea2-batch-reasoning" class="reasoning-trace" hidden open>
+          <summary><b>Trace modèle</b><small id="krea2-batch-reasoning-label">Variations</small></summary>
+          <p id="krea2-batch-reasoning-empty" class="muted">En attente d’une trace séparée du modèle…</p>
+          <pre id="krea2-batch-reasoning-content"></pre>
+        </details>
+        <div id="krea2-batch-warnings" class="krea2-batch-warnings" hidden></div>
+        <div id="krea2-batch-grid" class="krea2-batch-grid"><p class="muted">Les images du prochain batch apparaîtront ici.</p></div>
+        <p id="krea2-batch-message" class="message" aria-live="polite"></p>
+        <div class="actions"><button id="krea2-batch-cancel" type="button" disabled>Annuler le batch</button></div>
+      </section>
+
+      <section id="krea2-batch-revision" class="results krea2-batch-revision" hidden>
+        <div class="result-head">
+          <div><small>ATELIER VERSIONNÉ</small><h2>Faire évoluer la recette</h2></div>
+          <span id="krea2-batch-revision-status" class="run-status">Brouillon</span>
+        </div>
+        <p class="muted">Discutez, testez D1/D2… sur 1 à 10 images, puis publiez seulement la version retenue.</p>
+        <label class="krea2-prompt-language krea2-batch-revision-language">Langue du prompt candidat
+          <select id="krea2-batch-revision-language" aria-label="Langue du prompt de la recette candidate">
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+          </select>
+        </label>
+        <div id="krea2-batch-revision-conversation" class="krea2-revision-conversation" hidden></div>
+        <textarea id="krea2-batch-revision-instruction" rows="3" placeholder="Ce qu’il faut renforcer, réduire ou conserver… Les avis des batches d’essai seront repris automatiquement."></textarea>
+        <div class="actions">
+          <button id="krea2-batch-propose-revision" type="button">Affiner avec le LLM</button>
+          <button id="krea2-batch-save-revision" type="button" disabled>Enregistrer le brouillon</button>
+        </div>
+        <details id="krea2-batch-revision-candidate" class="krea2-revision-candidate" hidden>
+          <summary><b>Recette candidate éditable</b><small> contenu + réglages</small></summary>
+          <textarea id="krea2-batch-revision-draft" rows="12" spellcheck="false"></textarea>
+        </details>
+        <p id="krea2-batch-revision-test-note" class="muted" hidden>Le test utilise le nombre d’images, la direction, le LLM et les réglages KREA2 du panneau de gauche.</p>
+        <div class="actions">
+          <button id="krea2-batch-test-revision" type="button" disabled>Tester cette candidate</button>
+          <button id="krea2-batch-accept-revision" class="primary" type="button" disabled>Publier la nouvelle version</button>
+        </div>
+      </section>
+
+      <section class="history krea2-batch-history">
+        <div class="result-head"><div><small>BATCHES RÉCENTS</small><h2>Historique des recettes</h2></div><button id="krea2-batch-refresh" type="button" aria-label="Actualiser">↻</button></div>
+        <p id="krea2-batch-history-empty" class="muted">Aucun batch enregistré.</p>
+        <ul id="krea2-batch-history-list"></ul>
+      </section>
+    </div>
+  </main>
+
+  <main id="krea2-edit-lab-workspace" class="krea2-edit-lab-workspace" hidden>
+    <nav class="image-lab-modebar" aria-label="Modes Image Lab">
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
+      <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
+      <button class="active" type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+    </nav>
+
+    <aside class="controls krea2-edit-controls">
+      <div class="title-row"><div><small>KREA2 · EDIT</small><h1>Backlog à modifier</h1></div><span class="experimental">● V1</span></div>
+      <p class="muted">Les sorties de batch arrivent ici automatiquement. Vous pouvez aussi importer un PNG et son fichier texte facultatif.</p>
+      <form id="krea2-edit-upload-form" class="krea2-edit-upload">
+        <label>Nouvelle image<input id="krea2-edit-upload-image" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+        <label>Métadonnées facultatives<input id="krea2-edit-upload-sidecar" type="file" accept="text/plain,application/json,.txt,.json"></label>
+        <button id="krea2-edit-upload" type="submit">Ajouter au backlog</button>
+      </form>
+      <div class="section-title"><h2>Images à traiter</h2><button id="krea2-edit-refresh" class="text-button" type="button">Actualiser</button></div>
+      <p id="krea2-edit-backlog-empty" class="muted">Aucune image en attente.</p>
+      <ul id="krea2-edit-backlog" class="krea2-edit-backlog"></ul>
+      <p id="krea2-edit-upload-message" class="error" hidden></p>
+    </aside>
+
+    <div class="content krea2-edit-content">
+      <section id="krea2-edit-editor" class="results krea2-edit-editor" hidden>
+        <div class="result-head">
+          <div><small>ÉDITION ITÉRATIVE</small><h2 id="krea2-edit-title">Image source</h2></div>
+          <span id="krea2-edit-status" class="run-status">● Prêt</span>
+        </div>
+        <div id="krea2-edit-timeline" class="krea2-edit-timeline" aria-label="Étapes du projet"></div>
+        <div id="krea2-edit-metadata" class="storyboard-metadata"></div>
+        <div id="krea2-edit-warnings" class="krea2-batch-warnings" hidden></div>
+        <section class="krea2-edit-project-naming">
+          <div class="krea2-edit-project-fields">
+            <label>Nom du projet<input id="krea2-edit-project-name" type="text" maxlength="120" placeholder="Ex. Gorille bijoux"></label>
+            <label>Nom du résultat validé<input id="krea2-edit-step-name" type="text" maxlength="120" placeholder="Ex. Lune bleue"></label>
+          </div>
+          <div class="krea2-edit-export-state">
+            <small id="krea2-edit-export-info"></small>
+            <button id="krea2-edit-retry-export" type="button" hidden>Réessayer l’export</button>
+          </div>
+        </section>
+
+        <section class="krea2-edit-prompt-panel">
+          <label class="field-label"><b>Instruction de modification</b>
+            <textarea id="krea2-edit-instruction" rows="3" placeholder="Ex. cadre le gorille en pied, frappant sa poitrine…"></textarea>
+          </label>
+          <div class="krea2-edit-prompt-actions">
+            <label>Modèle LLM<select id="krea2-edit-llm"><option value="">Chargement…</option></select></label>
+            <label class="krea2-prompt-language">Langue du prompt
+              <select id="krea2-edit-prompt-language" aria-label="Langue du prompt KREA2 Edit">
+                <option value="en">English</option>
+                <option value="zh">中文</option>
+              </select>
+            </label>
+            <label class="reasoning-toggle"><input id="krea2-edit-show-reasoning" type="checkbox"> Trace modèle</label>
+            <button id="krea2-edit-build-prompt" type="button">Préparer le prompt</button>
+          </div>
+          <details id="krea2-edit-reasoning" class="reasoning-trace" hidden open>
+            <summary><b>Trace modèle</b><small id="krea2-edit-reasoning-label">Reconstruction</small></summary>
+            <p id="krea2-edit-reasoning-empty" class="muted">En attente d’une trace séparée…</p>
+            <pre id="krea2-edit-reasoning-content"></pre>
+          </details>
+          <details class="krea2-edit-prompt-details">
+            <summary><b>Prompt KREA2 éditable</b><small>Afficher et modifier</small></summary>
+            <label class="sr-only" for="krea2-edit-prompt">Prompt KREA2 éditable</label>
+            <textarea id="krea2-edit-prompt" rows="4" placeholder="Le prompt récupéré ou reconstruit apparaîtra ici."></textarea>
+          </details>
+          <details class="krea2-edit-exchange">
+            <summary><b>Échange de modification</b><small id="krea2-edit-revision-count">Aucune révision</small></summary>
+            <p id="krea2-edit-revisions-empty" class="muted">Les prochaines instructions et leurs prompts seront conservés ici.</p>
+            <div id="krea2-edit-revisions"></div>
+          </details>
+        </section>
+
+        <section class="krea2-edit-settings">
+          <h2>Paramètres du rendu</h2>
+          <div class="krea2-edit-settings-grid">
+            <label>Checkpoint<select id="krea2-edit-model"></select></label>
+            <label>Ratio<select id="krea2-edit-ratio"></select></label>
+            <label>Mégapixels<input id="krea2-edit-megapixels" type="number" min="0.5" max="4" step="0.1"></label>
+            <label>Ref boost<input id="krea2-edit-ref-boost" type="number" min="0" max="10" step="0.1"></label>
+            <label>Steps<input id="krea2-edit-steps" type="number" min="1" max="100" step="1"></label>
+            <label>Seed<input id="krea2-edit-seed" type="text" inputmode="numeric" pattern="[0-9]+"></label>
+          </div>
+          <div class="section-title"><h3>LoRA généraux</h3><small>0 à 4 · la LoRA technique KREA Edit reste fixe</small></div>
+          <div id="krea2-edit-loras" class="krea2-lora-stack"></div>
+          <small id="krea2-edit-fixed-note" class="muted"></small>
+          <details class="krea2-catalog-manager">
+            <summary><b>Organiser le catalogue KREA2</b><small>Précision, favoris et classement des LoRA</small></summary>
+            <div id="krea2-edit-catalog-manager"></div>
+          </details>
+        </section>
+
+        <p id="krea2-edit-message" class="message" aria-live="polite"></p>
+        <div class="actions">
+          <button id="krea2-edit-render" class="primary" type="button">Lancer un rendu</button>
+          <button id="krea2-edit-cancel" type="button" disabled>Annuler</button>
+          <button id="krea2-edit-processed" type="button">Marquer traitée</button>
+          <button id="krea2-edit-hide" type="button">Retirer du backlog</button>
+        </div>
+
+        <div id="krea2-edit-image-toolbar" class="krea2-edit-image-toolbar" hidden>
+          <label><input id="krea2-edit-show-original" type="checkbox"> Afficher l’image initiale</label>
+        </div>
+        <div id="krea2-edit-images" class="krea2-edit-images">
+          <figure id="krea2-edit-original-figure" class="krea2-edit-original-figure" hidden><figcaption>Image initiale du projet</figcaption><div class="krea2-edit-stage"><img id="krea2-edit-original-image" alt="Image initiale du projet"></div></figure>
+          <figure><figcaption>Source immuable de l’étape</figcaption><div class="krea2-edit-stage"><img id="krea2-edit-source-image" alt="Image source"></div></figure>
+          <figure><figcaption id="krea2-edit-result-caption">Résultat utilisé comme feedback LLM</figcaption><div class="krea2-edit-stage"><p id="krea2-edit-result-empty" class="muted">Aucun rendu.</p><p id="krea2-edit-result-loading" class="loading" hidden><i></i>Rendu ComfyUI…</p><img id="krea2-edit-result-image" alt="Résultat KREA2 Edit" hidden></div></figure>
+        </div>
+      </section>
+
+      <section class="history krea2-edit-attempts">
+        <div class="result-head"><div><small>ESSAIS</small><h2>Historique de cette étape</h2></div></div>
+        <p id="krea2-edit-attempts-empty" class="muted">Sélectionnez une image.</p>
+        <div id="krea2-edit-attempts"></div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="krea2-edit-lightbox" class="krea2-edit-lightbox" aria-labelledby="krea2-edit-lightbox-title">
+    <div class="krea2-edit-lightbox-head">
+      <span id="krea2-edit-lightbox-title">Image en taille réelle</span>
+      <button id="krea2-edit-lightbox-close" type="button" aria-label="Fermer l’image agrandie">Fermer</button>
+    </div>
+    <div class="krea2-edit-lightbox-body"><img id="krea2-edit-lightbox-image" alt=""></div>
+  </dialog>
 
   <main id="storyboard-lab-workspace" class="storyboard-lab-workspace" hidden>
     <aside class="controls storyboard-lab-controls">

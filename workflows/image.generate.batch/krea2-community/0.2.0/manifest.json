@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "operation_id": "image.generate.batch",
+  "recipe_id": "krea2-community",
+  "version": "0.2.0",
+  "status": "experimental",
+  "workflow_file": "workflow_api.json",
+  "workflow_sha256": "e633582cbc1d415a5f2a1dcf093a67942f44fda2a26913388069c570c232299e",
+  "inputs": {
+    "prompt": {"node_id": "280", "input": "text"},
+    "model": {"node_id": "293", "input": "unet_name"},
+    "aspect_ratio": {"node_id": "294", "input": "aspect_ratio"},
+    "megapixels": {"node_id": "294", "input": "megapixels"},
+    "seed": {"node_id": "287", "input": "seed"},
+    "output_prefix": {"node_id": "299", "input": "filename_prefix"},
+    "sidecar_text": {"node_id": "299", "input": "caption"}
+  },
+  "lora_slots": [
+    {"node_id": "418", "name_input": "lora_01", "strength_input": "strength_01"},
+    {"node_id": "418", "name_input": "lora_02", "strength_input": "strength_02"},
+    {"node_id": "418", "name_input": "lora_03", "strength_input": "strength_03"},
+    {"node_id": "418", "name_input": "lora_04", "strength_input": "strength_04"}
+  ],
+  "fixed_values": [
+    {"node_id": "294", "input": "multiple", "equals": 8},
+    {"node_id": "296", "input": "steps", "equals": 8},
+    {"node_id": "296", "input": "cfg", "equals": 1.1},
+    {"node_id": "296", "input": "sampler_name", "equals": "er_sde"},
+    {"node_id": "296", "input": "scheduler", "equals": "simple"},
+    {"node_id": "296", "input": "denoise", "equals": 1.0},
+    {"node_id": "297", "input": "upscale_method", "equals": "bislerp"},
+    {"node_id": "297", "input": "scale_by", "equals": 1.5},
+    {"node_id": "301", "input": "steps", "equals": 2},
+    {"node_id": "301", "input": "cfg", "equals": 1.0},
+    {"node_id": "301", "input": "sampler_name", "equals": "er_sde"},
+    {"node_id": "301", "input": "scheduler", "equals": "simple"},
+    {"node_id": "301", "input": "denoise", "equals": 0.3},
+    {"node_id": "413:282", "input": "batch_size", "equals": 1},
+    {"node_id": "299", "input": "output_folder", "equals": "output"},
+    {"node_id": "299", "input": "caption_file_extension", "equals": ".txt"}
+  ],
+  "output": {"node_id": "299", "history_field": "images", "media_type": "image/png"}
+}

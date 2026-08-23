@@ -30,6 +30,7 @@
     openingSessionId: null,
     arbitrationDecisions: {},
     arbitrationRevisionId: null,
+    modelRequestId: 0,
   };
 
   const elements = {
@@ -134,8 +135,15 @@
       populateCookbooks();
       if (!selectedProfile()) throw new Error("Profil H3 Base indisponible.");
       if (!state.cookbook) throw new Error("Recette H3 Base indisponible.");
-      await Promise.all([loadModels(), loadSessions()]);
+      const [modelsResult, sessionsResult] = await Promise.allSettled([
+        loadModels(),
+        loadSessions(),
+      ]);
       render();
+      const failures = [modelsResult, sessionsResult]
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason && result.reason.message ? result.reason.message : String(result.reason));
+      if (failures.length) showSetupMessage(failures.join(" · "));
     } catch (error) {
       showSetupMessage(error.message);
     }
@@ -178,9 +186,39 @@
   }
 
   async function loadModels() {
+    const requestId = ++state.modelRequestId;
     const selected = elements.model.value;
-    const payload = await core.request("/api/prompt-lab/models");
-    window.PanelForgeModelPicker.populate(elements.model, payload.models || [], selected);
+    const hadModels = [...elements.model.options].some((option) => option.value);
+    elements.refreshModels.disabled = true;
+    try {
+      const payload = await core.request("/api/prompt-lab/models");
+      if (requestId !== state.modelRequestId) return;
+      const models = (payload.models || []).filter(
+        (model) => model && typeof model.id === "string" && model.id.trim(),
+      );
+      if (!models.length) throw new Error("llama.swap ne publie actuellement aucun modèle.");
+      window.PanelForgeModelPicker.populate(elements.model, models, selected);
+      render();
+    } catch (error) {
+      if (requestId === state.modelRequestId && !hadModels) {
+        const unavailable = document.createElement("option");
+        unavailable.value = "";
+        unavailable.textContent = "Modèles indisponibles — réessayer";
+        elements.model.replaceChildren(unavailable);
+      }
+      throw new Error(`Modèles H3 Base indisponibles : ${error.message}`);
+    } finally {
+      if (requestId === state.modelRequestId) elements.refreshModels.disabled = false;
+    }
+  }
+
+  async function refreshModels() {
+    try {
+      await loadModels();
+      showSetupMessage("");
+    } catch (error) {
+      showSetupMessage(error.message);
+    }
   }
 
   async function loadSessions() {
@@ -266,12 +304,14 @@
       preview.removeAttribute("src");
       preview.hidden = true;
       title.textContent = first ? "Ajouter une première frame" : "Ajouter une dernière frame";
+      title.removeAttribute("title");
       captionNode.textContent = "Facultatif · PNG, JPEG ou WebP · 25 Mio maximum";
       return;
     }
     preview.src = reference.content_url;
     preview.hidden = false;
     title.textContent = reference.label;
+    title.title = reference.label;
     captionNode.textContent = caption;
   }
 
@@ -354,6 +394,7 @@
     preview.src = state[urlKey];
     preview.hidden = false;
     title.textContent = file.name;
+    title.title = file.name;
     caption.textContent = `${Math.ceil(file.size / 1024)} Kio · cliquer pour remplacer`;
     showSetupMessage("");
     render();
@@ -1235,7 +1276,10 @@
   elements.imageInput.addEventListener("change", () => selectFile("first"));
   elements.lastImageInput.addEventListener("change", () => selectFile("last"));
   elements.form.addEventListener("submit", createSession);
-  elements.refreshModels.addEventListener("click", () => loadModels().catch((error) => showSetupMessage(error.message)));
+  elements.refreshModels.addEventListener("click", refreshModels);
+  document.querySelectorAll('[data-lab-view="i2v-direct"]').forEach((button) => {
+    button.addEventListener("click", refreshModels);
+  });
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupMessage(error.message)));
   elements.cookbook.addEventListener("change", () => {
     state.cookbook = directCookbooks().find(

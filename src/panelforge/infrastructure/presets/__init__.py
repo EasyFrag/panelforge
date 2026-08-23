@@ -30,6 +30,16 @@ from .krea2_t2i import (
     load_krea2_t2i_workflow,
     validate_krea2_t2i_workflow,
 )
+from .krea2_batch import (
+    LoraSlotBinding,
+    ValidatedKrea2BatchWorkflow,
+    load_krea2_batch_workflow,
+)
+from .krea2_edit import (
+    EditBinding,
+    ValidatedKrea2EditWorkflow,
+    load_krea2_edit_workflow,
+)
 from .video_lab import (
     DEFAULT_VIDEO_PRESET_ID,
     VIDEO_OPERATION_ID,
@@ -55,6 +65,12 @@ __all__ = [
     "Krea2LabPreset",
     "Krea2PresetValidationError",
     "Krea2T2IRecipe",
+    "LoraSlotBinding",
+    "ValidatedKrea2BatchWorkflow",
+    "load_krea2_batch_workflow",
+    "EditBinding",
+    "ValidatedKrea2EditWorkflow",
+    "load_krea2_edit_workflow",
     "NumericWorkflowControl",
     "PresetValidationError",
     "ValidatedChangeViewPreset",
