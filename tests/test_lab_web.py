@@ -331,7 +331,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260823.2', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260823.3', page.text)
         self.assertIn(
             ".h3-base-frame-inputs .i2v-upload > b,",
             styles.text,
@@ -345,7 +345,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
         self.assertIn('const monoCookbookId = "minimax.h3.fl2va.direct"', script.text)
         self.assertIn('const multishotCookbookId = "minimax.h3.fl2va.direct.multishot"', script.text)
-        self.assertIn('Multi-plan structuré · 2 à 4 plans', script.text)
+        self.assertIn('Multi-plan structuré · 2 à 4 plans (${cookbook.version})', script.text)
+        self.assertIn('Mono-plan · standard (${cookbook.version})', script.text)
         self.assertIn('item.target_mode === "fl2va_direct"', script.text)
         self.assertIn('body.append("roles", "first_frame")', script.text)
         self.assertIn('body.append("usages", "first_frame")', script.text)

@@ -182,8 +182,8 @@
         const option = document.createElement("option");
         option.value = cookbookKey(cookbook);
         option.textContent = cookbook.id === multishotCookbookId
-          ? "Multi-plan structuré · 2 à 4 plans"
-          : "Mono-plan · standard";
+          ? `Multi-plan structuré · 2 à 4 plans (${cookbook.version})`
+          : `Mono-plan · standard (${cookbook.version})`;
         elements.cookbook.append(option);
       });
     state.cookbook = available.find(
