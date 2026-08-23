@@ -5,7 +5,7 @@
   const quickPipeline = window.PanelForgeQuickPipeline;
   if (!core || !quickPipeline) return;
   const $ = (selector) => document.querySelector(selector);
-  const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.2.0" };
+  const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.0" };
   const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" };
   const legacyProfileId = "minimax.h3.i2v.direct";
   const monoCookbookId = "minimax.h3.fl2va.direct";

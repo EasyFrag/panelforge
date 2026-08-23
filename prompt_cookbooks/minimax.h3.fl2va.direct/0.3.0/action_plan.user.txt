@@ -1,0 +1,16 @@
+MODE AND FRAME OWNERSHIP
+{{REFERENCES}}
+
+COMPACT APPROVED BRIEF
+{{BRIEF}}
+
+EXACT DIALOGUE LEDGER
+{{DIALOGUE_LEDGER}}
+
+LIBERTY {{CREATIVE_FREEDOM}}/100
+{{CREATIVE_POLICY}}
+
+JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Relook at every attached frame and return only the complete mono-shot plan. Treat a last frame as the instantaneous final_state snapshot, never as an implicit request to stop.

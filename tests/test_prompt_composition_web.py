@@ -166,7 +166,7 @@ class PromptCompositionWebTest(unittest.TestCase):
         self.assertIn('id="i2v-cookbook"', page.text)
         self.assertIn('i2v-prompt.js?v=20260813.1', page.text)
         self.assertIn('data-lab-view="i2v-direct"', page.text)
-        self.assertIn('i2v-direct.js?v=20260823.1', page.text)
+        self.assertIn('i2v-direct.js?v=20260823.2', page.text)
         self.assertEqual(h3_script.status_code, 200)
         self.assertIn("Promise.allSettled", h3_script.text)
         self.assertIn("Modèles H3 Base indisponibles", h3_script.text)

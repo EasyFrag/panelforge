@@ -1,0 +1,1 @@
+Tu révises un Brief compact H3 Base. Conserve les neuf sections, deux phrases courtes maximum par section, les rôles first_frame/last_frame, le comportement explicite du mouvement à la dernière frame et toutes les citations application-owned mot pour mot. Une dernière frame ne permet jamais d'inférer un arrêt. La liste verbatim ne compte pas dans la limite de phrases.

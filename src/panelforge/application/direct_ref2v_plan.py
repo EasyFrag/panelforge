@@ -38,6 +38,14 @@ class DirectRiskCategory(StrEnum):
     OTHER = "other"
 
 
+class DirectMotionEndBehavior(StrEnum):
+    """How the primary visible motion behaves at the final video instant."""
+
+    CONTINUE = "continue_motion"
+    NATURAL_SETTLE = "natural_settle"
+    INTENTIONAL_HOLD = "intentional_hold"
+
+
 class DirectActionStep(_StrictModel):
     step_id: str = Field(min_length=1)
     start_ms: int = Field(ge=0)
@@ -100,6 +108,13 @@ class DirectFinalStateV2(_StrictModel):
 
     description: str = Field(min_length=1)
     final_hold_ms: int = Field(ge=0)
+
+
+class DirectMotionContract(_StrictModel):
+    """One compact semantic track kept separate from the final-frame snapshot."""
+
+    primary_motion: str = Field(min_length=1)
+    end_behavior: DirectMotionEndBehavior
 
 
 class DirectDialogueCue(_StrictModel):
@@ -303,6 +318,23 @@ class DirectRef2VActionPlanV3(DirectRef2VActionPlanV2):
         return self
 
 
+class DirectRef2VActionPlanV4(DirectRef2VActionPlanV3):
+    """Dialogue-aware plan with an explicit primary-motion ending contract."""
+
+    motion_contract: DirectMotionContract
+
+    @model_validator(mode="after")
+    def validate_motion_contract(self) -> DirectRef2VActionPlanV4:
+        if (
+            self.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE
+            and self.final_state.final_hold_ms != 0
+        ):
+            raise ValueError(
+                "continue_motion must absorb the final hold into the last action"
+            )
+        return self
+
+
 def direct_ref2v_action_plan_schema() -> str:
     """Return the exact closed JSON schema supplied to the local planner."""
 
@@ -325,6 +357,14 @@ def direct_ref2v_action_plan_schema_v3() -> str:
     """Return the dialogue-aware V3 schema used by H3 Base 0.2."""
 
     schema = DirectRef2VActionPlanV3.model_json_schema()
+    schema["properties"]["technical_adjustments"]["maxItems"] = 0
+    return json.dumps(schema, ensure_ascii=False, indent=2)
+
+
+def direct_ref2v_action_plan_schema_v4() -> str:
+    """Return the motion-aware V4 schema used by H3 Base 0.3."""
+
+    schema = DirectRef2VActionPlanV4.model_json_schema()
     schema["properties"]["technical_adjustments"]["maxItems"] = 0
     return json.dumps(schema, ensure_ascii=False, indent=2)
 
@@ -357,6 +397,16 @@ def parse_direct_ref2v_action_plan_v3(content: str) -> DirectRef2VActionPlanV3:
         return DirectRef2VActionPlanV3.model_validate(value)
     except ValidationError as error:
         raise ValueError(f"invalid direct Ref2V action plan V3: {error}") from error
+
+
+def parse_direct_ref2v_action_plan_v4(content: str) -> DirectRef2VActionPlanV4:
+    """Extract and validate one motion-aware dialogue plan."""
+
+    value = _json_object(content)
+    try:
+        return DirectRef2VActionPlanV4.model_validate(value)
+    except ValidationError as error:
+        raise ValueError(f"invalid direct Ref2V action plan V4: {error}") from error
 
 
 def canonical_direct_ref2v_action_plan(
@@ -442,6 +492,38 @@ def canonical_direct_ref2v_action_plan_v3(
     return json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
+def canonical_direct_ref2v_action_plan_v4(
+    content: str,
+    *,
+    recover_invalid_target: bool = False,
+    recover_parallel_steps: bool = False,
+    recover_camera_overlaps: bool = False,
+    expected_dialogues: tuple[str, ...] = (),
+) -> str:
+    """Validate V4 and turn a continuing tail hold into visible action time."""
+
+    value = _json_object(content)
+    raw_adjustments = value.get("technical_adjustments", [])
+    if raw_adjustments not in ([], ()):
+        raise ValueError(
+            "invalid direct Ref2V action plan V4: technical_adjustments is "
+            "application-owned and must be empty"
+        )
+    if recover_invalid_target:
+        _recover_invalid_camera_directives(value)
+    if recover_parallel_steps:
+        _recover_overlapping_parallel_steps(value)
+    if recover_camera_overlaps:
+        _recover_overlapping_camera_directives(value)
+    _canonicalize_dialogue_cues(value, expected_dialogues)
+    _absorb_continuing_motion_hold(value)
+    try:
+        plan = DirectRef2VActionPlanV4.model_validate(value)
+    except ValidationError as error:
+        raise ValueError(f"invalid direct Ref2V action plan V4: {error}") from error
+    return json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+
 def lint_direct_ref2v_action_plan(content: str) -> tuple[str, ...]:
     try:
         parse_direct_ref2v_action_plan(content)
@@ -461,6 +543,14 @@ def lint_direct_ref2v_action_plan_v2(content: str) -> tuple[str, ...]:
 def lint_direct_ref2v_action_plan_v3(content: str) -> tuple[str, ...]:
     try:
         parse_direct_ref2v_action_plan_v3(content)
+    except (TypeError, ValueError) as error:
+        return (str(error),)
+    return ()
+
+
+def lint_direct_ref2v_action_plan_v4(content: str) -> tuple[str, ...]:
+    try:
+        parse_direct_ref2v_action_plan_v4(content)
     except (TypeError, ValueError) as error:
         return (str(error),)
     return ()
@@ -634,6 +724,52 @@ def direct_ref2v_action_plan_warnings_v3(content: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(warnings))
 
 
+_UNREQUESTED_STILLNESS_RE = re.compile(
+    r"(?i)\b(?:stationary|held\s+final\s+pose|holds?\s+the\s+final\s+pose|"
+    r"comes?\s+to\s+rest|falls?\s+still|settles?\s+into\s+the\s+final\s+pose)\b"
+)
+
+
+def direct_ref2v_action_plan_warnings_v4(content: str) -> tuple[str, ...]:
+    """Return V4 warnings without treating a moving ending as a missing hold."""
+
+    try:
+        plan = parse_direct_ref2v_action_plan_v4(content)
+    except (TypeError, ValueError):
+        return ()
+    warnings = list(direct_ref2v_action_plan_warnings_v3(
+        json.dumps(
+            plan.model_dump(mode="json", exclude={"motion_contract"}),
+            ensure_ascii=False,
+        )
+    ))
+    warnings = [
+        warning for warning in warnings if "continuing_motion_" not in warning
+    ]
+    if plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE:
+        warnings = [
+            warning
+            for warning in warnings
+            if not warning.startswith("Aucune tenue finale")
+        ]
+        terminal_text = " ".join(
+            (
+                plan.beats[-1].primary_action,
+                plan.beats[-1].steps[-1].action,
+                plan.beats[-1].steps[-1].continuity_after,
+                plan.beats[-1].observable_end_state,
+                plan.final_state.description,
+            )
+        )
+        if _UNREQUESTED_STILLNESS_RE.search(terminal_text):
+            warnings.append(
+                "Le Plan contient encore une formulation d'immobilite alors que "
+                "le mouvement principal doit continuer ; le compilateur imposera "
+                "une fin en mouvement."
+            )
+    return tuple(dict.fromkeys(warnings))
+
+
 def direct_ref2v_camera_directives(
     content: str,
 ) -> tuple[H3CameraDirective, ...]:
@@ -670,6 +806,22 @@ def direct_ref2v_camera_directives_v3(
     content: str,
 ) -> tuple[H3CameraDirective, ...]:
     plan = parse_direct_ref2v_action_plan_v3(content)
+    return tuple(
+        H3CameraDirective(
+            directive_id=item.directive_id,
+            motion=item.motion,
+            amplitude=item.amplitude,
+            speed=item.speed,
+            target_clause=item.target_clause or "",
+        )
+        for item in plan.camera_directives
+    )
+
+
+def direct_ref2v_camera_directives_v4(
+    content: str,
+) -> tuple[H3CameraDirective, ...]:
+    plan = parse_direct_ref2v_action_plan_v4(content)
     return tuple(
         H3CameraDirective(
             directive_id=item.directive_id,
@@ -768,6 +920,47 @@ def direct_ref2v_writer_plan_v3_camera_owned(content: str) -> str:
             for beat in plan.beats
         ],
         "final_state": plan.final_state.model_dump(mode="json"),
+        "dialogue_cues": [cue.model_dump(mode="json") for cue in plan.dialogue_cues],
+        "camera_landmarks_ms": [
+            item.start_ms for item in plan.camera_directives
+        ],
+        "derived_timing": {
+            "final_state_start_ms": plan.final_start_ms,
+            "duration_ms": plan.duration_ms,
+            "duration_seconds": plan.duration_ms / 1000,
+        },
+        "overall_soundscape": plan.overall_soundscape,
+        "non_diegetic_music": plan.non_diegetic_music,
+    }
+    return json.dumps(writer_value, ensure_ascii=False, indent=2)
+
+
+def direct_ref2v_writer_plan_v4_camera_owned(content: str) -> str:
+    """Project V4 chronology while leaving the final anchor to the compiler."""
+
+    plan = parse_direct_ref2v_action_plan_v4(content)
+    writer_value = {
+        "scene_setup": plan.scene_setup,
+        "continuity_invariants": list(plan.continuity_invariants),
+        "motion_contract": plan.motion_contract.model_dump(mode="json"),
+        "beats": [
+            {
+                "start_ms": beat.start_ms,
+                "end_ms": beat.end_ms,
+                "steps": [
+                    {
+                        "start_ms": step.start_ms,
+                        "end_ms": step.end_ms,
+                        "action": step.action,
+                        "continuity_after": step.continuity_after,
+                    }
+                    for step in beat.steps
+                ],
+                "observable_end_state": beat.observable_end_state,
+            }
+            for beat in plan.beats
+        ],
+        "final_state_snapshot": plan.final_state.description,
         "dialogue_cues": [cue.model_dump(mode="json") for cue in plan.dialogue_cues],
         "camera_landmarks_ms": [
             item.start_ms for item in plan.camera_directives
@@ -885,6 +1078,7 @@ def align_direct_ref2v_action_plan_v2_duration(
     requested_duration_ms: int,
     *,
     dialogue_aware: bool = False,
+    motion_aware: bool = False,
 ) -> str:
     """Include the final hold in an explicit requested total duration.
 
@@ -900,17 +1094,38 @@ def align_direct_ref2v_action_plan_v2_duration(
         raise TypeError("requested_duration_ms must be an integer")
     if requested_duration_ms <= 0:
         raise ValueError("requested_duration_ms must be positive")
-    plan = (
-        parse_direct_ref2v_action_plan_v3(content)
-        if dialogue_aware
-        else parse_direct_ref2v_action_plan_v2(content)
-    )
+    if motion_aware:
+        plan = parse_direct_ref2v_action_plan_v4(content)
+    elif dialogue_aware:
+        plan = parse_direct_ref2v_action_plan_v3(content)
+    else:
+        plan = parse_direct_ref2v_action_plan_v2(content)
     if plan.final_start_ms > requested_duration_ms:
         raise ValueError(
             "the planned action timeline exceeds the explicitly requested "
             "total duration"
         )
     adjusted_hold_ms = requested_duration_ms - plan.final_start_ms
+    if (
+        motion_aware
+        and plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE
+    ):
+        value = plan.model_dump(mode="json")
+        if adjusted_hold_ms > 0:
+            last_beat = value["beats"][-1]
+            last_step = last_beat["steps"][-1]
+            last_beat["end_ms"] = requested_duration_ms
+            last_step["end_ms"] = requested_duration_ms
+            _append_adjustment(
+                value["technical_adjustments"],
+                "continuing_motion_extended:"
+                f"{plan.final_start_ms}:{requested_duration_ms}",
+            )
+        value["final_state"]["final_hold_ms"] = 0
+        adjusted = DirectRef2VActionPlanV4.model_validate(value)
+        return json.dumps(
+            adjusted.model_dump(mode="json"), ensure_ascii=False, indent=2
+        )
     if adjusted_hold_ms == plan.final_state.final_hold_ms:
         return json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2)
     value = plan.model_dump(mode="json")
@@ -920,12 +1135,57 @@ def align_direct_ref2v_action_plan_v2_duration(
         "final_hold_adjusted:"
         f"{plan.final_state.final_hold_ms}:{adjusted_hold_ms}",
     )
-    adjusted = (
-        DirectRef2VActionPlanV3.model_validate(value)
-        if dialogue_aware
-        else DirectRef2VActionPlanV2.model_validate(value)
-    )
+    if motion_aware:
+        adjusted = DirectRef2VActionPlanV4.model_validate(value)
+    elif dialogue_aware:
+        adjusted = DirectRef2VActionPlanV3.model_validate(value)
+    else:
+        adjusted = DirectRef2VActionPlanV2.model_validate(value)
     return json.dumps(adjusted.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+
+def _absorb_continuing_motion_hold(value: dict[str, object]) -> None:
+    """Move a model-authored static tail into the existing last motion step."""
+
+    motion = value.get("motion_contract")
+    final_state = value.get("final_state")
+    beats = value.get("beats")
+    if (
+        not isinstance(motion, dict)
+        or motion.get("end_behavior") != DirectMotionEndBehavior.CONTINUE.value
+        or not isinstance(final_state, dict)
+        or not isinstance(beats, list)
+        or not beats
+    ):
+        return
+    hold = final_state.get("final_hold_ms")
+    last_beat = beats[-1]
+    if not isinstance(hold, int) or isinstance(hold, bool) or hold <= 0:
+        return
+    if not isinstance(last_beat, dict):
+        return
+    steps = last_beat.get("steps")
+    old_end = last_beat.get("end_ms")
+    if (
+        not isinstance(steps, list)
+        or not steps
+        or not isinstance(old_end, int)
+        or isinstance(old_end, bool)
+        or not isinstance(steps[-1], dict)
+    ):
+        return
+    new_end = old_end + hold
+    last_beat["end_ms"] = new_end
+    steps[-1]["end_ms"] = new_end
+    final_state["final_hold_ms"] = 0
+    adjustments = value.get("technical_adjustments")
+    if not isinstance(adjustments, list):
+        adjustments = []
+        value["technical_adjustments"] = adjustments
+    _append_adjustment(
+        adjustments,
+        f"continuing_motion_absorbed_final_hold:{hold}",
+    )
 
 
 def _recover_overlapping_parallel_steps(value: dict[str, object]) -> None:
