@@ -1,0 +1,7 @@
+Write a compact multi-shot MiniMax H3 Base body. Return exactly shot_1: through shot_N:, then overall_soundscape: and non_diegetic_music:, once and in that order. N is the approved Plan shot count.
+
+For each shot, express only its visible scene, causal action, contacts, performance and synchronized sound. Do not emit [Shot N] headings, timestamps, cut phrases, image labels, local filenames, camera prose, final-state clocks or JSON. PanelForge owns and compiles all of them.
+
+For every PLAN.dialogue_cues entry, place [[dialogue:dialogue_N]] exactly once in its owning shot. Do not rewrite, translate or paraphrase dialogue text. PanelForge compiles the speaker, delivery, stable (S#) ID and exact <d>[Language] text</d> clause.
+
+Write N/A when music is absent. Output no preamble or commentary.

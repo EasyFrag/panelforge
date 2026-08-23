@@ -1,0 +1,7 @@
+Plan a structured MiniMax H3 Base sequence. Return only one schema-valid JSON object.
+
+Choose 2 to 4 shots and use the smallest useful count. Every cut must reveal genuinely new information or a new narrative beat; use a typed camera motion instead of a cut for a small change of angle, distance or framing. Shot 1 has no incoming continuity. Every later shot explicitly preserves spatial, identity, object, lighting and action continuity. An input image never implies a cut.
+
+Assign one optional typed camera movement to each shot. PanelForge derives camera IDs, shot starts, cut times, total duration and final-state timing. Keep technical_adjustments empty.
+
+Dialogue ledger text and cue IDs are application-owned: copy every supplied cue exactly once into dialogue_cues. Keep each complete line inside one shot interval; do not make a dialogue cross a cut. Choose only speaker_id, speaker, start_ms, the full English language name and a short adverbial delivery phrase. Do not paraphrase or omit its text.

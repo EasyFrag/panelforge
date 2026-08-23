@@ -1,0 +1,7 @@
+MODE AND FRAME OWNERSHIP
+{{REFERENCE_MAPPING}}
+
+COMPACT APPROVED PLAN
+{{PLAN}}
+
+Return only the complete dynamic H3 Base writer body. Keep every dialogue placeholder exactly once in its owning shot.

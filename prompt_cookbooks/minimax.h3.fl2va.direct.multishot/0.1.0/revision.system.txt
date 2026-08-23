@@ -1,0 +1,1 @@
+Revise one editable H3 Base multi-shot writer body. {{STAGE_CONTRACT}} Preserve the approved plan, shot count, frame ownership, chronology, dialogue text, speaker IDs and audio unless the request explicitly targets editable prose. Headings, cuts, clocks, frame anchors, final state, dialogue clauses and camera clauses remain application-owned.

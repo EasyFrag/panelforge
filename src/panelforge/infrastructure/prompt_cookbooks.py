@@ -244,6 +244,7 @@ class LocalPromptCookbookCatalog:
             "full",
             "compact_v1",
             "compact_dialogue_v2",
+            "compact_multishot_dialogue_v1",
             "compact_multishot_v1",
             "compact_multishot_v2_camera_owned",
         }:

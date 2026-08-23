@@ -331,19 +331,21 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260822.1', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260823.1', page.text)
         self.assertIn(
             ".h3-base-frame-inputs .i2v-upload > b,",
             styles.text,
         )
         self.assertIn("text-overflow: ellipsis", styles.text)
         self.assertIn('title.title = reference.label', script.text)
-        self.assertIn('const profileVersion = "0.2.0"', script.text)
-        self.assertIn('const preferredCookbookVersion = "0.2.0"', script.text)
-        self.assertIn('elements.cookbook.value = compositionReference', script.text)
+        self.assertIn('const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.2.0" }', script.text)
+        self.assertIn('const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" }', script.text)
+        self.assertIn('const preferredCookbookKey = `${monoCookbookId}@0.2.0`', script.text)
+        self.assertIn('elements.cookbook.value = cookbookKey(compositionReference || state.cookbook)', script.text)
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
-        self.assertIn('const profileId = "minimax.h3.fl2va.direct"', script.text)
-        self.assertIn('const cookbookId = "minimax.h3.fl2va.direct"', script.text)
+        self.assertIn('const monoCookbookId = "minimax.h3.fl2va.direct"', script.text)
+        self.assertIn('const multishotCookbookId = "minimax.h3.fl2va.direct.multishot"', script.text)
+        self.assertIn('Multi-plan structuré · 2 à 4 plans', script.text)
         self.assertIn('item.target_mode === "fl2va_direct"', script.text)
         self.assertIn('body.append("roles", "first_frame")', script.text)
         self.assertIn('body.append("usages", "first_frame")', script.text)
@@ -676,8 +678,8 @@ class LabWebTest(unittest.TestCase):
             'JSON.stringify({ model_id: elements.model.value })',
             scripts["ref2vd"],
         )
-        self.assertIn("profile_id: profileId", scripts["i2vd"])
-        self.assertIn("profile_version: profileVersion", scripts["i2vd"])
+        self.assertIn("profile_id: profile.id", scripts["i2vd"])
+        self.assertIn("profile_version: profile.version", scripts["i2vd"])
 
         self.assertIn(
             'elements.brief.rewriteApprove.addEventListener("click", reviseAndApproveBrief)',

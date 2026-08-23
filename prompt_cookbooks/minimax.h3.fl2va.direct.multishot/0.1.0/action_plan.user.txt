@@ -1,0 +1,16 @@
+MODE AND FRAME OWNERSHIP
+{{REFERENCES}}
+
+COMPACT APPROVED BRIEF
+{{BRIEF}}
+
+EXACT DIALOGUE LEDGER
+{{DIALOGUE_LEDGER}}
+
+LIBERTY {{CREATIVE_FREEDOM}}/100
+{{CREATIVE_POLICY}}
+
+JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Relook at every attached frame and return only the complete 2-to-4-shot plan. A first frame belongs to Shot 1 at 0.00 seconds. A last frame is reached by the final Shot at the video end.
