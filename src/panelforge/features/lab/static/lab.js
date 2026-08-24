@@ -2,26 +2,91 @@
 
 const $ = (id) => document.getElementById(id);
 const preferredPromptModelId = "Qwen3.8-27B";
+const llmCatalogs = new WeakMap();
+
+function llmSource(model) {
+  if (model && model.source === "local") return "local";
+  return model && typeof model.id === "string" && model.id.startsWith("local::")
+    ? "local"
+    : "server";
+}
+
+function llmLocalToggle(select) {
+  return select && select.id
+    ? document.querySelector(`[data-llm-local-for="${select.id}"]`)
+    : null;
+}
+
 window.PanelForgeModelPicker = Object.freeze({
   preferredModelId: preferredPromptModelId,
   populate(select, models, currentValue = "") {
-    const identifiers = (models || []).map((model) => model.id);
+    const normalized = (models || [])
+      .map((model) => typeof model === "string" ? { id: model } : model)
+      .filter((model) => model && model.id);
+    llmCatalogs.set(select, normalized);
+    const toggle = llmLocalToggle(select);
+    const currentModel = normalized.find((model) => model.id === currentValue);
+    if (toggle && currentValue) toggle.checked = llmSource(currentModel || { id: currentValue }) === "local";
+    const source = toggle && toggle.checked ? "local" : "server";
+    const visible = normalized.filter((model) => llmSource(model) === source);
+    const identifiers = visible.map((model) => model.id);
     select.replaceChildren();
-    (models || []).forEach((model) => {
+    visible.forEach((model) => {
       const option = document.createElement("option");
       option.value = model.id;
-      option.textContent = model.id;
+      option.textContent = model.label || model.id.replace(/^local::/, "");
       select.append(option);
     });
+    select.dataset.llmSource = source;
+    if (!visible.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = source === "local"
+        ? "Aucun modèle local disponible"
+        : "Aucun modèle serveur disponible";
+      select.append(option);
+      select.value = "";
+      return "";
+    }
     const preferredLower = preferredPromptModelId.toLowerCase();
-    const preferred = identifiers.find((id) => id.toLowerCase() === preferredLower)
-      || identifiers.find((id) => id.toLowerCase().includes("qwen3.8-27b"))
-      || identifiers.find((id) => id.toLowerCase().includes("qwen3.6-27b"))
+    const searchable = visible.map((model) => ({
+      id: model.id,
+      text: `${model.id} ${model.label || ""}`.toLowerCase(),
+    }));
+    const preferred = searchable.find((model) => model.text === preferredLower)?.id
+      || searchable.find((model) => model.text.includes("qwen3.8-27b"))?.id
+      || searchable.find((model) => model.text.includes("qwen3.6-27b"))?.id
       || identifiers[0]
       || "";
     select.value = identifiers.includes(currentValue) ? currentValue : preferred;
     return select.value;
   },
+  select(select, modelId, unavailableSuffix = "modèle indisponible") {
+    if (!modelId) return "";
+    this.populate(select, llmCatalogs.get(select) || [], modelId);
+    if (![...select.options].some((option) => option.value === modelId)) {
+      const option = document.createElement("option");
+      option.value = modelId;
+      option.textContent = `${modelId.replace(/^local::/, "")} · ${unavailableSuffix}`;
+      option.dataset.missing = "true";
+      select.prepend(option);
+    }
+    select.value = modelId;
+    return modelId;
+  },
+  setDisabled(select, disabled) {
+    const toggle = llmLocalToggle(select);
+    if (toggle) toggle.disabled = Boolean(disabled);
+  },
+});
+
+document.addEventListener("change", (event) => {
+  const toggle = event.target.closest?.("[data-llm-local-for]");
+  if (!toggle) return;
+  const select = document.getElementById(toggle.dataset.llmLocalFor);
+  if (!select) return;
+  window.PanelForgeModelPicker.populate(select, llmCatalogs.get(select) || [], "");
+  select.dispatchEvent(new Event("change", { bubbles: true }));
 });
 const ui = {};
 const state = {

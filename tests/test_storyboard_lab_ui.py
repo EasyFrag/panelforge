@@ -18,7 +18,7 @@ class StoryboardLabUiTest(unittest.TestCase):
     def test_exposes_standalone_storyboard_workspace(self):
         self.assertIn('data-lab-view="storyboard-lab"', self.page)
         self.assertIn('id="storyboard-lab-workspace"', self.page)
-        self.assertIn('/static/storyboard-lab.js?v=20260820.1', self.page)
+        self.assertIn('/static/storyboard-lab.js?v=20260824.1', self.page)
         self.assertIn('id="storyboard-lab-source"', self.page)
         self.assertIn('id="storyboard-lab-model"', self.page)
         self.assertIn('id="storyboard-lab-recipe"', self.page)

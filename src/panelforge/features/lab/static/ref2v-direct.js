@@ -337,15 +337,7 @@
 
   function selectModel(modelId) {
     if (!modelId) return;
-    let option = [...elements.model.options].find((item) => item.value === modelId);
-    if (!option) {
-      option = document.createElement("option");
-      option.value = modelId;
-      option.textContent = `${modelId} · modèle du parcours`;
-      option.dataset.sessionModel = "true";
-      elements.model.append(option);
-    }
-    elements.model.value = modelId;
+    window.PanelForgeModelPicker.select(elements.model, modelId, "modèle du parcours");
   }
 
   async function openSession(sessionSummary) {
@@ -974,6 +966,7 @@
     elements.imageInput.disabled = locked || Boolean(state.session)
       || Boolean(state.forkSource) || state.drafts.length >= 3;
     elements.model.disabled = locked || Boolean(state.session);
+    window.PanelForgeModelPicker.setDisabled(elements.model, elements.model.disabled);
     elements.refreshModels.disabled = locked;
     elements.refreshSessions.disabled = locked;
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });

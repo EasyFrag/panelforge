@@ -161,12 +161,6 @@
     });
   }
 
-  function preferredLlm(models) {
-    return models.find((model) => /qwen.?3[._-]?8.*27b/i.test(model.id))
-      || models.find((model) => /qwen.?3[._-]?8/i.test(model.id))
-      || models[0];
-  }
-
   function randomSeed() {
     const values = new BigUint64Array(1);
     crypto.getRandomValues(values);
@@ -201,9 +195,11 @@
     setMessage("Chargement…");
     try {
       state.spec = await request("/api/image-lab/krea2-edit/spec");
-      options(elements.llm, state.spec.llm_models || [], (value) => value.id, (value) => value.id);
-      const preferred = preferredLlm(state.spec.llm_models || []);
-      if (preferred) elements.llm.value = preferred.id;
+      window.PanelForgeModelPicker.populate(
+        elements.llm,
+        state.spec.llm_models || [],
+        elements.llm.value,
+      );
       appendGroupedOptions(elements.model, state.spec.render_models || [], modelGroups);
       options(elements.ratio, state.spec.aspect_ratios || [], (value) => value, (value) => value);
       elements.fixedNote.textContent = `Fixe : ${state.spec.fixed.identity_lora} × ${state.spec.fixed.identity_lora_strength} · Euler / Simple · CFG ${state.spec.fixed.cfg}.`;

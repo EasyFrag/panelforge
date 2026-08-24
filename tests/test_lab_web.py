@@ -196,7 +196,7 @@ class LabWebTest(unittest.TestCase):
             page.text.index('id="release-llm-vram"'),
             page.text.index('id="release-comfy-vram"'),
         )
-        self.assertIn("/static/lab.js?v=20260820.2", page.text)
+        self.assertIn("/static/lab.js?v=20260824.1", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
@@ -221,8 +221,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260823.4", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260820.2", page.text)
+        self.assertIn("/static/lab.css?v=20260824.1", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260824.1", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -310,6 +310,29 @@ class LabWebTest(unittest.TestCase):
         )
         self.assertIsInstance(payload["controls"]["seed"]["default"], str)
 
+    def test_exposes_the_local_unsloth_switch_for_every_llm_selector(self):
+        page = self.client.get("/")
+        script = self.client.get("/static/lab.js")
+
+        self.assertEqual(page.text.count('data-llm-local-for="'), 9)
+        for select_id in (
+            "krea2-assisted-llm",
+            "krea2-batch-llm",
+            "krea2-edit-llm",
+            "storyboard-lab-model",
+            "prompt-model",
+            "i2v-model",
+            "i2vd-model",
+            "ref2v-model",
+            "ref2vd-model",
+        ):
+            self.assertIn(
+                f'data-llm-local-for="{select_id}"',
+                page.text,
+            )
+        self.assertIn('model.id.startsWith("local::")', script.text)
+        self.assertIn("Aucun modèle local disponible", script.text)
+
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
         page = self.client.get("/")
         script = self.client.get("/static/i2v-direct.js")
@@ -331,7 +354,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260823.3', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260824.1', page.text)
         self.assertIn(
             ".h3-base-frame-inputs .i2v-upload > b,",
             styles.text,

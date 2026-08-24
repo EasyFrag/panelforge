@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260823.5', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260824.1', self.page)
         self.assertIn('"krea2-assisted-lab"', (STATIC / "prompt-lab.js").read_text(encoding="utf-8"))
 
     def test_keeps_the_same_mode_order_in_every_image_lab_workspace(self):

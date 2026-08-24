@@ -158,6 +158,7 @@
     state.busy = value;
     elements.source.disabled = value;
     elements.model.disabled = value;
+    window.PanelForgeModelPicker.setDisabled(elements.model, value);
     elements.showReasoning.disabled = value;
     elements.panelOptions.querySelectorAll("input").forEach((input) => { input.disabled = value; });
     renderControls();
@@ -366,13 +367,7 @@
 
   function ensureModel(modelId) {
     if (!modelId) return;
-    if (![...elements.model.options].some((option) => option.value === modelId)) {
-      const option = document.createElement("option");
-      option.value = modelId;
-      option.textContent = modelId;
-      elements.model.append(option);
-    }
-    elements.model.value = modelId;
+    window.PanelForgeModelPicker.select(elements.model, modelId, "modèle du run");
   }
 
   function applyRunToForm(run) {

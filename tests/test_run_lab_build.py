@@ -69,6 +69,28 @@ class RunLabBuildTest(unittest.TestCase):
             args.krea2_loras_root,
             Path(r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\loras\krea2"),
         )
+        self.assertEqual(args.local_llm_base_url, "http://127.0.0.1:8888/v1")
+        self.assertEqual(args.local_llm_api_key, "")
+
+    def test_local_unsloth_connection_can_be_configured_from_the_environment(self):
+        with (
+            patch.object(run_lab.sys, "argv", ["run_lab.py"]),
+            patch.dict(
+                run_lab.os.environ,
+                {
+                    "PANELFORGE_LOCAL_LLM_URL": "http://workstation:8888/v1",
+                    "PANELFORGE_LOCAL_LLM_API_KEY": "test-unsloth-key",
+                },
+                clear=True,
+            ),
+        ):
+            args = run_lab.parse_args()
+
+        self.assertEqual(
+            args.local_llm_base_url,
+            "http://workstation:8888/v1",
+        )
+        self.assertEqual(args.local_llm_api_key, "test-unsloth-key")
 
     def test_build_app_configures_krea2_recipe_store_and_dedicated_transport(self):
         with tempfile.TemporaryDirectory() as workspace:

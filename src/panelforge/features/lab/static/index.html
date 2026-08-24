@@ -4,22 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260823.4">
-  <script src="/static/lab.js?v=20260820.2" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260824.1">
+  <script src="/static/lab.js?v=20260824.1" defer></script>
   <script src="/static/prompt-lab.js?v=20260821.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260823.3" defer></script>
+  <script src="/static/i2v-direct.js?v=20260824.1" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/video-lab.js?v=20260816.6" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260820.2" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260824.1" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260817.1" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260822.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260823.5" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260824.1" defer></script>
   <script src="/static/krea2-batch-lab.js?v=20260823.1" defer></script>
-  <script src="/static/krea2-edit-lab.js?v=20260823.1" defer></script>
-  <script src="/static/storyboard-lab.js?v=20260820.1" defer></script>
+  <script src="/static/krea2-edit-lab.js?v=20260824.1" defer></script>
+  <script src="/static/storyboard-lab.js?v=20260824.1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -261,6 +261,7 @@
           <label>Intention<textarea id="krea2-assisted-intention" rows="7" maxlength="12000" placeholder="Ex. une famille de tigres fantastiques inspirés du zodiaque chinois…" required></textarea></label>
           <label>Image de référence facultative<input id="krea2-assisted-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
           <label>Modèle LLM<select id="krea2-assisted-llm" required><option value="">Chargement…</option></select></label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm"> Local · Unsloth</label>
           <button id="krea2-assisted-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
           <p id="krea2-assisted-new-message" class="error" hidden></p>
         </section>
@@ -389,6 +390,7 @@
           <div class="krea2-image-lab-parameter-grid">
             <label>Nombre d’images<input id="krea2-batch-count" type="number" min="1" max="10" step="1" value="5" required></label>
             <label>Modèle LLM<select id="krea2-batch-llm" required><option value="">Chargement…</option></select></label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-batch-llm"> Local · Unsloth</label>
           </div>
           <label class="field-label">Direction facultative
             <textarea id="krea2-batch-direction" rows="3" placeholder="Ex. davantage de palettes froides, sans changer la composition…"></textarea>
@@ -533,6 +535,7 @@
           </label>
           <div class="krea2-edit-prompt-actions">
             <label>Modèle LLM<select id="krea2-edit-llm"><option value="">Chargement…</option></select></label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-edit-llm"> Local · Unsloth</label>
             <label class="krea2-prompt-language">Langue du prompt
               <select id="krea2-edit-prompt-language" aria-label="Langue du prompt KREA2 Edit">
                 <option value="en">English</option>
@@ -639,9 +642,10 @@
 
         <section>
           <h2>3. Génération</h2>
-          <label class="field-label">Modèle servi par llama.swap
+          <label class="field-label">Modèle LLM
             <select id="storyboard-lab-model" required><option value="">Chargement…</option></select>
           </label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="storyboard-lab-model"> Local · Unsloth</label>
           <label class="field-label">Recette immuable
             <input id="storyboard-lab-recipe" type="text" value="KREA2 Storyboard photo · v1" readonly>
           </label>
@@ -717,9 +721,10 @@
       <form id="prompt-session-form">
         <section>
           <div class="section-title"><h2>1. Modèle vision</h2><button id="prompt-refresh-models" class="text-button" type="button">Actualiser</button></div>
-          <label class="field-label">Modèle servi par llama.swap
+          <label class="field-label">Modèle LLM
             <select id="prompt-model" required><option value="">Chargement…</option></select>
           </label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="prompt-model"> Local · Unsloth</label>
         </section>
         <section>
           <h2>2. Recette de prompting</h2>
@@ -1040,9 +1045,10 @@
       <form id="i2v-session-form">
         <section>
           <div class="section-title"><h2>Modèle vision et rédaction</h2><button id="i2v-refresh-models" class="text-button" type="button">Actualiser</button></div>
-          <label class="field-label">Modèle servi par llama.swap
+          <label class="field-label">Modèle LLM
             <select id="i2v-model" required><option value="">Chargement…</option></select>
           </label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2v-model"> Local · Unsloth</label>
           <label class="field-label" for="i2v-cookbook">Version de la recette MiniMax
             <select id="i2v-cookbook" required><option value="">Chargement…</option></select>
             <small id="i2v-cookbook-help">La version choisie sera verrouillée dès la création du prompt.</small>
@@ -1150,9 +1156,10 @@
       <form id="i2vd-session-form">
         <section>
           <div class="section-title"><h2>Modèle multimodal</h2><button id="i2vd-refresh-models" class="text-button" type="button">Actualiser</button></div>
-          <label class="field-label">Modèle servi par llama.swap
+          <label class="field-label">Modèle LLM
             <select id="i2vd-model" required><option value="">Chargement…</option></select>
           </label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-model"> Local · Unsloth</label>
           <label class="field-label">Recette versionnée
             <select id="i2vd-cookbook" required><option value="">Chargement…</option></select>
           </label>
@@ -1304,9 +1311,10 @@
       <form id="ref2v-session-form">
         <section>
           <div class="section-title"><h2>Modèle vision et rédaction</h2><button id="ref2v-refresh-models" class="text-button" type="button">Actualiser</button></div>
-          <label class="field-label">Modèle servi par llama.swap
+          <label class="field-label">Modèle LLM
             <select id="ref2v-model" required><option value="">Chargement…</option></select>
           </label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2v-model"> Local · Unsloth</label>
           <label class="field-label" for="ref2v-cookbook">Version de la recette MiniMax
             <select id="ref2v-cookbook" required><option value="">Chargement…</option></select>
             <small id="ref2v-cookbook-help">La version choisie sera verrouillée dès la création du plan.</small>
@@ -1466,9 +1474,10 @@
       <form id="ref2vd-session-form">
         <section>
           <div class="section-title"><h2>Modèle multimodal</h2><button id="ref2vd-refresh-models" class="text-button" type="button">Actualiser</button></div>
-          <label class="field-label">Modèle servi par llama.swap
+          <label class="field-label">Modèle LLM
             <select id="ref2vd-model" required><option value="">Chargement…</option></select>
           </label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-model"> Local · Unsloth</label>
           <label class="field-label">Recette versionnée
             <select id="ref2vd-cookbook" required><option value="">Chargement…</option></select>
           </label>

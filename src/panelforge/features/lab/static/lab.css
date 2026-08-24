@@ -188,6 +188,9 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .prompt-setup form > section:first-child { border-top: 1px solid var(--line); }
 .text-button { padding: 0; border: 0; color: var(--green); background: transparent; font-size: .65rem; font-weight: 750; }
 .field-label { display: grid; gap: .35rem; margin-top: .65rem; color: var(--muted); font-size: .68rem; font-weight: 700; }
+.llm-local-toggle { display: inline-flex; align-items: center; gap: .35rem; width: max-content; margin: .35rem 0 .1rem; color: var(--muted); font-size: .65rem; font-weight: 700; cursor: pointer; }
+.llm-local-toggle input { width: auto; margin: 0; accent-color: var(--green); }
+.llm-local-toggle:has(input:checked) { color: var(--green); }
 .prompt-upload { position: relative; display: grid; min-height: 82px; margin-top: .65rem; place-items: center; align-content: center; gap: .15rem; border: 1.5px dashed #b8b2a7; border-radius: 10px; background: #eeebe4; font-size: .72rem; }
 .prompt-upload:hover { border-color: var(--green); background: var(--green-soft); }
 .prompt-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }

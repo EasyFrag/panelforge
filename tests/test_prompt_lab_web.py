@@ -81,6 +81,11 @@ class FakeGateway:
         return (
             ModelDescriptor("Qwen3.6-35B-A3B-UD-Q8_K_XL-instruct"),
             ModelDescriptor("vision-small"),
+            ModelDescriptor(
+                "local::Qwen3.8-27B-UD-Q6_K_XL-Dynamic-V3",
+                source="local",
+                display_name="Qwen3.8-27B-UD-Q6_K_XL-Dynamic-V3",
+            ),
         )
 
     def complete(self, request):
@@ -233,7 +238,15 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertIn("analyze-all-references", page.text)
         self.assertIn("brief-reference-grid", page.text)
         self.assertEqual(models.status_code, 200)
-        self.assertEqual(len(models.json()["models"]), 2)
+        self.assertEqual(len(models.json()["models"]), 3)
+        self.assertEqual(
+            models.json()["models"][-1],
+            {
+                "id": "local::Qwen3.8-27B-UD-Q6_K_XL-Dynamic-V3",
+                "label": "Qwen3.8-27B-UD-Q6_K_XL-Dynamic-V3",
+                "source": "local",
+            },
+        )
         self.assertEqual(spec.status_code, 200)
         profiles = spec.json()["profiles"]
         profile = next(

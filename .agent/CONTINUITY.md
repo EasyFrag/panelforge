@@ -88,7 +88,9 @@
   - H3 Base propose maintenant la recette séparée `minimax.h3.fl2va.direct.multishot@0.1.0` sans modifier le mono-plan `0.2.0`, qui reste le choix par défaut. Le parcours conserve exactement Brief → Plan → Prompt et les modes Supervisé/Rapide existants. Son Plan choisit 2 à 4 plans au nombre minimal utile ; PanelForge dérive et compile les headings `[Shot N]`, coupes horodatées, une caméra canonique optionnelle par plan, l’état final, les dialogues exacts et le rattachement first-frame au plan 1 / last-frame au dernier plan en T2VA, I2VA, L2VA ou FL2VA. Les variations légères d’angle restent des mouvements de caméra et la V1 refuse de couper une réplique. L’interface sélectionne les recettes par `id@version`, recharge correctement un parcours multi-plan sans Plan et conserve le mono-plan par défaut. Cache H3 Base : `20260823.1`. Validation complète : 727 tests verts.
   - Le mono H3 Base par défaut passe à `minimax.h3.fl2va.direct@0.3.0` sans modifier les runs 0.1/0.2. Le Brief doit expliciter la fin du mouvement principal ; le Plan typé choisit `continue_motion`, `natural_settle` ou `intentional_hold`. Pour un mouvement continu, PanelForge absorbe un hold terminal dans le dernier step sans en créer, projette la simultanéité des effets au writer et compile lui-même une dernière phrase en mouvement. Les dialogues exacts et caméras compiler-owned de 0.2 restent actifs ; 733 tests passent.
   - Le sélecteur H3 Base affiche de nouveau la version de chaque recette mono-plan et multi-plan dans son libellé ; les versions 0.1.0, 0.2.0 et 0.3.0 ne sont plus visuellement confondues. Cache H3 Base `20260823.3` ; 24 tests Web ciblés passent.
+  - PanelForge agrège désormais llama.swap et un Unsloth Studio local dans un routeur LLM générique. Les IDs serveur historiques restent inchangés ; les modèles locaux découverts via `/v1/models` sont persistés sous `local::...`, puis dénamespacés uniquement au transport. Les neuf sélecteurs LLM proposent `Local · Unsloth`, restaurent la provenance d'un ancien run et la panne d'une source ne masque pas l'autre catalogue. Configuration : `PANELFORGE_LOCAL_LLM_URL` (défaut `http://127.0.0.1:8888/v1`) et `PANELFORGE_LOCAL_LLM_API_KEY`. Le bouton VRAM LLM reste volontairement réservé à llama.swap. Validation : 81 tests ciblés et 741 tests complets verts.
 - Broken / missing:
+  - Le routage Unsloth est couvert par fakes, contrats Web et suite complète, mais pas encore par un smoke réel contre le Qwen3.8 27B UD-Q6_K_XL Dynamic V3 de la RTX 5090. `/v1/models` ne déclare pas la capacité vision : les parcours H3/Ref2V avec images doivent être qualifiés explicitement sur ce modèle.
   - Le projet tigre déjà validé conserve son warning d’export tant que l’utilisateur n’a pas redémarré cette branche puis cliqué sur « Réessayer l’export ». Son ancien dossier partiel à nom long n’est pas supprimé automatiquement.
   - KREA2 Edit est couvert par des fakes ComfyUI et par le PNG réel `103521_00001_.png` pour l’extraction des métadonnées, mais son workflow `0.1.0` n’a pas encore été fumé de bout en bout sur le serveur GPU avec PNG, JPEG, ressource historique absente et plusieurs essais successifs.
   - Les sources KREA2 Edit déjà importées avant l’ajout du lecteur `Lora Loader Stack` conservent leur snapshot de métadonnées vide ; les réimporter après redémarrage applique la récupération corrigée sans réécrire silencieusement l’historique existant.
@@ -125,12 +127,13 @@
 
 ## Next steps
 
-1. Fumer la nouvelle recette H3 Base multi-plan sur le GPU en T2VA puis FL2VA avec Qwen3.8, Qwen3.6 et Gemma.
-2. Comparer qualitativement 2, 3 et 4 plans sur une même intention, notamment le respect des coupes et de la dernière frame.
+1. Configurer la clé API Unsloth Studio puis fumer le Qwen3.8 27B local en texte, une image et plusieurs images depuis les cases `Local · Unsloth`.
+2. Fumer la nouvelle recette H3 Base multi-plan sur le GPU en T2VA puis FL2VA avec Qwen3.8, Qwen3.6 et Gemma.
 3. Rejouer en A/B la valse FL2VA avec le mono 0.3.0 et le 0.2.0, mêmes images/seed/paramètres, puis vérifier mouvement continu, transformation terminée et arrivée sur la dernière frame.
 
 ## Risks / open questions
 
+- Unsloth Studio est OpenAI-compatible mais le catalogue `/v1/models` ne fournit pas de matrice fiable texte/vision. Un modèle local texte-only peut donc être choisi pour une étape multimodale et échouera proprement au moment de l'appel ; aucune capacité n'est inventée côté PanelForge.
 - La recette H3 Base multi-plan est validée contractuellement mais pas encore qualifiée sur un rendu H3 réel ; il faut notamment mesurer si 4 plans restent lisibles dans une durée courte et si FL2VA atteint bien la dernière frame après une coupe.
 
 - Le switch anglais/chinois est couvert contractuellement mais pas encore qualifié par un A/B réel à seed, checkpoint et LoRA identiques. Comparer Qwen et Gemma avant d’envisager de changer le défaut anglais ou de durcir la détection automatique de langue.

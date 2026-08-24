@@ -377,7 +377,29 @@ python scripts\run_lab.py `
 
 Puis ouvrir `http://127.0.0.1:7860`.
 
-Les données techniques locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/krea2_batches`, `workspace/krea2_assisted`, `workspace/krea2_edits`, `workspace/video_runs`, `workspace/storyboard_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL` et `PANELFORGE_LLM_URL`. Les projets KREA2 Edit validés utilisent séparément `D:\AI\PanelForge\KREA2 Projects` ou la racine configurée par `PANELFORGE_KREA2_PROJECTS_ROOT`. Les créations assistées explicitement enregistrées utilisent `D:\AI\PanelForge\KREA2 Creations` ou `PANELFORGE_KREA2_CREATIONS_ROOT`.
+Unsloth Studio peut servir de second fournisseur LLM sur le poste PanelForge.
+Lancez-le séparément, créez une clé dans `Settings > API`, puis configurez la
+connexion avant de démarrer PanelForge :
+
+```powershell
+unsloth studio -p 8888
+$env:PANELFORGE_LOCAL_LLM_URL="http://127.0.0.1:8888/v1"
+$env:PANELFORGE_LOCAL_LLM_API_KEY="votre-cle-unsloth"
+python scripts\run_lab.py `
+  --base-url http://bucket:8188 `
+  --llm-base-url http://bucket:8083/v1
+```
+
+Chaque sélecteur LLM propose alors la case `Local · Unsloth`. La liste locale
+est relue dynamiquement depuis `/v1/models` ; les IDs locaux sont enregistrés
+avec leur provenance afin que toutes les étapes suivantes d'un même parcours
+restent sur le poste local. Si Unsloth est arrêté, inaccessible ou refuse la
+clé, le catalogue serveur reste disponible et la liste locale apparaît vide,
+sans bloquer PanelForge. Les parcours qui envoient des images exigent bien sûr
+un modèle Unsloth compatible vision. Le bouton `VRAM LLM` continue de piloter
+uniquement llama.swap sur le serveur et ne décharge pas Unsloth Studio.
+
+Les données techniques locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/krea2_batches`, `workspace/krea2_assisted`, `workspace/krea2_edits`, `workspace/video_runs`, `workspace/storyboard_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL`, `PANELFORGE_LLM_URL` et `PANELFORGE_LOCAL_LLM_URL`; la clé Unsloth reste dans `PANELFORGE_LOCAL_LLM_API_KEY` et ne doit pas être versionnée. Les projets KREA2 Edit validés utilisent séparément `D:\AI\PanelForge\KREA2 Projects` ou la racine configurée par `PANELFORGE_KREA2_PROJECTS_ROOT`. Les créations assistées explicitement enregistrées utilisent `D:\AI\PanelForge\KREA2 Creations` ou `PANELFORGE_KREA2_CREATIONS_ROOT`.
 
 Le catalogue KREA2 utilise par défaut les chemins UNC stables du montage SSHFS :
 `\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion\_models\Krea2` pour

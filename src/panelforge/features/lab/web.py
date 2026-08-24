@@ -396,7 +396,7 @@ def create_app(
                 )
             ],
             "models": [
-                {"id": model.model_id}
+                _serialize_llm_model(model)
                 for model in service.list_models()
             ],
         }
@@ -916,7 +916,7 @@ def create_app(
         loras = service.resources.list_loras()
         return {
             "recipes": [serialize_krea2_visual_recipe(recipe) for recipe in service.recipes.current()],
-            "llm_models": [{"id": model.model_id} for model in service.list_models()],
+            "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
             "render_models": [serialize_krea2_resource(resource) for resource in models],
             "loras": [serialize_krea2_resource(resource) for resource in loras],
             "resource_warnings": list(
@@ -1144,7 +1144,7 @@ def create_app(
         models = service.resources.list_models()
         loras = service.resources.list_loras()
         return {
-            "llm_models": [{"id": model.model_id} for model in service.list_models()],
+            "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
             "render_models": [serialize_krea2_resource(resource) for resource in models],
             "loras": [serialize_krea2_resource(resource) for resource in loras],
             "resource_warnings": list(
@@ -1459,7 +1459,7 @@ def create_app(
                 "workflow_sha256": service.workflow.reference.workflow_sha256,
                 "status": service.workflow.status,
             },
-            "llm_models": [{"id": model.model_id} for model in service.list_models()],
+            "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
             "render_models": render_models,
             "loras": loras,
             "resource_warnings": resource_warnings,
@@ -1985,7 +1985,7 @@ def create_app(
         service = _require_prompt_lab(prompt_lab)
         return {
             "models": [
-                {"id": model.model_id}
+                _serialize_llm_model(model)
                 for model in service.list_models()
             ]
         }
@@ -2636,6 +2636,17 @@ def create_app(
         )
 
     return app
+
+
+def _serialize_llm_model(model) -> dict[str, object]:
+    model_id = model.model_id
+    display_name = getattr(model, "display_name", None) or model_id
+    source = getattr(model, "source", "server") or "server"
+    return {
+        "id": model_id,
+        "label": display_name,
+        "source": source,
+    }
 
 
 def serialize_run(run: RunRecord) -> dict[str, object]:

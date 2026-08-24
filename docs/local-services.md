@@ -7,11 +7,15 @@
 | Service | URL préférée | Vérification |
 | --- | --- | --- |
 | llama.swap | `http://bucket:8083/v1` | `/health`, `/v1/models`, `/running` et chat OK |
+| Unsloth Studio | `http://127.0.0.1:8888/v1` | `/v1/models` et chat OpenAI-compatible ; clé API requise selon les réglages Studio |
 | ComfyUI | `http://bucket:8188` | `/system_stats` et `/queue` OK |
 
 - `bucket` est le nom MagicDNS Tailscale ; éviter de figer l'IP `100.x` dans le code.
 - llama.swap reste lié à `127.0.0.1:8083` et une règle Tailscale Serve TCP existante publie `bucket:8083` dans le tailnet. Aucun tunnel SSH supplémentaire n'est requis.
 - ComfyUI `0.30.1` répond par LAN et Tailscale. Aucun workflow n'a été soumis pendant ce diagnostic.
+- Unsloth Studio est facultatif. PanelForge masque uniquement son catalogue s'il
+  est indisponible et conserve celui de llama.swap. Les variables sont
+  `PANELFORGE_LOCAL_LLM_URL` et `PANELFORGE_LOCAL_LLM_API_KEY`.
 
 ## Capacités LLM validées
 

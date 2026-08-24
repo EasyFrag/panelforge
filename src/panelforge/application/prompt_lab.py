@@ -93,6 +93,8 @@ _BRIEF_HEADINGS = frozenset(
 @dataclass(frozen=True, slots=True)
 class ModelDescriptor:
     model_id: str
+    source: str = "server"
+    display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

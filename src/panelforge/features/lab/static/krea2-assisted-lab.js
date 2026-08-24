@@ -122,13 +122,6 @@
     elements.messageState.classList.toggle("error", error);
   }
 
-  function preferredLlm(models) {
-    return models.find((item) => /qwen3[._-]?8.*27b/i.test(item.id))
-      || models.find((item) => /qwen.*27b/i.test(item.id))
-      || models[0]
-      || null;
-  }
-
   function preferredRenderModel(models) {
     return models.find((item) => /krea2gptgrandpussytruth/i.test(item.comfy_name))
       || models.find((item) => /krea2_turbo_bf16/i.test(item.comfy_name))
@@ -138,17 +131,11 @@
 
   function fillOptions() {
     const previousLlm = elements.llm.value;
-    elements.llm.replaceChildren();
-    (state.spec.llm_models || []).forEach((model) => {
-      const option = document.createElement("option");
-      option.value = model.id;
-      option.textContent = model.id;
-      elements.llm.append(option);
-    });
-    const preferred = preferredLlm(state.spec.llm_models || []);
-    elements.llm.value = previousLlm && [...elements.llm.options].some((option) => option.value === previousLlm)
-      ? previousLlm
-      : (preferred ? preferred.id : "");
+    window.PanelForgeModelPicker.populate(
+      elements.llm,
+      state.spec.llm_models || [],
+      previousLlm,
+    );
 
     const previousModel = elements.model.value;
     resourceUi.appendGroupedOptions(elements.model, state.spec.render_models || [], resourceUi.modelGroups);

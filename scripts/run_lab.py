@@ -30,6 +30,7 @@ from panelforge.infrastructure.llm import (
     LlamaSwapAdminClient,
     LoggedMultimodalGateway,
     OpenAICompatibleGateway,
+    RoutedMultimodalGateway,
 )
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
@@ -169,6 +170,19 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--llm-timeout", type=float, default=300.0)
     parser.add_argument(
+        "--local-llm-base-url",
+        default=os.environ.get(
+            "PANELFORGE_LOCAL_LLM_URL",
+            "http://127.0.0.1:8888/v1",
+        ),
+        help="Local Unsloth Studio OpenAI-compatible URL (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--local-llm-api-key",
+        default=os.environ.get("PANELFORGE_LOCAL_LLM_API_KEY", ""),
+        help="Unsloth Studio API key; prefer PANELFORGE_LOCAL_LLM_API_KEY",
+    )
+    parser.add_argument(
         "--workspace",
         type=Path,
         default=PROJECT_ROOT / "workspace",
@@ -256,12 +270,29 @@ def build_app(args: argparse.Namespace):
         run_timeout=args.krea2_run_timeout,
         poll_interval=args.poll_interval,
     )
+    routed_gateway = RoutedMultimodalGateway(
+        {
+            "server": OpenAICompatibleGateway(
+                args.llm_base_url,
+                api_key=args.llm_api_key,
+                timeout=args.llm_timeout,
+            ),
+            "local": OpenAICompatibleGateway(
+                getattr(
+                    args,
+                    "local_llm_base_url",
+                    "http://127.0.0.1:8888/v1",
+                ),
+                api_key=(
+                    getattr(args, "local_llm_api_key", "")
+                    or "panelforge-local-unconfigured"
+                ),
+                timeout=args.llm_timeout,
+            ),
+        }
+    )
     gateway = LoggedMultimodalGateway(
-        OpenAICompatibleGateway(
-            args.llm_base_url,
-            api_key=args.llm_api_key,
-            timeout=args.llm_timeout,
-        ),
+        routed_gateway,
         llm_calls,
     )
     krea2_resources = LocalKrea2ResourceCatalog(
