@@ -10,6 +10,7 @@ from panelforge.domain import H3CameraDirective
 from .direct_ref2v_plan import (
     DirectMotionEndBehavior,
     DirectRef2VActionPlanV4,
+    direct_ref2v_camera_clean_motion_fields,
     parse_direct_ref2v_action_plan_v2,
     parse_direct_ref2v_action_plan_v3,
     parse_direct_ref2v_action_plan_v4,
@@ -41,6 +42,7 @@ def apply_direct_i2v_timing(
     contract_name: str = "direct I2VA",
     dialogue_aware: bool = False,
     motion_aware: bool = False,
+    camera_clean: bool = False,
     insert_missing_final_landmark: bool = False,
 ) -> str:
     """Compile the derived duration and validate plan-owned landmarks.
@@ -57,6 +59,11 @@ def apply_direct_i2v_timing(
         plan = parse_direct_ref2v_action_plan_v3(plan_content)
     else:
         plan = parse_direct_ref2v_action_plan_v2(plan_content)
+    clean_motion_fields = (
+        direct_ref2v_camera_clean_motion_fields(plan_content)
+        if motion_aware and camera_clean
+        else None
+    )
     value = _strip_fence(content).replace("\r\n", "\n")
     integrated = _field_body(
         value,
@@ -84,12 +91,29 @@ def apply_direct_i2v_timing(
     ):
         integrated = _insert_continuing_motion_contract(
             integrated,
-            plan.motion_contract.primary_motion,
+            (
+                clean_motion_fields[0]
+                if clean_motion_fields is not None
+                else plan.motion_contract.primary_motion
+            ),
         )
 
     final_landmark = _format_timestamp(plan.final_start_ms)
     if motion_aware:
-        final_sentence = _compiled_motion_final_sentence(plan, final_landmark)
+        final_sentence = _compiled_motion_final_sentence(
+            plan,
+            final_landmark,
+            primary_motion=(
+                clean_motion_fields[0]
+                if clean_motion_fields is not None
+                else None
+            ),
+            final_snapshot=(
+                clean_motion_fields[1]
+                if clean_motion_fields is not None
+                else None
+            ),
+        )
         final_position = integrated.find(final_landmark)
         integrated = (
             f"{integrated[:final_position].rstrip()} {final_sentence}"
@@ -399,11 +423,16 @@ def _insert_continuing_motion_contract(integrated: str, primary_motion: str) -> 
 def _compiled_motion_final_sentence(
     plan: DirectRef2VActionPlanV4,
     final_landmark: str,
+    *,
+    primary_motion: str | None = None,
+    final_snapshot: str | None = None,
 ) -> str:
-    snapshot = _sentence_continuation(plan.final_state.description).rstrip(".!?")
+    snapshot = _sentence_continuation(
+        final_snapshot or plan.final_state.description
+    ).rstrip(".!?")
     if plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE:
         motion = _sentence_continuation(
-            plan.motion_contract.primary_motion
+            primary_motion or plan.motion_contract.primary_motion
         ).rstrip(".!?")
         return (
             f"{final_landmark} while {motion}, {snapshot}. The video ends during "

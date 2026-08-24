@@ -105,6 +105,7 @@ from .direct_ref2v_plan import (
     direct_ref2v_writer_plan_v2_camera_owned,
     direct_ref2v_writer_plan_v3_camera_owned,
     direct_ref2v_writer_plan_v4_camera_owned,
+    direct_ref2v_writer_plan_v4_camera_clean,
     explicit_dialogue_ledger,
     extract_explicit_dialogues,
     lint_direct_ref2v_action_plan,
@@ -2561,6 +2562,9 @@ class PromptCompositionService:
                     ),
                     motion_aware=(
                         cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT
+                    ),
+                    camera_clean=(
+                        cookbook.writer_projection == "camera_clean_v4"
                     ),
                     insert_missing_final_landmark=(
                         cookbook.output_contract in _FL2VA_DIRECT_DIALOGUE_CONTRACTS
@@ -5338,7 +5342,11 @@ def _writer_action_plan(cookbook: PromptCookbookPort, content: str) -> str:
             else direct_ref2v_multishot_writer_projection(content)
         )
     if cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT:
-        return direct_ref2v_writer_plan_v4_camera_owned(content)
+        return (
+            direct_ref2v_writer_plan_v4_camera_clean(content)
+            if cookbook.writer_projection == "camera_clean_v4"
+            else direct_ref2v_writer_plan_v4_camera_owned(content)
+        )
     if cookbook.output_contract == _FL2VA_DIRECT_V2_CONTRACT:
         return direct_ref2v_writer_plan_v3_camera_owned(content)
     if cookbook.output_contract in _CAMERA_OWNED_MONO_CONTRACTS:

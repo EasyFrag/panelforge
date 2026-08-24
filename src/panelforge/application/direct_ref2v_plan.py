@@ -976,6 +976,150 @@ def direct_ref2v_writer_plan_v4_camera_owned(content: str) -> str:
     return json.dumps(writer_value, ensure_ascii=False, indent=2)
 
 
+_CAMERA_OWNED_PROSE = re.compile(
+    r"(?i)\b(?:camera|lens|viewpoint|framing)\b|"
+    r"\b(?:the\s+)?(?:orbit|arc|pan|tilt|dolly|crane)\b"
+    r"[^.;]{0,100}\b(?:background|frame|view)\b"
+)
+_CAMERA_CLAUSE_BOUNDARY = re.compile(r"(?i)\b(?:while|during|as)\b")
+
+
+def _camera_clean_semantic_text(value: str) -> str:
+    """Drop camera-owned fragments without trying to rewrite their grammar."""
+
+    clean_fragments: list[str] = []
+    for segment in re.split(r"(?<=[.!?])\s+|;\s*", value.strip()):
+        segment = segment.strip(" ,;")
+        if not segment:
+            continue
+        if not _CAMERA_OWNED_PROSE.search(segment):
+            clean_fragments.append(segment)
+            continue
+        salvaged_clauses: list[str] = []
+        for clause in _CAMERA_CLAUSE_BOUNDARY.split(segment):
+            clause = clause.strip(" ,;")
+            if clause and not _CAMERA_OWNED_PROSE.search(clause):
+                salvaged_clauses.append(clause)
+        if salvaged_clauses:
+            clean_fragments.append(" while ".join(salvaged_clauses))
+    return " ".join(clean_fragments).strip()
+
+
+def direct_ref2v_camera_clean_motion_fields(content: str) -> tuple[str, str]:
+    """Return compiler-owned motion/final prose without camera duplication."""
+
+    plan = parse_direct_ref2v_action_plan_v4(content)
+    clean_primary_actions = tuple(
+        value
+        for beat in plan.beats
+        if (value := _camera_clean_semantic_text(beat.primary_action))
+    )
+    primary_motion = _camera_clean_semantic_text(
+        plan.motion_contract.primary_motion
+    )
+    if not primary_motion:
+        primary_motion = (
+            clean_primary_actions[0]
+            if clean_primary_actions
+            else "The principal subjects continue their visible action."
+        )
+
+    final_snapshot = _camera_clean_semantic_text(plan.final_state.description)
+    if not final_snapshot:
+        final_snapshot = _camera_clean_semantic_text(
+            plan.beats[-1].observable_end_state
+        )
+    if not final_snapshot:
+        final_snapshot = (
+            clean_primary_actions[-1]
+            if clean_primary_actions
+            else "The final frame captures the visible action at its final instant."
+        )
+    return primary_motion, final_snapshot
+
+
+def direct_ref2v_writer_plan_v4_camera_clean(content: str) -> str:
+    """Project V4 semantics for the writer with camera prose removed.
+
+    The approved plan remains untouched.  Typed camera directives stay owned by
+    the deterministic compiler; this projection contains only their landmarks.
+    """
+
+    plan = parse_direct_ref2v_action_plan_v4(content)
+    primary_motion, final_snapshot = direct_ref2v_camera_clean_motion_fields(
+        content
+    )
+    clean_scene = _camera_clean_semantic_text(plan.scene_setup)
+    clean_invariants = tuple(
+        value
+        for invariant in plan.continuity_invariants
+        if (value := _camera_clean_semantic_text(invariant))
+    )
+    beats: list[dict[str, object]] = []
+    for beat in plan.beats:
+        clean_primary = _camera_clean_semantic_text(beat.primary_action)
+        clean_steps: list[dict[str, object]] = []
+        for step in beat.steps:
+            clean_action = _camera_clean_semantic_text(step.action)
+            if not clean_action:
+                continue
+            clean_step: dict[str, object] = {
+                "start_ms": step.start_ms,
+                "end_ms": step.end_ms,
+                "action": clean_action,
+            }
+            clean_continuity = _camera_clean_semantic_text(
+                step.continuity_after
+            )
+            if clean_continuity:
+                clean_step["continuity_after"] = clean_continuity
+            clean_steps.append(clean_step)
+        clean_beat: dict[str, object] = {
+            "start_ms": beat.start_ms,
+            "end_ms": beat.end_ms,
+            "primary_action": clean_primary or primary_motion,
+            "steps": clean_steps,
+        }
+        clean_end_state = _camera_clean_semantic_text(
+            beat.observable_end_state
+        )
+        if clean_end_state:
+            clean_beat["observable_end_state"] = clean_end_state
+        beats.append(clean_beat)
+
+    writer_value = {
+        "scene_setup": clean_scene
+        or "Preserve the frame-owned scene, subjects, and visible continuity.",
+        "continuity_invariants": list(clean_invariants),
+        "motion_contract": {
+            "primary_motion": primary_motion,
+            "end_behavior": plan.motion_contract.end_behavior.value,
+        },
+        "beats": beats,
+        "final_state_snapshot": final_snapshot,
+        "dialogue_cues": [
+            cue.model_dump(mode="json") for cue in plan.dialogue_cues
+        ],
+        "camera_landmarks_ms": [
+            item.start_ms for item in plan.camera_directives
+        ],
+        "derived_timing": {
+            "final_state_start_ms": plan.final_start_ms,
+            "duration_ms": plan.duration_ms,
+            "duration_seconds": plan.duration_ms / 1000,
+        },
+        "overall_soundscape": _camera_clean_semantic_text(
+            plan.overall_soundscape
+        )
+        or "N/A",
+        "non_diegetic_music": _camera_clean_semantic_text(
+            plan.non_diegetic_music
+        )
+        or "N/A",
+    }
+    return json.dumps(writer_value, ensure_ascii=False, indent=2)
+
+
 _EXPLICIT_DIALOGUE_PATTERNS = (
     re.compile(r"«\s*([^«»\r\n]+?)\s*»"),
     re.compile(r"“\s*([^“”\r\n]+?)\s*”"),

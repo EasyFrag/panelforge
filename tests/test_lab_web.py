@@ -354,14 +354,14 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260824.1', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260824.2', page.text)
         self.assertIn(
             ".h3-base-frame-inputs .i2v-upload > b,",
             styles.text,
         )
         self.assertIn("text-overflow: ellipsis", styles.text)
         self.assertIn('title.title = reference.label', script.text)
-        self.assertIn('const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.0" }', script.text)
+        self.assertIn('const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.1" }', script.text)
         self.assertIn('const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" }', script.text)
         self.assertIn('const preferredCookbookKey = `${monoCookbookId}@0.2.0`', script.text)
         self.assertIn('elements.cookbook.value = cookbookKey(compositionReference || state.cookbook)', script.text)

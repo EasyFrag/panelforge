@@ -125,15 +125,19 @@
 - Les itérations KREA2 Edit doivent être rangées sous un projet stable : image originale → étapes → révisions de prompt et essais. La source d’une étape reste immuable ; seul un résultat explicitement validé crée l’étape suivante. Ce mécanisme ne crée pas une seconde recette ComfyUI.
 - L’export humain KREA2 Edit reste distinct du dépôt et du `workspace` technique. Sa racine par défaut est `D:\AI\PanelForge\KREA2 Projects`, configurable, et il ne recopie que l’image originale puis la chaîne des résultats explicitement validés, avec noms lisibles et sidecars ; les essais rejetés restent uniquement dans l’historique interne/ComfyUI.
 
+- H3 Base mono-plan `0.3.1` conserve le Brief, le Plan V4 et les directives caméra typées de `0.3.0`, mais projette vers le writer uniquement les sémantiques sujet/état dépourvues de prose caméra. Le compilateur final réutilise les mêmes champs nettoyés pour le contrat de mouvement et l'instant final, puis insère exactement la directive caméra canonique. Le Plan réel de valse précédemment rejeté est accepté par cette projection sans perdre le mouvement continu ni la composition finale ; `0.3.0` reste disponible pour comparaison. La `0.3.1` est le mono-plan par défaut et le cache H3 Base est `i2v-direct.js?v=20260824.2`. Validation complète : 745 tests verts.
+- Deux essais Plan JSON effectués pendant l'état intermédiaire du patch (Qwen serveur puis Qwen local) ont bien terminé côté LLM mais ont été rejetés par PanelForge parce que `camera_clean` avait été transmis au recalage de durée. L'argument est maintenant limité au compilateur final et ce cas est couvert par la suite complète.
+
 ## Next steps
 
-1. Configurer la clé API Unsloth Studio puis fumer le Qwen3.8 27B local en texte, une image et plusieurs images depuis les cases `Local · Unsloth`.
+1. Activer l'auto-switch API d'Unsloth Studio ou charger Qwen3.8 27B avant l'appel, puis fumer le modèle local en texte, une image et plusieurs images depuis les cases `Local · Unsloth`.
 2. Fumer la nouvelle recette H3 Base multi-plan sur le GPU en T2VA puis FL2VA avec Qwen3.8, Qwen3.6 et Gemma.
-3. Rejouer en A/B la valse FL2VA avec le mono 0.3.0 et le 0.2.0, mêmes images/seed/paramètres, puis vérifier mouvement continu, transformation terminée et arrivée sur la dernière frame.
+3. Rejouer en A/B la valse FL2VA avec les mono 0.3.1 et 0.3.0, mêmes images/seed/paramètres, puis vérifier mouvement continu, caméra unique, transformation terminée et arrivée sur la dernière frame.
 
 ## Risks / open questions
 
 - Unsloth Studio est OpenAI-compatible mais le catalogue `/v1/models` ne fournit pas de matrice fiable texte/vision. Un modèle local texte-only peut donc être choisi pour une étape multimodale et échouera proprement au moment de l'appel ; aucune capacité n'est inventée côté PanelForge.
+- Unsloth Studio peut lister un modèle sans l'avoir chargé. Si l'auto-switch API est désactivé, l'appel échoue immédiatement en HTTP 400 avec `No model loaded`; PanelForge ne charge pas encore automatiquement le modèle sélectionné.
 - La recette H3 Base multi-plan est validée contractuellement mais pas encore qualifiée sur un rendu H3 réel ; il faut notamment mesurer si 4 plans restent lisibles dans une durée courte et si FL2VA atteint bien la dernière frame après une coupe.
 
 - Le switch anglais/chinois est couvert contractuellement mais pas encore qualifié par un A/B réel à seed, checkpoint et LoRA identiques. Comparer Qwen et Gemma avant d’envisager de changer le défaut anglais ou de durcir la détection automatique de langue.
