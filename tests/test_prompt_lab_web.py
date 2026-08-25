@@ -194,12 +194,26 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertEqual(text_only.json()["references"], [])
         structured = self.client.post(
             f"/api/prompt-lab/sessions/{text_only.json()['id']}/brief/structure",
-            json={"source_text": "A runner crosses a quiet room.", "creative_freedom": 35},
+            json={
+                "source_text": "A runner crosses a quiet room.",
+                "creative_axes": {
+                    "scene_life": 3,
+                    "camera": 0,
+                    "extra_motion": 2,
+                },
+            },
         )
         self.assertEqual(structured.status_code, 200, structured.text)
         self.assertIsNotNone(structured.json()["active_brief"])
+        self.assertEqual(structured.json()["active_brief"]["creative_freedom"], 52)
+        self.assertEqual(
+            structured.json()["active_brief"]["creative_axes"],
+            {"scene_life": 3, "camera": 0, "extra_motion": 2},
+        )
         self.assertEqual(structured.json()["brief_revisions"][-1]["references"], [])
         self.assertEqual(self.gateway.requests[-1].images, ())
+        self.assertIn("Vie de la scène 3/3", self.gateway.requests[-1].user_prompt)
+        self.assertIn("Caméra 0/3", self.gateway.requests[-1].user_prompt)
 
         both = self.client.post(
             "/api/prompt-lab/sessions",

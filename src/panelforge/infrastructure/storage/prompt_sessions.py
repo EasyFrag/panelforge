@@ -10,6 +10,7 @@ from panelforge.domain import (
     AnalysisRevision,
     BriefReferenceSnapshot,
     BriefRevision,
+    CreativeFreedomAxes,
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
@@ -33,7 +34,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 _SESSION_KEYS_V1_V2 = {
     "schema_version",
     "created_at",
@@ -82,6 +83,7 @@ _BRIEF_REVISION_KEYS = _REVISION_KEYS | {
     "creative_freedom",
     "references",
 }
+_BRIEF_REVISION_KEYS_V6 = _BRIEF_REVISION_KEYS | {"creative_axes"}
 _BRIEF_REFERENCE_KEYS_V3 = {
     "reference_id",
     "analysis_revision_id",
@@ -184,7 +186,7 @@ class LocalPromptSessionStore:
         _require_regular_file(path)
         data = _read_json_object(path)
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2, 3, 4, _SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, 4, 5, _SCHEMA_VERSION}:
             raise StorageCorruptionError(
                 f"unsupported prompt session schema for {expected_id!r}"
             )
@@ -246,6 +248,15 @@ def _session_to_dict(
                 "source_text": revision.source_text,
                 "content": revision.content,
                 "creative_freedom": revision.creative_freedom,
+                "creative_axes": (
+                    {
+                        "scene_life": revision.creative_axes.scene_life,
+                        "camera": revision.creative_axes.camera,
+                        "extra_motion": revision.creative_axes.extra_motion,
+                    }
+                    if revision.creative_axes is not None
+                    else None
+                ),
                 "origin": revision.origin.value,
                 "references": [
                     {
@@ -411,7 +422,12 @@ def _session_from_dict(
         for raw_revision in raw_brief_revisions:
             if (
                 not isinstance(raw_revision, dict)
-                or set(raw_revision) != _BRIEF_REVISION_KEYS
+                or set(raw_revision)
+                != (
+                    _BRIEF_REVISION_KEYS_V6
+                    if schema_version >= 6
+                    else _BRIEF_REVISION_KEYS
+                )
             ):
                 raise ValueError("brief revision contains invalid fields")
             raw_brief_references = raw_revision["references"]
@@ -452,6 +468,12 @@ def _session_from_dict(
                     source_text=raw_revision["source_text"],
                     content=raw_revision["content"],
                     creative_freedom=raw_revision["creative_freedom"],
+                    creative_axes=(
+                        CreativeFreedomAxes(**raw_revision["creative_axes"])
+                        if schema_version >= 6
+                        and raw_revision["creative_axes"] is not None
+                        else None
+                    ),
                     origin=RevisionOrigin(raw_revision["origin"]),
                     references=tuple(brief_references),
                     parent_revision_id=raw_revision["parent_revision_id"],

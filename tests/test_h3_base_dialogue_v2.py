@@ -138,6 +138,20 @@ class H3BaseDialogueV2Test(unittest.TestCase):
             (),
         )
 
+    def test_speaker_prefixed_quotes_are_dialogue_not_json_values(self):
+        source = (
+            'S1: "Why are you studying so hard?"\n'
+            'S2 Animal: "Because I want to learn."\n'
+            '{"speaker": "This remains structural JSON."}'
+        )
+        self.assertEqual(
+            extract_explicit_dialogues(source),
+            (
+                "Why are you studying so hard?",
+                "Because I want to learn.",
+            ),
+        )
+
     def test_plan_restores_quotes_and_sequentializes_only_later_start_camera(self):
         canonical = canonical_direct_ref2v_action_plan_v3(
             json.dumps(dialogue_plan()),

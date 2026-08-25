@@ -221,8 +221,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260824.1", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260824.1", page.text)
+        self.assertIn("/static/lab.css?v=20260824.4", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260824.2", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         prompt_script = self.client.get("/static/prompt-lab.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -336,11 +336,13 @@ class LabWebTest(unittest.TestCase):
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
         page = self.client.get("/")
         script = self.client.get("/static/i2v-direct.js")
+        render_script = self.client.get("/static/h3-render-lab.js")
         styles = self.client.get("/static/lab.css")
         prompt_script = self.client.get("/static/prompt-lab.js")
 
         self.assertEqual(page.status_code, 200)
         self.assertEqual(script.status_code, 200)
+        self.assertEqual(render_script.status_code, 200)
         self.assertIn('data-lab-view="i2v-direct"', page.text)
         self.assertIn('data-lab-view="i2v-direct">H3 Base</button>', page.text)
         self.assertIn('id="i2vd-workspace"', page.text)
@@ -354,7 +356,20 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-brief-step"', page.text)
         self.assertIn('id="i2vd-plan-step"', page.text)
         self.assertIn('id="i2vd-prompt-step"', page.text)
-        self.assertIn('/static/i2v-direct.js?v=20260824.2', page.text)
+        self.assertIn('id="h3r-lab"', page.text)
+        self.assertIn('id="h3r-music"', page.text)
+        self.assertIn('id="h3r-attempts"', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260825.1', page.text)
+        self.assertIn('panelforge:h3-base-context', script.text)
+        self.assertIn('/api/h3-render/projects/', render_script.text)
+        self.assertIn('/static/i2v-direct.js?v=20260824.5', page.text)
+        self.assertIn('id="i2vd-animal-interview-fields"', page.text)
+        self.assertEqual(page.text.count('class="field-label animal-interview-primary-field"'), 2)
+        self.assertIn('id="i2vd-dialogue-language"', page.text)
+        self.assertIn('id="i2vd-partial-script"', page.text)
+        self.assertIn('aria-label="Afficher le guide de durée du dialogue"', page.text)
+        self.assertIn('id="i2vd-duration-guide"', page.text)
+        self.assertIn('Une réplique ≈ 4 s ; deux ≈ 8 s ; quatre ≈ 16 s.', page.text)
         self.assertIn(
             ".h3-base-frame-inputs .i2v-upload > b,",
             styles.text,
@@ -363,12 +378,15 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('title.title = reference.label', script.text)
         self.assertIn('const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.1" }', script.text)
         self.assertIn('const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" }', script.text)
-        self.assertIn('const preferredCookbookKey = `${monoCookbookId}@0.2.0`', script.text)
+        self.assertIn('const animalInterviewProfile = { id: "minimax.h3.base.animal-interview", version: "0.1.0" }', script.text)
+        self.assertIn('const preferredCookbookKey = `${monoCookbookId}@${monoProfile.version}`', script.text)
         self.assertIn('elements.cookbook.value = cookbookKey(compositionReference || state.cookbook)', script.text)
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
         self.assertIn('const monoCookbookId = "minimax.h3.fl2va.direct"', script.text)
         self.assertIn('const multishotCookbookId = "minimax.h3.fl2va.direct.multishot"', script.text)
+        self.assertIn('const animalInterviewCookbookId = "minimax.h3.base.animal-interview"', script.text)
         self.assertIn('Multi-plan structuré · 2 à 4 plans (${cookbook.version})', script.text)
+        self.assertIn('Mono-plan · interview d’animal (${cookbook.version})', script.text)
         self.assertIn('Mono-plan · standard (${cookbook.version})', script.text)
         self.assertIn('item.target_mode === "fl2va_direct"', script.text)
         self.assertIn('body.append("roles", "first_frame")', script.text)
@@ -377,6 +395,11 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('body.append("usages", "last_frame")', script.text)
         self.assertIn('first_frame: first ? [first.id] : []', script.text)
         self.assertIn('last_frame: last ? [last.id] : []', script.text)
+        self.assertIn('function animalInterviewSourceText()', script.text)
+        self.assertIn('function countAnimalInterviewReplies(script)', script.text)
+        self.assertIn('const recommendedDuration = replyCount * 4', script.text)
+        self.assertIn('renderAnimalInterviewDurationGuide(animalRecipe)', script.text)
+        self.assertIn('function hydrateSourceInputs(sourceText)', script.text)
         self.assertIn('sessionInputModeLabel(session)', script.text)
         self.assertIn('core.decorateSessionLink(button, session.references)', script.text)
         self.assertIn('function decorateSessionLink(button, references)', prompt_script.text)
@@ -493,46 +516,33 @@ class LabWebTest(unittest.TestCase):
                 self.assertEqual(response.headers["content-range"], "bytes */10")
                 self.assertEqual(response.headers["accept-ranges"], "bytes")
 
-    def test_direct_creative_freedom_uses_discrete_modes(self):
+    def test_direct_creative_freedom_uses_three_independent_axes(self):
         page = self.client.get("/")
         scripts = (
             self.client.get("/static/i2v-direct.js"),
             self.client.get("/static/ref2v-direct.js"),
         )
 
-        expected_options = (
-            ("0", "Factuel strict"),
-            ("35", "Conservateur"),
-            ("50", "Équilibré"),
-            ("80", "Cinématographique"),
-            ("100", "Exploratoire"),
-        )
         for prefix in ("i2vd", "ref2vd"):
-            match = re.search(
-                rf'<select id="{prefix}-freedom"[^>]*>(.*?)</select>',
-                page.text,
-                re.DOTALL,
-            )
-            self.assertIsNotNone(match)
-            options = re.findall(r'<option value="(\d+)"[^>]*>([^<]+)</option>', match.group(1))
-            self.assertEqual(options, list(expected_options))
-            self.assertIn('<option value="35" data-description=', match.group(1))
-            self.assertIn('selected>Conservateur</option>', match.group(1))
-            self.assertNotIn(f'id="{prefix}-freedom" type="range"', page.text)
-            self.assertNotIn(f'id="{prefix}-freedom-value"', page.text)
-        self.assertEqual(page.text.count("Agit sur le Brief ; son effet sur le Plan et le prompt final est indirect."), 2)
+            for axis in ("scene-life", "camera", "extra-motion"):
+                self.assertIn(
+                    f'id="{prefix}-creative-{axis}" type="range" min="0" max="3" step="1" value="0"',
+                    page.text,
+                )
+                self.assertIn(f'id="{prefix}-creative-{axis}-value">0</output>', page.text)
+        self.assertEqual(
+            page.text.count("Autorisations indépendantes appliquées seulement si la scène paraît trop vide."),
+            2,
+        )
 
         for script in scripts:
             self.assertEqual(script.status_code, 200)
-            self.assertIn("function setFreedom(value)", script.text)
-            self.assertIn('option[data-legacy-freedom]', script.text)
-            self.assertIn('legacyOption.dataset.legacyFreedom = "true"', script.text)
-            self.assertIn('valeur historique ${normalized}/100', script.text)
-            self.assertIn('setFreedom(session.active_brief.creative_freedom ?? 35)', script.text)
-            self.assertIn('setFreedom(35)', script.text)
-            self.assertIn('elements.freedom.addEventListener("change"', script.text)
-            self.assertIn('creative_freedom: Number(elements.freedom.value)', script.text)
-            self.assertNotIn("freedomValue", script.text)
+            self.assertIn("function legacyCreativeLevel(value)", script.text)
+            self.assertIn("function currentCreativeAxes()", script.text)
+            self.assertIn("function creativeAxesMatch(brief)", script.text)
+            self.assertIn("function creativePayload()", script.text)
+            self.assertIn("creative_axes", script.text)
+            self.assertNotIn("setFreedom", script.text)
 
     def test_exposes_shared_quick_mode_for_both_direct_workspaces(self):
         page = self.client.get("/")

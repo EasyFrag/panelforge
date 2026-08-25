@@ -4,16 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260824.1">
+  <link rel="stylesheet" href="/static/lab.css?v=20260824.4">
   <script src="/static/lab.js?v=20260824.1" defer></script>
   <script src="/static/prompt-lab.js?v=20260821.1" defer></script>
   <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
   <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260824.2" defer></script>
+  <script src="/static/i2v-direct.js?v=20260824.5" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260825.1" defer></script>
   <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
   <script src="/static/video-lab.js?v=20260816.6" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260824.1" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260824.2" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260817.1" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260822.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260824.1" defer></script>
@@ -1184,18 +1185,47 @@
           <p id="i2vd-input-mode" class="h3-base-input-mode">Mode détecté : T2VA · texte seul</p>
         </section>
         <section>
-          <h2>Intention simple</h2>
-          <textarea id="i2vd-intention" rows="8" placeholder="Ex. Le joueur arme sa frappe, tire dans la lucarne et célèbre son but face à la caméra." required></textarea>
-          <div class="freedom-control direct-freedom-control">
-            <label for="i2vd-freedom"><b>Liberté créative</b><small>Agit sur le Brief ; son effet sur le Plan et le prompt final est indirect.</small></label>
-            <select id="i2vd-freedom" aria-describedby="i2vd-freedom-label">
-              <option value="0" data-description="N’ajoute aucun détail absent des entrées.">Factuel strict</option>
-              <option value="35" data-description="Seulement des liaisons minimales et évidentes." selected>Conservateur</option>
-              <option value="50" data-description="Quelques propositions cinématographiques compatibles.">Équilibré</option>
-              <option value="80" data-description="Enrichit caméra, rythme et ambiance sans contredire les contraintes.">Cinématographique</option>
-              <option value="100" data-description="Propose librement des détails compatibles et les signale comme libertés.">Exploratoire</option>
-            </select>
-            <small id="i2vd-freedom-label" class="freedom-mode-description">Seulement des liaisons minimales et évidentes.</small>
+          <h2 id="i2vd-intention-title">Intention simple</h2>
+          <div id="i2vd-standard-intention">
+            <textarea id="i2vd-intention" rows="8" placeholder="Ex. Le joueur arme sa frappe, tire dans la lucarne et célèbre son but face à la caméra."></textarea>
+          </div>
+          <div id="i2vd-animal-interview-fields" class="animal-interview-fields" hidden>
+            <div class="animal-interview-grid">
+              <label class="field-label animal-interview-primary-field">Animal interviewé
+                <input id="i2vd-animal" type="text" placeholder="Ex. un adorable chaton tigré hyperréaliste">
+              </label>
+              <label class="field-label animal-interview-primary-field">Environnement
+                <input id="i2vd-environment" type="text" placeholder="Ex. petite salle d’étude chaleureuse">
+              </label>
+              <label class="field-label">Langue
+                <select id="i2vd-dialogue-language"><option value="French" selected>Français</option><option value="English">English</option></select>
+              </label>
+              <div class="field-label animal-interview-duration-field">
+                <div class="animal-interview-duration-heading">
+                  <label for="i2vd-duration">Durée totale</label>
+                  <details class="animal-interview-duration-help">
+                    <summary aria-label="Afficher le guide de durée du dialogue">?</summary>
+                    <p>Une réplique ≈ 4 s ; deux ≈ 8 s ; quatre ≈ 16 s. Cette marge comprend des pauses courtes et une action finale simple.</p>
+                  </details>
+                </div>
+                <span class="number-with-unit"><input id="i2vd-duration" type="number" min="4" max="30" step="0.5" value="14"><small>secondes</small></span>
+                <small id="i2vd-duration-guide" class="animal-interview-duration-guide" role="status" aria-live="polite">Ajoutez des répliques pour estimer la durée.</small>
+              </div>
+            </div>
+            <label class="field-label">Script partiel
+              <textarea id="i2vd-partial-script" rows="7" placeholder="S1 : &quot;Pourquoi tu étudies si dur, si jeune ?&quot;&#10;S2 : &quot;Je veux entrer à Harvard quand je serai grand.&quot;&#10;S1 : [complète une seconde question]&#10;S2 : [complète une réponse drôle]"></textarea>
+            </label>
+            <label class="field-label">Action après l’interview <small>facultatif</small>
+              <textarea id="i2vd-post-action" rows="3" placeholder="Ex. Le chaton baisse les yeux et écrit maladroitement avec son crayon géant jusqu’à la dernière frame."></textarea>
+            </label>
+            <p class="muted animal-interview-note">Les phrases entre guillemets sont verrouillées. Les blancs et indications entre crochets sont complétés lors du Brief. Par défaut, l’intervieweuse reste partiellement visible et floue sur le bord gauche.</p>
+          </div>
+          <div class="creative-axes-control" aria-describedby="i2vd-creative-summary">
+            <div class="creative-axes-heading"><b>Liberté créative</b><small>Autorisations indépendantes appliquées seulement si la scène paraît trop vide.</small></div>
+            <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="i2vd-creative-scene-life" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-scene-life-value">0</output></label>
+            <label><span>Caméra<small>Mouvements non demandés</small></span><input id="i2vd-creative-camera" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-camera-value">0</output></label>
+            <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="i2vd-creative-extra-motion" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-extra-motion-value">0</output></label>
+            <small id="i2vd-creative-summary" class="creative-axes-summary">0 aucun ajout · 1 subtil si utile · 2 enrichissement net · 3 plusieurs ajouts compatibles</small>
           </div>
         </section>
         <p id="i2vd-setup-message" class="error" role="alert" hidden></p>
@@ -1293,6 +1323,46 @@
             <div id="i2vd-prompt-lint" class="prompt-lint"><small>Le mode d’entrée et la grammaire H3 seront contrôlés après génération.</small></div>
             <section id="i2vd-prompt-references" class="prompt-reference-copy" aria-label="Noms des images de référence" hidden></section>
             <div class="rewrite-box"><label for="i2vd-prompt-instruction">Demander une modification ciblée</label><div><input id="i2vd-prompt-instruction" type="text" placeholder="Ex. Garde les actions mais rends le mouvement de caméra plus discret." disabled><button id="i2vd-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
+            <section id="h3r-lab" class="h3-render-lab" hidden>
+              <div class="h3-render-heading">
+                <div><small>COMFYUI · H3 LATENT SPEED</small><h3>Créer et ajuster la vidéo</h3><p>Les frames, le mode d’entrée et le prompt sont repris automatiquement.</p></div>
+                <span id="h3r-status" class="run-status active">Prêt</span>
+              </div>
+              <div id="h3r-warnings" class="h3-render-warnings" hidden></div>
+              <details class="h3-render-prompt">
+                <summary>Prompt utilisé pour le prochain rendu</summary>
+                <textarea id="h3r-prompt" rows="10" aria-label="Prompt H3 du prochain rendu"></textarea>
+              </details>
+              <div class="h3-render-settings">
+                <label>Ratio<select id="h3r-ratio"></select></label>
+                <label>Mégapixels<input id="h3r-megapixels" type="number" min="0.1" max="16" step="0.1"></label>
+                <label>Durée<input id="h3r-duration" type="number" min="5" max="15" step="0.1"></label>
+                <label>Steps<input id="h3r-steps" type="number" min="1" max="100" step="1"></label>
+                <label class="h3-render-seed">Seed<input id="h3r-seed" type="text" inputmode="numeric"><span><input id="h3r-seed-lock" type="checkbox"> Réutiliser</span></label>
+                <label class="h3-render-music"><span>Musique</span><select id="h3r-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
+              </div>
+              <div class="h3-render-actions">
+                <button id="h3r-render" class="primary" type="button">Lancer un rendu</button>
+                <button id="h3r-cancel" type="button" disabled>Annuler</button>
+                <small id="h3r-mode">Mode en attente</small>
+              </div>
+              <div class="h3-render-preview-grid">
+                <figure><figcaption>Preview live</figcaption><div class="h3-render-media"><img id="h3r-live-preview" alt="Preview H3 live" hidden><span id="h3r-live-empty">En attente du rendu ComfyUI.</span></div></figure>
+                <figure><figcaption>Dernière vidéo</figcaption><div class="h3-render-media"><video id="h3r-final-video" controls playsinline hidden></video><span id="h3r-final-empty">Aucun rendu.</span></div></figure>
+              </div>
+              <section class="h3-render-conversation">
+                <div class="section-title"><h3>Ajuster avec le LLM</h3><small>Un seul appel réécrit directement le prompt final.</small></div>
+                <div id="h3r-turns" class="h3-render-turns"><p class="muted">Le premier échange apparaîtra ici.</p></div>
+                <label>Votre retour<textarea id="h3r-message" rows="3" placeholder="Ex. La seconde action commence trop tard ; garde la caméra mais avance-la de deux secondes."></textarea></label>
+                <label class="debug-reasoning-option"><input id="h3r-reasoning" type="checkbox"><span><b>Afficher la trace modèle</b><small>Debug uniquement.</small></span></label>
+                <button id="h3r-refine" class="primary" type="button">Ajuster le prompt</button>
+                <pre id="h3r-trace" class="h3-render-trace" hidden></pre>
+              </section>
+              <section class="h3-render-history">
+                <div class="section-title"><h3>Essais de cette vidéo</h3><small>Keyframes prises avec une marge autour des coupes.</small></div>
+                <div id="h3r-attempts" class="h3-render-attempts"><p class="muted">Aucun essai.</p></div>
+              </section>
+            </section>
           </div>
         </details>
       </section>
@@ -1517,16 +1587,12 @@
         <section>
           <h2>Intention simple</h2>
           <textarea id="ref2vd-intention" rows="8" placeholder="Ex. À partir de ces références, crée un plan continu où le personnage traverse la pièce, prend l’objet puis se retourne vers la caméra." required></textarea>
-          <div class="freedom-control direct-freedom-control">
-            <label for="ref2vd-freedom"><b>Liberté créative</b><small>Agit sur le Brief ; son effet sur le Plan et le prompt final est indirect.</small></label>
-            <select id="ref2vd-freedom" aria-describedby="ref2vd-freedom-label">
-              <option value="0" data-description="N’ajoute aucun détail absent des entrées.">Factuel strict</option>
-              <option value="35" data-description="Seulement des liaisons minimales et évidentes." selected>Conservateur</option>
-              <option value="50" data-description="Quelques propositions cinématographiques compatibles.">Équilibré</option>
-              <option value="80" data-description="Enrichit caméra, rythme et ambiance sans contredire les contraintes.">Cinématographique</option>
-              <option value="100" data-description="Propose librement des détails compatibles et les signale comme libertés.">Exploratoire</option>
-            </select>
-            <small id="ref2vd-freedom-label" class="freedom-mode-description">Seulement des liaisons minimales et évidentes.</small>
+          <div class="creative-axes-control" aria-describedby="ref2vd-creative-summary">
+            <div class="creative-axes-heading"><b>Liberté créative</b><small>Autorisations indépendantes appliquées seulement si la scène paraît trop vide.</small></div>
+            <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="ref2vd-creative-scene-life" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-scene-life-value">0</output></label>
+            <label><span>Caméra<small>Mouvements non demandés</small></span><input id="ref2vd-creative-camera" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-camera-value">0</output></label>
+            <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="ref2vd-creative-extra-motion" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-extra-motion-value">0</output></label>
+            <small id="ref2vd-creative-summary" class="creative-axes-summary">0 aucun ajout · 1 subtil si utile · 2 enrichissement net · 3 plusieurs ajouts compatibles</small>
           </div>
         </section>
         <p id="ref2vd-mode-warning" class="warning" role="status" hidden></p>

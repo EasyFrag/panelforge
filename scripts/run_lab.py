@@ -15,6 +15,7 @@ sys.path.insert(0, str(SRC_ROOT))
 
 from panelforge.application import (
     ChangeViewRunner,
+    H3RenderService,
     Krea2AssistedService,
     Krea2BatchService,
     Krea2EditService,
@@ -36,11 +37,13 @@ from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
     Krea2T2IRecipe,
     VideoLabPresetRecipe,
+    H3RenderPresetRecipe,
     load_change_view_preset,
     load_krea2_batch_workflow,
     load_krea2_edit_workflow,
     load_krea2_t2i_workflow,
     load_video_lab_workflow,
+    load_h3_render_workflow,
 )
 from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
@@ -51,6 +54,7 @@ from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationE
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
+    LocalH3RenderProjectStore,
     LocalKrea2AssistedProjectStore,
     LocalLlmCallStore,
     LocalKrea2BatchStore,
@@ -85,6 +89,13 @@ KREA2_PRESET_DIRECTORY = (
     / "krea2"
     / "0.1.0"
 )
+H3_RENDER_WORKFLOW_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "video.generate.h3-base"
+    / "minimax-h3-latent-speed"
+    / "0.1.0"
+)
 KREA2_BATCH_WORKFLOW_DIRECTORY = (
     PROJECT_ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"
 )
@@ -116,6 +127,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime-timeout", type=float, default=2.0)
     parser.add_argument("--run-timeout", type=float, default=600.0)
     parser.add_argument("--video-run-timeout", type=float, default=3600.0)
+    parser.add_argument("--h3-render-run-timeout", type=float, default=3600.0)
     parser.add_argument("--krea2-run-timeout", type=float, default=3600.0)
     parser.add_argument("--krea2-batch-run-timeout", type=float, default=3600.0)
     parser.add_argument("--krea2-edit-run-timeout", type=float, default=3600.0)
@@ -195,6 +207,9 @@ def build_app(args: argparse.Namespace):
     video_recipe = VideoLabPresetRecipe(
         load_video_lab_workflow(VIDEO_PRESET_DIRECTORY)
     )
+    h3_render_recipe = H3RenderPresetRecipe(
+        load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY)
+    )
     krea2_recipe = Krea2T2IRecipe(
         load_krea2_t2i_workflow(KREA2_PRESET_DIRECTORY)
     )
@@ -203,6 +218,7 @@ def build_app(args: argparse.Namespace):
     assets = LocalAssetStore(args.workspace)
     runs = LocalRunStore(args.workspace)
     video_runs = LocalVideoRunStore(args.workspace)
+    h3_render_projects = LocalH3RenderProjectStore(args.workspace)
     krea2_runs = LocalKrea2RunStore(args.workspace)
     krea2_batches = LocalKrea2BatchStore(args.workspace)
     krea2_assisted_projects = LocalKrea2AssistedProjectStore(args.workspace)
@@ -224,6 +240,11 @@ def build_app(args: argparse.Namespace):
     krea2_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-krea2-lab-{uuid4().hex}",
+        timeout=args.http_timeout,
+    )
+    h3_render_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-h3-render-{uuid4().hex}",
         timeout=args.http_timeout,
     )
     krea2_batch_comfy = ComfyHttpClient(
@@ -376,6 +397,18 @@ def build_app(args: argparse.Namespace):
         application_outcomes=gateway,
         assets=assets,
     )
+    h3_render = H3RenderService(
+        gateway=gateway,
+        workflow=h3_render_recipe,
+        comfy=h3_render_comfy,
+        assets=assets,
+        projects=h3_render_projects,
+        sessions=prompt_sessions,
+        compositions=prompt_compositions,
+        application_outcomes=gateway,
+        run_timeout=getattr(args, "h3_render_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+    )
     storyboard_lab = StoryboardLabService(
         gateway=gateway,
         recipes=LocalStoryboardRecipeCatalog(PROJECT_ROOT / "storyboard_recipes"),
@@ -387,6 +420,7 @@ def build_app(args: argparse.Namespace):
         prompt_lab=prompt_lab,
         prompt_composition=prompt_composition,
         video_lab=video_lab,
+        h3_render=h3_render,
         krea2_lab=krea2_lab,
         krea2_batch=krea2_batch,
         krea2_edit=krea2_edit,

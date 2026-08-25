@@ -109,7 +109,7 @@ def _visual_prose(content: str) -> str:
     return _DIALOGUE_BLOCK_RE.sub("", content)
 
 
-def _normalize_h3_base_model_labels(
+def normalize_h3_base_model_labels(
     content: str,
     mode: H3BaseInputMode,
 ) -> str:
@@ -293,7 +293,7 @@ def compile_direct_fl2va_document(
     *,
     allow_dialogue_placeholders: bool = False,
 ) -> str:
-    editable = _normalize_h3_base_model_labels(editable, context.mode)
+    editable = normalize_h3_base_model_labels(editable, context.mode)
     body = insert_camera_owned_direct_i2v_clauses(
         editable,
         context.placements,
@@ -442,6 +442,7 @@ __all__ = [
     "direct_h3_base_reference_mapping",
     "encode_direct_fl2va_context",
     "lint_direct_fl2va_prompt",
+    "normalize_h3_base_model_labels",
     "requested_h3_base_duration_ms",
     "rehydrate_direct_fl2va_document",
 ]

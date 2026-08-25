@@ -18,13 +18,19 @@ from panelforge.application.direct_fl2va_multishot_prompt import (
     lint_direct_fl2va_multishot_prompt,
     rehydrate_direct_fl2va_multishot_document,
 )
-from panelforge.application.direct_fl2va_prompt import H3BaseInputMode
+from panelforge.application.direct_fl2va_prompt import (
+    H3BaseInputMode,
+    normalize_h3_base_model_labels,
+)
 from panelforge.domain import (
+    BriefReferenceSnapshot,
     BriefRevision,
     CompositionStage,
     CookbookBinding,
     PromptLabSession,
+    PromptReference,
     PromptSessionMode,
+    ReferenceUse,
     RevisionOrigin,
 )
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
@@ -179,6 +185,52 @@ class H3BaseMultiShotTest(unittest.TestCase):
             writer_body(),
         )
 
+    def test_fl2va_compiler_allows_canonical_picture_anchors_in_body(self):
+        canonical = canonical_direct_fl2va_multishot_plan(
+            json.dumps(multishot_plan()),
+            expected_dialogues=("Bonsoir",),
+        )
+        plan = parse_direct_fl2va_multishot_plan(canonical)
+        context = DirectFL2VAMultiShotCompilerContext(
+            mode=H3BaseInputMode.FL2VA,
+            shot_starts_ms=plan.shot_starts_ms,
+            shot_cameras=(None, None),
+            opening_compositions=(
+                "Exact lock to Picture 1 at 0.00 seconds",
+                "A wider throne-room view begins",
+            ),
+            final_state_description=(
+                "The final composition settles exactly onto Picture 2"
+            ),
+            final_state_start_ms=plan.final_state_start_ms,
+            duration_ms=plan.duration_ms,
+            dialogue_cues=plan.dialogue_cues,
+        )
+
+        compiled = compile_direct_fl2va_multishot_document(writer_body(), context)
+
+        self.assertEqual(lint_direct_fl2va_multishot_prompt(compiled, context), ())
+        self.assertEqual(compiled.count("Picture 1"), 2)
+        self.assertEqual(compiled.count("Picture 2"), 2)
+        self.assertNotIn("<Image", compiled)
+
+    def test_h3_base_label_normalization_is_mode_aware_and_preserves_dialogue(self):
+        source = (
+            "Exact lock to <Image 1>, then land on @image 2. "
+            "<d>[English] Keep <Image 1> exactly.</d>"
+        )
+        self.assertEqual(
+            normalize_h3_base_model_labels(source, H3BaseInputMode.FL2VA),
+            (
+                "Exact lock to Picture 1, then land on Picture 2. "
+                "<d>[English] Keep <Image 1> exactly.</d>"
+            ),
+        )
+        self.assertEqual(
+            normalize_h3_base_model_labels("Land on <Image 1>", H3BaseInputMode.L2VA),
+            "Land on <Picture 1>",
+        )
+
     def test_headers_attach_last_frame_to_last_shot(self):
         self.assertEqual(compile_h3_base_multishot_header(H3BaseInputMode.T2VA, 8000, 3), "")
         self.assertIn(
@@ -273,6 +325,103 @@ class H3BaseMultiShotTest(unittest.TestCase):
                 ),
                 True,
             )
+
+    def test_service_canonicalizes_plan_image_aliases_for_the_compiled_fl2va_body(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = LocalAssetStore(directory)
+            first_asset = assets.create(b"first", "image/png")
+            last_asset = assets.create(b"last", "image/png")
+            references = (
+                PromptReference(
+                    "reference-first",
+                    first_asset.asset_id,
+                    "first_frame",
+                    "first.png",
+                    uses=(ReferenceUse.FIRST_FRAME,),
+                ),
+                PromptReference(
+                    "reference-last",
+                    last_asset.asset_id,
+                    "last_frame",
+                    "last.png",
+                    uses=(ReferenceUse.LAST_FRAME,),
+                ),
+            )
+            session = PromptLabSession(
+                session_id="base-multi-labels",
+                model_id="vision-model",
+                profile_id="minimax.h3.fl2va.direct.multishot",
+                profile_version="0.1.0",
+                references=references,
+                session_mode=PromptSessionMode.H3_BASE,
+            )
+            brief = BriefRevision(
+                revision_id="brief-labels",
+                source_text="Relier exactement la première et la dernière frame.",
+                content="Brief compact multi-plan sans dialogue.",
+                creative_freedom=35,
+                origin=RevisionOrigin.MODEL,
+                references=tuple(
+                    BriefReferenceSnapshot(
+                        reference.reference_id,
+                        None,
+                        reference.uses,
+                    )
+                    for reference in references
+                ),
+            )
+            sessions = LocalPromptSessionStore(directory)
+            sessions.create(session.add_brief_revision(brief).approve_brief())
+
+            class LabelGateway(Gateway):
+                def complete(self, request):
+                    self.requests.append(request)
+                    if request.operation_id == "action_plan.generate":
+                        plan = multishot_plan()
+                        plan["dialogue_cues"] = []
+                        plan["shots"][0]["opening_composition"] = (
+                            "Exact lock to <Image 1> at 0.00 seconds"
+                        )
+                        plan["final_state"]["description"] = (
+                            "The final composition settles exactly onto <Image 2>"
+                        )
+                        content = json.dumps(plan)
+                    else:
+                        content = writer_body().replace(
+                            " [[dialogue:dialogue_1]]",
+                            "",
+                        )
+                    return CompletionResult(
+                        model_id=request.model_id,
+                        content=content,
+                        call_id=f"call-{len(self.requests)}",
+                    )
+
+            gateway = LabelGateway()
+            service = PromptCompositionService(
+                gateway=gateway,
+                cookbooks=LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks"),
+                sessions=sessions,
+                compositions=LocalPromptCompositionStore(directory),
+                assets=assets,
+            )
+            service.configure(
+                session.session_id,
+                "minimax.h3.fl2va.direct.multishot",
+                "0.1.0",
+                (
+                    CookbookBinding("first_frame", ("reference-first",)),
+                    CookbookBinding("last_frame", ("reference-last",)),
+                ),
+            )
+            service.generate(session.session_id, CompositionStage.BEAT_SHEET)
+            service.approve(session.session_id, CompositionStage.BEAT_SHEET)
+            final = service.generate(session.session_id, CompositionStage.FINAL_PROMPT)
+            content = final.final_prompt.active_revision.content
+
+            self.assertNotIn("<Image", content)
+            self.assertEqual(content.count("Picture 1"), 2)
+            self.assertEqual(content.count("Picture 2"), 2)
 
 
 if __name__ == "__main__":

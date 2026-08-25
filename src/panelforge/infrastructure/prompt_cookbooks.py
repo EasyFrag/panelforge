@@ -249,6 +249,7 @@ class LocalPromptCookbookCatalog:
             "compact_multishot_dialogue_v1",
             "compact_multishot_v1",
             "compact_multishot_v2_camera_owned",
+            "animal_interview_v1",
         }:
             raise ValueError(f"invalid writer projection: {writer_projection}")
         visibility = (

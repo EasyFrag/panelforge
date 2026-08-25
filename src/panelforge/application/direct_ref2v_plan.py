@@ -1120,6 +1120,22 @@ def direct_ref2v_writer_plan_v4_camera_clean(content: str) -> str:
     return json.dumps(writer_value, ensure_ascii=False, indent=2)
 
 
+def direct_ref2v_animal_interview_writer_plan(content: str) -> str:
+    """Project interview visuals without exposing application-owned speech text."""
+
+    plan = parse_direct_ref2v_action_plan_v4(content)
+    writer_value = json.loads(direct_ref2v_writer_plan_v4_camera_clean(content))
+    writer_value["dialogue_cues"] = [
+        {
+            "cue_id": cue.cue_id,
+            "speaker_id": cue.speaker_id,
+            "start_ms": cue.start_ms,
+        }
+        for cue in plan.dialogue_cues
+    ]
+    return json.dumps(writer_value, ensure_ascii=False, indent=2)
+
+
 _EXPLICIT_DIALOGUE_PATTERNS = (
     re.compile(r"«\s*([^«»\r\n]+?)\s*»"),
     re.compile(r"“\s*([^“”\r\n]+?)\s*”"),
@@ -1172,7 +1188,12 @@ def validate_expected_dialogues(
 ) -> None:
     """Keep source-owned quotations immutable across manual plan edits."""
 
-    plan = parse_direct_ref2v_action_plan_v3(content)
+    raw = _json_object(content)
+    plan = (
+        parse_direct_ref2v_action_plan_v4(content)
+        if "motion_contract" in raw
+        else parse_direct_ref2v_action_plan_v3(content)
+    )
     planned = tuple(cue.text for cue in plan.dialogue_cues[: len(expected_dialogues)])
     if planned != expected_dialogues:
         raise ValueError(
@@ -1489,7 +1510,17 @@ def _straight_quote_looks_like_json(
 ) -> bool:
     before = source_text[: span[0]].rstrip()
     after = source_text[span[1] :].lstrip()
-    return before.endswith(":") or after.startswith(":")
+    if after.startswith(":"):
+        return True
+    if not before.endswith(":"):
+        return False
+    line_prefix = before.rsplit("\n", 1)[-1]
+    return bool(
+        re.search(
+            r'(?:^|[{,])\s*"[^"\r\n]+"\s*:\s*$',
+            line_prefix,
+        )
+    )
 
 
 def _recover_overlapping_camera_directives(value: dict[str, object]) -> None:

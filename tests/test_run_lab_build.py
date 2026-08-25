@@ -132,10 +132,16 @@ class RunLabBuildTest(unittest.TestCase):
                 app = run_lab.build_app(args)
                 with TestClient(app) as client:
                     spec = client.get("/api/image-lab/krea2/spec")
+                    h3_render_spec = client.get("/api/h3-render/spec")
                     history = client.get("/api/image-lab/krea2/runs?limit=1")
 
             self.assertEqual(spec.status_code, 200)
             self.assertEqual(spec.json()["defaults"]["model_id"], DEFAULT_MODEL)
+            self.assertEqual(h3_render_spec.status_code, 200)
+            self.assertEqual(
+                h3_render_spec.json()["recipe"]["workflow_sha256"],
+                "b7527b1b9ef5b3cee661c81440274b096652a35d54e36a1f5001b5d75dacac0c",
+            )
             self.assertNotIn("preview_ws_url", spec.json())
             self.assertEqual(len(BuildProjectExporter.instances), 1)
             self.assertEqual(
@@ -150,8 +156,16 @@ class RunLabBuildTest(unittest.TestCase):
                 BuildCreationExporter.instances[0].root,
                 Path(r"D:\AI\PanelForge\KREA2 Creations").resolve(),
             )
-            self.assertEqual(len(BuildComfyClient.instances), 7)
+            self.assertEqual(len(BuildComfyClient.instances), 8)
             clients = {client.client_id: client for client in BuildComfyClient.instances}
+            h3_render_ids = [
+                client_id
+                for client_id in clients
+                if client_id.startswith("panelforge-h3-render-")
+            ]
+            self.assertEqual(len(h3_render_ids), 1)
+            self.assertEqual(clients[h3_render_ids[0]].timeout, 12.0)
+            self.assertTrue((Path(workspace) / "h3_render_projects").is_dir())
             krea2_ids = [
                 client_id
                 for client_id in clients

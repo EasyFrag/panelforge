@@ -15,6 +15,7 @@ from panelforge.domain import (
     AnalysisRevision,
     BriefReferenceSnapshot,
     BriefRevision,
+    CreativeFreedomAxes,
     InterpretationRevision,
     PromptLabSession,
     PromptReference,
@@ -26,7 +27,14 @@ from panelforge.domain import (
 )
 
 from .revised_documents import RevisedDocumentContract, strip_markdown_fence
-from .direct_ref2v_plan import explicit_dialogue_ledger
+from .direct_ref2v_plan import explicit_dialogue_ledger, extract_explicit_dialogues
+
+
+_H3_BASE_PROFILE_IDS = {
+    "minimax.h3.fl2va.direct",
+    "minimax.h3.base.animal-interview",
+}
+_ANIMAL_INTERVIEW_PROFILE_ID = "minimax.h3.base.animal-interview"
 
 
 _OBSERVATION_LEGACY_CONTRACT = RevisedDocumentContract(
@@ -432,7 +440,7 @@ class PromptLabService:
                 raise ValueError(
                     "I2V Direct requires the image role and use first_frame"
                 )
-        if profile.profile_id == "minimax.h3.fl2va.direct":
+        if profile.profile_id in _H3_BASE_PROFILE_IDS:
             if len(references) > 2:
                 raise ValueError("H3 Base accepts at most a first and a last frame")
             roles = [reference.role for reference in references]
@@ -852,18 +860,20 @@ class PromptLabService:
         session_id: str,
         source_text: str,
         creative_freedom: int,
+        creative_axes: CreativeFreedomAxes | None = None,
     ) -> PromptLabSession:
         session = self.sessions.get(session_id)
         profile = self._profile(session)
         system_prompt, user_prompt = _brief_prompts(profile)
         context, snapshots = _brief_inputs(session)
+        freedom, axes = _creative_settings(creative_freedom, creative_axes)
         result = self.gateway.complete(
             CompletionRequest(
                 model_id=session.model_id,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt.format(
-                    creative_freedom=_creative_freedom(creative_freedom),
-                    creative_policy=_creative_policy(creative_freedom),
+                    creative_freedom=freedom,
+                    creative_policy=_creative_policy(freedom, axes),
                     reference_context=context,
                     source_text=_required_text(source_text, "source_text"),
                     dialogue_ledger=explicit_dialogue_ledger(source_text),
@@ -876,7 +886,8 @@ class PromptLabService:
             session,
             source_text=source_text,
             content=_normalize_brief_document(_completed_content(result)),
-            creative_freedom=creative_freedom,
+            creative_freedom=freedom,
+            creative_axes=axes,
             references=snapshots,
             origin=RevisionOrigin.MODEL,
         )
@@ -887,18 +898,20 @@ class PromptLabService:
         source_text: str,
         creative_freedom: int,
         *,
+        creative_axes: CreativeFreedomAxes | None = None,
         include_reasoning: bool = False,
     ) -> Iterator[PromptLabStreamEvent]:
         session = self.sessions.get(session_id)
         profile = self._profile(session)
         system_prompt, user_prompt = _brief_prompts(profile)
         context, snapshots = _brief_inputs(session)
+        freedom, axes = _creative_settings(creative_freedom, creative_axes)
         request = CompletionRequest(
             model_id=session.model_id,
             system_prompt=system_prompt,
             user_prompt=user_prompt.format(
-                creative_freedom=_creative_freedom(creative_freedom),
-                creative_policy=_creative_policy(creative_freedom),
+                creative_freedom=freedom,
+                creative_policy=_creative_policy(freedom, axes),
                 reference_context=context,
                 source_text=_required_text(source_text, "source_text"),
                 dialogue_ledger=explicit_dialogue_ledger(source_text),
@@ -913,7 +926,8 @@ class PromptLabService:
                 session,
                 source_text=source_text,
                 content=_normalize_brief_document(content),
-                creative_freedom=creative_freedom,
+                creative_freedom=freedom,
+                creative_axes=axes,
                 references=snapshots,
                 origin=RevisionOrigin.MODEL,
             ),
@@ -930,6 +944,7 @@ class PromptLabService:
             source_text=current.source_text,
             content=_normalize_brief_document(_required_text(content, "content")),
             creative_freedom=current.creative_freedom,
+            creative_axes=current.creative_axes,
             references=snapshots,
             origin=RevisionOrigin.MANUAL,
         )
@@ -950,7 +965,10 @@ class PromptLabService:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt.format(
                     creative_freedom=current.creative_freedom,
-                    creative_policy=_creative_policy(current.creative_freedom),
+                    creative_policy=_creative_policy(
+                        current.creative_freedom,
+                        current.creative_axes,
+                    ),
                     reference_context=context,
                     source_text=current.source_text,
                     dialogue_ledger=explicit_dialogue_ledger(current.source_text),
@@ -966,6 +984,7 @@ class PromptLabService:
             source_text=current.source_text,
             content=_normalize_brief_document(_completed_content(result)),
             creative_freedom=current.creative_freedom,
+            creative_axes=current.creative_axes,
             references=snapshots,
             origin=RevisionOrigin.REWRITE,
             instruction=instruction,
@@ -988,7 +1007,10 @@ class PromptLabService:
             system_prompt=system_prompt,
             user_prompt=user_prompt.format(
                 creative_freedom=current.creative_freedom,
-                creative_policy=_creative_policy(current.creative_freedom),
+                creative_policy=_creative_policy(
+                    current.creative_freedom,
+                    current.creative_axes,
+                ),
                 reference_context=context,
                 source_text=current.source_text,
                 dialogue_ledger=explicit_dialogue_ledger(current.source_text),
@@ -1006,6 +1028,7 @@ class PromptLabService:
                 source_text=current.source_text,
                 content=_normalize_brief_document(content),
                 creative_freedom=current.creative_freedom,
+                creative_axes=current.creative_axes,
                 references=snapshots,
                 origin=RevisionOrigin.REWRITE,
                 instruction=instruction,
@@ -1022,6 +1045,7 @@ class PromptLabService:
         source_text: str,
         creative_freedom: int,
         *,
+        creative_axes: CreativeFreedomAxes | None = None,
         legacy_plan: bool = False,
     ) -> PromptLabSession:
         """Persist and approve a deterministic Brief capsule without an LLM call."""
@@ -1029,7 +1053,7 @@ class PromptLabService:
         session = self.sessions.get(session_id)
         exact_source_text = _required_text(source_text, "source_text")
         intention = _inline_text(exact_source_text)
-        freedom = _creative_freedom(creative_freedom)
+        freedom, axes = _creative_settings(creative_freedom, creative_axes)
         _, snapshots = _brief_inputs(session)
         reference_lines = []
         for picture_index, reference in enumerate(session.references, 1):
@@ -1039,7 +1063,7 @@ class PromptLabService:
                 + ", ".join(use.value for use in reference.uses)
                 + f"; evidence_policy={reference.evidence_policy.value}."
             )
-        policy = creative_freedom_policy(freedom)
+        policy = creative_freedom_policy(freedom, axes)
         camera_instruction = (
             "Choose the minimum sufficient two-to-six-shot hard-cut sequence; "
             "keep typed camera motion optional and continuity-safe."
@@ -1090,6 +1114,7 @@ class PromptLabService:
             source_text=exact_source_text,
             content=_normalize_brief_document(content),
             creative_freedom=freedom,
+            creative_axes=axes,
             references=snapshots,
             origin=RevisionOrigin.MANUAL,
         )
@@ -1179,15 +1204,19 @@ class PromptLabService:
         source_text: str,
         content: str,
         creative_freedom: int,
+        creative_axes: CreativeFreedomAxes | None = None,
         references: tuple[BriefReferenceSnapshot, ...],
         origin: RevisionOrigin,
         instruction: str | None = None,
     ) -> PromptLabSession:
+        if session.profile_id == _ANIMAL_INTERVIEW_PROFILE_ID:
+            _validate_animal_interview_brief(source_text, content)
         revision = BriefRevision(
             revision_id=f"brief-{uuid4().hex}",
             source_text=source_text,
             content=content,
             creative_freedom=creative_freedom,
+            creative_axes=creative_axes,
             origin=origin,
             references=references,
             parent_revision_id=session.active_brief_revision_id,
@@ -1263,6 +1292,27 @@ def _normalize_brief_document(content: str) -> str:
             candidate = candidate[1:].strip()
         lines.append(f"- {candidate}" if candidate in _BRIEF_HEADINGS else line)
     return _BRIEF_CONTRACT.extract("\n".join(lines))
+
+
+def _validate_animal_interview_brief(source_text: str, content: str) -> None:
+    """Keep supplied quotes verbatim and require a usable completed exchange."""
+
+    source_dialogues = extract_explicit_dialogues(source_text)
+    completed_dialogues = extract_explicit_dialogues(content)
+    if len(completed_dialogues) < 2 or len(completed_dialogues) % 2:
+        raise ValueError(
+            "animal interview brief must contain complete question/answer pairs "
+            "as quoted dialogue"
+        )
+    cursor = 0
+    for exact_text in source_dialogues:
+        try:
+            cursor = completed_dialogues.index(exact_text, cursor) + 1
+        except ValueError as error:
+            raise ValueError(
+                "animal interview brief must preserve every quoted source line "
+                "verbatim and in order"
+            ) from error
 
 
 def _brief_revision_prompts(profile: PromptProfile) -> tuple[str, str]:
@@ -1419,21 +1469,88 @@ def _creative_freedom(value: int) -> int:
     return value
 
 
-def _creative_policy(value: int) -> str:
-    return creative_freedom_policy(value)
+def _creative_policy(
+    value: int,
+    axes: CreativeFreedomAxes | None = None,
+) -> str:
+    return creative_freedom_policy(value, axes)
 
 
-def creative_freedom_policy(value: int) -> str:
+def creative_axes_from_legacy(value: int) -> CreativeFreedomAxes:
     value = _creative_freedom(value)
-    if value <= 20:
-        return "Factuel strict : n'ajoute aucun détail absent des entrées."
-    if value <= 40:
-        return "Conservateur : seulement des liaisons minimales et évidentes."
-    if value <= 60:
-        return "Équilibré : quelques propositions cinématographiques compatibles."
-    if value <= 80:
-        return "Cinématographique : enrichis caméra, rythme et ambiance sans contredire les contraintes."
-    return "Exploratoire : propose librement des détails compatibles et marque-les comme libertés."
+    level = 0 if value <= 20 else 1 if value <= 45 else 2 if value <= 70 else 3
+    return CreativeFreedomAxes(level, level, level)
+
+
+def creative_freedom_from_axes(axes: CreativeFreedomAxes) -> int:
+    if not isinstance(axes, CreativeFreedomAxes):
+        raise TypeError("axes must be CreativeFreedomAxes")
+    anchors = (0, 35, 65, 90)
+    return round(
+        sum(
+            anchors[level]
+            for level in (axes.scene_life, axes.camera, axes.extra_motion)
+        )
+        / 3
+    )
+
+
+def _creative_settings(
+    value: int,
+    axes: CreativeFreedomAxes | None,
+) -> tuple[int, CreativeFreedomAxes]:
+    if axes is None:
+        freedom = _creative_freedom(value)
+        return freedom, creative_axes_from_legacy(freedom)
+    if not isinstance(axes, CreativeFreedomAxes):
+        raise TypeError("creative_axes must be CreativeFreedomAxes or None")
+    return creative_freedom_from_axes(axes), axes
+
+
+def creative_freedom_policy(
+    value: int,
+    axes: CreativeFreedomAxes | None = None,
+) -> str:
+    value = _creative_freedom(value)
+    resolved = axes or creative_axes_from_legacy(value)
+    legacy_band = (
+        "Factuel strict"
+        if value <= 20
+        else "Conservateur"
+        if value <= 40
+        else "Équilibré"
+        if value <= 60
+        else "Cinématographique"
+        if value <= 80
+        else "Exploratoire"
+    )
+    scene = (
+        "n'ajoute aucune animation d'arrière-plan",
+        "peut ajouter un micro-mouvement naturel d'arrière-plan si la scène paraît vide",
+        "peut animer un ou deux éléments compatibles du décor",
+        "peut enrichir plusieurs éléments compatibles du décor et de l'ambiance",
+    )[resolved.scene_life]
+    camera = (
+        "n'ajoute aucun mouvement de caméra non demandé",
+        "peut ajouter un mouvement de caméra subtil si le plan en bénéficie",
+        "peut choisir un mouvement de caméra clairement perceptible et compatible",
+        "peut composer plusieurs mouvements de caméra compatibles si le rythme le justifie",
+    )[resolved.camera]
+    motion = (
+        "n'ajoute aucun mouvement de sujet ou d'objet non demandé",
+        "peut ajouter un micro-mouvement secondaire naturel si l'action paraît figée",
+        "peut ajouter un mouvement secondaire compatible au sujet ou à un objet",
+        "peut ajouter plusieurs mouvements secondaires compatibles sans créer un nouvel événement narratif",
+    )[resolved.extra_motion]
+    return (
+        f"{legacy_band}. Ces niveaux sont des autorisations, jamais des quotas : "
+        "n'enrichis que les "
+        "moments trop vides ou trop lents, sans contredire les frames, l'intention, "
+        "les dialogues ni la continuité physique. "
+        f"Vie de la scène {resolved.scene_life}/3 : {scene}. "
+        f"Caméra {resolved.camera}/3 : {camera}. "
+        f"Mouvements additionnels {resolved.extra_motion}/3 : {motion}."
+    )
 
 
 def _inline_text(value: str) -> str:

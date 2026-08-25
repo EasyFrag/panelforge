@@ -41,8 +41,10 @@ from .direct_i2v_prompt import (
     I2VA_FIELDS as DIRECT_I2VA_FIELDS,
     I2VA_FIXED_INSTRUCTION,
     apply_direct_i2v_timing,
+    compile_animal_interview_dialogue_cues,
     compile_direct_i2v_dialogue_cues,
     insert_camera_owned_direct_i2v_clauses,
+    lint_animal_interview_action_plan,
     normalize_direct_i2v_camera_placeholders,
     rehydrate_camera_owned_direct_i2v_document,
     rehydrate_direct_i2v_editable_document,
@@ -57,6 +59,7 @@ from .direct_fl2va_prompt import (
     direct_h3_base_reference_mapping,
     encode_direct_fl2va_context,
     lint_direct_fl2va_prompt,
+    normalize_h3_base_model_labels,
     requested_h3_base_duration_ms,
     rehydrate_direct_fl2va_document,
 )
@@ -95,6 +98,7 @@ from .direct_ref2v_plan import (
     direct_ref2v_action_plan_warnings_v2,
     direct_ref2v_action_plan_warnings_v3,
     direct_ref2v_action_plan_warnings_v4,
+    direct_ref2v_animal_interview_writer_plan,
     direct_ref2v_camera_directives,
     direct_ref2v_camera_directives_v2,
     direct_ref2v_camera_directives_v3,
@@ -275,14 +279,30 @@ _I2VA_DIRECT_CONTRACTS = {
 _FL2VA_DIRECT_CONTRACT = "minimax.h3.fl2va.direct_compact_h3_v1"
 _FL2VA_DIRECT_V2_CONTRACT = "minimax.h3.fl2va.direct_compact_h3_v2"
 _FL2VA_DIRECT_V3_CONTRACT = "minimax.h3.fl2va.direct_compact_h3_v3"
+_FL2VA_ANIMAL_INTERVIEW_V1_CONTRACT = (
+    "minimax.h3.fl2va.animal_interview_compact_h3_v1"
+)
+_FL2VA_ANIMAL_INTERVIEW_V2_CONTRACT = (
+    "minimax.h3.fl2va.animal_interview_compact_h3_v2"
+)
+_FL2VA_ANIMAL_INTERVIEW_CONTRACTS = {
+    _FL2VA_ANIMAL_INTERVIEW_V1_CONTRACT,
+    _FL2VA_ANIMAL_INTERVIEW_V2_CONTRACT,
+}
+_FL2VA_MOTION_CONTRACTS = {
+    _FL2VA_DIRECT_V3_CONTRACT,
+    *_FL2VA_ANIMAL_INTERVIEW_CONTRACTS,
+}
 _FL2VA_DIRECT_CONTRACTS = {
     _FL2VA_DIRECT_CONTRACT,
     _FL2VA_DIRECT_V2_CONTRACT,
     _FL2VA_DIRECT_V3_CONTRACT,
+    *_FL2VA_ANIMAL_INTERVIEW_CONTRACTS,
 }
 _FL2VA_DIRECT_DIALOGUE_CONTRACTS = {
     _FL2VA_DIRECT_V2_CONTRACT,
     _FL2VA_DIRECT_V3_CONTRACT,
+    *_FL2VA_ANIMAL_INTERVIEW_CONTRACTS,
 }
 _FL2VA_DIRECT_MULTISHOT_CONTRACT = (
     "minimax.h3.fl2va.direct_multishot_compact_h3_v1"
@@ -701,6 +721,10 @@ class PromptCompositionService:
             prefix,
             result.content,
             source_text=_approved_brief(session).source_text,
+            dialogue_source_text=_dialogue_source(
+                cookbook,
+                _approved_brief(session),
+            ),
         )
         return self._persist_if_current(
             session,
@@ -1027,7 +1051,8 @@ class PromptCompositionService:
                 ),
                 CREATIVE_FREEDOM=str(brief.creative_freedom),
                 CREATIVE_POLICY=creative_freedom_policy(
-                    brief.creative_freedom
+                    brief.creative_freedom,
+                    brief.creative_axes,
                 ),
             ),
             images=self._direct_reference_images(session, composition),
@@ -1315,7 +1340,9 @@ class PromptCompositionService:
         ):
             validate_expected_dialogues(
                 content,
-                extract_explicit_dialogues(_approved_brief(session).source_text),
+                extract_explicit_dialogues(
+                    _dialogue_source(cookbook, _approved_brief(session))
+                ),
             )
         if (
             cookbook.output_contract == _FL2VA_DIRECT_MULTISHOT_CONTRACT
@@ -1360,6 +1387,10 @@ class PromptCompositionService:
             prefix,
             revised,
             source_text=_approved_brief(session).source_text,
+            dialogue_source_text=_dialogue_source(
+                cookbook,
+                _approved_brief(session),
+            ),
         )
         return self._persist_if_current(
             session,
@@ -1648,7 +1679,7 @@ class PromptCompositionService:
                     else _direct_action_plan_schema(cookbook)
                 ),
                 DIALOGUE_LEDGER=explicit_dialogue_ledger(
-                    _approved_brief(session).source_text
+                    _dialogue_source(cookbook, _approved_brief(session))
                 ),
             ),
             images=self._direct_reference_images(
@@ -2160,10 +2191,13 @@ class PromptCompositionService:
                             if compact_base
                             else _direct_action_plan_schema(cookbook)
                         ),
-                        DIALOGUE_LEDGER=explicit_dialogue_ledger(brief.source_text),
+                        DIALOGUE_LEDGER=explicit_dialogue_ledger(
+                            _dialogue_source(cookbook, brief)
+                        ),
                         CREATIVE_FREEDOM=str(brief.creative_freedom),
                         CREATIVE_POLICY=creative_freedom_policy(
-                            brief.creative_freedom
+                            brief.creative_freedom,
+                            brief.creative_axes,
                         ),
                     ),
                 )
@@ -2525,7 +2559,7 @@ class PromptCompositionService:
                         cookbook.output_contract in _FL2VA_DIRECT_DIALOGUE_CONTRACTS
                     ),
                     motion_aware=(
-                        cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT
+                        cookbook.output_contract in _FL2VA_MOTION_CONTRACTS
                     ),
                 )
         if (
@@ -2561,7 +2595,7 @@ class PromptCompositionService:
                         cookbook.output_contract in _FL2VA_DIRECT_DIALOGUE_CONTRACTS
                     ),
                     motion_aware=(
-                        cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT
+                        cookbook.output_contract in _FL2VA_MOTION_CONTRACTS
                     ),
                     camera_clean=(
                         cookbook.writer_projection == "camera_clean_v4"
@@ -2577,14 +2611,24 @@ class PromptCompositionService:
                 else apply_direct_ref2v_timing_v2(content, action_plan.content)
             )
             if cookbook.output_contract in _FL2VA_DIRECT_DIALOGUE_CONTRACTS:
-                content, _ = compile_direct_i2v_dialogue_cues(
-                    content,
-                    action_plan.content,
-                    contract_name="H3 Base",
-                    motion_aware=(
-                        cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT
-                    ),
-                )
+                if cookbook.output_contract in _FL2VA_ANIMAL_INTERVIEW_CONTRACTS:
+                    content, _ = compile_animal_interview_dialogue_cues(
+                        content,
+                        action_plan.content,
+                        juvenile_animal_voice=(
+                            cookbook.output_contract
+                            == _FL2VA_ANIMAL_INTERVIEW_V2_CONTRACT
+                        ),
+                    )
+                else:
+                    content, _ = compile_direct_i2v_dialogue_cues(
+                        content,
+                        action_plan.content,
+                        contract_name="H3 Base",
+                        motion_aware=(
+                            cookbook.output_contract in _FL2VA_MOTION_CONTRACTS
+                        ),
+                    )
                 content = normalize_dialogue_language_tags(content)
         if stage is CompositionStage.FINAL_PROMPT and cookbook.output_contract in {
             _I2VA_CANONICAL_CONTRACT,
@@ -2835,6 +2879,10 @@ class PromptCompositionService:
                         prefix,
                         result_content,
                         source_text=_approved_brief(initial_session).source_text,
+                        dialogue_source_text=_dialogue_source(
+                            cookbook,
+                            _approved_brief(initial_session),
+                        ),
                     )
                     if validate_content is not None:
                         validate_content(content)
@@ -2990,9 +3038,11 @@ def lint_cookbook_document(
         return (f"Stage {stage.value} does not belong to this cookbook.",)
     if cookbook.output_contract in _FL2VA_DIRECT_CONTRACTS:
         if stage is CompositionStage.BEAT_SHEET:
+            if cookbook.output_contract in _FL2VA_ANIMAL_INTERVIEW_CONTRACTS:
+                return lint_animal_interview_action_plan(content)
             return (
                 lint_direct_ref2v_action_plan_v4(content)
-                if cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT
+                if cookbook.output_contract in _FL2VA_MOTION_CONTRACTS
                 else (
                     lint_direct_ref2v_action_plan_v3(content)
                     if cookbook.output_contract == _FL2VA_DIRECT_V2_CONTRACT
@@ -3431,7 +3481,7 @@ def composition_document_warnings(
         if stage is CompositionStage.BEAT_SHEET:
             return (
                 direct_ref2v_action_plan_warnings_v4(content)
-                if cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT
+                if cookbook.output_contract in _FL2VA_MOTION_CONTRACTS
                 else (
                     direct_ref2v_action_plan_warnings_v3(content)
                     if cookbook.output_contract == _FL2VA_DIRECT_V2_CONTRACT
@@ -3966,6 +4016,16 @@ def _approved_brief(session: PromptLabSession):
     return session.active_brief_revision
 
 
+def _dialogue_source(cookbook: PromptCookbookPort, brief) -> str:
+    """Use the completed interview script only for the dedicated recipe."""
+
+    return (
+        brief.content
+        if cookbook.output_contract in _FL2VA_ANIMAL_INTERVIEW_CONTRACTS
+        else brief.source_text
+    )
+
+
 def _approved_stage(
     composition: PromptComposition,
     stage: CompositionStage,
@@ -4308,7 +4368,7 @@ def _direct_fl2va_compiler_context(
         ),
     )
     dialogue_aware = cookbook.output_contract in _FL2VA_DIRECT_DIALOGUE_CONTRACTS
-    motion_aware = cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT
+    motion_aware = cookbook.output_contract in _FL2VA_MOTION_CONTRACTS
     if motion_aware:
         plan = parse_direct_ref2v_action_plan_v4(plan_revision.content)
     elif dialogue_aware:
@@ -4355,7 +4415,17 @@ def _direct_fl2va_multishot_compiler_context(
         composition_picture_mapping(composition),
     )
     cameras = tuple(
-        shot.camera.directive(number) if shot.camera is not None else None
+        (
+            replace(
+                shot.camera.directive(number),
+                target_clause=normalize_h3_base_model_labels(
+                    shot.camera.target_clause or "",
+                    mode,
+                ),
+            )
+            if shot.camera is not None
+            else None
+        )
         for number, shot in enumerate(plan.shots, 1)
     )
     return encode_direct_fl2va_multishot_context(
@@ -4364,9 +4434,13 @@ def _direct_fl2va_multishot_compiler_context(
             shot_starts_ms=plan.shot_starts_ms,
             shot_cameras=cameras,
             opening_compositions=tuple(
-                shot.opening_composition for shot in plan.shots
+                normalize_h3_base_model_labels(shot.opening_composition, mode)
+                for shot in plan.shots
             ),
-            final_state_description=plan.final_state.description,
+            final_state_description=normalize_h3_base_model_labels(
+                plan.final_state.description,
+                mode,
+            ),
             final_state_start_ms=plan.final_state_start_ms,
             duration_ms=plan.duration_ms,
             dialogue_cues=plan.dialogue_cues,
@@ -4901,6 +4975,7 @@ def _compile_content_with_context(
     result: str,
     *,
     source_text: str | None = None,
+    dialogue_source_text: str | None = None,
 ) -> tuple[str, str | None]:
     content = _compile_content(
         cookbook,
@@ -4908,6 +4983,7 @@ def _compile_content_with_context(
         prefix,
         result,
         source_text=source_text,
+        dialogue_source_text=dialogue_source_text,
     )
     if (
         stage is CompositionStage.BEAT_SHEET
@@ -4923,7 +4999,7 @@ def _compile_content_with_context(
                     cookbook.output_contract in _FL2VA_DIRECT_DIALOGUE_CONTRACTS
                 ),
                 motion_aware=(
-                    cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT
+                    cookbook.output_contract in _FL2VA_MOTION_CONTRACTS
                 ),
             )
             _raise_lint(cookbook, stage, content)
@@ -5030,6 +5106,7 @@ def _compile_content(
     result: str,
     *,
     source_text: str | None = None,
+    dialogue_source_text: str | None = None,
 ) -> str:
     body = (
         _normalize_super_fast_ref2v_body(result)
@@ -5149,7 +5226,7 @@ def _compile_content(
         }:
             recovery_options["recover_camera_overlaps"] = True
             recovery_options["expected_dialogues"] = extract_explicit_dialogues(
-                source_text or ""
+                dialogue_source_text if dialogue_source_text is not None else source_text or ""
             )
         content = canonicalizer(body, **recovery_options)
     elif (
@@ -5341,7 +5418,9 @@ def _writer_action_plan(cookbook: PromptCookbookPort, content: str) -> str:
             if cookbook.output_contract == _REF2V_DIRECT_MULTISHOT_V2_CONTRACT
             else direct_ref2v_multishot_writer_projection(content)
         )
-    if cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT:
+    if cookbook.output_contract in _FL2VA_ANIMAL_INTERVIEW_CONTRACTS:
+        return direct_ref2v_animal_interview_writer_plan(content)
+    if cookbook.output_contract in _FL2VA_MOTION_CONTRACTS:
         return (
             direct_ref2v_writer_plan_v4_camera_clean(content)
             if cookbook.writer_projection == "camera_clean_v4"
@@ -5381,7 +5460,7 @@ def _direct_action_plan_schema(cookbook: PromptCookbookPort) -> str:
             if cookbook.output_contract == _REF2V_DIRECT_MULTISHOT_V2_CONTRACT
             else direct_ref2v_multishot_plan_schema()
         )
-    if cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT:
+    if cookbook.output_contract in _FL2VA_MOTION_CONTRACTS:
         return direct_ref2v_action_plan_schema_v4()
     if cookbook.output_contract == _FL2VA_DIRECT_V2_CONTRACT:
         return direct_ref2v_action_plan_schema_v3()
@@ -5401,7 +5480,7 @@ def _direct_action_plan_canonicalizer(cookbook: PromptCookbookPort):
             if cookbook.output_contract == _REF2V_DIRECT_MULTISHOT_V2_CONTRACT
             else canonical_direct_ref2v_multishot_plan
         )
-    if cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT:
+    if cookbook.output_contract in _FL2VA_MOTION_CONTRACTS:
         return canonical_direct_ref2v_action_plan_v4
     if cookbook.output_contract == _FL2VA_DIRECT_V2_CONTRACT:
         return canonical_direct_ref2v_action_plan_v3
@@ -5424,7 +5503,7 @@ def _parse_direct_arbitrable_plan(
             if cookbook.output_contract == _REF2V_DIRECT_MULTISHOT_V2_CONTRACT
             else parse_direct_ref2v_multishot_plan(content)
         )
-    if cookbook.output_contract == _FL2VA_DIRECT_V3_CONTRACT:
+    if cookbook.output_contract in _FL2VA_MOTION_CONTRACTS:
         return parse_direct_ref2v_action_plan_v4(content)
     if cookbook.output_contract == _FL2VA_DIRECT_V2_CONTRACT:
         return parse_direct_ref2v_action_plan_v3(content)

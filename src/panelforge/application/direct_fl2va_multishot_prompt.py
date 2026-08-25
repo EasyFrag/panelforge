@@ -337,14 +337,35 @@ def lint_direct_fl2va_multishot_prompt(
         for cue in _cues_for_shot(context, shot_number):
             if shot.count(_compiled_dialogue(cue, context.shot_starts_ms[shot_number - 1])) != 1:
                 errors.append(f"Le dialogue {cue.cue_id} manque ou est duplique.")
-    visual = re.sub(r"<d>.*?</d>", "", value, flags=re.DOTALL)
-    labels = [int(left or right) for left, right in _PICTURE.findall(visual)]
-    if context.mode is H3BaseInputMode.T2VA and labels:
-        errors.append("Le mode T2VA ne doit contenir aucun label Picture.")
-    if context.mode in {H3BaseInputMode.I2VA, H3BaseInputMode.L2VA} and labels != [1]:
-        errors.append("I2VA/L2VA doivent contenir exactement <Picture 1> dans le header.")
-    if context.mode is H3BaseInputMode.FL2VA and labels != [1, 2]:
-        errors.append("FL2VA doit contenir exactement Picture 1 puis Picture 2 dans le header.")
+    visual_body = re.sub(
+        r"<d>.*?</d>",
+        "",
+        "\n".join(parts.values()),
+        flags=re.DOTALL,
+    )
+    bracketed = list(re.finditer(r"<Picture\s+([0-9]+)>", visual_body, re.IGNORECASE))
+    plain = list(
+        re.finditer(r"(?<!<)\bPicture\s+([0-9]+)\b", visual_body, re.IGNORECASE)
+    )
+    if context.mode is H3BaseInputMode.T2VA:
+        if bracketed or plain:
+            errors.append("Le mode T2VA ne doit contenir aucun label Picture.")
+    elif context.mode in {H3BaseInputMode.I2VA, H3BaseInputMode.L2VA}:
+        if plain or any(
+            int(match.group(1)) != 1 or match.group(0) != "<Picture 1>"
+            for match in bracketed
+        ):
+            errors.append(
+                "I2VA/L2VA utilisent uniquement le label canonique <Picture 1>."
+            )
+    elif bracketed or any(
+        int(match.group(1)) not in {1, 2}
+        or match.group(0) != f"Picture {int(match.group(1))}"
+        for match in plain
+    ):
+        errors.append(
+            "FL2VA utilise uniquement les labels canoniques Picture 1 et Picture 2."
+        )
     errors.extend(
         issue.message
         for issue in lint_h3_prompt(

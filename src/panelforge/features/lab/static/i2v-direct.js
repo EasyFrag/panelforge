@@ -7,10 +7,12 @@
   const $ = (selector) => document.querySelector(selector);
   const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.1" };
   const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" };
+  const animalInterviewProfile = { id: "minimax.h3.base.animal-interview", version: "0.1.0" };
   const legacyProfileId = "minimax.h3.i2v.direct";
   const monoCookbookId = "minimax.h3.fl2va.direct";
   const multishotCookbookId = "minimax.h3.fl2va.direct.multishot";
-  const preferredCookbookKey = `${monoCookbookId}@0.2.0`;
+  const animalInterviewCookbookId = "minimax.h3.base.animal-interview";
+  const preferredCookbookKey = `${monoCookbookId}@${monoProfile.version}`;
 
   const state = {
     spec: null,
@@ -49,9 +51,23 @@
     lastUploadTitle: $("#i2vd-last-upload-title"),
     lastUploadCaption: $("#i2vd-last-upload-caption"),
     inputMode: $("#i2vd-input-mode"),
+    intentionTitle: $("#i2vd-intention-title"),
+    standardIntention: $("#i2vd-standard-intention"),
     intention: $("#i2vd-intention"),
-    freedom: $("#i2vd-freedom"),
-    freedomLabel: $("#i2vd-freedom-label"),
+    animalFields: $("#i2vd-animal-interview-fields"),
+    animal: $("#i2vd-animal"),
+    environment: $("#i2vd-environment"),
+    dialogueLanguage: $("#i2vd-dialogue-language"),
+    duration: $("#i2vd-duration"),
+    durationGuide: $("#i2vd-duration-guide"),
+    partialScript: $("#i2vd-partial-script"),
+    postAction: $("#i2vd-post-action"),
+    creativeSceneLife: $("#i2vd-creative-scene-life"),
+    creativeSceneLifeValue: $("#i2vd-creative-scene-life-value"),
+    creativeCamera: $("#i2vd-creative-camera"),
+    creativeCameraValue: $("#i2vd-creative-camera-value"),
+    creativeExtraMotion: $("#i2vd-creative-extra-motion"),
+    creativeExtraMotionValue: $("#i2vd-creative-extra-motion-value"),
     start: $("#i2vd-start"),
     setupMessage: $("#i2vd-setup-message"),
     quickMode: $("#i2vd-quick-mode"),
@@ -155,8 +171,9 @@
   }
 
   function profileReference(cookbook = state.cookbook) {
-    return cookbook && cookbook.id === multishotCookbookId
-      ? multishotProfile : monoProfile;
+    if (cookbook && cookbook.id === multishotCookbookId) return multishotProfile;
+    if (cookbook && cookbook.id === animalInterviewCookbookId) return animalInterviewProfile;
+    return monoProfile;
   }
 
   function selectedProfile(cookbook = state.cookbook) {
@@ -168,7 +185,7 @@
 
   function directCookbooks() {
     return state.cookbooks.filter(
-      (item) => [monoCookbookId, multishotCookbookId].includes(item.id)
+      (item) => [monoCookbookId, multishotCookbookId, animalInterviewCookbookId].includes(item.id)
         && item.target_mode === "fl2va_direct",
     );
   }
@@ -183,7 +200,9 @@
         option.value = cookbookKey(cookbook);
         option.textContent = cookbook.id === multishotCookbookId
           ? `Multi-plan structuré · 2 à 4 plans (${cookbook.version})`
-          : `Mono-plan · standard (${cookbook.version})`;
+          : cookbook.id === animalInterviewCookbookId
+            ? `Mono-plan · interview d’animal (${cookbook.version})`
+            : `Mono-plan · standard (${cookbook.version})`;
         elements.cookbook.append(option);
       });
     state.cookbook = available.find(
@@ -208,9 +227,11 @@
         (item) => item.id === reference.id && item.version === reference.version,
       ) || null;
     }
-    const expectedId = session && session.profile
-      && session.profile.id === multishotProfile.id
-      ? multishotCookbookId : monoCookbookId;
+    const profileId = session && session.profile && session.profile.id;
+    const expectedId = profileId === multishotProfile.id
+      ? multishotCookbookId
+      : profileId === animalInterviewProfile.id
+        ? animalInterviewCookbookId : monoCookbookId;
     return directCookbooks().find((item) => item.id === expectedId)
       || null;
   }
@@ -256,7 +277,7 @@
     const sessions = (payload.sessions || []).filter(
       (item) => item.profile && (
         (item.session_mode === "h3_base"
-          && [monoProfile.id, multishotProfile.id].includes(item.profile.id))
+          && [monoProfile.id, multishotProfile.id, animalInterviewProfile.id].includes(item.profile.id))
         || (item.session_mode === "direct_multimodal" && item.profile.id === legacyProfileId)
       ),
     );
@@ -292,13 +313,98 @@
     return session && (session.references || []).find((item) => item.role === role) || null;
   }
 
+  function animalInterviewSelected(cookbook = state.cookbook) {
+    return Boolean(cookbook && cookbook.id === animalInterviewCookbookId);
+  }
+
+  function animalInterviewSourceText() {
+    const action = elements.postAction.value.trim() || "Choose one minimal species-appropriate action that continues through the final frame.";
+    return [
+      "PANELFORGE_ANIMAL_INTERVIEW_V1",
+      `LANGUAGE: ${elements.dialogueLanguage.value}`,
+      `TARGET DURATION: ${elements.duration.value} seconds`,
+      `INTERVIEWED ANIMAL: ${elements.animal.value.trim()}`,
+      `ENVIRONMENT: ${elements.environment.value.trim()}`,
+      "INTERVIEWER FRAMING: Partially visible at the far left edge in softly blurred side profile, with shoulder, hand and microphone visible; her mouth remains secondary and out of focus, and the animal remains the sharp primary subject.",
+      "PARTIAL SCRIPT:",
+      elements.partialScript.value.trim(),
+      "POST-INTERVIEW ACTION:",
+      action,
+    ].join("\n");
+  }
+
+  function currentSourceText() {
+    return animalInterviewSelected() ? animalInterviewSourceText() : elements.intention.value.trim();
+  }
+
+  function countAnimalInterviewReplies(script) {
+    const value = String(script || "");
+    const labeledReplies = value.split(/\r?\n/).filter(
+      (line) => /^\s*(?:S[12]|intervieweuse|interviewer|animal|chaton|kitten)\s*[:\-]/i.test(line),
+    ).length;
+    if (labeledReplies) return labeledReplies;
+    return (value.match(/["“][^"”\n]+["”]/g) || []).length;
+  }
+
+  function renderAnimalInterviewDurationGuide(visible) {
+    elements.durationGuide.hidden = !visible;
+    if (!visible) return;
+    const replyCount = countAnimalInterviewReplies(elements.partialScript.value);
+    if (!replyCount) {
+      elements.durationGuide.classList.remove("tight");
+      elements.durationGuide.textContent = "Ajoutez des répliques pour estimer la durée.";
+      return;
+    }
+    const selectedDuration = Number(elements.duration.value);
+    const recommendedDuration = replyCount * 4;
+    const tight = Number.isFinite(selectedDuration) && selectedDuration < recommendedDuration;
+    const selectedLabel = Number.isInteger(selectedDuration)
+      ? String(selectedDuration) : selectedDuration.toFixed(1);
+    elements.durationGuide.classList.toggle("tight", tight);
+    elements.durationGuide.textContent = tight
+      ? `${replyCount} réplique${replyCount > 1 ? "s" : ""} · ${selectedLabel} s choisies · ${recommendedDuration} s conseillées`
+      : `${replyCount} réplique${replyCount > 1 ? "s" : ""} · durée conseillée : ${recommendedDuration} s`;
+  }
+
+  function resetAnimalInterviewInputs() {
+    elements.animal.value = "";
+    elements.environment.value = "";
+    elements.dialogueLanguage.value = "French";
+    elements.duration.value = "14";
+    elements.partialScript.value = "";
+    elements.postAction.value = "";
+  }
+
+  function hydrateSourceInputs(sourceText) {
+    const source = (sourceText || "").trim();
+    if (!source.startsWith("PANELFORGE_ANIMAL_INTERVIEW_V1\n")) {
+      elements.intention.value = source;
+      return;
+    }
+    const scalar = (label, fallback = "") => {
+      const match = source.match(new RegExp(`^${label}:\\s*(.+)$`, "m"));
+      return match ? match[1].trim() : fallback;
+    };
+    elements.dialogueLanguage.value = scalar("LANGUAGE", "French") === "English" ? "English" : "French";
+    elements.duration.value = scalar("TARGET DURATION", "14 seconds").replace(/\s*seconds?\s*$/i, "") || "14";
+    elements.animal.value = scalar("INTERVIEWED ANIMAL");
+    elements.environment.value = scalar("ENVIRONMENT");
+    const scriptMatch = source.match(/PARTIAL SCRIPT:\n([\s\S]*?)\nPOST-INTERVIEW ACTION:\n([\s\S]*)$/);
+    elements.partialScript.value = scriptMatch ? scriptMatch[1].trim() : "";
+    const postAction = scriptMatch ? scriptMatch[2].trim() : "";
+    elements.postAction.value = postAction.startsWith("Choose one minimal species-appropriate action") ? "" : postAction;
+    elements.intention.value = "";
+  }
+
   function sessionInputModeLabel(session) {
     const first = Boolean(referenceForRole(session, "first_frame"));
     const last = Boolean(referenceForRole(session, "last_frame"));
-    if (first && last) return "Première + dernière frame · FL2VA";
-    if (first) return "Première frame · I2VA";
-    if (last) return "Dernière frame · L2VA";
-    return "Texte seul · T2VA";
+    const prefix = session && session.profile
+      && session.profile.id === animalInterviewProfile.id ? "Interview animal · " : "";
+    if (first && last) return `${prefix}Première + dernière frame · FL2VA`;
+    if (first) return `${prefix}Première frame · I2VA`;
+    if (last) return `${prefix}Dernière frame · L2VA`;
+    return `${prefix}Texte seul · T2VA`;
   }
 
   function currentInputModeLabel() {
@@ -359,12 +465,16 @@
       selectModel(session.model_id);
       showReferencePreview("first", referenceForRole(session, "first_frame"), "Première frame de ce parcours");
       showReferencePreview("last", referenceForRole(session, "last_frame"), "Dernière frame de ce parcours");
+      resetAnimalInterviewInputs();
       if (session.active_brief) {
-        elements.intention.value = session.active_brief.source_text || "";
-        setFreedom(session.active_brief.creative_freedom ?? 35);
+        hydrateSourceInputs(session.active_brief.source_text || "");
+        setCreativeAxes(
+          session.active_brief.creative_axes,
+          session.active_brief.creative_freedom ?? 35,
+        );
       } else {
         elements.intention.value = "";
-        setFreedom(35);
+        setCreativeAxes(null, 0);
       }
     } catch (error) {
       if (requestId === state.openRequestId) showSetupMessage(error.message);
@@ -395,8 +505,9 @@
     showReferencePreview("first", referenceForRole(source, "first_frame"), "Première frame réutilisée");
     showReferencePreview("last", referenceForRole(source, "last_frame"), "Dernière frame réutilisée");
     const brief = source.active_brief;
-    elements.intention.value = brief ? brief.source_text || "" : "";
-    setFreedom(brief ? brief.creative_freedom ?? 35 : 35);
+    resetAnimalInterviewInputs();
+    hydrateSourceInputs(brief ? brief.source_text || "" : "");
+    setCreativeAxes(brief && brief.creative_axes, brief ? brief.creative_freedom ?? 35 : 0);
     elements.quickMode.checked = false;
     clearStageDrafts();
     showSetupMessage("");
@@ -429,7 +540,13 @@
   function setupValidationError() {
     if (!selectedProfile() || !state.cookbook) return "Le profil Direct est encore en cours de chargement.";
     if (!elements.model.value) return "Choisissez un modèle multimodal.";
-    if (!elements.intention.value.trim()) return "Décrivez votre intention.";
+    if (animalInterviewSelected()) {
+      if (!elements.animal.value.trim()) return "Décrivez l’animal interviewé.";
+      if (!elements.environment.value.trim()) return "Décrivez l’environnement.";
+      const duration = Number(elements.duration.value);
+      if (!Number.isFinite(duration) || duration < 4 || duration > 30) return "La durée doit être comprise entre 4 et 30 secondes.";
+      if (!elements.partialScript.value.trim()) return "Ajoutez un script, même incomplet.";
+    } else if (!elements.intention.value.trim()) return "Décrivez votre intention.";
     return "";
   }
 
@@ -491,40 +608,55 @@
     if (created && quickRequested) await runQuickMode();
   }
 
-  function freedomMode(value) {
-    if (value <= 20) return ["Factuel strict", "N’ajoute aucun détail absent des entrées."];
-    if (value <= 40) return ["Conservateur", "Seulement des liaisons minimales et évidentes."];
-    if (value <= 60) return ["Équilibré", "Quelques propositions cinématographiques compatibles."];
-    if (value <= 80) return ["Cinématographique", "Enrichit caméra, rythme et ambiance sans contredire les contraintes."];
-    return ["Exploratoire", "Propose librement des détails compatibles et les signale comme libertés."];
+  function legacyCreativeLevel(value) {
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized)) return 1;
+    return normalized <= 20 ? 0 : normalized <= 45 ? 1 : normalized <= 70 ? 2 : 3;
   }
 
-  function setFreedom(value) {
-    const parsed = Number(value);
-    const normalized = Number.isInteger(parsed) && parsed >= 0 && parsed <= 100 ? parsed : 35;
-    const previousLegacy = elements.freedom.querySelector("option[data-legacy-freedom]");
-    if (previousLegacy) previousLegacy.remove();
-    const exactOption = [...elements.freedom.options].find((option) => Number(option.value) === normalized);
-    if (!exactOption) {
-      const [label, description] = freedomMode(normalized);
-      const legacyOption = document.createElement("option");
-      legacyOption.value = String(normalized);
-      legacyOption.dataset.legacyFreedom = "true";
-      legacyOption.dataset.description = description;
-      legacyOption.textContent = `${label} · valeur historique ${normalized}/100`;
-      elements.freedom.append(legacyOption);
-    }
-    elements.freedom.value = String(normalized);
-    updateFreedom();
+  function currentCreativeAxes() {
+    return {
+      scene_life: Number(elements.creativeSceneLife.value),
+      camera: Number(elements.creativeCamera.value),
+      extra_motion: Number(elements.creativeExtraMotion.value),
+    };
   }
 
-  function updateFreedom() {
-    const selected = elements.freedom.selectedOptions[0];
-    const legacyOption = elements.freedom.querySelector("option[data-legacy-freedom]");
-    if (legacyOption && legacyOption !== selected) legacyOption.remove();
-    const [, fallback] = freedomMode(Number(elements.freedom.value));
-    elements.freedomLabel.textContent = selected && selected.dataset.description
-      ? selected.dataset.description : fallback;
+  function creativeAggregate(axes = currentCreativeAxes()) {
+    const anchors = [0, 35, 65, 90];
+    return Math.round((anchors[axes.scene_life] + anchors[axes.camera] + anchors[axes.extra_motion]) / 3);
+  }
+
+  function setCreativeAxes(axes, legacyFreedom = 35) {
+    const fallback = legacyCreativeLevel(legacyFreedom);
+    const resolved = axes || { scene_life: fallback, camera: fallback, extra_motion: fallback };
+    elements.creativeSceneLife.value = String(resolved.scene_life ?? fallback);
+    elements.creativeCamera.value = String(resolved.camera ?? fallback);
+    elements.creativeExtraMotion.value = String(resolved.extra_motion ?? fallback);
+    updateCreativeAxes();
+  }
+
+  function updateCreativeAxes() {
+    elements.creativeSceneLifeValue.value = elements.creativeSceneLife.value;
+    elements.creativeCameraValue.value = elements.creativeCamera.value;
+    elements.creativeExtraMotionValue.value = elements.creativeExtraMotion.value;
+  }
+
+  function creativeAxesMatch(brief) {
+    if (!brief) return false;
+    const expected = brief.creative_axes || (() => {
+      const level = legacyCreativeLevel(brief.creative_freedom ?? 35);
+      return { scene_life: level, camera: level, extra_motion: level };
+    })();
+    const current = currentCreativeAxes();
+    return expected.scene_life === current.scene_life
+      && expected.camera === current.camera
+      && expected.extra_motion === current.extra_motion;
+  }
+
+  function creativePayload() {
+    const creative_axes = currentCreativeAxes();
+    return { creative_freedom: creativeAggregate(creative_axes), creative_axes };
   }
 
   function interactionLocked() {
@@ -535,8 +667,8 @@
   function currentBriefInputs() {
     const brief = state.session && state.session.active_brief;
     return Boolean(brief
-      && (brief.source_text || "").trim() === elements.intention.value.trim()
-      && Number(brief.creative_freedom) === Number(elements.freedom.value));
+      && (brief.source_text || "").trim() === currentSourceText()
+      && creativeAxesMatch(brief));
   }
 
   function generatedDocument(documentState) {
@@ -641,8 +773,18 @@
     elements.refreshModels.disabled = locked;
     elements.refreshSessions.disabled = locked;
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
-    elements.intention.disabled = locked;
-    elements.freedom.disabled = locked;
+    const animalRecipe = animalInterviewSelected(activeCookbook || state.cookbook);
+    elements.intentionTitle.textContent = animalRecipe ? "Interview guidée" : "Intention simple";
+    elements.standardIntention.hidden = animalRecipe;
+    elements.animalFields.hidden = !animalRecipe;
+    renderAnimalInterviewDurationGuide(animalRecipe);
+    elements.intention.disabled = locked || animalRecipe;
+    for (const control of [elements.animal, elements.environment, elements.dialogueLanguage, elements.duration, elements.partialScript, elements.postAction]) {
+      control.disabled = locked || !animalRecipe;
+    }
+    for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
+      control.disabled = locked;
+    }
     elements.showReasoning.disabled = locked;
     elements.newSession.hidden = !session && !state.forkSource;
     elements.newSession.disabled = locked || Boolean(state.openingSessionId);
@@ -650,14 +792,15 @@
     elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
     if (!session) {
       elements.promptReferences.hidden = true;
+      emitH3RenderContext(null, null, false);
       return;
     }
 
     renderDock();
     const brief = session.active_brief;
     const briefInputsCurrent = !brief || (
-      (brief.source_text || "").trim() === elements.intention.value.trim()
-      && Number(brief.creative_freedom) === Number(elements.freedom.value)
+      (brief.source_text || "").trim() === currentSourceText()
+      && creativeAxesMatch(brief)
     );
     const documents = state.composition ? state.composition.documents || {} : {};
     const plan = documents.beat_sheet || null;
@@ -693,6 +836,21 @@
     setChip(elements.chips.prompt, promptState.ready, planState.ready && !promptState.ready);
     elements.copyPrompt.disabled = locked || !promptState.ready;
     renderPromptReferences(prompt);
+    emitH3RenderContext(
+      session,
+      prompt,
+      Boolean(generatedDocument(prompt) && !promptState.draft),
+    );
+  }
+
+  function emitH3RenderContext(session, prompt, ready) {
+    window.dispatchEvent(new CustomEvent("panelforge:h3-base-context", {
+      detail: {
+        session_id: session ? session.id : null,
+        prompt_revision_id: prompt ? prompt.active_revision_id : null,
+        ready: Boolean(ready),
+      },
+    }));
   }
 
   function renderDock() {
@@ -761,7 +919,7 @@
       : brief && !inputsCurrent ? "Intention modifiée" : brief ? "À valider" : "À générer";
     elements.brief.review.className = `review-pill ${ready ? "approved" : "pending"}`;
     const locked = interactionLocked();
-    elements.brief.generate.disabled = locked || !elements.intention.value.trim();
+    elements.brief.generate.disabled = locked || Boolean(setupValidationError());
     elements.brief.content.disabled = locked;
     elements.brief.save.disabled = locked || !brief || !draft || !elements.brief.content.value.trim();
     elements.brief.approve.disabled = locked || !brief || complete || draft || !inputsCurrent;
@@ -984,7 +1142,7 @@
   async function streamBrief(revision) {
     const payload = revision
       ? { instruction: elements.brief.instruction.value.trim() }
-      : { source_text: elements.intention.value.trim(), creative_freedom: Number(elements.freedom.value) };
+      : { source_text: currentSourceText(), ...creativePayload() };
     const completed = await streamResult(
       `/api/prompt-lab/sessions/${state.session.id}/brief/${revision ? "revise" : "structure"}/stream`,
       payload,
@@ -1292,7 +1450,8 @@
     showReferencePreview("first", null, "");
     showReferencePreview("last", null, "");
     elements.intention.value = "";
-    setFreedom(35);
+    resetAnimalInterviewInputs();
+    setCreativeAxes(null, 0);
     elements.quickMode.checked = false;
     clearStageDrafts();
     showSetupMessage("");
@@ -1314,8 +1473,14 @@
     render();
   });
   elements.intention.addEventListener("input", render);
+  for (const control of [elements.animal, elements.environment, elements.duration, elements.partialScript, elements.postAction]) {
+    control.addEventListener("input", render);
+  }
+  elements.dialogueLanguage.addEventListener("change", render);
   elements.model.addEventListener("change", render);
-  elements.freedom.addEventListener("change", () => { updateFreedom(); render(); });
+  for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
+    control.addEventListener("input", () => { updateCreativeAxes(); render(); });
+  }
   elements.newSession.addEventListener("click", resetSession);
   elements.forkSession.addEventListener("click", prepareFork);
   elements.quickResume.addEventListener("click", runQuickMode);
@@ -1369,7 +1534,7 @@
     }
   });
 
-  updateFreedom();
+  updateCreativeAxes();
   render();
   initialize();
 })();

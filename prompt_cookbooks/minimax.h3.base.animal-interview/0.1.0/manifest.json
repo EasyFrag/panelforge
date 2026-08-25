@@ -1,0 +1,57 @@
+{
+  "schema_version": 7,
+  "cookbook_id": "minimax.h3.base.animal-interview",
+  "version": "0.1.0",
+  "display_name": "H3 Base · interview d’animal",
+  "description": "Mono-plan T2VA/I2VA/L2VA/FL2VA avec dialogue alterné, intervalles de parole compilés et action finale continue.",
+  "target_mode": "fl2va_direct",
+  "output_contract": "minimax.h3.fl2va.animal_interview_compact_h3_v1",
+  "preset": "h3-base-animal-interview-v1",
+  "stages": ["beat_sheet", "final_prompt"],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "drop_with_warning",
+  "writer_projection": "animal_interview_v1",
+  "visibility": "public",
+  "execution_mode": "supervised",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/base-en.txt"
+  ],
+  "engine_contract": {"id": "minimax.h3.protocol", "version": "0.1.0"},
+  "slots": [
+    {
+      "id": "first_frame",
+      "label": "Première frame",
+      "description": "Frame exacte facultative à 0,00 seconde.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": ["first_frame"],
+      "required_uses": ["first_frame"],
+      "required_shots": [],
+      "minimum_references": 0,
+      "maximum_references": 1
+    },
+    {
+      "id": "last_frame",
+      "label": "Dernière frame",
+      "description": "Frame exacte facultative à l’instant final.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": ["last_frame"],
+      "required_uses": ["last_frame"],
+      "required_shots": [],
+      "minimum_references": 0,
+      "maximum_references": 1
+    }
+  ],
+  "templates": {
+    "beat_sheet_system": "action_plan.system.txt",
+    "beat_sheet_user": "action_plan.user.txt",
+    "beat_sheet_reconcile_system": "action_plan_reconcile.system.txt",
+    "beat_sheet_reconcile_user": "action_plan_reconcile.user.txt",
+    "final_prompt_system": "final_prompt.system.txt",
+    "final_prompt_user": "final_prompt.user.txt",
+    "revision_system": "revision.system.txt",
+    "revision_user": "revision.user.txt"
+  }
+}

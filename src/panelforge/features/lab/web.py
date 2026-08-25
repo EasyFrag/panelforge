@@ -25,12 +25,14 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from panelforge.application import (
     ChangeViewRunRequest,
     ChangeViewRunner,
     CompositionStreamEvent,
+    H3RenderService,
+    H3RenderStreamEvent,
     Krea2AssistedService,
     Krea2AssistedStreamEvent,
     Krea2LabRunRequest,
@@ -54,12 +56,15 @@ from panelforge.application import (
     VideoLabRunRequest,
     VideoLabRunner,
     composition_picture_mapping,
+    creative_axes_from_legacy,
     parse_krea2_assisted_recipe_draft,
 )
 from panelforge.domain import (
     CompositionStage,
     ControlKind,
     CookbookBinding,
+    CreativeFreedomAxes,
+    H3RenderProject,
     Krea2AssistedProject,
     Krea2AssistedTurnMode,
     Krea2AspectRatio,
@@ -149,9 +154,23 @@ class ReferenceUsesBody(BaseModel):
     uses: list[str]
 
 
+class CreativeAxesBody(BaseModel):
+    scene_life: int = Field(ge=0, le=3)
+    camera: int = Field(ge=0, le=3)
+    extra_motion: int = Field(ge=0, le=3)
+
+    def domain_value(self) -> CreativeFreedomAxes:
+        return CreativeFreedomAxes(
+            scene_life=self.scene_life,
+            camera=self.camera,
+            extra_motion=self.extra_motion,
+        )
+
+
 class BriefStructureBody(BaseModel):
     source_text: str
-    creative_freedom: int
+    creative_freedom: int = Field(default=35, ge=0, le=100)
+    creative_axes: CreativeAxesBody | None = None
 
 
 class PromptSessionForkBody(BaseModel):
@@ -173,7 +192,8 @@ class PlanArbitrationBody(BaseModel):
 
 class SuperFastRef2VBody(BaseModel):
     source_text: str
-    creative_freedom: int
+    creative_freedom: int = Field(default=35, ge=0, le=100)
+    creative_axes: CreativeAxesBody | None = None
 
 
 class StoryboardCreateBody(BaseModel):
@@ -322,6 +342,26 @@ class Krea2AssistedRecipePublishBody(BaseModel):
     draft: Krea2AssistedRecipeDraftBody | None = None
 
 
+class H3RenderChatBody(BaseModel):
+    message: str
+    feedback_attempt_id: str | None = None
+
+
+class H3RenderAttemptBody(BaseModel):
+    prompt: str
+    aspect_ratio: str
+    megapixels: float
+    duration_seconds: float
+    steps: int
+    seed: str | int | None = None
+    seed_locked: bool = False
+    music_enabled: bool = False
+
+
+class H3RenderFeedbackBody(BaseModel):
+    attempt_id: str | None = None
+
+
 _STORYBOARD_RECIPE_ID = "krea2.storyboard.from_text"
 _STORYBOARD_RECIPE_VERSION = "0.1.0"
 
@@ -332,6 +372,7 @@ def create_app(
     prompt_lab: PromptLabService | None = None,
     prompt_composition: PromptCompositionService | None = None,
     video_lab: VideoLabRunner | None = None,
+    h3_render: H3RenderService | None = None,
     storyboard_lab: StoryboardLabService | None = None,
     krea2_lab: Krea2LabRunner | None = None,
     krea2_batch: Krea2BatchService | None = None,
@@ -1958,6 +1999,201 @@ def create_app(
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.get("/api/h3-render/spec")
+    def h3_render_spec() -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        presets = [
+            {
+                "id": preset.preset_id,
+                "label": preset.label,
+                "aspect_ratio": preset.aspect_ratio.value,
+                "megapixels": preset.megapixels,
+                "duration_seconds": preset.duration_seconds,
+                "steps": preset.steps,
+            }
+            for preset in service.workflow.presets.values()
+        ]
+        return {
+            "operation_id": service.workflow.reference.operation_id,
+            "recipe": {
+                "id": service.workflow.reference.recipe_id,
+                "version": service.workflow.reference.version,
+                "workflow_sha256": service.workflow.reference.workflow_sha256,
+                "status": service.workflow.status,
+            },
+            "presets": presets,
+            "defaults": presets[0],
+            "aspect_ratios": [ratio.value for ratio in VideoAspectRatio],
+            "megapixels": [0.3, 0.6, 1.0, 1.2],
+            "fps": 24,
+            "limits": {
+                "megapixels": {"minimum": 0.1, "maximum": 16.0, "step": 0.1},
+                "duration_seconds": {"minimum": 5.0, "maximum": 15.0},
+                "steps": {"minimum": 1, "maximum": 100},
+                "keyframes": {"maximum": service.workflow.maximum_keyframes},
+            },
+        }
+
+    @app.post(
+        "/api/h3-render/projects/from-session/{session_id}",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_h3_render_project(session_id: str) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            return {"project": serialize_h3_render_project(service.get_or_create_from_session(session_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="H3 Base session not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/h3-render/projects/{project_id}")
+    def get_h3_render_project(project_id: str) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            return {"project": serialize_h3_render_project(service.get(project_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="H3 render project not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/h3-render/projects/{project_id}/chat/stream")
+    def stream_h3_render_chat(
+        project_id: str,
+        body: H3RenderChatBody,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        service = _require_h3_render(h3_render)
+        return _h3_render_stream_response(service.stream_chat(
+            project_id,
+            body.message,
+            feedback_attempt_id=body.feedback_attempt_id,
+            include_reasoning=include_reasoning,
+        ))
+
+    @app.post(
+        "/api/h3-render/projects/{project_id}/attempts",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def prepare_h3_render_attempt(
+        project_id: str,
+        body: H3RenderAttemptBody,
+    ) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            seed = _parse_json_seed(body.seed)
+            project = service.prepare_attempt(
+                project_id,
+                prompt=body.prompt,
+                settings=VideoLabSettings(
+                    aspect_ratio=VideoAspectRatio(body.aspect_ratio),
+                    megapixels=body.megapixels,
+                    duration_seconds=body.duration_seconds,
+                    steps=body.steps,
+                    seed=service.new_seed() if seed is None else seed,
+                    seed_locked=body.seed_locked,
+                ),
+                music_enabled=body.music_enabled,
+            )
+            return {"project": serialize_h3_render_project(project)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="H3 render project not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/h3-render/projects/{project_id}/attempts/{attempt_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def start_h3_render_attempt(
+        project_id: str,
+        attempt_id: str,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            project = service.queue_attempt(project_id, attempt_id)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="H3 render project or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        background_tasks.add_task(service.execute_attempt, project_id, attempt_id)
+        return {"project": serialize_h3_render_project(project)}
+
+    @app.post("/api/h3-render/projects/{project_id}/attempts/{attempt_id}/cancel")
+    def cancel_h3_render_attempt(project_id: str, attempt_id: str) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            return {"project": serialize_h3_render_project(service.cancel_attempt(project_id, attempt_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="H3 render project or attempt not found") from error
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/h3-render/projects/{project_id}/attempts/{attempt_id}/resume")
+    def resume_h3_render_attempt(project_id: str, attempt_id: str) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            return {"project": serialize_h3_render_project(service.resume_attempt(project_id, attempt_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="H3 render project or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/h3-render/projects/{project_id}/feedback")
+    def select_h3_render_feedback(
+        project_id: str,
+        body: H3RenderFeedbackBody,
+    ) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            return {"project": serialize_h3_render_project(service.select_feedback(project_id, body.attempt_id))}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="H3 render project or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.websocket("/api/h3-render/projects/{project_id}/attempts/{attempt_id}/events")
+    async def h3_render_events(websocket: WebSocket, project_id: str, attempt_id: str) -> None:
+        if h3_render is None:
+            await websocket.close(code=4403, reason="H3 renderer is not configured")
+            return
+        try:
+            h3_render.get(project_id).attempt(attempt_id)
+        except (KeyError, FileNotFoundError, ValueError):
+            await websocket.close(code=4404, reason="H3 render attempt not found")
+            return
+        upstream_url = getattr(h3_render.comfy, "websocket_url", None)
+        if not isinstance(upstream_url, str) or not upstream_url.strip():
+            await websocket.close(code=1011, reason="Preview relay is not configured")
+            return
+        await websocket.accept()
+        connector = video_preview_connector or _connect_video_preview
+        try:
+            async with connector(upstream_url) as upstream:
+                await websocket.send_json({
+                    "type": "panelforge_preview_status",
+                    "data": {"status": "connected", "attempt_id": attempt_id},
+                })
+                await _relay_video_preview(websocket, upstream)
+        except WebSocketDisconnect:
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            try:
+                await websocket.send_json({
+                    "type": "panelforge_preview_status",
+                    "data": {
+                        "status": "error",
+                        "attempt_id": attempt_id,
+                        "message": "Preview live indisponible : connexion ComfyUI impossible.",
+                    },
+                })
+                await websocket.close(code=1011, reason="Preview relay unavailable")
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
     @app.get("/api/prompt-lab/spec")
     def prompt_lab_spec() -> dict[str, object]:
         service = _require_prompt_lab(prompt_lab)
@@ -2343,6 +2579,7 @@ def create_app(
                 session_id,
                 body.source_text,
                 body.creative_freedom,
+                body.creative_axes.domain_value() if body.creative_axes else None,
             )
         )
 
@@ -2358,6 +2595,9 @@ def create_app(
                 session_id,
                 body.source_text,
                 body.creative_freedom,
+                creative_axes=(
+                    body.creative_axes.domain_value() if body.creative_axes else None
+                ),
                 include_reasoning=include_reasoning,
             )
         )
@@ -2524,6 +2764,9 @@ def create_app(
                 session_id,
                 body.source_text,
                 body.creative_freedom,
+                creative_axes=(
+                    body.creative_axes.domain_value() if body.creative_axes else None
+                ),
                 legacy_plan=cookbook_version == "0.1.0",
             )
             composition_service.configure(
@@ -2789,6 +3032,103 @@ def serialize_video_lab_run(run: VideoLabRun) -> dict[str, object]:
             else None
         ),
         "error": run.error,
+    }
+
+
+def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
+    def reference(asset_id: str | None, label: str | None, role: str) -> dict[str, object] | None:
+        if asset_id is None:
+            return None
+        return {
+            "asset_id": asset_id,
+            "label": label,
+            "role": role,
+            "content_url": f"/api/assets/{asset_id}/content",
+        }
+
+    attempts = []
+    for attempt in project.attempts:
+        settings = {
+            "aspect_ratio": attempt.settings.aspect_ratio.value,
+            "megapixels": attempt.settings.megapixels,
+            "duration_seconds": attempt.settings.duration_seconds,
+            "effective_duration_seconds": attempt.settings.effective_duration_seconds,
+            "steps": attempt.settings.steps,
+            "seed": str(attempt.settings.seed),
+            "seed_locked": attempt.settings.seed_locked,
+            "resolution": {
+                "width": attempt.settings.resolution[0],
+                "height": attempt.settings.resolution[1],
+            },
+            "frames": attempt.settings.frame_count,
+        }
+        attempts.append({
+            "id": attempt.attempt_id,
+            "attempt_id": attempt.attempt_id,
+            "index": attempt.index,
+            "status": attempt.status.value,
+            "prompt": attempt.prompt,
+            "effective_prompt": attempt.effective_prompt,
+            "music_enabled": attempt.music_enabled,
+            "settings": settings,
+            "execution_id": attempt.execution_id,
+            "compiled_workflow_sha256": attempt.compiled_workflow_sha256,
+            "output_asset_id": attempt.output_asset_id,
+            "output_url": (
+                f"/api/assets/{attempt.output_asset_id}/content"
+                if attempt.output_asset_id else None
+            ),
+            "events_url": (
+                f"/api/h3-render/projects/{project.project_id}/attempts/"
+                f"{attempt.attempt_id}/events"
+            ),
+            "keyframe_timestamps_ms": list(attempt.keyframe_timestamps_ms),
+            "keyframes": [
+                {
+                    "asset_id": frame.asset_id,
+                    "timestamp_ms": frame.timestamp_ms,
+                    "label": frame.label,
+                    "content_url": f"/api/assets/{frame.asset_id}/content",
+                }
+                for frame in attempt.keyframes
+            ],
+            "error": attempt.error,
+            "warnings": list(attempt.warnings),
+        })
+    return {
+        "id": project.project_id,
+        "project_id": project.project_id,
+        "source_session_id": project.source_session_id,
+        "source_prompt_revision_id": project.source_prompt_revision_id,
+        "model_id": project.model_id,
+        "input_mode": project.input_mode.value,
+        "current_prompt": project.current_prompt,
+        "planned_cut_times_ms": list(project.planned_cut_times_ms),
+        "first_frame": reference(
+            project.first_frame_asset_id,
+            project.first_frame_label,
+            "first_frame",
+        ),
+        "last_frame": reference(
+            project.last_frame_asset_id,
+            project.last_frame_label,
+            "last_frame",
+        ),
+        "turns": [
+            {
+                "id": turn.turn_id,
+                "turn_id": turn.turn_id,
+                "role": turn.role.value,
+                "content": turn.content,
+                "prompt": turn.prompt,
+                "questions": list(turn.questions),
+                "recommendations": list(turn.recommendations),
+            }
+            for turn in project.turns
+        ],
+        "attempts": attempts,
+        "feedback_attempt_id": project.feedback_attempt_id,
+        "warnings": list(project.warnings),
     }
 
 
@@ -3372,6 +3712,16 @@ def serialize_storyboard_run(run: StoryboardRun) -> dict[str, object]:
 
 
 def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
+    def creative_axes_payload(revision) -> dict[str, int]:
+        axes = revision.creative_axes or creative_axes_from_legacy(
+            revision.creative_freedom
+        )
+        return {
+            "scene_life": axes.scene_life,
+            "camera": axes.camera,
+            "extra_motion": axes.extra_motion,
+        }
+
     return {
         "id": session.session_id,
         "session_id": session.session_id,
@@ -3396,6 +3746,9 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
                 "creative_freedom": (
                     session.active_brief_revision.creative_freedom
                 ),
+                "creative_axes": creative_axes_payload(
+                    session.active_brief_revision
+                ),
                 "origin": session.active_brief_revision.origin.value,
                 "parent_revision_id": (
                     session.active_brief_revision.parent_revision_id
@@ -3412,6 +3765,7 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
                 "source_text": revision.source_text,
                 "content": revision.content,
                 "creative_freedom": revision.creative_freedom,
+                "creative_axes": creative_axes_payload(revision),
                 "origin": revision.origin.value,
                 "parent_revision_id": revision.parent_revision_id,
                 "instruction": revision.instruction,
@@ -3709,6 +4063,12 @@ def _require_krea2_lab(value: Krea2LabRunner | None) -> Krea2LabRunner:
     return value
 
 
+def _require_h3_render(value: H3RenderService | None) -> H3RenderService:
+    if value is None:
+        raise HTTPException(status_code=503, detail="H3 Base renderer is not configured")
+    return value
+
+
 def _require_krea2_batch(value: Krea2BatchService | None) -> Krea2BatchService:
     if value is None:
         raise HTTPException(
@@ -3856,6 +4216,38 @@ def _krea2_assisted_stream_response(
                 }
                 if event.project is not None:
                     payload["project"] = serialize_krea2_assisted_project(event.project)
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {"kind": "error", "phase": "failed", "message": str(error)},
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _h3_render_stream_response(
+    events: Iterator[H3RenderStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                    "error": event.error,
+                }
+                if event.project is not None:
+                    payload["project"] = serialize_h3_render_project(event.project)
                 yield _encode_sse(event.kind.value, payload)
         except Exception as error:
             yield _encode_sse(

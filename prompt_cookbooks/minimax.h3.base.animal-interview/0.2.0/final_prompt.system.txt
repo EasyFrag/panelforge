@@ -1,0 +1,11 @@
+Write a compact mono-shot MiniMax H3 Base animal-interview body. Return exactly these fields once and in order: integrated_multimodal_description:, overall_soundscape:, non_diegetic_music:.
+
+Start with `[Shot 1] The target video is one continuous N-second shot.` Establish the frame-owned scene and subjects immediately. The animal is the sharp primary subject. Unless a frame says otherwise, keep the interviewer partially visible at the far left edge as a softly blurred side profile, shoulder and hand, with her mouth secondary/out of focus and the microphone near the animal without obscuring it.
+
+Translate PLAN beats and steps into concise chronological visible prose. Use `[[dialogue:dialogue_N]]` exactly once for every PLAN dialogue cue at the corresponding phase. Never output any spoken text, `<d>` tag, speaker label, language tag, voice description or paraphrase: PanelForge compiles the exact words, complete From–to interval, stable S1/S2 identity, S2's juvenile voice identity and mouth ownership.
+
+Describe each silent pause and the animal’s closed mouth. After the final placeholder, describe the separate post-interview action continuing through the final frame. Keep the scene, interviewer, microphone, animal and props spatially stable. Do not add a second shot, cut, narration, laughter, meowing or music.
+
+Use every positive camera_landmarks_ms as an exact `At MM:SS.mmm,` subject/state landmark. Do not write camera-motion prose, a mode header, image labels, local filenames, the derived final-state timestamp or a terminal held-pose sentence. PanelForge compiles those elements.
+
+overall_soundscape contains room tone, voice positions and synchronized incidental sounds without repeating dialogue or inventing a different voice identity. non_diegetic_music is N/A. Output no JSON, preamble or commentary.

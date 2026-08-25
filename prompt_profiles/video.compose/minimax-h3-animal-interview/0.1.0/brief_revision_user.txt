@@ -1,0 +1,18 @@
+LIBERTÉ : {creative_freedom}/100 — {creative_policy}
+
+FRAMES NATIVES ET RÔLES
+{reference_context}
+
+CITATIONS SOURCE — VERBATIM
+{dialogue_ledger}
+
+ENTRÉES ORIGINALES
+{source_text}
+
+BRIEF ACTUEL
+{current_brief}
+
+MODIFICATION
+{instruction}
+
+Retourne uniquement le Brief complet révisé aux neuf sections exactes.

@@ -8,6 +8,7 @@ import re
 from panelforge.domain import H3CameraDirective
 
 from .direct_ref2v_plan import (
+    DirectDialogueCue,
     DirectMotionEndBehavior,
     DirectRef2VActionPlanV4,
     direct_ref2v_camera_clean_motion_fields,
@@ -214,6 +215,11 @@ def compile_direct_i2v_dialogue_cues(
         if count > 1:
             raise ValueError(f"{contract_name} repeats {placeholder}")
         if count == 1:
+            if re.search(
+                rf"<d>\[[^\]\r\n]+\]\s*{re.escape(cue.text)}</d>",
+                integrated,
+            ):
+                integrated, _ = _remove_exact_dialogue_copy(integrated, cue)
             integrated = re.sub(
                 rf"(?:\bAt\s+\d{{2}}:\d{{2}}\.\d{{3}},\s*)?"
                 rf"{re.escape(placeholder)}\.?\s*",
@@ -265,6 +271,114 @@ def compile_direct_i2v_dialogue_cues(
         value[:start] + "\n" + integrated.strip() + "\n" + value[end:],
         tuple(recovered),
     )
+
+
+def compile_animal_interview_dialogue_cues(
+    content: str,
+    plan_content: str,
+    *,
+    contract_name: str = "H3 Base animal interview",
+    juvenile_animal_voice: bool = False,
+) -> tuple[str, tuple[str, ...]]:
+    """Compile exact two-speaker interview turns with plan-derived end times.
+
+    The prose writer is intentionally not trusted with dialogue text, speaker
+    activity, or speech intervals.  Each cue inherits its end from the action
+    step that contains its start timestamp, so the final prompt can state which
+    mouth is moving for the complete interval rather than at one point in time.
+    """
+
+    plan = parse_direct_ref2v_action_plan_v4(plan_content)
+    value = _strip_fence(content).replace("\r\n", "\n")
+    start, end = _field_span(
+        value,
+        "integrated_multimodal_description",
+        "overall_soundscape",
+        contract_name=contract_name,
+    )
+    integrated = value[start:end].strip()
+    recovered: list[str] = []
+    animal_turn_index = 0
+    for index, cue in enumerate(plan.dialogue_cues):
+        placeholder = f"[[dialogue:{cue.cue_id}]]"
+        placeholder_count = integrated.count(placeholder)
+        if placeholder_count > 1:
+            raise ValueError(f"{contract_name} repeats {placeholder}")
+
+        # Some smaller writers echo both the placeholder and an inline <d>
+        # clause. Remove only the exact cue-owned copy before deterministic
+        # insertion; unrelated prose and other quotations remain untouched.
+        integrated, removed_inline = _remove_exact_dialogue_copy(integrated, cue)
+        cue_end_ms = _animal_interview_cue_end_ms(plan, index)
+        clause = _animal_interview_dialogue_clause(
+            cue,
+            cue_end_ms,
+            juvenile_animal_voice=juvenile_animal_voice,
+            first_animal_turn=animal_turn_index == 0,
+        )
+        if cue.speaker_id == "S2":
+            animal_turn_index += 1
+        sentence = _timed_interval_sentence(cue.start_ms, cue_end_ms, clause)
+        if placeholder_count == 1:
+            integrated = re.sub(
+                rf"(?:\bAt\s+\d{{2}}:\d{{2}}\.\d{{3}},\s*)?"
+                rf"{re.escape(placeholder)}\.?\s*",
+                sentence + " ",
+                integrated,
+                count=1,
+            )
+        else:
+            recovered.append(cue.cue_id)
+            integrated = _insert_timed_interval(
+                integrated,
+                cue.start_ms,
+                cue_end_ms,
+                clause,
+            )
+        if removed_inline and cue.cue_id not in recovered:
+            recovered.append(cue.cue_id)
+
+    return (
+        value[:start] + "\n" + integrated.strip() + "\n" + value[end:],
+        tuple(dict.fromkeys(recovered)),
+    )
+
+
+def lint_animal_interview_action_plan(content: str) -> tuple[str, ...]:
+    """Validate the recipe-specific two-speaker timing contract."""
+
+    try:
+        plan = parse_direct_ref2v_action_plan_v4(content)
+    except (TypeError, ValueError) as error:
+        return (str(error),)
+    errors: list[str] = []
+    if len(plan.dialogue_cues) < 2:
+        errors.append("animal interview requires at least one question and one answer")
+    expected_speakers = tuple(
+        "S1" if index % 2 == 0 else "S2"
+        for index in range(len(plan.dialogue_cues))
+    )
+    actual_speakers = tuple(cue.speaker_id for cue in plan.dialogue_cues)
+    if actual_speakers != expected_speakers:
+        errors.append(
+            "animal interview dialogue must alternate S1 interviewer and S2 animal"
+        )
+    starts = tuple(cue.start_ms for cue in plan.dialogue_cues)
+    if starts != tuple(sorted(set(starts))):
+        errors.append("animal interview dialogue starts must be unique and chronological")
+    languages = {cue.language for cue in plan.dialogue_cues}
+    if not languages.issubset({"French", "English"}) or len(languages) > 1:
+        errors.append("animal interview dialogue must use one language: French or English")
+    for index, cue in enumerate(plan.dialogue_cues):
+        try:
+            _animal_interview_cue_end_ms(plan, index)
+        except ValueError as error:
+            errors.append(str(error))
+    if plan.motion_contract.end_behavior is not DirectMotionEndBehavior.CONTINUE:
+        errors.append("animal interview final action must continue through the final frame")
+    if plan.non_diegetic_music.strip().lower() not in {"n/a", "none", "no music"}:
+        errors.append("animal interview non_diegetic_music must be N/A")
+    return tuple(dict.fromkeys(errors))
 
 
 def normalize_direct_i2v_camera_placeholders(content: str) -> str:
@@ -498,6 +612,183 @@ def _insert_timed_dialogue(integrated: str, start_ms: int, clause: str) -> str:
     if later is None:
         return integrated.rstrip() + " " + sentence
     return integrated[:later].rstrip() + " " + sentence + " " + integrated[later:]
+
+
+def _animal_interview_cue_end_ms(
+    plan: DirectRef2VActionPlanV4,
+    cue_index: int,
+) -> int:
+    cue = plan.dialogue_cues[cue_index]
+    steps = tuple(step for beat in plan.beats for step in beat.steps)
+    containing = next(
+        (
+            step
+            for step in steps
+            if step.start_ms <= cue.start_ms < step.end_ms
+        ),
+        None,
+    )
+    if containing is None:
+        raise ValueError(
+            f"H3 Base animal interview cue {cue.cue_id} does not belong to an action step"
+        )
+    next_start = (
+        plan.dialogue_cues[cue_index + 1].start_ms
+        if cue_index + 1 < len(plan.dialogue_cues)
+        else plan.duration_ms
+    )
+    if next_start < containing.end_ms:
+        raise ValueError(
+            f"H3 Base animal interview cue {cue.cue_id} does not have a dedicated action step"
+        )
+    end_ms = containing.end_ms
+    if end_ms <= cue.start_ms:
+        raise ValueError(
+            f"H3 Base animal interview cue {cue.cue_id} has no positive speech interval"
+        )
+    return end_ms
+
+
+def _animal_interview_dialogue_clause(
+    cue: DirectDialogueCue,
+    end_ms: int,
+    *,
+    juvenile_animal_voice: bool = False,
+    first_animal_turn: bool = False,
+) -> str:
+    speaker = cue.speaker.rstrip(" .:")
+    delivery = re.sub(
+        r"(?i)^(?:says?|speaks?|asks?)\s+",
+        "",
+        cue.delivery.strip().rstrip(" .:"),
+    )
+    delivery_clause = f" {delivery}" if delivery else ""
+    tag = f"<d>[{cue.language}] {cue.text}</d>"
+    if cue.speaker_id == "S1":
+        return (
+            "the interviewed animal remains silent with its mouth closed while "
+            f"{speaker} ({cue.speaker_id}) asks{delivery_clause}: {tag}"
+        )
+    if juvenile_animal_voice:
+        emotional_delivery = f", {delivery}" if delivery else ""
+        voice_identity = (
+            "in an unmistakably very young childlike voice with a small, light, "
+            "noticeably high-pitched timbre and gentle youthful cadence, natural "
+            "and clearly intelligible rather than squeaky or cartoonish, never "
+            "adult, deep or mature"
+            if first_animal_turn
+            else "again in the same very young, small, light, noticeably "
+            "high-pitched childlike voice"
+        )
+        return (
+            f"only {speaker} ({cue.speaker_id}) speaks {voice_identity}"
+            f"{emotional_delivery}: {tag} Only the interviewed animal's mouth "
+            "moves during this response; the interviewer remains silent"
+        )
+    return (
+        f"only {speaker} ({cue.speaker_id}) speaks{delivery_clause}: {tag} "
+        "Only the interviewed animal's mouth moves during this response; the "
+        "interviewer remains silent"
+    )
+
+
+def _remove_exact_dialogue_copy(
+    integrated: str,
+    cue: DirectDialogueCue,
+) -> tuple[str, bool]:
+    tag = re.compile(rf"<d>\[[^\]\r\n]+\]\s*{re.escape(cue.text)}</d>")
+    matches = list(tag.finditer(integrated))
+    if len(matches) > 1:
+        raise ValueError(
+            "H3 Base animal interview repeats the exact text of " + cue.cue_id
+        )
+    if not matches:
+        if cue.text in integrated:
+            raise ValueError(
+                "H3 Base animal interview writer copied dialogue without its "
+                f"placeholder for {cue.cue_id}"
+            )
+        return integrated, False
+    match = matches[0]
+    delivery = cue.delivery.strip().rstrip(" .:")
+    prefix = re.compile(
+        rf"(?:{re.escape(cue.speaker.rstrip(' .:'))}\s*)?"
+        rf"\({re.escape(cue.speaker_id)}\)\s*"
+        rf"(?:says?|speaks?|asks?)?\s*"
+        rf"(?:{re.escape(delivery)})?\s*:?\s*$",
+        re.IGNORECASE,
+    )
+    nearby_start = max(0, match.start() - 180)
+    nearby = integrated[nearby_start:match.start()]
+    prefix_match = prefix.search(nearby)
+    remove_start = (
+        nearby_start + prefix_match.start()
+        if prefix_match is not None
+        else match.start()
+    )
+    remove_end = match.end()
+    punctuation = re.match(r"[\s,;:.]*", integrated[remove_end:])
+    if punctuation is not None:
+        remove_end += punctuation.end()
+    return (
+        (integrated[:remove_start].rstrip() + " " + integrated[remove_end:].lstrip()).strip(),
+        True,
+    )
+
+
+def _insert_timed_interval(
+    integrated: str,
+    start_ms: int,
+    end_ms: int,
+    clause: str,
+) -> str:
+    sentence = _timed_interval_sentence(start_ms, end_ms, clause)
+    if start_ms == 0:
+        opening = re.match(
+            r"^\[Shot 1\]\s+The target video is one continuous "
+            r"[^\r\n]+?-second shot\.",
+            integrated,
+        )
+        if opening is not None:
+            after_opening = integrated[opening.end() :]
+            scene_end = re.search(r"[.!?](?=\s|$)", after_opening)
+            insertion = (
+                opening.end() + scene_end.end()
+                if scene_end is not None
+                else opening.end()
+            )
+            return (
+                integrated[:insertion]
+                + " "
+                + sentence
+                + " "
+                + integrated[insertion:].lstrip()
+            )
+        return sentence + " " + integrated
+
+    later = None
+    for match in re.finditer(r"\bAt\s+(\d{2}):(\d{2})\.(\d{3}),", integrated):
+        minutes, seconds, milliseconds = (int(part) for part in match.groups())
+        timestamp_ms = minutes * 60_000 + seconds * 1_000 + milliseconds
+        if timestamp_ms > start_ms:
+            later = match.start()
+            break
+    if later is None:
+        return integrated.rstrip() + " " + sentence
+    return integrated[:later].rstrip() + " " + sentence + " " + integrated[later:]
+
+
+def _timed_interval_sentence(start_ms: int, end_ms: int, clause: str) -> str:
+    return (
+        f"From {_format_timestamp_value(start_ms)} to "
+        f"{_format_timestamp_value(end_ms)}, {clause}."
+    )
+
+
+def _format_timestamp_value(milliseconds: int) -> str:
+    minutes, remainder = divmod(milliseconds, 60_000)
+    seconds, millis = divmod(remainder, 1_000)
+    return f"{minutes:02d}:{seconds:02d}.{millis:03d}"
 
 
 def _strip_fence(content: str) -> str:

@@ -1,0 +1,12 @@
+LIBERTÉ : {creative_freedom}/100 — {creative_policy}
+
+FRAMES NATIVES ET RÔLES
+{reference_context}
+
+CITATIONS FOURNIES — VERBATIM
+{dialogue_ledger}
+
+PARAMÈTRES ET SCRIPT PARTIEL
+{source_text}
+
+Relis les éventuelles frames, complète seulement les répliques manquantes et retourne le Brief complet aux neuf sections exactes. Le SCRIPT FINAL VERBATIM doit contenir l’échange final utilisable.

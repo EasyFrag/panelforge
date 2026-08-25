@@ -1,0 +1,13 @@
+MODE AND FRAME OWNERSHIP
+{{REFERENCE_MAPPING}}
+
+APPROVED PLAN
+{{PLAN}}
+
+CURRENT BODY
+{{CURRENT}}
+
+INSTRUCTION
+{{INSTRUCTION}}
+
+Return only integrated_multimodal_description:, overall_soundscape:, and non_diegetic_music: once each and in order.

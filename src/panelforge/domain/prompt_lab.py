@@ -134,6 +134,24 @@ class BriefReferenceSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class CreativeFreedomAxes:
+    """Independent permissions for reversible video-scene enrichment."""
+
+    scene_life: int
+    camera: int
+    extra_motion: int
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.scene_life, "scene_life"),
+            (self.camera, "camera"),
+            (self.extra_motion, "extra_motion"),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3:
+                raise ValueError(f"{name} must be between 0 and 3")
+
+
+@dataclass(frozen=True, slots=True)
 class BriefRevision:
     revision_id: str
     source_text: str
@@ -143,6 +161,7 @@ class BriefRevision:
     references: tuple[BriefReferenceSnapshot, ...]
     parent_revision_id: str | None = None
     instruction: str | None = None
+    creative_axes: CreativeFreedomAxes | None = None
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -159,6 +178,11 @@ class BriefRevision:
             raise ValueError("creative_freedom must be between 0 and 100")
         if not isinstance(self.origin, RevisionOrigin):
             raise TypeError("origin must be a RevisionOrigin")
+        if self.creative_axes is not None and not isinstance(
+            self.creative_axes,
+            CreativeFreedomAxes,
+        ):
+            raise TypeError("creative_axes must be CreativeFreedomAxes or None")
         if not isinstance(self.references, tuple):
             raise TypeError("references must be a tuple")
         reference_ids: set[str] = set()

@@ -23,12 +23,16 @@ from panelforge.application import (
     PromptProfile,
     StreamEventKind,
     StreamPhase,
+    creative_axes_from_legacy,
+    creative_freedom_from_axes,
+    creative_freedom_policy,
 )
 from panelforge.application.prompt_lab import _brief_inputs, project_reference_evidence
 from panelforge.domain import (
     AnalysisRevision,
     BriefReferenceSnapshot,
     BriefRevision,
+    CreativeFreedomAxes,
     PromptLabSession,
     PromptReference,
     PromptSessionMode,
@@ -105,6 +109,16 @@ def sample_session() -> PromptLabSession:
 
 
 class PromptLabDomainTest(unittest.TestCase):
+    def test_creative_axes_are_independent_permissions_with_legacy_projection(self):
+        self.assertEqual(creative_axes_from_legacy(35), CreativeFreedomAxes(1, 1, 1))
+        axes = CreativeFreedomAxes(scene_life=3, camera=0, extra_motion=2)
+        self.assertEqual(creative_freedom_from_axes(axes), 52)
+        policy = creative_freedom_policy(52, axes)
+        self.assertIn("Vie de la scène 3/3", policy)
+        self.assertIn("Caméra 0/3", policy)
+        self.assertIn("Mouvements additionnels 2/3", policy)
+        self.assertIn("autorisations, jamais des quotas", policy)
+
     def test_h3_base_brief_context_uses_roles_without_local_filenames(self):
         session = PromptLabSession(
             session_id="h3-base-context",
@@ -362,7 +376,7 @@ Outdoor garden in warm light."""
 
 
 class LocalPromptSessionStoreTest(unittest.TestCase):
-    def test_round_trips_direct_mode_and_null_analysis_snapshots_in_schema_five(self):
+    def test_round_trips_schema_six_and_reads_legacy_schema_five(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalPromptSessionStore(directory)
             reference = PromptReference(
@@ -407,13 +421,23 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 5)
+            self.assertEqual(raw["schema_version"], 6)
             self.assertEqual(raw["session_mode"], "direct_multimodal")
+            self.assertIsNone(raw["brief_revisions"][0]["creative_axes"])
             self.assertIsNone(
                 raw["brief_revisions"][0]["references"][0][
                     "analysis_revision_id"
                 ]
             )
+            raw["schema_version"] = 5
+            del raw["brief_revisions"][0]["creative_axes"]
+            (
+                Path(directory)
+                / "prompt_sessions"
+                / session.session_id
+                / "session.json"
+            ).write_text(json.dumps(raw), encoding="utf-8")
+            self.assertEqual(store.get(session.session_id), session)
 
     def test_schema_four_sessions_migrate_to_analyzed_mode(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -506,6 +530,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     source_text="<Image 1> avance.",
                     content="INTENTION CENTRALE\nAvancer.",
                     creative_freedom=50,
+                    creative_axes=CreativeFreedomAxes(2, 1, 3),
                     origin=RevisionOrigin.MODEL,
                     references=(
                         BriefReferenceSnapshot(
@@ -528,9 +553,13 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 5)
+            self.assertEqual(raw["schema_version"], 6)
             self.assertEqual(raw["session_mode"], "analyzed")
             self.assertEqual(raw["brief_revisions"][0]["creative_freedom"], 50)
+            self.assertEqual(
+                raw["brief_revisions"][0]["creative_axes"],
+                {"scene_life": 2, "camera": 1, "extra_motion": 3},
+            )
             self.assertEqual(raw["references"][0]["evidence_policy"], "full")
             self.assertEqual(
                 raw["brief_revisions"][0]["references"][0]["evidence_policy"],
@@ -539,6 +568,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
 
             raw["schema_version"] = 3
             del raw["session_mode"]
+            del raw["brief_revisions"][0]["creative_axes"]
             del raw["references"][0]["evidence_policy"]
             del raw["brief_revisions"][0]["references"][0]["evidence_policy"]
             (
@@ -547,7 +577,9 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                 / session.session_id
                 / "session.json"
             ).write_text(json.dumps(raw), encoding="utf-8")
-            self.assertEqual(store.get(session.session_id), session)
+            migrated = store.get(session.session_id)
+            self.assertEqual(migrated.session_id, session.session_id)
+            self.assertIsNone(migrated.active_brief_revision.creative_axes)
 
     def test_reads_existing_schema_two_sessions_without_a_brief(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1552,8 +1584,13 @@ class PromptLabServiceTest(unittest.TestCase):
             self.assertIn("<Image 1>", request.user_prompt)
             self.assertIn("Usages : subject, first_frame", request.user_prompt)
             self.assertIn("<Image 2>", request.user_prompt)
-            self.assertIn("Cinématographique", request.user_prompt)
+            self.assertIn("Vie de la scène 2/3", request.user_prompt)
+            self.assertIn("Caméra 2/3", request.user_prompt)
             self.assertEqual(session.active_brief_revision.creative_freedom, 70)
+            self.assertEqual(
+                session.active_brief_revision.creative_axes,
+                CreativeFreedomAxes(2, 2, 2),
+            )
             self.assertEqual(len(session.active_brief_revision.references), 2)
 
             session = service.revise_brief(session.session_id, "Rends la caméra fixe.")

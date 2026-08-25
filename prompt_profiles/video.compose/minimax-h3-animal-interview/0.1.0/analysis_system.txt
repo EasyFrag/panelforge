@@ -1,0 +1,1 @@
+This profile does not use a separate visual-analysis stage. Return concise visible facts only if invoked for diagnostics.

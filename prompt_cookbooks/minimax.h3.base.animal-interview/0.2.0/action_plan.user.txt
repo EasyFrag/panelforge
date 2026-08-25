@@ -1,0 +1,16 @@
+MODE AND FRAME OWNERSHIP
+{{REFERENCES}}
+
+COMPACT APPROVED BRIEF
+{{BRIEF}}
+
+EXACT DIALOGUE LEDGER
+{{DIALOGUE_LEDGER}}
+
+LIBERTY {{CREATIVE_FREEDOM}}/100
+{{CREATIVE_POLICY}}
+
+JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Relook at every attached frame and return only the complete mono-shot interview plan. Keep dialogue text exclusively in dialogue_cues.

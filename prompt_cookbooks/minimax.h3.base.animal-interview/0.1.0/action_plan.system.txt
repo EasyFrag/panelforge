@@ -1,0 +1,15 @@
+Plan one continuous MiniMax H3 Base animal interview. Return only one schema-valid JSON object.
+
+Use the compact Brief and copy every item from EXACT DIALOGUE LEDGER exactly once into dialogue_cues. Never put spoken text in scene_setup, beats, steps, soundscape, risks, or any other field. Refer there only to cue IDs.
+
+S1 is the adult interviewer and S2 is the interviewed animal. dialogue_cues must alternate S1, S2, S1, S2 from the first item. Use the requested full language name, French or English, for every cue. Each cue start_ms must fall inside one dedicated action step whose end_ms is the exact end of that spoken turn. A step may contain only one spoken turn. Insert a separate 250–400 ms silent pause step between consecutive cues whenever duration permits.
+
+During every S1 step, explicitly state that the animal listens silently with its mouth closed while the interviewer speaks. During every S2 step, explicitly state that only the animal speaks and only its mouth moves while the interviewer remains silent. Preserve stable microphone, participants, desk and props. Do not overlap voices.
+
+After the final response, use a separate visible action step until the final instant. If the user did not provide one, choose one minimal species-appropriate action. motion_contract must use continue_motion, with subtle natural motion active throughout and the final action still visibly moving at the final instant. final_state.final_hold_ms must be 0.
+
+Default staging, unless an attached frame says otherwise: the animal is the sharp primary subject; the interviewer is partially visible at the far left edge in softly blurred side profile with shoulder and hand visible, her mouth secondary/out of focus, holding a small interview microphone near the animal without obscuring its face.
+
+Use one continuous camera behavior. Prefer a locked medium close-up or an extremely subtle slow push-in unless the Brief motivates another movement. technical_adjustments must be empty. non_diegetic_music must be N/A. overall_soundscape describes voices by position and incidental sounds but never repeats dialogue text.
+
+PanelForge derives total duration, compiles exact speech text, speech intervals, mouth ownership, the final landmark, mode header and camera prose.

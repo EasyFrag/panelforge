@@ -58,8 +58,12 @@
     roleWarning: $("#ref2vd-role-warning"),
     roleConfirmation: $("#ref2vd-role-confirmation"),
     intention: $("#ref2vd-intention"),
-    freedom: $("#ref2vd-freedom"),
-    freedomLabel: $("#ref2vd-freedom-label"),
+    creativeSceneLife: $("#ref2vd-creative-scene-life"),
+    creativeSceneLifeValue: $("#ref2vd-creative-scene-life-value"),
+    creativeCamera: $("#ref2vd-creative-camera"),
+    creativeCameraValue: $("#ref2vd-creative-camera-value"),
+    creativeExtraMotion: $("#ref2vd-creative-extra-motion"),
+    creativeExtraMotionValue: $("#ref2vd-creative-extra-motion-value"),
     start: $("#ref2vd-start"),
     setupMessage: $("#ref2vd-setup-message"),
     executionModeControl: $("#ref2vd-execution-mode-control"),
@@ -381,10 +385,13 @@
       selectModel(session.model_id);
       if (session.active_brief) {
         elements.intention.value = session.active_brief.source_text || "";
-        setFreedom(session.active_brief.creative_freedom ?? 35);
+        setCreativeAxes(
+          session.active_brief.creative_axes,
+          session.active_brief.creative_freedom ?? 35,
+        );
       } else {
         elements.intention.value = "";
-        setFreedom(35);
+        setCreativeAxes(null, 0);
       }
       if (openedSuperFast) {
         const completed = superFastRunApproved();
@@ -430,7 +437,7 @@
     selectModel(source.model_id);
     const brief = source.active_brief;
     elements.intention.value = brief ? brief.source_text || "" : "";
-    setFreedom(brief ? brief.creative_freedom ?? 35 : 35);
+    setCreativeAxes(brief && brief.creative_axes, brief ? brief.creative_freedom ?? 35 : 0);
     elements.executionMode.value = "supervised";
     clearStageDrafts();
     showSetupMessage("");
@@ -663,40 +670,55 @@
     else if (created && requestedMode === "quick") await runQuickMode();
   }
 
-  function freedomMode(value) {
-    if (value <= 20) return ["Factuel strict", "N’ajoute aucun détail absent des entrées."];
-    if (value <= 40) return ["Conservateur", "Seulement des liaisons minimales et évidentes."];
-    if (value <= 60) return ["Équilibré", "Quelques propositions cinématographiques compatibles."];
-    if (value <= 80) return ["Cinématographique", "Enrichit caméra, rythme et ambiance sans contredire les contraintes."];
-    return ["Exploratoire", "Propose librement des détails compatibles et les signale comme libertés."];
+  function legacyCreativeLevel(value) {
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized)) return 1;
+    return normalized <= 20 ? 0 : normalized <= 45 ? 1 : normalized <= 70 ? 2 : 3;
   }
 
-  function setFreedom(value) {
-    const parsed = Number(value);
-    const normalized = Number.isInteger(parsed) && parsed >= 0 && parsed <= 100 ? parsed : 35;
-    const previousLegacy = elements.freedom.querySelector("option[data-legacy-freedom]");
-    if (previousLegacy) previousLegacy.remove();
-    const exactOption = [...elements.freedom.options].find((option) => Number(option.value) === normalized);
-    if (!exactOption) {
-      const [label, description] = freedomMode(normalized);
-      const legacyOption = document.createElement("option");
-      legacyOption.value = String(normalized);
-      legacyOption.dataset.legacyFreedom = "true";
-      legacyOption.dataset.description = description;
-      legacyOption.textContent = `${label} · valeur historique ${normalized}/100`;
-      elements.freedom.append(legacyOption);
-    }
-    elements.freedom.value = String(normalized);
-    updateFreedom();
+  function currentCreativeAxes() {
+    return {
+      scene_life: Number(elements.creativeSceneLife.value),
+      camera: Number(elements.creativeCamera.value),
+      extra_motion: Number(elements.creativeExtraMotion.value),
+    };
   }
 
-  function updateFreedom() {
-    const selected = elements.freedom.selectedOptions[0];
-    const legacyOption = elements.freedom.querySelector("option[data-legacy-freedom]");
-    if (legacyOption && legacyOption !== selected) legacyOption.remove();
-    const [, fallback] = freedomMode(Number(elements.freedom.value));
-    elements.freedomLabel.textContent = selected && selected.dataset.description
-      ? selected.dataset.description : fallback;
+  function creativeAggregate(axes = currentCreativeAxes()) {
+    const anchors = [0, 35, 65, 90];
+    return Math.round((anchors[axes.scene_life] + anchors[axes.camera] + anchors[axes.extra_motion]) / 3);
+  }
+
+  function setCreativeAxes(axes, legacyFreedom = 35) {
+    const fallback = legacyCreativeLevel(legacyFreedom);
+    const resolved = axes || { scene_life: fallback, camera: fallback, extra_motion: fallback };
+    elements.creativeSceneLife.value = String(resolved.scene_life ?? fallback);
+    elements.creativeCamera.value = String(resolved.camera ?? fallback);
+    elements.creativeExtraMotion.value = String(resolved.extra_motion ?? fallback);
+    updateCreativeAxes();
+  }
+
+  function updateCreativeAxes() {
+    elements.creativeSceneLifeValue.value = elements.creativeSceneLife.value;
+    elements.creativeCameraValue.value = elements.creativeCamera.value;
+    elements.creativeExtraMotionValue.value = elements.creativeExtraMotion.value;
+  }
+
+  function creativeAxesMatch(brief) {
+    if (!brief) return false;
+    const expected = brief.creative_axes || (() => {
+      const level = legacyCreativeLevel(brief.creative_freedom ?? 35);
+      return { scene_life: level, camera: level, extra_motion: level };
+    })();
+    const current = currentCreativeAxes();
+    return expected.scene_life === current.scene_life
+      && expected.camera === current.camera
+      && expected.extra_motion === current.extra_motion;
+  }
+
+  function creativePayload() {
+    const creative_axes = currentCreativeAxes();
+    return { creative_freedom: creativeAggregate(creative_axes), creative_axes };
   }
 
   function interactionLocked() {
@@ -708,7 +730,7 @@
     const brief = state.session && state.session.active_brief;
     return Boolean(brief
       && (brief.source_text || "").trim() === elements.intention.value.trim()
-      && Number(brief.creative_freedom) === Number(elements.freedom.value));
+      && creativeAxesMatch(brief));
   }
 
   function generatedDocument(documentState) {
@@ -882,7 +904,7 @@
         `/api/prompt-lab/sessions/${sessionId}/super-fast/stream`,
         {
           source_text: elements.intention.value.trim(),
-          creative_freedom: Number(elements.freedom.value),
+          ...creativePayload(),
         },
         streamView,
         (event) => { if (event.composition) state.composition = event.composition; },
@@ -971,7 +993,9 @@
     elements.refreshSessions.disabled = locked;
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
     elements.intention.disabled = locked;
-    elements.freedom.disabled = locked;
+    for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
+      control.disabled = locked;
+    }
     elements.showReasoning.disabled = locked;
     elements.newSession.disabled = locked || Boolean(state.openingSessionId);
     elements.newSession.hidden = !session && !state.forkSource;
@@ -986,7 +1010,7 @@
     const brief = session.active_brief;
     const briefInputsCurrent = !brief || (
       (brief.source_text || "").trim() === elements.intention.value.trim()
-      && Number(brief.creative_freedom) === Number(elements.freedom.value)
+      && creativeAxesMatch(brief)
     );
     const documents = state.composition ? state.composition.documents || {} : {};
     const plan = documents.beat_sheet || null;
@@ -1522,7 +1546,7 @@
   async function streamBrief(revision) {
     const payload = revision
       ? { instruction: elements.brief.instruction.value.trim() }
-      : { source_text: elements.intention.value.trim(), creative_freedom: Number(elements.freedom.value) };
+      : { source_text: elements.intention.value.trim(), ...creativePayload() };
     const completed = await streamResult(
       `/api/prompt-lab/sessions/${state.session.id}/brief/${revision ? "revise" : "structure"}/stream`,
       payload,
@@ -1818,7 +1842,7 @@
     invalidateRoleConfirmation();
     renderDraftReferences();
     elements.intention.value = "";
-    setFreedom(35);
+    setCreativeAxes(null, 0);
     elements.executionMode.value = "supervised";
     clearStageDrafts();
     render();
@@ -1836,7 +1860,9 @@
   });
   elements.intention.addEventListener("input", render);
   elements.model.addEventListener("change", render);
-  elements.freedom.addEventListener("change", () => { updateFreedom(); render(); });
+  for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
+    control.addEventListener("input", () => { updateCreativeAxes(); render(); });
+  }
   elements.roleConfirmation.addEventListener("change", () => {
     state.rolesConfirmed = elements.roleConfirmation.checked;
     render();
@@ -1897,7 +1923,7 @@
   });
   elements.sendVideoLab.addEventListener("click", sendToVideoLab);
 
-  updateFreedom();
+  updateCreativeAxes();
   renderRoleHelp();
   renderDraftReferences();
   render();

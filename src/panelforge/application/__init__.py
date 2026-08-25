@@ -34,6 +34,16 @@ from .video_lab import (
     VideoLabRunner,
     extract_bound_video,
 )
+from .h3_render import (
+    H3RenderService,
+    H3RenderStreamEvent,
+    canonicalize_h3_revision,
+    derive_h3_render_input_mode,
+    disable_non_diegetic_music,
+    extract_plan_cut_times_ms,
+    extract_prompt_cut_times_ms,
+    plan_keyframe_timestamps_ms,
+)
 from .storyboard_lab import (
     StoryboardLabService,
     StoryboardRunRequest,
@@ -72,7 +82,9 @@ from .prompt_lab import (
     PromptProfile,
     StreamEventKind,
     StreamPhase,
+    creative_axes_from_legacy,
     creative_freedom_policy,
+    creative_freedom_from_axes,
 )
 from .prompt_composition import (
     CompositionStageStatus,
@@ -108,6 +120,8 @@ __all__ = [
     "H3IssueSeverity",
     "H3ProtocolIssue",
     "H3ProtocolMode",
+    "H3RenderService",
+    "H3RenderStreamEvent",
     "LlmCallImage",
     "LlmCallApplicationOutcome",
     "LlmCallApplicationOutcomeReporter",
@@ -131,7 +145,12 @@ __all__ = [
     "StoryboardStreamEvent",
     "SUPER_FAST_REF2V_COOKBOOK_ID",
     "SUPER_FAST_REF2V_COOKBOOK_VERSION",
+    "creative_axes_from_legacy",
     "creative_freedom_policy",
+    "creative_freedom_from_axes",
+    "canonicalize_h3_revision",
+    "derive_h3_render_input_mode",
+    "disable_non_diegetic_music",
     "direct_reference_required_use",
     "composition_picture_mapping",
     "compile_camera_draft",
@@ -149,5 +168,8 @@ __all__ = [
     "parse_camera_directives",
     "extract_bound_video",
     "extract_bound_krea2_image",
+    "extract_plan_cut_times_ms",
+    "extract_prompt_cut_times_ms",
     "normalize_krea2_edit_prompt",
+    "plan_keyframe_timestamps_ms",
 ]
