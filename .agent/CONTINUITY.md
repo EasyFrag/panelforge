@@ -533,3 +533,24 @@
 - Le LLM orchestrateur doit prendre les décisions en mode full auto malgré une observation vidéo limitée aux prompts et keyframes ; il faut conserver scores, justification, budget d'itérations et conditions d'arrêt pour éviter les boucles sans fin.
 - Une validation humaine optionnelle doit pouvoir suspendre le même automate sans créer un second parcours ni perdre la possibilité de reprendre automatiquement.
 - L'hystérésis thermique 85/40 °C implique potentiellement de longues pauses ; la télémétrie inconnue doit rester un état explicite et paramétrable, sans être implicitement considérée comme sûre.
+
+## Snapshot 2026-08-30 — version stable avant orchestrateur
+
+### Works
+- La suite complète passe avec 634 tests en 87,456 secondes.
+- Le lot courant est figé dans le commit `8c309df` (`Stabilize current Image Lab and H3 workflows`) et publié sur `master` du dépôt GitHub `EasyFrag/panelforge`.
+- Le tag annoté `stable-pre-production-orchestrator-2026-08-30` est publié sur GitHub et constitue le point de restauration avant le chantier d'orchestration.
+- Aucun code du nouvel orchestrateur de production n'est inclus dans ce snapshot.
+
+### Broken / missing
+- Le remote local du worktree pointe vers `D:\Code\panelforge`; son transfert intermédiaire est refusé sous le compte sandbox par la protection Git `dubious ownership`. La publication directe vers GitHub a réussi sans modifier cette configuration globale.
+- Le checkout local `D:\Code\panelforge` n'a donc pas été avancé automatiquement sur le nouveau `master`; son fichier non suivi `lancementwork` est resté intact.
+
+### Next steps
+1. Faire le dernier alignement sur les décisions et limites du LLM orchestrateur full auto.
+2. Créer la branche du chantier depuis le snapshot stable publié.
+3. Implémenter l'agrégat persistant, le garde thermique et le premier parcours mono-job.
+
+### Risks / open questions
+- Une mise à jour du checkout principal devra être lancée sous le compte Windows propriétaire avant de l'utiliser comme copie de travail à jour.
+- Le tag stable doit rester immuable ; les travaux d'orchestration partiront sur une nouvelle branche et non par déplacement du tag.
