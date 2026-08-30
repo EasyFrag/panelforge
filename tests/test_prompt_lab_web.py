@@ -193,6 +193,68 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertIn("minimax.h3.fl2va.direct", profile_ids)
         self.assertIn("minimax.h3.ref2v.direct", profile_ids)
         self.assertNotIn("minimax.h3.reference", profile_ids)
+        mono = next(
+            item for item in spec.json()["profiles"]
+            if item["id"] == "minimax.h3.fl2va.direct"
+            and item["version"] == "0.3.3"
+        )
+        self.assertEqual(mono["brief_variants"], [
+            {
+                "id": "creative-direction",
+                "version": "0.1.0",
+                "display_name": "Direction créative — expérimental",
+            },
+            {
+                "id": "creative-direction",
+                "version": "0.2.0",
+                "display_name": "Direction créative avec audace — expérimental",
+            },
+        ])
+
+    def test_configures_creative_brief_before_generation_and_locks_afterward(self):
+        created = self.client.post(
+            "/api/prompt-lab/sessions",
+            data={
+                "model_id": "vision-small",
+                "profile_id": "minimax.h3.fl2va.direct",
+                "profile_version": "0.3.3",
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        session_id = created.json()["id"]
+
+        configured = self.client.post(
+            f"/api/prompt-lab/sessions/{session_id}/brief/variant",
+            json={
+                "brief_variant_id": "creative-direction",
+                "brief_variant_version": "0.2.0",
+            },
+        )
+        self.assertEqual(configured.status_code, 200, configured.text)
+        self.assertEqual(configured.json()["brief_variant"], {
+            "id": "creative-direction",
+            "version": "0.2.0",
+        })
+        structured = self.client.post(
+            f"/api/prompt-lab/sessions/{session_id}/brief/structure",
+            json={
+                "source_text": "A priestess advances.",
+                "creative_freedom": 100,
+                "creative_audacity": 3,
+            },
+        )
+        self.assertEqual(structured.status_code, 200, structured.text)
+        self.assertEqual(
+            self.gateway.requests[-1].operation_id,
+            "brief.structure.creative-direction.0.2.0",
+        )
+        self.assertEqual(structured.json()["active_brief"]["creative_audacity"], 3)
+        self.assertIn("AUDACE CRÉATIVE : 3/3", self.gateway.requests[-1].user_prompt)
+        locked = self.client.post(
+            f"/api/prompt-lab/sessions/{session_id}/brief/variant",
+            json={"brief_variant_id": None, "brief_variant_version": None},
+        )
+        self.assertEqual(locked.status_code, 422, locked.text)
 
     def test_direct_multimodal_structures_brief_without_observations(self):
         created = self.client.post(

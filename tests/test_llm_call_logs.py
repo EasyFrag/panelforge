@@ -2,8 +2,10 @@ import json
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Event, Thread
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +73,17 @@ class LocalLlmCallStoreTest(unittest.TestCase):
             self.assertEqual(len(raw["calls"]), 20)
             self.assertNotIn("image-content", json.dumps(raw))
 
+    def test_round_trip_preserves_an_unlimited_output_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalLlmCallStore(directory)
+            store.append(replace(sample_record(1), max_tokens=None))
+
+            self.assertIsNone(store.list()[0].max_tokens)
+            raw = json.loads(
+                (Path(directory) / "llm_calls.json").read_text(encoding="utf-8")
+            )
+            self.assertIsNone(raw["calls"][0]["max_tokens"])
+
     def test_reads_v1_and_rewrites_it_as_v2_on_the_next_append(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalLlmCallStore(directory)
@@ -129,6 +142,17 @@ class FailingGateway(SuccessfulGateway):
         raise RuntimeError("server unavailable")
 
 
+class BlockingGateway(SuccessfulGateway):
+    def __init__(self):
+        self.entered = Event()
+        self.release = Event()
+
+    def complete(self, request):
+        self.entered.set()
+        self.release.wait(2)
+        return super().complete(request)
+
+
 class TerminalGateway(SuccessfulGateway):
     def stream(self, request):
         yield CompletionStreamEvent(
@@ -169,6 +193,32 @@ class ReasoningThenTerminalGateway(TerminalGateway):
 
 
 class LoggedMultimodalGatewayTest(unittest.TestCase):
+    def test_exposes_only_calls_that_are_currently_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            delegate = BlockingGateway()
+            gateway = LoggedMultimodalGateway(
+                delegate,
+                LocalLlmCallStore(directory),
+                id_factory=lambda: "call-active",
+            )
+            request = CompletionRequest(
+                model_id="vllm::qwen",
+                system_prompt="System",
+                user_prompt="User",
+                operation_id="krea2.assisted.creation_chat@0.3.0",
+            )
+            worker = Thread(target=gateway.complete, args=(request,))
+
+            worker.start()
+            self.assertTrue(delegate.entered.wait(1))
+            self.assertEqual(gateway.active_calls()[0].call_id, "call-active")
+            self.assertEqual(gateway.active_calls()[0].model_id, "vllm::qwen")
+            delegate.release.set()
+            worker.join(2)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(gateway.active_calls(), ())
+
     def test_records_complete_and_truncated_stream_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalLlmCallStore(directory)

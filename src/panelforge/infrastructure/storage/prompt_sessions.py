@@ -34,7 +34,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 8
 _SESSION_KEYS_V1_V2 = {
     "schema_version",
     "created_at",
@@ -51,6 +51,10 @@ _SESSION_KEYS_V3_V4 = _SESSION_KEYS_V1_V2 | {
     "approved_brief_revision_id",
 }
 _SESSION_KEYS_V5 = _SESSION_KEYS_V3_V4 | {"session_mode"}
+_SESSION_KEYS_V7 = _SESSION_KEYS_V5 | {
+    "brief_variant_id",
+    "brief_variant_version",
+}
 _REFERENCE_KEYS_V1 = {
     "reference_id",
     "asset_id",
@@ -84,6 +88,7 @@ _BRIEF_REVISION_KEYS = _REVISION_KEYS | {
     "references",
 }
 _BRIEF_REVISION_KEYS_V6 = _BRIEF_REVISION_KEYS | {"creative_axes"}
+_BRIEF_REVISION_KEYS_V8 = _BRIEF_REVISION_KEYS_V6 | {"creative_audacity"}
 _BRIEF_REFERENCE_KEYS_V3 = {
     "reference_id",
     "analysis_revision_id",
@@ -186,12 +191,14 @@ class LocalPromptSessionStore:
         _require_regular_file(path)
         data = _read_json_object(path)
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2, 3, 4, 5, _SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, 4, 5, 6, 7, _SCHEMA_VERSION}:
             raise StorageCorruptionError(
                 f"unsupported prompt session schema for {expected_id!r}"
             )
         expected_keys = (
-            _SESSION_KEYS_V5
+            _SESSION_KEYS_V7
+            if schema_version >= 7
+            else _SESSION_KEYS_V5
             if schema_version >= 5
             else _SESSION_KEYS_V3_V4
             if schema_version >= 3
@@ -241,6 +248,8 @@ def _session_to_dict(
         "model_id": session.model_id,
         "profile_id": session.profile_id,
         "profile_version": session.profile_version,
+        "brief_variant_id": session.brief_variant_id,
+        "brief_variant_version": session.brief_variant_version,
         "session_mode": session.session_mode.value,
         "brief_revisions": [
             {
@@ -248,6 +257,7 @@ def _session_to_dict(
                 "source_text": revision.source_text,
                 "content": revision.content,
                 "creative_freedom": revision.creative_freedom,
+                "creative_audacity": revision.creative_audacity,
                 "creative_axes": (
                     {
                         "scene_life": revision.creative_axes.scene_life,
@@ -424,7 +434,9 @@ def _session_from_dict(
                 not isinstance(raw_revision, dict)
                 or set(raw_revision)
                 != (
-                    _BRIEF_REVISION_KEYS_V6
+                    _BRIEF_REVISION_KEYS_V8
+                    if schema_version >= 8
+                    else _BRIEF_REVISION_KEYS_V6
                     if schema_version >= 6
                     else _BRIEF_REVISION_KEYS
                 )
@@ -468,6 +480,14 @@ def _session_from_dict(
                     source_text=raw_revision["source_text"],
                     content=raw_revision["content"],
                     creative_freedom=raw_revision["creative_freedom"],
+                    creative_audacity=(
+                        raw_revision["creative_audacity"]
+                        if schema_version >= 8
+                        else 1
+                        if schema_version >= 7
+                        and data.get("brief_variant_id") == "creative-direction"
+                        else 0
+                    ),
                     creative_axes=(
                         CreativeFreedomAxes(**raw_revision["creative_axes"])
                         if schema_version >= 6
@@ -485,6 +505,10 @@ def _session_from_dict(
         model_id=data["model_id"],
         profile_id=data["profile_id"],
         profile_version=data["profile_version"],
+        brief_variant_id=(data["brief_variant_id"] if schema_version >= 7 else None),
+        brief_variant_version=(
+            data["brief_variant_version"] if schema_version >= 7 else None
+        ),
         session_mode=(
             PromptSessionMode(data["session_mode"])
             if schema_version >= 5

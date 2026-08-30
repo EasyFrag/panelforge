@@ -23,6 +23,7 @@ from panelforge.application import (
     PromptProfile,
     StreamEventKind,
     StreamPhase,
+    creative_audacity_policy,
     creative_axes_from_legacy,
     creative_freedom_from_axes,
     creative_freedom_policy,
@@ -118,6 +119,13 @@ class PromptLabDomainTest(unittest.TestCase):
         self.assertIn("Caméra 0/3", policy)
         self.assertIn("Mouvements additionnels 2/3", policy)
         self.assertIn("autorisations, jamais des quotas", policy)
+
+    def test_creative_audacity_is_an_explicit_novelty_target(self):
+        self.assertIn("Aucune initiative", creative_audacity_policy(0))
+        self.assertIn("exactement une idée-signature", creative_audacity_policy(2))
+        self.assertIn("au plus un effet de soutien", creative_audacity_policy(3))
+        with self.assertRaisesRegex(ValueError, "between 0 and 3"):
+            creative_audacity_policy(4)
 
     def test_h3_base_brief_context_uses_roles_without_local_filenames(self):
         session = PromptLabSession(
@@ -376,7 +384,7 @@ Outdoor garden in warm light."""
 
 
 class LocalPromptSessionStoreTest(unittest.TestCase):
-    def test_round_trips_schema_six_and_reads_legacy_schema_five(self):
+    def test_round_trips_schema_eight_and_reads_legacy_schema_five(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalPromptSessionStore(directory)
             reference = PromptReference(
@@ -421,16 +429,22 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 6)
+            self.assertEqual(raw["schema_version"], 8)
             self.assertEqual(raw["session_mode"], "direct_multimodal")
+            self.assertIsNone(raw["brief_variant_id"])
+            self.assertIsNone(raw["brief_variant_version"])
             self.assertIsNone(raw["brief_revisions"][0]["creative_axes"])
+            self.assertEqual(raw["brief_revisions"][0]["creative_audacity"], 0)
             self.assertIsNone(
                 raw["brief_revisions"][0]["references"][0][
                     "analysis_revision_id"
                 ]
             )
             raw["schema_version"] = 5
+            del raw["brief_variant_id"]
+            del raw["brief_variant_version"]
             del raw["brief_revisions"][0]["creative_axes"]
+            del raw["brief_revisions"][0]["creative_audacity"]
             (
                 Path(directory)
                 / "prompt_sessions"
@@ -452,6 +466,8 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 4
+            del raw["brief_variant_id"]
+            del raw["brief_variant_version"]
             del raw["session_mode"]
             path.write_text(json.dumps(raw), encoding="utf-8")
 
@@ -459,6 +475,73 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
 
             self.assertEqual(migrated.session_mode, PromptSessionMode.ANALYZED)
             self.assertEqual(migrated, session)
+
+    def test_round_trips_a_versioned_brief_variant(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptSessionStore(directory)
+            session = PromptLabSession(
+                session_id="prompt-creative-brief",
+                model_id="vision-model",
+                profile_id="minimax.h3.fl2va.direct",
+                profile_version="0.3.3",
+                brief_variant_id="creative-direction",
+                brief_variant_version="0.1.0",
+                session_mode=PromptSessionMode.H3_BASE,
+                references=(),
+            )
+
+            store.create(session)
+
+            self.assertEqual(store.get(session.session_id), session)
+            raw = json.loads(
+                (
+                    Path(directory)
+                    / "prompt_sessions"
+                    / session.session_id
+                    / "session.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(raw["brief_variant_id"], "creative-direction")
+            self.assertEqual(raw["brief_variant_version"], "0.1.0")
+
+    def test_schema_seven_creative_briefs_migrate_to_prudent_audacity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptSessionStore(directory)
+            session = PromptLabSession(
+                session_id="prompt-creative-migration",
+                model_id="vision-model",
+                profile_id="minimax.h3.fl2va.direct",
+                profile_version="0.3.3",
+                brief_variant_id="creative-direction",
+                brief_variant_version="0.1.0",
+                session_mode=PromptSessionMode.H3_BASE,
+                references=(),
+            ).add_brief_revision(BriefRevision(
+                revision_id="brief-creative-migration",
+                source_text="A rider accelerates.",
+                content="INTENTION CENTRALE\nA rider accelerates.",
+                creative_freedom=90,
+                creative_axes=CreativeFreedomAxes(3, 3, 3),
+                creative_audacity=3,
+                origin=RevisionOrigin.MODEL,
+                references=(),
+            ))
+            store.create(session)
+            path = (
+                Path(directory)
+                / "prompt_sessions"
+                / session.session_id
+                / "session.json"
+            )
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["schema_version"] = 7
+            del raw["brief_revisions"][0]["creative_audacity"]
+            path.write_text(json.dumps(raw), encoding="utf-8")
+
+            self.assertEqual(
+                store.get(session.session_id).active_brief_revision.creative_audacity,
+                1,
+            )
 
     def test_round_trips_an_explicit_appearance_evidence_policy(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -531,6 +614,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     content="INTENTION CENTRALE\nAvancer.",
                     creative_freedom=50,
                     creative_axes=CreativeFreedomAxes(2, 1, 3),
+                    creative_audacity=2,
                     origin=RevisionOrigin.MODEL,
                     references=(
                         BriefReferenceSnapshot(
@@ -553,9 +637,10 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 6)
+            self.assertEqual(raw["schema_version"], 8)
             self.assertEqual(raw["session_mode"], "analyzed")
             self.assertEqual(raw["brief_revisions"][0]["creative_freedom"], 50)
+            self.assertEqual(raw["brief_revisions"][0]["creative_audacity"], 2)
             self.assertEqual(
                 raw["brief_revisions"][0]["creative_axes"],
                 {"scene_life": 2, "camera": 1, "extra_motion": 3},
@@ -567,8 +652,11 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
 
             raw["schema_version"] = 3
+            del raw["brief_variant_id"]
+            del raw["brief_variant_version"]
             del raw["session_mode"]
             del raw["brief_revisions"][0]["creative_axes"]
+            del raw["brief_revisions"][0]["creative_audacity"]
             del raw["references"][0]["evidence_policy"]
             del raw["brief_revisions"][0]["references"][0]["evidence_policy"]
             (
@@ -580,6 +668,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             migrated = store.get(session.session_id)
             self.assertEqual(migrated.session_id, session.session_id)
             self.assertIsNone(migrated.active_brief_revision.creative_axes)
+            self.assertEqual(migrated.active_brief_revision.creative_audacity, 0)
 
     def test_reads_existing_schema_two_sessions_without_a_brief(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -594,6 +683,8 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 2
+            del raw["brief_variant_id"]
+            del raw["brief_variant_version"]
             del raw["session_mode"]
             del raw["brief_revisions"]
             del raw["active_brief_revision_id"]
@@ -799,6 +890,29 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
                     ),
                 )
             )
+
+    def test_omits_max_tokens_when_the_request_has_no_client_limit(self):
+        completions = FakeCompletions()
+        gateway = OpenAICompatibleGateway(
+            "http://127.0.0.1:8000/v1",
+            client=SimpleNamespace(
+                models=FakeModels(),
+                chat=SimpleNamespace(completions=completions),
+            ),
+            maximum_output_tokens=32768,
+            source_label="vLLM",
+        )
+
+        gateway.complete(
+            CompletionRequest(
+                model_id="qwen3.8-27b-nvfp4",
+                system_prompt="System",
+                user_prompt="User",
+                max_tokens=None,
+            )
+        )
+
+        self.assertNotIn("max_tokens", completions.kwargs)
 
     def test_streams_text_and_only_exposes_verified_loading_state(self):
         completions = FakeCompletions()
@@ -1096,6 +1210,53 @@ def legacy_analyzed_profile(version="0.3.0"):
 
 
 class PromptLabServiceTest(unittest.TestCase):
+    def test_creative_brief_variant_changes_only_the_brief_prompt_and_then_locks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gateway = DirectRecordingGateway()
+            service = PromptLabService(
+                gateway=gateway,
+                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                assets=LocalAssetStore(directory),
+                sessions=LocalPromptSessionStore(directory),
+            )
+            session = service.create_session(
+                model_id="vision-model",
+                profile_id="minimax.h3.fl2va.direct",
+                profile_version="0.3.3",
+                references=(),
+            )
+            session = service.configure_brief_variant(
+                session.session_id,
+                brief_variant_id="creative-direction",
+                brief_variant_version="0.2.0",
+            )
+
+            session = list(service.stream_structure_brief(
+                session.session_id,
+                "A dark priestess walks forward.",
+                100,
+                creative_axes=CreativeFreedomAxes(3, 3, 3),
+                creative_audacity=3,
+            ))[-1].session
+
+            self.assertEqual(session.brief_variant_id, "creative-direction")
+            self.assertEqual(
+                gateway.requests[-1].operation_id,
+                "brief.structure.creative-direction.0.2.0",
+            )
+            self.assertEqual(session.active_brief_revision.creative_audacity, 3)
+            self.assertIn("AUDACE CRÉATIVE : 3/3", gateway.requests[-1].user_prompt)
+            self.assertIn(
+                "un mouvement ou objectif principal",
+                gateway.requests[-1].system_prompt,
+            )
+            with self.assertRaisesRegex(ValueError, "locked"):
+                service.configure_brief_variant(
+                    session.session_id,
+                    brief_variant_id=None,
+                    brief_variant_version=None,
+                )
+
     def test_stream_reasoning_opt_in_is_forwarded_but_not_persisted(self):
         with tempfile.TemporaryDirectory() as directory:
             assets = LocalAssetStore(directory, id_factory=lambda: "asset-first")

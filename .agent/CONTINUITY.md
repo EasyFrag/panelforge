@@ -554,3 +554,556 @@
 ### Risks / open questions
 - Une mise à jour du checkout principal devra être lancée sous le compte Windows propriétaire avant de l'utiliser comme copie de travail à jour.
 - Le tag stable doit rester immuable ; les travaux d'orchestration partiront sur une nouvelle branche et non par déplacement du tag.
+
+## Update 2026-08-30 — orchestrateur Production V1 implémenté
+
+### Works
+- La branche `production-orchestrator-v1` ajoute un agrégat `ProductionJob` persistant et un journal borné qui conserve les projets/essais enfants KREA2 et H3, les sélections, scores, justifications, corrections, pauses et erreurs. Un redémarrage ne remplace pas les historiques KREA2/H3 existants.
+- Le mode `full_auto` exécute : image source immuable comme inspiration du LLM KREA2 assisté → trois rendus T2I obtenus par itérations directes du prompt → sélection multimodale parmi les trois candidats → H3 Base I2VA `0.3.3` en trois appels Brief/Plan/Prompt → preview 0,2 MP → évaluation sur l'ancre et trois keyframes → révision bornée ou acceptation → nouveau rendu verrouillé à 1,2 MP avec la même seed.
+- Le mode `human_review` suspend le même automate après la recommandation d'image et après l'évaluation vidéo. L'utilisateur peut remplacer la sélection, accepter le preview ou demander une correction, sans créer un second pipeline.
+- Les appels LLM et les rendus enfants échoués sont retentés une fois. Les previews annulés par le garde thermique ne consomment pas le budget des previews réellement évalués ; quand la limite est atteinte, le meilleur score est retenu avec une décision `fallback` explicite.
+- Un moniteur serveur Crystools lit désormais la température du GPU Comfy distant sans navigateur ouvert et l'agrège avec `nvidia-smi` local. Les seuils sont configurables ; les défauts sont arrêt à 85 °C, reprise sous 40 °C et stabilité/cooldown de 120 secondes. Les rendus KREA2/H3 appartenant au job sont annulés au seuil, puis recréés après refroidissement.
+- Le nouveau menu `Production` expose source, intention, mode, modèles serveur/Unsloth/vLLM, checkpoint/ratio/MP/LoRA KREA2, liberté créative maximale par défaut, trois axes H3, budget de previews, musique et politique thermique. Le suivi affiche source/candidats, previews et scores, final, décisions et événements, avec bip terminal OK/KO.
+- Validation : compilation Python complète, `git diff --check`, 13 tests ciblés verts et 643 tests complets verts en 75,743 secondes. Node.js n'est pas installé ; la structure UI est couverte par des tests statiques.
+
+### Broken / missing
+- Aucun smoke test réel n'a encore exécuté un job complet contre KREA2, le LLM sélectionné, ComfyUI H3 et les deux sources thermiques. La V1 a été validée avec les contrats réels et un test de chaîne simulé.
+- Les appels LLM synchrones ne sont pas annulables en plein calcul : un dépassement thermique survenu pendant un appel est observé avant l'étape suivante. Les rendus ComfyUI, qui constituent les charges longues principales, sont surveillés et annulés activement.
+- La V1 ne gère qu'un job actif lancé depuis l'interface ; le schéma est durable mais la future file nocturne multi-jobs, la priorité et la reprise automatique globale ne sont pas encore implémentées.
+
+### Next steps
+1. Lancer un job full-auto réel court avec télémétrie locale/distante disponible et vérifier les trois images, le choix LLM, le preview, la keyframe review et le final 1,2 MP.
+2. Tester volontairement le mode validation humaine puis un seuil thermique abaissé pour qualifier pause, annulation ciblée, cooldown et reprise.
+3. Ajuster les prompts de sélection/évaluation et les seuils de score à partir des premiers résultats qualitatifs avant de concevoir la file nocturne.
+
+### Risks / open questions
+- Une évaluation par keyframes ne prouve ni l'audio ni chaque mouvement intermédiaire. Les prompts d'arbitrage interdisent d'inventer ces preuves, mais la qualité du choix full-auto devra être mesurée sur des vidéos réelles.
+- Le rendu final 1,2 MP recompile le graphe complet avec prompt, frames, seed et réglages verrouillés ; le workflow ne reprend pas encore directement le latent du preview 0,2 MP.
+- Avec `pause_when_unavailable` activé par défaut, une source thermique absente maintient volontairement le job en pause jusqu'à son retour ou à une modification de la politique sur un nouveau job.
+
+## Alignment 2026-08-30 — ressources thermiques et deux flux
+
+### Current state
+- Le garde thermique V1 est encore global : chaque étape vérifie simultanément le GPU local et le GPU Comfy distant, et `paused_thermal` suspend le job entier. Ce comportement est trop conservateur pour deux machines indépendantes.
+- Les appels Unsloth/vLLM utilisent normalement le GPU local. KREA2 et H3 utilisent le GPU Comfy distant. Un modèle LLM de source `server` peut en revanche partager la machine distante et doit donc être routé vers sa ressource physique réelle.
+- Plusieurs jobs peuvent actuellement démarrer dans des threads séparés, mais il n'existe ni ordonnanceur central, ni capacité par ressource, ni priorité FIFO explicite.
+
+### Target
+- Chaque opération déclare la ressource physique dont elle a besoin : au minimum `local_gpu` ou `remote_gpu`. La température, l'indisponibilité, le cooldown et l'annulation sont évalués uniquement sur cette ressource.
+- Une ressource chaude bloque uniquement les tâches qui la réclament. L'autre machine reste disponible pour une tâche prête d'un autre job.
+- Le futur ordonnanceur garde au plus deux jobs actifs. Il attribue des leases de capacité 1 par GPU, favorise le job le plus ancien et utilise le second de façon opportuniste quand une autre ressource est libre et froide. Une tâche déjà lancée n'est pas préemptée.
+- Le cooldown minimal de 120 secondes concerne la lane vidéo distante entre deux générations vidéo. Les appels LLM locaux et les rendus image ne doivent pas attendre ce cooldown vidéo, sauf si leur propre ressource franchit son seuil thermique.
+
+### Next steps
+1. Remplacer le garde global par des `ComputeResource`, `ThermalGate` et `ResourceLease` indépendants, puis mapper chaque type de tâche et chaque source LLM.
+2. Conserver le runner mono-job sur cette abstraction et exposer l'état des deux lanes dans le journal/UI, afin de valider le comportement sans introduire immédiatement une queue nocturne complète.
+3. Ajouter ensuite l'ordonnanceur FIFO à deux jobs et ses tests de concurrence : vidéo distante du flux 1 + LLM local du flux 2, sans deux tâches simultanées sur le même GPU.
+
+### Risks / open questions
+- Les étapes d'un même job restent dépendantes : l'itération KREA2 suivante attend l'image précédente utilisée comme feedback. Le parallélisme utile apparaît donc surtout entre deux jobs, pas arbitrairement à l'intérieur d'un seul job.
+- Les appels LLM OpenAI-compatibles ne sont pas préemptables aujourd'hui. Le scheduler peut empêcher leur démarrage sur un GPU chaud, mais un appel déjà parti termine avant de libérer sa lease.
+
+## Update 2026-08-30 — lanes thermiques et concurrence Production
+
+### Works
+- L'orchestrateur Production déclare maintenant la ressource physique de chaque travail : `local_gpu` pour les modèles `local::`/`vllm::`, `remote_gpu` pour le LLM serveur par défaut et pour les rendus KREA2/H3. Le mapping du LLM serveur reste injectable dans `ProductionService`.
+- La garde thermique ne lit plus que la télémétrie de la ressource demandée. Un GPU local chaud ou indisponible ne bloque donc plus KREA2/H3 sur le serveur, et un GPU serveur chaud ne bloque plus un appel LLM local.
+- `ResourceLeaseManager` fournit une capacité FIFO non préemptive de 1 par GPU. Deux ressources différentes peuvent travailler simultanément, tandis que deux tâches visant le même GPU sont sérialisées.
+- Le runner accepte au maximum deux jobs actifs, dans l'ordre d'arrivée. Le premier conserve la priorité d'accès FIFO ; le second peut utiliser opportunistement l'autre GPU. Une tâche déjà lancée n'est pas interrompue par une nouvelle demande du premier job.
+- Le cooldown de 120 secondes est limité aux transitions entre rendus vidéo H3. Il réserve la lane distante pendant la descente sous le seuil de reprise et la période de stabilité, sans immobiliser la lane LLM locale. Les rendus image ne subissent pas ce cooldown vidéo.
+- L'UI Production expose les deux lanes (`Disponible`, `Occupé`, `Trop chaud`, `Refroidissement`, `Indisponible`), leur température et l'opération propriétaire via `/api/production/resources`.
+- La suite complète passe depuis la racine de branche : 650 tests verts en 77,187 s. Les 16 tests Production ciblés couvrent aussi l'isolation thermique, le parallélisme inter-GPU, le FIFO mono-GPU et la limite de deux jobs.
+
+### Broken / missing
+- La file nocturne multi-job avec réordonnancement, reprise planifiée et tableau de queue n'est pas encore construite ; ce patch fournit les primitives et la limite de deux runners concurrents.
+- Les leases et les places actives sont volontairement en mémoire. Après redémarrage, les jobs restent durables mais doivent être remis en file ; aucune lease fantôme n'est restaurée.
+- Un appel LLM OpenAI-compatible déjà envoyé ne dispose pas d'une annulation transport fiable : son seuil est vérifié avant départ, puis il libère sa lease à son retour. Les rendus ComfyUI restent surveillés et annulables pendant l'exécution.
+- Node n'est pas installé dans l'environnement ; le nouvel encart UI est couvert statiquement et par la suite Web, mais pas encore par un smoke navigateur réel.
+
+### Next steps (max 3)
+1. Smoke tester deux jobs réels : H3/KREA2 distant sur le flux 1 pendant un appel vLLM local sur le flux 2, puis vérifier les états des lanes dans l'interface.
+2. Ajouter la file nocturne durable (ordre, activation de deux jobs, reprise après redémarrage) au-dessus des primitives existantes, sans modifier les moteurs KREA2/H3.
+3. Après mesure réelle, décider si les seuils doivent devenir distincts par machine au lieu de partager les valeurs 85/40 configurées par job.
+
+### Risks / open questions
+- Une phase de refroidissement distante bloque volontairement tout nouveau travail sur ce GPU afin qu'un second job ne l'empêche pas de redescendre sous 40 °C ; le GPU local reste libre.
+- La priorité est FIFO et non préemptive : si le second job a déjà acquis une lane libre, le premier attend sa libération au lieu d'annuler une opération utile en cours.
+- Les générations lancées manuellement hors de l'orchestrateur Production ne prennent pas encore ces leases applicatives ; ComfyUI conserve toutefois ses propres contraintes de queue.
+
+## Audit 2026-08-30 — visibilité des décisions de l'orchestrateur
+
+### Works
+- `ProductionService` est l'orchestrateur déterministe : il choisit l'étape suivante et les services à appeler. Le LLM ne choisit pas librement ses tools ; il produit les prompts KREA2, sélectionne une image par JSON, construit les documents H3 et évalue les previews par keyframes.
+- Les décisions d'image et de vidéo persistent déjà un score, une justification et une éventuelle instruction de révision. Le journal UI les affiche, mais il n'expose pas encore une chronologie complète de chaque direction créative LLM.
+
+### Broken / missing
+- L'audit du parcours réel a révélé un raccord incomplet dans `_build_h3_prompt` : Production génère le Brief puis demande directement `FINAL_PROMPT`, alors que la recette H3 Base directe exige d'abord un `BEAT_SHEET`/Plan JSON généré et approuvé. Le commentaire affirmant que `FINAL_PROMPT` produit ce Plan en interne ne correspond pas au contrat actuel de `PromptCompositionService`.
+- Sans correctif, le parcours Production réel peut s'arrêter à la compilation H3 après la sélection d'image, même si les tests actuels à doubles simplifiés passent.
+
+### Next steps (max 3)
+1. Corriger Production pour exécuter explicitement Brief → Plan JSON → writer final, avec reprise idempotente de chaque document.
+2. Ajouter un test d'intégration Production utilisant le vrai `PromptCompositionService`, et non uniquement le fake actuel.
+3. Concevoir un panneau « Directions du modèle » fondé sur les sorties structurées déjà disponibles, sans exposer le chain-of-thought ni ajouter d'appel LLM.
+
+### Risks / open questions
+- Le nombre logique d'appels LLM du parcours nominal est de 8 avant le rendu final si le premier preview est accepté : 3 prompts KREA2, 1 sélection d'image, 3 étapes H3 et 1 évaluation vidéo. Chaque révision vidéo ajoute 2 appels ; chaque opération peut être retentée une fois en cas d'échec.
+
+## Diagnostic 2026-08-30 — premier run Production réel
+
+### Works
+- Le job `production-c4b21544e15a418bb7af996b6b382304` a produit exactement trois images KREA2. Les appels LLM associés sont trois `krea2.assisted.creation_chat@0.3.0`, suivis d'un unique `production.image_select@0.1.0` une seconde après la fin du troisième rendu ; aucun retry caché ni doublon n'apparaît dans `llm_calls.json`.
+- Le sélecteur a recommandé le candidat 2 avec un score de 88 et une justification persistée. En validation humaine, l'utilisateur a finalement choisi le candidat 3 ; la chaîne a bien respecté ce choix avant de démarrer `brief.structure`.
+
+### Broken / missing
+- Le job a échoué à l'étape `h3_prompt` avec `approve a current beat_sheet first`, ce qui confirme sur un run réel le raccord Plan JSON manquant identifié dans l'audit précédent.
+- L'API/UI actuelle n'autorise pas la remise en file d'un job `failed`. Les projets KREA2, l'image choisie, la session Prompt Lab et le Brief restent persistés, mais il n'existe pas encore d'action sûre « Relancer cette étape ».
+- Le catalogue LoRA persiste favoris, sécurité, précision et métadonnées CivitAI, mais aucune mémoire sémantique des effets, plages de force, compatibilités ou observations de rendu.
+
+### Next steps (max 3)
+1. Corriger le parcours H3 en Brief → Plan généré/approuvé → writer final, puis ajouter un test d'intégration avec les vrais services.
+2. Ajouter une reprise idempotente de l'étape en échec : endpoint et bouton « Relancer cette étape », remise à `queued`, conservation des enfants valides et aucun rejeu des rendus KREA2.
+3. Concevoir séparément un mode expérimental « Sélection LoRA assistée » avec profils sémantiques et observations versionnées, sans modifier le parcours stable par défaut.
+
+### Risks / open questions
+- Un simple retry du job actuel sans correctif reproduirait la même erreur structurelle ; le retry automatique doit distinguer erreurs transitoires et invariants de pipeline.
+- Les résultats de runs ordinaires ne prouvent pas causalement l'effet d'une LoRA, car prompt, seed et autres LoRA peuvent changer. La mémoire doit séparer métadonnées déclarées, observations à faible confiance et essais A/B contrôlés.
+
+## Alignment proposé 2026-08-30 — reprise Production, sélection visible et LoRA expérimental
+
+### Current state
+- Les vignettes Production sélectionnent un candidat mais n'ouvrent pas de visionneuse agrandie. La recommandation LLM est surtout visible dans le journal et le contrat `production.image_select@0.1.0` ne note que le candidat retenu, pas chaque image.
+- Le choix recommandé et le choix humain sont bien conservés séparément dans l'agrégat, ce qui permet de les afficher sans ambiguïté.
+- Le job réel en échec conserve ses trois rendus KREA2, son choix humain, sa session H3 et son Brief, mais il manque le Plan JSON et aucune action de reprise n'est exposée.
+- Les réglages LoRA sont actuellement fixes pour les trois essais et le catalogue ne contient pas encore de profils d'effets ni d'observations exploitables par un LLM.
+
+### Target
+- Ajouter une visionneuse `object-fit: contain` pour la source et chaque candidat, tout en conservant une action distincte pour sélectionner un candidat.
+- Faire retourner au même appel de sélection une note et un résumé pour chaque candidat, puis afficher un encart compact avec recommandation, scores, choix humain éventuel et un `<details>` pour l'analyse complète. Les anciens jobs restent lisibles sans inventer les scores absents.
+- Corriger le raccord H3 en Brief → Plan JSON → Prompt final, rendre ces étapes idempotentes et ajouter `Relancer cette étape` sur un job en échec sans rejouer les trois rendus KREA2 ni perdre les documents valides.
+- Ajouter une case désactivée par défaut `Sélection LoRA assistée (expérimental)`. Un appel Production dédié choisit une seule pile validée de 0 à 4 LoRA avant les trois essais ; les LoRA déjà renseignées par l'utilisateur restent verrouillées et le LLM ne remplit que les emplacements libres. La pile reste identique sur les trois rendus afin de préserver une comparaison utile.
+- Persister séparément les profils déclarés (effets, déclencheurs, compatibilités, plage de force, risques) et les observations de jobs (réglages, score, choix, note, contexte), avec une confiance faible pour les runs non contrôlés. La mémoire est récupérée de façon bornée lors du futur choix LoRA ; elle ne constitue pas un apprentissage causal automatique.
+
+### Next steps (max 3)
+1. Implémenter et tester le raccord H3 idempotent ainsi que la reprise d'un job échoué.
+2. Étendre le contrat de sélection, la persistance et l'UI de recommandation/visionneuse avec compatibilité des anciens jobs.
+3. Ajouter le sélecteur LoRA expérimental, son allowlist stricte, sa mémoire versionnée et ses tests sans modifier le comportement par défaut.
+
+### Risks / open questions
+- Une note LLM est un jugement relatif aux candidats présentés, pas une mesure absolue de qualité ; l'interface doit l'indiquer comme score de recommandation.
+- Le premier historique LoRA sera surtout observationnel et corrélé. Une future exploration A/B devra garder prompt, seed et pile constants pour produire des preuves plus fiables.
+
+## Update 2026-08-30 — reprise H3, recommandation image et LoRA expérimental
+
+### Works
+- Production exécute désormais explicitement et de façon idempotente `Brief → Plan JSON → Prompt final` pour H3 Base 0.3.3. Chaque document déjà approuvé est réutilisé ; un candidat actif valide est approuvé sans nouvel appel, tandis qu'un candidat invalide est régénéré au maximum une fois par le retry LLM existant.
+- Un job `failed` expose `POST /api/production/jobs/{job_id}/retry` et le bouton `Relancer cette étape`. La reprise remet uniquement l'étape courante en file, efface l'erreur terminale et conserve les rendus KREA2, le choix d'image, la session, les documents approuvés, les previews et le journal.
+- Le sélecteur d'image `production.image_select@0.2.0` note maintenant chaque candidat exactement une fois et recommande séparément un essai. Les évaluations par candidat sont persistées de manière rétrocompatible dans `ProductionDecision`; les anciens jobs sans détail restent lisibles.
+- L'UI Production affiche un encart de recommandation compact avec le score de chaque essai, le choix humain courant, un détail repliable et la justification finale. La recommandation LLM et la sélection humaine utilisent des états visuels distincts.
+- La source et chaque image générée ouvrent une visionneuse native agrandie en `object-fit: contain`. La sélection humaine passe par un bouton séparé afin qu'un clic sur l'image n'écrase plus le choix.
+- La case `Sélection LoRA assistée (expérimental)` est désactivée par défaut. Quand elle est active, un unique appel `production.lora_select@0.1.0` choisit uniquement parmi les LoRA installées, complète au plus les quatre emplacements, conserve les choix manuels comme valeurs verrouillées et applique une pile identique aux trois rendus.
+- Le plan LoRA, les forces, les effets attendus et la justification sont persistés avec le job et visibles dans l'encart. La pile sélectionnée est aussi communiquée au prompteur KREA2 pour qu'il écrive un prompt cohérent sans inventer d'autre LoRA.
+- `production_lora_memory.json` sépare profils déclarés, hypothèses du sélecteur et observations de rendu à confiance faible. Chaque candidat noté alimente les observations avec checkpoint, prompt, seed, pile, score et statut de sélection ; une sélection humaine ajoute une observation distincte.
+- Validation finale : compilation Python, `git diff --check`, 39 tests ciblés et 655 tests complets verts en 82,978 secondes. Un test d'intégration utilise le vrai `PromptCompositionService` et le cookbook H3 Base 0.3.3 pour vérifier l'ordre Plan approuvé puis writer final.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n'a encore validé la visionneuse `<dialog>`, les deux styles de sélection et le bouton de reprise sur le job utilisateur existant. Node.js reste absent, donc le JavaScript est couvert statiquement et par les tests Web mais pas par `node --check`.
+- L'interface ne propose pas encore d'éditeur des profils LoRA déclarés. Le store possède le contrat durable pour les recevoir, mais la V1 expérimentale apprend surtout des hypothèses LLM et des observations corrélées.
+
+### Next steps (max 3)
+1. Redémarrer la branche et utiliser `Relancer cette étape` sur le job H3 échoué pour confirmer qu'il reprend au Plan sans recréer les trois images.
+2. Lancer un job en validation humaine et vérifier dans le navigateur l'agrandissement, les trois scores, la recommandation et le remplacement manuel.
+3. Lancer un petit job avec sélection LoRA assistée, puis contrôler le plan visible et `workspace/production_lora_memory.json` avant d'envisager une exploration A/B.
+
+### Risks / open questions
+- Les scores sont des jugements relatifs du LLM sur les candidats présentés, pas une métrique absolue de qualité.
+- Les observations LoRA ordinaires restent confondues par les variations de prompt et de seed malgré la pile fixe. Elles sont donc injectées comme preuves à faible confiance ; une future mesure causale devra comparer à prompt et seed constants.
+- Le catalogue transmis au sélecteur est borné aux 200 premières LoRA déjà classées par le catalogue. Si l'inventaire dépasse cette taille, une politique de recherche sémantique devra remplacer ce bornage.
+
+## Update 2026-08-30 — troncature JSON de la sélection d'image Production
+
+### Works
+- Le diagnostic du job `production-bf1f8226640840ee891291a4a1e12e34` montre deux réponses `production.image_select@0.2.0` terminées avec `finish_reason=length` à exactement 2048 tokens. L'erreur `Expecting ',' delimiter` provenait donc d'un JSON coupé, pas d'une virgule isolée réparable localement.
+- Le contrat `production.image_select@0.2.1` fournit maintenant la forme complète correspondant au nombre réel de candidats, exige des scores entiers de 0 à 100 et borne chaque résumé ainsi que la justification pour éviter la prose excessive.
+- La première tentative de sélection dispose de 4096 tokens. Si le fournisseur signale encore `finish_reason=length`, la tentative bornée existante repart à 8192 tokens ; un second dépassement remonte une erreur explicite de réponse tronquée au lieu d'une erreur JSON trompeuse.
+- La reprise reste idempotente : après redémarrage, `Relancer cette étape` reprend `image_selection` avec les trois rendus KREA2 existants et ne les régénère pas.
+- Validation : 9 tests Production ciblés et 656 tests complets passent ; `git diff --check` ne signale aucune erreur de diff.
+
+### Broken / missing
+- Le job utilisateur n'a pas été relancé automatiquement : son appel au LLM local doit rester une action explicite après redémarrage de PanelForge.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge sur `production-orchestrator-v1`, rouvrir le job en échec et cliquer sur `Relancer cette étape`.
+2. Confirmer que l'encart affiche trois scores sur 100 et une recommandation avant la validation humaine.
+3. Si le modèle atteint aussi 8192 tokens malgré les bornes de texte, inspecter sa configuration de raisonnement avant d'augmenter davantage le budget.
+
+### Risks / open questions
+- Le budget de secours n'est consommé que si la première réponse est rejetée ; il peut augmenter la latence du retry, mais évite de persister un JSON incomplet.
+- Aucune réparation syntaxique n'est appliquée à une réponse tronquée : les scores ou justifications absents ne doivent pas être inventés par l'application.
+
+## Diagnostic 2026-08-30 — steps H3 du flux Production
+
+### Works
+- Production réutilise bien le workflow H3 Base Latent Speed `0.1.1`, dont le preset publié conserve `25 steps`, et n'a pas modifié le graphe ComfyUI.
+- Le flux conserve le même seed entre previews et rendu final, utilise l'image KREA2 retenue comme first frame, reprend son ratio, force la musique désactivée par défaut et produit la finale à 1.2 MP.
+
+### Broken / missing
+- Le nouveau `ProductionConfig` et le formulaire Production fixent actuellement `video_steps=10`; `_video_settings` transmet cette valeur aux previews 0.2 MP comme à la finale 1.2 MP. Ce défaut est incohérent avec le preset H3 publié à 25 steps.
+- La durée 10 secondes, les previews à 0.2 MP, la limite de trois previews et le seuil d'acceptation LLM de 80/100 sont des choix propres à l'orchestrateur Production ; seuls les steps constituent ici l'écart non intentionnel identifié.
+
+### Next steps (max 3)
+1. Après accord utilisateur, remettre le défaut Production à 25 steps côté domaine, API et navigateur.
+2. Exposer éventuellement les steps dans les réglages Production au lieu de les cacher, avec 25 par défaut.
+3. Vérifier qu'un ancien job persisté à 10 steps reste lisible et conserve son réglage historique lors d'une reprise.
+
+### Risks / open questions
+- Modifier uniquement le défaut ne changera pas les jobs déjà créés, qui ont correctement persisté `video_steps=10`; une politique explicite est nécessaire si l'utilisateur veut migrer le job courant vers 25.
+
+## Update 2026-08-30 — trace détaillée de la compilation H3 Production
+
+### Works
+- Production persiste maintenant un contrat d'entrée H3 explicite avant la compilation : mode `I2VA`, essai KREA2 utilisé comme `first frame`, absence de `last frame`, ratio, durée, steps, niveaux de qualité, seed et état de la musique.
+- Chaque appel de la chaîne `Brief H3 → Plan JSON H3 → Prompt final H3` écrit un événement `thinking` avec modèle, numéro de tentative et heure, puis un événement de succès avec durée ou un rejet détaillé. Les documents déjà approuvés signalent clairement leur réutilisation sans nouvel appel LLM.
+- `GET /api/production/jobs/{job_id}/h3-audit` expose les trois documents durables, la recette H3 exacte, le prompt H3 courant et le contrat de rendu. L'UI ajoute une carte « Trace de compilation H3 » avec les documents repliables.
+- Chaque preview et la finale affichent le ratio, les mégapixels, les steps, la seed et le prompt effectif réellement envoyé au moteur. La finale affiche aussi sa résolution exacte.
+- Le parcours Production courant est confirmé en `9:16 (Portrait Widescreen)` lorsque ce ratio est sélectionné : `_video_settings` le convertit directement vers `VideoAspectRatio` pour les previews et la finale.
+- Validation : `git diff --check`, 11 tests Production/UI ciblés et la suite complète de 656 tests passent en 80,158 secondes.
+
+### Broken / missing
+- La chaîne de pensée privée brute n'est ni capturée ni affichée. `thinking` décrit l'état opérationnel, le modèle, les tentatives et les durées ; les artefacts auditables sont le Brief, le Plan JSON et les prompts finaux/effectifs.
+- Aucun smoke test navigateur réel n'a encore validé la carte d'audit pendant un appel LLM lent. Node.js n'est pas installé, donc `node --check` n'a pas pu être exécuté ; la syntaxe et les sélecteurs sont couverts statiquement et via les tests Web.
+- Les jobs existants créés à `10 steps` conservent volontairement cette valeur historique. Ce patch de traçabilité ne migre pas encore le défaut Production vers les `25 steps` du preset H3.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge, lancer ou reprendre un job et vérifier visuellement la progression Brief/Plan/Prompt ainsi que les panneaux repliables.
+2. Décider séparément si les nouveaux jobs Production doivent passer à 25 steps et si le champ doit être exposé dans le formulaire.
+3. Si davantage d'audit est nécessaire, ajouter une vue filtrable par type d'appel sans persister de chain-of-thought privé.
+
+### Risks / open questions
+- Le contrat affiché reflète la configuration persistée du job ; il rend donc visibles les anciens choix à 10 steps au lieu de les corriger silencieusement.
+- Les contenus Brief/Plan/Prompt peuvent être volumineux ; ils sont repliés par défaut pour préserver la lisibilité du journal.
+
+## Update 2026-08-30 — UX Production, annulation et diagnostic Fantasy noire
+
+### Works
+- Le sélecteur « Image source immuable » affiche désormais immédiatement une preview locale en `object-fit: contain`, avec le nom du fichier tronqué proprement si nécessaire.
+- Le polling Production ne reconstruit plus les balises `<video>` lorsque seuls le journal ou la trace LLM changent. Les previews et la finale utilisent une clé de rendu stable ; la lecture, la position et les contrôles du lecteur ne sont donc plus remis à zéro toutes les deux secondes.
+- Le bouton `Annuler` est renommé `Arrêter le flux`. Il persiste un événement d'arrêt global, interrompt immédiatement un rendu Comfy KREA2/H3 actif, annule directement un job inactif/en attente de validation et empêche tout appel ou rendu suivant.
+- Pour un appel LLM OpenAI-compatible synchrone déjà envoyé, le résultat est désormais rejeté dès son retour si l'arrêt a été demandé, avant toute étape suivante. L'UI précise honnêtement que le transport courant ne permet pas encore de couper de force la requête déjà en vol côté fournisseur.
+- Le run `Fantasy noire` (`production-86ceaef39fea4c1c93a2f32b13dcb6aa`) est bien en I2VA 9:16, preview 0,2 MP, 10 steps et seed verrouillée. Les deux previews ont été notées 38 puis 42 : le cimetière disparaît vers 5 s, remplacé par des fonds beige/blancs et des lignes de vitesse.
+- Le diagnostic montre une cause combinée. Les 10 steps, très inférieurs aux 25 du preset publié, aggravent fortement l'instabilité à 0,2 MP. Mais la frame KREA2 retenue était déjà en pleine charge/transformation avec main dominante, flou radial, speed streaks et arrière-plan volontairement flou ; le prompt H3 ajoutait une transformation translucide complexe et trois phases caméra (`pull.out`, statique, shake). Le décor abstrait n'était pas demandé, mais ces entrées favorisaient sa disparition.
+- Une révision manuelle Production ne rejoue pas Brief, Plan et Writer. Elle utilise `h3.base.render.revision@0.2.0`, le prompt courant, les keyframes et la mémoire du projet. Sur le run `fantasy2`, deux appels de révision identiques ont été observés uniquement parce que le premier candidat a été rejeté (`camera directive 1 must use id camera_1`) puis retenté une fois ; l'évaluation de la nouvelle vidéo est ensuite un appel séparé `production.video_evaluate@0.1.0`.
+- Les trois images KREA2 sont séquentielles : le premier prompt part de la source immuable, puis chaque prompt suivant reçoit l'image réussie précédente comme feedback. À la fin seulement, la source et les trois candidats sont comparés ensemble par le sélecteur.
+- Validation : 37 tests ciblés et la suite complète de 657 tests passent en 91,349 secondes ; `git diff --check` ne signale aucune erreur de diff.
+
+### Broken / missing
+- L'annulation immédiate d'un appel LLM déjà en vol demanderait un transport réellement interruptible/streamé jusqu'au client OpenAI-compatible. Le flux PanelForge s'arrête bien après ce retour et n'enchaîne rien, mais le serveur LLM peut continuer à calculer jusque-là.
+- La recherche KREA2 optimise actuellement les candidats pour représenter toute l'intention vidéo dans une image spectaculaire. Pour l'I2VA, cela peut produire une mauvaise first frame : action déjà commencée, flou de mouvement, afterimages et décor peu ancré.
+- En mode validation humaine, une itération manuelle peut encore déclencher un appel de révision (avec au plus un retry de validation), le rendu H3, puis un appel d'évaluation visuelle distinct. Ce n'est pas un rejeu des trois documents H3, mais ce n'est pas non plus strictement un seul appel LLM total par boucle.
+
+### Next steps (max 3)
+1. Décider si le mode humain doit conserver l'évaluation LLM automatique après chaque nouveau preview ou devenir strictement « un appel de révision + rendu + validation humaine ».
+2. Versionner la stratégie KREA2 Production pour rechercher une first frame stable avant l'action : décor net, sujet cohérent, sans speed lines, afterimages ni transformation déjà accomplie.
+3. Passer séparément les nouveaux jobs Production à 25 steps par défaut, sans migrer silencieusement les anciens jobs persistés à 10.
+
+### Risks / open questions
+- Monter seulement à 25 steps devrait améliorer la cohérence, mais ne corrigera pas une first frame déjà conçue comme une image de climax ni des mouvements caméra contradictoires.
+- Supprimer l'évaluation LLM en mode humain réduirait les appels et la latence, mais ferait aussi disparaître les scores, le diagnostic automatique et la recommandation de correction après chaque preview.
+
+## Update 2026-08-30 — sélection sans plafond, vraie first frame et boucle d'évaluation
+
+### Works
+- Le sélecteur visuel Production passe en `production.image_select@0.2.2`. Ses deux tentatives bornées n'envoient plus aucun paramètre `max_tokens` : le client OpenAI-compatible omet entièrement ce champ lorsque la requête utilise `None`, même si la source LLM possède un plafond par défaut configuré pour les autres appels.
+- `CompletionRequest`, la journalisation LLM et le stockage acceptent désormais explicitement `max_tokens=None`; le journal persiste alors `null`. Les appels existants conservent leurs limites numériques inchangées.
+- Si le fournisseur renvoie malgré tout `finish_reason=length`, Production retente une fois sans plafond client puis signale clairement une limite fournisseur/contexte, au lieu d'annoncer une limite PanelForge de 8192 tokens.
+- Les instructions KREA2 Production demandent maintenant une vraie first frame stable immédiatement avant l'action : identité, environnement, lumière et profondeur lisibles, sans transformation/climax déjà commencé, flou cinétique, speed lines, afterimages, états temporels dupliqués ni fond abstrait de remplacement. Les itérations conservent cette position pré-action tout en utilisant le rendu précédent comme feedback.
+- Le sélecteur pénalise explicitement les candidats qui compressent toute l'intention vidéo dans une image de climax et favorise l'ancre pré-action cohérente avec un décor exploitable par l'I2VA.
+- Les nouveaux jobs Production utilisent 25 steps par défaut dans le domaine, l'API et le navigateur. La lecture conserve le fallback historique à 10 pour les anciens fichiers qui n'avaient pas ce champ, et tout job qui a persisté 10 reste à 10 lors d'une reprise.
+- L'évaluation visuelle automatique est conservée en validation humaine. Sa dernière `revision_instruction` de type `revise` préremplit la zone de correction ; l'utilisateur peut la modifier ou l'effacer. Le polling ne remplace pas un texte manuel en cours de saisie et une nouvelle recommandation remplace seulement l'ancienne suggestion automatique.
+- Le cache de `production-lab.js` passe en `20260830.6`. Validation : 82 tests ciblés, 659 tests complets et `git diff --check` sans erreur.
+
+### Broken / missing
+- Aucun smoke test réel n'a encore confirmé la longueur effective choisie par vLLM lorsqu'aucun `max_tokens` n'est envoyé ni le préremplissage de la recommandation dans le navigateur.
+- Node.js reste absent ; le JavaScript est couvert par les tests statiques/Web, pas par `node --check`.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et relancer l'étape `SÉLECTION IMAGE` du job en échec pour réutiliser les trois images avec le contrat `0.2.2` sans plafond client.
+2. Créer un nouveau job afin de vérifier dans la trace H3 `25 steps` et d'observer que les trois candidats KREA2 sont bien des états pré-action.
+3. En validation humaine, attendre une évaluation `revise`, vérifier son texte prérempli puis le modifier avant de demander une nouvelle itération.
+
+### Risks / open questions
+- L'absence de plafond client ne rend pas le contexte infini : vLLM et le modèle gardent leur fenêtre maximale et peuvent encore terminer par `length` si la configuration serveur leur impose une limite.
+- La contrainte pré-action améliore l'ancrage I2VA mais peut produire des images volontairement moins spectaculaires ; la dynamique doit désormais être créée par H3, pas précomprimée dans KREA2.
+- Les jobs déjà créés à 10 steps ne sont pas migrés automatiquement ; il faut un nouveau job pour obtenir le nouveau défaut de 25.
+
+## Diagnostic 2026-08-30 — affichage 10 steps après le patch
+
+### Works
+- La carte H3 affiche la valeur réellement persistée dans le job, pas le défaut courant du formulaire.
+- Le job visible `production-626a5327f72345ec96d54f2df8dcec02` (`Danseuse peinture`) a été créé à 14:33 avec `video_steps=10`, avant le passage du défaut à 25, puis repris à l'étape `h3_prompt`. Son affichage à 10 steps est donc exact.
+- Les nouveaux jobs créés après redémarrage utilisent 25 steps ; une reprise conserve volontairement les paramètres historiques du job.
+
+### Broken / missing
+- Aucun défaut d'affichage identifié. Il n'existe pas encore d'action explicite pour migrer un job existant de 10 à 25 steps.
+
+### Next steps (max 3)
+1. Créer un nouveau job après redémarrage pour confirmer l'affichage à 25 steps.
+2. Ajouter seulement si demandé une action explicite de changement de qualité sur un job existant, sans migration silencieuse.
+
+### Risks / open questions
+- Modifier silencieusement les steps pendant une reprise rendrait les previews d'un même job difficilement comparables et fausserait son historique de configuration.
+
+## Update 2026-08-30 — sécurité LoRA et catalogue KREA2 dans Production
+
+### Works
+- Les nouveaux jobs Production refusent toute LoRA manuelle dont la force sort de `-1..1`; l'interface utilise les mêmes bornes et ramène une saisie hors plage à la borne correspondante au changement du champ.
+- Le sélecteur expérimental passe en `production.lora_select@0.2.0` et exige explicitement une force inclusive entre `-1` et `1`. Une protection déterministe ramène malgré tout toute proposition LLM comprise dans l'ancien domaine `-20..20` vers `-1..1` et consigne cet ajustement dans la justification du plan.
+- Le dernier raccord avant le rendu KREA2 rebornе aussi toutes les forces à `-1..1`. Les anciens jobs et souvenirs contenant par exemple `1.25` restent donc lisibles, mais une reprise ne peut plus envoyer plus de `1` à ComfyUI.
+- Le menu de checkpoint Production réutilise maintenant `PanelForgeKrea2ResourceUi` : groupes Favoris/BF16/INT8/précision inconnue et noms complets en infobulle, comme Création assistée, Batch et Edit.
+- Un encart `Organiser le catalogue KREA2` est intégré à Production. Il manipule les mêmes préférences persistées et partagées pour les checkpoints et LoRA ; les choix courants du formulaire sont conservés pendant l'actualisation du classement.
+- Les listes LoRA Production utilisent elles aussi le classement partagé Favoris/SFW/NSFW/Non classés. Le cache de `production-lab.js` passe en `20260830.7`.
+- Validation : 33 tests ciblés, 660 tests complets et `git diff --check` sans erreur.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n'a encore vérifié l'ouverture du gestionnaire de catalogue dans la colonne Production et le reclassement immédiat du menu de checkpoints.
+- Les écrans KREA2 historiques hors Production conservent volontairement leurs anciennes plages LoRA ; cette limitation `-1..1` concerne le nouvel orchestrateur Production demandé ici.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et vérifier que le checkpoint Production est regroupé selon le catalogue partagé.
+2. Activer la sélection LoRA assistée sur un nouveau job et confirmer dans l'encart de recommandation qu'aucune force ne dépasse `1` en valeur absolue.
+3. Après validation réelle, décider séparément si la plage `-1..1` doit être étendue aux anciens ateliers KREA2.
+
+### Risks / open questions
+- Une ancienne observation LoRA à force supérieure à `1` reste dans la mémoire pour l'audit, mais ne peut plus être réappliquée telle quelle par Production.
+- Le gestionnaire partagé expose aussi l'organisation des LoRA, conformément au composant existant ; le besoin principal de ce patch reste le classement des checkpoints.
+
+## Update 2026-08-30 — état Production intégré au moniteur global
+
+### Works
+- Le bandeau de ressources Production séparé a été supprimé. Les lignes `Serveur` et `Local` du moniteur global possèdent désormais une quatrième cellule qui affiche `Idle` ou `Busy · KREA2`, `Busy · H3_plan`, `Busy · H3_low` ou `Busy · H3_high`.
+- `Busy` décrit exclusivement une ressource réservée par l'orchestrateur PanelForge. Les jauges VRAM/température restent des mesures physiques globales et peuvent donc être élevées alors que la file Production est `Idle`.
+- Les identifiants techniques d'opération et d'attempt ne sont plus exposés dans le bandeau : le backend les compile en quatre phases stables selon le stage et le type de workload. L'identifiant du job reste disponible dans l'infobulle pour le diagnostic.
+- Le moniteur global `/api/runtime/status` transporte maintenant les états de ressources Production. La température serveur continue d'utiliser le WebSocket Crystools rapide dans le navigateur, avec la lecture Crystools côté serveur de Production comme repli ; l'ancien cas `Temp —` en haut alors que Production affichait une température est ainsi couvert.
+- Le polling redondant de `/api/production/resources` dans `production-lab.js` a été retiré. Le statut reste visible et actualisé dans toutes les vues par le polling global à une seconde.
+- Le moniteur passe à 438 px sur écran large et conserve quatre colonnes adaptatives sur mobile. Les caches `lab.js`, `lab-core.js`, `lab.css` et `production-lab.js` sont renouvelés.
+- Validation : 39 tests ciblés, 661 tests complets et `git diff --check` sans erreur.
+
+### Broken / missing
+- Aucun défaut automatisé connu. Node n'est pas installé dans l'environnement ; la syntaxe JavaScript est couverte par les tests statiques et Web, mais pas par `node --check`.
+- Le rendu réel des quatre cellules et le repli de température Crystools doivent encore être confirmés dans le navigateur connecté aux deux machines.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et vérifier successivement un appel LLM local, un rendu KREA2, un preview H3 et le rendu final afin de voir les quatre libellés attendus.
+2. Couper brièvement le relais WebSocket navigateur et confirmer que la température serveur reste renseignée par le repli REST Production.
+3. Ajuster seulement la largeur de la quatrième cellule après observation sur la résolution réelle si un libellé est tronqué.
+
+### Risks / open questions
+- La lecture Production côté serveur de Crystools peut prendre jusqu'au timeout configuré lorsque le plugin distant est indisponible ; l'endpoint runtime masque cette panne et conserve les autres données partielles.
+- Une forte VRAM ou une température élevée provoquée par un programme externe n'affiche pas `Busy`, car aucune ressource Production n'est alors réservée. C'est volontaire : les jauges décrivent le GPU, `Idle/Busy` décrit uniquement l'orchestrateur.
+
+## Update 2026-08-30 — activité globale hors Production
+
+### Works
+- Le constat utilisateur était exact : la première version de `Idle/Busy` ne suivait que les leases de l'orchestrateur Production. Les ateliers historiques appelaient directement le gateway LLM et ComfyUI, donc Création assistée restait faussement `Idle`.
+- `LoggedMultimodalGateway` expose maintenant, sous verrou et sans contenu de prompt, les appels réellement actifs avec leur source physique (`server`, `local` ou `vllm`) et leur `operation_id`. Les appels synchrones, streamés, réussis, échoués ou interrompus sont toujours retirés dans un `finally`.
+- `/api/runtime/status` expose ces appels ainsi que les activités de la file ComfyUI, classées à partir du `client_id` : `KREA2`, `H3` ou fallback `Comfy`. Les opérations LLM sont condensées en `KREA2`, `H3_plan` ou fallback `LLM`.
+- Le bandeau fusionne les trois signaux avec priorité au lease Production précis. Hors Production, Création assistée affiche désormais `LOCAL Busy · KREA2` pendant un prompt vLLM local, puis `SERVEUR Busy · KREA2` pendant son rendu ComfyUI.
+- La généralisation couvre aussi Générer/Batch/Edit KREA2, H3 Base, Ref2V, Video Lab et Social Lab. Une activité inconnue reste honnêtement nommée `LLM` ou `Comfy` plutôt que d'être attribuée à tort.
+- Les identifiants DOM ont été renommés `runtime-server-activity` et `runtime-local-activity`; le cache `lab.js` passe en `20260830.4`.
+- Validation : 41 tests ciblés, 663 tests complets et `git diff --check` sans erreur.
+
+### Broken / missing
+- Aucun défaut automatisé connu. Le changement doit encore être observé dans le navigateur pendant un vrai échange puis un vrai rendu Création assistée.
+- Un travail ComfyUI lancé par un client externe sans `client_id` PanelForge apparaît volontairement comme `Busy · Comfy`, sans recette inventée.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge, lancer un affinage KREA assisté sur vLLM local et confirmer `LOCAL Busy · KREA2`.
+2. Lancer ensuite le rendu de l'image et confirmer le basculement vers `SERVEUR Busy · KREA2`, puis le retour à `Idle`.
+3. Vérifier une génération H3 hors Production pour confirmer `H3_plan` pendant les appels LLM et `H3` pendant ComfyUI.
+
+### Risks / open questions
+- La file ComfyUI est échantillonnée chaque seconde : un travail extrêmement court peut commencer et finir entre deux lectures sans être visible. Les rendus image/vidéo usuels sont suffisamment longs pour être observés.
+- Plusieurs activités simultanées hors Production sur la même machine sont concaténées avec `+`; le bandeau reste synthétique et les détails complets demeurent dans les journaux propres aux ateliers.
+
+## Update 2026-08-30 — Direction créative H3 mono-plan 0.1.0
+
+### Works
+- H3 Base mono-plan et Production proposent désormais une case `Direction créative` expérimentale, décochée par défaut. Les parcours existants et le mode standard conservent donc strictement leur comportement antérieur.
+- L'activation sélectionne une variante versionnée `creative-direction@0.1.0` uniquement pour le Brief. Elle demande au LLM de choisir une progression visuelle plus ambitieuse dans les limites des trois axes existants, sans ajouter spontanément dialogue, musique, nouveau personnage, coupe ou changement de lieu.
+- Le Plan JSON et le Writer final restent compilés par la recette H3 Base standard `0.3.3`; la variante créative n'est pas une nouvelle recette vidéo complète.
+- Dans H3 Base, le choix peut être modifié tant qu'aucun Brief n'existe, puis il est verrouillé afin que l'historique reste explicable. Production persiste le choix dès la création du job.
+- La session, les forks, le stockage, l'API, les traces Production et l'audit H3 exposent la variante de Brief. Les anciens fichiers de sessions (schémas 1 à 6) et les anciens jobs sont relus en mode standard.
+- Validation : 668 tests complets réussis et `git diff --check` sans erreur de whitespace. Node.js reste absent ; le JavaScript est couvert par les tests statiques/Web, pas par `node --check`.
+
+### Broken / missing
+- La direction créative est volontairement limitée au mono-plan. Elle n'est affichée ni pour le multi-plan structuré ni pour l'interview animale.
+- Aucun test réel avec le modèle local n'a encore évalué le niveau d'initiative obtenu par `creative-direction@0.1.0`.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et comparer une même intention H3 Base mono-plan avec la case désactivée puis activée, à axes identiques.
+2. Tester Production avec la direction créative activée et vérifier dans la trace `Brief : direction créative 0.1.0` puis `Plan/Writer : standard 0.3.3`.
+3. Ajuster le prompt versionné seulement après plusieurs comparaisons réelles, sans modifier la recette standard.
+
+### Risks / open questions
+- Un axe réglé à `0` interdit volontairement les ajouts de cette catégorie ; cocher le mode sans ouvrir les axes produit donc une direction plus structurée mais peu d'initiatives nouvelles.
+- La créativité reste contrainte par la durée, les ancres et la faisabilité physique afin de ne pas réintroduire les freezes ou les fins tenues corrigés dans H3 Base.
+
+## Diagnostic 2026-08-30 — premier run Direction créative 0.1.0
+
+### Works
+- Le dernier parcours H3 Base `prompt-73592d30971b4a67a9f82a7a13011e85` a bien utilisé `creative-direction@0.1.0` avec les trois axes au maximum (`scene_life=3`, `camera=3`, `extra_motion=3`).
+- Le Brief a ajouté une chorégraphie physiquement lisible : main vers le guidon, pied vers le repose-pied, redressement puis inclinaison du buste, montée des phares, vibration et embrasement du moteur, cheveux et jupe dans le flux d'air.
+- La vie de scène et la caméra sont présentes : pluie continue, reflets néon, projections d'eau, traînées lumineuses et grand arc de face vers trois-quarts arrière. Le Plan et le Writer ont conservé ces apports ainsi que le mouvement continu à la coupure.
+
+### Broken / missing
+- Pour un maximum `3/3/3`, la proposition reste prudente : presque tous les ajouts sont des transitions attendues pour relier les deux frames et réaliser le départ de la moto.
+- Aucun motif visuel distinctif ou événement surprenant propre à cette scène cyberpunk n'a été retenu. L'axe sensuel de l'intention est décrit par l'apparence, mais peu exploité dans la gestuelle ou la mise en scène.
+- Le grand arc est utile, mais il répond aussi mécaniquement au passage d'une frame frontale à une frame arrière ; ce n'est donc pas une initiative créative entièrement nouvelle.
+
+### Next steps (max 3)
+1. Classer ce premier essai comme créativité moyenne : forte cohérence, initiative limitée.
+2. Comparer encore deux ou trois scènes avant de modifier `0.1.0`, afin de distinguer un biais récurrent d'un cas fortement contraint par deux ancres.
+3. Si le biais se confirme, renforcer uniquement le Brief expérimental pour exiger, à axes élevés, au moins une idée-signature compatible avec le thème et non nécessaire à la simple interpolation.
+
+### Risks / open questions
+- Les deux frames très directives réduisent naturellement l'espace créatif : le LLM consacre une partie importante du plan à construire une transition fiable entre elles.
+- Exiger trop tôt une idée-signature systématique pourrait surcharger dix secondes ou concurrencer le mouvement principal ; elle devra rester subordonnée et visuellement simple.
+
+## Design 2026-08-30 — axe d'audace créative proposé
+
+### Works
+- La case `Direction créative` sélectionne aujourd'hui le Brief expérimental ; elle ne représente pas une intensité.
+- Les trois curseurs existants définissent les terrains dans lesquels le LLM est autorisé à enrichir la scène (`vie de la scène`, `caméra`, `mouvements additionnels`). Ils répondent à « où ajouter ? », pas à « à quel point proposer une idée inattendue ? ».
+
+### Broken / missing
+- Aucun paramètre explicite ne fixe actuellement un objectif de nouveauté, d'initiative ou d'idée-signature. Même avec les trois permissions au maximum, le LLM peut donc choisir uniquement des enrichissements prudents.
+
+### Next steps (max 3)
+1. Si validé, ajouter au Brief expérimental un quatrième curseur `Audace créative` ou `Initiative visuelle`, distinct des trois permissions.
+2. Définir une échelle 0 à 3 : aucune initiative, enrichissement discret, une idée-signature mémorable, une idée-signature forte avec au plus un soutien cohérent.
+3. Garder Plan et Writer standards ; le nouvel axe ne doit agir que sur la sélection créative du Brief.
+
+### Risks / open questions
+- Le niveau maximal ne doit pas signifier « multiplier toutes les actions » : il doit augmenter l'originalité de la direction retenue, avec une ou deux idées fortes au maximum.
+- Le libellé `surprise` seul peut encourager l'aléatoire ; `Audace créative` ou `Initiative visuelle` exprime mieux une nouveauté thématique et contrôlée.
+
+## Update 2026-08-30 — slider Audace créative et Brief 0.2.0
+
+### Works
+- H3 Base mono-plan affiche désormais un quatrième curseur `Audace créative` de 0 à 3, distinct des permissions `Vie de la scène`, `Caméra` et `Mouvements additionnels`. Il est visible uniquement lorsque la variante créative mono-plan est disponible, désactivé tant que la case n'est pas cochée, puis verrouillé avec les autres entrées après création du Brief.
+- L'échelle est explicite : 0 aucune initiative, 1 enrichissement discret facultatif, 2 exactement une idée-signature mémorable, 3 une idée-signature forte avec au plus un effet de soutien. Le maximum ne constitue jamais un quota d'actions.
+- Les nouveaux parcours utilisent la variante versionnée `creative-direction@0.2.0`; `0.1.0` reste intacte et chargeable pour préserver l'audit des anciens runs. Plan JSON et Writer restent en recette standard H3 Base `0.3.3`.
+- Le niveau est transmis seulement au Brief initial, conservé lors des éditions/révisions, persisté dans chaque révision et exposé par l'API. Le schéma de session passe à 8 ; les schémas 1 à 7 restent lisibles, et un ancien Brief créatif sans niveau explicite migre à l'audace prudente 1.
+- Production remplace son ancien slider global 0–100 sans effet réel par le même curseur 0–3, à 2 par défaut. Le job, le journal et l'audit H3 enregistrent l'audace ; un ancien job créatif migre à 1 et un ancien job standard à 0.
+- Les nouveaux prompts précisent que l'idée-signature doit être thématique, non nécessaire à la simple interpolation des frames, compatible avec un axe autorisé et subordonnée au mouvement principal. Si les trois axes valent 0, leurs interdictions priment.
+- Validation : 670 tests complets réussis et `git diff --check` sans erreur de whitespace. Node.js reste absent ; le JavaScript est couvert par les tests statiques/Web, pas par `node --check`.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n'a encore confirmé le rendu visuel du nouveau curseur et la qualité d'un Brief généré à audace 2 ou 3.
+- Ref2V, multi-plan et interview animale ne reçoivent volontairement pas ce réglage ; le périmètre reste H3 Base mono-plan et Production.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge, cocher Direction créative et comparer la même scène à audace 1, 2 puis 3 avec les trois permissions constantes.
+2. Vérifier dans l'en-tête de session ou l'audit Production le libellé `Brief 0.2.0 · audace N/3`.
+3. Évaluer si les idées-signatures proposées restent lisibles en dix secondes avant de modifier le calibrage du prompt 0.2.0.
+
+### Risks / open questions
+- Une audace 2 ou 3 avec les trois permissions à 0 ne peut produire aucune idée-signature ; l'interface laisse cette combinaison possible afin que les interdictions explicites restent prioritaires.
+- Deux frames très directives peuvent limiter la nature de l'idée-signature, mais le niveau 2 ou 3 exige désormais qu'elle ne soit pas une simple transition mécanique entre les ancres.
+
+## Design 2026-08-30 — variante MiniMax H3 avec un LoRA vidéo
+
+### Works
+- Le workflow utilisateur `video_minimax_h3_i2v speed up porn.json` confirme le branchement attendu : le modèle et le CLIP passent dans `Power Lora Loader (rgthree)`, la sortie modèle rejoint ensuite la chaîne MiniMax, et la sortie CLIP passe par `CLIP Set Last Layer` à `-2` avant le conditionnement H3.
+- Ce workflow n'est pas un remplacement sûr de la recette H3 Base actuelle : sa topologie d'échantillonnage et d'upscale diffère. Le changement minimal consiste à conserver intégralement le workflow PanelForge publié et à n'ajouter que cette branche LoRA/CLIP dans une variante versionnée.
+- La recette Ref2V actuelle possède les mêmes points d'insertion. Sa sortie `MiniMaxH3HybridLoader` peut alimenter la branche modèle du LoRA avant `MiniMaxH3SigmaShift`, et la sortie `CLIPLoader` peut alimenter la branche CLIP du LoRA puis `CLIP Set Last Layer` avant `MiniMaxH3ReferenceToVideo`.
+- ComfyUI expose déjà l'inventaire générique par `/models/loras`. Le catalogue KREA2 existant ne convient pas tel quel, car il ignore volontairement les chemins hors du préfixe `krea2/`; un inventaire H3 filtré sur `minmax_nsfw/` est donc nécessaire.
+
+### Broken / missing
+- H3 Render ne transporte actuellement ni choix de profil LoRA, ni nom, ni force, ni réglage CLIP dans le domaine, l'API, le stockage des attempts ou le compilateur de workflow.
+- Aucune variante H3 Base ou Ref2V publiée ne contient encore le nœud LoRA et le branchement CLIP `-2`.
+- Le workflow fourni prouve `-2` pour la configuration testée, mais ne permet pas d'affirmer que tous les LoRA présents dans `minmax_nsfw/` exigent ce réglage.
+
+### Next steps (max 3)
+1. Ajouter un profil de rendu expérimental H3 Base `LoRA MiniMax`, avec un seul fichier filtré sur `minmax_nsfw/`, force `0..1` et compatibilité CLIP `-2` activée par défaut.
+2. Publier une variante versionnée du workflow H3 Base actuel qui ne modifie que la branche modèle/CLIP, puis persister et afficher ces paramètres dans chaque attempt afin de préserver reprise et audit.
+3. Réutiliser le même contrat de sélection dans une variante Ref2V distincte, après validation réelle du premier rendu H3 Base.
+
+### Risks / open questions
+- Un mode `Aucun` dans la variante ne doit pas laisser `CLIP Set Last Layer -2` actif silencieusement ; l'absence de LoRA doit sélectionner la recette standard inchangée.
+- Le réglage `-2` devrait rester visible comme option avancée ou être attaché à une mémoire de compatibilité par LoRA si les essais montrent que certains fichiers doivent conserver le CLIP standard.
+- Le chemin LoRA doit être validé contre l'inventaire ComfyUI et le préfixe autorisé, sans accepter un chemin libre envoyé par le navigateur.
+
+## Clarification 2026-08-30 — différences du workflow H3 LoRA fourni
+
+### Works
+- La recette H3 Base PanelForge `0.1.1` effectue une passe initiale fixe à `0.2 MP` avec un scheduler beta à `25` steps, sépare le latent audio/vidéo, upscale le latent vidéo vers la résolution cible (par défaut `1.2 MP`), puis applique une seconde passe de raffinement avec les sigmas fixes `0.9035, 0.6316, 0.3158, 0.0000`.
+- Le workflow utilisateur effectue une seule génération H3 directe à `0.6 MP` avec un scheduler beta à `32` steps et ne contient pas `MinimaxH3LatentUpscaler3D` ni deuxième sampler de raffinement.
+- Les deux utilisent le même UNET MiniMax H3, le même CLIP int8 convrot, le sampler `res_multistep`, les mêmes shifts vidéo/audio et le même backend d'attention.
+- Une autre différence indépendante du LoRA est que Spectrum est désactivé dans PanelForge et activé dans le workflow fourni.
+
+### Broken / missing
+- Aucun : cette comparaison est un diagnostic de graphe, pas une modification du rendu.
+
+### Next steps (max 3)
+1. Conserver la chaîne PanelForge à deux passes pour la variante initiale et y greffer uniquement le LoRA et, si activé, `CLIP Set Last Layer -2`.
+2. Ne comparer le workflow direct `0.6 MP / 32 steps / Spectrum ON` que dans une expérimentation séparée afin de ne pas confondre l'effet du LoRA avec celui du sampling.
+
+### Risks / open questions
+- Reprendre tout le workflow fourni changerait simultanément le LoRA, la résolution de génération, le nombre de passes, les steps et Spectrum ; un écart de résultat ne pourrait alors plus être attribué au LoRA seul.
+
+## Alignment 2026-08-30 — emplacement du profil LoRA H3
+
+### Works
+- La modification validée conserve exactement la recette H3 Base PanelForge : passe initiale `0.2 MP / 25 steps`, upscale latent vers la cible, raffinement final et Spectrum désactivé.
+- La variante ajoute seulement deux nœuds : `Power Lora Loader (rgthree)` entre l'UNET/CLIP et leurs consommateurs, puis `CLIP Set Last Layer` entre la sortie CLIP du LoRA et les deux conditionnements H3 basse et haute résolution.
+- Le contrôle doit être placé dans H3 Base, dans le module `Créer et ajuster la vidéo` et ses paramètres du prochain rendu. Il concerne le rendu ComfyUI, pas le Brief, le Plan, le Writer ou les échanges de révision du prompt.
+
+### Broken / missing
+- L'interface, la persistance des attempts et la variante versionnée ne sont pas encore implémentées.
+
+### Next steps (max 3)
+1. Ajouter dans H3 Base un profil `Standard` par défaut et un profil expérimental `LoRA MiniMax`, qui révèle un sélecteur filtré `minmax_nsfw/`, une force et l'option CLIP `-2`.
+2. Garantir que `Standard` compile le workflow actuel sans aucun changement de nœud ou de liaison.
+3. Après validation H3 Base, répliquer le contrat d'interface et de persistance dans Ref2V avec son propre branchement de graphe.
+
+### Risks / open questions
+- Les anciens attempts doivent rester relisibles et reproductibles comme rendus standards ; aucun défaut de migration ne doit activer un LoRA.
+
+## Alignment 2026-08-30 — profil LoRA vidéo dans Production
+
+### Works
+- Production appelle déjà la même instance de `H3RenderService` que l'atelier H3 Base pour préparer et exécuter ses previews et son rendu final. La compilation LoRA peut donc être partagée sans deuxième implémentation du graphe.
+- Le LoRA expérimental déjà présent dans Production concerne uniquement les images KREA2 ; il est distinct du futur LoRA vidéo MiniMax H3.
+
+### Broken / missing
+- `ProductionConfig` ne contient actuellement aucun profil de rendu H3, nom de LoRA vidéo, force ou réglage CLIP. Les appels `prepare_attempt` de Production transmettent seulement prompt, réglages vidéo et musique ; une implémentation limitée à l'interface H3 Base laisserait donc Production en mode standard.
+
+### Next steps (max 3)
+1. Étendre le même patch avec une section `LoRA vidéo H3` dans la configuration Production, désactivée par défaut, avec le même inventaire filtré, la même force et le même réglage CLIP.
+2. Appliquer et persister la sélection identique sur tous les previews `H3_low` et sur le rendu `H3_high` du job.
+3. Migrer tous les anciens jobs vers `Standard` et distinguer clairement dans l'audit les LoRA KREA2 image des LoRA MiniMax H3 vidéo.
+
+### Risks / open questions
+- Changer de LoRA entre preview et final invaliderait la comparaison visuelle ; le réglage vidéo doit donc être verrouillé au niveau du job, sauf reprise explicitement reconfigurée.
+
+## Audit 2026-08-30 — slider Audace créative avant snapshot GitHub
+
+### Works
+- Le slider est borné et validé de bout en bout sur l'échelle entière `0..3` dans le domaine, l'application et les formulaires Web. Une valeur booléenne ou hors plage est rejetée.
+- L'audace est transmise exclusivement aux prompts du Brief `creative-direction@0.2.0`. Le Plan JSON et le Writer final continuent d'utiliser la recette standard H3 Base `0.3.3` et ne reçoivent aucun nouveau paramètre d'audace.
+- Les éditions manuelles et révisions LLM du Brief conservent la valeur initiale. L'interface compare la valeur affichée à celle du Brief et verrouille le choix après génération afin d'éviter une divergence silencieuse.
+- Le stockage de session version 8 persiste la valeur. Les sessions créatives de schéma 7 migrent à l'audace prudente `1`; les sessions standards plus anciennes migrent à `0`.
+- Production sélectionne la variante de Brief seulement lorsque la case est activée, journalise sa version et son audace, et conserve Plan/Writer standards. Les anciens jobs créatifs sans champ migrent à `1` et les autres à `0`.
+- Validation : 66 tests ciblés puis 670 tests complets réussis en 83 secondes ; `git diff --check` ne signale aucune erreur de whitespace. Le premier lancement ciblé avait importé l'installation `D:\Code\panelforge` au lieu du worktree ; il a été écarté et relancé avec `PYTHONPATH` fixé sur `.panelpatch/src`.
+
+### Broken / missing
+- Aucun défaut fonctionnel détecté par l'audit ou les tests automatisés.
+- Aucun smoke test navigateur réel ni comparaison de génération aux quatre niveaux n'a encore été effectué depuis l'ajout du slider.
+
+### Next steps (max 3)
+1. Figer cette version sur la branche `production-orchestrator-v1` et la publier sur GitHub avant l'évolution LoRA vidéo.
+2. Comparer une intention identique aux niveaux 0, 1, 2 et 3 avec les mêmes frames et axes afin de confirmer le calibrage qualitatif.
+3. Implémenter ensuite le profil LoRA vidéo H3 Base/Production validé dans les sections de design précédentes.
+
+### Risks / open questions
+- Le dernier impératif de `brief_user.txt` emploie encore « direction créative mono-plan forte » quel que soit le niveau. Les règles système et la politique injectée définissent ensuite précisément 0–3 et restent prioritaires ; le point est non bloquant, mais pourra être reformulé dans une future version de prompt si les essais montrent une audace excessive aux niveaux 0–1.

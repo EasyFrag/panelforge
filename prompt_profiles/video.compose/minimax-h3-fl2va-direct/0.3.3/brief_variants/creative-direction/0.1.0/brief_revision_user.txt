@@ -1,0 +1,20 @@
+MODE : DIRECTION CRÉATIVE EXPÉRIMENTALE 0.1.0
+
+LIBERTÉ : {creative_freedom}/100 — {creative_policy}
+
+FRAMES NATIVES ET RÔLES
+{reference_context}
+
+DIALOGUES EXPLICITES — VERBATIM
+{dialogue_ledger}
+
+INTENTION ORIGINALE
+{source_text}
+
+BRIEF ACTUEL
+{current_brief}
+
+MODIFICATION
+{instruction}
+
+Retourne uniquement le Brief complet révisé aux neuf sections exactes. Préserve une direction créative affirmée, mono-plan et physiquement réalisable, sauf demande explicite de la réduire.

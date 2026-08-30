@@ -119,13 +119,15 @@ class CompletionRequest:
     user_prompt: str
     images: tuple[ImageInput, ...] = ()
     temperature: float = 0.2
-    max_tokens: int = 32768
+    max_tokens: int | None = 32768
     operation_id: str = "unspecified"
     include_reasoning: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.include_reasoning, bool):
             raise TypeError("include_reasoning must be a boolean")
+        if self.max_tokens is not None:
+            _require_non_negative_int(self.max_tokens, "max_tokens", positive=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,7 +205,7 @@ class LlmCallRecord:
     user_prompt: str
     images: tuple[LlmCallImage, ...]
     temperature: float
-    max_tokens: int
+    max_tokens: int | None
     response_text: str
     finish_reason: str | None
     prompt_tokens: int | None
@@ -249,7 +251,8 @@ class LlmCallRecord:
             or not math.isfinite(self.temperature)
         ):
             raise ValueError("temperature must be finite")
-        _require_non_negative_int(self.max_tokens, "max_tokens", positive=True)
+        if self.max_tokens is not None:
+            _require_non_negative_int(self.max_tokens, "max_tokens", positive=True)
         _require_optional_text(self.finish_reason, "finish_reason")
         _require_optional_non_negative_int(self.prompt_tokens, "prompt_tokens")
         _require_optional_non_negative_int(
@@ -306,6 +309,17 @@ class PromptLabStreamEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class BriefPromptVariant:
+    variant_id: str
+    version: str
+    display_name: str
+    brief_system_prompt: str
+    brief_user_prompt: str
+    brief_revision_system_prompt: str
+    brief_revision_user_prompt: str
+
+
+@dataclass(frozen=True, slots=True)
 class PromptProfile:
     profile_id: str
     version: str
@@ -323,11 +337,29 @@ class PromptProfile:
     brief_user_prompt: str | None = None
     brief_revision_system_prompt: str | None = None
     brief_revision_user_prompt: str | None = None
+    brief_variants: tuple[BriefPromptVariant, ...] = ()
     session_mode: PromptSessionMode = PromptSessionMode.ANALYZED
 
     def __post_init__(self) -> None:
         if not isinstance(self.session_mode, PromptSessionMode):
             raise TypeError("session_mode must be a PromptSessionMode")
+        if not isinstance(self.brief_variants, tuple) or any(
+            not isinstance(value, BriefPromptVariant)
+            for value in self.brief_variants
+        ):
+            raise TypeError("brief_variants must contain BriefPromptVariant values")
+        keys = [(value.variant_id, value.version) for value in self.brief_variants]
+        if len(keys) != len(set(keys)):
+            raise ValueError("brief variants must have unique IDs and versions")
+
+    def brief_variant(self, variant_id: str, version: str) -> BriefPromptVariant:
+        for variant in self.brief_variants:
+            if variant.variant_id == variant_id and variant.version == version:
+                return variant
+        raise KeyError(
+            f"unknown brief variant {variant_id}@{version} for "
+            f"{self.profile_id}@{self.version}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,8 +459,15 @@ class PromptLabService:
         profile_id: str,
         profile_version: str,
         references: tuple[NewReference, ...],
+        brief_variant_id: str | None = None,
+        brief_variant_version: str | None = None,
     ) -> PromptLabSession:
         profile = self.profiles.get(profile_id, profile_version)
+        _validate_brief_variant(
+            profile,
+            brief_variant_id,
+            brief_variant_version,
+        )
         if profile.profile_id == "minimax.h3.i2v.direct":
             if len(references) != 1:
                 raise ValueError("I2V Direct requires exactly one first-frame image")
@@ -461,6 +500,8 @@ class PromptLabService:
             model_id=model_id,
             profile_id=profile_id,
             profile_version=profile_version,
+            brief_variant_id=brief_variant_id,
+            brief_variant_version=brief_variant_version,
             session_mode=profile.session_mode,
             references=tuple(
                 PromptReference(
@@ -483,6 +524,9 @@ class PromptLabService:
         model_id: str | None = None,
         profile_id: str | None = None,
         profile_version: str | None = None,
+        brief_variant_id: str | None = None,
+        brief_variant_version: str | None = None,
+        inherit_brief_variant: bool = True,
     ) -> PromptLabSession:
         """Create a clean session that reuses another session's image assets."""
         if (profile_id is None) != (profile_version is None):
@@ -495,6 +539,20 @@ class PromptLabService:
             profile_id=source.profile_id if profile_id is None else profile_id,
             profile_version=(
                 source.profile_version if profile_version is None else profile_version
+            ),
+            brief_variant_id=(
+                source.brief_variant_id
+                if inherit_brief_variant
+                and brief_variant_id is None
+                and brief_variant_version is None
+                else brief_variant_id
+            ),
+            brief_variant_version=(
+                source.brief_variant_version
+                if inherit_brief_variant
+                and brief_variant_id is None
+                and brief_variant_version is None
+                else brief_variant_version
             ),
             references=tuple(
                 NewReference(
@@ -566,6 +624,29 @@ class PromptLabService:
                 content=content,
                 origin=RevisionOrigin.MODEL,
             ),
+        )
+
+    def configure_brief_variant(
+        self,
+        session_id: str,
+        *,
+        brief_variant_id: str | None,
+        brief_variant_version: str | None,
+    ) -> PromptLabSession:
+        session = self.sessions.get(session_id)
+        if session.brief_revisions:
+            raise ValueError("brief variant is locked after the first Brief generation")
+        profile = self._profile(session)
+        _validate_brief_variant(
+            profile,
+            brief_variant_id,
+            brief_variant_version,
+        )
+        return self.sessions.save(
+            session.with_brief_variant(
+                brief_variant_id,
+                brief_variant_version,
+            )
         )
 
     def edit_reference(
@@ -861,12 +942,15 @@ class PromptLabService:
         source_text: str,
         creative_freedom: int,
         creative_axes: CreativeFreedomAxes | None = None,
+        *,
+        creative_audacity: int = 0,
     ) -> PromptLabSession:
         session = self.sessions.get(session_id)
         profile = self._profile(session)
-        system_prompt, user_prompt = _brief_prompts(profile)
+        system_prompt, user_prompt = _brief_prompts(profile, session)
         context, snapshots = _brief_inputs(session)
         freedom, axes = _creative_settings(creative_freedom, creative_axes)
+        audacity = _creative_audacity(creative_audacity)
         result = self.gateway.complete(
             CompletionRequest(
                 model_id=session.model_id,
@@ -874,12 +958,14 @@ class PromptLabService:
                 user_prompt=user_prompt.format(
                     creative_freedom=freedom,
                     creative_policy=_creative_policy(freedom, axes),
+                    creative_audacity=audacity,
+                    creative_audacity_policy=creative_audacity_policy(audacity),
                     reference_context=context,
                     source_text=_required_text(source_text, "source_text"),
                     dialogue_ledger=explicit_dialogue_ledger(source_text),
                 ),
                 images=self._brief_images(session),
-                operation_id="brief.structure",
+                operation_id=_brief_operation_id("brief.structure", session),
             )
         )
         return self._append_brief(
@@ -888,6 +974,7 @@ class PromptLabService:
             content=_normalize_brief_document(_completed_content(result)),
             creative_freedom=freedom,
             creative_axes=axes,
+            creative_audacity=audacity,
             references=snapshots,
             origin=RevisionOrigin.MODEL,
         )
@@ -899,25 +986,29 @@ class PromptLabService:
         creative_freedom: int,
         *,
         creative_axes: CreativeFreedomAxes | None = None,
+        creative_audacity: int = 0,
         include_reasoning: bool = False,
     ) -> Iterator[PromptLabStreamEvent]:
         session = self.sessions.get(session_id)
         profile = self._profile(session)
-        system_prompt, user_prompt = _brief_prompts(profile)
+        system_prompt, user_prompt = _brief_prompts(profile, session)
         context, snapshots = _brief_inputs(session)
         freedom, axes = _creative_settings(creative_freedom, creative_axes)
+        audacity = _creative_audacity(creative_audacity)
         request = CompletionRequest(
             model_id=session.model_id,
             system_prompt=system_prompt,
             user_prompt=user_prompt.format(
                 creative_freedom=freedom,
                 creative_policy=_creative_policy(freedom, axes),
+                creative_audacity=audacity,
+                creative_audacity_policy=creative_audacity_policy(audacity),
                 reference_context=context,
                 source_text=_required_text(source_text, "source_text"),
                 dialogue_ledger=explicit_dialogue_ledger(source_text),
             ),
             images=self._brief_images(session),
-            operation_id="brief.structure",
+            operation_id=_brief_operation_id("brief.structure", session),
             include_reasoning=include_reasoning,
         )
         yield from self._stream_completion(
@@ -928,6 +1019,7 @@ class PromptLabService:
                 content=_normalize_brief_document(content),
                 creative_freedom=freedom,
                 creative_axes=axes,
+                creative_audacity=audacity,
                 references=snapshots,
                 origin=RevisionOrigin.MODEL,
             ),
@@ -945,6 +1037,7 @@ class PromptLabService:
             content=_normalize_brief_document(_required_text(content, "content")),
             creative_freedom=current.creative_freedom,
             creative_axes=current.creative_axes,
+            creative_audacity=current.creative_audacity,
             references=snapshots,
             origin=RevisionOrigin.MANUAL,
         )
@@ -957,7 +1050,7 @@ class PromptLabService:
         session = self.sessions.get(session_id)
         current = _current_brief(session)
         profile = self._profile(session)
-        system_prompt, user_prompt = _brief_revision_prompts(profile)
+        system_prompt, user_prompt = _brief_revision_prompts(profile, session)
         context, snapshots = _brief_inputs(session)
         result = self.gateway.complete(
             CompletionRequest(
@@ -969,6 +1062,10 @@ class PromptLabService:
                         current.creative_freedom,
                         current.creative_axes,
                     ),
+                    creative_audacity=current.creative_audacity,
+                    creative_audacity_policy=creative_audacity_policy(
+                        current.creative_audacity
+                    ),
                     reference_context=context,
                     source_text=current.source_text,
                     dialogue_ledger=explicit_dialogue_ledger(current.source_text),
@@ -976,7 +1073,7 @@ class PromptLabService:
                     instruction=_required_text(instruction, "instruction"),
                 ),
                 images=self._brief_images(session),
-                operation_id="brief.revise",
+                operation_id=_brief_operation_id("brief.revise", session),
             )
         )
         return self._append_brief(
@@ -985,6 +1082,7 @@ class PromptLabService:
             content=_normalize_brief_document(_completed_content(result)),
             creative_freedom=current.creative_freedom,
             creative_axes=current.creative_axes,
+            creative_audacity=current.creative_audacity,
             references=snapshots,
             origin=RevisionOrigin.REWRITE,
             instruction=instruction,
@@ -1000,7 +1098,7 @@ class PromptLabService:
         session = self.sessions.get(session_id)
         current = _current_brief(session)
         profile = self._profile(session)
-        system_prompt, user_prompt = _brief_revision_prompts(profile)
+        system_prompt, user_prompt = _brief_revision_prompts(profile, session)
         context, snapshots = _brief_inputs(session)
         request = CompletionRequest(
             model_id=session.model_id,
@@ -1011,6 +1109,10 @@ class PromptLabService:
                     current.creative_freedom,
                     current.creative_axes,
                 ),
+                creative_audacity=current.creative_audacity,
+                creative_audacity_policy=creative_audacity_policy(
+                    current.creative_audacity
+                ),
                 reference_context=context,
                 source_text=current.source_text,
                 dialogue_ledger=explicit_dialogue_ledger(current.source_text),
@@ -1018,7 +1120,7 @@ class PromptLabService:
                 instruction=_required_text(instruction, "instruction"),
             ),
             images=self._brief_images(session),
-            operation_id="brief.revise",
+            operation_id=_brief_operation_id("brief.revise", session),
             include_reasoning=include_reasoning,
         )
         yield from self._stream_completion(
@@ -1029,6 +1131,7 @@ class PromptLabService:
                 content=_normalize_brief_document(content),
                 creative_freedom=current.creative_freedom,
                 creative_axes=current.creative_axes,
+                creative_audacity=current.creative_audacity,
                 references=snapshots,
                 origin=RevisionOrigin.REWRITE,
                 instruction=instruction,
@@ -1205,6 +1308,7 @@ class PromptLabService:
         content: str,
         creative_freedom: int,
         creative_axes: CreativeFreedomAxes | None = None,
+        creative_audacity: int = 0,
         references: tuple[BriefReferenceSnapshot, ...],
         origin: RevisionOrigin,
         instruction: str | None = None,
@@ -1217,6 +1321,7 @@ class PromptLabService:
             content=content,
             creative_freedom=creative_freedom,
             creative_axes=creative_axes,
+            creative_audacity=creative_audacity,
             origin=origin,
             references=references,
             parent_revision_id=session.active_brief_revision_id,
@@ -1276,7 +1381,13 @@ def _interpretation_prompts(profile: PromptProfile) -> tuple[str, str]:
     return profile.interpretation_system_prompt, profile.interpretation_user_prompt
 
 
-def _brief_prompts(profile: PromptProfile) -> tuple[str, str]:
+def _brief_prompts(
+    profile: PromptProfile,
+    session: PromptLabSession,
+) -> tuple[str, str]:
+    variant = _session_brief_variant(profile, session)
+    if variant is not None:
+        return variant.brief_system_prompt, variant.brief_user_prompt
     if profile.brief_system_prompt is None or profile.brief_user_prompt is None:
         raise ValueError("this prompt profile does not support structured briefs")
     return profile.brief_system_prompt, profile.brief_user_prompt
@@ -1315,13 +1426,55 @@ def _validate_animal_interview_brief(source_text: str, content: str) -> None:
             ) from error
 
 
-def _brief_revision_prompts(profile: PromptProfile) -> tuple[str, str]:
+def _brief_revision_prompts(
+    profile: PromptProfile,
+    session: PromptLabSession,
+) -> tuple[str, str]:
+    variant = _session_brief_variant(profile, session)
+    if variant is not None:
+        return (
+            variant.brief_revision_system_prompt,
+            variant.brief_revision_user_prompt,
+        )
     if (
         profile.brief_revision_system_prompt is None
         or profile.brief_revision_user_prompt is None
     ):
         raise ValueError("this prompt profile does not support brief revision")
     return profile.brief_revision_system_prompt, profile.brief_revision_user_prompt
+
+
+def _validate_brief_variant(
+    profile: PromptProfile,
+    variant_id: str | None,
+    version: str | None,
+) -> None:
+    if (variant_id is None) != (version is None):
+        raise ValueError("brief variant id and version must be provided together")
+    if variant_id is not None and version is not None:
+        profile.brief_variant(variant_id, version)
+
+
+def _session_brief_variant(
+    profile: PromptProfile,
+    session: PromptLabSession,
+) -> BriefPromptVariant | None:
+    if session.brief_variant_id is None:
+        return None
+    assert session.brief_variant_version is not None
+    return profile.brief_variant(
+        session.brief_variant_id,
+        session.brief_variant_version,
+    )
+
+
+def _brief_operation_id(prefix: str, session: PromptLabSession) -> str:
+    if session.brief_variant_id is None:
+        return prefix
+    return (
+        f"{prefix}.{session.brief_variant_id}."
+        f"{session.brief_variant_version}"
+    )
 
 
 def _brief_inputs(
@@ -1467,6 +1620,29 @@ def _creative_freedom(value: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
         raise ValueError("creative_freedom must be between 0 and 100")
     return value
+
+
+def _creative_audacity(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3:
+        raise ValueError("creative_audacity must be between 0 and 3")
+    return value
+
+
+def creative_audacity_policy(value: int) -> str:
+    value = _creative_audacity(value)
+    return (
+        "Aucune initiative créative : complète seulement les transitions nécessaires et "
+        "n'ajoute aucune idée-signature non demandée."
+        if value == 0
+        else "Initiative discrète : tu peux retenir un enrichissement thématique subtil, "
+        "sans en faire un événement autonome."
+        if value == 1
+        else "Initiative affirmée : retiens exactement une idée-signature visuelle, "
+        "mémorable, thématique et non nécessaire à la simple interpolation des frames."
+        if value == 2
+        else "Initiative audacieuse : retiens une idée-signature visuelle forte et tu peux "
+        "l'accompagner d'au plus un effet de soutien cohérent ; ne multiplie pas les actions."
+    )
 
 
 def _creative_policy(

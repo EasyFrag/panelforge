@@ -83,13 +83,16 @@ class OpenAICompatibleGateway:
         if not isinstance(request, CompletionRequest):
             raise TypeError("request must be a CompletionRequest")
         self._validate_request(request)
-        response = self._client.chat.completions.create(
+        arguments = dict(
             model=request.model_id,
             messages=_messages(request),
             temperature=request.temperature,
-            max_tokens=self._output_tokens(request),
             stream=False,
         )
+        output_tokens = self._output_tokens(request)
+        if output_tokens is not None:
+            arguments["max_tokens"] = output_tokens
+        response = self._client.chat.completions.create(**arguments)
         choice = response.choices[0]
         content = choice.message.content
         finish_reason = _finish_reason(getattr(choice, "finish_reason", None))
@@ -119,13 +122,16 @@ class OpenAICompatibleGateway:
             phase=StreamPhase.PREPARING,
             text="Préparation ou chargement du modèle…",
         )
-        stream = self._client.chat.completions.create(
+        arguments = dict(
             model=request.model_id,
             messages=_messages(request),
             temperature=request.temperature,
-            max_tokens=self._output_tokens(request),
             stream=True,
         )
+        output_tokens = self._output_tokens(request)
+        if output_tokens is not None:
+            arguments["max_tokens"] = output_tokens
+        stream = self._client.chat.completions.create(**arguments)
         content_parts: list[str] = []
         generating = False
         model_id = request.model_id
@@ -264,7 +270,9 @@ class OpenAICompatibleGateway:
                 f"this step contains {len(request.images)}."
             )
 
-    def _output_tokens(self, request: CompletionRequest) -> int:
+    def _output_tokens(self, request: CompletionRequest) -> int | None:
+        if request.max_tokens is None:
+            return None
         if self._maximum_output_tokens is None:
             return request.max_tokens
         return min(request.max_tokens, self._maximum_output_tokens)

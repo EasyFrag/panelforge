@@ -1,6 +1,6 @@
 """LLM transport adapters."""
 
-from .logged import LoggedMultimodalGateway
+from .logged import LlmActiveCall, LoggedMultimodalGateway
 from .llama_swap_admin import LlamaSwapAdminClient
 from .openai_compatible import OpenAICompatibleGateway
 from .routed import (
@@ -15,6 +15,7 @@ from .routed import (
 __all__ = [
     "LlamaSwapAdminClient",
     "LoggedMultimodalGateway",
+    "LlmActiveCall",
     "OpenAICompatibleGateway",
     "DEFAULT_LLM_SOURCE",
     "LOCAL_LLM_SOURCE",

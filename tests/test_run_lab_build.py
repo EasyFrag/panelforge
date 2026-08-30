@@ -203,7 +203,7 @@ class RunLabBuildTest(unittest.TestCase):
                 BuildCreationExporter.instances[0].root,
                 Path(r"D:\AI\PanelForge\KREA2 Creations").resolve(),
             )
-            self.assertEqual(len(BuildComfyClient.instances), 8)
+            self.assertEqual(len(BuildComfyClient.instances), 9)
             clients = {client.client_id: client for client in BuildComfyClient.instances}
             h3_render_ids = [
                 client_id
@@ -250,6 +250,14 @@ class RunLabBuildTest(unittest.TestCase):
             ]
             self.assertEqual(len(runtime_ids), 1)
             self.assertEqual(clients[runtime_ids[0]].timeout, 2.5)
+            production_monitor_ids = [
+                client_id
+                for client_id in clients
+                if client_id.startswith("panelforge-production-monitor-")
+            ]
+            self.assertEqual(len(production_monitor_ids), 1)
+            self.assertEqual(clients[production_monitor_ids[0]].timeout, 2.5)
+            self.assertTrue((Path(workspace) / "production_jobs").is_dir())
 
 
 if __name__ == "__main__":

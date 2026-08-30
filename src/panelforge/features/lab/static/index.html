@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260829.2">
-  <script src="/static/lab.js?v=20260826.2" defer></script>
-  <script src="/static/lab-core.js?v=20260830.2" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260830.7">
+  <script src="/static/lab.js?v=20260830.4" defer></script>
+  <script src="/static/lab-core.js?v=20260830.3" defer></script>
   <script src="/static/quick-pipeline.js?v=20260830.2" defer></script>
-  <script src="/static/i2v-direct.js?v=20260830.2" defer></script>
+  <script src="/static/i2v-direct.js?v=20260830.4" defer></script>
   <script src="/static/h3-render-lab.js?v=20260830.2" defer></script>
   <script src="/static/video-lab.js?v=20260816.6" defer></script>
   <script src="/static/social-lab.js?v=20260830.2" defer></script>
@@ -18,6 +18,7 @@
   <script src="/static/krea2-assisted-lab.js?v=20260830.2" defer></script>
   <script src="/static/krea2-batch-lab.js?v=20260830.2" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260830.2" defer></script>
+  <script src="/static/production-lab.js?v=20260830.10" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -27,6 +28,7 @@
       <button type="button" data-lab-view="i2v-direct">H3 Base</button>
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
       <button type="button" data-lab-view="video-lab">Video Lab</button>
+      <button type="button" data-lab-view="production-lab">Production</button>
     </nav>
     <div class="topbar-actions">
       <div id="runtime-monitor" class="runtime-monitor" title="Statistiques globales des GPU ; la VRAM n’est pas attribuée par processus.">
@@ -34,11 +36,13 @@
           <span class="runtime-gpu-label">Serveur</span>
           <span id="runtime-vram" class="runtime-meter runtime-vram">VRAM —</span>
           <span id="runtime-temp" class="runtime-meter runtime-temp">Temp —</span>
+          <span id="runtime-server-activity" class="runtime-production-state idle">Idle</span>
         </div>
         <div id="runtime-local-monitor" class="runtime-gpu-row">
           <span class="runtime-gpu-label">Local</span>
           <span id="runtime-local-vram" class="runtime-meter runtime-vram">VRAM —</span>
           <span id="runtime-local-temp" class="runtime-meter runtime-temp">Temp —</span>
+          <span id="runtime-local-activity" class="runtime-production-state idle">Idle</span>
         </div>
         <span id="runtime-services" class="runtime-services warning" hidden></span>
       </div>
@@ -697,8 +701,13 @@
             </label>
             <p class="muted animal-interview-note">Les phrases entre guillemets sont verrouillées. Les blancs et indications entre crochets sont complétés lors du Brief. Par défaut, l’intervieweuse reste partiellement visible et floue sur le bord gauche.</p>
           </div>
+          <label id="i2vd-creative-direction-option" class="quick-mode-option creative-direction-option">
+            <input id="i2vd-creative-direction" type="checkbox">
+            <span><b>Direction créative <span class="experimental">expérimental</span></b><small>Le Brief choisit une progression visuelle plus ambitieuse ; Plan et Writer restent en recette standard.</small></span>
+          </label>
           <div class="creative-axes-control" aria-describedby="i2vd-creative-summary">
-            <div class="creative-axes-heading"><b>Liberté créative</b><small>Autorisations indépendantes appliquées seulement si la scène paraît trop vide.</small></div>
+            <div class="creative-axes-heading"><b>Liberté créative</b><small>L’audace fixe l’objectif de nouveauté ; les autres axes indiquent où intervenir.</small></div>
+            <label id="i2vd-creative-audacity-control" class="creative-audacity-axis"><span>Audace créative<small>Originalité de l’idée-signature</small></span><input id="i2vd-creative-audacity" type="range" min="0" max="3" step="1" value="2"><output id="i2vd-creative-audacity-value">2</output></label>
             <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="i2vd-creative-scene-life" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-scene-life-value">0</output></label>
             <label><span>Caméra<small>Mouvements non demandés</small></span><input id="i2vd-creative-camera" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-camera-value">0</output></label>
             <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="i2vd-creative-extra-motion" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-extra-motion-value">0</output></label>
@@ -1290,5 +1299,120 @@
       </section>
     </div>
   </main>
+
+  <main id="production-lab-workspace" class="production-lab-workspace" hidden>
+    <aside class="controls production-controls">
+      <div class="title-row">
+        <div><small>ORCHESTRATEUR V1</small><h1>Production automatique</h1></div>
+        <span class="experimental">Image → KREA2 → H3</span>
+      </div>
+      <p class="muted">Une source immuable, trois recherches d'image, des previews H3 notés par le LLM, puis un rendu final 1,2 MP.</p>
+      <form id="production-form">
+        <section>
+          <h2>Projet</h2>
+          <label class="prompt-upload production-source-upload" for="production-source">
+            <input id="production-source" type="file" accept="image/png,image/jpeg,image/webp" required>
+            <img id="production-source-preview" class="production-source-preview" alt="Aperçu de l’image source immuable" hidden>
+            <span class="production-source-copy"><b>＋ Image source immuable</b><small id="production-source-name">PNG, JPEG ou WebP</small></span>
+          </label>
+          <label class="field-label">Nom<input id="production-name" type="text" maxlength="120" required></label>
+          <label class="field-label">Intention vidéo<textarea id="production-intention" rows="6" maxlength="20000" required placeholder="Décrivez le mouvement, la scène et le résultat attendu…"></textarea></label>
+          <label>Mode<select id="production-mode"><option value="full_auto">Full auto</option><option value="human_review">Validation humaine</option></select></label>
+        </section>
+        <section>
+          <div class="section-title"><h2>Modèles</h2><button id="production-refresh" class="text-button" type="button">Actualiser</button></div>
+          <label class="field-label">LLM orchestrateur<select id="production-llm" required></select></label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="production-llm"> Local · Unsloth / vLLM</label>
+          <label class="field-label">Checkpoint KREA2<select id="production-render-model" required></select></label>
+          <div class="production-compact-grid">
+            <label>Ratio<select id="production-ratio"></select></label>
+            <label>MP image<input id="production-image-mp" type="number" min="0.5" max="4" step="0.1" value="2.1"></label>
+          </div>
+          <details><summary>LoRA KREA2</summary>
+            <label class="production-lora-assisted"><input id="production-lora-assisted" type="checkbox"> Sélection LoRA assistée <span class="experimental">expérimental</span></label>
+            <small class="muted">Les choix manuels restent verrouillés ; le LLM peut compléter les emplacements libres. Force strictement limitée de −1 à 1.</small>
+            <div id="production-loras" class="production-loras"></div>
+          </details>
+          <details class="krea2-catalog-manager">
+            <summary><b>Organiser le catalogue KREA2</b><small>Le classement est partagé avec Création assistée, Batch et Edit</small></summary>
+            <div id="production-catalog-manager"></div>
+          </details>
+        </section>
+        <section>
+          <div class="section-title"><h2>Liberté créative</h2></div>
+          <label class="quick-mode-option creative-direction-option">
+            <input id="production-creative-direction" type="checkbox">
+            <span><b>Direction créative <span class="experimental">expérimental</span></b><small>Brief créatif 0.2.0 ; Plan et Writer standards 0.3.3.</small></span>
+          </label>
+          <label class="production-audacity-control">Audace créative <output id="production-audacity-value">2</output><small>0 fidèle · 1 discret · 2 une idée-signature · 3 audacieux</small><input id="production-audacity" type="range" min="0" max="3" step="1" value="2"></label>
+          <div class="production-axis-grid">
+            <label>Vie de scène<input id="production-scene-life" type="range" min="0" max="3" value="3"></label>
+            <label>Caméra<input id="production-camera" type="range" min="0" max="3" value="3"></label>
+            <label>Mouvements<input id="production-extra-motion" type="range" min="0" max="3" value="3"></label>
+          </div>
+        </section>
+        <details class="production-safety"><summary>Sécurité thermique et qualité</summary>
+          <div class="production-compact-grid">
+            <label>Stop °C<input id="production-stop-temp" type="number" min="30" max="110" value="85"></label>
+            <label>Reprise °C<input id="production-resume-temp" type="number" min="15" max="100" value="40"></label>
+            <label>Stabilité (s)<input id="production-cooldown" type="number" min="0" max="86400" value="120"></label>
+            <label>Previews max<input id="production-preview-limit" type="number" min="1" max="6" value="3"></label>
+          </div>
+          <label><input id="production-monitor-local" type="checkbox" checked> Surveiller le GPU local</label>
+          <label><input id="production-monitor-remote" type="checkbox" checked> Surveiller le GPU serveur</label>
+          <label><input id="production-pause-unavailable" type="checkbox" checked> Mettre en pause si une télémétrie manque</label>
+          <label><input id="production-music" type="checkbox"> Musique H3</label>
+        </details>
+        <p id="production-form-message" class="error" role="alert" hidden></p>
+        <button id="production-start" class="primary" type="submit">Lancer la production</button>
+      </form>
+      <section class="production-recent">
+        <div class="section-title"><h2>Jobs récents</h2><button id="production-refresh-jobs" class="text-button" type="button">Actualiser</button></div>
+        <div id="production-job-list"><p class="muted">Aucun job.</p></div>
+      </section>
+    </aside>
+    <div class="content production-content">
+      <section id="production-empty" class="results production-empty">
+        <span>◎</span><h2>Une chaîne complète, traçable et interruptible</h2>
+        <p class="muted">Le journal du job affichera chaque rendu, choix du LLM, pause thermique et reprise.</p>
+      </section>
+      <section id="production-job" hidden>
+        <section class="results">
+          <div class="result-head"><div><small id="production-stage-label">PRODUCTION</small><h2 id="production-job-title">Job</h2></div><span id="production-job-status" class="run-status">● Prêt</span></div>
+          <div class="production-progress"><span id="production-progress-bar"></span></div>
+          <p id="production-job-message" class="message" aria-live="polite"></p>
+          <div class="actions"><button id="production-retry" class="primary" type="button" hidden>Relancer cette étape</button><button id="production-cancel" type="button" title="Interrompt immédiatement un rendu Comfy actif. Un appel LLM déjà envoyé s’arrête dès que le serveur rend la main.">Arrêter le flux</button></div>
+        </section>
+        <section class="results">
+          <div class="result-head"><div><small>RECHERCHE IMAGE</small><h2>Source et candidats KREA2</h2></div></div>
+          <aside id="production-image-recommendation" class="production-recommendation" aria-live="polite" hidden></aside>
+          <div id="production-images" class="production-gallery"></div>
+          <div id="production-image-review" class="production-review" hidden><p>Choisissez une image puis validez.</p><button id="production-approve-image" class="primary" type="button">Valider cette image</button></div>
+        </section>
+        <section id="production-h3-audit" class="results production-h3-audit" hidden>
+          <div class="result-head"><div><small>LOGIQUE ET ENTRÉES</small><h2>Trace de compilation H3</h2></div><span id="production-h3-audit-status" class="run-status">● En attente</span></div>
+          <div id="production-h3-contract" class="production-h3-contract"></div>
+          <div id="production-h3-documents" class="production-h3-documents"><p class="muted">Les documents H3 apparaîtront pendant la compilation.</p></div>
+        </section>
+        <section class="results">
+          <div class="result-head"><div><small>PREVIEWS 0,2 MP</small><h2>Itérations H3</h2></div></div>
+          <div id="production-previews" class="production-video-grid"></div>
+          <div id="production-video-review" class="production-review" hidden>
+            <label class="field-label">Correction proposée par l’évaluation (modifiable)<textarea id="production-video-instruction" rows="3" placeholder="L’évaluateur préremplit cette zone ; vous pouvez modifier ou effacer sa proposition."></textarea></label>
+            <div class="actions"><button id="production-accept-video" class="primary" type="button">Valider le preview</button><button id="production-revise-video" type="button">Demander une révision</button></div>
+          </div>
+        </section>
+        <section class="results">
+          <div class="result-head"><div><small>RENDU FINAL 1,2 MP</small><h2>Livrable</h2></div></div>
+          <div id="production-final" class="production-final"><p class="muted">En attente du meilleur preview.</p></div>
+        </section>
+        <section class="history"><div class="result-head"><div><small>JOURNAL DURABLE</small><h2>Décisions et événements</h2></div></div><ol id="production-events" class="production-events"></ol></section>
+      </section>
+    </div>
+  </main>
+  <dialog id="production-image-dialog" class="production-image-dialog">
+    <div class="production-image-dialog-head"><strong id="production-image-dialog-title">Aperçu</strong><button id="production-image-dialog-close" type="button" aria-label="Fermer">×</button></div>
+    <img id="production-image-dialog-content" alt="">
+  </dialog>
 </body>
 </html>

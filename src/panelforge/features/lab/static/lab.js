@@ -138,7 +138,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     "release-llm-vram", "release-comfy-vram", "runtime-message",
     "runtime-monitor", "runtime-server-monitor", "runtime-vram", "runtime-temp",
     "runtime-local-monitor", "runtime-local-vram", "runtime-local-temp",
-    "runtime-services",
+    "runtime-services", "runtime-local-activity", "runtime-server-activity",
   ]) ui[id] = $(id);
 
   bindEvents();
@@ -283,10 +283,30 @@ function renderRuntimeStatus() {
   const localGpu = snapshot && snapshot.local_gpu;
   const comfy = snapshot && snapshot.comfy;
   const llm = snapshot && snapshot.llm;
+  const productionResources = snapshot && Array.isArray(snapshot.production_resources)
+    ? snapshot.production_resources
+    : [];
+  const remoteProduction = productionResources.find((item) => item.resource === "remote_gpu");
+  const localProduction = productionResources.find((item) => item.resource === "local_gpu");
+  const activeLlmCalls = Array.isArray(llm?.active_calls) ? llm.active_calls : [];
+  const comfyOperations = Array.isArray(comfy?.active_operations)
+    ? comfy.active_operations
+    : ((Number(comfy?.queue_running) || Number(comfy?.queue_pending)) ? ["Comfy"] : []);
+  const remoteResource = effectiveRuntimeResource(remoteProduction, [
+    ...comfyOperations,
+    ...activeLlmCalls.filter((call) => call.source === "server").map((call) => call.label || "LLM"),
+  ]);
+  const localResource = effectiveRuntimeResource(localProduction,
+    activeLlmCalls.filter((call) => call.source === "local").map((call) => call.label || "LLM"));
   const liveTelemetry = Date.now() - state.runtimeTelemetryAt < 5000;
   if (!liveTelemetry) {
-    ui["runtime-temp"].textContent = "Temp —";
-    setRuntimeMeter(ui["runtime-temp"], 0, null);
+    const remoteTemperature = remoteProduction?.temperature_c;
+    if (remoteTemperature != null && Number.isFinite(Number(remoteTemperature))) {
+      renderTemperatureMeter(ui["runtime-temp"], Number(remoteTemperature));
+    } else {
+      ui["runtime-temp"].textContent = "Temp —";
+      setRuntimeMeter(ui["runtime-temp"], 0, null);
+    }
   }
   if (gpu && gpu.available) {
     const used = formatBytes(gpu.used_bytes);
@@ -320,6 +340,8 @@ function renderRuntimeStatus() {
     setRuntimeMeter(ui["runtime-local-temp"], 0, null);
     ui["runtime-local-monitor"].title = "GPU local indisponible.";
   }
+  renderRuntimeResource(ui["runtime-server-activity"], remoteResource);
+  renderRuntimeResource(ui["runtime-local-activity"], localResource);
   const serviceWarnings = [];
   if (!comfy?.available) serviceWarnings.push("Comfy indisponible");
   if (!llm?.available) serviceWarnings.push("LLM indisponible");
@@ -336,6 +358,28 @@ function renderRuntimeStatus() {
   ui["release-llm-vram"].title = llm?.available
     ? "Décharge les modèles actuellement chargés par llama.swap."
     : "llama.swap indisponible.";
+}
+
+function effectiveRuntimeResource(productionResource, activities) {
+  if (productionResource?.owner_job_id) return productionResource;
+  const operations = [...new Set(activities.filter(Boolean))];
+  if (!operations.length) return productionResource;
+  return { ...productionResource, runtime_busy: true, operation: operations.join(" + ") };
+}
+
+function renderRuntimeResource(element, resource) {
+  if (!element) return;
+  const busy = Boolean(resource?.owner_job_id || resource?.runtime_busy);
+  const phase = busy && resource.operation ? ` · ${resource.operation}` : "";
+  element.textContent = busy ? `Busy${phase}` : "Idle";
+  element.classList.toggle("busy", busy);
+  element.classList.toggle("idle", !busy);
+  element.title = [
+    busy ? "Ressource occupée" : "Ressource disponible",
+    resource?.operation,
+    resource?.owner_job_id,
+    resource?.error,
+  ].filter(Boolean).join(" · ");
 }
 
 function connectRuntimeMonitor() {

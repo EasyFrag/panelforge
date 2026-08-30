@@ -12,6 +12,7 @@
     ref2vDirect: $("#ref2vd-workspace"),
     videoLab: $("#video-lab-workspace"),
     socialLab: $("#social-lab-workspace"),
+    productionLab: $("#production-lab-workspace"),
     recipeBadge: $("#recipe-badge"),
     i2vDirectNewRun: $("#i2vd-topbar-new"),
     ref2vDirectNewRun: $("#ref2vd-topbar-new"),
@@ -38,6 +39,7 @@
       [elements.ref2vDirect, view === "ref2v-direct"],
       [elements.videoLab, view === "video-lab"],
       [elements.socialLab, view === "social-lab"],
+      [elements.productionLab, view === "production-lab"],
     ];
     visibility.forEach(([element, visible]) => {
       if (element) element.hidden = !visible;

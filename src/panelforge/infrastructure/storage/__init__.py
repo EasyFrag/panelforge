@@ -11,6 +11,8 @@ from .krea2_assisted import LocalKrea2AssistedProjectStore
 from .krea2_edits import LocalKrea2EditStore
 from .h3_render_projects import LocalH3RenderProjectStore
 from .social_lab import LocalSocialLabStore
+from .production_jobs import LocalProductionJobStore
+from .production_lora_memory import LocalProductionLoraMemory
 
 __all__ = [
     "LocalAssetStore",
@@ -21,6 +23,8 @@ __all__ = [
     "LocalKrea2BatchStore",
     "LocalKrea2EditStore",
     "LocalPromptCompositionStore",
+    "LocalProductionJobStore",
+    "LocalProductionLoraMemory",
     "LocalPromptSessionStore",
     "LocalVideoRunStore",
     "LocalRunStore",

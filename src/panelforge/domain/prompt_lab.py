@@ -162,6 +162,7 @@ class BriefRevision:
     parent_revision_id: str | None = None
     instruction: str | None = None
     creative_axes: CreativeFreedomAxes | None = None
+    creative_audacity: int = 0
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -183,6 +184,12 @@ class BriefRevision:
             CreativeFreedomAxes,
         ):
             raise TypeError("creative_axes must be CreativeFreedomAxes or None")
+        if (
+            isinstance(self.creative_audacity, bool)
+            or not isinstance(self.creative_audacity, int)
+            or not 0 <= self.creative_audacity <= 3
+        ):
+            raise ValueError("creative_audacity must be between 0 and 3")
         if not isinstance(self.references, tuple):
             raise TypeError("references must be a tuple")
         reference_ids: set[str] = set()
@@ -395,6 +402,8 @@ class PromptLabSession:
     profile_id: str
     profile_version: str
     references: tuple[PromptReference, ...]
+    brief_variant_id: str | None = None
+    brief_variant_version: str | None = None
     session_mode: PromptSessionMode = PromptSessionMode.ANALYZED
     brief_revisions: tuple[BriefRevision, ...] = ()
     active_brief_revision_id: str | None = None
@@ -491,6 +500,21 @@ class PromptLabSession:
             ),
         )
 
+    def with_brief_variant(
+        self,
+        variant_id: str | None,
+        version: str | None,
+    ) -> PromptLabSession:
+        if self.brief_revisions:
+            raise ValueError("brief variant is locked after the first Brief generation")
+        if (variant_id is None) != (version is None):
+            raise ValueError("brief variant id and version must be provided together")
+        return replace(
+            self,
+            brief_variant_id=variant_id,
+            brief_variant_version=version,
+        )
+
     def add_brief_revision(self, revision: BriefRevision) -> PromptLabSession:
         if not isinstance(revision, BriefRevision):
             raise TypeError("revision must be a BriefRevision")
@@ -553,6 +577,11 @@ class PromptLabSession:
             (self.profile_version, "profile_version"),
         ):
             _require_text(value, name)
+        if (self.brief_variant_id is None) != (self.brief_variant_version is None):
+            raise ValueError("brief variant id and version must be provided together")
+        if self.brief_variant_id is not None:
+            _require_text(self.brief_variant_id, "brief_variant_id")
+            _require_text(self.brief_variant_version, "brief_variant_version")
         if not isinstance(self.references, tuple):
             raise TypeError("references must be a tuple")
         if not isinstance(self.session_mode, PromptSessionMode):

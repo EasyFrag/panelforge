@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import logging
@@ -29,6 +29,13 @@ from panelforge.application import (
 _LOGGER = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class LlmActiveCall:
+    call_id: str
+    operation_id: str
+    model_id: str
+
+
 class LoggedMultimodalGateway:
     def __init__(
         self,
@@ -49,45 +56,55 @@ class LoggedMultimodalGateway:
             tuple[LlmCallApplicationOutcome, str | None, str | None],
         ] = {}
         self._outcome_lock = Lock()
+        self._active_calls: dict[str, LlmActiveCall] = {}
+        self._active_lock = Lock()
 
     def list_models(self) -> tuple[ModelDescriptor, ...]:
         return self._delegate.list_models()
+
+    def active_calls(self) -> tuple[LlmActiveCall, ...]:
+        with self._active_lock:
+            return tuple(self._active_calls.values())
 
     def complete(self, request: CompletionRequest) -> CompletionResult:
         call_id = self._id_factory()
         started_at = self._clock()
         started_timer = self._timer()
+        self._start_call(call_id, request)
         try:
-            result = self._delegate.complete(request)
-        except Exception as error:
+            try:
+                result = self._delegate.complete(request)
+            except Exception as error:
+                self._append(
+                    self._record(
+                        request,
+                        call_id,
+                        started_at,
+                        started_timer,
+                        status=LlmCallStatus.FAILED,
+                        error=error,
+                    )
+                )
+                raise
+            result = replace(result, call_id=call_id)
+            status = (
+                LlmCallStatus.TRUNCATED
+                if result.finish_reason == "length"
+                else LlmCallStatus.SUCCEEDED
+            )
             self._append(
                 self._record(
                     request,
                     call_id,
                     started_at,
                     started_timer,
-                    status=LlmCallStatus.FAILED,
-                    error=error,
+                    status=status,
+                    result=result,
                 )
             )
-            raise
-        result = replace(result, call_id=call_id)
-        status = (
-            LlmCallStatus.TRUNCATED
-            if result.finish_reason == "length"
-            else LlmCallStatus.SUCCEEDED
-        )
-        self._append(
-            self._record(
-                request,
-                call_id,
-                started_at,
-                started_timer,
-                status=status,
-                result=result,
-            )
-        )
-        return result
+            return result
+        finally:
+            self._finish_call(call_id)
 
     def stream(
         self,
@@ -100,6 +117,7 @@ class LoggedMultimodalGateway:
         result: CompletionResult | None = None
         status = LlmCallStatus.FAILED
         error: BaseException | None = None
+        self._start_call(call_id, request)
         try:
             for event in self._delegate.stream(request):
                 # Reasoning events are deliberately pass-through only. The
@@ -137,20 +155,35 @@ class LoggedMultimodalGateway:
             error = caught
             raise
         finally:
-            self._append(
-                self._record(
-                    request,
-                    call_id,
-                    started_at,
-                    started_timer,
-                    status=status,
-                    result=result,
-                    response_text=(
-                        result.content if result is not None else "".join(parts)
-                    ),
-                    error=error,
+            try:
+                self._append(
+                    self._record(
+                        request,
+                        call_id,
+                        started_at,
+                        started_timer,
+                        status=status,
+                        result=result,
+                        response_text=(
+                            result.content if result is not None else "".join(parts)
+                        ),
+                        error=error,
+                    )
                 )
+            finally:
+                self._finish_call(call_id)
+
+    def _start_call(self, call_id: str, request: CompletionRequest) -> None:
+        with self._active_lock:
+            self._active_calls[call_id] = LlmActiveCall(
+                call_id=call_id,
+                operation_id=request.operation_id,
+                model_id=request.model_id,
             )
+
+    def _finish_call(self, call_id: str) -> None:
+        with self._active_lock:
+            self._active_calls.pop(call_id, None)
 
     def _record(
         self,

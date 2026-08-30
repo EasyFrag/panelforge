@@ -86,6 +86,8 @@ class FakeModelRuntime:
 class FakeComfyRuntime:
     def __init__(self):
         self.free_calls = 0
+        self.running = ()
+        self.pending = ()
 
     @property
     def websocket_url(self):
@@ -103,7 +105,7 @@ class FakeComfyRuntime:
         )
 
     def get_queue(self):
-        return SimpleNamespace(running=(), pending=())
+        return SimpleNamespace(running=self.running, pending=self.pending)
 
     def free_vram(self):
         self.free_calls += 1
@@ -119,6 +121,14 @@ class FakeLocalGpuMonitor:
             used_percent=92.0,
             temperature_c=67.0,
         )
+
+
+class FakeLlmActivityMonitor:
+    def __init__(self):
+        self.calls = ()
+
+    def active_calls(self):
+        return self.calls
 
 
 class FakeRuntimeSocket:
@@ -173,6 +183,7 @@ class LabWebTest(unittest.TestCase):
         self.model_runtime = FakeModelRuntime()
         self.comfy_runtime = FakeComfyRuntime()
         self.local_gpu_monitor = FakeLocalGpuMonitor()
+        self.llm_activity_monitor = FakeLlmActivityMonitor()
         self.runtime_connector = FakeRuntimeConnector()
         runner = ChangeViewRunner(
             recipe=recipe,
@@ -184,6 +195,7 @@ class LabWebTest(unittest.TestCase):
             create_app(
                 runner,
                 model_runtime=self.model_runtime,
+                llm_activity_monitor=self.llm_activity_monitor,
                 comfy_runtime=self.comfy_runtime,
                 local_gpu_monitor=self.local_gpu_monitor,
                 runtime_monitor_connector=self.runtime_connector,
@@ -214,7 +226,7 @@ class LabWebTest(unittest.TestCase):
             page.text.index('id="release-llm-vram"'),
             page.text.index('id="release-comfy-vram"'),
         )
-        self.assertIn("/static/lab.js?v=20260826.2", page.text)
+        self.assertIn("/static/lab.js?v=20260830.4", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
@@ -240,7 +252,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260829.2", page.text)
+        self.assertIn("/static/lab.css?v=20260830.7", page.text)
         self.assertIn("/static/ref2v-direct.js?v=20260830.2", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         core_script = self.client.get("/static/lab-core.js")
@@ -275,7 +287,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(core_script.status_code, 200)
-        self.assertIn("/static/lab-core.js?v=20260830.2", page.text)
+        self.assertIn("/static/lab-core.js?v=20260830.3", page.text)
         self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
         self.assertNotIn('data-lab-view="prompt-lab"', page.text)
         self.assertNotIn('data-lab-view="archives"', page.text)
@@ -334,7 +346,7 @@ class LabWebTest(unittest.TestCase):
         page = self.client.get("/")
         script = self.client.get("/static/lab.js")
 
-        self.assertEqual(page.text.count('data-llm-local-for="'), 6)
+        self.assertEqual(page.text.count('data-llm-local-for="'), 7)
         for select_id in (
             "krea2-assisted-llm",
             "krea2-batch-llm",
@@ -342,6 +354,7 @@ class LabWebTest(unittest.TestCase):
             "i2vd-model",
             "ref2vd-model",
             "social-llm",
+            "production-llm",
         ):
             self.assertIn(
                 f'data-llm-local-for="{select_id}"',
@@ -349,7 +362,7 @@ class LabWebTest(unittest.TestCase):
             )
         self.assertIn('new Set(["local", "vllm"])', script.text)
         self.assertIn('model.id.startsWith("vllm::")', script.text)
-        self.assertEqual(page.text.count("Local · Unsloth / vLLM"), 6)
+        self.assertEqual(page.text.count("Local · Unsloth / vLLM"), 7)
         self.assertIn("Aucun modèle local disponible", script.text)
 
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
@@ -386,7 +399,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("core.createLlmOutcomeTone()", render_script.text)
         self.assertIn("outcomeTone.success()", render_script.text)
         self.assertIn("outcomeTone.failure()", render_script.text)
-        self.assertIn('/static/i2v-direct.js?v=20260830.2', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260830.4', page.text)
         self.assertIn('id="i2vd-animal-interview-fields"', page.text)
         self.assertEqual(page.text.count('class="field-label animal-interview-primary-field"'), 2)
         self.assertIn('id="i2vd-dialogue-language"', page.text)
@@ -555,7 +568,7 @@ class LabWebTest(unittest.TestCase):
                 self.assertEqual(response.headers["content-range"], "bytes */10")
                 self.assertEqual(response.headers["accept-ranges"], "bytes")
 
-    def test_direct_creative_freedom_uses_three_independent_axes(self):
+    def test_direct_creative_freedom_uses_permissions_and_h3_audacity(self):
         page = self.client.get("/")
         scripts = (
             self.client.get("/static/i2v-direct.js"),
@@ -569,10 +582,16 @@ class LabWebTest(unittest.TestCase):
                     page.text,
                 )
                 self.assertIn(f'id="{prefix}-creative-{axis}-value">0</output>', page.text)
+        self.assertIn(
+            'id="i2vd-creative-audacity" type="range" min="0" max="3" step="1" value="2"',
+            page.text,
+        )
+        self.assertIn('id="i2vd-creative-audacity-value">2</output>', page.text)
         self.assertEqual(
             page.text.count("Autorisations indépendantes appliquées seulement si la scène paraît trop vide."),
-            2,
+            1,
         )
+        self.assertIn("L’audace fixe l’objectif de nouveauté", page.text)
 
         for script in scripts:
             self.assertEqual(script.status_code, 200)
@@ -582,6 +601,8 @@ class LabWebTest(unittest.TestCase):
             self.assertIn("function creativePayload()", script.text)
             self.assertIn("creative_axes", script.text)
             self.assertNotIn("setFreedom", script.text)
+        self.assertIn("function creativeAudacityMatch(brief)", scripts[0].text)
+        self.assertIn("creative_audacity", scripts[0].text)
 
     def test_exposes_shared_quick_mode_for_both_direct_workspaces(self):
         page = self.client.get("/")
@@ -739,7 +760,13 @@ class LabWebTest(unittest.TestCase):
                 script,
             )
             self.assertIn("elements.sessionConfig.textContent", script)
-            self.assertIn("Modèle : ${session.model_id} · Recette : ${recipeLabel}", script)
+            if prefix == "i2vd":
+                self.assertIn(
+                    "Modèle : ${session.model_id} · ${briefLabel} · Plan/Writer : ${recipeLabel}",
+                    script,
+                )
+            else:
+                self.assertIn("Modèle : ${session.model_id} · Recette : ${recipeLabel}", script)
             self.assertIn("next.open = true", script)
             self.assertIn(
                 'next.scrollIntoView({ behavior: "smooth", block: "start" })',
@@ -802,6 +829,29 @@ class LabWebTest(unittest.TestCase):
         self.assertEqual(payload["comfy"]["queue_running"], 0)
         self.assertTrue(payload["comfy"]["cleanup_allowed"])
         self.assertEqual(payload["llm"]["running_models"], ["Qwen3.8-27B"])
+        self.assertEqual(payload["production_resources"], [])
+
+    def test_runtime_status_reports_non_production_comfy_and_llm_activity(self):
+        self.comfy_runtime.running = (
+            SimpleNamespace(client_id="panelforge-krea2-assisted-test"),
+        )
+        self.llm_activity_monitor.calls = (
+            SimpleNamespace(
+                call_id="llm-active",
+                operation_id="krea2.assisted.creation_chat@0.3.0",
+                model_id="vllm::qwen",
+            ),
+        )
+
+        payload = self.client.get("/api/runtime/status").json()
+
+        self.assertEqual(payload["comfy"]["active_operations"], ["KREA2"])
+        self.assertEqual(payload["llm"]["active_calls"], [{
+            "call_id": "llm-active",
+            "source": "local",
+            "operation": "krea2.assisted.creation_chat@0.3.0",
+            "label": "KREA2",
+        }])
 
     def test_runtime_status_degrades_to_warnings_when_services_are_offline(self):
         class Offline:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from panelforge.application import PromptProfile
+from panelforge.application import BriefPromptVariant, PromptProfile
 from panelforge.domain import PromptSessionMode
 
 
@@ -39,6 +39,19 @@ _PROMPT_KEYS_V3 = _PROMPT_KEYS_V2 | {
     "brief_revision_user",
 }
 _PROMPT_KEYS_V4 = _PROMPT_KEYS_V1 | {
+    "brief_system",
+    "brief_user",
+    "brief_revision_system",
+    "brief_revision_user",
+}
+_BRIEF_VARIANT_KEYS = {
+    "schema_version",
+    "variant_id",
+    "version",
+    "display_name",
+    "prompts",
+}
+_BRIEF_VARIANT_PROMPT_KEYS = {
     "brief_system",
     "brief_user",
     "brief_revision_system",
@@ -100,6 +113,8 @@ class LocalPromptProfileCatalog:
                     raise ValueError(f"empty prompt file: {path.name}")
                 return text
 
+            brief_variants = self._load_brief_variants(directory)
+
             profile = PromptProfile(
                 profile_id=data["profile_id"],
                 version=data["version"],
@@ -149,6 +164,7 @@ class LocalPromptProfileCatalog:
                     if schema_version >= 3
                     else None
                 ),
+                brief_variants=brief_variants,
                 session_mode=(
                     PromptSessionMode(data["session_mode"])
                     if schema_version == 4
@@ -162,3 +178,54 @@ class LocalPromptProfileCatalog:
         if not profiles:
             raise ValueError("no prompt profiles found")
         return profiles
+
+    @staticmethod
+    def _load_brief_variants(directory: Path) -> tuple[BriefPromptVariant, ...]:
+        root = directory / "brief_variants"
+        if not root.is_dir():
+            return ()
+        variants: list[BriefPromptVariant] = []
+        for definition_path in sorted(root.rglob("variant.json")):
+            if definition_path.is_symlink():
+                raise ValueError("brief variant definitions must not be symlinks")
+            data = json.loads(definition_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or set(data) != _BRIEF_VARIANT_KEYS:
+                raise ValueError(f"invalid brief variant definition: {definition_path}")
+            if data["schema_version"] != 1:
+                raise ValueError("unsupported brief variant schema")
+            prompts = data["prompts"]
+            if (
+                not isinstance(prompts, dict)
+                or set(prompts) != _BRIEF_VARIANT_PROMPT_KEYS
+            ):
+                raise ValueError("invalid brief variant prompt bindings")
+            variant_directory = definition_path.parent.resolve()
+
+            def read_variant_prompt(key: str) -> str:
+                path = (variant_directory / prompts[key]).resolve()
+                try:
+                    path.relative_to(variant_directory)
+                except ValueError as error:
+                    raise ValueError("brief variant prompt escapes its directory") from error
+                text = path.read_text(encoding="utf-8").strip()
+                if not text:
+                    raise ValueError(f"empty brief variant prompt: {path.name}")
+                return text
+
+            variants.append(BriefPromptVariant(
+                variant_id=data["variant_id"],
+                version=data["version"],
+                display_name=data["display_name"],
+                brief_system_prompt=read_variant_prompt("brief_system"),
+                brief_user_prompt=read_variant_prompt("brief_user"),
+                brief_revision_system_prompt=read_variant_prompt(
+                    "brief_revision_system"
+                ),
+                brief_revision_user_prompt=read_variant_prompt(
+                    "brief_revision_user"
+                ),
+            ))
+        keys = [(value.variant_id, value.version) for value in variants]
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate brief variant")
+        return tuple(variants)

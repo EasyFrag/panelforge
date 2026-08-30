@@ -49,6 +49,14 @@ from .social_lab import (
     SocialLabStreamEvent,
     parse_social_response,
 )
+from .production import ProductionService
+from .production_resources import (
+    ResourceLeaseManager,
+    ResourceOwner,
+    ResourceRequirement,
+    ResourceWaitCancelled,
+    llm_compute_resource,
+)
 from .minimax_h3_protocol import (
     H3IssueSeverity,
     H3ProtocolIssue,
@@ -65,6 +73,7 @@ from .minimax_h3_protocol import (
 )
 from .prompt_lab import (
     CompletionRequest,
+    BriefPromptVariant,
     CompletionResult,
     CompletionStreamEvent,
     ImageInput,
@@ -82,6 +91,7 @@ from .prompt_lab import (
     PromptProfile,
     StreamEventKind,
     StreamPhase,
+    creative_audacity_policy,
     creative_axes_from_legacy,
     creative_freedom_policy,
     creative_freedom_from_axes,
@@ -125,6 +135,7 @@ __all__ = [
     "SocialLabService",
     "SocialLabStreamEvent",
     "LlmCallImage",
+    "BriefPromptVariant",
     "LlmCallApplicationOutcome",
     "LlmCallApplicationOutcomeReporter",
     "LlmCallLogStore",
@@ -140,10 +151,16 @@ __all__ = [
     "PromptCompositionService",
     "PromptLabStreamEvent",
     "PromptProfile",
+    "ProductionService",
+    "ResourceLeaseManager",
+    "ResourceOwner",
+    "ResourceRequirement",
+    "ResourceWaitCancelled",
     "StreamEventKind",
     "StreamPhase",
     "SUPER_FAST_REF2V_COOKBOOK_ID",
     "SUPER_FAST_REF2V_COOKBOOK_VERSION",
+    "creative_audacity_policy",
     "creative_axes_from_legacy",
     "creative_freedom_policy",
     "creative_freedom_from_axes",
@@ -171,5 +188,6 @@ __all__ = [
     "extract_prompt_cut_times_ms",
     "normalize_krea2_edit_prompt",
     "plan_keyframe_timestamps_ms",
+    "llm_compute_resource",
     "parse_social_response",
 ]

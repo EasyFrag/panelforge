@@ -12,6 +12,7 @@
   const monoCookbookId = "minimax.h3.fl2va.direct";
   const multishotCookbookId = "minimax.h3.fl2va.direct.multishot";
   const animalInterviewCookbookId = "minimax.h3.base.animal-interview";
+  const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
   const preferredCookbookKey = `${monoCookbookId}@${monoProfile.version}`;
 
   const state = {
@@ -70,6 +71,11 @@
     creativeCameraValue: $("#i2vd-creative-camera-value"),
     creativeExtraMotion: $("#i2vd-creative-extra-motion"),
     creativeExtraMotionValue: $("#i2vd-creative-extra-motion-value"),
+    creativeAudacityControl: $("#i2vd-creative-audacity-control"),
+    creativeAudacity: $("#i2vd-creative-audacity"),
+    creativeAudacityValue: $("#i2vd-creative-audacity-value"),
+    creativeDirectionOption: $("#i2vd-creative-direction-option"),
+    creativeDirection: $("#i2vd-creative-direction"),
     start: $("#i2vd-start"),
     setupMessage: $("#i2vd-setup-message"),
     quickMode: $("#i2vd-quick-mode"),
@@ -197,6 +203,26 @@
     return state.spec && (state.spec.profiles || []).find(
       (item) => item.id === reference.id && item.version === reference.version,
     );
+  }
+
+  function creativeBriefAvailable(cookbook = state.cookbook) {
+    const profile = selectedProfile(cookbook);
+    return Boolean(
+      cookbook && cookbook.id === monoCookbookId
+      && profile && (profile.brief_variants || []).some(
+        (value) => value.id === creativeBriefVariant.id
+          && value.version === creativeBriefVariant.version,
+      ),
+    );
+  }
+
+  function creativeBriefPayload() {
+    return elements.creativeDirection.checked
+      ? {
+        brief_variant_id: creativeBriefVariant.id,
+        brief_variant_version: creativeBriefVariant.version,
+      }
+      : { brief_variant_id: null, brief_variant_version: null };
   }
 
   function directCookbooks() {
@@ -488,10 +514,16 @@
           session.active_brief.creative_axes,
           session.active_brief.creative_freedom ?? 35,
         );
+        setCreativeAudacity(session.active_brief.creative_audacity ?? 0);
       } else {
         elements.intention.value = "";
         setCreativeAxes(null, 0);
+        setCreativeAudacity(2);
       }
+      elements.creativeDirection.checked = Boolean(
+        session.brief_variant
+        && session.brief_variant.id === creativeBriefVariant.id,
+      );
     } catch (error) {
       if (requestId === state.openRequestId) showSetupMessage(error.message);
     } finally {
@@ -524,6 +556,11 @@
     resetAnimalInterviewInputs();
     hydrateSourceInputs(brief ? brief.source_text || "" : "");
     setCreativeAxes(brief && brief.creative_axes, brief ? brief.creative_freedom ?? 35 : 0);
+    setCreativeAudacity(brief ? brief.creative_audacity ?? 0 : 2);
+    elements.creativeDirection.checked = Boolean(
+      source.brief_variant
+      && source.brief_variant.id === creativeBriefVariant.id,
+    );
     elements.quickMode.checked = false;
     clearStageDrafts();
     showSetupMessage("");
@@ -631,6 +668,8 @@
               model_id: elements.model.value,
               profile_id: profile.id,
               profile_version: profile.version,
+              inherit_brief_variant: false,
+              ...creativeBriefPayload(),
             }),
           },
         );
@@ -652,6 +691,10 @@
         body.append("model_id", elements.model.value);
         body.append("profile_id", profile.id);
         body.append("profile_version", profile.version);
+        if (elements.creativeDirection.checked) {
+          body.append("brief_variant_id", creativeBriefVariant.id);
+          body.append("brief_variant_version", creativeBriefVariant.version);
+        }
         state.session = await core.request("/api/prompt-lab/sessions", { method: "POST", body });
       }
       state.forkSource = null;
@@ -703,6 +746,14 @@
     elements.creativeExtraMotionValue.value = elements.creativeExtraMotion.value;
   }
 
+  function setCreativeAudacity(value = 2) {
+    const resolved = Number(value);
+    elements.creativeAudacity.value = String(
+      Number.isInteger(resolved) ? Math.max(0, Math.min(3, resolved)) : 2,
+    );
+    elements.creativeAudacityValue.value = elements.creativeAudacity.value;
+  }
+
   function creativeAxesMatch(brief) {
     if (!brief) return false;
     const expected = brief.creative_axes || (() => {
@@ -715,9 +766,22 @@
       && expected.extra_motion === current.extra_motion;
   }
 
+  function creativeAudacityMatch(brief) {
+    if (!brief) return false;
+    return Number(brief.creative_audacity ?? 0) === Number(
+      elements.creativeDirection.checked ? elements.creativeAudacity.value : 0,
+    );
+  }
+
   function creativePayload() {
     const creative_axes = currentCreativeAxes();
-    return { creative_freedom: creativeAggregate(creative_axes), creative_axes };
+    return {
+      creative_freedom: creativeAggregate(creative_axes),
+      creative_axes,
+      creative_audacity: elements.creativeDirection.checked
+        ? Number(elements.creativeAudacity.value)
+        : 0,
+    };
   }
 
   function interactionLocked() {
@@ -729,7 +793,8 @@
     const brief = state.session && state.session.active_brief;
     return Boolean(brief
       && (brief.source_text || "").trim() === currentSourceText()
-      && creativeAxesMatch(brief));
+      && creativeAxesMatch(brief)
+      && creativeAudacityMatch(brief));
   }
 
   function generatedDocument(documentState) {
@@ -819,6 +884,14 @@
     const activeCookbook = activeCookbookSpec();
     elements.cookbook.value = cookbookKey(compositionReference || state.cookbook);
     const locked = interactionLocked();
+    const creativeBriefVisible = creativeBriefAvailable(activeCookbook || state.cookbook);
+    if (!creativeBriefVisible && !session) elements.creativeDirection.checked = false;
+    elements.creativeDirectionOption.hidden = !creativeBriefVisible;
+    elements.creativeAudacityControl.hidden = !creativeBriefVisible;
+    elements.creativeDirection.disabled = locked || !creativeBriefVisible
+      || Boolean(session && session.active_brief);
+    elements.creativeAudacity.disabled = locked || !creativeBriefVisible
+      || !elements.creativeDirection.checked || Boolean(session && session.active_brief);
     renderQuickStatus();
     elements.cookbook.disabled = locked || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
@@ -874,6 +947,7 @@
     const briefInputsCurrent = !brief || (
       (brief.source_text || "").trim() === currentSourceText()
       && creativeAxesMatch(brief)
+      && creativeAudacityMatch(brief)
     );
     const documents = state.composition ? state.composition.documents || {} : {};
     const plan = documents.beat_sheet || null;
@@ -900,7 +974,13 @@
     const recipeLabel = compositionReference
       ? `${compositionReference.id}@${compositionReference.version}`
       : state.cookbook ? `${state.cookbook.id}@${state.cookbook.version} · à verrouiller` : "non sélectionnée";
-    elements.sessionConfig.textContent = `Modèle : ${session.model_id} · Recette : ${recipeLabel}`;
+    const audacityLabel = brief
+      ? brief.creative_audacity ?? 0
+      : Number(elements.creativeAudacity.value);
+    const briefLabel = session.brief_variant
+      ? `Brief : direction créative ${session.brief_variant.version} · audace ${audacityLabel}/3`
+      : `Brief : standard ${session.profile.version}`;
+    elements.sessionConfig.textContent = `Modèle : ${session.model_id} · ${briefLabel} · Plan/Writer : ${recipeLabel}`;
     elements.progress.textContent = !briefState.ready ? "Brief requis"
       : !planState.ready ? "Plan requis" : !promptState.ready ? "Prompt requis" : "Parcours validé";
     elements.progress.className = `run-status ${promptState.ready ? "success" : "active"}`;
@@ -1531,6 +1611,8 @@
     elements.intention.value = "";
     resetAnimalInterviewInputs();
     setCreativeAxes(null, 0);
+    setCreativeAudacity(2);
+    elements.creativeDirection.checked = false;
     elements.quickMode.checked = false;
     clearStageDrafts();
     showSetupMessage("");
@@ -1559,9 +1641,37 @@
   }
   elements.dialogueLanguage.addEventListener("change", render);
   elements.model.addEventListener("change", render);
+  elements.creativeDirection.addEventListener("change", async () => {
+    if (!state.session) return render();
+    if (state.session.active_brief) return render();
+    setBusy(true);
+    try {
+      state.session = await core.request(
+        `/api/prompt-lab/sessions/${state.session.id}/brief/variant`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(creativeBriefPayload()),
+        },
+      );
+      elements.brief.message.textContent = elements.creativeDirection.checked
+        ? "Direction créative 0.2.0 activée pour le Brief."
+        : "Brief standard 0.3.3 activé.";
+      await loadSessions();
+    } catch (error) {
+      elements.creativeDirection.checked = Boolean(state.session.brief_variant);
+      showSetupMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  });
   for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
     control.addEventListener("input", () => { updateCreativeAxes(); render(); });
   }
+  elements.creativeAudacity.addEventListener("input", () => {
+    elements.creativeAudacityValue.value = elements.creativeAudacity.value;
+    render();
+  });
   elements.newSession.addEventListener("click", resetSession);
   elements.forkSession.addEventListener("click", prepareFork);
   elements.quickResume.addEventListener("click", runQuickMode);
@@ -1616,6 +1726,7 @@
   });
 
   updateCreativeAxes();
+  setCreativeAudacity(2);
   render();
   initialize();
 })();

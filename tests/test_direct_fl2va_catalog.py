@@ -18,6 +18,9 @@ class DirectFL2VACatalogTest(unittest.TestCase):
         cls.cookbook = LocalPromptCookbookCatalog(
             PROJECT_ROOT / "prompt_cookbooks"
         ).get("minimax.h3.fl2va.direct", "0.1.0")
+        cls.current_profile = LocalPromptProfileCatalog(
+            PROJECT_ROOT / "prompt_profiles"
+        ).get("minimax.h3.fl2va.direct", "0.3.3")
 
     def test_profile_is_h3_base_and_keeps_the_brief_compact(self):
         self.assertEqual(self.profile.session_mode, PromptSessionMode.H3_BASE)
@@ -71,6 +74,20 @@ class DirectFL2VACatalogTest(unittest.TestCase):
         legacy = catalog.get("minimax.h3.i2v.direct", "0.2.0")
         self.assertEqual(legacy.target_mode, "i2v_direct")
         self.assertNotEqual(legacy.output_contract, self.cookbook.output_contract)
+
+    def test_current_profile_exposes_a_brief_only_creative_variant(self):
+        legacy = self.current_profile.brief_variant("creative-direction", "0.1.0")
+        variant = self.current_profile.brief_variant("creative-direction", "0.2.0")
+
+        self.assertEqual(legacy.display_name, "Direction créative — expérimental")
+        self.assertEqual(
+            variant.display_name,
+            "Direction créative avec audace — expérimental",
+        )
+        self.assertIn("un mouvement ou objectif principal", variant.brief_system_prompt)
+        self.assertIn("N'ajoute jamais de parole", variant.brief_system_prompt)
+        self.assertIn("exactement une idée-signature", variant.brief_system_prompt)
+        self.assertIn("AUDACE CRÉATIVE", variant.brief_user_prompt)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,90 @@
+from pathlib import Path
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+STATIC = ROOT / "src" / "panelforge" / "features" / "lab" / "static"
+
+
+class ProductionUiTest(unittest.TestCase):
+    def test_navigation_and_workspace_expose_the_full_auto_controls(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('data-lab-view="production-lab"', html)
+        self.assertIn('id="production-lab-workspace"', html)
+        self.assertIn('value="full_auto"', html)
+        self.assertIn('id="production-audacity"', html)
+        self.assertIn('id="production-stop-temp"', html)
+        self.assertIn('id="production-resume-temp"', html)
+        self.assertIn('id="production-cooldown"', html)
+        self.assertIn('id="runtime-local-activity"', html)
+        self.assertIn('id="runtime-server-activity"', html)
+        self.assertNotIn('id="production-resource-strip"', html)
+        self.assertLess(html.index('id="runtime-server-monitor"'), html.index('id="runtime-server-activity"'))
+        self.assertLess(html.index('id="runtime-local-monitor"'), html.index('id="runtime-local-activity"'))
+        self.assertIn('id="production-lora-assisted"', html)
+        self.assertIn('id="production-creative-direction"', html)
+        self.assertIn('Brief créatif 0.2.0', html)
+        self.assertIn('id="production-catalog-manager"', html)
+        self.assertIn('Organiser le catalogue KREA2', html)
+        self.assertIn('id="production-image-recommendation"', html)
+        self.assertIn('id="production-image-dialog"', html)
+        self.assertIn('id="production-source-preview"', html)
+        self.assertIn('>Arrêter le flux</button>', html)
+        self.assertIn('id="production-retry"', html)
+        self.assertIn('id="production-h3-audit"', html)
+        self.assertIn('id="production-h3-contract"', html)
+        self.assertIn('id="production-h3-documents"', html)
+        self.assertIn('/static/production-lab.js', html)
+
+    def test_client_posts_the_approved_v1_quality_ladder(self):
+        script = (STATIC / "production-lab.js").read_text(encoding="utf-8")
+        core = (STATIC / "lab-core.js").read_text(encoding="utf-8")
+        runtime = (STATIC / "lab.js").read_text(encoding="utf-8")
+        css = (STATIC / "lab.css").read_text(encoding="utf-8")
+
+        self.assertIn('data.set("duration_seconds", "10")', script)
+        self.assertIn('data.set("video_steps", "25")', script)
+        self.assertIn('data.set("video_acceptance_score", "80")', script)
+        self.assertIn('data.set("pause_when_unavailable"', script)
+        self.assertIn('data.set("assisted_lora_selection"', script)
+        self.assertIn('data.set("creative_direction_enabled"', script)
+        self.assertIn('data.set("creative_audacity"', script)
+        self.assertIn('Direction créative ${job.config.creative_direction_enabled', script)
+        self.assertIn('resourceUi.appendGroupedOptions(elements.renderModel', script)
+        self.assertIn('resourceUi.renderCatalogManager(elements.catalogManager', script)
+        self.assertIn('strength.min = "-1"', script)
+        self.assertIn('strength.max = "1"', script)
+        self.assertIn('strength < -1 || strength > 1', script)
+        self.assertNotIn('/api/production/resources', script)
+        self.assertNotIn('elements.productionResources', core)
+        self.assertIn('busy ? `Busy${phase}` : "Idle"', runtime)
+        self.assertIn('snapshot.production_resources', runtime)
+        self.assertIn('remoteProduction?.temperature_c', runtime)
+        self.assertIn('comfy?.active_operations', runtime)
+        self.assertIn('llm?.active_calls', runtime)
+        self.assertIn('.runtime-production-state', css)
+        self.assertNotIn('.production-topbar-resources', css)
+        self.assertIn('/api/production/jobs/${state.job.job_id}/start', script)
+        self.assertIn('/api/production/jobs/${state.job.job_id}/retry', script)
+        self.assertIn('showModal()', script)
+        self.assertIn('decision.assessments', script)
+        self.assertIn('/api/production/jobs/${job.job_id}/h3-audit', script)
+        self.assertIn('Brief compact', script)
+        self.assertIn('Plan JSON', script)
+        self.assertIn('Prompt H3 final', script)
+        self.assertIn('Voir le prompt H3 réellement envoyé', script)
+        self.assertIn('· thinking ·', script)
+        self.assertIn('First frame :', script)
+        self.assertIn('Last frame :', script)
+        self.assertIn('URL.createObjectURL(file)', script)
+        self.assertIn('state.previewRenderKey === key', script)
+        self.assertIn('state.finalRenderKey === key', script)
+        self.assertIn('renderRevisionSuggestion(job)', script)
+        self.assertIn('decision.revision_instruction', script)
+        self.assertIn('core.playCompletionTone()', script)
+        self.assertIn('core.playFailureTone()', script)
+
+
+if __name__ == "__main__":
+    unittest.main()
