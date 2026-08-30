@@ -1,4 +1,4 @@
-"""Strict local persistence for supervised Prompt Lab sessions."""
+"""Strict local persistence for shared prompt-generation sessions."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ _BRIEF_REFERENCE_KEYS_V4 = _BRIEF_REFERENCE_KEYS_V3 | {"evidence_policy"}
 
 
 class LocalPromptSessionStore:
-    """Store Prompt Lab state below ``<workspace>/prompt_sessions``."""
+    """Store shared prompt state below ``<workspace>/prompt_sessions``."""
 
     def __init__(
         self,

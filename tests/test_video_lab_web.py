@@ -35,7 +35,7 @@ VIDEO_DIRECTORY = (
     / "workflows"
     / "video.generate.ref2v"
     / "minimax-h3-ref2v"
-    / "0.1.0"
+    / "0.2.0"
 )
 PNG = b"\x89PNG\r\n\x1a\nimage"
 MP4 = b"\x00\x00\x00\x18ftypisomvideo"
@@ -65,7 +65,7 @@ class ImmediateVideoComfy:
             prompt_id: {
                 "status": {"status_str": "success", "completed": True},
                 "outputs": {
-                    "92": {
+                    "5": {
                         "images": [
                             {
                                 "filename": "PanelForge_H3_00001_.mp4",
@@ -154,7 +154,10 @@ class VideoLabWebTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         value = response.json()
         self.assertEqual(value["recipe"]["id"], "minimax-h3-ref2v")
+        self.assertEqual(value["recipe"]["version"], "0.2.0")
         self.assertEqual(value["defaults"]["preset_id"], "h3-balanced")
+        self.assertEqual(value["presets"][0]["megapixels"], 1.2)
+        self.assertEqual(value["presets"][0]["duration_seconds"], 10.0)
         self.assertEqual(value["limits"]["reference_images"], {"minimum": 1, "maximum": 3})
         self.assertIn("16:9 (Widescreen)", value["aspect_ratios"])
         self.assertEqual(
@@ -206,9 +209,9 @@ class VideoLabWebTest(unittest.TestCase):
         self.assertAlmostEqual(completed["effective_duration_seconds"], 10.125)
         self.assertIsNotNone(completed["output_url"])
         workflow = self.comfy.submitted[0]
-        self.assertIn("137", workflow)
-        self.assertIn("139", workflow)
-        self.assertNotIn("141", workflow)
+        self.assertIn("9", workflow)
+        self.assertIn("47", workflow)
+        self.assertNotIn("48", workflow)
         output = self.client.get(completed["output_url"])
         self.assertEqual(output.status_code, 200)
         self.assertEqual(output.headers["content-type"], "video/mp4")

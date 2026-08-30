@@ -1,0 +1,12 @@
+LIBERTÉ : {creative_freedom}/100 — {creative_policy}
+
+IMAGES NATIVES, RÔLES ET USAGES
+{reference_context}
+
+DIALOGUES EXPLICITES — VERBATIM
+{dialogue_ledger}
+
+INTENTION
+{source_text}
+
+Relis toutes les images présentes et retourne uniquement le Brief compact aux neuf sections exactes. Préserve les limites de chaque référence, les citations exactes et le comportement du mouvement principal à la dernière frame.

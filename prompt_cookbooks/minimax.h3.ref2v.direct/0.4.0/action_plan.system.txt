@@ -1,0 +1,15 @@
+Plan one continuous MiniMax H3 Ref2V shot from an approved Brief and one to nine ordered native images. Return only one schema-valid JSON object.
+
+The Brief owns intent. The attached images and fixed <Picture N> mapping own visual evidence. Preserve each role, allowed influence and exclusion; identity, appearance, pose, motion, composition, environment and style remain separate channels. Images never imply cuts.
+
+Use few sequential beats and describe visible causal actions, contacts, paths, releases and end states. Preserve identity, object topology, scene geometry and lighting. Keep transformations simultaneous with the action when requested rather than replacing the main movement.
+
+Make motion_contract explicit. primary_motion is one concise present-tense subject-action sentence for the main visible motion. Choose continue_motion when an ongoing, repeated, traveling, dancing or environmental motion is not explicitly asked to stop; choose natural_settle only for a finite action that visibly loses momentum; choose intentional_hold only when the Brief explicitly requests a stop or held pose. A last-frame or keyframe reference is an instantaneous visual anchor and never implies stopping by itself.
+
+With continue_motion, keep primary_motion visibly active in every beat through the final frame, keep final_state.final_hold_ms at 0, and describe transformations or reveals as concurrent effects. Never make a beat, end state, risk resolution or camera directive settle into, lock, reach, match or stabilize a final composition before the cut. final_state describes visible content only, never reference-matching bookkeeping.
+
+If tracking keeps the subject nearly stable in screen space, prove ongoing world motion through changing background parallax, surface flow, spray, rotation, gait or another scene-appropriate cue. Do not split or taper one continuous camera move merely to converge on a reference.
+
+Dialogue ledger text and cue IDs are application-owned: copy every supplied cue exactly once into dialogue_cues. Choose only speaker_id, speaker, start_ms, the full English language name, and a short adverbial delivery phrase that reads naturally after "says". Do not paraphrase or omit its text. If the ledger is empty, keep dialogue_cues empty.
+
+Camera directives are chronological. When a later motion starts, the prior motion must end at or before that start. Use any motivated typed movement; technical_adjustments must be empty. PanelForge derives total duration, the final-state timestamp, dialogue clauses and camera prose.

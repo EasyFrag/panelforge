@@ -17,11 +17,17 @@ class H3RenderInputMode(StrEnum):
     I2VA = "i2va"
     L2VA = "l2va"
     FL2VA = "fl2va"
+    REF2VA = "ref2va"
 
 
 class H3RenderTurnRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
+
+
+class H3RenderRevisionVersion(StrEnum):
+    LEGACY = "0.1.0"
+    CAMERA_LOCKED = "0.2.0"
 
 
 class H3RenderAttemptStatus(StrEnum):
@@ -42,6 +48,7 @@ class H3RenderTurn:
     prompt: str | None = None
     questions: tuple[str, ...] = ()
     recommendations: tuple[str, ...] = ()
+    revision_version: H3RenderRevisionVersion | None = None
 
     def __post_init__(self) -> None:
         _text(self.turn_id, "turn_id")
@@ -52,6 +59,13 @@ class H3RenderTurn:
             _text(self.prompt, "prompt")
         _strings(self.questions, "questions", maximum=3)
         _strings(self.recommendations, "recommendations", maximum=8)
+        if self.revision_version is not None and not isinstance(
+            self.revision_version,
+            H3RenderRevisionVersion,
+        ):
+            raise TypeError("revision_version must be an H3RenderRevisionVersion or None")
+        if self.role is H3RenderTurnRole.USER and self.revision_version is not None:
+            raise ValueError("user turns cannot own a revision version")
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,10 +251,17 @@ class H3RenderProject:
     first_frame_label: str | None = None
     last_frame_asset_id: str | None = None
     last_frame_label: str | None = None
+    reference_asset_ids: tuple[str, ...] = ()
+    reference_labels: tuple[str, ...] = ()
     turns: tuple[H3RenderTurn, ...] = ()
     attempts: tuple[H3RenderAttempt, ...] = ()
     feedback_attempt_id: str | None = None
     warnings: tuple[str, ...] = ()
+    revision_version: H3RenderRevisionVersion | None = None
+    camera_clauses: tuple[str, ...] = ()
+    revision_draft: str | None = None
+    revision_error: str | None = None
+    revision_draft_version: H3RenderRevisionVersion | None = None
 
     def __post_init__(self) -> None:
         for value, label in (
@@ -270,9 +291,23 @@ class H3RenderProject:
             raise ValueError("first frame identity is incomplete")
         if (self.last_frame_asset_id is None) != (self.last_frame_label is None):
             raise ValueError("last frame identity is incomplete")
-        expected_mode = _input_mode(self.first_frame_asset_id, self.last_frame_asset_id)
-        if self.input_mode is not expected_mode:
-            raise ValueError("input_mode disagrees with the available frame anchors")
+        if len(self.reference_asset_ids) != len(self.reference_labels):
+            raise ValueError("Ref2V reference identities are incomplete")
+        if self.input_mode is H3RenderInputMode.REF2VA:
+            if not 1 <= len(self.reference_asset_ids) <= 9:
+                raise ValueError("Ref2V render projects require 1 to 9 references")
+            if self.first_frame_asset_id is not None or self.last_frame_asset_id is not None:
+                raise ValueError("Ref2V render projects do not use H3 Base frame fields")
+        else:
+            if self.reference_asset_ids or self.reference_labels:
+                raise ValueError("H3 Base render projects cannot contain Ref2V references")
+            expected_mode = _input_mode(self.first_frame_asset_id, self.last_frame_asset_id)
+            if self.input_mode is not expected_mode:
+                raise ValueError("input_mode disagrees with the available frame anchors")
+        for value in (*self.reference_asset_ids, *self.reference_labels):
+            _text(value, "Ref2V reference")
+        if len(set(self.reference_asset_ids)) != len(self.reference_asset_ids):
+            raise ValueError("Ref2V references must be distinct")
         if not isinstance(self.turns, tuple) or any(not isinstance(value, H3RenderTurn) for value in self.turns):
             raise TypeError("turns must contain H3RenderTurn values")
         if not isinstance(self.attempts, tuple) or any(not isinstance(value, H3RenderAttempt) for value in self.attempts):
@@ -286,12 +321,67 @@ class H3RenderProject:
             if attempt.status is not H3RenderAttemptStatus.SUCCEEDED:
                 raise ValueError("feedback must reference a succeeded attempt")
         _strings(self.warnings, "warnings", maximum=32)
+        if self.revision_version is not None and not isinstance(
+            self.revision_version,
+            H3RenderRevisionVersion,
+        ):
+            raise TypeError("revision_version must be an H3RenderRevisionVersion or None")
+        _strings(self.camera_clauses, "camera_clauses", maximum=8)
+        if self.input_mode is H3RenderInputMode.REF2VA and self.camera_clauses:
+            raise ValueError("Ref2V render projects do not use H3 Base camera clauses")
+        if self.revision_draft is not None:
+            _text(self.revision_draft, "revision_draft")
+        if self.revision_error is not None:
+            _text(self.revision_error, "revision_error")
+        if self.revision_draft_version is not None and not isinstance(
+            self.revision_draft_version,
+            H3RenderRevisionVersion,
+        ):
+            raise TypeError(
+                "revision_draft_version must be an H3RenderRevisionVersion or None"
+            )
+        if self.revision_draft_version is not None and self.revision_error is None:
+            raise ValueError("a revision draft version requires a revision error")
 
     def add_turn(self, turn: H3RenderTurn) -> H3RenderProject:
         if any(value.turn_id == turn.turn_id for value in self.turns):
             raise ValueError("turn already exists")
         prompt = turn.prompt if turn.role is H3RenderTurnRole.ASSISTANT and turn.prompt else self.current_prompt
-        return replace(self, turns=(*self.turns, turn), current_prompt=prompt)
+        clear_draft = turn.role is H3RenderTurnRole.ASSISTANT
+        return replace(
+            self,
+            turns=(*self.turns, turn),
+            current_prompt=prompt,
+            revision_draft=None if clear_draft else self.revision_draft,
+            revision_error=None if clear_draft else self.revision_error,
+            revision_draft_version=(
+                None if clear_draft else self.revision_draft_version
+            ),
+        )
+
+    def select_revision_version(
+        self,
+        version: H3RenderRevisionVersion,
+    ) -> H3RenderProject:
+        if not isinstance(version, H3RenderRevisionVersion):
+            raise TypeError("version must be an H3RenderRevisionVersion")
+        return replace(self, revision_version=version)
+
+    def reject_revision(
+        self,
+        *,
+        draft: str | None,
+        error: str,
+        version: H3RenderRevisionVersion,
+    ) -> H3RenderProject:
+        if draft is not None:
+            _text(draft, "revision draft")
+        return replace(
+            self,
+            revision_draft=draft,
+            revision_error=_text(error, "revision error"),
+            revision_draft_version=version,
+        )
 
     def add_attempt(self, attempt: H3RenderAttempt) -> H3RenderProject:
         if any(value.attempt_id == attempt.attempt_id for value in self.attempts):

@@ -1,0 +1,43 @@
+{
+  "schema_version": 7,
+  "cookbook_id": "minimax.h3.ref2v.direct",
+  "version": "0.4.0",
+  "display_name": "Ref2V mono · mouvement et dialogues compilés",
+  "description": "Recette mono-plan Ref2V pour une à neuf références, avec Plan V4, caméra typée, dialogues exacts et comportement de fin compilé par PanelForge.",
+  "target_mode": "ref2v_direct",
+  "output_contract": "minimax.h3.ref2v.direct_supervised_h3_v4",
+  "preset": "ref2v-mono-motion-dialogue-camera-owned-v4",
+  "stages": ["beat_sheet", "final_prompt"],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "drop_with_warning",
+  "writer_projection": "camera_clean_v4",
+  "visibility": "public",
+  "execution_mode": "supervised",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/ref-en.txt"
+  ],
+  "engine_contract": {"id": "minimax.h3.protocol", "version": "0.1.0"},
+  "slots": [{
+    "id": "references",
+    "label": "Références directes",
+    "description": "Une à neuf images ordonnées ; chaque rôle borne précisément l'influence de son <Picture N>.",
+    "evidence_policy": "full",
+    "subject_label": null,
+    "accepted_uses": ["subject", "first_frame", "keyframe", "last_frame", "composition", "environment", "style", "motion"],
+    "required_uses": [],
+    "required_shots": [],
+    "minimum_references": 1,
+    "maximum_references": 9
+  }],
+  "templates": {
+    "beat_sheet_system": "action_plan.system.txt",
+    "beat_sheet_user": "action_plan.user.txt",
+    "beat_sheet_reconcile_system": "action_plan_reconcile.system.txt",
+    "beat_sheet_reconcile_user": "action_plan_reconcile.user.txt",
+    "final_prompt_system": "final_prompt.system.txt",
+    "final_prompt_user": "final_prompt.user.txt",
+    "revision_system": "revision.system.txt",
+    "revision_user": "revision.user.txt"
+  }
+}

@@ -22,7 +22,6 @@
     workspace: $("krea2-image-lab-workspace"),
     form: $("krea2-image-lab-form"),
     prompt: $("krea2-image-lab-prompt"),
-    provenance: $("krea2-image-lab-provenance"),
     model: $("krea2-image-lab-model"),
     refreshModels: $("krea2-image-lab-refresh-models"),
     ratio: $("krea2-image-lab-ratio"),
@@ -63,7 +62,6 @@
     pollToken: 0,
     pollTimer: null,
     outputUrl: "",
-    provenance: null,
   };
 
   async function request(url, options = {}) {
@@ -128,7 +126,7 @@
 
   function showFormMessage(message, failed = true) {
     elements.formMessage.textContent = message || "";
-    elements.formMessage.classList.toggle("storyboard-info", !failed);
+    elements.formMessage.classList.toggle("status-info", !failed);
     elements.formMessage.hidden = !message;
   }
 
@@ -299,7 +297,6 @@
       if (runParameter(run, "megapixels")) appendMetadata(`${Number(runParameter(run, "megapixels")).toLocaleString("fr-FR")} MP`);
       if (runParameter(run, "model_id")) appendMetadata(String(runParameter(run, "model_id")));
       if (runParameter(run, "seed") !== null) appendMetadata(`Seed ${runParameter(run, "seed")}`);
-      if (run.source_storyboard_run_id) appendMetadata("Issu de Storyboard Lab");
     }
     updateResolution(run);
     showRunMessage((run && (run.error || run.message)) || "", status === "failed");
@@ -439,9 +436,6 @@
       seed_locked: elements.seedLock.checked,
     };
     if (!body.preset_id) delete body.preset_id;
-    if (state.provenance && state.provenance.source_storyboard_run_id) {
-      body.source_storyboard_run_id = state.provenance.source_storyboard_run_id;
-    }
     return body;
   }
 
@@ -587,13 +581,6 @@
     }
   }
 
-  function selectAvailableValue(select, value) {
-    const option = [...select.options].find((candidate) => candidate.value === String(value) && !candidate.disabled);
-    if (!option) return false;
-    select.value = option.value;
-    return true;
-  }
-
   function selectStoredValue(select, value) {
     if (value === null || value === undefined || value === "") return false;
     let option = [...select.options].find((candidate) => candidate.value === String(value));
@@ -616,10 +603,6 @@
     if (runParameter(run, "seed") !== null) elements.seed.value = String(runParameter(run, "seed"));
     elements.seedLock.checked = true;
     persistSeedLock();
-    state.provenance = run.source_storyboard_run_id ? {
-      source_storyboard_run_id: run.source_storyboard_run_id,
-    } : null;
-    renderProvenance();
     updateResolution();
     renderControls();
     return { modelAvailable, ratioAvailable };
@@ -649,26 +632,6 @@
       state.busy = false;
       renderControls();
     }
-  }
-
-  function renderProvenance(panelCount = null) {
-    if (!state.provenance || !state.provenance.source_storyboard_run_id) {
-      elements.provenance.hidden = true;
-      elements.provenance.textContent = "";
-      elements.provenance.classList.remove("warning");
-      return;
-    }
-    const effectivePanelCount = panelCount || state.provenance.panel_count;
-    const suggestedRatio = state.provenance.suggested_ratio;
-    const ratioChanged = Boolean(suggestedRatio && elements.ratio.value && elements.ratio.value !== suggestedRatio);
-    const origin = effectivePanelCount
-      ? `Prérempli depuis le storyboard ${effectivePanelCount} panels · aucun rendu lancé.`
-      : "Prérempli depuis Storyboard Lab · aucun rendu lancé.";
-    elements.provenance.textContent = ratioChanged
-      ? `${origin} Ratio conseillé : ${suggestedRatio} ; sélection actuelle : ${elements.ratio.value}.`
-      : origin;
-    elements.provenance.classList.toggle("warning", ratioChanged);
-    elements.provenance.hidden = false;
   }
 
   function persistSeedLock() {
@@ -711,42 +674,10 @@
     return state.initializing;
   }
 
-  async function prefill({ prompt, panel_count: panelCount, source_storyboard_run_id: sourceRunId } = {}) {
-    if (window.PanelForgeLabNavigation) window.PanelForgeLabNavigation.switchView("krea2-image-lab");
-    if (!await initialize()) {
-      throw state.initializationError || new Error("Image Lab KREA2 indisponible.");
-    }
-    elements.prompt.value = String(prompt || "");
-    const ratioByPanelCount = {
-      2: "4:3 (Standard)",
-      4: "2:3 (Portrait Photo)",
-      6: "1:1 (Square)",
-      9: "2:3 (Portrait Photo)",
-    };
-    const suggestedRatio = ratioByPanelCount[Number(panelCount)];
-    const ratioSelected = selectAvailableValue(elements.ratio, suggestedRatio);
-    state.provenance = sourceRunId ? {
-      source_storyboard_run_id: String(sourceRunId),
-      panel_count: Number(panelCount) || null,
-      suggested_ratio: suggestedRatio || null,
-    } : null;
-    renderProvenance(Number(panelCount) || null);
-    showFormMessage(
-      ratioSelected
-        ? "Prompt et ratio préremplis. Vérifiez le modèle et les réglages avant de générer."
-        : `Prompt prérempli, mais le ratio ${suggestedRatio || "attendu"} n’est pas disponible.`,
-      !ratioSelected,
-    );
-    updateResolution();
-    renderControls();
-    elements.workspace.scrollIntoView({ behavior: "smooth", block: "start" });
-    elements.prompt.focus();
-  }
-
   elements.form.addEventListener("submit", startRun);
   elements.prompt.addEventListener("input", renderControls);
   elements.model.addEventListener("change", renderControls);
-  elements.ratio.addEventListener("change", () => { updateResolution(); renderProvenance(); renderControls(); });
+  elements.ratio.addEventListener("change", () => { updateResolution(); renderControls(); });
   elements.megapixels.addEventListener("input", () => { updateResolution(); renderControls(); });
   elements.seed.addEventListener("input", () => { persistSeedLock(); renderControls(); });
   elements.seedLock.addEventListener("change", persistSeedLock);
@@ -778,7 +709,6 @@
       if (window.PanelForgeLabNavigation) window.PanelForgeLabNavigation.switchView("krea2-image-lab");
       return initialize();
     },
-    prefill,
   });
   resetOutput();
   renderRun(null);

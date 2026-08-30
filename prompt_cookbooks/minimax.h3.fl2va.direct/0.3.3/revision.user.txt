@@ -1,0 +1,14 @@
+PLAN — READ ONLY
+{{PLAN}}
+
+MODE AND FRAME OWNERSHIP — READ ONLY
+{{REFERENCE_MAPPING}}
+
+CURRENT BODY
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return only the complete revised three-field body without header, image labels, JSON or commentary. Preserve every exact dialogue cue.
+

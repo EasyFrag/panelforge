@@ -12,13 +12,13 @@ class Krea2BatchUiTest(unittest.TestCase):
         cls.script = (ROOT / "src/panelforge/features/lab/static/krea2-batch-lab.js").read_text(encoding="utf-8")
         cls.resources = (ROOT / "src/panelforge/features/lab/static/krea2-resource-ui.js").read_text(encoding="utf-8")
         cls.styles = (ROOT / "src/panelforge/features/lab/static/lab.css").read_text(encoding="utf-8")
-        cls.navigation = (ROOT / "src/panelforge/features/lab/static/prompt-lab.js").read_text(encoding="utf-8")
+        cls.navigation = (ROOT / "src/panelforge/features/lab/static/lab-core.js").read_text(encoding="utf-8")
 
     def test_exposes_recipe_batch_as_third_image_lab_mode(self):
         self.assertIn('id="krea2-batch-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-batch-lab"', self.page)
         self.assertIn('/static/krea2-resource-ui.js?v=20260822.1', self.page)
-        self.assertIn('/static/krea2-batch-lab.js?v=20260823.1', self.page)
+        self.assertIn('/static/krea2-batch-lab.js?v=20260830.2', self.page)
         self.assertIn('"krea2-batch-lab"', self.navigation)
 
     def test_ui_supports_grouped_models_four_reorderable_loras_and_feedback(self):
@@ -41,6 +41,9 @@ class Krea2BatchUiTest(unittest.TestCase):
         self.assertIn("prompt_language: elements.revisionLanguage.value", self.script)
         self.assertIn("playCompletionTone", self.script)
         self.assertIn("completionTone: false", self.script)
+        self.assertGreaterEqual(self.script.count("core.createLlmOutcomeTone()"), 3)
+        self.assertGreaterEqual(self.script.count("outcomeTone.success()"), 3)
+        self.assertGreaterEqual(self.script.count("outcomeTone.failure()"), 3)
         self.assertIn('id="krea2-batch-catalog-manager"', self.page)
         self.assertIn("renderCatalogManager", self.script)
         self.assertIn("preferenceForLoraCategory", self.resources)

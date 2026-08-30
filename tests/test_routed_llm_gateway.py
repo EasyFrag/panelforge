@@ -45,8 +45,13 @@ class RoutedMultimodalGatewayTest(unittest.TestCase):
     def setUp(self):
         self.server = FakeGateway("server-model")
         self.local = FakeGateway("local-model")
+        self.vllm = FakeGateway("vllm-model")
         self.gateway = RoutedMultimodalGateway(
-            {"server": self.server, "local": self.local}
+            {
+                "server": self.server,
+                "local": self.local,
+                "vllm": self.vllm,
+            }
         )
 
     def test_catalog_keeps_server_ids_compatible_and_namespaces_local_models(self):
@@ -57,6 +62,7 @@ class RoutedMultimodalGatewayTest(unittest.TestCase):
             [
                 ("server-model", "server", "server-model"),
                 ("local::local-model", "local", "local-model"),
+                ("vllm::vllm-model", "vllm", "vllm-model"),
             ],
         )
 
@@ -66,6 +72,7 @@ class RoutedMultimodalGatewayTest(unittest.TestCase):
         self.assertEqual(self.server.requests[0].model_id, "server-model")
         self.assertEqual(result.model_id, "server-model")
         self.assertFalse(self.local.requests)
+        self.assertFalse(self.vllm.requests)
 
     def test_routes_namespaced_models_locally_and_restores_the_namespace(self):
         result = self.gateway.complete(_request("local::local-model"))
@@ -73,6 +80,15 @@ class RoutedMultimodalGatewayTest(unittest.TestCase):
         self.assertEqual(self.local.requests[0].model_id, "local-model")
         self.assertEqual(result.model_id, "local::local-model")
         self.assertFalse(self.server.requests)
+        self.assertFalse(self.vllm.requests)
+
+    def test_routes_namespaced_models_to_vllm(self):
+        result = self.gateway.complete(_request("vllm::vllm-model"))
+
+        self.assertEqual(self.vllm.requests[0].model_id, "vllm-model")
+        self.assertEqual(result.model_id, "vllm::vllm-model")
+        self.assertFalse(self.server.requests)
+        self.assertFalse(self.local.requests)
 
     def test_routes_stream_terminal_results_locally(self):
         events = tuple(self.gateway.stream(_request("local::local-model")))
@@ -86,12 +102,13 @@ class RoutedMultimodalGatewayTest(unittest.TestCase):
             {
                 "server": self.server,
                 "local": FakeGateway("local-model", unavailable=True),
+                "vllm": self.vllm,
             }
         )
 
         self.assertEqual(
             [model.model_id for model in gateway.list_models()],
-            ["server-model"],
+            ["server-model", "vllm::vllm-model"],
         )
 
     def test_rejects_unknown_namespaces_instead_of_sending_them_to_the_server(self):

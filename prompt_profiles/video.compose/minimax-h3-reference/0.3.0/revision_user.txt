@@ -1,7 +1,0 @@
-Rôle de la référence : {role}
-
-OBSERVATION ACTUELLE
-{current_analysis}
-
-MODIFICATION DEMANDÉE
-{instruction}

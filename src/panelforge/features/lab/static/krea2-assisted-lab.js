@@ -60,7 +60,7 @@
   if (!elements.workspace) return;
 
   const resourceUi = window.PanelForgeKrea2ResourceUi;
-  const core = window.PanelForgePromptLab;
+  const core = window.PanelForgeLabCore;
   const state = {
     initialized: false,
     initializing: null,
@@ -582,8 +582,10 @@
     setMessage(mode === "recipe" ? "Préparation de la recette…" : "Le modèle affine le prompt…");
     reasoningTrace.begin(mode === "recipe" ? "Recette KREA2" : "Création KREA2");
     let streamError = "";
+    const outcomeTone = core.createLlmOutcomeTone();
     try {
       const guidance = await resolveGuidance();
+      outcomeTone.start();
       await core.streamRequest(
         reasoningTrace.streamUrl(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/chat/stream`),
         {
@@ -607,10 +609,11 @@
       );
       clearGuidance();
       if (streamError) throw new Error(streamError);
+      outcomeTone.success();
       elements.message.value = "";
       setMessage(mode === "recipe" ? "Échange recette enregistré." : "Prompt mis à jour.");
       await loadHistory();
-    } catch (error) { setMessage(error.message, true); }
+    } catch (error) { outcomeTone.failure(); setMessage(error.message, true); }
     finally { reasoningTrace.finish(); setBusy(false); }
   }
 
@@ -777,4 +780,5 @@
       return initialize();
     },
   });
+  if (!elements.workspace.hidden) initialize();
 })();

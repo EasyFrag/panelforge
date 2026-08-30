@@ -1,23 +1,27 @@
 (() => {
   "use strict";
 
+  function mount(prefix, contextEvent, specMode) {
+
   const $ = (id) => document.getElementById(id);
   const activeStatuses = new Set(["queued", "running", "cancel_pending"]);
   const terminalStatuses = new Set(["succeeded", "failed", "cancelled"]);
   const elements = {
-    lab: $("h3r-lab"), status: $("h3r-status"), warnings: $("h3r-warnings"),
-    prompt: $("h3r-prompt"), ratio: $("h3r-ratio"), megapixels: $("h3r-megapixels"),
-    duration: $("h3r-duration"), steps: $("h3r-steps"), seed: $("h3r-seed"),
-    seedLock: $("h3r-seed-lock"), music: $("h3r-music"), render: $("h3r-render"),
-    cancel: $("h3r-cancel"), mode: $("h3r-mode"), live: $("h3r-live-preview"),
-    liveEmpty: $("h3r-live-empty"), final: $("h3r-final-video"),
-    finalEmpty: $("h3r-final-empty"), turns: $("h3r-turns"), message: $("h3r-message"),
-    reasoning: $("h3r-reasoning"), refine: $("h3r-refine"), trace: $("h3r-trace"),
-    attempts: $("h3r-attempts"),
+    lab: $(`${prefix}-lab`), status: $(`${prefix}-status`), warnings: $(`${prefix}-warnings`),
+    prompt: $(`${prefix}-prompt`), ratio: $(`${prefix}-ratio`), megapixels: $(`${prefix}-megapixels`),
+    duration: $(`${prefix}-duration`), steps: $(`${prefix}-steps`), seed: $(`${prefix}-seed`),
+    seedLock: $(`${prefix}-seed-lock`), music: $(`${prefix}-music`), render: $(`${prefix}-render`),
+    cancel: $(`${prefix}-cancel`), mode: $(`${prefix}-mode`), live: $(`${prefix}-live-preview`),
+    liveEmpty: $(`${prefix}-live-empty`), final: $(`${prefix}-final-video`),
+    finalEmpty: $(`${prefix}-final-empty`), turns: $(`${prefix}-turns`), message: $(`${prefix}-message`),
+    reasoning: $(`${prefix}-reasoning`), refine: $(`${prefix}-refine`), trace: $(`${prefix}-trace`),
+    attempts: $(`${prefix}-attempts`), revisionVersion: $(`${prefix}-revision-version`),
+    revisionDraft: $(`${prefix}-revision-draft`), revisionError: $(`${prefix}-revision-error`),
+    revisionDraftContent: $(`${prefix}-revision-draft-content`),
   };
   if (!elements.lab) return;
 
-  const core = window.PanelForgePromptLab;
+  const core = window.PanelForgeLabCore;
   const state = {
     spec: null,
     context: null,
@@ -29,6 +33,7 @@
     socket: null,
     previewUrl: null,
     finalUrl: "",
+    selectedRevisionVersion: "",
   };
 
   async function request(url, options = {}) {
@@ -89,6 +94,15 @@
     elements.seed.value = randomSeed();
     elements.seedLock.checked = false;
     elements.music.value = "off";
+    if (elements.revisionVersion) {
+      elements.revisionVersion.replaceChildren(...(state.spec.revision_versions || []).map((item) => {
+        const option = document.createElement("option");
+        option.value = item.version; option.textContent = item.label;
+        return option;
+      }));
+      state.selectedRevisionVersion = state.project?.revision_version || state.spec.default_revision_version || "0.2.0";
+      elements.revisionVersion.value = state.selectedRevisionVersion;
+    }
   }
 
   function fillSettings(attempt) {
@@ -199,7 +213,14 @@
       const article = document.createElement("article"); article.className = `h3-render-turn ${turn.role}`;
       const head = document.createElement("b"); head.textContent = turn.role === "user" ? "Vous" : "LLM";
       const body = document.createElement("p"); body.textContent = turn.content;
-      article.append(head, body);
+      article.append(head);
+      if (turn.revision_version) {
+        const version = document.createElement("small");
+        version.className = "h3-render-revision-badge";
+        version.textContent = `Révision ${turn.revision_version}`;
+        article.append(version);
+      }
+      article.append(body);
       if (turn.questions?.length) {
         const questions = document.createElement("small"); questions.textContent = `Questions : ${turn.questions.join(" · ")}`; article.append(questions);
       }
@@ -270,6 +291,17 @@
     state.project = project;
     elements.lab.hidden = false;
     if (changed || !preservePrompt || document.activeElement !== elements.prompt) elements.prompt.value = project.current_prompt;
+    if (elements.revisionVersion && changed) {
+      state.selectedRevisionVersion = project.revision_version || state.spec?.default_revision_version || "0.2.0";
+      elements.revisionVersion.value = state.selectedRevisionVersion;
+    }
+    if (elements.revisionDraft) {
+      const rejected = Boolean(project.revision_error);
+      elements.revisionDraft.hidden = !rejected;
+      elements.revisionError.textContent = project.revision_error || "";
+      elements.revisionDraftContent.value = project.revision_draft || "";
+      if (rejected) elements.revisionDraft.open = true;
+    }
     elements.mode.textContent = `Mode ${project.input_mode.toUpperCase()} · modèle LLM ${project.model_id}`;
     const warnings = project.warnings || [];
     elements.warnings.hidden = !warnings.length;
@@ -284,6 +316,7 @@
     elements.cancel.disabled = !active || state.busy;
     elements.refine.disabled = disabled || !state.project || !elements.message.value.trim();
     for (const field of [elements.prompt, elements.ratio, elements.megapixels, elements.duration, elements.steps, elements.seed, elements.seedLock, elements.music]) field.disabled = disabled;
+    if (elements.revisionVersion) elements.revisionVersion.disabled = disabled;
     if (active) setStatus(active.status === "cancel_pending" ? "Annulation…" : "Rendu…", "active");
   }
 
@@ -296,7 +329,7 @@
     if (state.openingKey === key || (state.project?.source_session_id === detail.session_id && state.project?.source_prompt_revision_id === detail.prompt_revision_id)) return;
     state.openingKey = key;
     try {
-      if (!state.spec) state.spec = await request("/api/h3-render/spec");
+      if (!state.spec) state.spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}`);
       const payload = await request(`/api/h3-render/projects/from-session/${encodeURIComponent(detail.session_id)}`, { method: "POST" });
       const changed = state.project?.project_id !== payload.project.project_id;
       renderProject(payload.project);
@@ -364,20 +397,27 @@
     const message = elements.message.value.trim(); if (!message || state.busy || !state.project) return;
     state.busy = true; elements.trace.textContent = ""; elements.trace.hidden = !elements.reasoning.checked; renderControls();
     let streamError = "";
+    const outcomeTone = core.createLlmOutcomeTone();
     try {
       let url = `/api/h3-render/projects/${encodeURIComponent(projectId())}/chat/stream`;
       if (elements.reasoning.checked) url += "?include_reasoning=true";
+      outcomeTone.start();
       await core.streamRequest(url, {
         method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ message, feedback_attempt_id: state.project.feedback_attempt_id }),
+        body: JSON.stringify({
+          message,
+          feedback_attempt_id: state.project.feedback_attempt_id,
+          revision_version: elements.revisionVersion?.value || state.project.revision_version || null,
+        }),
       }, (event) => {
         if (event.kind === "reasoning" && event.text) { elements.trace.textContent += event.text; elements.trace.scrollTop = elements.trace.scrollHeight; }
         if (event.error) streamError = event.error;
         if (event.project) renderProject(event.project);
       }, { completionTone: false });
       if (streamError) throw new Error(streamError);
+      outcomeTone.success();
       elements.message.value = ""; setStatus("Prompt ajusté", "success");
-    } catch (error) { setStatus(error.message, "error"); }
+    } catch (error) { outcomeTone.failure(); setStatus(error.message, "error"); }
     finally { state.busy = false; renderControls(); }
   }
 
@@ -386,6 +426,13 @@
   elements.refine.addEventListener("click", refinePrompt);
   elements.message.addEventListener("input", renderControls);
   elements.prompt.addEventListener("input", renderControls);
-  window.addEventListener("panelforge:h3-base-context", (event) => openContext(event.detail));
+  if (elements.revisionVersion) elements.revisionVersion.addEventListener("change", () => {
+    state.selectedRevisionVersion = elements.revisionVersion.value;
+  });
+  window.addEventListener(contextEvent, (event) => openContext(event.detail));
   window.addEventListener("beforeunload", () => { stopPolling(); closeSocket(); if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); });
+  }
+
+  mount("h3r", "panelforge:h3-base-context", "h3-base");
+  mount("ref2vr", "panelforge:ref2v-context", "ref2va");
 })();

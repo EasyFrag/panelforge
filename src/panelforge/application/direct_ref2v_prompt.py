@@ -21,7 +21,12 @@ from .timed_camera_compiler import (
     insert_ref2v_camera_clauses,
     remove_ref2v_camera_clauses,
 )
-from .direct_ref2v_plan import parse_direct_ref2v_action_plan_v2
+from .direct_ref2v_plan import (
+    DirectMotionEndBehavior,
+    direct_ref2v_camera_clean_motion_fields,
+    parse_direct_ref2v_action_plan_v2,
+    parse_direct_ref2v_action_plan_v4,
+)
 
 
 PictureMapping = tuple[tuple[str, int], ...]
@@ -109,7 +114,7 @@ def direct_reference_header(
     session: PromptLabSession,
     mapping: PictureMapping,
 ) -> str:
-    """Compile the immutable one-to-three-reference H3 header."""
+    """Compile the immutable one-to-nine-reference H3 header."""
 
     return "\n".join(
         _reference_rule(session.reference(reference_id).role, picture_number)
@@ -118,7 +123,7 @@ def direct_reference_header(
 
 
 def lint_direct_ref2v_prompt(content: str) -> tuple[str, ...]:
-    """Validate the dynamic one-to-three-picture compact Ref2V envelope."""
+    """Validate the dynamic one-to-nine-picture compact Ref2V envelope."""
 
     if not isinstance(content, str) or not content.strip():
         return ("Le prompt Ref2V direct est vide.",)
@@ -145,8 +150,8 @@ def lint_direct_ref2v_prompt(content: str) -> tuple[str, ...]:
     )
     if not picture_numbers or picture_numbers != list(
         range(1, len(picture_numbers) + 1)
-    ) or len(picture_numbers) > 3:
-        errors.append("Les labels Picture doivent être contigus entre 1 et 3.")
+    ) or len(picture_numbers) > 9:
+        errors.append("Les labels Picture doivent être contigus entre 1 et 9.")
     for number in picture_numbers:
         if value.count(f"<Picture {number}>") != 1:
             errors.append(
@@ -219,6 +224,106 @@ def apply_direct_ref2v_timing_v2(content: str, plan_content: str) -> str:
     return value
 
 
+def apply_direct_ref2v_timing_v4(content: str, plan_content: str) -> str:
+    """Compile Ref2V duration, main-motion continuity and the final instant."""
+
+    plan = parse_direct_ref2v_action_plan_v4(plan_content)
+    primary_motion, final_snapshot = direct_ref2v_camera_clean_motion_fields(
+        plan_content
+    )
+    value = _strip_fence(content).replace("\r\n", "\n")
+    duration_pattern = re.compile(
+        r"(?m)^The target video is one continuous [^\r\n]+?-second shot\."
+    )
+    matches = list(duration_pattern.finditer(value))
+    if len(matches) != 1:
+        raise ValueError(
+            "direct Ref2V V4 requires exactly one continuous-shot duration sentence"
+        )
+    value = duration_pattern.sub(
+        "The target video is one continuous "
+        f"{_format_duration_seconds(plan.duration_ms)}-second shot.",
+        value,
+        count=1,
+    )
+
+    shot = _inline_field_body(value, "Shot 1", "overall_soundscape").strip()
+    if not shot:
+        raise ValueError("direct Ref2V V4 requires a non-empty Shot 1")
+    if plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE:
+        motion = _sentence_continuation(primary_motion).rstrip(".!?")
+        continuity = (
+            f"Throughout the entire shot, {motion}; this primary motion continues "
+            "without interruption through the final frame."
+        )
+        if continuity not in shot:
+            zero_camera = next(
+                (
+                    directive
+                    for directive in plan.camera_directives
+                    if directive.start_ms == 0
+                ),
+                None,
+            )
+            if zero_camera is None:
+                shot = continuity + " " + shot
+            else:
+                camera_clause = compile_camera_motion(
+                    H3CameraDirective(
+                        directive_id=zero_camera.directive_id,
+                        motion=zero_camera.motion,
+                        amplitude=zero_camera.amplitude,
+                        speed=zero_camera.speed,
+                        target_clause=zero_camera.target_clause or "",
+                    )
+                )
+                camera_prefix = camera_clause + " "
+                if not shot.startswith(camera_prefix):
+                    raise ValueError(
+                        "direct Ref2V V4 requires the 0 ms camera clause at the "
+                        "start of Shot 1 before motion continuity is compiled"
+                    )
+                shot = (
+                    camera_prefix
+                    + continuity
+                    + " "
+                    + shot[len(camera_prefix) :]
+                )
+
+    final_landmark = _format_timestamp(plan.final_start_ms)
+    snapshot = _sentence_continuation(final_snapshot).rstrip(".!?")
+    if plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE:
+        motion = _sentence_continuation(primary_motion).rstrip(".!?")
+        final_sentence = (
+            f"{final_landmark} while {motion}, at the cut instant, {snapshot}. "
+            "The video ends during the same ongoing motion, without a pause, "
+            "freeze, or held pose."
+        )
+    else:
+        final_sentence = f"{final_landmark} {snapshot}."
+    final_position = shot.find(final_landmark)
+    shot = (
+        f"{shot[:final_position].rstrip()} {final_sentence}"
+        if final_position >= 0
+        else f"{shot.rstrip()} {final_sentence}"
+    )
+    value = _replace_inline_field_body(
+        value,
+        "Shot 1",
+        "overall_soundscape",
+        shot,
+    )
+    for match in re.finditer(r"\bAt\s+(\d{2}):(\d{2})\.(\d{3})\b", shot):
+        minutes, seconds, milliseconds = (int(part) for part in match.groups())
+        timestamp_ms = minutes * 60_000 + seconds * 1_000 + milliseconds
+        if seconds >= 60 or timestamp_ms > plan.duration_ms:
+            raise ValueError(
+                "direct Ref2V V4 final prompt contains a timestamp beyond the "
+                "derived duration"
+            )
+    return value
+
+
 def normalize_direct_ref2v_camera_placeholders(content: str) -> str:
     """Recover two unambiguous writer-only camera layout variants.
 
@@ -249,11 +354,11 @@ def validate_direct_ref2v_labels(
     """Validate labels against the actual bindings and lock the compiled header."""
 
     expected_numbers = tuple(range(1, len(mapping) + 1))
-    if not 1 <= len(mapping) <= 3 or tuple(
+    if not 1 <= len(mapping) <= 9 or tuple(
         number for _, number in mapping
     ) != expected_numbers:
         raise ValueError(
-            "direct Ref2V requires one to three contiguous local picture bindings"
+            "direct Ref2V requires one to nine contiguous local picture bindings"
         )
     used_numbers = {
         int(value) for value in re.findall(r"<Picture\s+(\d+)>", content)
@@ -495,6 +600,25 @@ def _inline_field_body(
     return content[start.end() : start.end() + end.start()]
 
 
+def _replace_inline_field_body(
+    content: str,
+    field: str,
+    next_field: str,
+    body: str,
+) -> str:
+    start = re.search(rf"(?m)^{re.escape(field)}:[ \t]*", content)
+    if start is None:
+        raise ValueError(f"direct Ref2V document is missing {field}:")
+    end = re.search(
+        rf"(?m)^{re.escape(next_field)}:[ \t]*",
+        content[start.end() :],
+    )
+    if end is None:
+        raise ValueError(f"direct Ref2V document is missing {next_field}:")
+    end_offset = start.end() + end.start()
+    return content[: start.end()] + "\n" + body.strip() + "\n" + content[end_offset:]
+
+
 def _strip_fence(content: str) -> str:
     if not isinstance(content, str):
         raise TypeError("content must be a string")
@@ -519,8 +643,16 @@ def _format_timestamp(timestamp_ms: int) -> str:
     return f"At {minutes:02d}:{seconds:02d}.{milliseconds:03d},"
 
 
+def _sentence_continuation(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        return stripped
+    return stripped[:1].lower() + stripped[1:]
+
+
 __all__ = [
     "PictureMapping",
+    "apply_direct_ref2v_timing_v4",
     "apply_direct_ref2v_timing_v2",
     "decode_direct_ref2v_context",
     "direct_reference_header",

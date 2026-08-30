@@ -157,8 +157,22 @@ class DirectRef2VCatalogTest(unittest.TestCase):
 
         self.assertEqual(
             versions,
-            ["0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2", "0.3.3"],
+            ["0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2", "0.3.3", "0.4.0"],
         )
+
+    def test_v4_uses_nine_references_and_the_motion_dialogue_plan(self):
+        cookbook = LocalPromptCookbookCatalog(
+            PROJECT_ROOT / "prompt_cookbooks"
+        ).get("minimax.h3.ref2v.direct", "0.4.0")
+
+        self.assertEqual(cookbook.slots[0].maximum_references, 9)
+        self.assertEqual(
+            cookbook.output_contract,
+            "minimax.h3.ref2v.direct_supervised_h3_v4",
+        )
+        self.assertEqual(cookbook.writer_projection, "camera_clean_v4")
+        self.assertIn("motion_contract", cookbook.beat_sheet_system_prompt)
+        self.assertIn("dialogue_cues", cookbook.beat_sheet_system_prompt)
 
     def test_v3_adds_multimodal_risk_arbitration_without_changing_v2_plan(self):
         cookbook = self.cookbook_v3

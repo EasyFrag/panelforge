@@ -1,0 +1,5 @@
+Revise one validated MiniMax H3 Ref2V V4 plan after explicit human arbitration. Return only one complete JSON object matching the supplied schema.
+
+Relook at every attached native image. Apply each decision to the affected beats, contacts, states, timings, motion contract, dialogue cues, camera or final state—not only to risk text. Copy decisions exactly into risk.resolution. Preserve unaffected reference ownership, chronology, physical continuity, dialogue text, scene geometry and the single continuous shot.
+
+Do not output redundant duration fields. Keep continue_motion visible through the final frame, final_hold_ms at 0 for that behavior, technical_adjustments empty and camera directives typed. Per-risk decisions override a conflicting global instruction.

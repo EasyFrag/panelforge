@@ -9,13 +9,14 @@ from .krea2_runs import LocalKrea2RunStore
 from .krea2_batches import LocalKrea2BatchStore
 from .krea2_assisted import LocalKrea2AssistedProjectStore
 from .krea2_edits import LocalKrea2EditStore
-from .storyboard_runs import LocalStoryboardRunStore
 from .h3_render_projects import LocalH3RenderProjectStore
+from .social_lab import LocalSocialLabStore
 
 __all__ = [
     "LocalAssetStore",
     "LocalLlmCallStore",
     "LocalH3RenderProjectStore",
+    "LocalSocialLabStore",
     "LocalKrea2RunStore",
     "LocalKrea2BatchStore",
     "LocalKrea2EditStore",
@@ -23,6 +24,5 @@ __all__ = [
     "LocalPromptSessionStore",
     "LocalVideoRunStore",
     "LocalRunStore",
-    "LocalStoryboardRunStore",
     "StorageCorruptionError",
 ]

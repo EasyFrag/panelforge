@@ -18,7 +18,7 @@ PRESET_DIRECTORY = (
     / "workflows"
     / "video.generate.ref2v"
     / "minimax-h3-ref2v"
-    / "0.1.0"
+    / "0.2.0"
 )
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"video"
 
@@ -64,7 +64,7 @@ class FakeComfy:
             prompt_id: {
                 "status": {"completed": True, "status_str": "success"},
                 "outputs": {
-                    "92": {
+                    "5": {
                         "images": [
                             {
                                 "filename": "PanelForge_H3_00001_.mp4",
@@ -127,9 +127,9 @@ class VideoLabRunnerTest(unittest.TestCase):
         self.assertEqual(result.output_asset_id, "asset-2")
         self.assertEqual(self.assets.read_bytes(result.output_asset_id), MP4)
         workflow = self.comfy.submitted[0]
-        self.assertIn("137", workflow)
-        self.assertNotIn("139", workflow)
-        self.assertNotIn("141", workflow)
+        self.assertIn("9", workflow)
+        self.assertNotIn("47", workflow)
+        self.assertNotIn("48", workflow)
 
     def test_cancel_created_run_without_contacting_comfy(self) -> None:
         run = self.runner.prepare(
@@ -174,7 +174,7 @@ class VideoLabRunnerTest(unittest.TestCase):
         queued = self.runner.queue(created.run_id)
         workflow_hash = self.runner.runs.save_compiled_workflow(
             queued.run_id,
-            {"92": {}},
+            {"5": {}},
         )
         running = queued.start("prompt-running", workflow_hash)
         self.runner.runs.save(running)
@@ -212,7 +212,7 @@ class VideoLabRunnerTest(unittest.TestCase):
         queued = self.runner.queue(created.run_id)
         workflow_hash = self.runner.runs.save_compiled_workflow(
             queued.run_id,
-            {"92": {}},
+            {"5": {}},
         )
         self.runner.runs.save(queued.start("prompt-running", workflow_hash))
         self.comfy.history_complete = False
@@ -248,7 +248,7 @@ class VideoLabRunnerTest(unittest.TestCase):
         self.runner.recipe = VideoLabPresetRecipe(
             replace(
                 self.runner.recipe.preset,
-                version="0.2.0",
+                version="0.3.0",
                 workflow_sha256="f" * 64,
             )
         )
@@ -333,7 +333,7 @@ class VideoLabRunnerTest(unittest.TestCase):
         queued = self.runner.queue(created.run_id)
         workflow_hash = self.runner.runs.save_compiled_workflow(
             queued.run_id,
-            {"92": {}},
+            {"5": {}},
         )
         self.runner.runs.save(queued.start("prompt-1", workflow_hash))
         restarted = VideoLabRunner(

@@ -71,6 +71,10 @@ class RunLabBuildTest(unittest.TestCase):
         )
         self.assertEqual(args.local_llm_base_url, "http://127.0.0.1:8888/v1")
         self.assertEqual(args.local_llm_api_key, "")
+        self.assertEqual(args.vllm_base_url, "http://127.0.0.1:8000/v1")
+        self.assertEqual(args.vllm_api_key, "local-vllm")
+        self.assertEqual(args.vllm_max_output_tokens, 32768)
+        self.assertFalse(hasattr(args, "vllm_max_images"))
 
     def test_local_unsloth_connection_can_be_configured_from_the_environment(self):
         with (
@@ -80,6 +84,9 @@ class RunLabBuildTest(unittest.TestCase):
                 {
                     "PANELFORGE_LOCAL_LLM_URL": "http://workstation:8888/v1",
                     "PANELFORGE_LOCAL_LLM_API_KEY": "test-unsloth-key",
+                    "PANELFORGE_VLLM_URL": "http://workstation:8000/v1",
+                    "PANELFORGE_VLLM_API_KEY": "test-vllm-key",
+                    "PANELFORGE_VLLM_MAX_OUTPUT_TOKENS": "12000",
                 },
                 clear=True,
             ),
@@ -91,6 +98,10 @@ class RunLabBuildTest(unittest.TestCase):
             "http://workstation:8888/v1",
         )
         self.assertEqual(args.local_llm_api_key, "test-unsloth-key")
+        self.assertEqual(args.vllm_base_url, "http://workstation:8000/v1")
+        self.assertEqual(args.vllm_api_key, "test-vllm-key")
+        self.assertEqual(args.vllm_max_output_tokens, 12000)
+        self.assertFalse(hasattr(args, "vllm_max_images"))
 
     def test_build_app_configures_krea2_recipe_store_and_dedicated_transport(self):
         with tempfile.TemporaryDirectory() as workspace:
@@ -111,6 +122,11 @@ class RunLabBuildTest(unittest.TestCase):
                 llm_base_url="http://llm.test:8083/v1",
                 llm_api_key="local-test",
                 llm_timeout=300.0,
+                local_llm_base_url="http://local.test:8888/v1",
+                local_llm_api_key="local-unsloth-test",
+                vllm_base_url="http://local.test:8000/v1",
+                vllm_api_key="local-vllm",
+                vllm_max_output_tokens=32768,
                 workspace=workspace,
             )
             BuildComfyClient.instances = []
@@ -133,14 +149,45 @@ class RunLabBuildTest(unittest.TestCase):
                 with TestClient(app) as client:
                     spec = client.get("/api/image-lab/krea2/spec")
                     h3_render_spec = client.get("/api/h3-render/spec")
+                    ref2v_render_spec = client.get("/api/h3-render/spec?mode=ref2va")
                     history = client.get("/api/image-lab/krea2/runs?limit=1")
 
             self.assertEqual(spec.status_code, 200)
             self.assertEqual(spec.json()["defaults"]["model_id"], DEFAULT_MODEL)
             self.assertEqual(h3_render_spec.status_code, 200)
+            self.assertEqual(ref2v_render_spec.status_code, 200)
+            self.assertEqual(
+                h3_render_spec.json()["revision_versions"],
+                [
+                    {
+                        "version": "0.2.0",
+                        "label": "Stable 0.2.0 · caméra compilée",
+                    },
+                    {
+                        "version": "0.1.0",
+                        "label": "Legacy 0.1.0",
+                    },
+                ],
+            )
+            self.assertEqual(
+                h3_render_spec.json()["default_revision_version"],
+                "0.2.0",
+            )
+            self.assertEqual(
+                ref2v_render_spec.json()["revision_versions"],
+                [{"version": "0.1.0", "label": "Legacy 0.1.0"}],
+            )
+            self.assertEqual(
+                ref2v_render_spec.json()["limits"]["reference_images"],
+                {"minimum": 1, "maximum": 9},
+            )
+            self.assertEqual(ref2v_render_spec.json()["recipe"]["version"], "0.2.0")
+            self.assertEqual(ref2v_render_spec.json()["defaults"]["megapixels"], 1.2)
+            self.assertEqual(ref2v_render_spec.json()["defaults"]["duration_seconds"], 10.0)
+            self.assertEqual(h3_render_spec.json()["recipe"]["version"], "0.1.1")
             self.assertEqual(
                 h3_render_spec.json()["recipe"]["workflow_sha256"],
-                "b7527b1b9ef5b3cee661c81440274b096652a35d54e36a1f5001b5d75dacac0c",
+                "a2b473aba5464daaa23ed871091c1763e3ac911010611fde3d2961c98f2a94db",
             )
             self.assertNotIn("preview_ws_url", spec.json())
             self.assertEqual(len(BuildProjectExporter.instances), 1)

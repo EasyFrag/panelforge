@@ -78,6 +78,7 @@
 
   const state = {
     initialized: false,
+    initializing: null,
     busy: false,
     spec: null,
     sources: [],
@@ -86,7 +87,7 @@
     loraSlots: Array.from({ length: 4 }, () => ({ name: "", strength: 0 })),
     pollTimer: null,
   };
-  const core = window.PanelForgePromptLab;
+  const core = window.PanelForgeLabCore;
   const showOriginalPreferenceKey = "panelforge.krea2Edit.showOriginal";
   try {
     elements.showOriginal.checked = localStorage.getItem(showOriginalPreferenceKey) === "true";
@@ -189,28 +190,73 @@
     select.prepend(option);
   }
 
+  function applyRenderSettings(settings) {
+    const model = settings.model_id || "";
+    ensureOption(elements.model, model, model);
+    elements.model.value = model;
+    elements.ratio.value = settings.aspect_ratio || "";
+    elements.megapixels.value = String(settings.megapixels ?? "");
+    elements.refBoost.value = String(settings.ref_boost ?? "");
+    elements.steps.value = String(settings.steps ?? "");
+    elements.seed.value = String(settings.seed ?? randomSeed());
+    const loras = Array.isArray(settings.loras) ? settings.loras : [];
+    state.loraSlots = Array.from({ length: 4 }, (_, index) => {
+      const value = loras[index];
+      return value ? { name: value.name, strength: value.strength } : { name: "", strength: 0 };
+    });
+    renderLoras();
+  }
+
+  function applyDefaultRenderSettings() {
+    const defaults = state.spec?.defaults || {};
+    applyRenderSettings({ ...defaults, seed: randomSeed(), loras: [] });
+  }
+
+  function renderSettingsComplete() {
+    return Boolean(
+      elements.model.value
+      && elements.ratio.value
+      && elements.megapixels.value
+      && elements.refBoost.value
+      && elements.steps.value
+      && elements.seed.value,
+    );
+  }
+
   async function initialize() {
-    if (state.initialized) return;
-    state.initialized = true;
-    setMessage("Chargement…");
-    try {
-      state.spec = await request("/api/image-lab/krea2-edit/spec");
-      window.PanelForgeModelPicker.populate(
-        elements.llm,
-        state.spec.llm_models || [],
-        elements.llm.value,
-      );
-      appendGroupedOptions(elements.model, state.spec.render_models || [], modelGroups);
-      options(elements.ratio, state.spec.aspect_ratios || [], (value) => value, (value) => value);
-      elements.fixedNote.textContent = `Fixe : ${state.spec.fixed.identity_lora} × ${state.spec.fixed.identity_lora_strength} · Euler / Simple · CFG ${state.spec.fixed.cfg}.`;
-      renderLoras();
-      renderResourceManager();
-      await loadSources();
-      setMessage("");
-    } catch (error) {
-      setMessage(error.message, true);
-    }
-    render();
+    if (state.initializing) return state.initializing;
+    state.initializing = (async () => {
+      setMessage("Chargement…");
+      try {
+        if (!state.initialized) {
+          state.spec = await request("/api/image-lab/krea2-edit/spec");
+          window.PanelForgeModelPicker.populate(
+            elements.llm,
+            state.spec.llm_models || [],
+            elements.llm.value,
+          );
+          appendGroupedOptions(elements.model, state.spec.render_models || [], modelGroups);
+          options(elements.ratio, state.spec.aspect_ratios || [], (value) => value, (value) => value);
+          applyDefaultRenderSettings();
+          elements.fixedNote.textContent = `Fixe : ${state.spec.fixed.identity_lora} × ${state.spec.fixed.identity_lora_strength} · Euler / Simple · CFG ${state.spec.fixed.cfg}.`;
+          renderResourceManager();
+        }
+        await loadSources();
+        if (!renderSettingsComplete()) {
+          if (state.source) openSource(state.source, { hydrate: true, force: true });
+          else applyDefaultRenderSettings();
+        }
+        state.initialized = true;
+        setMessage("");
+      } catch (error) {
+        state.initialized = false;
+        setMessage(error.message, true);
+      } finally {
+        state.initializing = null;
+        render();
+      }
+    })();
+    return state.initializing;
   }
 
   async function loadSources({ preserve = true } = {}) {
@@ -296,22 +342,17 @@
       elements.stepName.value = defaultStepName(source);
       delete elements.stepName.dataset.edited;
       const defaults = state.spec.defaults;
-      const model = previous?.settings.model_id || metadata.model_id || defaults.model_id;
-      ensureOption(elements.model, model, model);
-      elements.model.value = model;
-      elements.ratio.value = previous?.settings.aspect_ratio || metadata.aspect_ratio || defaults.aspect_ratio;
-      elements.megapixels.value = String(previous?.settings.megapixels ?? metadata.megapixels ?? defaults.megapixels);
-      elements.refBoost.value = String(previous?.settings.ref_boost ?? defaults.ref_boost);
-      elements.steps.value = String(previous?.settings.steps ?? defaults.steps);
-      elements.seed.value = previous?.settings.seed || metadata.seed || randomSeed();
-      const loras = previous?.settings.loras || metadata.loras || [];
-      state.loraSlots = Array.from({ length: 4 }, (_, index) => {
-        const value = loras[index];
-        return value ? { name: value.name, strength: value.strength } : { name: "", strength: 0 };
+      applyRenderSettings({
+        model_id: previous?.settings.model_id || metadata.model_id || defaults.model_id,
+        aspect_ratio: previous?.settings.aspect_ratio || metadata.aspect_ratio || defaults.aspect_ratio,
+        megapixels: previous?.settings.megapixels ?? metadata.megapixels ?? defaults.megapixels,
+        ref_boost: previous?.settings.ref_boost ?? defaults.ref_boost,
+        steps: previous?.settings.steps ?? defaults.steps,
+        seed: previous?.settings.seed || metadata.seed || randomSeed(),
+        loras: previous?.settings.loras || metadata.loras || [],
       });
       const latestSuccess = [...(source.attempts || [])].reverse().find((attempt) => attempt.status === "succeeded");
       state.feedbackAttemptId = latestSuccess?.attempt_id || null;
-      renderLoras();
     }
     render();
   }
@@ -561,16 +602,8 @@
   function reuseAttempt(attempt) {
     if (state.busy) return;
     elements.prompt.value = attempt.prompt;
-    ensureOption(elements.model, attempt.settings.model_id, attempt.settings.model_id);
-    elements.model.value = attempt.settings.model_id;
-    elements.ratio.value = attempt.settings.aspect_ratio;
-    elements.megapixels.value = String(attempt.settings.megapixels);
-    elements.refBoost.value = String(attempt.settings.ref_boost);
-    elements.steps.value = String(attempt.settings.steps);
-    elements.seed.value = attempt.settings.seed;
+    applyRenderSettings(attempt.settings);
     if (attempt.status === "succeeded") state.feedbackAttemptId = attempt.attempt_id;
-    state.loraSlots = Array.from({ length: 4 }, (_, index) => attempt.settings.loras[index] || { name: "", strength: 0 });
-    renderLoras();
     render();
   }
 
@@ -613,12 +646,14 @@
     if (!instruction) return setMessage("Décrivez la modification demandée.", true);
     const basePrompt = elements.prompt.value.trim();
     let completed = false;
+    const outcomeTone = core.createLlmOutcomeTone();
     state.busy = true;
     elements.prompt.value = "";
     reasoningTrace.begin("Reconstruction / réécriture", elements.prompt.closest("section"));
     setMessage("Le modèle reconstruit et réécrit le prompt…");
     render();
     try {
+      outcomeTone.start();
       await core.streamRequest(
         reasoningTrace.streamUrl(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(state.source.source_id)}/prompt/stream`),
         {
@@ -643,10 +678,12 @@
             }
           }
         },
+        { completionTone: false },
       );
       reasoningTrace.finish();
       if (state.source.prompt_status !== "ready") throw new Error(state.source.prompt_error || "Le prompt n’a pas été validé.");
       completed = true;
+      outcomeTone.success();
       elements.instruction.value = "";
       if (!elements.stepName.dataset.edited) {
         elements.stepName.value = defaultStepName(state.source);
@@ -654,6 +691,7 @@
       setMessage("Prompt prêt. Vous pouvez le corriger puis lancer autant d’essais que nécessaire.");
     } catch (error) {
       reasoningTrace.finish();
+      outcomeTone.failure();
       setMessage(error.message, true);
     } finally {
       state.busy = false;

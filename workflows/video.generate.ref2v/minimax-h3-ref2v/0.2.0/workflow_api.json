@@ -1,0 +1,519 @@
+{
+    "2":  {
+              "inputs":  {
+                             "value":  "PANELFORGE_PROMPT_REQUIRED"
+                         },
+              "class_type":  "PrimitiveStringMultiline",
+              "_meta":  {
+                            "title":  "PanelForge prompt"
+                        }
+          },
+    "3":  {
+              "inputs":  {
+                             "vae_name":  "minimax_h3_video_vae_fp16.safetensors"
+                         },
+              "class_type":  "VAELoader",
+              "_meta":  {
+                            "title":  "Load VAE"
+                        }
+          },
+    "4":  {
+              "inputs":  {
+                             "vae_name":  "minimax_h3_audio_vae_fp32.safetensors"
+                         },
+              "class_type":  "VAELoader",
+              "_meta":  {
+                            "title":  "Load VAE"
+                        }
+          },
+    "5":  {
+              "inputs":  {
+                             "filename_prefix":  "video/MiniMax_H3",
+                             "format":  "auto",
+                             "codec":  "auto",
+                             "video-preview":  "",
+                             "video":  [
+                                           "34",
+                                           0
+                                       ]
+                         },
+              "class_type":  "SaveVideo",
+              "_meta":  {
+                            "title":  "Save Video"
+                        }
+          },
+    "9":  {
+              "inputs":  {
+                             "image":  "PANELFORGE_REFERENCE_1_REQUIRED.png"
+                         },
+              "class_type":  "LoadImage",
+              "_meta":  {
+                            "title":  "PanelForge reference 1"
+                        }
+          },
+    "10":  {
+               "inputs":  {
+                              "video_latent":  [
+                                                   "26",
+                                                   0
+                                               ],
+                              "audio_latent":  [
+                                                   "35",
+                                                   1
+                                               ]
+                          },
+               "class_type":  "LTXVConcatAVLatent",
+               "_meta":  {
+                             "title":  "LTXVConcatAVLatent"
+                         }
+           },
+    "11":  {
+               "inputs":  {
+                              "prompt":  [
+                                             "2",
+                                             0
+                                         ],
+                              "width":  [
+                                            "20",
+                                            0
+                                        ],
+                              "height":  [
+                                             "20",
+                                             1
+                                         ],
+                              "length":  [
+                                             "19",
+                                             1
+                                         ],
+                              "ref_image_size":  "match",
+                              "clip":  [
+                                           "15",
+                                           0
+                                       ],
+                              "vae":  [
+                                          "3",
+                                          0
+                                      ],
+                              "audio_vae":  [
+                                                "4",
+                                                0
+                                            ],
+                              "ref_images.ref_image_0":  [
+                                                             "9",
+                                                             0
+                                                         ],
+                              "ref_images.ref_image_1":  [
+                                                             "47",
+                                                             0
+                                                         ],
+                              "ref_images.ref_image_2":  [
+                                                             "48",
+                                                             0
+                                                         ]
+                          },
+               "class_type":  "MiniMaxH3ReferenceToVideo",
+               "_meta":  {
+                             "title":  "MiniMax H3 Reference to Video"
+                         }
+           },
+    "12":  {
+               "inputs":  {
+                              "max_resolution":  1024,
+                              "jpeg_quality":  80,
+                              "suppress_default_preview":  true,
+                              "preview_frames":  [
+                                                     "19",
+                                                     1
+                                                 ],
+                              "preview_fps":  24,
+                              "tiny_vae":  "taeh3.safetensors",
+                              "model":  [
+                                            "37",
+                                            0
+                                        ]
+                          },
+               "class_type":  "ModelPreviewOverrideKJ",
+               "_meta":  {
+                             "title":  "Model Preview Override"
+                         }
+           },
+    "13":  {
+               "inputs":  {
+                              "step":  25,
+                              "sigmas":  [
+                                             "24",
+                                             0
+                                         ]
+                          },
+               "class_type":  "SplitSigmas",
+               "_meta":  {
+                             "title":  "SplitSigmas"
+                         }
+           },
+    "14":  {
+               "inputs":  {
+                              "samples":  [
+                                              "16",
+                                              0
+                                          ],
+                              "vae":  [
+                                          "4",
+                                          0
+                                      ]
+                          },
+               "class_type":  "VAEDecodeAudio",
+               "_meta":  {
+                             "title":  "VAE Decode Audio"
+                         }
+           },
+    "15":  {
+               "inputs":  {
+                              "clip_name":  "qwen3vl_32b_minimax_h3_bf16.safetensors",
+                              "type":  "minimax",
+                              "device":  "default"
+                          },
+               "class_type":  "CLIPLoader",
+               "_meta":  {
+                             "title":  "Load CLIP"
+                         }
+           },
+    "16":  {
+               "inputs":  {
+                              "noise":  [
+                                            "31",
+                                            0
+                                        ],
+                              "guider":  [
+                                             "32",
+                                             0
+                                         ],
+                              "sampler":  [
+                                              "18",
+                                              0
+                                          ],
+                              "sigmas":  [
+                                             "33",
+                                             0
+                                         ],
+                              "latent_image":  [
+                                                   "10",
+                                                   0
+                                               ]
+                          },
+               "class_type":  "SamplerCustomAdvanced",
+               "_meta":  {
+                             "title":  "SamplerCustomAdvanced"
+                         }
+           },
+    "17":  {
+               "inputs":  {
+                              "value":  10
+                          },
+               "class_type":  "PrimitiveFloat",
+               "_meta":  {
+                             "title":  "Float (Duration)"
+                         }
+           },
+    "18":  {
+               "inputs":  {
+                              "sampler_name":  "euler"
+                          },
+               "class_type":  "KSamplerSelect",
+               "_meta":  {
+                             "title":  "KSamplerSelect"
+                         }
+           },
+    "19":  {
+               "inputs":  {
+                              "expression":  "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+                              "values.a":  [
+                                               "17",
+                                               0
+                                           ]
+                          },
+               "class_type":  "ComfyMathExpression",
+               "_meta":  {
+                             "title":  "Math Expression"
+                         }
+           },
+    "20":  {
+               "inputs":  {
+                              "aspect_ratio":  "9:16 (Portrait Widescreen)",
+                              "megapixels":  0.2,
+                              "multiple":  32
+                          },
+               "class_type":  "ResolutionSelector",
+               "_meta":  {
+                             "title":  "Resolution Selector (Size)"
+                         }
+           },
+    "21":  {
+               "inputs":  {
+                              "noise":  [
+                                            "31",
+                                            0
+                                        ],
+                              "guider":  [
+                                             "29",
+                                             0
+                                         ],
+                              "sampler":  [
+                                              "18",
+                                              0
+                                          ],
+                              "sigmas":  [
+                                             "13",
+                                             0
+                                         ],
+                              "latent_image":  [
+                                                   "11",
+                                                   1
+                                               ]
+                          },
+               "class_type":  "SamplerCustomAdvanced",
+               "_meta":  {
+                             "title":  "SamplerCustomAdvanced"
+                         }
+           },
+    "23":  {
+               "inputs":  {
+                              "value":  1.2
+                          },
+               "class_type":  "PrimitiveFloat",
+               "_meta":  {
+                             "title":  "Target megapixels"
+                         }
+           },
+    "24":  {
+               "inputs":  {
+                              "scheduler":  "beta",
+                              "steps":  25,
+                              "denoise":  1,
+                              "model":  [
+                                            "44",
+                                            0
+                                        ]
+                          },
+               "class_type":  "BasicScheduler",
+               "_meta":  {
+                             "title":  "BasicScheduler"
+                         }
+           },
+    "25":  {
+               "inputs":  {
+                              "samples":  [
+                                              "16",
+                                              0
+                                          ],
+                              "vae":  [
+                                          "3",
+                                          0
+                                      ]
+                          },
+               "class_type":  "VAEDecode",
+               "_meta":  {
+                             "title":  "VAE Decode"
+                         }
+           },
+    "26":  {
+               "inputs":  {
+                              "model_name":  "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+                              "mode":  "megapixels",
+                              "mode.megapixels":  [
+                                                      "23",
+                                                      0
+                                                  ],
+                              "align":  32,
+                              "enable_chunking":  false,
+                              "device":  "cuda",
+                              "precision":  "fp16",
+                              "latent":  [
+                                             "35",
+                                             0
+                                         ]
+                          },
+               "class_type":  "MinimaxH3LatentUpscaler3D",
+               "_meta":  {
+                             "title":  "Minimax H3 Latent Upscaler (3D)"
+                         }
+           },
+    "29":  {
+               "inputs":  {
+                              "model":  [
+                                            "12",
+                                            0
+                                        ],
+                              "conditioning":  [
+                                                   "11",
+                                                   0
+                                               ]
+                          },
+               "class_type":  "BasicGuider",
+               "_meta":  {
+                             "title":  "Basic Guider"
+                         }
+           },
+    "31":  {
+               "inputs":  {
+                              "noise_seed":  42
+                          },
+               "class_type":  "RandomNoise",
+               "_meta":  {
+                             "title":  "RandomNoise"
+                         }
+           },
+    "32":  {
+               "inputs":  {
+                              "model":  [
+                                            "37",
+                                            0
+                                        ],
+                              "conditioning":  [
+                                                   "11",
+                                                   0
+                                               ]
+                          },
+               "class_type":  "BasicGuider",
+               "_meta":  {
+                             "title":  "Basic Guider"
+                         }
+           },
+    "33":  {
+               "inputs":  {
+                              "sigmas":  "0.9035, 0.6316, 0.3158, 0.0000"
+                          },
+               "class_type":  "ManualSigmas",
+               "_meta":  {
+                             "title":  "3 step Sigmas"
+                         }
+           },
+    "34":  {
+               "inputs":  {
+                              "fps":  24,
+                              "bit_depth":  8,
+                              "images":  [
+                                             "25",
+                                             0
+                                         ],
+                              "audio":  [
+                                            "14",
+                                            0
+                                        ]
+                          },
+               "class_type":  "CreateVideo",
+               "_meta":  {
+                             "title":  "Create Video"
+                         }
+           },
+    "35":  {
+               "inputs":  {
+                              "av_latent":  [
+                                                "21",
+                                                1
+                                            ]
+                          },
+               "class_type":  "LTXVSeparateAVLatent",
+               "_meta":  {
+                             "title":  "LTXVSeparateAVLatent"
+                         }
+           },
+    "37":  {
+               "inputs":  {
+                              "attention":  "comfy kitchen attention",
+                              "model":  [
+                                            "40",
+                                            0
+                                        ]
+                          },
+               "class_type":  "ModelAttentionBackend",
+               "_meta":  {
+                             "title":  "ModelAttentionBackend"
+                         }
+           },
+    "38":  {
+               "inputs":  {
+                              "shift_video":  12,
+                              "shift_audio":  3,
+                              "model":  [
+                                            "44",
+                                            0
+                                        ]
+                          },
+               "class_type":  "MiniMaxH3SigmaShift",
+               "_meta":  {
+                             "title":  "ModelSamplingMiniMaxH3"
+                         }
+           },
+    "40":  {
+               "inputs":  {
+                              "enabled":  false,
+                              "blend_weight":  0.5,
+                              "degree":  1,
+                              "ridge_lambda":  0.1,
+                              "window_size":  2,
+                              "flex_window":  0.75,
+                              "warmup_steps":  1,
+                              "tail_actual_steps":  1,
+                              "max_history":  8,
+                              "debug":  false,
+                              "history_storage":  "vram",
+                              "bootstrap_first_forecast":  true,
+                              "anchor_residual_feedback":  false,
+                              "selective_rollback_correction":  false,
+                              "offline_smoothing_replay":  true,
+                              "audio_blend_weight":  0,
+                              "offline_archive_storage":  "vram",
+                              "model_aware_mode":  "off",
+                              "model_aware_risk_threshold":  0.65,
+                              "model_aware_trust_shrinkage":  false,
+                              "model_aware_replay_generic_correction":  false,
+                              "generic_correction_mode":  "coordinate_rls",
+                              "generic_correction_limiter":  "hard_clip",
+                              "generic_correction_limit":  0.4,
+                              "generic_correction_attenuation":  "no_attenuation",
+                              "model":  [
+                                            "38",
+                                            0
+                                        ]
+                          },
+               "class_type":  "SpectrumApplyMiniMaxH3",
+               "_meta":  {
+                             "title":  "Spectrum Apply MiniMax H3"
+                         }
+           },
+    "44":  {
+               "inputs":  {
+                              "base_model":  "minimax_h3_fl2va_bf16.safetensors",
+                              "overlay_model":  "minimax_h3_ref2va_bf16.safetensors",
+                              "overlay_preset":  "block_range_adaln",
+                              "block_range_start":  25,
+                              "block_range_end":  49,
+                              "final_adaln_from_overlay":  false,
+                              "custom_overlays":  "",
+                              "custom_base":  "",
+                              "weight_dtype":  "default"
+                          },
+               "class_type":  "MiniMaxH3HybridLoader",
+               "_meta":  {
+                             "title":  "MiniMax H3 Hybrid Loader"
+                         }
+           },
+    "47":  {
+               "inputs":  {
+                              "image":  "PANELFORGE_REFERENCE_2_REQUIRED.png"
+                          },
+               "class_type":  "LoadImage",
+               "_meta":  {
+                             "title":  "PanelForge reference 2"
+                         }
+           },
+    "48":  {
+               "inputs":  {
+                              "image":  "PANELFORGE_REFERENCE_3_REQUIRED.png"
+                          },
+               "class_type":  "LoadImage",
+               "_meta":  {
+                             "title":  "PanelForge reference 3"
+                         }
+           }
+}

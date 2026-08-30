@@ -760,6 +760,46 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
         self.assertIn("data:image/png;base64,", parts[2]["image_url"]["url"])
         self.assertIn("data:image/jpeg;base64,", parts[4]["image_url"]["url"])
 
+    def test_applies_source_specific_output_and_image_limits(self):
+        completions = FakeCompletions()
+        gateway = OpenAICompatibleGateway(
+            "http://127.0.0.1:8000/v1",
+            client=SimpleNamespace(
+                models=FakeModels(),
+                chat=SimpleNamespace(completions=completions),
+            ),
+            maximum_output_tokens=32768,
+            maximum_images=4,
+            source_label="vLLM",
+        )
+
+        gateway.complete(
+            CompletionRequest(
+                model_id="qwen3.8-27b-nvfp4",
+                system_prompt="System",
+                user_prompt="User",
+                max_tokens=32768,
+                images=tuple(
+                    ImageInput("image/png", str(index).encode(), f"Image {index}")
+                    for index in range(1, 5)
+                ),
+            )
+        )
+
+        self.assertEqual(completions.kwargs["max_tokens"], 32768)
+        with self.assertRaisesRegex(ValueError, "vLLM accepts at most 4 images"):
+            gateway.complete(
+                CompletionRequest(
+                    model_id="qwen3.8-27b-nvfp4",
+                    system_prompt="System",
+                    user_prompt="User",
+                    images=tuple(
+                        ImageInput("image/png", str(index).encode(), f"Image {index}")
+                        for index in range(1, 6)
+                    ),
+                )
+            )
+
     def test_streams_text_and_only_exposes_verified_loading_state(self):
         completions = FakeCompletions()
         client = SimpleNamespace(
@@ -1040,6 +1080,19 @@ class SingleProfileCatalog:
         ):
             raise KeyError((profile_id, version))
         return self.profile
+
+
+def legacy_analyzed_profile(version="0.3.0"):
+    base = LocalPromptProfileCatalog(PROFILE_ROOT).get(
+        "minimax.h3.ref2v.direct",
+        "0.1.0",
+    )
+    return replace(
+        base,
+        profile_id="minimax.h3.reference",
+        version=version,
+        session_mode=PromptSessionMode.ANALYZED,
+    )
 
 
 class PromptLabServiceTest(unittest.TestCase):
@@ -1332,8 +1385,8 @@ class PromptLabServiceTest(unittest.TestCase):
                 assets.create(PNG + b"three", "image/png"),
             )
             base_profile = LocalPromptProfileCatalog(PROFILE_ROOT).get(
-                "minimax.h3.reference",
-                "0.3.0",
+                "minimax.h3.ref2v.direct",
+                "0.1.0",
             )
             direct_profile = replace(
                 base_profile,
@@ -1444,11 +1497,11 @@ class PromptLabServiceTest(unittest.TestCase):
             )
             self.assertTrue(events[-1].session.brief_complete is False)
 
-    def test_direct_sessions_reject_more_than_three_references(self):
+    def test_direct_sessions_accept_nine_and_reject_ten_references(self):
         with tempfile.TemporaryDirectory() as directory:
             base_profile = LocalPromptProfileCatalog(PROFILE_ROOT).get(
-                "minimax.h3.reference",
-                "0.3.0",
+                "minimax.h3.ref2v.direct",
+                "0.1.0",
             )
             direct_profile = replace(
                 base_profile,
@@ -1463,7 +1516,23 @@ class PromptLabServiceTest(unittest.TestCase):
                 sessions=LocalPromptSessionStore(directory),
             )
 
-            with self.assertRaisesRegex(ValueError, "at most 3 references"):
+            nine = service.create_session(
+                model_id="vision-model",
+                profile_id=direct_profile.profile_id,
+                profile_version=direct_profile.version,
+                references=tuple(
+                    NewReference(
+                        f"asset-{index}",
+                        "subject_reference",
+                        f"Reference {index}",
+                        (ReferenceUse.SUBJECT,),
+                    )
+                    for index in range(9)
+                ),
+            )
+            self.assertEqual(len(nine.references), 9)
+
+            with self.assertRaisesRegex(ValueError, "at most 9 references"):
                 service.create_session(
                     model_id="vision-model",
                     profile_id=direct_profile.profile_id,
@@ -1475,7 +1544,7 @@ class PromptLabServiceTest(unittest.TestCase):
                             f"Reference {index}",
                             (ReferenceUse.SUBJECT,),
                         )
-                        for index in range(4)
+                        for index in range(10)
                     ),
                 )
 
@@ -1489,7 +1558,7 @@ class PromptLabServiceTest(unittest.TestCase):
             gateway = RecordingGateway()
             service = PromptLabService(
                 gateway=gateway,
-                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                profiles=SingleProfileCatalog(legacy_analyzed_profile("0.1.0")),
                 assets=assets,
                 sessions=sessions,
             )
@@ -1545,7 +1614,7 @@ class PromptLabServiceTest(unittest.TestCase):
             gateway = RecordingGateway()
             service = PromptLabService(
                 gateway=gateway,
-                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                profiles=SingleProfileCatalog(legacy_analyzed_profile()),
                 assets=assets,
                 sessions=LocalPromptSessionStore(directory),
             )
@@ -1625,7 +1694,7 @@ class PromptLabServiceTest(unittest.TestCase):
             gateway = BareBriefGateway()
             service = PromptLabService(
                 gateway=gateway,
-                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                profiles=SingleProfileCatalog(legacy_analyzed_profile()),
                 assets=assets,
                 sessions=LocalPromptSessionStore(directory),
             )
@@ -1691,7 +1760,7 @@ class PromptLabServiceTest(unittest.TestCase):
             gateway = BriefEnvelopeGateway()
             service = PromptLabService(
                 gateway=gateway,
-                profiles=LocalPromptProfileCatalog(PROFILE_ROOT),
+                profiles=SingleProfileCatalog(legacy_analyzed_profile()),
                 assets=assets,
                 sessions=LocalPromptSessionStore(directory),
             )
@@ -1816,31 +1885,13 @@ class PromptProfileCatalogTest(unittest.TestCase):
             self.assertIsNone(profile.interpretation_user_prompt)
             self.assertIn("brief_user", profile.brief_user_prompt)
 
-    def test_loads_first_versioned_minimax_profile(self):
+    def test_catalog_excludes_the_removed_standalone_prompt_profile(self):
         catalog = LocalPromptProfileCatalog(PROFILE_ROOT)
-        profile = catalog.get("minimax.h3.reference", "0.1.0")
-        enriched = catalog.get("minimax.h3.reference", "0.2.0")
-        brief = catalog.get("minimax.h3.reference", "0.3.0")
+        profile_ids = {item.profile_id for item in catalog.list()}
 
-        self.assertEqual(profile.target_model_family, "MiniMax H3")
-        self.assertIn("{role}", profile.analysis_user_prompt)
-        self.assertIn("{current_analysis}", profile.revision_user_prompt)
-        self.assertIsNone(profile.interpretation_system_prompt)
-        self.assertIn("ACTIONS ET INTERACTIONS", enriched.analysis_system_prompt)
-        self.assertIn("{uses}", enriched.interpretation_user_prompt)
-        self.assertIn("{reference_context}", brief.brief_user_prompt)
-        self.assertIn("<Image 1>", brief.brief_system_prompt)
-        self.assertEqual(profile.session_mode, PromptSessionMode.ANALYZED)
-        self.assertEqual(enriched.session_mode, PromptSessionMode.ANALYZED)
-        self.assertEqual(brief.session_mode, PromptSessionMode.ANALYZED)
-        self.assertEqual(
-            tuple(
-                item
-                for item in catalog.list()
-                if item.profile_id == "minimax.h3.reference"
-            ),
-            (profile, enriched, brief),
-        )
+        self.assertNotIn("minimax.h3.reference", profile_ids)
+        self.assertIn("minimax.h3.fl2va.direct", profile_ids)
+        self.assertIn("minimax.h3.ref2v.direct", profile_ids)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 import json
@@ -19,14 +20,28 @@ from panelforge.domain.h3_render import (
     H3RenderInputMode,
     H3RenderKeyframe,
     H3RenderProject,
+    H3RenderRevisionVersion,
     H3RenderTurn,
     H3RenderTurnRole,
 )
 from panelforge.domain.prompt_composition import CompositionStage, PromptComposition
 from panelforge.domain.prompt_lab import PromptLabSession
+from panelforge.domain.minimax_h3 import (
+    H3CameraAmplitude,
+    H3CameraDirective,
+    H3CameraMotion,
+    H3CameraSpeed,
+)
 from panelforge.domain.video_lab import VIDEO_FPS, VideoLabSettings
 
-from .minimax_h3_protocol import H3IssueSeverity, H3ProtocolMode, lint_h3_prompt
+from .minimax_h3_protocol import (
+    H3IssueSeverity,
+    H3ProtocolMode,
+    compile_camera_motion,
+    extract_compiled_camera_clauses,
+    lint_h3_prompt,
+)
+from .direct_ref2v_prompt import lint_direct_ref2v_prompt
 from .prompt_lab import (
     CompletionRequest,
     ImageInput,
@@ -39,7 +54,7 @@ from .prompt_lab import (
 from .video_lab import extract_bound_video
 
 
-_H3_REVISION_SYSTEM = """You are a collaborative MiniMax H3 video prompt editor.
+_H3_REVISION_SYSTEM_LEGACY = """You are a collaborative MiniMax H3 video prompt editor.
 Return raw JSON only, with exactly these fields:
 {"message":"concise helpful reply in French","questions":["up to three useful questions"],"prompt":"complete standalone English MiniMax H3 prompt","recommendations":["optional concise advice"]}
 
@@ -48,6 +63,26 @@ The complete prompt is always required and immediately runnable, even when quest
 GENERATED KEYFRAMES are visual evidence sampled away from expected cut boundaries. Compare them with the user's goal and the exact render settings. They reveal composition, continuity and visible motion states, but not voice quality, music, sound, fine lip sync or everything occurring between samples. Never claim to have heard the video. Treat the newest user message as authoritative for audiovisual problems that keyframes cannot prove.
 
 Keep H3 prose chronological, physically achievable and concise. Each timed event appears once. Maintain object-state consistency, clean dialogue tags and continuous-motion constraints where requested. Do not introduce labels such as <Image N>, @image or <Subject N>. Do not output Markdown or text outside the JSON."""
+
+_H3_REVISION_SYSTEM_CAMERA_LOCKED = """You are a collaborative MiniMax H3 video prompt editor.
+Return raw JSON only, with exactly these fields:
+{"message":"concise helpful reply in French","questions":["up to three useful questions"],"prompt":"complete standalone English MiniMax H3 prompt containing the supplied camera tokens","recommendations":["optional concise advice"],"camera_directives":null}
+
+The complete prompt is always required and immediately runnable after application compilation. Rewrite the CURRENT H3 PROMPT directly; never return a Brief, JSON action plan, patch, diff or commentary inside the prompt. Preserve the exact input-mode reference-alignment header, canonical Picture labels, the three sections integrated_multimodal_description, overall_soundscape and non_diegetic_music, and every explicit quoted dialogue unless the user explicitly asks to change it. Preserve the shot count and cut timestamps unless the user explicitly requests a structural change.
+
+Camera tokens such as [[camera:camera_1]] are application-owned. Copy every supplied token exactly once at the same chronological position and write no other camera, lens, framing, zoom, pan, tilt, tracking, orbit, dolly or crane prose. When the user does not explicitly request a camera change, camera_directives must be null. When the user explicitly requests a camera change, return one object per supplied token in the same order with exactly id, start_ms, motion, amplitude, speed and target_clause. Use only the motion enum shown in the CAMERA CONTRACT; use null for absent amplitude, speed or target_clause. Never add or remove a camera token.
+
+GENERATED KEYFRAMES are visual evidence sampled away from expected cut boundaries. Compare them with the user's goal and the exact render settings. They reveal composition, continuity and visible motion states, but not voice quality, music, sound, fine lip sync or everything occurring between samples. Never claim to have heard the video. Treat the newest user message as authoritative for audiovisual problems that keyframes cannot prove.
+
+Keep H3 prose chronological, physically achievable and concise. Each timed event appears once. Maintain object-state consistency, clean dialogue tags and continuous-motion constraints where requested. Do not introduce labels such as <Image N>, @image or <Subject N>. Do not output Markdown or text outside the JSON."""
+
+_REF2V_REVISION_SYSTEM = """You are a collaborative MiniMax H3 Ref2V prompt editor.
+Return raw JSON only, with exactly these fields:
+{"message":"concise helpful reply in French","questions":["up to three useful questions"],"prompt":"complete standalone English MiniMax H3 Ref2V prompt","recommendations":["optional concise advice"]}
+
+The complete prompt is always required and immediately runnable. Rewrite the CURRENT H3 PROMPT directly; never return a Brief, action plan, patch or diff. Preserve the application-owned opening <Picture N> reference rules exactly, followed by the scene setup, Shot 1, overall_soundscape and non_diegetic_music. Preserve every explicit quoted dialogue unless the user explicitly asks to change it. Never invent, remove, renumber or reinterpret a reference.
+
+GENERATED KEYFRAMES are visual samples, not audio evidence. Use them to compare composition, continuity and visible motion with the user's goal and exact render settings. Never claim to have heard the video. Keep the Ref2V shot chronological, physically achievable and concise; each timed event appears once and ongoing motion remains visible through the cut when requested. Do not output Markdown or text outside the JSON."""
 
 _SHOT_CUT_RE = re.compile(
     r"(?im)^\[Shot\s+(?P<number>[2-9][0-9]*)\]\s+At\s+"
@@ -132,6 +167,37 @@ class H3RenderRecipe(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class Ref2VRenderRecipe(Protocol):
+    @property
+    def reference(self) -> object: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def presets(self) -> Mapping[str, H3RenderPreset]: ...
+    @property
+    def output_node_id(self) -> str: ...
+    @property
+    def output_history_field(self) -> str: ...
+    @property
+    def keyframe_margin_ms(self) -> int: ...
+    @property
+    def maximum_keyframes(self) -> int: ...
+    @property
+    def minimum_reference_images(self) -> int: ...
+    @property
+    def maximum_reference_images(self) -> int: ...
+    def keyframe_output_nodes(self, count: int) -> tuple[str, ...]: ...
+    def build_workflow(
+        self,
+        *,
+        source_images: tuple[str, ...],
+        prompt: str,
+        settings: VideoLabSettings,
+        output_filename_prefix: str,
+        keyframe_indices: tuple[int, ...],
+    ) -> dict[str, Any]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class H3RenderStreamEvent:
     kind: StreamEventKind
@@ -148,6 +214,7 @@ class H3RenderService:
         *,
         gateway: MultimodalGateway,
         workflow: H3RenderRecipe,
+        ref2v_workflow: Ref2VRenderRecipe | None = None,
         comfy: H3RenderComfy,
         assets: H3RenderAssets,
         projects: H3RenderProjects,
@@ -167,6 +234,7 @@ class H3RenderService:
             raise ValueError("timeouts must be positive")
         self.gateway = gateway
         self.workflow = workflow
+        self.ref2v_workflow = ref2v_workflow
         self.comfy = comfy
         self.assets = assets
         self.projects = projects
@@ -184,24 +252,63 @@ class H3RenderService:
         self._lock = RLock()
         self._claimed: set[tuple[str, str]] = set()
 
+    @staticmethod
+    def revision_versions_for_mode(
+        input_mode: H3RenderInputMode,
+    ) -> tuple[H3RenderRevisionVersion, ...]:
+        if input_mode is H3RenderInputMode.REF2VA:
+            return (H3RenderRevisionVersion.LEGACY,)
+        return (
+            H3RenderRevisionVersion.CAMERA_LOCKED,
+            H3RenderRevisionVersion.LEGACY,
+        )
+
+    @classmethod
+    def default_revision_version(
+        cls,
+        input_mode: H3RenderInputMode,
+    ) -> H3RenderRevisionVersion:
+        return cls.revision_versions_for_mode(input_mode)[0]
+
     def get_or_create_from_session(self, session_id: str) -> H3RenderProject:
         session = self.sessions.get(session_id)
         composition = self.compositions.get(session_id)
         final = composition.document(CompositionStage.FINAL_PROMPT).active_revision
         if final is None:
-            raise ValueError("generate an H3 Base prompt before opening the render project")
+            raise ValueError("generate an H3 prompt before opening the render project")
         with self._lock:
             existing = self.projects.find_source_revision(session_id, final.revision_id)
             if existing is not None:
                 return self._refresh_detached(existing)
-            first = next((value for value in session.references if value.role == "first_frame"), None)
-            last = next((value for value in session.references if value.role == "last_frame"), None)
-            for reference in (first, last):
+            is_ref2v = (
+                session.profile_id == "minimax.h3.ref2v.direct"
+                and session.session_mode.value == "direct_multimodal"
+            )
+            if is_ref2v and self.ref2v_workflow is None:
+                raise ValueError("the integrated Ref2V workflow is not configured")
+            first = None if is_ref2v else next((value for value in session.references if value.role == "first_frame"), None)
+            last = None if is_ref2v else next((value for value in session.references if value.role == "last_frame"), None)
+            references = tuple(session.references) if is_ref2v else ()
+            if is_ref2v and self.ref2v_workflow is not None and not (
+                self.ref2v_workflow.minimum_reference_images
+                <= len(references)
+                <= self.ref2v_workflow.maximum_reference_images
+            ):
+                raise ValueError(
+                    "the integrated Ref2V workflow accepts between "
+                    f"{self.ref2v_workflow.minimum_reference_images} and "
+                    f"{self.ref2v_workflow.maximum_reference_images} images"
+                )
+            for reference in (*references, first, last):
                 if reference is not None:
                     asset = self.assets.get(reference.asset_id)
                     if not asset.media_type.startswith("image/"):
                         raise ValueError("H3 frame anchors must be images")
-            mode = derive_h3_render_input_mode(first is not None, last is not None)
+            mode = (
+                H3RenderInputMode.REF2VA
+                if is_ref2v
+                else derive_h3_render_input_mode(first is not None, last is not None)
+            )
             plan = composition.document(CompositionStage.BEAT_SHEET).active_revision
             cuts = extract_plan_cut_times_ms(plan.content if plan is not None else "")
             if not cuts:
@@ -221,7 +328,15 @@ class H3RenderService:
                 first_frame_label=first.label if first else None,
                 last_frame_asset_id=last.asset_id if last else None,
                 last_frame_label=last.label if last else None,
+                reference_asset_ids=tuple(value.asset_id for value in references),
+                reference_labels=tuple(value.label for value in references),
                 warnings=tuple(warnings),
+                revision_version=self.default_revision_version(mode),
+                camera_clauses=(
+                    ()
+                    if mode is H3RenderInputMode.REF2VA
+                    else extract_compiled_camera_clauses(final.content)
+                ),
             )
             return self.projects.create(project)
 
@@ -233,6 +348,22 @@ class H3RenderService:
         with self._lock:
             return [self._refresh_detached(value) for value in self.projects.list(limit)]
 
+    def workflow_for_mode(
+        self,
+        input_mode: H3RenderInputMode,
+    ) -> H3RenderRecipe | Ref2VRenderRecipe:
+        if input_mode is H3RenderInputMode.REF2VA:
+            if self.ref2v_workflow is None:
+                raise ValueError("the integrated Ref2V workflow is not configured")
+            return self.ref2v_workflow
+        return self.workflow
+
+    def _recipe_for(
+        self,
+        project: H3RenderProject,
+    ) -> H3RenderRecipe | Ref2VRenderRecipe:
+        return self.workflow_for_mode(project.input_mode)
+
     def new_seed(self) -> int:
         return self._seed_factory()
 
@@ -242,11 +373,33 @@ class H3RenderService:
         message: str,
         *,
         feedback_attempt_id: str | None = None,
+        revision_version: str | H3RenderRevisionVersion | None = None,
         include_reasoning: bool = False,
     ) -> Iterator[H3RenderStreamEvent]:
         message = _bounded_text(message, "message", 12_000)
         with self._lock:
             project = self.projects.get(project_id)
+            if (
+                project.input_mode is not H3RenderInputMode.REF2VA
+                and not project.camera_clauses
+            ):
+                current_prompt, camera_clauses = _migrate_legacy_camera_contract(
+                    project.current_prompt
+                )
+                project = replace(
+                    project,
+                    current_prompt=current_prompt,
+                    camera_clauses=camera_clauses,
+                )
+            version = _revision_version(
+                revision_version or project.revision_version
+                or self.default_revision_version(project.input_mode)
+            )
+            if version not in self.revision_versions_for_mode(project.input_mode):
+                raise ValueError(
+                    f"revision {version.value} is not available for {project.input_mode.value}"
+                )
+            project = project.select_revision_version(version)
             if feedback_attempt_id is not None:
                 project = project.use_feedback(feedback_attempt_id)
             user = H3RenderTurn(
@@ -277,15 +430,25 @@ class H3RenderService:
                     if event.result is None:
                         raise ValueError("model stream completed without a result")
                     try:
-                        terminal = self._accept_chat_response(project_id, event.result.content)
+                        terminal = self._accept_chat_response(
+                            project_id,
+                            event.result.content,
+                            version,
+                        )
                     except Exception as error:
                         self._report(event.result.call_id, LlmCallApplicationOutcome.REJECTED, error)
+                        terminal = self._remember_rejected_revision(
+                            project_id,
+                            event.result.content,
+                            error,
+                            version,
+                        )
                         yield H3RenderStreamEvent(
                             StreamEventKind.COMPLETED,
                             StreamPhase.COMPLETED,
                             event.result.content,
                             1.0,
-                            self.projects.get(project_id),
+                            terminal,
                             _error(error),
                         )
                     else:
@@ -326,14 +489,15 @@ class H3RenderService:
             raise TypeError("music_enabled must be a boolean")
         with self._lock:
             project = self.projects.get(project_id)
+            recipe = self._recipe_for(project)
             prompt = canonicalize_h3_revision(project.current_prompt, prompt, project.input_mode)
             duration_ms = round(settings.effective_duration_seconds * 1000)
             cuts = extract_prompt_cut_times_ms(prompt) or project.planned_cut_times_ms
             timestamps = plan_keyframe_timestamps_ms(
                 duration_ms,
                 cuts,
-                margin_ms=self.workflow.keyframe_margin_ms,
-                maximum=self.workflow.maximum_keyframes,
+                margin_ms=recipe.keyframe_margin_ms,
+                maximum=recipe.maximum_keyframes,
             )
             effective_prompt = prompt if music_enabled else disable_non_diegetic_music(prompt)
             attempt = H3RenderAttempt(
@@ -374,23 +538,38 @@ class H3RenderService:
             self._claimed.add(key)
         execution_id: str | None = None
         workflow_digest: str | None = None
-        output_prefix = f"video/PanelForge_H3_Base/{project_id}/{attempt_id}"
+        family = "PanelForge_H3_Ref2V" if project.input_mode is H3RenderInputMode.REF2VA else "PanelForge_H3_Base"
+        output_prefix = f"video/{family}/{project_id}/{attempt_id}"
         try:
-            first_value = self._upload_frame(project.first_frame_asset_id, "first")
-            last_value = self._upload_frame(project.last_frame_asset_id, "last")
+            recipe = self._recipe_for(project)
             keyframe_indices = tuple(
                 min(attempt.settings.frame_count - 1, round(value * VIDEO_FPS / 1000))
                 for value in attempt.keyframe_timestamps_ms
             )
-            workflow = self.workflow.build_workflow(
-                input_mode=project.input_mode,
-                first_frame=first_value,
-                last_frame=last_value,
-                prompt=attempt.effective_prompt,
-                settings=attempt.settings,
-                output_filename_prefix=output_prefix,
-                keyframe_indices=keyframe_indices,
-            )
+            if project.input_mode is H3RenderInputMode.REF2VA:
+                source_images = tuple(
+                    self._upload_frame(asset_id, f"reference-{index + 1}")
+                    for index, asset_id in enumerate(project.reference_asset_ids)
+                )
+                workflow = recipe.build_workflow(
+                    source_images=source_images,
+                    prompt=attempt.effective_prompt,
+                    settings=attempt.settings,
+                    output_filename_prefix=output_prefix,
+                    keyframe_indices=keyframe_indices,
+                )
+            else:
+                first_value = self._upload_frame(project.first_frame_asset_id, "first")
+                last_value = self._upload_frame(project.last_frame_asset_id, "last")
+                workflow = recipe.build_workflow(
+                    input_mode=project.input_mode,
+                    first_frame=first_value,
+                    last_frame=last_value,
+                    prompt=attempt.effective_prompt,
+                    settings=attempt.settings,
+                    output_filename_prefix=output_prefix,
+                    keyframe_indices=keyframe_indices,
+                )
             workflow_digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
             with self._lock:
                 current = self.projects.get(project_id)
@@ -406,8 +585,8 @@ class H3RenderService:
             history = self._wait_history(project_id, attempt_id, execution_id)
             output_ref = extract_bound_video(
                 history,
-                node_id=self.workflow.output_node_id,
-                history_field=self.workflow.output_history_field,
+                node_id=recipe.output_node_id,
+                history_field=recipe.output_history_field,
             )
             output_content = self.comfy.download_output(
                 filename=output_ref["filename"],
@@ -499,7 +678,13 @@ class H3RenderService:
         message: str,
         include_reasoning: bool,
     ) -> CompletionRequest:
+        recipe = self._recipe_for(project)
         feedback = project.attempt(project.feedback_attempt_id) if project.feedback_attempt_id else None
+        version = project.revision_version or self.default_revision_version(project.input_mode)
+        camera_locked = (
+            project.input_mode is not H3RenderInputMode.REF2VA
+            and version is H3RenderRevisionVersion.CAMERA_LOCKED
+        )
         images: list[ImageInput] = []
         if feedback is not None:
             for frame in feedback.keyframes:
@@ -511,45 +696,99 @@ class H3RenderService:
                 ))
         conversation = "\n".join(
             f"{turn.role.value.upper()}: {turn.content}"
-            + (f"\nPROMPT REVISION: {turn.prompt}" if turn.prompt else "")
-            for turn in project.turns[-13:-1]
+            + (
+                "\nPROMPT REVISION: "
+                + (
+                    protect_h3_revision_camera(
+                        turn.prompt,
+                        extract_compiled_camera_clauses(turn.prompt),
+                    )
+                    if camera_locked else turn.prompt
+                )
+                if turn.prompt else ""
+            )
+            for turn in project.turns[:-1]
         ) or "No earlier exchange."
         selected = _attempt_context(feedback) if feedback is not None else "No rendered attempt selected."
+        current_prompt = (
+            protect_h3_revision_camera(project.current_prompt, project.camera_clauses)
+            if camera_locked
+            else project.current_prompt
+        )
+        camera_contract = (
+            _camera_contract_prompt(project.camera_clauses)
+            if camera_locked
+            else "Camera clauses remain part of the editable legacy prompt."
+        )
         user_prompt = "\n\n".join((
             f"H3 INPUT MODE (immutable): {project.input_mode.value.upper()}",
-            f"CURRENT COMPLETE H3 PROMPT:\n{project.current_prompt}",
+            f"CURRENT COMPLETE H3 PROMPT:\n{current_prompt}",
+            f"CAMERA CONTRACT:\n{camera_contract}",
             f"RECENT PROJECT CONVERSATION:\n{conversation}",
             f"SELECTED RENDER AND EXACT SETTINGS:\n{selected}",
             (
                 "KEYFRAME SAMPLING NOTE:\nFrames around planned cuts are sampled "
-                f"{self.workflow.keyframe_margin_ms} ms before and after each cut, never at the exact boundary."
+                f"{recipe.keyframe_margin_ms} ms before and after each cut, never at the exact boundary."
             ),
             f"NEW USER MESSAGE (authoritative):\n{message}",
         ))
         return CompletionRequest(
             model_id=project.model_id,
-            system_prompt=_H3_REVISION_SYSTEM,
+            system_prompt=(
+                _REF2V_REVISION_SYSTEM
+                if project.input_mode is H3RenderInputMode.REF2VA
+                else (
+                    _H3_REVISION_SYSTEM_CAMERA_LOCKED
+                    if camera_locked
+                    else _H3_REVISION_SYSTEM_LEGACY
+                )
+            ),
             user_prompt=user_prompt,
             images=tuple(images),
             temperature=0.25,
             max_tokens=16_384,
-            operation_id="h3.base.render.revision@0.1.0",
+            operation_id=(
+                "h3.ref2v.render.revision@0.1.0"
+                if project.input_mode is H3RenderInputMode.REF2VA
+                else f"h3.base.render.revision@{version.value}"
+            ),
             include_reasoning=include_reasoning,
         )
 
-    def _accept_chat_response(self, project_id: str, raw: str) -> H3RenderProject:
+    def _accept_chat_response(
+        self,
+        project_id: str,
+        raw: str,
+        version: H3RenderRevisionVersion,
+    ) -> H3RenderProject:
         value = _decode_json(raw)
-        if set(value) != {"message", "questions", "prompt", "recommendations"}:
+        expected = {"message", "questions", "prompt", "recommendations"}
+        if version is H3RenderRevisionVersion.CAMERA_LOCKED:
+            expected.add("camera_directives")
+        if set(value) != expected:
             raise ValueError("H3 render revision response has invalid fields")
         message = _bounded_text(value.get("message"), "assistant message", 12_000)
         questions = _string_array(value.get("questions"), "questions", 3)
         recommendations = _string_array(value.get("recommendations"), "recommendations", 8)
         with self._lock:
             project = self.projects.get(project_id)
+            candidate = _bounded_text(value.get("prompt"), "H3 prompt", 60_000)
+            camera_clauses = project.camera_clauses
+            if version is H3RenderRevisionVersion.CAMERA_LOCKED:
+                camera_clauses = _revision_camera_clauses(
+                    value.get("camera_directives"),
+                    project.camera_clauses,
+                )
+                candidate = compile_h3_revision_camera(
+                    candidate,
+                    project.camera_clauses,
+                    camera_clauses,
+                )
             prompt = canonicalize_h3_revision(
                 project.current_prompt,
-                _bounded_text(value.get("prompt"), "H3 prompt", 60_000),
+                candidate,
                 project.input_mode,
+                camera_clauses=camera_clauses if version is H3RenderRevisionVersion.CAMERA_LOCKED else (),
             )
             assistant = H3RenderTurn(
                 turn_id=self._turn_id_factory(),
@@ -558,8 +797,29 @@ class H3RenderService:
                 prompt=prompt,
                 questions=questions,
                 recommendations=recommendations,
+                revision_version=version,
             )
-            return self.projects.save(project.add_turn(assistant))
+            return self.projects.save(replace(
+                project.add_turn(assistant),
+                camera_clauses=camera_clauses,
+                revision_version=version,
+            ))
+
+    def _remember_rejected_revision(
+        self,
+        project_id: str,
+        raw: str,
+        error: Exception,
+        version: H3RenderRevisionVersion,
+    ) -> H3RenderProject:
+        draft = _revision_candidate(raw)
+        with self._lock:
+            project = self.projects.get(project_id).select_revision_version(version)
+            return self.projects.save(project.reject_revision(
+                draft=draft,
+                error=_revision_error(error, draft),
+                version=version,
+            ))
 
     def _upload_frame(self, asset_id: str | None, role: str) -> str | None:
         if asset_id is None:
@@ -606,10 +866,11 @@ class H3RenderService:
         frames: list[H3RenderKeyframe] = []
         warnings: list[str] = []
         project = self.projects.get(project_id)
+        recipe = self._recipe_for(project)
         cut_times = extract_prompt_cut_times_ms(attempt.prompt) or project.planned_cut_times_ms
         for timestamp, node_id in zip(
             attempt.keyframe_timestamps_ms,
-            self.workflow.keyframe_output_nodes(len(attempt.keyframe_timestamps_ms)),
+            recipe.keyframe_output_nodes(len(attempt.keyframe_timestamps_ms)),
             strict=True,
         ):
             try:
@@ -637,17 +898,32 @@ class H3RenderService:
         return tuple(frames), tuple(warnings)
 
     def _refresh_detached(self, project: H3RenderProject) -> H3RenderProject:
-        current = project
-        for attempt in project.attempts:
+        revision_version = project.revision_version or self.default_revision_version(
+            project.input_mode
+        )
+        if revision_version not in self.revision_versions_for_mode(project.input_mode):
+            revision_version = self.default_revision_version(project.input_mode)
+        camera_clauses = project.camera_clauses
+        if project.input_mode is not H3RenderInputMode.REF2VA and not camera_clauses:
+            camera_clauses = extract_compiled_camera_clauses(project.current_prompt)
+        current = replace(
+            project,
+            revision_version=revision_version,
+            camera_clauses=camera_clauses,
+        )
+        if current != project:
+            current = self.projects.save(current)
+        for attempt in current.attempts:
             if (
                 attempt.status in {H3RenderAttemptStatus.RUNNING, H3RenderAttemptStatus.CANCEL_PENDING}
-                and (project.project_id, attempt.attempt_id) not in self._claimed
+                and (current.project_id, attempt.attempt_id) not in self._claimed
             ):
                 current = self._refresh_detached_attempt(current, current.attempt(attempt.attempt_id))
         return current
 
     def _refresh_detached_attempt(self, project: H3RenderProject, attempt: H3RenderAttempt) -> H3RenderProject:
         assert attempt.execution_id is not None
+        recipe = self._recipe_for(project)
         try:
             history = self.comfy.get_history(attempt.execution_id)
             record = history.get(attempt.execution_id)
@@ -661,8 +937,8 @@ class H3RenderService:
             if completed and name == "success":
                 output_ref = extract_bound_video(
                     record,
-                    node_id=self.workflow.output_node_id,
-                    history_field=self.workflow.output_history_field,
+                    node_id=recipe.output_node_id,
+                    history_field=recipe.output_history_field,
                 )
                 content = self.comfy.download_output(
                     filename=output_ref["filename"],
@@ -853,9 +1129,21 @@ def canonicalize_h3_revision(
     current_prompt: str,
     candidate: str,
     input_mode: H3RenderInputMode,
+    *,
+    camera_clauses: tuple[str, ...] = (),
 ) -> str:
     current = _bounded_text(current_prompt, "current prompt", 60_000).replace("\r\n", "\n")
     value = _bounded_text(candidate, "candidate prompt", 60_000).replace("\r\n", "\n")
+    if input_mode is H3RenderInputMode.REF2VA:
+        header, current_body = _split_ref2v_header(current)
+        _, candidate_body = _split_ref2v_header(value, required=False)
+        if not candidate_body.strip():
+            candidate_body = current_body
+        result = f"{header}\n\n{candidate_body.strip()}"
+        errors = lint_direct_ref2v_prompt(result)
+        if errors:
+            raise ValueError(" ".join(dict.fromkeys(errors)))
+        return result
     current_start = re.search(r"(?im)^integrated_multimodal_description:\s*", current)
     candidate_start = re.search(r"(?im)^integrated_multimodal_description:\s*", value)
     if current_start is None or candidate_start is None:
@@ -867,6 +1155,13 @@ def canonicalize_h3_revision(
     names = [match.group(1).lower() for match in matches]
     if names != ["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]:
         raise ValueError("H3 prompt must contain the three canonical fields exactly once and in order")
+    expected_camera = Counter(camera_clauses)
+    for clause, expected_count in expected_camera.items():
+        if result.count(clause) != expected_count:
+            raise ValueError(
+                "compiled camera clause must remain present exactly "
+                f"{expected_count} time(s): {clause}"
+            )
     errors = tuple(
         issue.message
         for issue in lint_h3_prompt(H3ProtocolMode(input_mode.value), result)
@@ -875,6 +1170,75 @@ def canonicalize_h3_revision(
     if errors:
         raise ValueError(" ".join(dict.fromkeys(errors)))
     return result
+
+
+def protect_h3_revision_camera(
+    prompt: str,
+    camera_clauses: tuple[str, ...],
+) -> str:
+    """Replace compiler-owned camera clauses with stable editor tokens."""
+
+    value = prompt
+    for index, clause in enumerate(camera_clauses, 1):
+        token = f"[[camera:camera_{index}]]"
+        if clause not in value:
+            raise ValueError(f"compiled camera clause is missing: {clause}")
+        value = value.replace(clause, token, 1)
+    return value
+
+
+def _migrate_legacy_camera_contract(prompt: str) -> tuple[str, tuple[str, ...]]:
+    """Normalize the one free-form static label accepted by the former validator."""
+
+    clauses = extract_compiled_camera_clauses(prompt)
+    if clauses:
+        return prompt, clauses
+    migrated, _ = re.subn(
+        r"(?i)\bCamera movement:\s*static\.",
+        "The camera holds a static shot.",
+        prompt,
+    )
+    return migrated, extract_compiled_camera_clauses(migrated)
+
+
+def compile_h3_revision_camera(
+    candidate: str,
+    previous_clauses: tuple[str, ...],
+    camera_clauses: tuple[str, ...],
+) -> str:
+    """Compile stable editor tokens and reject invented camera placeholders."""
+
+    if len(previous_clauses) != len(camera_clauses):
+        raise ValueError("camera revision must preserve the number of compiled directives")
+    value = candidate
+    for index, clause in enumerate(previous_clauses, 1):
+        token = f"[[camera:camera_{index}]]"
+        if token not in value and clause in value:
+            value = value.replace(clause, token, 1)
+    known = {f"[[camera:camera_{index}]]" for index in range(1, len(camera_clauses) + 1)}
+    found = set(re.findall(r"\[\[camera:camera_[1-9][0-9]*\]\]", value))
+    if found - known:
+        raise ValueError("the revised prompt contains an unknown camera token")
+    for index, clause in enumerate(camera_clauses, 1):
+        token = f"[[camera:camera_{index}]]"
+        if value.count(token) != 1:
+            raise ValueError(f"{token} must appear exactly once in the revised prompt")
+        value = value.replace(token, clause, 1)
+    return value
+
+
+def _split_ref2v_header(
+    prompt: str,
+    *,
+    required: bool = True,
+) -> tuple[str, str]:
+    first, separator, rest = prompt.partition("\n\n")
+    lines = tuple(line.strip() for line in first.splitlines() if line.strip())
+    if separator and lines and all("<Picture " in line for line in lines):
+        return first.strip(), rest.strip()
+    if required:
+        raise ValueError("Ref2V prompt is missing its canonical Picture header")
+    return "", prompt.strip()
 
 
 def keyframe_label(
@@ -944,6 +1308,113 @@ def _validate_mp4(content: bytes, filename: str) -> None:
         raise ValueError("ComfyUI output is not an MP4 video")
     if len(content) < 12 or content[4:8] != b"ftyp":
         raise ValueError("ComfyUI output has no MP4 signature")
+
+
+def _revision_version(
+    value: str | H3RenderRevisionVersion,
+) -> H3RenderRevisionVersion:
+    try:
+        return H3RenderRevisionVersion(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("unsupported H3 render revision version") from error
+
+
+def _camera_contract_prompt(camera_clauses: tuple[str, ...]) -> str:
+    motions = ", ".join(value.value for value in H3CameraMotion)
+    clauses = "\n".join(
+        f"- [[camera:camera_{index}]] = {clause}"
+        for index, clause in enumerate(camera_clauses, 1)
+    ) or "- No compiled camera directive is present."
+    return (
+        f"{clauses}\n"
+        "When explicitly changing camera, return camera_directives objects with "
+        "id, start_ms, motion, amplitude, speed, target_clause. "
+        f"Allowed motion values: {motions}. Amplitude: small, large or null. "
+        "Speed: slow, fast or null."
+    )
+
+
+def _revision_camera_clauses(
+    value: object,
+    current: tuple[str, ...],
+) -> tuple[str, ...]:
+    if value is None:
+        return current
+    if not isinstance(value, list) or len(value) != len(current):
+        raise ValueError(
+            "camera_directives must be null or contain one object per camera token"
+        )
+    clauses: list[str] = []
+    previous_start = -1
+    expected_fields = {
+        "id",
+        "start_ms",
+        "motion",
+        "amplitude",
+        "speed",
+        "target_clause",
+    }
+    for index, item in enumerate(value, 1):
+        if not isinstance(item, Mapping) or set(item) != expected_fields:
+            raise ValueError("camera directive fields do not match revision 0.2.0")
+        expected_id = f"camera_{index}"
+        if item.get("id") != expected_id:
+            raise ValueError(f"camera directive {index} must use id {expected_id}")
+        start_ms = item.get("start_ms")
+        if isinstance(start_ms, bool) or not isinstance(start_ms, int) or start_ms < 0:
+            raise ValueError("camera start_ms must be a non-negative integer")
+        if start_ms < previous_start:
+            raise ValueError("camera directives must remain chronological")
+        previous_start = start_ms
+        try:
+            directive = H3CameraDirective(
+                directive_id=expected_id,
+                motion=H3CameraMotion(item.get("motion")),
+                amplitude=(
+                    H3CameraAmplitude(item["amplitude"])
+                    if item.get("amplitude") is not None else None
+                ),
+                speed=(
+                    H3CameraSpeed(item["speed"])
+                    if item.get("speed") is not None else None
+                ),
+                target_clause=(item.get("target_clause") or ""),
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"invalid camera directive {expected_id}: {error}") from error
+        clause = compile_camera_motion(directive)
+        if start_ms:
+            minutes, remainder = divmod(start_ms, 60_000)
+            seconds, milliseconds = divmod(remainder, 1000)
+            clause = f"At {minutes:02d}:{seconds:02d}.{milliseconds:03d}, {clause}"
+        clauses.append(clause)
+    return tuple(clauses)
+
+
+def _revision_candidate(raw: str) -> str | None:
+    try:
+        value = _decode_json(raw)
+    except ValueError:
+        candidate = raw.strip()
+    else:
+        prompt = value.get("prompt")
+        candidate = prompt.strip() if isinstance(prompt, str) else raw.strip()
+    return candidate[:60_000] if candidate else None
+
+
+def _revision_error(error: Exception, draft: str | None) -> str:
+    message = _error(error)
+    if not draft or "camera movement must come" not in message:
+        return message
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", draft):
+        if "[[camera:" in sentence:
+            continue
+        if re.search(
+            r"(?i)\b(?:camera|lens)\b|\b(?:zoom|pan|tilt|tracking|orbit|dolly|crane)(?:s|ed|ing)?\b",
+            sentence,
+        ):
+            return f"{message} Clause refusée : {sentence.strip()[:500]}"
+    return message
 
 
 def _decode_json(raw: str) -> dict[str, Any]:

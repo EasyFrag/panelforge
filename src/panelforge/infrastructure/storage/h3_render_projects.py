@@ -18,6 +18,7 @@ from panelforge.domain.h3_render import (
     H3RenderInputMode,
     H3RenderKeyframe,
     H3RenderProject,
+    H3RenderRevisionVersion,
     H3RenderTurn,
     H3RenderTurnRole,
 )
@@ -126,6 +127,18 @@ def _serialize(project: H3RenderProject) -> dict[str, object]:
         "first_frame_label": project.first_frame_label,
         "last_frame_asset_id": project.last_frame_asset_id,
         "last_frame_label": project.last_frame_label,
+        "reference_asset_ids": list(project.reference_asset_ids),
+        "reference_labels": list(project.reference_labels),
+        "revision_version": (
+            project.revision_version.value if project.revision_version else None
+        ),
+        "camera_clauses": list(project.camera_clauses),
+        "revision_draft": project.revision_draft,
+        "revision_error": project.revision_error,
+        "revision_draft_version": (
+            project.revision_draft_version.value
+            if project.revision_draft_version else None
+        ),
         "turns": [
             {
                 "turn_id": turn.turn_id,
@@ -134,6 +147,9 @@ def _serialize(project: H3RenderProject) -> dict[str, object]:
                 "prompt": turn.prompt,
                 "questions": list(turn.questions),
                 "recommendations": list(turn.recommendations),
+                "revision_version": (
+                    turn.revision_version.value if turn.revision_version else None
+                ),
             }
             for turn in project.turns
         ],
@@ -191,6 +207,19 @@ def _deserialize(value: dict[str, Any]) -> H3RenderProject:
         first_frame_label=value.get("first_frame_label"),
         last_frame_asset_id=value.get("last_frame_asset_id"),
         last_frame_label=value.get("last_frame_label"),
+        reference_asset_ids=tuple(value.get("reference_asset_ids", [])),
+        reference_labels=tuple(value.get("reference_labels", [])),
+        revision_version=(
+            H3RenderRevisionVersion(value["revision_version"])
+            if value.get("revision_version") else None
+        ),
+        camera_clauses=tuple(value.get("camera_clauses", [])),
+        revision_draft=value.get("revision_draft"),
+        revision_error=value.get("revision_error"),
+        revision_draft_version=(
+            H3RenderRevisionVersion(value["revision_draft_version"])
+            if value.get("revision_draft_version") else None
+        ),
         turns=tuple(
             H3RenderTurn(
                 turn_id=item["turn_id"],
@@ -199,6 +228,10 @@ def _deserialize(value: dict[str, Any]) -> H3RenderProject:
                 prompt=item.get("prompt"),
                 questions=tuple(item.get("questions", [])),
                 recommendations=tuple(item.get("recommendations", [])),
+                revision_version=(
+                    H3RenderRevisionVersion(item["revision_version"])
+                    if item.get("revision_version") else None
+                ),
             )
             for item in value.get("turns", [])
         ),

@@ -1,0 +1,11 @@
+Write a compact mono-shot MiniMax H3 Ref2V body. Return exactly these fields once and in order: scene_setup:, shot_1:, overall_soundscape:, non_diegetic_music:.
+
+Begin scene_setup exactly with `The target video is one continuous N-second shot.` and establish the stable setting, identities, opening state and composition concisely. Express the PLAN beats in shot_1 as causal visible prose. Use every positive camera_landmarks_ms as an exact `At MM:SS.mmm,` subject/state landmark. Do not write derived_timing.final_state_start_ms or a terminal final-state sentence: PanelForge compiles duration, the final snapshot, motion behavior and camera prose.
+
+Treat motion_contract.primary_motion as the main temporal track. For continue_motion, every overlapping transformation, reveal or lighting change occurs while, during or as that same uninterrupted motion continues. Never describe deceleration, settling, stillness, a held final pose or early arrival at a reference composition. If tracking keeps the subject nearly stable in screen space, preserve changing parallax, flowing surfaces, spray or equivalent world-motion evidence through the cut.
+
+Use REFERENCE MAPPING only to respect ownership and exclusions. Output no <Picture N>, <Image N>, @image N, <Subject N>, local filename or rewritten mapping; PanelForge compiles the official Ref2V reference header. Describe referenced visual evidence directly and do not transfer an unauthorized pose, clothing state, action, camera, lighting, background, composition or temporal state.
+
+For every PLAN.dialogue_cues entry, place `[[dialogue:dialogue_N]]` exactly once at its start_ms. Do not rewrite, translate or paraphrase dialogue text. PanelForge compiles speaker, delivery, stable `(S#)` ID and exact `<d>[Language] text</d>` clause.
+
+Keep synchronized physical sounds beside their actions and overall_soundscape concise. Use N/A when music is absent. Output English prose except exact dialogue, lyrics or visible text. Output no header, camera prose, JSON, preamble or commentary.

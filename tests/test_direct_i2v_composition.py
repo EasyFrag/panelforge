@@ -555,19 +555,5 @@ class DirectI2VCompositionTest(unittest.TestCase):
                 service.get("direct-i2v-session").final_prompt.active_revision
             )
 
-    def test_legacy_i2va_cookbook_remains_a_final_only_witness(self):
-        catalog = LocalPromptCookbookCatalog(COOKBOOK_ROOT)
-        legacy = catalog.get("minimax.h3.i2v.simple", "0.3.0")
-        direct = catalog.get("minimax.h3.i2v.direct", "0.1.0")
-
-        self.assertEqual(legacy.output_contract, "minimax.h3.i2va.canonical_v1")
-        self.assertEqual(legacy.stages, ("final_prompt",))
-        self.assertEqual(
-            direct.output_contract,
-            "minimax.h3.i2va.direct_supervised_h3_v1",
-        )
-        self.assertEqual(direct.stages, ("beat_sheet", "final_prompt"))
-
-
 if __name__ == "__main__":
     unittest.main()

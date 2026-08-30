@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -73,7 +74,7 @@ class ValidatedVideoLabWorkflow:
     version: str
     status: str
     workflow_sha256: str
-    inputs: Mapping[str, WorkflowInputBinding]
+    inputs: Mapping[str, tuple[WorkflowInputBinding, ...]]
     reference_images: tuple[ReferenceImageBinding, ...]
     output_video: VideoOutputBinding
     presets: Mapping[str, VideoLabPreset]
@@ -137,6 +138,129 @@ class VideoLabPresetRecipe:
             settings=settings,
             output_filename_prefix=output_filename_prefix,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Ref2VH3RenderPresetRecipe:
+    """Conversational-render adapter for the published Ref2V workflow.
+
+    The published snapshot exposes three loader slots. Ref2V itself accepts up
+    to nine references, so the adapter clones only the neutral LoadImage slot
+    for references four to nine without mutating the versioned workflow.
+    """
+
+    recipe: VideoLabPresetRecipe
+    keyframe_margin_ms: int = 500
+    maximum_keyframes: int = 8
+    minimum_reference_images: int = 1
+    maximum_reference_images: int = 9
+
+    @property
+    def reference(self) -> RecipeRef:
+        return self.recipe.reference
+
+    @property
+    def status(self) -> str:
+        return self.recipe.status
+
+    @property
+    def presets(self) -> Mapping[str, VideoLabPreset]:
+        return self.recipe.presets
+
+    @property
+    def output_node_id(self) -> str:
+        return self.recipe.output_node_id
+
+    @property
+    def output_history_field(self) -> str:
+        return self.recipe.output_history_field
+
+    def keyframe_output_nodes(self, count: int) -> tuple[str, ...]:
+        if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= self.maximum_keyframes:
+            raise ValueError("invalid Ref2V keyframe count")
+        return tuple(str(20_100 + index) for index in range(count))
+
+    def build_workflow(
+        self,
+        *,
+        source_images: Sequence[str],
+        prompt: str,
+        settings: VideoLabSettings,
+        output_filename_prefix: str,
+        keyframe_indices: tuple[int, ...],
+    ) -> dict[str, Any]:
+        if not self.minimum_reference_images <= len(source_images) <= self.maximum_reference_images:
+            raise ValueError(
+                "Ref2V render requires between "
+                f"{self.minimum_reference_images} and "
+                f"{self.maximum_reference_images} images"
+            )
+        if len(keyframe_indices) > self.maximum_keyframes:
+            raise ValueError("too many Ref2V keyframes")
+        workflow = self.recipe.build_workflow(
+            source_images=source_images[:3],
+            prompt=prompt,
+            settings=settings,
+            output_filename_prefix=output_filename_prefix,
+        )
+        binding = self.recipe.preset.reference_images[-1]
+        template = self.recipe.preset.workflow[binding.load_node_id]
+        target_inputs = workflow[binding.target_node_id]["inputs"]
+        target_prefix = binding.target_input.rsplit("_", 1)[0]
+        for index, source_image in enumerate(source_images[3:], 3):
+            load_node_id = str(20_000 + index)
+            loader = deepcopy(template)
+            loader["inputs"][binding.input_name] = source_image
+            loader.setdefault("_meta", {})["title"] = f"PanelForge reference {index + 1}"
+            workflow[load_node_id] = loader
+            target_inputs[f"{target_prefix}_{index}"] = [load_node_id, 0]
+
+        source_node_id, source_output_index = _decoded_image_source(
+            workflow,
+            self.output_node_id,
+        )
+        for index, frame_index in enumerate(keyframe_indices):
+            selector_id = str(20_050 + index)
+            save_id = str(20_100 + index)
+            workflow[selector_id] = {
+                "inputs": {
+                    "image": [source_node_id, source_output_index],
+                    "batch_index": frame_index,
+                    "length": 1,
+                },
+                "class_type": "ImageFromBatch",
+                "_meta": {"title": f"PanelForge Ref2V keyframe {index + 1}"},
+            }
+            workflow[save_id] = {
+                "inputs": {
+                    "filename_prefix": f"{output_filename_prefix}_keyframe_{index + 1:02d}",
+                    "images": [selector_id, 0],
+                },
+                "class_type": "SaveImage",
+                "_meta": {"title": f"Save PanelForge Ref2V keyframe {index + 1}"},
+            }
+        return workflow
+
+
+def _decoded_image_source(
+    workflow: Mapping[str, Any],
+    output_node_id: str,
+) -> tuple[str, int]:
+    output = _object(workflow.get(output_node_id), "Ref2V output node")
+    video_link = _object(output.get("inputs"), "Ref2V output inputs").get("video")
+    if not isinstance(video_link, list) or len(video_link) != 2:
+        raise VideoPresetValidationError("Ref2V output video link is invalid")
+    video = _object(workflow.get(str(video_link[0])), "Ref2V CreateVideo node")
+    image_link = _object(video.get("inputs"), "Ref2V CreateVideo inputs").get("images")
+    if (
+        not isinstance(image_link, list)
+        or len(image_link) != 2
+        or not isinstance(image_link[0], str)
+        or isinstance(image_link[1], bool)
+        or not isinstance(image_link[1], int)
+    ):
+        raise VideoPresetValidationError("Ref2V decoded image link is invalid")
+    return image_link[0], image_link[1]
 
 
 def load_video_lab_workflow(directory: Path) -> ValidatedVideoLabWorkflow:
@@ -208,12 +332,17 @@ def validate_video_lab_workflow(
         )
 
     input_bindings = {
-        name: _input_binding(bindings[name], nodes, f"bindings.{name}")
+        name: _input_bindings(bindings[name], nodes, f"bindings.{name}")
         for name in required_inputs
     }
     prompt_config = _object(bindings["positive_prompt"], "positive_prompt")
     prompt_sentinel = _text(prompt_config.get("sentinel"), "positive_prompt.sentinel")
-    prompt_binding = input_bindings["positive_prompt"]
+    prompt_bindings = input_bindings["positive_prompt"]
+    if len(prompt_bindings) != 1:
+        raise VideoPresetValidationError(
+            "positive_prompt must define exactly one workflow binding"
+        )
+    prompt_binding = prompt_bindings[0]
     if _node_input(nodes, prompt_binding) != prompt_sentinel:
         raise VideoPresetValidationError("workflow prompt is not neutralized")
 
@@ -296,8 +425,8 @@ def build_video_lab_workflow(
         "output_filename_prefix": output_filename_prefix,
     }
     for name, value in values.items():
-        binding = preset.inputs[name]
-        workflow[binding.node_id]["inputs"][binding.input_name] = value
+        for binding in preset.inputs[name]:
+            workflow[binding.node_id]["inputs"][binding.input_name] = value
 
     for index, binding in enumerate(preset.reference_images):
         target_inputs = workflow[binding.target_node_id]["inputs"]
@@ -326,6 +455,20 @@ def _input_binding(
             f"workflow node {node_id} has no input {input_name!r}"
         )
     return WorkflowInputBinding(node_id=node_id, input_name=input_name)
+
+
+def _input_bindings(
+    value: Any,
+    workflow: Mapping[str, Any],
+    label: str,
+) -> tuple[WorkflowInputBinding, ...]:
+    values = value if isinstance(value, list) else [value]
+    if not values:
+        raise VideoPresetValidationError(f"{label} must not be empty")
+    return tuple(
+        _input_binding(item, workflow, f"{label}[{index}]")
+        for index, item in enumerate(values)
+    )
 
 
 def _reference_binding(

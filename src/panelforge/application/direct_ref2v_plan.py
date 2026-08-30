@@ -524,6 +524,89 @@ def canonical_direct_ref2v_action_plan_v4(
     return json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
+_CONTINUING_FINAL_ANCHOR_CONVERGENCE_RE = re.compile(
+    r"(?is)\b(?:settles?|settling|eases?|easing|locks?|locking|reaches?|"
+    r"reaching|arrives?|arriving|matches?|matching|ends?|ending)\b"
+    r"[^.!?\n]{0,180}\b(?:final|last|locked)[ -]frame\b|"
+    r"\b(?:final|last|locked)[ -]frame\b[^.!?\n]{0,180}"
+    r"\b(?:reached|matched|locked|settled|stable)\b"
+)
+_FINAL_ANCHOR_PASS_THROUGH_RE = re.compile(
+    r"(?i)\b(?:instantaneous\s+(?:sample|snapshot|frame)|passes? through|"
+    r"passing through|sampled from an ongoing)\b"
+)
+_FINAL_ANCHOR_NEGATED_CONVERGENCE_RE = re.compile(
+    r"(?i)\b(?:never|without|(?:does|do|must|will)\s+not)\s+"
+    r"(?:ever\s+)?(?:settle|settling|lock|locking|reach|reaching|match|"
+    r"matching|end|ending|ease|easing|arrive|arriving)\b"
+)
+_FINAL_STATE_ANCHOR_BOOKKEEPING_RE = re.compile(
+    r"(?is)\b(?:match(?:es|ing)?|lock(?:s|ed|ing)?)\b"
+    r"[^.!?\n]{0,160}\b(?:final|last|locked)[ -]frame\b|"
+    r"\b(?:final|last|locked)[ -]frame\b[^.!?\n]{0,160}"
+    r"\b(?:match(?:es|ing)?|lock(?:s|ed|ing)?)\b"
+)
+
+
+def continuing_motion_final_anchor_errors(content: str) -> tuple[str, ...]:
+    """Reject destination-like last-frame prose for the strict FL2VA recipe.
+
+    Attribute transformations may complete before the cut.  This guard only
+    targets prose that turns the frame composition itself into an early
+    destination while the declared primary motion must continue.
+    """
+
+    plan = parse_direct_ref2v_action_plan_v4(content)
+    if plan.motion_contract.end_behavior is not DirectMotionEndBehavior.CONTINUE:
+        return ()
+    timeline_fragments = [
+        fragment
+        for beat in plan.beats
+        for fragment in (
+            beat.primary_action,
+            beat.observable_end_state,
+            *(value for step in beat.steps for value in (step.action, step.continuity_after)),
+        )
+    ]
+    timeline_fragments.extend(
+        directive.visible_change for directive in plan.camera_directives
+    )
+    errors: list[str] = []
+    if any(
+        _CONTINUING_FINAL_ANCHOR_CONVERGENCE_RE.search(fragment)
+        and not _FINAL_ANCHOR_PASS_THROUGH_RE.search(fragment)
+        and not _FINAL_ANCHOR_NEGATED_CONVERGENCE_RE.search(fragment)
+        for fragment in timeline_fragments
+    ):
+        errors.append(
+            "continue_motion must not settle into, lock, reach, match or end on "
+            "the final-frame composition before an explicit instantaneous "
+            "pass-through"
+        )
+    if _FINAL_STATE_ANCHOR_BOOKKEEPING_RE.search(plan.final_state.description):
+        errors.append(
+            "continue_motion final_state must describe only visible content; "
+            "frame matching remains application-owned"
+        )
+    return tuple(errors)
+
+
+def canonical_direct_ref2v_action_plan_v4_late_anchor(
+    content: str,
+    **recovery_options: object,
+) -> str:
+    """Canonicalize V4 and enforce the 0.3.2 instantaneous-anchor contract."""
+
+    canonical = canonical_direct_ref2v_action_plan_v4(
+        content,
+        **recovery_options,
+    )
+    errors = continuing_motion_final_anchor_errors(canonical)
+    if errors:
+        raise ValueError("invalid H3 Base continuing-motion plan: " + " ".join(errors))
+    return canonical
+
+
 def lint_direct_ref2v_action_plan(content: str) -> tuple[str, ...]:
     try:
         parse_direct_ref2v_action_plan(content)
@@ -554,6 +637,14 @@ def lint_direct_ref2v_action_plan_v4(content: str) -> tuple[str, ...]:
     except (TypeError, ValueError) as error:
         return (str(error),)
     return ()
+
+
+def lint_direct_ref2v_action_plan_v4_late_anchor(content: str) -> tuple[str, ...]:
+    try:
+        errors = continuing_motion_final_anchor_errors(content)
+    except (TypeError, ValueError) as error:
+        return (str(error),)
+    return errors
 
 
 def direct_ref2v_action_plan_warnings(content: str) -> tuple[str, ...]:
@@ -1215,10 +1306,32 @@ def _json_object(content: str) -> dict[str, object]:
     try:
         decoded = json.loads(value)
     except json.JSONDecodeError as error:
-        raise ValueError(f"invalid direct Ref2V action-plan JSON: {error}") from error
+        repaired = _repair_action_plan_json(value)
+        if repaired == value:
+            raise ValueError(f"invalid H3 action-plan JSON: {error}") from error
+        try:
+            decoded = json.loads(repaired)
+        except json.JSONDecodeError:
+            raise ValueError(f"invalid H3 action-plan JSON: {error}") from error
     if not isinstance(decoded, dict):
         raise ValueError("direct Ref2V action plan must be one JSON object")
     return decoded
+
+
+def _repair_action_plan_json(value: str) -> str:
+    """Repair only unambiguous object-key quotes and trailing commas."""
+
+    repaired = re.sub(
+        r'(?m)(?P<prefix>^\s*|[,{]\s*)(?P<key>[A-Za-z_][A-Za-z0-9_]*)"\s*:',
+        r'\g<prefix>"\g<key>":',
+        value,
+    )
+    repaired = re.sub(
+        r'(?m)(?P<prefix>^\s*|[,{]\s*)(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*:',
+        r'\g<prefix>"\g<key>":',
+        repaired,
+    )
+    return re.sub(r",(?=\s*[}\]])", "", repaired)
 
 
 _CAMERA_MOTIONS_WITHOUT_DYNAMICS = frozenset(

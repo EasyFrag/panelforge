@@ -37,10 +37,36 @@ class OpenAICompatibleGateway:
         *,
         api_key: str = "panelforge-local",
         timeout: float = 300.0,
+        maximum_output_tokens: int | None = None,
+        maximum_images: int | None = None,
+        source_label: str = "OpenAI-compatible server",
         client=None,
     ) -> None:
         if not isinstance(base_url, str) or not base_url.strip():
             raise ValueError("base_url must not be empty")
+        if (
+            maximum_output_tokens is not None
+            and (
+                isinstance(maximum_output_tokens, bool)
+                or not isinstance(maximum_output_tokens, int)
+                or maximum_output_tokens <= 0
+            )
+        ):
+            raise ValueError("maximum_output_tokens must be a positive integer")
+        if (
+            maximum_images is not None
+            and (
+                isinstance(maximum_images, bool)
+                or not isinstance(maximum_images, int)
+                or maximum_images < 0
+            )
+        ):
+            raise ValueError("maximum_images must be a non-negative integer")
+        if not isinstance(source_label, str) or not source_label.strip():
+            raise ValueError("source_label must not be empty")
+        self._maximum_output_tokens = maximum_output_tokens
+        self._maximum_images = maximum_images
+        self._source_label = source_label.strip()
         self._client = client or OpenAI(
             base_url=base_url.rstrip("/") + "/",
             api_key=api_key,
@@ -56,11 +82,12 @@ class OpenAICompatibleGateway:
     def complete(self, request: CompletionRequest) -> CompletionResult:
         if not isinstance(request, CompletionRequest):
             raise TypeError("request must be a CompletionRequest")
+        self._validate_request(request)
         response = self._client.chat.completions.create(
             model=request.model_id,
             messages=_messages(request),
             temperature=request.temperature,
-            max_tokens=request.max_tokens,
+            max_tokens=self._output_tokens(request),
             stream=False,
         )
         choice = response.choices[0]
@@ -86,6 +113,7 @@ class OpenAICompatibleGateway:
     ) -> Iterator[CompletionStreamEvent]:
         if not isinstance(request, CompletionRequest):
             raise TypeError("request must be a CompletionRequest")
+        self._validate_request(request)
         yield CompletionStreamEvent(
             kind=StreamEventKind.STATUS,
             phase=StreamPhase.PREPARING,
@@ -95,7 +123,7 @@ class OpenAICompatibleGateway:
             model=request.model_id,
             messages=_messages(request),
             temperature=request.temperature,
-            max_tokens=request.max_tokens,
+            max_tokens=self._output_tokens(request),
             stream=True,
         )
         content_parts: list[str] = []
@@ -223,6 +251,23 @@ class OpenAICompatibleGateway:
             progress=1.0,
             result=result,
         )
+
+    def _validate_request(self, request: CompletionRequest) -> None:
+        if (
+            self._maximum_images is not None
+            and len(request.images) > self._maximum_images
+        ):
+            noun = "image" if self._maximum_images == 1 else "images"
+            raise ValueError(
+                f"{self._source_label} accepts at most "
+                f"{self._maximum_images} {noun} per request; "
+                f"this step contains {len(request.images)}."
+            )
+
+    def _output_tokens(self, request: CompletionRequest) -> int:
+        if self._maximum_output_tokens is None:
+            return request.max_tokens
+        return min(request.max_tokens, self._maximum_output_tokens)
 
 
 def _messages(request: CompletionRequest) -> list[dict[str, object]]:

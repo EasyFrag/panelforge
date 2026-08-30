@@ -4,40 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260824.4">
-  <script src="/static/lab.js?v=20260824.1" defer></script>
-  <script src="/static/prompt-lab.js?v=20260821.1" defer></script>
-  <script src="/static/prompt-composition.js?v=20260810.1" defer></script>
-  <script src="/static/i2v-prompt.js?v=20260813.1" defer></script>
-  <script src="/static/quick-pipeline.js?v=20260813.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260824.5" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260825.1" defer></script>
-  <script src="/static/ref2v-prompt.js?v=20260813.1" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260829.2">
+  <script src="/static/lab.js?v=20260826.2" defer></script>
+  <script src="/static/lab-core.js?v=20260830.2" defer></script>
+  <script src="/static/quick-pipeline.js?v=20260830.2" defer></script>
+  <script src="/static/i2v-direct.js?v=20260830.2" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260830.2" defer></script>
   <script src="/static/video-lab.js?v=20260816.6" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260824.2" defer></script>
+  <script src="/static/social-lab.js?v=20260830.2" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260830.2" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260817.1" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260822.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260824.1" defer></script>
-  <script src="/static/krea2-batch-lab.js?v=20260823.1" defer></script>
-  <script src="/static/krea2-edit-lab.js?v=20260824.1" defer></script>
-  <script src="/static/storyboard-lab.js?v=20260824.1" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260830.2" defer></script>
+  <script src="/static/krea2-batch-lab.js?v=20260830.2" defer></script>
+  <script src="/static/krea2-edit-lab.js?v=20260830.2" defer></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
     <nav class="lab-nav" aria-label="Ateliers">
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
-      <button type="button" data-lab-view="storyboard-lab">Storyboard</button>
-      <button type="button" data-lab-view="prompt-lab">Prompt Lab</button>
       <button type="button" data-lab-view="i2v-direct">H3 Base</button>
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
       <button type="button" data-lab-view="video-lab">Video Lab</button>
-      <button type="button" data-lab-view="archives">Archives</button>
     </nav>
     <div class="topbar-actions">
-      <div id="runtime-monitor" class="runtime-monitor" title="Statistiques globales du GPU ; la VRAM n’est pas attribuée par processus.">
-        <span id="runtime-vram" class="runtime-meter runtime-vram">VRAM —</span>
-        <span id="runtime-temp" class="runtime-meter runtime-temp">Temp —</span>
+      <div id="runtime-monitor" class="runtime-monitor" title="Statistiques globales des GPU ; la VRAM n’est pas attribuée par processus.">
+        <div id="runtime-server-monitor" class="runtime-gpu-row">
+          <span class="runtime-gpu-label">Serveur</span>
+          <span id="runtime-vram" class="runtime-meter runtime-vram">VRAM —</span>
+          <span id="runtime-temp" class="runtime-meter runtime-temp">Temp —</span>
+        </div>
+        <div id="runtime-local-monitor" class="runtime-gpu-row">
+          <span class="runtime-gpu-label">Local</span>
+          <span id="runtime-local-vram" class="runtime-meter runtime-vram">VRAM —</span>
+          <span id="runtime-local-temp" class="runtime-meter runtime-temp">Temp —</span>
+        </div>
         <span id="runtime-services" class="runtime-services warning" hidden></span>
       </div>
       <span id="runtime-message" class="runtime-message" role="status" aria-live="polite" hidden></span>
@@ -50,10 +52,10 @@
     </div>
   </header>
 
-  <main id="change-view-workspace">
+  <main id="change-view-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
-      <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
       <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -152,8 +154,8 @@
 
   <main id="krea2-image-lab-workspace" class="krea2-image-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
-      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button class="active" type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
       <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -169,8 +171,7 @@
       <form id="krea2-image-lab-form">
         <section>
           <h2>1. Prompt</h2>
-          <textarea id="krea2-image-lab-prompt" rows="13" placeholder="Décrivez l’image ou collez un prompt Storyboard KREA2…" required></textarea>
-          <p id="krea2-image-lab-provenance" class="krea2-image-lab-provenance" hidden></p>
+          <textarea id="krea2-image-lab-prompt" rows="13" placeholder="Décrivez l’image ou collez un prompt KREA2…" required></textarea>
         </section>
 
         <section>
@@ -226,7 +227,7 @@
           <progress id="krea2-image-lab-progress" max="1" value="0"></progress>
           <output id="krea2-image-lab-progress-label">En attente</output>
         </div>
-        <div id="krea2-image-lab-metadata" class="storyboard-metadata" aria-label="Configuration du rendu"></div>
+        <div id="krea2-image-lab-metadata" class="render-metadata" aria-label="Configuration du rendu"></div>
         <p id="krea2-image-lab-run-message" class="message" aria-live="polite"></p>
         <div class="actions">
           <button id="krea2-image-lab-cancel" type="button" disabled>Annuler</button>
@@ -243,10 +244,10 @@
     </div>
   </main>
 
-  <main id="krea2-assisted-lab-workspace" class="krea2-assisted-lab-workspace" hidden>
+  <main id="krea2-assisted-lab-workspace" class="krea2-assisted-lab-workspace">
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
-      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button class="active" type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
       <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -262,7 +263,7 @@
           <label>Intention<textarea id="krea2-assisted-intention" rows="7" maxlength="12000" placeholder="Ex. une famille de tigres fantastiques inspirés du zodiaque chinois…" required></textarea></label>
           <label>Image de référence facultative<input id="krea2-assisted-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
           <label>Modèle LLM<select id="krea2-assisted-llm" required><option value="">Chargement…</option></select></label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm"> Local · Unsloth</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm"> Local · Unsloth / vLLM</label>
           <button id="krea2-assisted-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
           <p id="krea2-assisted-new-message" class="error" hidden></p>
         </section>
@@ -364,8 +365,8 @@
 
   <main id="krea2-batch-lab-workspace" class="krea2-batch-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
-      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
       <button class="active" type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -391,7 +392,7 @@
           <div class="krea2-image-lab-parameter-grid">
             <label>Nombre d’images<input id="krea2-batch-count" type="number" min="1" max="10" step="1" value="5" required></label>
             <label>Modèle LLM<select id="krea2-batch-llm" required><option value="">Chargement…</option></select></label>
-            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-batch-llm"> Local · Unsloth</label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-batch-llm"> Local · Unsloth / vLLM</label>
           </div>
           <label class="field-label">Direction facultative
             <textarea id="krea2-batch-direction" rows="3" placeholder="Ex. davantage de palettes froides, sans changer la composition…"></textarea>
@@ -489,8 +490,8 @@
 
   <main id="krea2-edit-lab-workspace" class="krea2-edit-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
-      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
       <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button class="active" type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -517,7 +518,7 @@
           <span id="krea2-edit-status" class="run-status">● Prêt</span>
         </div>
         <div id="krea2-edit-timeline" class="krea2-edit-timeline" aria-label="Étapes du projet"></div>
-        <div id="krea2-edit-metadata" class="storyboard-metadata"></div>
+        <div id="krea2-edit-metadata" class="render-metadata"></div>
         <div id="krea2-edit-warnings" class="krea2-batch-warnings" hidden></div>
         <section class="krea2-edit-project-naming">
           <div class="krea2-edit-project-fields">
@@ -536,7 +537,7 @@
           </label>
           <div class="krea2-edit-prompt-actions">
             <label>Modèle LLM<select id="krea2-edit-llm"><option value="">Chargement…</option></select></label>
-            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-edit-llm"> Local · Unsloth</label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-edit-llm"> Local · Unsloth / vLLM</label>
             <label class="krea2-prompt-language">Langue du prompt
               <select id="krea2-edit-prompt-language" aria-label="Langue du prompt KREA2 Edit">
                 <option value="en">English</option>
@@ -616,536 +617,6 @@
     <div class="krea2-edit-lightbox-body"><img id="krea2-edit-lightbox-image" alt=""></div>
   </dialog>
 
-  <main id="storyboard-lab-workspace" class="storyboard-lab-workspace" hidden>
-    <aside class="controls storyboard-lab-controls">
-      <div class="title-row">
-        <div><small>IMAGE · KREA2</small><h1>Storyboard</h1></div>
-        <span class="experimental">● Première version</span>
-      </div>
-      <p class="muted">Transformez une intention ou une histoire courte en un prompt unique pour une planche cohérente.</p>
-
-      <form id="storyboard-lab-form">
-        <section>
-          <h2>1. Intention ou histoire</h2>
-          <textarea id="storyboard-lab-source" rows="11" placeholder="Décrivez la séquence, les personnages, le lieu et la progression souhaitée…" required></textarea>
-        </section>
-
-        <section>
-          <h2>2. Nombre de panels</h2>
-          <fieldset id="storyboard-lab-panel-options" class="storyboard-panel-options">
-            <legend class="sr-only">Nombre de panels</legend>
-            <label><input type="radio" name="storyboard-panel-count" value="2"><span><b>2</b><small>2 colonnes × 1 ligne · 4:3</small></span></label>
-            <label><input type="radio" name="storyboard-panel-count" value="4"><span><b>4</b><small>2 colonnes × 2 lignes · 2:3</small></span></label>
-            <label><input type="radio" name="storyboard-panel-count" value="6" checked><span><b>6</b><small>3 colonnes × 2 lignes · 1:1</small></span></label>
-            <label><input type="radio" name="storyboard-panel-count" value="9"><span><b>9</b><small>3 colonnes × 3 lignes · 2:3</small></span></label>
-          </fieldset>
-        </section>
-
-        <section>
-          <h2>3. Génération</h2>
-          <label class="field-label">Modèle LLM
-            <select id="storyboard-lab-model" required><option value="">Chargement…</option></select>
-          </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="storyboard-lab-model"> Local · Unsloth</label>
-          <label class="field-label">Recette immuable
-            <input id="storyboard-lab-recipe" type="text" value="KREA2 Storyboard photo · v1" readonly>
-          </label>
-          <small>Un seul appel LLM produit les variables narratives ; PanelForge compile le squelette KREA2 fixe.</small>
-          <label class="debug-reasoning-option">
-            <input id="storyboard-lab-show-reasoning" type="checkbox">
-            <span><b>Afficher la trace modèle (debug)</b><small>Montre en direct la trace séparée transmise par le modèle, sans l’enregistrer dans le run.</small></span>
-          </label>
-        </section>
-
-        <p id="storyboard-lab-form-message" class="error" role="alert" hidden></p>
-        <button id="storyboard-lab-generate" class="primary" type="submit" disabled>Générer le prompt</button>
-      </form>
-
-      <section class="recent-sessions storyboard-lab-history">
-        <div class="section-title"><h2>Historique</h2><button id="storyboard-lab-refresh" class="text-button" type="button">Actualiser</button></div>
-        <p id="storyboard-lab-history-empty" class="muted">Aucun storyboard enregistré.</p>
-        <ul id="storyboard-lab-history-list"></ul>
-      </section>
-    </aside>
-
-    <div class="content storyboard-lab-content">
-      <section class="results storyboard-lab-result">
-        <div class="result-head">
-          <div><small>PROMPT COMPILÉ</small><h2 id="storyboard-lab-result-title">Storyboard KREA2</h2></div>
-          <span id="storyboard-lab-status" class="run-status">● Prêt</span>
-        </div>
-
-        <div id="storyboard-lab-result-empty" class="storyboard-result-empty">
-          <b>Votre prompt apparaîtra ici</b>
-          <p>La grille, le ratio de la planche et les variables de continuité seront conservés avec le run.</p>
-        </div>
-
-        <div id="storyboard-lab-result-editor" hidden>
-          <div id="storyboard-lab-metadata" class="storyboard-metadata" aria-label="Configuration du storyboard"></div>
-          <div class="storyboard-result-actions">
-            <button id="storyboard-lab-copy" type="button" disabled>Copier le prompt</button>
-            <button id="storyboard-lab-send-to-image-lab" type="button" disabled>Envoyer à Image Lab</button>
-            <button id="storyboard-lab-relaunch" type="button" disabled>Relancer</button>
-          </div>
-          <div id="storyboard-lab-stream-state" class="stream-state" hidden>
-            <div><span id="storyboard-lab-stream-label">Préparation…</span><output id="storyboard-lab-stream-percent"></output></div>
-            <progress id="storyboard-lab-stream-progress" max="1"></progress>
-          </div>
-          <details id="storyboard-lab-reasoning-panel" class="reasoning-trace" hidden>
-            <summary><b>Trace modèle</b><small id="storyboard-lab-reasoning-label">Storyboard</small></summary>
-            <p id="storyboard-lab-reasoning-empty" class="muted">En attente d’une trace séparée du modèle…</p>
-            <pre id="storyboard-lab-reasoning-output"></pre>
-          </details>
-          <p id="storyboard-lab-run-message" class="message" aria-live="polite"></p>
-          <textarea id="storyboard-lab-prompt" class="storyboard-prompt-output" rows="34" placeholder="Le prompt KREA2 compilé apparaîtra ici."></textarea>
-          <section id="storyboard-lab-warning-panel" class="storyboard-warning-panel" hidden>
-            <b>Points à vérifier</b>
-            <ul id="storyboard-lab-warnings"></ul>
-          </section>
-          <details id="storyboard-lab-variables" class="storyboard-variables" hidden>
-            <summary>Variables narratives générées</summary>
-            <pre id="storyboard-lab-variables-content"></pre>
-          </details>
-        </div>
-      </section>
-    </div>
-  </main>
-
-  <main id="prompt-lab-workspace" class="prompt-workspace" hidden>
-    <aside class="controls prompt-setup">
-      <div class="title-row">
-        <div><small>PROMPT LAB · ÉTAPE 1</small><h1>Comprendre les références</h1></div>
-        <span class="experimental">● Experimental</span>
-      </div>
-      <p class="muted">Créez une session, puis analysez et validez chaque image séparément. Rien ne part à l’étape suivante sans votre accord.</p>
-
-      <form id="prompt-session-form">
-        <section>
-          <div class="section-title"><h2>1. Modèle vision</h2><button id="prompt-refresh-models" class="text-button" type="button">Actualiser</button></div>
-          <label class="field-label">Modèle LLM
-            <select id="prompt-model" required><option value="">Chargement…</option></select>
-          </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="prompt-model"> Local · Unsloth</label>
-        </section>
-        <section>
-          <h2>2. Recette de prompting</h2>
-          <label class="field-label">Profil versionné
-            <select id="prompt-profile" required><option value="">Chargement…</option></select>
-          </label>
-        </section>
-        <section>
-          <div class="section-title"><h2>3. Images de référence</h2><small>1 à 8 images</small></div>
-          <label class="prompt-upload" for="prompt-images">
-            <input id="prompt-images" type="file" accept="image/png,image/jpeg,image/webp" multiple>
-            <b>＋ Ajouter des références</b><small>Personnages, décor, objets…</small>
-          </label>
-          <div id="pending-references" class="pending-references"></div>
-        </section>
-        <p id="prompt-setup-error" class="error" role="alert" hidden></p>
-        <button id="create-prompt-session" class="primary" type="submit" disabled>Créer la session</button>
-      </form>
-
-      <section class="recent-sessions">
-        <div class="section-title"><h2>Sessions récentes</h2><button id="prompt-refresh-sessions" class="text-button" type="button">↻</button></div>
-        <div id="prompt-session-list"><p class="muted">Aucune session chargée.</p></div>
-      </section>
-    </aside>
-
-    <div class="prompt-content">
-      <section class="prompt-stagebar">
-        <div class="stage-chip active"><b>1</b><span>Observation<small>Preuves visuelles</small></span></div>
-        <i></i>
-        <div class="stage-chip active"><b>2</b><span>Brief<small>Intention + références</small></span></div>
-        <i></i>
-        <div class="stage-chip active"><b>3</b><span>Direction fighter<small>Références + beats</small></span></div>
-        <i></i>
-        <div class="stage-chip active"><b>4</b><span>Prompt MiniMax H3<small>Compilation Ref2VA</small></span></div>
-      </section>
-
-      <section id="prompt-empty" class="prompt-empty">
-        <b>Des preuves visuelles au brief</b>
-        <p>Validez les observations, attribuez les rôles des images, puis rédigez votre intention en les citant directement.</p>
-      </section>
-
-      <section id="prompt-editor" class="prompt-editor" hidden>
-        <div class="prompt-editor-head">
-          <div><small>SESSION</small><h2 id="prompt-session-title">Références</h2></div>
-          <div class="prompt-head-actions"><button id="analyze-all-references" type="button">Analyser toutes les images</button><span id="prompt-session-progress" class="run-status">0 / 0 validée</span></div>
-        </div>
-
-        <div id="reference-rail" class="reference-rail" aria-label="Références de la session"></div>
-
-        <div class="reference-workbench">
-          <figure class="reference-visual">
-            <figcaption><span id="reference-label">Image</span><small id="reference-role">Rôle</small></figcaption>
-            <div class="reference-image-stage"><img id="reference-image" alt="Référence sélectionnée"></div>
-          </figure>
-
-          <div class="analysis-panel">
-            <div class="section-title">
-              <div><small>FICHE VISUELLE</small><h2 id="analysis-title">Analyse non lancée</h2></div>
-              <span id="analysis-review" class="review-pill pending">À valider</span>
-            </div>
-            <textarea id="analysis-content" rows="19" placeholder="Lancez l’analyse de cette image. Vous pourrez ensuite modifier directement le résultat."></textarea>
-            <div id="analysis-stream-state" class="stream-state" hidden>
-              <div><span id="analysis-stream-label">Préparation…</span><output id="analysis-stream-percent"></output></div>
-              <progress id="analysis-stream-progress" max="1"></progress>
-            </div>
-            <div class="analysis-actions">
-              <button id="analyze-reference" class="primary compact" type="button">Analyser cette image</button>
-              <button id="save-analysis" type="button" disabled>Enregistrer ma correction</button>
-              <button id="approve-analysis" type="button" disabled>Valider la fiche</button>
-            </div>
-            <p id="analysis-message" class="message" aria-live="polite"></p>
-
-            <div class="rewrite-box">
-              <label for="rewrite-instruction">Demander une modification ciblée au modèle</label>
-              <div><input id="rewrite-instruction" type="text" placeholder="Ex. Ne déduis pas son âge, précise seulement la couleur du manteau."><button id="rewrite-analysis" type="button" disabled>Proposer</button></div>
-              <small>Une nouvelle révision est créée ; l’ancienne reste dans l’historique.</small>
-            </div>
-
-            <details class="revision-history">
-              <summary>Historique des révisions <span id="revision-count">0</span></summary>
-              <ol id="revision-list"></ol>
-            </details>
-          </div>
-
-          <section class="interpretation-panel optional-panel">
-            <div class="section-title">
-              <div><small>OUTIL AVANCÉ OPTIONNEL</small><h2 id="interpretation-title">Interprétation MiniMax par image</h2></div>
-              <span id="interpretation-review" class="review-pill pending">À générer</span>
-            </div>
-
-            <textarea id="interpretation-content" rows="16" placeholder="Après validation de l’observation, transformez-la en interprétation orientée MiniMax H3."></textarea>
-            <div id="interpretation-stream-state" class="stream-state" hidden>
-              <div><span id="interpretation-stream-label">Préparation…</span><output id="interpretation-stream-percent"></output></div>
-              <progress id="interpretation-stream-progress" max="1"></progress>
-            </div>
-            <div class="analysis-actions">
-              <button id="interpret-reference" class="primary compact" type="button" disabled>Interpréter pour MiniMax</button>
-              <button id="save-interpretation" type="button" disabled>Enregistrer ma correction</button>
-              <button id="approve-interpretation" type="button" disabled>Valider l’interprétation</button>
-            </div>
-            <p id="interpretation-message" class="message" aria-live="polite"></p>
-
-            <div class="rewrite-box">
-              <label for="interpretation-rewrite-instruction">Demander une modification de l’interprétation</label>
-              <div><input id="interpretation-rewrite-instruction" type="text" placeholder="Ex. Traite cette image comme la première frame et insiste sur les appuis du joueur."><button id="rewrite-interpretation" type="button" disabled>Proposer</button></div>
-              <small>Cette passe ne revoit pas l’image : l’observation approuvée reste sa source factuelle.</small>
-            </div>
-
-            <details class="revision-history">
-              <summary>Historique des interprétations <span id="interpretation-revision-count">0</span></summary>
-              <ol id="interpretation-revision-list"></ol>
-            </details>
-          </section>
-        </div>
-
-        <section class="brief-panel">
-          <div class="section-title">
-            <div><small>ÉTAPE 2 · BRIEF STRUCTURÉ</small><h2>Décrire la vidéo avec vos références</h2></div>
-            <span id="brief-review" class="review-pill pending">À générer</span>
-          </div>
-          <p class="muted">Attribuez ici les usages de chaque image. Cliquez sur son identifiant pour l’insérer dans votre texte.</p>
-          <div id="brief-reference-grid" class="brief-reference-grid"></div>
-
-          <label class="field-label" for="brief-source">Votre intention en langage simple</label>
-          <textarea id="brief-source" rows="7" placeholder="Ex. <Image 1> est la première frame. Le joueur frappe le ballon, puis à 3 secondes <Image 2> entre dans le cadre…"></textarea>
-
-          <div class="freedom-control">
-            <label for="brief-freedom"><b>Liberté créative</b><small id="brief-freedom-label">Équilibrée</small></label>
-            <input id="brief-freedom" type="range" min="0" max="100" step="5" value="50">
-            <output id="brief-freedom-value">50</output>
-          </div>
-
-          <div class="analysis-actions">
-            <button id="structure-brief" class="primary compact" type="button" disabled>Structurer le brief</button>
-            <button id="save-brief" type="button" disabled>Enregistrer ma correction</button>
-            <button id="approve-brief" type="button" disabled>Valider le brief</button>
-          </div>
-          <div id="brief-stream-state" class="stream-state" hidden>
-            <div><span id="brief-stream-label">Préparation…</span><output id="brief-stream-percent"></output></div>
-            <progress id="brief-stream-progress" max="1"></progress>
-          </div>
-          <p id="brief-message" class="message" aria-live="polite"></p>
-          <textarea id="brief-content" rows="20" placeholder="Le brief structuré apparaîtra ici et restera directement éditable."></textarea>
-
-          <div class="rewrite-box">
-            <label for="brief-rewrite-instruction">Demander une modification ciblée du brief</label>
-            <div><input id="brief-rewrite-instruction" type="text" placeholder="Ex. Reste plus factuel sur la caméra et conserve exactement la chronologie."><button id="rewrite-brief" type="button" disabled>Proposer</button></div>
-          </div>
-          <details class="revision-history">
-            <summary>Historique du brief <span id="brief-revision-count">0</span></summary>
-            <ol id="brief-revision-list"></ol>
-          </details>
-        </section>
-
-        <section id="fighter-workflow" class="cookbook-workflow" aria-labelledby="fighter-workflow-title">
-          <div class="section-title">
-            <div><small>COOKBOOK · PREMIER CAS D’ÉCOLE</small><h2 id="fighter-workflow-title">Construire un combat arcade lisible</h2></div>
-            <span id="fighter-workflow-status" class="review-pill pending">Brief requis</span>
-          </div>
-          <p class="muted">Une recette supervisée en trois passes : attribuer les références, régler la chronologie, puis compiler le prompt Ref2VA. Cette V1 accepte seulement les usages sujet/décor/style ; first/key/last frame est refusé explicitement en attendant son contrat dédié.</p>
-
-          <div class="cookbook-selector">
-            <label class="field-label" for="fighter-cookbook">Cookbook versionné
-              <select id="fighter-cookbook" disabled>
-                <option value="fighter.arcade_versus@0.1.0" data-preset="readable-v1">Arcade versus · readable-v1 · 0.1.0</option>
-              </select>
-            </label>
-            <p><b>Ref2VA</b><small>3 références · identités séparées · overlays en postproduction</small></p>
-          </div>
-
-          <div class="cookbook-steps">
-            <details id="reference-plan-step" class="cookbook-step" open>
-              <summary>
-                <span class="cookbook-step-index">3A</span>
-                <span class="cookbook-step-copy"><b>Plan de références</b><small>Définir les sujets et leur politique de rétention MiniMax.</small></span>
-                <span id="reference-plan-review" class="review-pill pending">À générer</span>
-              </summary>
-              <div class="cookbook-step-body">
-                <div class="fighter-slots">
-                  <label class="fighter-slot" for="fighter-a-reference">
-                    <span><b>Combattant A</b><code>&lt;Subject 1&gt;</code></span>
-                    <select id="fighter-a-reference" disabled><option value="">Choisir une image…</option></select>
-                    <small>Identité, visage, corps et tenue du premier combattant.</small>
-                  </label>
-                  <label class="fighter-slot" for="fighter-b-reference">
-                    <span><b>Combattant B</b><code>&lt;Subject 2&gt;</code></span>
-                    <select id="fighter-b-reference" disabled><option value="">Choisir une image…</option></select>
-                    <small>Référence distincte pour préserver clairement le second combattant.</small>
-                  </label>
-                  <label class="fighter-slot" for="arena-reference">
-                    <span><b>Arène</b><code>&lt;Subject 3&gt;</code></span>
-                    <select id="arena-reference" disabled><option value="">Choisir une image…</option></select>
-                    <small>Décor, lumière et géographie générale du combat.</small>
-                  </label>
-                </div>
-
-                <div class="fighter-direction-options" aria-label="Paramètres fixes du preset">
-                  <p><b>15 secondes</b><small>6 plans lisibles · 16:9</small></p>
-                  <p><b>Clash final</b><small>Pas de vainqueur inventé</small></p>
-                  <p><b>HUD en postproduction</b><small>Pas de texte demandé au modèle</small></p>
-                </div>
-
-                <div id="reference-plan-mapping" class="reference-plan-mapping" aria-live="polite">
-                  <small>Le numéro Image reste global ; Picture est renuméroté de 1 à 3 dans l’ordre des slots.</small>
-                </div>
-                <div class="analysis-actions">
-                  <button id="generate-reference-plan" class="primary compact" type="button" disabled>Générer le plan</button>
-                  <button id="save-reference-plan" type="button" disabled>Enregistrer ma correction</button>
-                  <button id="approve-reference-plan" type="button" disabled>Valider le plan</button>
-                </div>
-                <div id="reference-plan-stream-state" class="stream-state" hidden>
-                  <div><span id="reference-plan-stream-label">Préparation…</span><output id="reference-plan-stream-percent"></output></div>
-                  <progress id="reference-plan-stream-progress" max="1"></progress>
-                </div>
-                <p id="reference-plan-message" class="message" aria-live="polite"></p>
-                <textarea id="reference-plan-content" class="cookbook-stage-output" rows="15" placeholder="subject_definitions:&#10;&#10;retention_policy:" disabled></textarea>
-
-                <div class="rewrite-box">
-                  <label for="reference-plan-rewrite-instruction">Demander une modification ciblée du plan</label>
-                  <div><input id="reference-plan-rewrite-instruction" type="text" placeholder="Ex. Préserve strictement le visage et la tenue des deux combattants." disabled><button id="rewrite-reference-plan" type="button" disabled>Proposer</button></div>
-                </div>
-                <details class="revision-history">
-                  <summary>Historique du plan <span id="reference-plan-revision-count">0</span></summary>
-                  <ol id="reference-plan-revision-list"></ol>
-                </details>
-              </div>
-            </details>
-
-            <details id="beat-sheet-step" class="cookbook-step">
-              <summary>
-                <span class="cookbook-step-index">3B</span>
-                <span class="cookbook-step-copy"><b>Beat sheet</b><small>Ordonner les actions, réactions, caméras et respirations.</small></span>
-                <span id="beat-sheet-review" class="review-pill pending">Plan requis</span>
-              </summary>
-              <div class="cookbook-step-body">
-                <p class="cookbook-stage-caption">La recette readable-v1 privilégie peu de plans, des impacts lisibles et une géographie stable entre les combattants.</p>
-                <div class="analysis-actions">
-                  <button id="generate-beat-sheet" class="primary compact" type="button" disabled>Générer la beat sheet</button>
-                  <button id="save-beat-sheet" type="button" disabled>Enregistrer ma correction</button>
-                  <button id="approve-beat-sheet" type="button" disabled>Valider la beat sheet</button>
-                </div>
-                <div id="beat-sheet-stream-state" class="stream-state" hidden>
-                  <div><span id="beat-sheet-stream-label">Préparation…</span><output id="beat-sheet-stream-percent"></output></div>
-                  <progress id="beat-sheet-stream-progress" max="1"></progress>
-                </div>
-                <p id="beat-sheet-message" class="message" aria-live="polite"></p>
-                <textarea id="beat-sheet-content" class="cookbook-stage-output" rows="17" placeholder="VS intro → révélation de l’arène → READY / FIGHT → échange → renversement → clash final" disabled></textarea>
-
-                <div class="rewrite-box">
-                  <label for="beat-sheet-rewrite-instruction">Demander une modification ciblée de la chronologie</label>
-                  <div><input id="beat-sheet-rewrite-instruction" type="text" placeholder="Ex. Réduis l’introduction et accorde plus de temps au contre final." disabled><button id="rewrite-beat-sheet" type="button" disabled>Proposer</button></div>
-                </div>
-                <details class="revision-history">
-                  <summary>Historique de la beat sheet <span id="beat-sheet-revision-count">0</span></summary>
-                  <ol id="beat-sheet-revision-list"></ol>
-                </details>
-              </div>
-            </details>
-
-            <details id="final-prompt-step" class="cookbook-step">
-              <summary>
-                <span class="cookbook-step-index">4</span>
-                <span class="cookbook-step-copy"><b>Prompt MiniMax H3 final</b><small>Compiler le contrat Ref2VA et contrôler sa cohérence.</small></span>
-                <span id="final-prompt-review" class="review-pill pending">Beat sheet requise</span>
-              </summary>
-              <div class="cookbook-step-body">
-                <p class="cookbook-stage-caption">Le texte final reste éditable. Les labels, sections obligatoires et timestamps seront vérifiés avant validation.</p>
-                <div class="analysis-actions">
-                  <button id="generate-final-prompt" class="primary compact" type="button" disabled>Compiler le prompt</button>
-                  <button id="save-final-prompt" type="button" disabled>Enregistrer ma correction</button>
-                  <button id="approve-final-prompt" type="button" disabled>Valider le prompt</button>
-                  <button id="copy-final-prompt" type="button" disabled>Copier</button>
-                </div>
-                <div id="final-prompt-stream-state" class="stream-state" hidden>
-                  <div><span id="final-prompt-stream-label">Préparation…</span><output id="final-prompt-stream-percent"></output></div>
-                  <progress id="final-prompt-stream-progress" max="1"></progress>
-                </div>
-                <p id="final-prompt-message" class="message" aria-live="polite"></p>
-                <textarea id="final-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="subject_definitions:&#10;summary:&#10;retention_analysis:&#10;detailed_description:&#10;overall_soundscape:&#10;non_diegetic_music:" disabled></textarea>
-                <div id="final-prompt-lint" class="prompt-lint" role="status"><small>Les contrôles de structure apparaîtront ici après compilation.</small></div>
-
-                <div class="rewrite-box">
-                  <label for="final-prompt-rewrite-instruction">Demander une modification ciblée du prompt final</label>
-                  <div><input id="final-prompt-rewrite-instruction" type="text" placeholder="Ex. Allège la caméra sans modifier les identités ni la chronologie." disabled><button id="rewrite-final-prompt" type="button" disabled>Proposer</button></div>
-                </div>
-                <details class="revision-history">
-                  <summary>Historique du prompt <span id="final-prompt-revision-count">0</span></summary>
-                  <ol id="final-prompt-revision-list"></ol>
-                </details>
-              </div>
-            </details>
-          </div>
-        </section>
-      </section>
-    </div>
-  </main>
-
-  <main id="archives-workspace" class="archive-workspace" hidden>
-    <section class="archive-index">
-      <div><small>PARCOURS HISTORIQUES</small><h1>Archives</h1></div>
-      <p>Ces parcours restent lisibles pour préserver les compositions existantes. La création et les modifications sont désactivées ; le contenu actif peut toujours être copié.</p>
-      <div class="archive-links">
-        <button type="button" data-archive-view="i2v"><b>I2V simple</b><small>Observation → Brief → Prompt I2VA</small></button>
-        <button type="button" data-archive-view="ref2v"><b>Ref2V spécialisé</b><small>Ancienne recette undressing.single_shot</small></button>
-      </div>
-    </section>
-  </main>
-
-  <main id="i2v-workspace" class="prompt-workspace i2v-workspace legacy-archive" hidden>
-    <aside class="controls prompt-setup">
-      <div class="title-row">
-        <div><small>ARCHIVE · I2V SIMPLE</small><h1>Animer une première frame</h1></div>
-        <span class="archive-badge">Lecture seule</span>
-      </div>
-      <p class="muted">Ancien parcours conservé pour relire et copier ses résultats. Recette : <code id="i2v-active-cookbook">chargement…</code></p>
-      <p class="archive-notice">La création et les modifications sont désactivées. Utilisez le nouvel onglet <b>H3 Base</b> pour un nouveau parcours.</p>
-
-      <form id="i2v-session-form">
-        <section>
-          <div class="section-title"><h2>Modèle vision et rédaction</h2><button id="i2v-refresh-models" class="text-button" type="button">Actualiser</button></div>
-          <label class="field-label">Modèle LLM
-            <select id="i2v-model" required><option value="">Chargement…</option></select>
-          </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2v-model"> Local · Unsloth</label>
-          <label class="field-label" for="i2v-cookbook">Version de la recette MiniMax
-            <select id="i2v-cookbook" required><option value="">Chargement…</option></select>
-            <small id="i2v-cookbook-help">La version choisie sera verrouillée dès la création du prompt.</small>
-          </label>
-        </section>
-        <section>
-          <h2>Image de première frame</h2>
-          <label class="prompt-upload i2v-upload" for="i2v-image">
-            <input id="i2v-image" type="file" accept="image/png,image/jpeg,image/webp">
-            <img id="i2v-upload-preview" alt="Aperçu de la première frame" hidden>
-            <b id="i2v-upload-title">Choisir une image</b>
-            <small id="i2v-upload-caption">PNG, JPEG ou WebP · 25 Mio maximum</small>
-          </label>
-        </section>
-        <section>
-          <h2>Intention simple</h2>
-          <textarea id="i2v-intention" rows="7" placeholder="Ex. Le joueur arme sa frappe, tire dans la lucarne et le gardien réagit trop tard." required></textarea>
-          <div class="freedom-control i2v-freedom">
-            <label for="i2v-freedom">Liberté créative<small id="i2v-freedom-label">Équilibrée</small></label>
-            <input id="i2v-freedom" type="range" min="0" max="100" step="5" value="35">
-            <output id="i2v-freedom-value">35</output>
-          </div>
-        </section>
-        <p id="i2v-setup-error" class="error" role="alert" hidden></p>
-        <button id="i2v-start" class="primary" type="submit" disabled>Créer le parcours I2V</button>
-      </form>
-
-      <div class="recent-sessions">
-        <div class="section-title"><h2>Parcours récents</h2><button id="i2v-refresh-sessions" class="text-button" type="button">Actualiser</button></div>
-        <div id="i2v-session-list"><p class="muted">Aucun parcours chargé.</p></div>
-      </div>
-    </aside>
-
-    <div class="prompt-content">
-      <section class="prompt-stagebar" aria-label="Étapes I2V">
-        <div id="i2v-chip-observation" class="stage-chip active"><b>1</b><span>Observation<small>Première frame</small></span></div>
-        <i></i>
-        <div id="i2v-chip-brief" class="stage-chip future"><b>2</b><span>Brief<small>Intention validée</small></span></div>
-        <i></i>
-        <div id="i2v-chip-prompt" class="stage-chip future"><b>3</b><span>Prompt H3<small>I2VA final</small></span></div>
-      </section>
-
-      <section id="i2v-empty" class="prompt-empty">
-        <b>Sélectionnez un parcours historique</b>
-        <p>Les sessions archivées apparaissent dans la colonne de gauche. Leur prompt actif reste consultable et copiable, même s’il n’avait pas été approuvé.</p>
-      </section>
-
-      <section id="i2v-editor" class="prompt-editor" hidden>
-        <div class="prompt-editor-head">
-          <div><small>I2V SIMPLE · SESSION</small><h2 id="i2v-session-title">Première frame</h2></div>
-          <div class="prompt-head-actions"><span id="i2v-session-progress" class="run-status active">Observation requise</span><button id="i2v-new-session" type="button">Nouveau</button></div>
-        </div>
-
-        <div class="i2v-first-frame">
-          <figure><figcaption>Première frame <small>&lt;Picture 1&gt; · 0,00 s</small></figcaption><div class="i2v-image-stage"><img id="i2v-reference-image" alt="Première frame du parcours I2V"></div></figure>
-          <div class="i2v-anchor-note"><b>Ancre stricte</b><p>Cette image devient la frame exacte de départ. Le prompt doit décrire un mouvement continu depuis cet état visible.</p></div>
-        </div>
-
-        <details id="i2v-observation-step" class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">1</span><span class="cookbook-step-copy"><b>Observation</b><small>Décrire factuellement la première frame.</small></span><span id="i2v-observation-review" class="review-pill pending">À générer</span></summary>
-          <div class="cookbook-step-body">
-            <div class="analysis-actions"><button id="i2v-generate-observation" class="primary compact" type="button">Analyser l’image</button><button id="i2v-save-observation" type="button" disabled>Enregistrer</button><button id="i2v-approve-observation" type="button" disabled>Valider</button></div>
-            <div id="i2v-observation-stream-state" class="stream-state" hidden><div><span id="i2v-observation-stream-label">Préparation…</span><output id="i2v-observation-stream-percent"></output></div><progress id="i2v-observation-stream-progress" max="1"></progress></div>
-            <p id="i2v-observation-message" class="message" aria-live="polite"></p>
-            <textarea id="i2v-observation-content" class="cookbook-stage-output" rows="16" placeholder="L’analyse visuelle apparaîtra ici."></textarea>
-            <div class="rewrite-box"><label for="i2v-observation-instruction">Demander une correction à l’analyste</label><div><input id="i2v-observation-instruction" type="text" placeholder="Ex. Précise la position des appuis et du ballon."><button id="i2v-rewrite-observation" type="button" disabled>Proposer</button></div></div>
-          </div>
-        </details>
-
-        <details id="i2v-brief-step" class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">2</span><span class="cookbook-step-copy"><b>Brief</b><small>Relier l’état initial à l’action demandée.</small></span><span id="i2v-brief-review" class="review-pill pending">Observation requise</span></summary>
-          <div class="cookbook-step-body">
-            <p class="cookbook-stage-caption">Intention source : <span id="i2v-active-intention"></span></p>
-            <div class="analysis-actions"><button id="i2v-generate-brief" class="primary compact" type="button" disabled>Structurer le brief</button><button id="i2v-save-brief" type="button" disabled>Enregistrer</button><button id="i2v-approve-brief" type="button" disabled>Valider</button></div>
-            <div id="i2v-brief-stream-state" class="stream-state" hidden><div><span id="i2v-brief-stream-label">Préparation…</span><output id="i2v-brief-stream-percent"></output></div><progress id="i2v-brief-stream-progress" max="1"></progress></div>
-            <p id="i2v-brief-message" class="message" aria-live="polite"></p>
-            <textarea id="i2v-brief-content" class="cookbook-stage-output" rows="18" placeholder="Le brief structuré apparaîtra ici." disabled></textarea>
-            <div class="rewrite-box"><label for="i2v-brief-instruction">Demander une modification du brief</label><div><input id="i2v-brief-instruction" type="text" placeholder="Ex. Garde un seul plan et réduis la liberté caméra." disabled><button id="i2v-rewrite-brief" type="button" disabled>Proposer</button></div></div>
-          </div>
-        </details>
-
-        <details id="i2v-prompt-step" class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler le contrat I2VA officiel.</small></span><span id="i2v-prompt-review" class="review-pill pending">Brief requis</span></summary>
-          <div class="cookbook-step-body">
-            <div class="analysis-actions"><button id="i2v-generate-prompt" class="primary compact" type="button" disabled>Générer le prompt H3</button><button id="i2v-save-prompt" type="button" disabled>Enregistrer</button><button id="i2v-approve-prompt" type="button" disabled>Valider</button><button id="i2v-copy-prompt" type="button" disabled>Copier</button></div>
-            <div id="i2v-prompt-stream-state" class="stream-state" hidden><div><span id="i2v-prompt-stream-label">Préparation…</span><output id="i2v-prompt-stream-percent"></output></div><progress id="i2v-prompt-stream-progress" max="1"></progress></div>
-            <p id="i2v-prompt-message" class="message" aria-live="polite"></p>
-            <textarea id="i2v-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="For the target video, at 0.00 seconds...&#10;&#10;integrated_multimodal_description: [Shot 1] ...&#10;&#10;overall_soundscape: ...&#10;&#10;non_diegetic_music: ..." disabled></textarea>
-            <div id="i2v-prompt-lint" class="prompt-lint" role="status"><small>Le contrat I2VA sera contrôlé après génération.</small></div>
-            <div class="rewrite-box"><label for="i2v-prompt-instruction">Demander une modification ciblée</label><div><input id="i2v-prompt-instruction" type="text" placeholder="Ex. Remplace le travelling par une caméra statique." disabled><button id="i2v-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
-          </div>
-        </details>
-      </section>
-    </div>
-  </main>
-
   <main id="i2vd-workspace" class="prompt-workspace i2v-workspace" hidden>
     <aside class="controls prompt-setup">
       <div class="title-row">
@@ -1160,7 +631,7 @@
           <label class="field-label">Modèle LLM
             <select id="i2vd-model" required><option value="">Chargement…</option></select>
           </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-model"> Local · Unsloth</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-model"> Local · Unsloth / vLLM</label>
           <label class="field-label">Recette versionnée
             <select id="i2vd-cookbook" required><option value="">Chargement…</option></select>
           </label>
@@ -1169,18 +640,24 @@
         <section>
           <div class="section-title"><h2>Frames d’ancrage</h2><small>0 à 2 images</small></div>
           <div class="h3-base-frame-inputs">
-            <label class="prompt-upload i2v-upload" for="i2vd-image-input">
-              <input id="i2vd-image-input" type="file" accept="image/png,image/jpeg,image/webp">
-              <img id="i2vd-upload-preview" alt="Aperçu de la première frame" hidden>
-              <b id="i2vd-upload-title">Ajouter une première frame</b>
-              <small id="i2vd-upload-caption">Facultatif · PNG, JPEG ou WebP · 25 Mio maximum</small>
-            </label>
-            <label class="prompt-upload i2v-upload" for="i2vd-last-image-input">
-              <input id="i2vd-last-image-input" type="file" accept="image/png,image/jpeg,image/webp">
-              <img id="i2vd-last-upload-preview" alt="Aperçu de la dernière frame" hidden>
-              <b id="i2vd-last-upload-title">Ajouter une dernière frame</b>
-              <small id="i2vd-last-upload-caption">Facultatif · PNG, JPEG ou WebP · 25 Mio maximum</small>
-            </label>
+            <div class="h3-base-frame-slot">
+              <label class="prompt-upload i2v-upload" for="i2vd-image-input">
+                <input id="i2vd-image-input" type="file" accept="image/png,image/jpeg,image/webp">
+                <img id="i2vd-upload-preview" alt="Aperçu de la première frame" hidden>
+                <b id="i2vd-upload-title">Ajouter une première frame</b>
+                <small id="i2vd-upload-caption">Facultatif · PNG, JPEG ou WebP · 25 Mio maximum</small>
+              </label>
+              <button id="i2vd-remove-first-image" class="h3-base-frame-remove" type="button" title="Retirer la première frame" aria-label="Retirer la première frame" hidden>Retirer</button>
+            </div>
+            <div class="h3-base-frame-slot">
+              <label class="prompt-upload i2v-upload" for="i2vd-last-image-input">
+                <input id="i2vd-last-image-input" type="file" accept="image/png,image/jpeg,image/webp">
+                <img id="i2vd-last-upload-preview" alt="Aperçu de la dernière frame" hidden>
+                <b id="i2vd-last-upload-title">Ajouter une dernière frame</b>
+                <small id="i2vd-last-upload-caption">Facultatif · PNG, JPEG ou WebP · 25 Mio maximum</small>
+              </label>
+              <button id="i2vd-remove-last-image" class="h3-base-frame-remove" type="button" title="Retirer la dernière frame" aria-label="Retirer la dernière frame" hidden>Retirer</button>
+            </div>
           </div>
           <p id="i2vd-input-mode" class="h3-base-input-mode">Mode détecté : T2VA · texte seul</p>
         </section>
@@ -1260,8 +737,20 @@
       </section>
 
       <section id="i2vd-empty" class="prompt-empty">
-        <b>Trois étapes, quatre modes d’entrée</b>
-        <p>Décrivez la vidéo et ajoutez seulement les frames utiles. Les images restent disponibles pendant les révisions du Brief et la création du Plan.</p>
+        <div id="i2vd-empty-copy" class="prompt-empty-copy">
+          <b>Trois étapes, quatre modes d’entrée</b>
+          <p>Décrivez la vidéo et ajoutez seulement les frames utiles. Les images restent disponibles pendant les révisions du Brief et la création du Plan.</p>
+        </div>
+        <div id="i2vd-setup-preview" class="h3-base-setup-preview" aria-label="Aperçu des frames du nouveau parcours" hidden>
+          <figure id="i2vd-setup-first-frame" class="h3-base-setup-frame" hidden>
+            <div class="h3-base-setup-frame-media"><img id="i2vd-setup-first-image" alt="Première frame sélectionnée"></div>
+            <figcaption><b>Première frame</b><span id="i2vd-setup-first-name"></span></figcaption>
+          </figure>
+          <figure id="i2vd-setup-last-frame" class="h3-base-setup-frame" hidden>
+            <div class="h3-base-setup-frame-media"><img id="i2vd-setup-last-image" alt="Dernière frame sélectionnée"></div>
+            <figcaption><b>Dernière frame</b><span id="i2vd-setup-last-name"></span></figcaption>
+          </figure>
+        </div>
       </section>
 
       <section id="i2vd-editor" class="prompt-editor" hidden>
@@ -1352,7 +841,18 @@
               </div>
               <section class="h3-render-conversation">
                 <div class="section-title"><h3>Ajuster avec le LLM</h3><small>Un seul appel réécrit directement le prompt final.</small></div>
+                <div class="h3-render-revision-selector">
+                  <label for="h3r-revision-version">Moteur de révision
+                    <select id="h3r-revision-version" aria-label="Version du moteur de révision H3"></select>
+                  </label>
+                  <small>Ce choix affecte uniquement le prochain ajustement.</small>
+                </div>
                 <div id="h3r-turns" class="h3-render-turns"><p class="muted">Le premier échange apparaîtra ici.</p></div>
+                <details id="h3r-revision-draft" class="h3-render-revision-draft" hidden>
+                  <summary>Candidat refusé conservé comme brouillon</summary>
+                  <p id="h3r-revision-error" class="error-text"></p>
+                  <textarea id="h3r-revision-draft-content" rows="8" readonly aria-label="Prompt candidat refusé"></textarea>
+                </details>
                 <label>Votre retour<textarea id="h3r-message" rows="3" placeholder="Ex. La seconde action commence trop tard ; garde la caméra mais avance-la de deux secondes."></textarea></label>
                 <label class="debug-reasoning-option"><input id="h3r-reasoning" type="checkbox"><span><b>Afficher la trace modèle</b><small>Debug uniquement.</small></span></label>
                 <button id="h3r-refine" class="primary" type="button">Ajuster le prompt</button>
@@ -1369,177 +869,13 @@
     </div>
   </main>
 
-  <main id="ref2v-workspace" class="prompt-workspace i2v-workspace legacy-archive" hidden>
-    <aside class="controls prompt-setup">
-      <div class="title-row">
-        <div><small>ARCHIVE · REF2V SPÉCIALISÉ</small><h1>Undressing mono-plan</h1></div>
-        <span class="archive-badge">Lecture seule</span>
-      </div>
-      <p class="muted">Ancien parcours spécialisé conservé pour relire et copier ses résultats. Recette : <code id="ref2v-active-cookbook">chargement…</code></p>
-      <p class="archive-notice">La création et les modifications sont désactivées. Utilisez le nouvel onglet <b>Ref2V</b> pour un nouveau parcours.</p>
-
-      <form id="ref2v-session-form">
-        <section>
-          <div class="section-title"><h2>Modèle vision et rédaction</h2><button id="ref2v-refresh-models" class="text-button" type="button">Actualiser</button></div>
-          <label class="field-label">Modèle LLM
-            <select id="ref2v-model" required><option value="">Chargement…</option></select>
-          </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2v-model"> Local · Unsloth</label>
-          <label class="field-label" for="ref2v-cookbook">Version de la recette MiniMax
-            <select id="ref2v-cookbook" required><option value="">Chargement…</option></select>
-            <small id="ref2v-cookbook-help">La version choisie sera verrouillée dès la création du plan.</small>
-          </label>
-        </section>
-        <section>
-          <h2>Références</h2>
-          <div class="ref2v-upload-grid">
-            <label class="prompt-upload i2v-upload" for="ref2v-start-image">
-              <input id="ref2v-start-image" type="file" accept="image/png,image/jpeg,image/webp">
-              <img id="ref2v-start-preview" alt="Aperçu de la première frame" hidden>
-              <b id="ref2v-start-title">Première frame habillée</b>
-              <small id="ref2v-start-caption">Image exacte à 0,00 s</small>
-            </label>
-            <label class="prompt-upload i2v-upload" for="ref2v-body-image">
-              <input id="ref2v-body-image" type="file" accept="image/png,image/jpeg,image/webp">
-              <img id="ref2v-body-preview" alt="Aperçu de la référence corporelle" hidden>
-              <b id="ref2v-body-title">Référence corporelle</b>
-              <small id="ref2v-body-caption">Référence du même sujet, pas une frame finale</small>
-            </label>
-          </div>
-        </section>
-        <section>
-          <h2>Intention simple</h2>
-          <textarea id="ref2v-intention" rows="7" placeholder="Ex. En dix secondes et sans coupe, elle retire d’abord sa veste puis son haut, et les laisse tomber à côté d’elle." required></textarea>
-          <div class="freedom-control i2v-freedom">
-            <label for="ref2v-freedom">Liberté créative<small id="ref2v-freedom-label">Encadrée</small></label>
-            <input id="ref2v-freedom" type="range" min="0" max="100" step="5" value="35">
-            <output id="ref2v-freedom-value">35</output>
-          </div>
-        </section>
-        <p id="ref2v-setup-error" class="error" role="alert" hidden></p>
-        <button id="ref2v-start" class="primary" type="submit" disabled>Créer le parcours Ref2V</button>
-      </form>
-
-      <div class="recent-sessions">
-        <div class="section-title"><h2>Parcours récents</h2><button id="ref2v-refresh-sessions" class="text-button" type="button">Actualiser</button></div>
-        <div id="ref2v-session-list"><p class="muted">Aucun parcours chargé.</p></div>
-      </div>
-    </aside>
-
-    <div class="prompt-content">
-      <section class="prompt-stagebar" aria-label="Étapes Ref2V">
-        <div id="ref2v-chip-observation" class="stage-chip active"><b>1</b><span>Observation<small>Deux références</small></span></div>
-        <i></i>
-        <div id="ref2v-chip-brief" class="stage-chip future"><b>2</b><span>Brief<small>Ordre et durée</small></span></div>
-        <i></i>
-        <div id="ref2v-chip-plan" class="stage-chip future"><b>3</b><span>Plan<small>Chorégraphie</small></span></div>
-        <i></i>
-        <div id="ref2v-chip-prompt" class="stage-chip future"><b>4</b><span>Prompt H3<small>Format compilé</small></span></div>
-      </section>
-
-      <section id="ref2v-empty" class="prompt-empty">
-        <b>Sélectionnez un parcours historique</b>
-        <p>Les sessions archivées apparaissent dans la colonne de gauche. Leur prompt actif reste consultable et copiable, même s’il n’avait pas été approuvé.</p>
-      </section>
-
-      <section id="ref2v-editor" class="prompt-editor" hidden>
-        <div class="prompt-editor-head">
-          <div><small>REF2V · SESSION</small><h2 id="ref2v-session-title">Deux références</h2></div>
-          <div class="prompt-head-actions"><span id="ref2v-session-progress" class="run-status active">Observations requises</span><button id="ref2v-new-session" type="button">Nouveau</button></div>
-        </div>
-
-        <div class="ref2v-reference-grid">
-          <figure><figcaption>Première frame <small>&lt;Picture 1&gt; · 0,00 s</small></figcaption><div class="i2v-image-stage"><img id="ref2v-start-reference" alt="Première frame Ref2V"></div></figure>
-          <figure><figcaption>Référence corporelle <small>&lt;Picture 2&gt; · sujet uniquement</small></figcaption><div class="i2v-image-stage"><img id="ref2v-body-reference" alt="Référence corporelle Ref2V"></div></figure>
-        </div>
-
-        <details class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">1</span><span class="cookbook-step-copy"><b>Observations</b><small>Analyser et valider chaque image séparément.</small></span><span id="ref2v-observation-review" class="review-pill pending">À générer</span></summary>
-          <div class="cookbook-step-body">
-            <div class="analysis-actions"><button id="ref2v-analyze-all" class="primary compact" type="button">Analyser les deux images</button></div>
-            <div class="ref2v-observation-grid">
-              <section class="ref2v-observation-card">
-                <h3>Première frame habillée</h3>
-                <div class="analysis-actions"><button id="ref2v-generate-start" type="button">Analyser</button><button id="ref2v-save-start" type="button" disabled>Enregistrer</button><button id="ref2v-approve-start" type="button" disabled>Valider</button></div>
-                <div id="ref2v-start-stream-state" class="stream-state" hidden><div><span id="ref2v-start-stream-label">Préparation…</span><output id="ref2v-start-stream-percent"></output></div><progress id="ref2v-start-stream-progress" max="1"></progress></div>
-                <p id="ref2v-start-message" class="message" aria-live="polite"></p>
-                <textarea id="ref2v-start-content" class="cookbook-stage-output" rows="16" placeholder="Observation de la première frame."></textarea>
-                <div class="rewrite-box"><label for="ref2v-start-instruction">Correction en langage naturel</label><div><input id="ref2v-start-instruction" type="text" placeholder="Ex. Précise les vêtements, la pose et les contacts."><button id="ref2v-rewrite-start" type="button" disabled>Proposer</button></div></div>
-              </section>
-              <section class="ref2v-observation-card">
-                <h3>Référence corporelle</h3>
-                <div class="analysis-actions"><button id="ref2v-generate-body" type="button">Analyser</button><button id="ref2v-save-body" type="button" disabled>Enregistrer</button><button id="ref2v-approve-body" type="button" disabled>Valider</button></div>
-                <div id="ref2v-body-stream-state" class="stream-state" hidden><div><span id="ref2v-body-stream-label">Préparation…</span><output id="ref2v-body-stream-percent"></output></div><progress id="ref2v-body-stream-progress" max="1"></progress></div>
-                <p id="ref2v-body-message" class="message" aria-live="polite"></p>
-                <textarea id="ref2v-body-content" class="cookbook-stage-output" rows="16" placeholder="Observation de la référence corporelle."></textarea>
-                <div class="rewrite-box"><label for="ref2v-body-instruction">Correction en langage naturel</label><div><input id="ref2v-body-instruction" type="text" placeholder="Ex. Décris plus précisément les traits corporels visibles."><button id="ref2v-rewrite-body" type="button" disabled>Proposer</button></div></div>
-              </section>
-            </div>
-          </div>
-        </details>
-
-        <details class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">2</span><span class="cookbook-step-copy"><b>Brief</b><small>Structurer durée, ordre, gestes et état final.</small></span><span id="ref2v-brief-review" class="review-pill pending">Observations requises</span></summary>
-          <div class="cookbook-step-body">
-            <p class="cookbook-stage-caption">Intention source : <span id="ref2v-active-intention"></span></p>
-            <div class="analysis-actions"><button id="ref2v-generate-brief" class="primary compact" type="button" disabled>Structurer le brief</button><button id="ref2v-save-brief" type="button" disabled>Enregistrer</button><button id="ref2v-approve-brief" type="button" disabled>Valider</button></div>
-            <div id="ref2v-brief-stream-state" class="stream-state" hidden><div><span id="ref2v-brief-stream-label">Préparation…</span><output id="ref2v-brief-stream-percent"></output></div><progress id="ref2v-brief-stream-progress" max="1"></progress></div>
-            <p id="ref2v-brief-message" class="message" aria-live="polite"></p>
-            <textarea id="ref2v-brief-content" class="cookbook-stage-output" rows="18" placeholder="Le brief structuré apparaîtra ici." disabled></textarea>
-            <div class="rewrite-box"><label for="ref2v-brief-instruction">Demander une modification du brief</label><div><input id="ref2v-brief-instruction" type="text" placeholder="Ex. Rends l’ordre strictement séquentiel et garde dix secondes." disabled><button id="ref2v-rewrite-brief" type="button" disabled>Proposer</button></div></div>
-          </div>
-        </details>
-
-        <details id="ref2v-action-plan" class="cookbook-step" open hidden>
-          <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Plan chorégraphique</b><small>Contrôler les sous-gestes, les mains, les objets et les ambiguïtés.</small></span><span id="ref2v-plan-review" class="review-pill pending">Brief requis</span></summary>
-          <div class="cookbook-step-body">
-            <div class="analysis-actions"><button id="ref2v-generate-plan" class="primary compact" type="button" disabled>Proposer le plan</button><button id="ref2v-save-plan" type="button" disabled>Enregistrer</button><button id="ref2v-approve-plan" type="button" disabled>Valider</button></div>
-            <div id="ref2v-plan-stream-state" class="stream-state" hidden><div><span id="ref2v-plan-stream-label">Préparation…</span><output id="ref2v-plan-stream-percent"></output></div><progress id="ref2v-plan-stream-progress" max="1"></progress></div>
-            <p id="ref2v-plan-message" class="message" aria-live="polite"></p>
-            <p id="ref2v-action-plan-duration" class="message" hidden></p>
-            <p id="ref2v-action-plan-warning" class="message warning-text" role="status" hidden></p>
-            <section id="ref2v-arbitrations" class="arbitration-panel" hidden>
-              <div class="arbitration-heading">
-                <div><h3>Arbitrages du plan</h3><p>Choisissez une recommandation ou formulez votre propre décision. Rien n'est appliqué avant le bouton final.</p></div>
-                <button id="ref2v-accept-all-arbitrations" type="button">Reprendre toutes les recommandations</button>
-              </div>
-              <div id="ref2v-arbitration-list" class="arbitration-list"></div>
-              <label class="arbitration-global" for="ref2v-arbitration-instruction">
-                <span>Instruction complémentaire au planner <small>optionnelle</small></span>
-                <textarea id="ref2v-arbitration-instruction" rows="3" placeholder="Ex. Passe à 12 s, conserve exactement le décor initial et traite le baiser comme une action complète."></textarea>
-              </label>
-              <div class="arbitration-footer">
-                <small>Un appel LLM optionnel réécrira le plan. Vous devrez ensuite contrôler et valider la nouvelle version.</small>
-                <button id="ref2v-apply-arbitrations" class="primary compact" type="button" disabled>Appliquer les décisions au plan</button>
-              </div>
-            </section>
-            <textarea id="ref2v-action-plan-content" class="cookbook-stage-output" rows="22" aria-label="Plan chorégraphique supervisé" placeholder="Le plan JSON apparaîtra ici après le premier appel LLM."></textarea>
-            <p class="muted">Vous pouvez corriger directement les durées, sous-gestes, états des mains et résolutions proposées avant de valider.</p>
-          </div>
-        </details>
-
-        <details class="cookbook-step" open>
-          <summary><span class="cookbook-step-index">4</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler le mapping depuis le plan validé.</small></span><span id="ref2v-prompt-review" class="review-pill pending">Plan requis</span></summary>
-          <div class="cookbook-step-body">
-            <div class="analysis-actions"><button id="ref2v-generate-prompt" class="primary compact" type="button" disabled>Générer le prompt H3</button><button id="ref2v-save-prompt" type="button" disabled>Enregistrer</button><button id="ref2v-approve-prompt" type="button" disabled>Valider</button><button id="ref2v-copy-prompt" type="button" disabled>Copier</button></div>
-            <div id="ref2v-prompt-stream-state" class="stream-state" hidden><div><span id="ref2v-prompt-stream-label">Préparation…</span><output id="ref2v-prompt-stream-percent"></output></div><progress id="ref2v-prompt-stream-progress" max="1"></progress></div>
-            <p id="ref2v-prompt-message" class="message" aria-live="polite"></p>
-            <textarea id="ref2v-prompt-content" class="cookbook-stage-output final-prompt-output" rows="24" placeholder="&lt;Picture 1&gt;: première frame verrouillée…&#10;Use &lt;Picture 2&gt; only as…&#10;&#10;The setting is…&#10;&#10;Shot 1: …&#10;&#10;overall_soundscape: …&#10;&#10;non_diegetic_music: …" disabled></textarea>
-            <div id="ref2v-prompt-lint" class="prompt-lint" role="status"><small>Le format Ref2V compilé sera contrôlé après génération.</small></div>
-            <div class="rewrite-box"><label for="ref2v-prompt-instruction">Demander une modification ciblée</label><div><input id="ref2v-prompt-instruction" type="text" placeholder="Ex. Détaille davantage la trajectoire de la veste sans ajouter de coupe." disabled><button id="ref2v-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
-          </div>
-        </details>
-      </section>
-    </div>
-  </main>
-
   <main id="ref2vd-workspace" class="prompt-workspace i2v-workspace" hidden>
     <aside class="controls prompt-setup">
       <div class="title-row">
         <div><small>COOKBOOK · REF2V</small><h1>Composer depuis les images</h1></div>
         <span class="current-badge">Parcours actuel</span>
       </div>
-      <p class="muted">Une à trois images sont relues directement par le LLM pendant le Brief et le Plan. Aucun texte d’observation intermédiaire.</p>
+      <p class="muted">Une à neuf images sont relues directement par le LLM pendant le Brief et le Plan. Aucun texte d’observation intermédiaire.</p>
 
       <form id="ref2vd-session-form">
         <section>
@@ -1547,7 +883,7 @@
           <label class="field-label">Modèle LLM
             <select id="ref2vd-model" required><option value="">Chargement…</option></select>
           </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-model"> Local · Unsloth</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-model"> Local · Unsloth / vLLM</label>
           <label class="field-label">Recette versionnée
             <select id="ref2vd-cookbook" required><option value="">Chargement…</option></select>
           </label>
@@ -1571,7 +907,7 @@
                 </div>
               </details>
             </div>
-            <small>1 à 3 · ordre = Picture N</small>
+            <small>1 à 9 · ordre = Picture N</small>
           </div>
           <label class="prompt-upload ref2vd-add" for="ref2vd-image-input">
             <input id="ref2vd-image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple>
@@ -1702,6 +1038,46 @@
             <div id="ref2vd-prompt-lint" class="prompt-lint"><small>Le mapping Picture N et la grammaire H3 seront contrôlés après génération.</small></div>
             <section id="ref2vd-prompt-references" class="prompt-reference-copy" aria-label="Noms des images de référence" hidden></section>
             <div class="rewrite-box"><label for="ref2vd-prompt-instruction">Demander une modification ciblée</label><div><input id="ref2vd-prompt-instruction" type="text" placeholder="Ex. Garde la chorégraphie mais rends la prose plus fluide." disabled><button id="ref2vd-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
+            <section id="ref2vr-lab" class="h3-render-lab" hidden>
+              <div class="h3-render-heading">
+                <div><small>COMFYUI · H3 REF2V</small><h3>Créer et ajuster la vidéo</h3><p>Les références et le prompt sont repris automatiquement.</p></div>
+                <span id="ref2vr-status" class="run-status active">Prêt</span>
+              </div>
+              <div id="ref2vr-warnings" class="h3-render-warnings" hidden></div>
+              <details class="h3-render-prompt">
+                <summary>Prompt utilisé pour le prochain rendu</summary>
+                <textarea id="ref2vr-prompt" rows="10" aria-label="Prompt H3 Ref2V du prochain rendu"></textarea>
+              </details>
+              <div class="h3-render-settings">
+                <label>Ratio<select id="ref2vr-ratio"></select></label>
+                <label>Mégapixels<input id="ref2vr-megapixels" type="number" min="0.1" max="16" step="0.1"></label>
+                <label>Durée<input id="ref2vr-duration" type="number" min="5" max="15" step="0.1"></label>
+                <label>Steps principaux<input id="ref2vr-steps" type="number" min="1" max="100" step="1" title="La seconde passe d'upscale conserve 3 steps fixes."></label>
+                <label class="h3-render-seed">Seed<input id="ref2vr-seed" type="text" inputmode="numeric"><span><input id="ref2vr-seed-lock" type="checkbox"> Réutiliser</span></label>
+                <label class="h3-render-music"><span>Musique</span><select id="ref2vr-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
+              </div>
+              <div class="h3-render-actions">
+                <button id="ref2vr-render" class="primary" type="button">Lancer un rendu</button>
+                <button id="ref2vr-cancel" type="button" disabled>Annuler</button>
+                <small id="ref2vr-mode">Mode en attente</small>
+              </div>
+              <div class="h3-render-preview-grid">
+                <figure><figcaption>Preview live</figcaption><div class="h3-render-media"><img id="ref2vr-live-preview" alt="Preview H3 Ref2V live" hidden><span id="ref2vr-live-empty">En attente du rendu ComfyUI.</span></div></figure>
+                <figure><figcaption>Dernière vidéo</figcaption><div class="h3-render-media"><video id="ref2vr-final-video" controls playsinline hidden></video><span id="ref2vr-final-empty">Aucun rendu.</span></div></figure>
+              </div>
+              <section class="h3-render-conversation">
+                <div class="section-title"><h3>Ajuster avec le LLM</h3><small>Un appel réécrit directement le prompt Ref2V final.</small></div>
+                <div id="ref2vr-turns" class="h3-render-turns"><p class="muted">Le premier échange apparaîtra ici.</p></div>
+                <label>Votre retour<textarea id="ref2vr-message" rows="3" placeholder="Ex. Garde les références mais rends le mouvement principal plus continu jusqu’à la fin."></textarea></label>
+                <label class="debug-reasoning-option"><input id="ref2vr-reasoning" type="checkbox"><span><b>Afficher la trace modèle</b><small>Debug uniquement.</small></span></label>
+                <button id="ref2vr-refine" class="primary" type="button">Ajuster le prompt</button>
+                <pre id="ref2vr-trace" class="h3-render-trace" hidden></pre>
+              </section>
+              <section class="h3-render-history">
+                <div class="section-title"><h3>Essais de cette vidéo</h3><small>Keyframes prises avec une marge autour des coupes.</small></div>
+                <div id="ref2vr-attempts" class="h3-render-attempts"><p class="muted">Aucun essai.</p></div>
+              </section>
+            </section>
           </div>
         </details>
       </section>
@@ -1709,6 +1085,10 @@
   </main>
 
   <main id="video-lab-workspace" class="video-lab-workspace" hidden>
+    <nav class="video-lab-modebar" aria-label="Modes Video Lab">
+      <button class="active" type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
+      <button type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
+    </nav>
     <aside class="controls video-lab-controls">
       <div class="title-row">
         <div><small>COMFYUI · MINIMAX H3</small><h1>Video Lab</h1></div>
@@ -1799,6 +1179,114 @@
         <div class="result-head"><div><small>RUNS RÉCENTS</small><h2>Historique Video Lab</h2></div><button id="video-lab-refresh" type="button" aria-label="Actualiser">↻</button></div>
         <p id="video-lab-history-empty" class="muted">Aucun rendu enregistré.</p>
         <ul id="video-lab-history-list"></ul>
+      </section>
+    </div>
+  </main>
+
+  <main id="social-lab-workspace" class="social-lab-workspace" hidden>
+    <nav class="video-lab-modebar" aria-label="Modes Video Lab">
+      <button type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
+      <button class="active" type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
+    </nav>
+
+    <aside class="controls social-lab-controls">
+      <div class="title-row">
+        <div><small>VIDEO · LLM</small><h1>Texte Instagram</h1></div>
+        <span class="experimental">● V1</span>
+      </div>
+      <p class="muted">Chargez une vidéo : quatre images clés sont extraites localement puis analysées avec votre ligne éditoriale.</p>
+
+      <form id="social-new-form">
+        <section>
+          <div class="section-title"><h2>Nouvelle publication</h2><small>MP4 ou WebM</small></div>
+          <label class="prompt-upload" for="social-video-file">
+            <input id="social-video-file" type="file" accept="video/mp4,video/webm" required>
+            <b>＋ Choisir une vidéo</b><small id="social-video-file-name">4 images seront extraites à 10, 35, 65 et 90 %.</small>
+          </label>
+          <video id="social-video-preview" class="social-video-preview" controls muted playsinline hidden></video>
+          <label class="field-label">Nom du projet<input id="social-project-name" type="text" maxlength="120" placeholder="Ex. Dragon dans le palais" required></label>
+        </section>
+
+        <section>
+          <div class="section-title"><h2>Modèle</h2><button id="social-refresh-models" class="text-button" type="button">Actualiser</button></div>
+          <label class="field-label">Modèle LLM<select id="social-llm" required></select></label>
+          <label class="llm-local-toggle"><input id="social-local-llm" type="checkbox" data-llm-local-for="social-llm"> Local · Unsloth / vLLM</label>
+          <label class="reasoning-toggle"><input id="social-show-reasoning" type="checkbox"> Trace modèle</label>
+          <div class="social-compact-grid">
+            <label>Langue<select id="social-language"><option value="en" selected>English</option><option value="fr">Français</option></select></label>
+            <label>Variantes<input id="social-variant-count" type="number" min="1" max="8" step="1" value="3"></label>
+          </div>
+        </section>
+
+        <section>
+          <div class="section-title"><h2>Profil de chaîne</h2><button id="social-new-profile" class="text-button" type="button">Nouveau</button></div>
+          <label class="field-label">Profil enregistré<select id="social-profile"><option value="">Sans profil</option></select></label>
+          <label class="field-label">Nom du profil<input id="social-profile-name" type="text" maxlength="120" placeholder="Ex. Cute animal stories"></label>
+          <button id="social-save-profile" class="compact" type="button">Enregistrer le profil</button>
+          <p id="social-profile-message" class="message" aria-live="polite"></p>
+        </section>
+
+        <section class="social-editorial-fields">
+          <h2>Ligne éditoriale</h2>
+          <label class="field-label">Mood<textarea id="social-mood" rows="2" placeholder="Ex. tendre, drôle et légèrement absurde"></textarea></label>
+          <label class="field-label">Vibe<textarea id="social-vibe" rows="2" placeholder="Ex. mini-film cinématographique, humour deadpan"></textarea></label>
+          <label class="field-label">Exemple représentatif<textarea id="social-example" rows="4" placeholder="Collez un ancien texte qui représente bien votre chaîne…"></textarea></label>
+          <label class="field-label">Consignes<textarea id="social-instructions" rows="3" placeholder="Ton, longueur, hashtags à éviter, appel à l’action…"></textarea></label>
+        </section>
+
+        <p id="social-form-message" class="error" role="alert" hidden></p>
+        <button id="social-create" class="primary" type="submit">Analyser et proposer</button>
+      </form>
+
+      <section class="social-recent">
+        <div class="section-title"><h2>Projets récents</h2><button id="social-refresh-projects" class="text-button" type="button">Actualiser</button></div>
+        <div id="social-project-list"><p class="muted">Aucun projet.</p></div>
+      </section>
+    </aside>
+
+    <div class="content social-lab-content">
+      <section id="social-empty" class="results social-empty">
+        <span>◎</span>
+        <h2>Une vidéo, plusieurs angles éditoriaux</h2>
+        <p class="muted">Sélectionnez une vidéo et votre profil de chaîne. Les propositions et la conversation resteront disponibles ici.</p>
+      </section>
+
+      <section id="social-project" class="social-project" hidden>
+        <section class="results social-source-card">
+          <div class="result-head">
+            <div><small>PROJET CONVERSATIONNEL</small><h2 id="social-project-title">Publication</h2></div>
+            <span id="social-project-state" class="run-status">● Prêt</span>
+          </div>
+          <div class="social-source-layout">
+            <video id="social-project-video" controls playsinline preload="metadata"></video>
+            <div>
+              <div class="section-title"><h3>Images analysées</h3><small id="social-source-prompt-state">Prompt source non trouvé</small></div>
+              <div id="social-keyframes" class="social-keyframes"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="results social-conversation">
+          <div class="result-head"><div><small>MÉMOIRE DU PROJET</small><h2>Discussion</h2></div></div>
+          <div id="social-turns" class="social-turns"><p class="muted">Le premier échange apparaîtra ici.</p></div>
+          <label class="field-label">Votre message<textarea id="social-message" rows="4" placeholder="Ex. Plus court, plus intrigant, et sans appel à l’action…"></textarea></label>
+          <button id="social-refine" class="primary" type="button">Affiner les propositions</button>
+          <div id="social-stream-state" class="stream-state" hidden>
+            <div><span id="social-stream-label">Préparation…</span><span id="social-stream-percent"></span></div>
+            <progress id="social-stream-progress" max="1"></progress>
+          </div>
+          <details id="social-trace-panel" class="reasoning-trace" hidden>
+            <summary>Trace modèle · <span id="social-trace-label">direct</span></summary>
+            <p id="social-trace-empty" class="muted">En attente d’une trace séparée du modèle…</p>
+            <pre id="social-trace-output"></pre>
+          </details>
+          <p id="social-chat-message" class="error" role="alert" hidden></p>
+        </section>
+
+        <section class="results social-proposals">
+          <div class="result-head"><div><small>PROPOSITIONS</small><h2>Textes prêts à publier</h2></div></div>
+          <div id="social-variants" class="social-variants"><p class="muted">Aucune proposition pour le moment.</p></div>
+        </section>
       </section>
     </div>
   </main>

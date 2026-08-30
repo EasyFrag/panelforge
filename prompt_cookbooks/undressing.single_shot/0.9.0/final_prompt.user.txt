@@ -1,7 +1,0 @@
-APPROVED STRUCTURED BRIEF
-{{BRIEF}}
-
-HUMAN-APPROVED SUPERVISED CHOREOGRAPHY PLAN
-{{BEAT_SHEET}}
-
-Write the four internal content fields now. The approved ordering, top-level beat boundaries, hand-object continuity, visible garment construction, and final state override shorter or less explicit phrasing in the Brief. Keep substep timing internal and expose only the major landmarks defined by the writing contract. The application will compile the reference mapping, Shot 1 heading, and final audio labels.

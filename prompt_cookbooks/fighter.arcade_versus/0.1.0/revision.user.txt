@@ -1,7 +1,0 @@
-CURRENT DOCUMENT
-{{CURRENT}}
-
-REQUESTED CHANGE
-{{INSTRUCTION}}
-
-Return the complete revised document for this stage.

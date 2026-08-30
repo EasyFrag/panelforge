@@ -70,6 +70,14 @@ _CAMERA_PHRASES = {
     H3CameraMotion.ROLL_CLOCKWISE: "The camera rolls clockwise",
     H3CameraMotion.ROLL_COUNTERCLOCKWISE: "The camera rolls counterclockwise",
 }
+_COMPILED_CAMERA_CLAUSE = re.compile(
+    r"(?:At\s+[0-9]{2}:[0-5][0-9]\.[0-9]{3},\s*)?(?:"
+    + "|".join(
+        re.escape(value)
+        for value in sorted(_CAMERA_PHRASES.values(), key=len, reverse=True)
+    )
+    + r")[^.\r\n]*\."
+)
 _AMPLITUDE_PHRASES = {
     H3CameraAmplitude.SMALL: "with small amplitude",
     H3CameraAmplitude.LARGE: "with large amplitude",
@@ -88,7 +96,8 @@ _FREE_CAMERA_NOUN = re.compile(
     r"(?i)\b(?:(?:slow|fast|subtle|gentle|visible)\s+)?(?:dolly|handheld)\s+"
     r"(?:shot|move|movement|in|out|left|right)\b|"
     r"\b(?:slow|fast|subtle|gentle|visible)\s+(?:orbit|crane)\b|"
-    r"\bPOV\s+shot\b"
+    r"\bPOV\s+shot\b|"
+    r"\bcamera\s+(?:movement|motion|position|framing)\b"
 )
 _NONCANONICAL_CAMERA_MODIFIER = re.compile(
     r"(?i)\bwith\s+(?!(?:small|large)\s+amplitude\b)\w+\s+amplitude\b|"
@@ -154,6 +163,14 @@ def compile_camera_motion(directive: H3CameraDirective) -> str:
         )
         clause += separator + target
     return clause.rstrip(". ") + "."
+
+
+def extract_compiled_camera_clauses(content: str) -> tuple[str, ...]:
+    """Return exact compiler-owned camera sentences in chronological order."""
+
+    if not isinstance(content, str):
+        raise TypeError("content must be a string")
+    return tuple(match.group(0) for match in _COMPILED_CAMERA_CLAUSE.finditer(content))
 
 
 def parse_camera_directives(value: str | object) -> tuple[H3CameraDirective, ...]:
@@ -547,6 +564,7 @@ __all__ = [
     "UPSTREAM_COMMIT",
     "compile_camera_draft",
     "compile_camera_motion",
+    "extract_compiled_camera_clauses",
     "compile_camera_placeholders",
     "compile_dialogue_tag",
     "compile_media_label",

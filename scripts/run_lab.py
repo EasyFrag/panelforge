@@ -22,7 +22,7 @@ from panelforge.application import (
     Krea2LabRunner,
     PromptCompositionService,
     PromptLabService,
-    StoryboardLabService,
+    SocialLabService,
     VideoLabRunner,
 )
 from panelforge.features.lab.web import create_app
@@ -37,6 +37,7 @@ from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
     Krea2T2IRecipe,
     VideoLabPresetRecipe,
+    Ref2VH3RenderPresetRecipe,
     H3RenderPresetRecipe,
     load_change_view_preset,
     load_krea2_batch_workflow,
@@ -47,11 +48,11 @@ from panelforge.infrastructure.presets import (
 )
 from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
-from panelforge.infrastructure.storyboard_recipes import LocalStoryboardRecipeCatalog
 from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
 from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
+from panelforge.infrastructure.local_gpu import NvidiaSmiMonitor
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
     LocalH3RenderProjectStore,
@@ -63,7 +64,7 @@ from panelforge.infrastructure.storage import (
     LocalPromptSessionStore,
     LocalPromptCompositionStore,
     LocalRunStore,
-    LocalStoryboardRunStore,
+    LocalSocialLabStore,
     LocalVideoRunStore,
 )
 
@@ -80,7 +81,7 @@ VIDEO_PRESET_DIRECTORY = (
     / "workflows"
     / "video.generate.ref2v"
     / "minimax-h3-ref2v"
-    / "0.1.0"
+    / "0.2.0"
 )
 KREA2_PRESET_DIRECTORY = (
     PROJECT_ROOT
@@ -94,7 +95,7 @@ H3_RENDER_WORKFLOW_DIRECTORY = (
     / "workflows"
     / "video.generate.h3-base"
     / "minimax-h3-latent-speed"
-    / "0.1.0"
+    / "0.1.1"
 )
 KREA2_BATCH_WORKFLOW_DIRECTORY = (
     PROJECT_ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"
@@ -195,6 +196,25 @@ def parse_args() -> argparse.Namespace:
         help="Unsloth Studio API key; prefer PANELFORGE_LOCAL_LLM_API_KEY",
     )
     parser.add_argument(
+        "--vllm-base-url",
+        default=os.environ.get(
+            "PANELFORGE_VLLM_URL",
+            "http://127.0.0.1:8000/v1",
+        ),
+        help="Local vLLM OpenAI-compatible URL (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--vllm-api-key",
+        default=os.environ.get("PANELFORGE_VLLM_API_KEY", "local-vllm"),
+        help="Placeholder API key sent to the local vLLM server",
+    )
+    parser.add_argument(
+        "--vllm-max-output-tokens",
+        type=int,
+        default=int(os.environ.get("PANELFORGE_VLLM_MAX_OUTPUT_TOKENS", "32768")),
+        help="Maximum completion budget for the 65536-token vLLM context (default: %(default)s)",
+    )
+    parser.add_argument(
         "--workspace",
         type=Path,
         default=PROJECT_ROOT / "workspace",
@@ -207,6 +227,7 @@ def build_app(args: argparse.Namespace):
     video_recipe = VideoLabPresetRecipe(
         load_video_lab_workflow(VIDEO_PRESET_DIRECTORY)
     )
+    ref2v_render_recipe = Ref2VH3RenderPresetRecipe(video_recipe)
     h3_render_recipe = H3RenderPresetRecipe(
         load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY)
     )
@@ -219,11 +240,11 @@ def build_app(args: argparse.Namespace):
     runs = LocalRunStore(args.workspace)
     video_runs = LocalVideoRunStore(args.workspace)
     h3_render_projects = LocalH3RenderProjectStore(args.workspace)
+    social_projects = LocalSocialLabStore(args.workspace)
     krea2_runs = LocalKrea2RunStore(args.workspace)
     krea2_batches = LocalKrea2BatchStore(args.workspace)
     krea2_assisted_projects = LocalKrea2AssistedProjectStore(args.workspace)
     krea2_edits = LocalKrea2EditStore(args.workspace)
-    storyboard_runs = LocalStoryboardRunStore(args.workspace)
     prompt_sessions = LocalPromptSessionStore(args.workspace)
     prompt_compositions = LocalPromptCompositionStore(args.workspace)
     llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
@@ -309,6 +330,24 @@ def build_app(args: argparse.Namespace):
                     or "panelforge-local-unconfigured"
                 ),
                 timeout=args.llm_timeout,
+            ),
+            "vllm": OpenAICompatibleGateway(
+                getattr(
+                    args,
+                    "vllm_base_url",
+                    "http://127.0.0.1:8000/v1",
+                ),
+                api_key=(
+                    getattr(args, "vllm_api_key", "local-vllm")
+                    or "local-vllm"
+                ),
+                timeout=args.llm_timeout,
+                maximum_output_tokens=getattr(
+                    args,
+                    "vllm_max_output_tokens",
+                    32768,
+                ),
+                source_label="vLLM",
             ),
         }
     )
@@ -400,6 +439,7 @@ def build_app(args: argparse.Namespace):
     h3_render = H3RenderService(
         gateway=gateway,
         workflow=h3_render_recipe,
+        ref2v_workflow=ref2v_render_recipe,
         comfy=h3_render_comfy,
         assets=assets,
         projects=h3_render_projects,
@@ -409,11 +449,34 @@ def build_app(args: argparse.Namespace):
         run_timeout=getattr(args, "h3_render_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
     )
-    storyboard_lab = StoryboardLabService(
+    def resolve_social_source_prompt(video_asset):
+        for project in h3_render_projects.list(10_000):
+            for attempt in reversed(project.attempts):
+                if attempt.output_asset_id is None:
+                    continue
+                try:
+                    candidate = assets.get(attempt.output_asset_id)
+                except (KeyError, FileNotFoundError, ValueError):
+                    continue
+                if candidate.content_sha256 == video_asset.content_sha256:
+                    return attempt.effective_prompt
+        for run in video_runs.list(10_000):
+            if run.output_asset_id is None:
+                continue
+            try:
+                candidate = assets.get(run.output_asset_id)
+            except (KeyError, FileNotFoundError, ValueError):
+                continue
+            if candidate.content_sha256 == video_asset.content_sha256:
+                return run.prompt
+        return None
+
+    social_lab = SocialLabService(
         gateway=gateway,
-        recipes=LocalStoryboardRecipeCatalog(PROJECT_ROOT / "storyboard_recipes"),
-        runs=storyboard_runs,
+        assets=assets,
+        projects=social_projects,
         application_outcomes=gateway,
+        source_prompt_resolver=resolve_social_source_prompt,
     )
     return create_app(
         runner,
@@ -425,13 +488,14 @@ def build_app(args: argparse.Namespace):
         krea2_batch=krea2_batch,
         krea2_edit=krea2_edit,
         krea2_assisted=krea2_assisted,
-        storyboard_lab=storyboard_lab,
+        social_lab=social_lab,
         model_runtime=LlamaSwapAdminClient(
             args.llm_base_url,
             api_key=args.llm_api_key,
             timeout=args.runtime_timeout,
         ),
         comfy_runtime=runtime_comfy,
+        local_gpu_monitor=NvidiaSmiMonitor(),
     )
 
 

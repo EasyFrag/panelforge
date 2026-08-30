@@ -181,6 +181,8 @@ def compile_direct_i2v_dialogue_cues(
     *,
     contract_name: str = "H3 Base",
     motion_aware: bool = False,
+    description_field: str = "integrated_multimodal_description",
+    next_field: str = "overall_soundscape",
 ) -> tuple[str, tuple[str, ...]]:
     """Replace cue placeholders and restore omitted exact quotations."""
 
@@ -192,8 +194,8 @@ def compile_direct_i2v_dialogue_cues(
     value = _strip_fence(content).replace("\r\n", "\n")
     start, end = _field_span(
         value,
-        "integrated_multimodal_description",
-        "overall_soundscape",
+        description_field,
+        next_field,
         contract_name=contract_name,
     )
     integrated = value[start:end].strip()

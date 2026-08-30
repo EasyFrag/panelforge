@@ -1,11 +1,11 @@
 (() => {
   "use strict";
 
-  const core = window.PanelForgePromptLab;
+  const core = window.PanelForgeLabCore;
   const quickPipeline = window.PanelForgeQuickPipeline;
   if (!core || !quickPipeline) return;
   const $ = (selector) => document.querySelector(selector);
-  const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.1" };
+  const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.3" };
   const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" };
   const animalInterviewProfile = { id: "minimax.h3.base.animal-interview", version: "0.1.0" };
   const legacyProfileId = "minimax.h3.i2v.direct";
@@ -46,10 +46,12 @@
     uploadPreview: $("#i2vd-upload-preview"),
     uploadTitle: $("#i2vd-upload-title"),
     uploadCaption: $("#i2vd-upload-caption"),
+    removeFirstImage: $("#i2vd-remove-first-image"),
     lastImageInput: $("#i2vd-last-image-input"),
     lastUploadPreview: $("#i2vd-last-upload-preview"),
     lastUploadTitle: $("#i2vd-last-upload-title"),
     lastUploadCaption: $("#i2vd-last-upload-caption"),
+    removeLastImage: $("#i2vd-remove-last-image"),
     inputMode: $("#i2vd-input-mode"),
     intentionTitle: $("#i2vd-intention-title"),
     standardIntention: $("#i2vd-standard-intention"),
@@ -82,6 +84,20 @@
     refreshSessions: $("#i2vd-refresh-sessions"),
     sessionList: $("#i2vd-session-list"),
     empty: $("#i2vd-empty"),
+    emptyCopy: $("#i2vd-empty-copy"),
+    setupPreview: $("#i2vd-setup-preview"),
+    setupFrames: {
+      first: {
+        figure: $("#i2vd-setup-first-frame"),
+        image: $("#i2vd-setup-first-image"),
+        name: $("#i2vd-setup-first-name"),
+      },
+      last: {
+        figure: $("#i2vd-setup-last-frame"),
+        image: $("#i2vd-setup-last-image"),
+        name: $("#i2vd-setup-last-name"),
+      },
+    },
     editor: $("#i2vd-editor"),
     sessionTitle: $("#i2vd-session-title"),
     sessionConfig: $("#i2vd-session-config"),
@@ -537,6 +553,51 @@
     render();
   }
 
+  function removeSelectedFile(slot) {
+    if (interactionLocked() || state.session || state.forkSource) return;
+    showReferencePreview(slot, null, "");
+    showSetupMessage("");
+    render();
+  }
+
+  function setupPreviewItem(slot) {
+    const first = slot === "first";
+    const preview = first ? elements.uploadPreview : elements.lastUploadPreview;
+    const title = first ? elements.uploadTitle : elements.lastUploadTitle;
+    const src = preview.getAttribute("src");
+    if (preview.hidden || !src) return null;
+    return {
+      src,
+      name: title.textContent.trim(),
+    };
+  }
+
+  function renderSetupPreview() {
+    const previews = {
+      first: setupPreviewItem("first"),
+      last: setupPreviewItem("last"),
+    };
+    const count = Object.values(previews).filter(Boolean).length;
+    const visible = !state.session && count > 0;
+    elements.empty.classList.toggle("has-anchor-preview", visible);
+    elements.emptyCopy.hidden = visible;
+    elements.setupPreview.hidden = !visible;
+    elements.setupPreview.dataset.count = String(count);
+    Object.entries(previews).forEach(([slot, preview]) => {
+      const target = elements.setupFrames[slot];
+      target.figure.hidden = !preview;
+      if (!preview) {
+        target.image.removeAttribute("src");
+        target.name.textContent = "";
+        target.name.removeAttribute("title");
+        return;
+      }
+      target.image.src = preview.src;
+      target.name.textContent = preview.name;
+      target.name.title = preview.name;
+    });
+  }
+
   function setupValidationError() {
     if (!selectedProfile() || !state.cookbook) return "Le profil Direct est encore en cours de chargement.";
     if (!elements.model.value) return "Choisissez un modèle multimodal.";
@@ -704,13 +765,16 @@
     const completedBecameIncomplete = record.status === "completed"
       && state.session && !quickSnapshot().promptApproved;
     const visibleStatus = completedBecameIncomplete ? "interrupted" : record.status;
-    elements.quickStatus.className = `quick-mode-status ${visibleStatus}`;
+    elements.quickStatus.className = `quick-mode-status ${visibleStatus === "retrying" ? "running" : visibleStatus}`;
     elements.quickResume.hidden = !["stopped", "interrupted"].includes(visibleStatus);
     elements.quickResume.disabled = interactionLocked();
     if (completedBecameIncomplete) {
       elements.quickStatusLabel.textContent = "Parcours modifié après le mode rapide · reprise disponible.";
     } else if (record.status === "running") {
-      elements.quickStatusLabel.textContent = `Mode rapide · ${record.stepLabel}…`;
+      const attempt = record.attempt ? ` · tentative ${record.attempt}/${record.maxAttempts}` : "";
+      elements.quickStatusLabel.textContent = `Mode rapide · ${record.stepLabel}${attempt}…`;
+    } else if (record.status === "retrying") {
+      elements.quickStatusLabel.textContent = `Mode rapide · ${record.stepLabel} · tentative ${record.attempt}/${record.maxAttempts} échouée, nouvelle tentative…`;
     } else if (record.status === "completed") {
       elements.quickStatusLabel.textContent = "Mode rapide terminé · Prompt validé.";
     } else {
@@ -736,6 +800,10 @@
           generatePrompt: () => streamCompositionStage("final-prompt"),
           approvePrompt: () => documentAction("final-prompt", "approve"),
         },
+        onAttemptOutcome: (_step, succeeded) => {
+          if (succeeded) core.playCompletionTone();
+          else core.playFailureTone();
+        },
         onState: (record) => { state.quickRecord = record; render(); },
       });
     } finally {
@@ -760,11 +828,16 @@
       : "Cookbook indisponible";
     elements.empty.hidden = Boolean(session);
     elements.editor.hidden = !session;
+    renderSetupPreview();
     elements.start.textContent = state.forkSource ? "Créer le nouveau parcours" : "Créer le parcours";
     elements.start.disabled = locked || Boolean(state.openingSessionId)
       || Boolean(session) || Boolean(setupValidationError());
     elements.imageInput.disabled = locked || Boolean(session) || Boolean(state.forkSource);
     elements.lastImageInput.disabled = locked || Boolean(session) || Boolean(state.forkSource);
+    elements.removeFirstImage.hidden = !state.firstFile || Boolean(session) || Boolean(state.forkSource);
+    elements.removeLastImage.hidden = !state.lastFile || Boolean(session) || Boolean(state.forkSource);
+    elements.removeFirstImage.disabled = locked;
+    elements.removeLastImage.disabled = locked;
     elements.inputMode.textContent = session
       ? `Mode verrouillé : ${sessionInputModeLabel(session)}`
       : currentInputModeLabel();
@@ -1149,6 +1222,7 @@
       elements.brief,
       (event) => { if (event.session) state.session = event.session; },
       revision ? "Brief révisé à partir des entrées." : "Brief H3 Base généré.",
+      { notifyOutcome: !state.quickRunning },
     );
     if (completed) {
       if (revision) elements.brief.instruction.value = "";
@@ -1239,6 +1313,7 @@
         view,
         (event) => { if (event.composition) state.composition = event.composition; },
         revision ? "Révision enregistrée." : stageName === "beat-sheet" ? "Plan proposé." : "Prompt H3 compilé.",
+        { notifyOutcome: !state.quickRunning },
       );
       if (completed && revision) view.instruction.value = "";
       return completed;
@@ -1284,8 +1359,9 @@
     return documentAction("beat-sheet", "approve");
   }
 
-  async function streamResult(url, payload, view, onEvent, successMessage) {
+  async function streamResult(url, payload, view, onEvent, successMessage, { notifyOutcome = true } = {}) {
     const previous = view.content.value;
+    const outcomeTone = core.createLlmOutcomeTone();
     let received = false;
     let completed = false;
     setBusy(true);
@@ -1299,6 +1375,7 @@
     reasoningTrace.begin(traceLabel, traceStep);
     core.updateStreamState(view.stream, { phase: "preparing", text: "Préparation ou chargement du modèle…", progress: null });
     try {
+      outcomeTone.start();
       await core.streamRequest(reasoningTrace.streamUrl(url), {
         method: "POST",
         headers: payload ? { "Content-Type": "application/json" } : undefined,
@@ -1325,11 +1402,13 @@
       if (!completed) throw new Error("Le flux s’est terminé sans résultat persistant.");
       view.message.className = "message";
       view.message.textContent = successMessage;
+      if (notifyOutcome) outcomeTone.success();
       return true;
     } catch (error) {
       if (!received) view.content.value = previous;
       showStageError(view, error, received);
       core.failStreamState(view.stream, error.message);
+      if (notifyOutcome) outcomeTone.failure();
       return false;
     } finally {
       reasoningTrace.finish();
@@ -1460,6 +1539,8 @@
 
   elements.imageInput.addEventListener("change", () => selectFile("first"));
   elements.lastImageInput.addEventListener("change", () => selectFile("last"));
+  elements.removeFirstImage.addEventListener("click", () => removeSelectedFile("first"));
+  elements.removeLastImage.addEventListener("click", () => removeSelectedFile("last"));
   elements.form.addEventListener("submit", createSession);
   elements.refreshModels.addEventListener("click", refreshModels);
   document.querySelectorAll('[data-lab-view="i2v-direct"]').forEach((button) => {

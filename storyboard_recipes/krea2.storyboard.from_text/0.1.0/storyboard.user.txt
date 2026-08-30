@@ -1,6 +1,0 @@
-Create a {{panel_count}}-panel storyboard specification from the source below.
-
-The compiler will arrange it as {{columns}} columns by {{rows}} rows on an overall {{page_orientation}} {{page_aspect_ratio}} page. Do not repeat that geometry in the JSON.
-
-SOURCE INTENTION OR SHORT STORY:
-{{intention}}

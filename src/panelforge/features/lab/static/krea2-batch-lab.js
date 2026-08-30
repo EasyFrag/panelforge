@@ -75,7 +75,7 @@
     pollTimer: null,
     dragIndex: null,
   };
-  const core = window.PanelForgePromptLab;
+  const core = window.PanelForgeLabCore;
   const reasoningTrace = core && typeof core.createReasoningTrace === "function"
     ? core.createReasoningTrace({
       toggle: elements.showReasoning,
@@ -669,7 +669,7 @@
         if (!terminalStatuses.has(batch.status)) schedulePoll(batchId);
         else {
           if (batch.status === "completed") {
-            const api = window.PanelForgePromptLab;
+            const api = window.PanelForgeLabCore;
             if (api && typeof api.playCompletionTone === "function") api.playCompletionTone();
           }
           setMessage(batch.status === "completed" ? "Batch terminé. Vous pouvez noter les images ou arrêter ici." : batch.error || statusLabel(batch.status), batch.status === "failed");
@@ -695,6 +695,7 @@
     setFormMessage();
     setMessage();
     reasoningTrace.reset();
+    const outcomeTone = core.createLlmOutcomeTone();
     try {
       const createdPayload = await request("/api/image-lab/krea2-batch/batches", {
         method: "POST",
@@ -713,10 +714,11 @@
       });
       const created = batchOf(createdPayload);
       renderBatch(created);
-      const api = window.PanelForgePromptLab;
+      const api = window.PanelForgeLabCore;
       if (!api || typeof api.streamRequest !== "function") throw new Error("Le lecteur de flux LLM est indisponible.");
       reasoningTrace.begin("Variations KREA2");
       try {
+        outcomeTone.start();
         await api.streamRequest(
           reasoningTrace.streamUrl(`/api/image-lab/krea2-batch/batches/${encodeURIComponent(created.batch_id)}/prompts/stream`),
           { method: "POST", headers: { Accept: "text/event-stream" } },
@@ -729,6 +731,7 @@
       } finally { reasoningTrace.finish(); }
       const prepared = await refreshActive(created.batch_id);
       if (prepared.status !== "ready") throw new Error(prepared.error || "Les variations n’ont pas pu être préparées.");
+      outcomeTone.success();
       if (!selectedModelResource()) {
         setMessage("Les prompts sont prêts, mais le checkpoint de la recette est absent. Choisissez un modèle installé pour lancer le rendu.", true);
         return;
@@ -738,6 +741,7 @@
       setMessage("Prompts prêts. ComfyUI rend les images l’une après l’autre.");
       schedulePoll(started.batch_id);
     } catch (error) {
+      outcomeTone.failure();
       setMessage(error.message, true);
     } finally {
       setBusy(false);
@@ -784,7 +788,9 @@
     const instruction = elements.revisionInstruction.value.trim();
     if (!instruction) { setMessage("Ajoutez d’abord votre message pour l’atelier.", true); return; }
     setBusy(true);
+    const outcomeTone = core.createLlmOutcomeTone();
     try {
+      outcomeTone.start();
       const updated = batchOf(await request(`/api/image-lab/krea2-batch/batches/${encodeURIComponent(batch.batch_id)}/recipe-revision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -797,8 +803,9 @@
       }));
       elements.revisionInstruction.value = "";
       adoptWorkshopRoot(updated);
+      outcomeTone.success();
       setMessage("Nouvelle candidate prête. Vous pouvez l’éditer, la tester ou poursuivre la discussion.");
-    } catch (error) { setMessage(error.message, true); }
+    } catch (error) { outcomeTone.failure(); setMessage(error.message, true); }
     finally { setBusy(false); }
   }
 
@@ -826,6 +833,7 @@
     setBusy(true);
     setMessage();
     reasoningTrace.reset();
+    const outcomeTone = core.createLlmOutcomeTone();
     try {
       const payload = await request(`/api/image-lab/krea2-batch/batches/${encodeURIComponent(source.batch_id)}/recipe-revision/test`, {
         method: "POST",
@@ -841,10 +849,11 @@
       adoptWorkshopRoot(payload.workshop_batch);
       const created = batchOf(payload);
       renderBatch(created);
-      const api = window.PanelForgePromptLab;
+      const api = window.PanelForgeLabCore;
       if (!api || typeof api.streamRequest !== "function") throw new Error("Le lecteur de flux LLM est indisponible.");
       reasoningTrace.begin("Test de recette");
       try {
+        outcomeTone.start();
         await api.streamRequest(
           reasoningTrace.streamUrl(`/api/image-lab/krea2-batch/batches/${encodeURIComponent(created.batch_id)}/prompts/stream`),
           { method: "POST", headers: { Accept: "text/event-stream" } },
@@ -857,6 +866,7 @@
       } finally { reasoningTrace.finish(); }
       const prepared = await refreshActive(created.batch_id);
       if (prepared.status !== "ready") throw new Error(prepared.error || "Le test de recette n’a pas pu être préparé.");
+      outcomeTone.success();
       if (!selectedModelResource()) {
         setMessage("Les prompts de test sont prêts, mais le checkpoint candidat est absent.", true);
         return;
@@ -865,7 +875,7 @@
       renderBatch(started);
       setMessage("Candidate enregistrée. ComfyUI lance son batch d’essai.");
       schedulePoll(started.batch_id);
-    } catch (error) { setMessage(error.message, true); }
+    } catch (error) { outcomeTone.failure(); setMessage(error.message, true); }
     finally {
       setBusy(false);
       try { await loadHistory(); } catch (_) { /* keep current workshop */ }

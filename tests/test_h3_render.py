@@ -1,13 +1,28 @@
 from pathlib import Path
 from dataclasses import dataclass
+import json
 import tempfile
 import unittest
 
 from panelforge.application import (
+    canonicalize_h3_revision,
     disable_non_diegetic_music,
     H3RenderService,
     extract_plan_cut_times_ms,
     plan_keyframe_timestamps_ms,
+)
+from panelforge.application.h3_render import (
+    compile_h3_revision_camera,
+    protect_h3_revision_camera,
+)
+from panelforge.application.minimax_h3_protocol import (
+    extract_compiled_camera_clauses,
+)
+from panelforge.application.prompt_lab import (
+    CompletionResult,
+    CompletionStreamEvent,
+    StreamEventKind,
+    StreamPhase,
 )
 from panelforge.domain import (
     H3RenderInputMode,
@@ -27,7 +42,10 @@ from panelforge.domain import (
 )
 from panelforge.infrastructure.presets import (
     H3RenderPresetRecipe,
+    Ref2VH3RenderPresetRecipe,
+    VideoLabPresetRecipe,
     load_h3_render_workflow,
+    load_video_lab_workflow,
 )
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
@@ -42,7 +60,14 @@ WORKFLOW_DIRECTORY = (
     / "workflows"
     / "video.generate.h3-base"
     / "minimax-h3-latent-speed"
-    / "0.1.0"
+    / "0.1.1"
+)
+REF2V_WORKFLOW_DIRECTORY = (
+    Path(__file__).resolve().parents[1]
+    / "workflows"
+    / "video.generate.ref2v"
+    / "minimax-h3-ref2v"
+    / "0.2.0"
 )
 MP4 = b"\x00\x00\x00\x18ftypisomvideo"
 PNG = b"\x89PNG\r\n\x1a\nkeyframe"
@@ -86,6 +111,24 @@ class ImmediateH3Comfy:
         return None
 
 
+class CompletedGateway:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.requests = []
+
+    def stream(self, request):
+        self.requests.append(request)
+        yield CompletionStreamEvent(
+            StreamEventKind.COMPLETED,
+            StreamPhase.COMPLETED,
+            result=CompletionResult(
+                model_id=request.model_id,
+                content=self.response,
+                call_id="call-1",
+            ),
+        )
+
+
 class H3RenderWorkflowTest(unittest.TestCase):
     def setUp(self) -> None:
         self.recipe = H3RenderPresetRecipe(
@@ -111,15 +154,19 @@ class H3RenderWorkflowTest(unittest.TestCase):
         )
 
     def test_exact_supplied_workflow_is_versioned(self) -> None:
+        self.assertEqual(self.recipe.reference.version, "0.1.1")
         self.assertEqual(
             self.recipe.reference.workflow_sha256,
-            "b7527b1b9ef5b3cee661c81440274b096652a35d54e36a1f5001b5d75dacac0c",
+            "a2b473aba5464daaa23ed871091c1763e3ac911010611fde3d2961c98f2a94db",
         )
         workflow = self.recipe.preset.workflow
         self.assertEqual(workflow["9"]["class_type"], "LoadImage")
         self.assertEqual(workflow["10"]["class_type"], "LoadImage")
         self.assertEqual(workflow["16"]["inputs"]["first_frame"], ["9", 0])
         self.assertEqual(workflow["16"]["inputs"]["last_frame"], ["10", 0])
+        self.assertEqual(workflow["17"]["inputs"]["preview_fps"], 24)
+        self.assertEqual(workflow["36"]["inputs"]["fps"], 24)
+        self.assertEqual(self.recipe.presets["h3-latent-speed"].preview_fps, 24)
 
     def test_compiles_all_four_input_modes_without_synthetic_frames(self) -> None:
         t2v = self.compile(H3RenderInputMode.T2VA)
@@ -153,8 +200,126 @@ class H3RenderWorkflowTest(unittest.TestCase):
         self.assertEqual(workflow["9001"]["inputs"]["batch_index"], 72)
         self.assertEqual(workflow["9103"]["inputs"]["images"], ["9003", 0])
 
+    def test_ref2v_adapter_compiles_nine_images_and_keyframes(self) -> None:
+        recipe = Ref2VH3RenderPresetRecipe(
+            VideoLabPresetRecipe(load_video_lab_workflow(REF2V_WORKFLOW_DIRECTORY))
+        )
+        settings = VideoLabSettings(
+            aspect_ratio=VideoAspectRatio.PORTRAIT_WIDESCREEN,
+            megapixels=1.2,
+            duration_seconds=9.0,
+            steps=31,
+            seed=123,
+        )
+        one_image = recipe.build_workflow(
+            source_images=("reference-1.png",),
+            prompt="<Picture 1>: subject reference.\n\nA scene.\nShot 1: Motion.\noverall_soundscape: None.\nnon_diegetic_music: N/A",
+            settings=settings,
+            output_filename_prefix="video/ref2v/one",
+            keyframe_indices=(),
+        )
+        three_images = recipe.build_workflow(
+            source_images=("reference-1.png", "reference-2.png", "reference-3.png"),
+            prompt="<Picture 1>: subject reference.\n\nA scene.\nShot 1: Motion.\noverall_soundscape: None.\nnon_diegetic_music: N/A",
+            settings=settings,
+            output_filename_prefix="video/ref2v/three",
+            keyframe_indices=(),
+        )
+        workflow = recipe.build_workflow(
+            source_images=tuple(f"reference-{index}.png" for index in range(1, 10)),
+            prompt="<Picture 1>: subject reference.\n\nA scene.\nShot 1: Motion.\noverall_soundscape: None.\nnon_diegetic_music: N/A",
+            settings=settings,
+            output_filename_prefix="video/ref2v/test",
+            keyframe_indices=(0, 72),
+        )
+
+        self.assertEqual(recipe.reference.version, "0.2.0")
+        self.assertEqual(recipe.presets["h3-balanced"].megapixels, 1.2)
+        self.assertEqual(recipe.presets["h3-balanced"].duration_seconds, 10.0)
+        self.assertNotIn("47", one_image)
+        self.assertNotIn("ref_images.ref_image_1", one_image["11"]["inputs"])
+        self.assertEqual(three_images["48"]["inputs"]["image"], "reference-3.png")
+        self.assertNotIn("20003", three_images)
+        self.assertEqual(workflow["48"]["inputs"]["image"], "reference-3.png")
+        self.assertEqual(recipe.maximum_reference_images, 9)
+        self.assertEqual(workflow["20008"]["inputs"]["image"], "reference-9.png")
+        self.assertEqual(workflow["11"]["inputs"]["ref_images.ref_image_8"], ["20008", 0])
+        self.assertEqual(workflow["23"]["inputs"]["value"], 1.2)
+        self.assertEqual(workflow["24"]["inputs"]["steps"], 31)
+        self.assertEqual(workflow["13"]["inputs"]["step"], 31)
+        self.assertEqual(workflow["20050"]["inputs"]["image"], ["25", 0])
+        self.assertEqual(workflow["20101"]["inputs"]["images"], ["20051", 0])
+
 
 class H3RenderPromptAndKeyframeTest(unittest.TestCase):
+    def test_camera_locked_revision_preserves_compiled_clauses(self) -> None:
+        current = (
+            "integrated_multimodal_description:\n"
+            "[Shot 1] The target video is one continuous 9-second shot. "
+            "The camera holds a static shot. The kitten listens. "
+            "At 00:02.000, The camera tilts up with small amplitude at slow speed. "
+            "The kitten answers.\n"
+            "overall_soundscape:\nRoom tone.\n"
+            "non_diegetic_music:\nNone."
+        )
+        clauses = extract_compiled_camera_clauses(current)
+        protected = protect_h3_revision_camera(current, clauses)
+        candidate = protected.replace("The kitten answers.", "The kitten answers softly.")
+
+        compiled = compile_h3_revision_camera(candidate, clauses, clauses)
+        result = canonicalize_h3_revision(
+            current,
+            compiled,
+            H3RenderInputMode.T2VA,
+            camera_clauses=clauses,
+        )
+
+        self.assertEqual(len(clauses), 2)
+        self.assertNotIn("[[camera:", result)
+        self.assertIn("The kitten answers softly.", result)
+        for clause in clauses:
+            self.assertEqual(result.count(clause), 1)
+
+    def test_camera_locked_revision_rejects_static_bypass_prose(self) -> None:
+        current = (
+            "integrated_multimodal_description:\n"
+            "[Shot 1] The target video is one continuous 9-second shot. "
+            "The camera holds a static shot. The kitten listens.\n"
+            "overall_soundscape:\nRoom tone.\n"
+            "non_diegetic_music:\nNone."
+        )
+        clauses = extract_compiled_camera_clauses(current)
+        candidate = current.replace(
+            "The kitten listens.",
+            "Camera movement: static. The kitten listens.",
+        )
+
+        with self.assertRaisesRegex(ValueError, "canonical compiled directive"):
+            canonicalize_h3_revision(
+                current,
+                candidate,
+                H3RenderInputMode.T2VA,
+                camera_clauses=clauses,
+            )
+
+    def test_ref2v_revision_preserves_the_canonical_picture_header(self) -> None:
+        current = (
+            "Use <Picture 1> only for subject identity.\n\n"
+            "The target video is one continuous 9-second shot.\n"
+            "Shot 1: The subject walks.\n"
+            "overall_soundscape: Footsteps.\n"
+            "non_diegetic_music: N/A"
+        )
+        candidate = current.replace("walks", "walks continuously")
+
+        result = canonicalize_h3_revision(
+            current,
+            candidate,
+            H3RenderInputMode.REF2VA,
+        )
+
+        self.assertTrue(result.startswith("Use <Picture 1> only for subject identity."))
+        self.assertIn("walks continuously", result)
     def test_multishot_plan_durations_define_intended_cut_boundaries(self) -> None:
         self.assertEqual(
             extract_plan_cut_times_ms(
@@ -197,6 +362,150 @@ class H3RenderPromptAndKeyframeTest(unittest.TestCase):
         self.assertEqual(len(values), 5)
         self.assertEqual(values[0], 0)
         self.assertGreater(values[-1], 9900)
+
+
+class H3RenderRevisionVersionTest(unittest.TestCase):
+    def prompt(self) -> str:
+        return (
+            "integrated_multimodal_description:\n"
+            "[Shot 1] The target video is one continuous 9-second shot. "
+            "The camera holds a static shot. The kitten listens.\n"
+            "overall_soundscape:\nRoom tone.\n"
+            "non_diegetic_music:\nNone."
+        )
+
+    def service(
+        self,
+        directory: str,
+        response: str,
+        *,
+        prompt: str | None = None,
+    ) -> tuple[H3RenderService, CompletedGateway]:
+        projects = LocalH3RenderProjectStore(directory)
+        projects.create(H3RenderProject(
+            project_id="project-1",
+            source_session_id="session-1",
+            source_prompt_revision_id="prompt-1",
+            model_id="qwen-model",
+            input_mode=H3RenderInputMode.T2VA,
+            current_prompt=prompt or self.prompt(),
+        ))
+        gateway = CompletedGateway(response)
+        service = H3RenderService(
+            gateway=gateway,
+            workflow=H3RenderPresetRecipe(load_h3_render_workflow(WORKFLOW_DIRECTORY)),
+            comfy=object(),
+            assets=LocalAssetStore(directory),
+            projects=projects,
+            sessions=object(),
+            compositions=object(),
+            turn_id_factory=iter(("turn-user", "turn-assistant")).__next__,
+        )
+        return service, gateway
+
+    def test_v020_uses_camera_tokens_and_records_the_turn_version(self) -> None:
+        response = json.dumps({
+            "message": "Le chaton sourit maintenant.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The camera holds a static shot.",
+                "[[camera:camera_1]]",
+            ).replace("The kitten listens.", "The kitten listens and smiles."),
+            "recommendations": [],
+            "camera_directives": None,
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = self.service(directory, response)
+
+            terminal = list(service.stream_chat(
+                "project-1",
+                "Fais sourire le chaton.",
+                revision_version="0.2.0",
+            ))[-1].project
+
+        self.assertEqual(gateway.requests[0].operation_id, "h3.base.render.revision@0.2.0")
+        self.assertIn("[[camera:camera_1]]", gateway.requests[0].user_prompt)
+        self.assertIn("listens and smiles", terminal.current_prompt)
+        self.assertEqual(terminal.turns[-1].revision_version.value, "0.2.0")
+        self.assertIsNone(terminal.revision_error)
+
+    def test_v020_keeps_a_rejected_candidate_without_changing_prompt(self) -> None:
+        response = json.dumps({
+            "message": "Caméra statique.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The camera holds a static shot.",
+                "[[camera:camera_1]] Camera movement: static.",
+            ),
+            "recommendations": [],
+            "camera_directives": None,
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            service, _ = self.service(directory, response)
+
+            terminal_event = list(service.stream_chat(
+                "project-1",
+                "Ne change rien.",
+                revision_version="0.2.0",
+            ))[-1]
+            terminal = terminal_event.project
+
+        self.assertEqual(terminal.current_prompt, self.prompt())
+        self.assertIn("Camera movement: static", terminal.revision_draft)
+        self.assertIn("canonical compiled directive", terminal.revision_error)
+        self.assertEqual(terminal.revision_draft_version.value, "0.2.0")
+
+    def test_v020_migrates_the_former_static_camera_label_on_next_revision(self) -> None:
+        legacy_prompt = self.prompt().replace(
+            "The camera holds a static shot.",
+            "Camera movement: static.",
+        )
+        response = json.dumps({
+            "message": "Le chaton sourit maintenant.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The camera holds a static shot.",
+                "[[camera:camera_1]]",
+            ).replace("The kitten listens.", "The kitten listens and smiles."),
+            "recommendations": [],
+            "camera_directives": None,
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = self.service(directory, response, prompt=legacy_prompt)
+
+            terminal = list(service.stream_chat(
+                "project-1",
+                "Fais sourire le chaton.",
+                revision_version="0.2.0",
+            ))[-1].project
+
+        self.assertIn("[[camera:camera_1]]", gateway.requests[0].user_prompt)
+        self.assertIn("The camera holds a static shot.", terminal.current_prompt)
+        self.assertNotIn("Camera movement: static.", terminal.current_prompt)
+
+    def test_v010_remains_available_for_legacy_revisions(self) -> None:
+        response = json.dumps({
+            "message": "Le chaton sourit maintenant.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The kitten listens.",
+                "The kitten listens and smiles.",
+            ),
+            "recommendations": [],
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = self.service(directory, response)
+
+            terminal = list(service.stream_chat(
+                "project-1",
+                "Fais sourire le chaton.",
+                revision_version="0.1.0",
+            ))[-1].project
+
+        self.assertEqual(gateway.requests[0].operation_id, "h3.base.render.revision@0.1.0")
+        self.assertNotIn("[[camera:", gateway.requests[0].user_prompt)
+        self.assertIn("listens and smiles", terminal.current_prompt)
+        self.assertEqual(terminal.turns[-1].revision_version.value, "0.1.0")
 
 
 class H3RenderProjectPersistenceTest(unittest.TestCase):

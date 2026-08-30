@@ -48,9 +48,8 @@ from panelforge.application import (
     PromptCompositionService,
     PromptLabService,
     PromptLabStreamEvent,
-    StoryboardLabService,
-    StoryboardRunRequest,
-    StoryboardStreamEvent,
+    SocialLabService,
+    SocialLabStreamEvent,
     SUPER_FAST_REF2V_COOKBOOK_ID,
     SUPER_FAST_REF2V_COOKBOOK_VERSION,
     VideoLabRunRequest,
@@ -64,6 +63,7 @@ from panelforge.domain import (
     ControlKind,
     CookbookBinding,
     CreativeFreedomAxes,
+    H3RenderInputMode,
     H3RenderProject,
     Krea2AssistedProject,
     Krea2AssistedTurnMode,
@@ -83,12 +83,13 @@ from panelforge.domain import (
     ReferenceUse,
     RunRecord,
     RunReview,
-    StoryboardRun,
+    SocialChannelProfile,
+    SocialLanguage,
+    SocialProject,
     VideoAspectRatio,
     VideoLabRun,
     VideoLabSettings,
     normalize_krea2_model_name,
-    storyboard_layout,
 )
 from panelforge.domain.character import (
     CameraAzimuth,
@@ -106,7 +107,8 @@ from panelforge.infrastructure.krea2_image_metadata import recover_krea2_metadat
 
 
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
-MAX_PROMPT_REFERENCES = 8
+MAX_SOCIAL_VIDEO_BYTES = 250 * 1024 * 1024
+MAX_PROMPT_REFERENCES = 9
 _STATIC_DIRECTORY = Path(__file__).with_name("static")
 
 _AZIMUTH_LABELS = {
@@ -148,10 +150,6 @@ class PromptEditBody(BaseModel):
 
 class PromptRevisionBody(BaseModel):
     instruction: str
-
-
-class ReferenceUsesBody(BaseModel):
-    uses: list[str]
 
 
 class CreativeAxesBody(BaseModel):
@@ -196,12 +194,6 @@ class SuperFastRef2VBody(BaseModel):
     creative_axes: CreativeAxesBody | None = None
 
 
-class StoryboardCreateBody(BaseModel):
-    source_text: str
-    panel_count: int
-    model_id: str
-
-
 class Krea2CreateBody(BaseModel):
     prompt: str
     preset_id: str = "krea2-base"
@@ -210,8 +202,6 @@ class Krea2CreateBody(BaseModel):
     megapixels: float | None = None
     seed: str | int | None = None
     seed_locked: bool = False
-    source_storyboard_run_id: str | None = None
-    source_prompt_sha256: str | None = None
 
 
 class Krea2BatchLoraBody(BaseModel):
@@ -345,6 +335,7 @@ class Krea2AssistedRecipePublishBody(BaseModel):
 class H3RenderChatBody(BaseModel):
     message: str
     feedback_attempt_id: str | None = None
+    revision_version: str | None = None
 
 
 class H3RenderAttemptBody(BaseModel):
@@ -362,8 +353,26 @@ class H3RenderFeedbackBody(BaseModel):
     attempt_id: str | None = None
 
 
-_STORYBOARD_RECIPE_ID = "krea2.storyboard.from_text"
-_STORYBOARD_RECIPE_VERSION = "0.1.0"
+class SocialProfileBody(BaseModel):
+    name: str
+    language: str = "en"
+    mood: str = ""
+    vibe: str = ""
+    example: str = ""
+    instructions: str = ""
+
+
+class SocialChatBody(BaseModel):
+    message: str
+    model_id: str | None = None
+    language: str | None = None
+    variant_count: int | None = Field(default=None, ge=1, le=8)
+    mood: str | None = None
+    vibe: str | None = None
+    example: str | None = None
+    instructions: str | None = None
+    channel_profile_id: str | None = None
+    update_profile: bool = False
 
 
 def create_app(
@@ -373,13 +382,14 @@ def create_app(
     prompt_composition: PromptCompositionService | None = None,
     video_lab: VideoLabRunner | None = None,
     h3_render: H3RenderService | None = None,
-    storyboard_lab: StoryboardLabService | None = None,
     krea2_lab: Krea2LabRunner | None = None,
     krea2_batch: Krea2BatchService | None = None,
     krea2_edit: Krea2EditService | None = None,
     krea2_assisted: Krea2AssistedService | None = None,
+    social_lab: SocialLabService | None = None,
     model_runtime: ModelRuntimeControl | None = None,
     comfy_runtime: Any | None = None,
+    local_gpu_monitor: Any | None = None,
     static_directory: Path | None = None,
     video_preview_connector: Callable[[str], Any] | None = None,
     runtime_monitor_connector: Callable[[str], Any] | None = None,
@@ -410,92 +420,6 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(index_path, headers={"Cache-Control": "no-store"})
 
-    @app.get("/api/storyboard-lab/spec")
-    def storyboard_lab_spec() -> dict[str, object]:
-        service = _require_storyboard_lab(storyboard_lab)
-        recipe = _storyboard_recipe(service)
-        return {
-            "recipe": {
-                "id": recipe.recipe_id,
-                "version": recipe.version,
-                "display_name": recipe.display_name,
-                "description": recipe.description,
-                "template_sha256": recipe.template_sha256,
-            },
-            "panel_options": [
-                {
-                    "panel_count": layout.panel_count,
-                    "columns": layout.columns,
-                    "rows": layout.rows,
-                    "page_aspect_ratio": layout.page_aspect_ratio,
-                    "page_orientation": layout.page_orientation,
-                    "panel_aspect_ratio": "2:3",
-                }
-                for layout in (
-                    storyboard_layout(panel_count)
-                    for panel_count in recipe.panel_counts
-                )
-            ],
-            "models": [
-                _serialize_llm_model(model)
-                for model in service.list_models()
-            ],
-        }
-
-    @app.post("/api/storyboard-lab/runs", status_code=status.HTTP_201_CREATED)
-    def create_storyboard_run(body: StoryboardCreateBody) -> dict[str, object]:
-        service = _require_storyboard_lab(storyboard_lab)
-        recipe = _storyboard_recipe(service)
-        try:
-            run = service.prepare(
-                StoryboardRunRequest(
-                    intention=body.source_text,
-                    panel_count=body.panel_count,
-                    model_id=body.model_id,
-                    recipe_id=recipe.recipe_id,
-                    recipe_version=recipe.version,
-                )
-            )
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        return {"run": serialize_storyboard_run(run)}
-
-    @app.get("/api/storyboard-lab/runs")
-    def list_storyboard_runs(limit: int = 30) -> dict[str, object]:
-        service = _require_storyboard_lab(storyboard_lab)
-        try:
-            return {
-                "runs": [
-                    serialize_storyboard_run(run)
-                    for run in service.list(limit)
-                ]
-            }
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.get("/api/storyboard-lab/runs/{run_id}")
-    def get_storyboard_run(run_id: str) -> dict[str, object]:
-        service = _require_storyboard_lab(storyboard_lab)
-        try:
-            return {"run": serialize_storyboard_run(service.get(run_id))}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="storyboard run not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/storyboard-lab/runs/{run_id}/generate/stream")
-    def stream_storyboard_run(
-        run_id: str,
-        include_reasoning: bool = False,
-    ) -> StreamingResponse:
-        service = _require_storyboard_lab(storyboard_lab)
-        return _storyboard_stream_response(
-            service.stream_generate(
-                run_id,
-                include_reasoning=include_reasoning,
-            )
-        )
-
     @app.post("/api/model-runtime/unload")
     def unload_model_runtime() -> dict[str, str]:
         if model_runtime is None:
@@ -518,7 +442,11 @@ def create_app(
     @app.get("/api/runtime/status")
     def runtime_status() -> dict[str, object]:
         """Return partial runtime data even when one service is offline."""
-        return _runtime_status(model_runtime=model_runtime, comfy_runtime=comfy_runtime)
+        return _runtime_status(
+            model_runtime=model_runtime,
+            comfy_runtime=comfy_runtime,
+            local_gpu_monitor=local_gpu_monitor,
+        )
 
     @app.post("/api/comfy-runtime/free")
     def free_comfy_runtime() -> dict[str, str]:
@@ -793,6 +721,202 @@ def create_app(
             headers=headers,
         )
 
+    @app.get("/api/social-lab/spec")
+    def social_lab_spec() -> dict[str, object]:
+        service = _require_social_lab(social_lab)
+        return {
+            "llm_models": [
+                _serialize_llm_model(model) for model in service.list_models()
+            ],
+            "languages": [
+                {"id": SocialLanguage.ENGLISH.value, "label": "English"},
+                {"id": SocialLanguage.FRENCH.value, "label": "Français"},
+            ],
+            "defaults": {
+                "language": SocialLanguage.ENGLISH.value,
+                "variant_count": 3,
+                "keyframe_positions": [10, 35, 65, 90],
+            },
+            "limits": {
+                "video_bytes": MAX_SOCIAL_VIDEO_BYTES,
+                "keyframe_bytes": MAX_IMAGE_BYTES,
+                "variant_count": {"minimum": 1, "maximum": 8},
+            },
+        }
+
+    @app.get("/api/social-lab/profiles")
+    def list_social_profiles(limit: int = 100) -> dict[str, object]:
+        service = _require_social_lab(social_lab)
+        try:
+            return {
+                "profiles": [
+                    serialize_social_profile(profile)
+                    for profile in service.list_profiles(limit)
+                ]
+            }
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/social-lab/profiles",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_social_profile(body: SocialProfileBody) -> dict[str, object]:
+        service = _require_social_lab(social_lab)
+        try:
+            return {
+                "profile": serialize_social_profile(service.save_profile(
+                    profile_id=None,
+                    name=body.name,
+                    language=SocialLanguage(body.language),
+                    mood=body.mood,
+                    vibe=body.vibe,
+                    example=body.example,
+                    instructions=body.instructions,
+                ))
+            }
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.put("/api/social-lab/profiles/{profile_id}")
+    def update_social_profile(
+        profile_id: str,
+        body: SocialProfileBody,
+    ) -> dict[str, object]:
+        service = _require_social_lab(social_lab)
+        try:
+            service.get_profile(profile_id)
+            return {
+                "profile": serialize_social_profile(service.save_profile(
+                    profile_id=profile_id,
+                    name=body.name,
+                    language=SocialLanguage(body.language),
+                    mood=body.mood,
+                    vibe=body.vibe,
+                    example=body.example,
+                    instructions=body.instructions,
+                ))
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="channel profile not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/social-lab/projects",
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_social_project(
+        name: Annotated[str, Form()],
+        model_id: Annotated[str, Form()],
+        language: Annotated[str, Form()],
+        variant_count: Annotated[int, Form()],
+        video: Annotated[UploadFile, File()],
+        keyframes: Annotated[list[UploadFile], File()],
+        mood: Annotated[str, Form()] = "",
+        vibe: Annotated[str, Form()] = "",
+        example: Annotated[str, Form()] = "",
+        instructions: Annotated[str, Form()] = "",
+        channel_profile_id: Annotated[str | None, Form()] = None,
+    ) -> dict[str, object]:
+        service = _require_social_lab(social_lab)
+        try:
+            video_content = await video.read(MAX_SOCIAL_VIDEO_BYTES + 1)
+            if len(video_content) > MAX_SOCIAL_VIDEO_BYTES:
+                raise ValueError("video exceeds the 250 MiB Social Lab limit")
+            video_media_type = detect_video_media_type(video_content)
+            if len(keyframes) != 4:
+                raise ValueError("provide exactly four video keyframes")
+            frame_values: list[tuple[bytes, str]] = []
+            for keyframe in keyframes:
+                content = await keyframe.read(MAX_IMAGE_BYTES + 1)
+                if len(content) > MAX_IMAGE_BYTES:
+                    raise ValueError("a Social Lab keyframe exceeds 25 MiB")
+                frame_values.append((content, detect_image_media_type(content)))
+            video_asset = service.assets.create(
+                video_content,
+                media_type=video_media_type,
+            )
+            frame_assets = tuple(
+                service.assets.create(content, media_type=media_type).asset_id
+                for content, media_type in frame_values
+            )
+            project = service.create_project(
+                name=name,
+                model_id=model_id,
+                language=SocialLanguage(language),
+                variant_count=variant_count,
+                video_asset_id=video_asset.asset_id,
+                video_filename=video.filename or "video",
+                keyframe_asset_ids=frame_assets,
+                mood=mood,
+                vibe=vibe,
+                example=example,
+                instructions=instructions,
+                channel_profile_id=channel_profile_id or None,
+            )
+            return {"project": serialize_social_project(project)}
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        finally:
+            await video.close()
+            await _close_uploads(keyframes)
+
+    @app.get("/api/social-lab/projects")
+    def list_social_projects(limit: int = 30) -> dict[str, object]:
+        service = _require_social_lab(social_lab)
+        try:
+            return {
+                "projects": [
+                    serialize_social_project(project)
+                    for project in service.list_projects(limit)
+                ]
+            }
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/social-lab/projects/{project_id}")
+    def get_social_project(project_id: str) -> dict[str, object]:
+        service = _require_social_lab(social_lab)
+        try:
+            return {
+                "project": serialize_social_project(
+                    service.get_project(project_id)
+                )
+            }
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Social Lab project not found") from error
+
+    @app.post("/api/social-lab/projects/{project_id}/chat/stream")
+    def stream_social_chat(
+        project_id: str,
+        body: SocialChatBody,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        service = _require_social_lab(social_lab)
+        try:
+            language = (
+                SocialLanguage(body.language)
+                if body.language is not None
+                else None
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return _social_lab_stream_response(service.stream_chat(
+            project_id,
+            body.message,
+            model_id=body.model_id,
+            language=language,
+            variant_count=body.variant_count,
+            mood=body.mood,
+            vibe=body.vibe,
+            example=body.example,
+            instructions=body.instructions,
+            channel_profile_id=body.channel_profile_id,
+            update_profile=body.update_profile,
+            include_reasoning=include_reasoning,
+        ))
+
     @app.get("/api/image-lab/krea2/spec")
     def krea2_lab_spec() -> dict[str, object]:
         service = _require_krea2_lab(krea2_lab)
@@ -860,23 +984,6 @@ def create_app(
         service = _require_krea2_lab(krea2_lab)
         discovery = _require_krea2_discovery(krea2_models)
         try:
-            source_prompt_sha256: str | None = None
-            if body.source_storyboard_run_id is not None:
-                source_service = _require_storyboard_lab(storyboard_lab)
-                try:
-                    source_service.get(body.source_storyboard_run_id)
-                except (KeyError, FileNotFoundError) as error:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="Storyboard source run not found",
-                    ) from error
-                source_prompt_sha256 = hashlib.sha256(
-                    body.prompt.encode("utf-8")
-                ).hexdigest()
-            elif body.source_prompt_sha256 is not None:
-                raise ValueError(
-                    "source_prompt_sha256 requires source_storyboard_run_id"
-                )
             model_name = discovery.resolve(body.model_id)
             aspect_ratio = (
                 Krea2AspectRatio(body.aspect_ratio)
@@ -893,8 +1000,6 @@ def create_app(
                     megapixels=body.megapixels,
                     seed=seed,
                     seed_locked=body.seed_locked,
-                    source_storyboard_run_id=body.source_storyboard_run_id,
-                    source_prompt_sha256=source_prompt_sha256,
                 )
             )
         except (KeyError, FileNotFoundError) as error:
@@ -1785,7 +1890,7 @@ def create_app(
             "presets": presets,
             "defaults": {"preset_id": presets[0]["id"]},
             "aspect_ratios": [ratio.value for ratio in VideoAspectRatio],
-            "megapixels": [0.3, 0.6, 1.0],
+            "megapixels": [0.3, 0.6, 1.0, 1.2],
             "fps": 24,
             "limits": {
                 "reference_images": {"minimum": 1, "maximum": 3},
@@ -2000,8 +2105,16 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/h3-render/spec")
-    def h3_render_spec() -> dict[str, object]:
+    def h3_render_spec(mode: str = "h3-base") -> dict[str, object]:
         service = _require_h3_render(h3_render)
+        input_mode = (
+            H3RenderInputMode.REF2VA
+            if mode == "ref2va"
+            else H3RenderInputMode.T2VA
+        )
+        recipe = service.workflow_for_mode(
+            input_mode
+        )
         presets = [
             {
                 "id": preset.preset_id,
@@ -2011,27 +2124,47 @@ def create_app(
                 "duration_seconds": preset.duration_seconds,
                 "steps": preset.steps,
             }
-            for preset in service.workflow.presets.values()
+            for preset in recipe.presets.values()
         ]
+        limits = {
+            "megapixels": {"minimum": 0.1, "maximum": 16.0, "step": 0.1},
+            "duration_seconds": {"minimum": 5.0, "maximum": 15.0},
+            "steps": {"minimum": 1, "maximum": 100},
+            "keyframes": {"maximum": recipe.maximum_keyframes},
+        }
+        if hasattr(recipe, "maximum_reference_images"):
+            limits["reference_images"] = {
+                "minimum": recipe.minimum_reference_images,
+                "maximum": recipe.maximum_reference_images,
+            }
         return {
-            "operation_id": service.workflow.reference.operation_id,
+            "operation_id": recipe.reference.operation_id,
             "recipe": {
-                "id": service.workflow.reference.recipe_id,
-                "version": service.workflow.reference.version,
-                "workflow_sha256": service.workflow.reference.workflow_sha256,
-                "status": service.workflow.status,
+                "id": recipe.reference.recipe_id,
+                "version": recipe.reference.version,
+                "workflow_sha256": recipe.reference.workflow_sha256,
+                "status": recipe.status,
             },
             "presets": presets,
             "defaults": presets[0],
             "aspect_ratios": [ratio.value for ratio in VideoAspectRatio],
             "megapixels": [0.3, 0.6, 1.0, 1.2],
             "fps": 24,
-            "limits": {
-                "megapixels": {"minimum": 0.1, "maximum": 16.0, "step": 0.1},
-                "duration_seconds": {"minimum": 5.0, "maximum": 15.0},
-                "steps": {"minimum": 1, "maximum": 100},
-                "keyframes": {"maximum": service.workflow.maximum_keyframes},
-            },
+            "limits": limits,
+            "revision_versions": [
+                {
+                    "version": version.value,
+                    "label": (
+                        "Stable 0.2.0 · caméra compilée"
+                        if version.value == "0.2.0"
+                        else "Legacy 0.1.0"
+                    ),
+                }
+                for version in service.revision_versions_for_mode(input_mode)
+            ],
+            "default_revision_version": service.default_revision_version(
+                input_mode
+            ).value,
         }
 
     @app.post(
@@ -2043,7 +2176,7 @@ def create_app(
         try:
             return {"project": serialize_h3_render_project(service.get_or_create_from_session(session_id))}
         except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="H3 Base session not found") from error
+            raise HTTPException(status_code=404, detail="H3 prompt session not found") from error
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -2068,6 +2201,7 @@ def create_app(
             project_id,
             body.message,
             feedback_attempt_id=body.feedback_attempt_id,
+            revision_version=body.revision_version,
             include_reasoning=include_reasoning,
         ))
 
@@ -2373,201 +2507,6 @@ def create_app(
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/analyze"
-    )
-    def analyze_prompt_reference(session_id: str, reference_id: str) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.analyze_reference(session_id, reference_id)
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/analyze/stream"
-    )
-    def stream_prompt_reference_analysis(
-        session_id: str,
-        reference_id: str,
-        include_reasoning: bool = False,
-    ) -> StreamingResponse:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_stream_response(
-            service.stream_analyze_reference(
-                session_id,
-                reference_id,
-                include_reasoning=include_reasoning,
-            )
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/edit"
-    )
-    def edit_prompt_reference(
-        session_id: str,
-        reference_id: str,
-        body: PromptEditBody,
-    ) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.edit_reference(session_id, reference_id, body.content)
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/revise"
-    )
-    def revise_prompt_reference(
-        session_id: str,
-        reference_id: str,
-        body: PromptRevisionBody,
-    ) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.revise_reference(
-                session_id,
-                reference_id,
-                body.instruction,
-            )
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/revise/stream"
-    )
-    def stream_prompt_reference_revision(
-        session_id: str,
-        reference_id: str,
-        body: PromptRevisionBody,
-        include_reasoning: bool = False,
-    ) -> StreamingResponse:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_stream_response(
-            service.stream_revise_reference(
-                session_id,
-                reference_id,
-                body.instruction,
-                include_reasoning=include_reasoning,
-            )
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/approve"
-    )
-    def approve_prompt_reference(session_id: str, reference_id: str) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.approve_reference(session_id, reference_id)
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/uses"
-    )
-    def set_prompt_reference_uses(
-        session_id: str,
-        reference_id: str,
-        body: ReferenceUsesBody,
-    ) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.set_reference_uses(
-                session_id,
-                reference_id,
-                tuple(ReferenceUse(value) for value in body.uses),
-            )
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpret"
-    )
-    def interpret_prompt_reference(
-        session_id: str,
-        reference_id: str,
-    ) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.interpret_reference(session_id, reference_id)
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpret/stream"
-    )
-    def stream_prompt_reference_interpretation(
-        session_id: str,
-        reference_id: str,
-        include_reasoning: bool = False,
-    ) -> StreamingResponse:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_stream_response(
-            service.stream_interpret_reference(
-                session_id,
-                reference_id,
-                include_reasoning=include_reasoning,
-            )
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/edit"
-    )
-    def edit_prompt_interpretation(
-        session_id: str,
-        reference_id: str,
-        body: PromptEditBody,
-    ) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.edit_interpretation(
-                session_id,
-                reference_id,
-                body.content,
-            )
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/revise"
-    )
-    def revise_prompt_interpretation(
-        session_id: str,
-        reference_id: str,
-        body: PromptRevisionBody,
-    ) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.revise_interpretation(
-                session_id,
-                reference_id,
-                body.instruction,
-            )
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/revise/stream"
-    )
-    def stream_prompt_interpretation_revision(
-        session_id: str,
-        reference_id: str,
-        body: PromptRevisionBody,
-        include_reasoning: bool = False,
-    ) -> StreamingResponse:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_stream_response(
-            service.stream_revise_interpretation(
-                session_id,
-                reference_id,
-                body.instruction,
-                include_reasoning=include_reasoning,
-            )
-        )
-
-    @app.post(
-        "/api/prompt-lab/sessions/{session_id}/references/{reference_id}/interpretation/approve"
-    )
-    def approve_prompt_interpretation(
-        session_id: str,
-        reference_id: str,
-    ) -> dict[str, object]:
-        service = _require_prompt_lab(prompt_lab)
-        return _prompt_action(
-            lambda: service.approve_interpretation(session_id, reference_id)
-        )
-
     @app.post("/api/prompt-lab/sessions/{session_id}/brief/structure")
     def structure_prompt_brief(
         session_id: str,
@@ -2739,7 +2678,7 @@ def create_app(
             source_session = lab_service.get_session(session_id)
             if (
                 source_session.profile_id != "minimax.h3.ref2v.direct"
-                or source_session.profile_version != "0.1.0"
+                or source_session.profile_version not in {"0.1.0", "0.4.0"}
                 or source_session.session_mode.value != "direct_multimodal"
             ):
                 raise ValueError(
@@ -3103,6 +3042,16 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
         "model_id": project.model_id,
         "input_mode": project.input_mode.value,
         "current_prompt": project.current_prompt,
+        "revision_version": (
+            project.revision_version.value if project.revision_version else None
+        ),
+        "camera_clauses": list(project.camera_clauses),
+        "revision_draft": project.revision_draft,
+        "revision_error": project.revision_error,
+        "revision_draft_version": (
+            project.revision_draft_version.value
+            if project.revision_draft_version else None
+        ),
         "planned_cut_times_ms": list(project.planned_cut_times_ms),
         "first_frame": reference(
             project.first_frame_asset_id,
@@ -3114,6 +3063,14 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
             project.last_frame_label,
             "last_frame",
         ),
+        "references": [
+            reference(asset_id, label, "reference")
+            for asset_id, label in zip(
+                project.reference_asset_ids,
+                project.reference_labels,
+                strict=True,
+            )
+        ],
         "turns": [
             {
                 "id": turn.turn_id,
@@ -3123,6 +3080,9 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
                 "prompt": turn.prompt,
                 "questions": list(turn.questions),
                 "recommendations": list(turn.recommendations),
+                "revision_version": (
+                    turn.revision_version.value if turn.revision_version else None
+                ),
             }
             for turn in project.turns
         ],
@@ -3132,7 +3092,12 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
     }
 
 
-def _runtime_status(*, model_runtime: Any | None, comfy_runtime: Any | None) -> dict[str, object]:
+def _runtime_status(
+    *,
+    model_runtime: Any | None,
+    comfy_runtime: Any | None,
+    local_gpu_monitor: Any | None,
+) -> dict[str, object]:
     observed_at = datetime.now(UTC).isoformat()
     gpu: dict[str, object] = {
         "available": False,
@@ -3208,9 +3173,38 @@ def _runtime_status(*, model_runtime: Any | None, comfy_runtime: Any | None) -> 
             llm["available"] = True
         except Exception:
             llm["warning"] = "llama.swap indisponible."
+    local_gpu: dict[str, object] = {
+        "available": False,
+        "name": None,
+        "total_bytes": None,
+        "free_bytes": None,
+        "used_bytes": None,
+        "used_percent": None,
+        "temperature_c": None,
+        "warning": None,
+    }
+    if local_gpu_monitor is None:
+        local_gpu["warning"] = "GPU local non configuré."
+    else:
+        try:
+            local_stats = local_gpu_monitor.get_stats()
+            local_gpu.update(
+                {
+                    "available": True,
+                    "name": local_stats.name,
+                    "total_bytes": local_stats.total_bytes,
+                    "free_bytes": local_stats.free_bytes,
+                    "used_bytes": local_stats.used_bytes,
+                    "used_percent": local_stats.used_percent,
+                    "temperature_c": local_stats.temperature_c,
+                }
+            )
+        except Exception:
+            local_gpu["warning"] = "GPU local indisponible."
     return {
         "observed_at": observed_at,
         "gpu": gpu,
+        "local_gpu": local_gpu,
         "comfy": comfy,
         "llm": llm,
     }
@@ -3323,6 +3317,74 @@ def serialize_krea2_batch(batch: Krea2Batch) -> dict[str, object]:
             else None
         ),
         "workshop_source_batch_id": batch.workshop_source_batch_id,
+    }
+
+
+def serialize_social_profile(profile: SocialChannelProfile) -> dict[str, object]:
+    return {
+        "profile_id": profile.profile_id,
+        "name": profile.name,
+        "language": profile.language.value,
+        "mood": profile.mood,
+        "vibe": profile.vibe,
+        "example": profile.example,
+        "instructions": profile.instructions,
+    }
+
+
+def serialize_social_project(project: SocialProject) -> dict[str, object]:
+    return {
+        "project_id": project.project_id,
+        "id": project.project_id,
+        "name": project.name,
+        "model_id": project.model_id,
+        "language": project.language.value,
+        "variant_count": project.variant_count,
+        "video_asset_id": project.video_asset_id,
+        "video_filename": project.video_filename,
+        "video_url": f"/api/assets/{project.video_asset_id}/content",
+        "keyframes": [
+            {
+                "asset_id": asset_id,
+                "position_percent": (10, 35, 65, 90)[index],
+                "content_url": f"/api/assets/{asset_id}/content",
+            }
+            for index, asset_id in enumerate(project.keyframe_asset_ids)
+        ],
+        "mood": project.mood,
+        "vibe": project.vibe,
+        "example": project.example,
+        "instructions": project.instructions,
+        "channel_profile_id": project.channel_profile_id,
+        "source_prompt_found": project.source_prompt is not None,
+        "turns": [
+            {
+                "turn_id": turn.turn_id,
+                "role": turn.role.value,
+                "content": turn.content,
+                "variants": [
+                    {
+                        "angle": variant.angle,
+                        "hook": variant.hook,
+                        "caption": variant.caption,
+                        "hashtags": list(variant.hashtags),
+                        "emojis": list(variant.emojis),
+                    }
+                    for variant in turn.variants
+                ],
+            }
+            for turn in project.turns
+        ],
+        "latest_variants": [
+            {
+                "angle": variant.angle,
+                "hook": variant.hook,
+                "caption": variant.caption,
+                "hashtags": list(variant.hashtags),
+                "emojis": list(variant.emojis),
+            }
+            for variant in project.latest_variants
+        ],
     }
 
 
@@ -3677,38 +3739,12 @@ def detect_image_media_type(content: bytes) -> str:
     raise ValueError("source must be a PNG, JPEG or WebP image")
 
 
-def serialize_storyboard_run(run: StoryboardRun) -> dict[str, object]:
-    layout = storyboard_layout(run.panel_count)
-    return {
-        "id": run.run_id,
-        "run_id": run.run_id,
-        "source_text": run.intention,
-        "intention": run.intention,
-        "panel_count": run.panel_count,
-        "model_id": run.model_id,
-        "recipe": {
-            "id": run.recipe_id,
-            "version": run.recipe_version,
-            "template_sha256": run.template_sha256,
-        },
-        "recipe_id": run.recipe_id,
-        "recipe_version": run.recipe_version,
-        "template_sha256": run.template_sha256,
-        "layout": {
-            "panel_count": layout.panel_count,
-            "columns": layout.columns,
-            "rows": layout.rows,
-            "page_aspect_ratio": layout.page_aspect_ratio,
-            "page_orientation": layout.page_orientation,
-            "panel_aspect_ratio": "2:3",
-        },
-        "status": run.status.value,
-        "raw_response": run.raw_response,
-        "spec": run.spec.to_payload() if run.spec is not None else None,
-        "compiled_prompt": run.compiled_prompt,
-        "warnings": list(run.warnings),
-        "error": run.error,
-    }
+def detect_video_media_type(content: bytes) -> str:
+    if len(content) >= 12 and content[4:8] == b"ftyp":
+        return "video/mp4"
+    if content.startswith(b"\x1aE\xdf\xa3"):
+        return "video/webm"
+    raise ValueError("source must be an MP4 or WebM video")
 
 
 def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
@@ -4033,7 +4069,7 @@ def serialize_prompt_composition(
 
 def _require_prompt_lab(value: PromptLabService | None) -> PromptLabService:
     if value is None:
-        raise HTTPException(status_code=503, detail="Prompt Lab is not configured")
+        raise HTTPException(status_code=503, detail="Prompt engine is not configured")
     return value
 
 
@@ -4089,6 +4125,15 @@ def _require_krea2_assisted(
     return value
 
 
+def _require_social_lab(value: SocialLabService | None) -> SocialLabService:
+    if value is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Social Lab is not configured",
+        )
+    return value
+
+
 def _require_krea2_edit(value: Krea2EditService | None) -> Krea2EditService:
     if value is None:
         raise HTTPException(
@@ -4107,67 +4152,6 @@ def _require_krea2_discovery(
             detail="KREA2 model discovery is not configured",
         )
     return value
-
-
-def _require_storyboard_lab(
-    value: StoryboardLabService | None,
-) -> StoryboardLabService:
-    if value is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Storyboard Lab is not configured",
-        )
-    return value
-
-
-def _storyboard_recipe(service: StoryboardLabService):
-    try:
-        return service.get_recipe(
-            _STORYBOARD_RECIPE_ID,
-            _STORYBOARD_RECIPE_VERSION,
-        )
-    except KeyError as error:
-        raise HTTPException(
-            status_code=503,
-            detail="The current Storyboard recipe is not installed",
-        ) from error
-
-
-def _storyboard_stream_response(
-    events: Iterator[StoryboardStreamEvent],
-) -> StreamingResponse:
-    def encoded_events() -> Iterator[str]:
-        try:
-            for event in events:
-                payload: dict[str, object] = {
-                    "kind": event.kind.value,
-                    "phase": event.phase.value,
-                    "text": event.text,
-                    "progress": event.progress,
-                    "finish_reason": event.finish_reason,
-                    "max_tokens": event.max_tokens,
-                }
-                if event.run is not None:
-                    payload["run"] = serialize_storyboard_run(event.run)
-                yield _encode_sse(event.kind.value, payload)
-        except Exception as error:
-            yield _encode_sse(
-                "error",
-                {
-                    "kind": "error",
-                    "phase": "failed",
-                    "message": str(error),
-                },
-            )
-
-    return StreamingResponse(
-        encoded_events(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-        },
-    )
 
 
 def _krea2_batch_stream_response(
@@ -4216,6 +4200,38 @@ def _krea2_assisted_stream_response(
                 }
                 if event.project is not None:
                     payload["project"] = serialize_krea2_assisted_project(event.project)
+                yield _encode_sse(event.kind.value, payload)
+        except Exception as error:
+            yield _encode_sse(
+                "error",
+                {"kind": "error", "phase": "failed", "message": str(error)},
+            )
+
+    return StreamingResponse(
+        encoded_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _social_lab_stream_response(
+    events: Iterator[SocialLabStreamEvent],
+) -> StreamingResponse:
+    def encoded_events() -> Iterator[str]:
+        try:
+            for event in events:
+                payload: dict[str, object] = {
+                    "kind": event.kind.value,
+                    "phase": event.phase.value,
+                    "text": event.text,
+                    "progress": event.progress,
+                    "error": event.error,
+                }
+                if event.project is not None:
+                    payload["project"] = serialize_social_project(event.project)
                 yield _encode_sse(event.kind.value, payload)
         except Exception as error:
             yield _encode_sse(

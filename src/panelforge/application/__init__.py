@@ -44,10 +44,10 @@ from .h3_render import (
     extract_prompt_cut_times_ms,
     plan_keyframe_timestamps_ms,
 )
-from .storyboard_lab import (
-    StoryboardLabService,
-    StoryboardRunRequest,
-    StoryboardStreamEvent,
+from .social_lab import (
+    SocialLabService,
+    SocialLabStreamEvent,
+    parse_social_response,
 )
 from .minimax_h3_protocol import (
     H3IssueSeverity,
@@ -122,6 +122,8 @@ __all__ = [
     "H3ProtocolMode",
     "H3RenderService",
     "H3RenderStreamEvent",
+    "SocialLabService",
+    "SocialLabStreamEvent",
     "LlmCallImage",
     "LlmCallApplicationOutcome",
     "LlmCallApplicationOutcomeReporter",
@@ -140,9 +142,6 @@ __all__ = [
     "PromptProfile",
     "StreamEventKind",
     "StreamPhase",
-    "StoryboardLabService",
-    "StoryboardRunRequest",
-    "StoryboardStreamEvent",
     "SUPER_FAST_REF2V_COOKBOOK_ID",
     "SUPER_FAST_REF2V_COOKBOOK_VERSION",
     "creative_axes_from_legacy",
@@ -172,4 +171,5 @@ __all__ = [
     "extract_prompt_cut_times_ms",
     "normalize_krea2_edit_prompt",
     "plan_keyframe_timestamps_ms",
+    "parse_social_response",
 ]

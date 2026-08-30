@@ -3,12 +3,27 @@
 const $ = (id) => document.getElementById(id);
 const preferredPromptModelId = "Qwen3.8-27B";
 const llmCatalogs = new WeakMap();
+const llmLocalSources = new Set(["local", "vllm"]);
 
 function llmSource(model) {
-  if (model && model.source === "local") return "local";
-  return model && typeof model.id === "string" && model.id.startsWith("local::")
-    ? "local"
-    : "server";
+  if (model && typeof model.source === "string" && model.source) return model.source;
+  if (model && typeof model.id === "string") {
+    if (model.id.startsWith("local::")) return "local";
+    if (model.id.startsWith("vllm::")) return "vllm";
+  }
+  return "server";
+}
+
+function isLocalLlm(model) {
+  return llmLocalSources.has(llmSource(model));
+}
+
+function llmModelLabel(model) {
+  const source = llmSource(model);
+  const raw = model.label || model.id.replace(/^(?:local|vllm)::/, "");
+  if (source === "local") return `Unsloth · ${raw}`;
+  if (source === "vllm") return `vLLM · ${raw}`;
+  return raw;
 }
 
 function llmLocalToggle(select) {
@@ -26,15 +41,15 @@ window.PanelForgeModelPicker = Object.freeze({
     llmCatalogs.set(select, normalized);
     const toggle = llmLocalToggle(select);
     const currentModel = normalized.find((model) => model.id === currentValue);
-    if (toggle && currentValue) toggle.checked = llmSource(currentModel || { id: currentValue }) === "local";
+    if (toggle && currentValue) toggle.checked = isLocalLlm(currentModel || { id: currentValue });
     const source = toggle && toggle.checked ? "local" : "server";
-    const visible = normalized.filter((model) => llmSource(model) === source);
+    const visible = normalized.filter((model) => source === "local" ? isLocalLlm(model) : llmSource(model) === "server");
     const identifiers = visible.map((model) => model.id);
     select.replaceChildren();
     visible.forEach((model) => {
       const option = document.createElement("option");
       option.value = model.id;
-      option.textContent = model.label || model.id.replace(/^local::/, "");
+      option.textContent = llmModelLabel(model);
       select.append(option);
     });
     select.dataset.llmSource = source;
@@ -67,7 +82,7 @@ window.PanelForgeModelPicker = Object.freeze({
     if (![...select.options].some((option) => option.value === modelId)) {
       const option = document.createElement("option");
       option.value = modelId;
-      option.textContent = `${modelId.replace(/^local::/, "")} · ${unavailableSuffix}`;
+      option.textContent = `${modelId.replace(/^(?:local|vllm)::/, "")} · ${unavailableSuffix}`;
       option.dataset.missing = "true";
       select.prepend(option);
     }
@@ -121,7 +136,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     "result-empty", "result-loading", "result-image", "run-message", "keep",
     "reject", "reuse", "refresh", "history-empty", "history-list",
     "release-llm-vram", "release-comfy-vram", "runtime-message",
-    "runtime-monitor", "runtime-vram", "runtime-temp",
+    "runtime-monitor", "runtime-server-monitor", "runtime-vram", "runtime-temp",
+    "runtime-local-monitor", "runtime-local-vram", "runtime-local-temp",
     "runtime-services",
   ]) ui[id] = $(id);
 
@@ -264,6 +280,7 @@ function scheduleRuntimePoll() {
 function renderRuntimeStatus() {
   const snapshot = state.runtimeStatus;
   const gpu = snapshot && snapshot.gpu;
+  const localGpu = snapshot && snapshot.local_gpu;
   const comfy = snapshot && snapshot.comfy;
   const llm = snapshot && snapshot.llm;
   const liveTelemetry = Date.now() - state.runtimeTelemetryAt < 5000;
@@ -276,15 +293,37 @@ function renderRuntimeStatus() {
     const total = formatBytes(gpu.total_bytes);
     const percent = Number(gpu.used_percent);
     ui["runtime-vram"].textContent = `VRAM ${percent.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}% · ${used}/${total}`;
-    renderVramMeter(percent);
-    ui["runtime-monitor"].title = `${gpu.name} · VRAM globale, sans attribution par processus.`;
+    renderVramMeter(ui["runtime-vram"], percent);
+    ui["runtime-server-monitor"].title = `${gpu.name} · GPU du serveur · VRAM globale, sans attribution par processus.`;
   } else {
     ui["runtime-vram"].textContent = "VRAM —";
     setRuntimeMeter(ui["runtime-vram"], 0, null);
   }
+  if (localGpu && localGpu.available) {
+    const used = formatBytes(localGpu.used_bytes);
+    const total = formatBytes(localGpu.total_bytes);
+    const percent = Number(localGpu.used_percent);
+    ui["runtime-local-vram"].textContent = `VRAM ${percent.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}% · ${used}/${total}`;
+    renderVramMeter(ui["runtime-local-vram"], percent);
+    const temperature = Number(localGpu.temperature_c);
+    if (Number.isFinite(temperature)) {
+      renderTemperatureMeter(ui["runtime-local-temp"], temperature);
+    } else {
+      ui["runtime-local-temp"].textContent = "Temp —";
+      setRuntimeMeter(ui["runtime-local-temp"], 0, null);
+    }
+    ui["runtime-local-monitor"].title = `${localGpu.name} · GPU local · VRAM globale, sans attribution par processus.`;
+  } else {
+    ui["runtime-local-vram"].textContent = "VRAM —";
+    ui["runtime-local-temp"].textContent = "Temp —";
+    setRuntimeMeter(ui["runtime-local-vram"], 0, null);
+    setRuntimeMeter(ui["runtime-local-temp"], 0, null);
+    ui["runtime-local-monitor"].title = "GPU local indisponible.";
+  }
   const serviceWarnings = [];
   if (!comfy?.available) serviceWarnings.push("Comfy indisponible");
   if (!llm?.available) serviceWarnings.push("LLM indisponible");
+  if (!localGpu?.available) serviceWarnings.push("GPU local indisponible");
   ui["runtime-services"].textContent = serviceWarnings.join(" · ");
   ui["runtime-services"].hidden = serviceWarnings.length === 0;
   ui["release-comfy-vram"].disabled = !comfy?.available || !comfy.cleanup_allowed;
@@ -335,19 +374,19 @@ function renderCrystools(data) {
   const temperature = Number(gpu.gpu_temperature);
   if (Number.isFinite(temperature)) {
     state.runtimeTelemetryAt = Date.now();
-    renderTemperatureMeter(temperature);
+    renderTemperatureMeter(ui["runtime-temp"], temperature);
   }
 }
 
-function renderVramMeter(percent) {
-  setRuntimeMeter(ui["runtime-vram"], percent, percent > 30 ? "yellow" : "green");
+function renderVramMeter(element, percent) {
+  setRuntimeMeter(element, percent, percent > 30 ? "yellow" : "green");
 }
 
-function renderTemperatureMeter(temperature) {
+function renderTemperatureMeter(element, temperature) {
   const gaugePercent = ((temperature - 25) / (100 - 25)) * 100;
   const tone = temperature <= 60 ? "green" : temperature <= 80 ? "orange" : "red";
-  ui["runtime-temp"].textContent = `Temp ${Math.round(temperature)}°C`;
-  setRuntimeMeter(ui["runtime-temp"], gaugePercent, tone);
+  element.textContent = `Temp ${Math.round(temperature)}°C`;
+  setRuntimeMeter(element, gaugePercent, tone);
 }
 
 function setRuntimeMeter(element, percent, tone) {

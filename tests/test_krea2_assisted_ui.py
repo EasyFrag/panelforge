@@ -16,13 +16,27 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260824.1', self.page)
-        self.assertIn('"krea2-assisted-lab"', (STATIC / "prompt-lab.js").read_text(encoding="utf-8"))
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260830.2', self.page)
+        self.assertIn('"krea2-assisted-lab"', (STATIC / "lab-core.js").read_text(encoding="utf-8"))
+
+    def test_initial_visible_assisted_view_loads_its_catalog_automatically(self):
+        self.assertIn(
+            "if (!elements.workspace.hidden) initialize();",
+            self.script,
+        )
+        self.assertIn("if (state.initializing) return state.initializing;", self.script)
+
+    def test_chat_reports_the_validated_llm_outcome_with_distinct_tones(self):
+        self.assertIn("core.createLlmOutcomeTone()", self.script)
+        self.assertIn("outcomeTone.start()", self.script)
+        self.assertIn("outcomeTone.success()", self.script)
+        self.assertIn("outcomeTone.failure()", self.script)
+        self.assertIn("{ completionTone: false }", self.script)
 
     def test_keeps_the_same_mode_order_in_every_image_lab_workspace(self):
         expected = [
-            "change-view",
             "krea2-assisted-lab",
+            "change-view",
             "krea2-image-lab",
             "krea2-batch-lab",
             "krea2-edit-lab",
@@ -40,9 +54,10 @@ class Krea2AssistedUiTest(unittest.TestCase):
             )
 
     def test_displays_the_change_view_recipe_in_its_vertical_panel(self):
-        topbar = self.page[: self.page.index('<main id="change-view-workspace">')]
+        change_view_start = self.page.index('<main id="change-view-workspace"')
+        topbar = self.page[:change_view_start]
         change_view = self.page[
-            self.page.index('<main id="change-view-workspace">') :
+            change_view_start :
             self.page.index('<main id="krea2-image-lab-workspace"')
         ]
         self.assertNotIn('id="recipe-badge"', topbar)

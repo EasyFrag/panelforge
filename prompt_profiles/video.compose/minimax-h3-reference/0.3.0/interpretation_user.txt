@@ -1,8 +1,0 @@
-Reference label: {label}
-User role: {role}
-Intended MiniMax uses: {uses}
-
-APPROVED VISUAL OBSERVATION
-{current_analysis}
-
-Produce the role-aware MiniMax reference interpretation. Do not invent the target video's future action.

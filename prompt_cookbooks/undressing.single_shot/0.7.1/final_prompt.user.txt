@@ -1,7 +1,0 @@
-APPROVED STRUCTURED BRIEF
-{{BRIEF}}
-
-CODE-VALIDATED AND RETIMED CHOREOGRAPHY PLAN
-{{BEAT_SHEET}}
-
-Write the four internal content fields now. Treat duration_seconds and the retimed landmarks as the exact timing contract; they override any shorter duration stated in the Brief. The application will compile the reference mapping, Shot 1 heading, and final audio labels.

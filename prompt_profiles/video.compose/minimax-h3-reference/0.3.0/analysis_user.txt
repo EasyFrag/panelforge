@@ -1,6 +1,0 @@
-Analyse la référence « {label} ».
-
-Rôle libre indiqué par l'utilisateur : {role}
-Usages vidéo prévus : {uses}
-
-Produis l'observation visuelle complète demandée. Les usages indiquent les détails à privilégier mais ne t'autorisent pas à omettre le reste de la scène.

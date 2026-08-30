@@ -16,7 +16,7 @@ PRESET_DIRECTORY = (
     / "workflows"
     / "video.generate.ref2v"
     / "minimax-h3-ref2v"
-    / "0.1.0"
+    / "0.2.0"
 )
 
 
@@ -33,10 +33,12 @@ class VideoLabPresetTest(unittest.TestCase):
 
     def test_loads_neutral_versioned_workflow(self) -> None:
         workflow = self.preset.workflow
-        self.assertEqual(self.preset.version, "0.1.0")
-        self.assertEqual(workflow["138"]["inputs"]["value"], "PANELFORGE_PROMPT_REQUIRED")
-        self.assertNotIn("149", workflow)
-        self.assertNotIn("150", workflow)
+        self.assertEqual(self.preset.version, "0.2.0")
+        self.assertEqual(workflow["2"]["inputs"]["value"], "PANELFORGE_PROMPT_REQUIRED")
+        self.assertEqual(self.preset.presets["h3-balanced"].megapixels, 1.2)
+        self.assertEqual(self.preset.presets["h3-balanced"].duration_seconds, 10.0)
+        self.assertNotIn("6", workflow)
+        self.assertNotIn("30", workflow)
 
     def test_compiles_one_image_and_prunes_unused_slots(self) -> None:
         workflow = build_video_lab_workflow(
@@ -47,15 +49,17 @@ class VideoLabPresetTest(unittest.TestCase):
             output_filename_prefix="video/run-1",
         )
 
-        self.assertEqual(workflow["137"]["inputs"]["image"], "panelforge/one.png")
-        self.assertNotIn("139", workflow)
-        self.assertNotIn("141", workflow)
-        self.assertNotIn("ref_images.ref_image_1", workflow["136"]["inputs"])
-        self.assertEqual(workflow["115"]["inputs"]["aspect_ratio"], "16:9 (Widescreen)")
-        self.assertEqual(workflow["115"]["inputs"]["megapixels"], 0.8)
-        self.assertEqual(workflow["132"]["inputs"]["value"], 12.0)
-        self.assertEqual(workflow["124"]["inputs"]["steps"], 40)
-        self.assertEqual(workflow["129"]["inputs"]["noise_seed"], 123)
+        self.assertEqual(workflow["9"]["inputs"]["image"], "panelforge/one.png")
+        self.assertNotIn("47", workflow)
+        self.assertNotIn("48", workflow)
+        self.assertNotIn("ref_images.ref_image_1", workflow["11"]["inputs"])
+        self.assertEqual(workflow["20"]["inputs"]["aspect_ratio"], "16:9 (Widescreen)")
+        self.assertEqual(workflow["20"]["inputs"]["megapixels"], 0.2)
+        self.assertEqual(workflow["23"]["inputs"]["value"], 0.8)
+        self.assertEqual(workflow["17"]["inputs"]["value"], 12.0)
+        self.assertEqual(workflow["24"]["inputs"]["steps"], 40)
+        self.assertEqual(workflow["13"]["inputs"]["step"], 40)
+        self.assertEqual(workflow["31"]["inputs"]["noise_seed"], 123)
 
     def test_compiles_three_images_in_picture_order(self) -> None:
         workflow = build_video_lab_workflow(
@@ -65,9 +69,9 @@ class VideoLabPresetTest(unittest.TestCase):
             settings=self.settings,
             output_filename_prefix="video/run-2",
         )
-        self.assertEqual(workflow["137"]["inputs"]["image"], "one.png")
-        self.assertEqual(workflow["139"]["inputs"]["image"], "two.png")
-        self.assertEqual(workflow["141"]["inputs"]["image"], "three.png")
+        self.assertEqual(workflow["9"]["inputs"]["image"], "one.png")
+        self.assertEqual(workflow["47"]["inputs"]["image"], "two.png")
+        self.assertEqual(workflow["48"]["inputs"]["image"], "three.png")
 
     def test_rejects_an_orphan_node(self) -> None:
         manifest = __import__("json").loads(

@@ -34,11 +34,13 @@ image source
 ### Video Lab — MiniMax H3 Ref2V
 
 Le Video Lab exécute la recette expérimentale et immuable
-`video.generate.ref2v/minimax-h3-ref2v@0.1.0` :
+`video.generate.ref2v/minimax-h3-ref2v@0.2.0` :
 
 - une à trois images ordonnées, reliées à `<Picture 1>` jusqu’à `<Picture 3>` ;
-- prompt H3 libre, ratio, mégapixels, durée et nombre de steps modifiables ;
-- preset initial `h3-balanced` (`2:3`, `0,6 MP`, `10 s`, `32 steps`) ;
+- prompt H3 libre, ratio, mégapixels finaux, durée et steps principaux modifiables ;
+- preset initial `h3-balanced` (`9:16`, `1,2 MP`, `10 s`, `25 steps`) ;
+- première passe fixe à `0,2 MP`, upscale du latent vidéo, recombinaison de
+  l’audio puis seconde passe fixe de trois steps ;
 - seed aléatoire par défaut, verrouillable et réutilisable depuis l’historique ;
 - preview live depuis le WebSocket natif de ComfyUI, puis lecture et téléchargement de la vidéo MP4 finale avec audio ;
 - historique local, annulation ciblée et un seul rendu Video Lab actif à la fois ;
@@ -50,28 +52,16 @@ La preview passe par un relais WebSocket same-origin de PanelForge, connecté à
 
 Si PanelForge redémarre pendant un rendu, l'identifiant ComfyUI persistant permet de réconcilier le run lors de sa prochaine consultation : une sortie déjà terminée est alors importée, tandis qu'un job encore actif reste suivi.
 
-### Storyboard Lab — prompt KREA2 depuis un texte
+### Video Lab — textes Instagram assistés
 
-Le Storyboard Lab transforme une intention ou une courte histoire en un prompt de
-planche KREA2 prêt à copier. La recette immuable
-`krea2.storyboard.from_text@0.1.0` sépare volontairement deux responsabilités :
+Le sous-mode `Texte Instagram` transforme une vidéo MP4 ou WebM en projet éditorial conversationnel :
 
-- un unique appel LLM produit les variables narratives structurées — personnages,
-  environnement, continuité et beat visuel de chaque panel ;
-- un compilateur déterministe injecte ces variables dans le squelette KREA2 fixe,
-  sans laisser le modèle modifier la grille, le ratio des panels ou leur ordre.
-
-Les formats V1 sont 2 panels (`2 × 1`, planche `4:3`), 4 panels (`2 × 2`,
-planche `2:3`), 6 panels (`3 × 2`, planche `1:1`) et 9 panels (`3 × 3`,
-planche `2:3`). Chaque cellule reste une photographie verticale `2:3`, en pied ou
-trois-quarts. L’interface permet de choisir le modèle, consulter les variables,
-éditer et copier le prompt compilé, rouvrir l’historique et relancer une intention.
-
-Une réponse JSON invalide ou tronquée n’est jamais réparée par un second appel :
-elle reste visible comme brouillon diagnostic. Le bouton « Envoyer à Image Lab »
-transfère le prompt actuellement visible, sa provenance et le ratio de planche
-correspondant, sans lancer automatiquement le rendu. Cette V1 ne découpe pas
-encore la planche générée en assets indépendants.
+- quatre images clés sont extraites dans le navigateur à 10, 35, 65 et 90 % ; la vidéo complète n'est pas envoyée au LLM ;
+- anglais par défaut ou français, avec trois variantes par défaut contenant angle, hook, légende, hashtags et emojis ;
+- `mood`, `vibe`, exemple représentatif et consignes restent libres et peuvent être enregistrés dans un profil de chaîne réutilisable ;
+- chaque projet conserve la vidéo, les images clés, toutes les propositions et la conversation complète afin de reprendre les ajustements après un redémarrage ;
+- lorsque la vidéo correspond exactement à une sortie H3 ou Video Lab connue, son prompt est ajouté au contexte ; sinon l'analyse reste strictement visuelle et ne prétend pas entendre l'audio ;
+- chaque variante dispose d'une action `Tout copier` prête à publier.
 
 ### Image Lab — génération KREA2
 
@@ -202,64 +192,6 @@ La racine d’export est `D:\AI\PanelForge\KREA2 Projects` par défaut. Elle peu
 réessayable dans l’interface sans annuler la validation ni déplacer les fichiers
 techniques conservés par ComfyUI et PanelForge.
 
-### Prompt Lab — du brief au prompt H3
-
-Le premier jalon du générateur de prompt est également disponible :
-
-- catalogue de modèles découvert dynamiquement via llama.swap ; une variante `Qwen3.8-27B` est présélectionnée lorsqu’elle est disponible, avec repli gracieux vers Qwen 3.6 puis conservation d’un choix manuel ;
-- profils de prompting immuables et versionnés ; `minimax.h3.reference@0.3.0` ajoute le Brief sans modifier les versions précédentes ;
-- import cumulatif de une à huit images, suppression individuelle et rôle libre ;
-- observation vision lancée séparément pour chaque image, avec action, interactions, état initial et composition ;
-- action séquentielle « analyser toutes les images » qui ignore les fiches déjà présentes afin de préserver les corrections ;
-- relance, correction manuelle ou demande de modification ciblée en langage naturel ;
-- références stables `<Image 1>`, `<Image 2>`, etc. insérables dans l’intention utilisateur ;
-- usages multiples (`subject`, `first_frame`, `keyframe`, `environment`, etc.) attribués visuellement dans l’étape Brief ;
-- Brief structuré généré depuis l’intention et toutes les observations approuvées, avec curseur de liberté créative `0–100` traduit en politique explicite ;
-- correction directe, révision LLM, historique et approbation du Brief ; toute modification d’une observation ou d’un usage invalide son approbation ;
-- interprétation MiniMax par image conservée comme outil avancé optionnel, sans second appel vision ;
-- texte affiché au fil de la génération pour l’observation, l’interprétation et leurs révisions LLM ;
-- état commun `préparation/chargement → génération → terminé`, avec progression indéterminée tant que le serveur ne fournit pas de mesure réelle ;
-- historiques et approbations indépendants pour l’observation, l’interprétation optionnelle et le Brief ;
-- sessions et images persistées localement.
-
-Le premier cookbook vidéo est maintenant `fighter.arcade_versus@0.1.0/readable-v1`. Il s’appuie sur un moteur Ref2VA commun et ajoute trois portes supervisées :
-
-```text
-Brief approuvé + 3 observations approuvées
-  → affectation Combattant A / Combattant B / Arène
-  → plan de références Ref2VA approuvé
-  → beat sheet en 6 plans approuvée
-  → prompt MiniMax H3 final approuvé
-```
-
-Chaque livrable est générable séparément, streamé, éditable, révisable en langage naturel et versionné localement. Changer le Brief, une observation, une interprétation approuvée, un usage ou une affectation rend les résultats dérivés obsolètes sans supprimer leur historique.
-
-Le plan interne verrouille `subject_definitions` et une `retention_policy`. Après approbation de la beat sheet, le writer produit le `summary` et le `retention_analysis` officiels afin que les apparitions déclarées correspondent réellement aux six plans. Seules les définitions approuvées sont préfixées par le code, sans régénération. Le linter contrôle ensuite les six sections Ref2VA, les labels, les marqueurs de conservation, les apparitions par plan et les timestamps.
-
-Les `<Picture N>` sont numérotées localement et de façon contiguë selon l’ordre des slots du cookbook ; ce mapping constitue aussi le futur ordre d’envoi des images à H3. Le preset refuse explicitement une image de combattant sans usage `subject`, une arène sans usage `environment`, ainsi que les flags de frame/keyframe qu’il ne sait pas encore compiler.
-
-Le preset V1 reste volontairement étroit : 15 secondes, 16:9, six actions lisibles, clash final et textes/HUD réservés à la postproduction. Ces choix seront rendus paramétrables après les premiers tests qualitatifs.
-
-### Archive — I2V simple
-
-La vue `Archives` conserve `minimax.h3.i2v.simple@0.3.0/single-first-frame-natural-motion-canonical-v1` et ses versions antérieures en lecture seule. Les sessions existantes restent ouvrables et leur contenu actif peut être copié, mais aucun nouveau parcours ni aucune modification ne sont proposés dans cette interface historique :
-
-```text
-image de première frame
-  → Observation approuvée
-  → Brief approuvé
-  → prompt MiniMax H3 I2VA approuvé
-```
-
-L’image est liée de façon déterministe à `<Picture 1>` et déclarée comme frame exacte à `0.00` seconde. Il n’y a ni plan de références ni beat sheet cachés. Chaque résultat est streamé, éditable, révisable en langage naturel et soumis à une validation humaine.
-
-Le writer suit le contrat I2VA MiniMax H3 : instruction d’ancrage exacte, puis `integrated_multimodal_description`, `overall_soundscape` et `non_diegetic_music`. Le LLM choisit la sémantique, la chorégraphie et la prose ; un compilateur déterministe impose ensuite le vocabulaire fermé des mouvements de caméra, les placeholders, les labels et les balises de dialogue. Le protocole `minimax.h3.protocol@0.1.0` épingle la [documentation officielle MiniMax H3](https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/base-en.txt) au commit `05d91ff89f58b665e56424fd66db9ef0351b3015`.
-
-La version `0.3.0` conserve les principes de mouvement naturel de `0.2.0`, mais demande au LLM un brouillon interne structuré avant compilation. `0.2.0` reste inchangée comme témoin A/B et `0.1.0` comme témoin historique.
-
-Les marqueurs tels que `<d>[French] ...</d>` sont maintenant normalisés par code. Chaque révision canonique persiste aussi un `compiler_context` interne contenant les directives structurées : une révision non liée à la caméra réhydrate ce contexte au lieu de demander au LLM de le réinventer, tandis qu’une demande explicite de changement de caméra peut produire une nouvelle version du contexte.
-
-Lors d’une révision LLM, PanelForge conserve la réponse brute dans le journal technique mais extrait et persiste uniquement le document révisé. Une réponse contenant deux documents complets est refusée comme ambiguë. Le journal distingue désormais le résultat du transport modèle (`succeeded`, `truncated`, etc.) de l’issue applicative (`accepted` ou `rejected`) : un LLM terminé correctement n’est plus confondu avec un document accepté par le compilateur.
 
 ### H3 Base / FL2VA — texte et frames frontières facultatives
 
@@ -283,59 +215,11 @@ intention + [première frame] + [dernière frame]
 
 Le profil `minimax.h3.fl2va.direct@0.1.0` relit directement zéro, une ou deux images pendant le Brief et ses révisions. La recette `minimax.h3.fl2va.direct@0.1.0` réutilise le Plan V2 mono-plan — beats, contacts, risques, caméra typée et `final_hold_ms` — mais compacte le Brief et le schéma transmis au planner. Le writer reçoit uniquement le mode, la propriété des frames et la projection compacte du Plan ; le Brief complet n’est pas répété.
 
+La recette mono-plan sélectionnée par défaut est désormais `minimax.h3.fl2va.direct@0.3.2`. Elle conserve les contrats de mouvement et la caméra compilée de `0.3.1`, mais traite une last frame comme un échantillon instantané plutôt qu’une destination : un mouvement déclaré continu ne peut plus rejoindre, verrouiller ou stabiliser la composition finale en avance. Pour un tracking avec impression de sur-place, le sujet peut garder une position écran voisine tandis que le Plan doit conserver une preuve de vitesse par parallaxe, défilement, écoulement, projections ou mouvement corporel. Les fins `natural_settle` et `intentional_hold` explicitement demandées restent autorisées.
+
 PanelForge compile ensuite l’enveloppe officielle : aucun header image en T2VA, ancrage de départ en I2VA, ancrage terminal en L2VA, ou double alignement en FL2VA. Il insère aussi les phrases caméra canoniques aux jalons approuvés. Le modèle ne peut donc ni confondre la frame finale avec l’ouverture, ni modifier l’enveloppe, ni réinventer la caméra lors d’une révision.
 
 Les anciennes recettes `minimax.h3.i2v.direct@0.1.0` et `0.2.0` restent immuables et relisibles. L’action « Repartir de ce run » migre leur première frame vers une nouvelle session H3 Base propre, sans copier le Brief, le Plan ni le Prompt historiques.
-
-### Archive — Ref2V undressing mono-plan
-
-La vue `Archives` conserve le cookbook spécialisé à deux références `undressing.single_shot@0.11.0`, ses témoins et leurs sessions. Ce parcours reste documenté pour la compatibilité historique, mais sa création et ses modifications ne sont plus exposées dans le produit :
-
-```text
-première frame habillée + référence corporelle du même sujet
-  → deux Observations approuvées
-  → Brief approuvé
-  → plan chorégraphique proposé, corrigé et approuvé
-  → prompt MiniMax H3 Ref2V compilé et approuvé
-```
-
-`<Picture 1>` est la frame concrète habillée à `0.00` seconde. `<Picture 2>` complète seulement l’apparence corporelle du même sujet et n’est ni une frame finale ni une cible de pose ou de composition. En `0.2.0`, le LLM écrit quatre champs internes — mise en place, action du plan, ambiance sonore et musique — puis PanelForge compile le mapping immuable, `Shot 1:` et les champs audio dans un format compact proche des exemples Ref2V éprouvés. Les sorties incomplètes sont rejetées avant persistance ; le linter verrouille le header, l’unique plan et l’ordre des timestamps.
-
-La `0.3.0` ajoute deux appels internes derrière le même bouton : un planner produit d’abord un JSON de chorégraphie, puis le writer transforme uniquement ce plan validé en prose H3. Le validateur impose un ordre sans chevauchement, un temps minimal par geste, un état observable pour chaque vêtement, une pose finale tenue au moins deux secondes et, si demandée, une caméra déplacée seulement pendant cette pose. Le JSON n’encombre pas l’éditeur principal mais reste consultable dans un volet avancé.
-
-La `0.4.0` distingue les gestes simples des transformations multi-étapes et estime pour celles-ci une marge supplémentaire de 1,5 seconde. Une marge insuffisante ne bloque plus le writer : le volet du plan affiche la durée minimale conseillée et la génération continue. Les incohérences structurelles — JSON invalide, chevauchement, timestamp hors vidéo — restent bloquantes. La caméra déclare un chemin physique (`pedestal`, `dolly`, `orbit`, `crane`, etc.) et le planner doit conserver une trajectoire de vêtement spatialement continue. Le volet est ouvert par défaut, se remplit pendant le premier appel et conserve aussi un candidat rejeté pour diagnostic.
-
-La `0.5.0` rend la durée élastique. Après le planner, PanelForge conserve chaque durée déjà lisible, agrandit seulement les gestes sous leur marge, décale les étapes suivantes et prolonge la fin jusqu’à un maximum de 15 secondes. Le plan persiste `requested_duration_seconds` et `duration_seconds`, tandis que le writer reçoit uniquement la chronologie finale afin d’éviter toute contradiction. L’interface affiche les deux durées.
-
-La `0.6.0` borne cette redistribution sans modifier les prompts LLM de la `0.5.0`. Les gestes simples gardent le rythme choisi par le planner. Les marges des transformations `multi_step` utilisent d’abord le temps de pose finale disponible au-delà de deux secondes, puis la caméra est recalée ou raccourcie ; la vidéo n’est prolongée qu’en dernier recours. Au plafond de 15 secondes, les marges restantes deviennent des avertissements au lieu de bloquer le writer. Les événements partageant une même frontière temporelle sont autorisés, tout comme un repère final exact à `00:15.000`.
-
-La `0.7.0` remplace ce plafond par un contrat consultatif. Le retiming conserve les marges multi-étapes, le délai d’établissement de la pose et la durée de caméra, puis prolonge la chronologie autant que nécessaire. Une durée supérieure à 15 secondes, un landmark absent ou un écart récupérable du format final apparaît comme avertissement sans empêcher l’enregistrement ni l’approbation ; seuls un plan illisible ou les quatre champs indispensables manquants restent bloquants. Les labels génériques `<Image 1>` et `<Image 2>` produits par le writer sont neutralisés avant compilation du mapping fixe.
-
-La `0.7.1` conserve exactement les prompts de la `0.7.0` et corrige un angle mort technique : si le planner place une pose finale cohérente exactement à la fin demandée, PanelForge ajoute automatiquement au moins deux secondes de tenue, avertit l’utilisateur et poursuit le writer sans relancer le planner. Les chevauchements et l’ordre impossible des actions restent bloquants.
-
-La `0.8.0` rend le plan obligatoire et visible avant le writer. Le parcours nominal reste à deux appels LLM : le premier propose la chorégraphie, puis l’utilisateur la contrôle et la valide avant le writer. Chaque geste contient des sous-étapes horodatées, l’état séparé des deux mains et l’état observable de l’objet. Le planner remonte aussi les conflits de visibilité, de continuité physique ou d’influence de la seconde référence dans `continuity_concerns` ; une ambiguïté non résolue reste un avertissement et ne bloque pas le parcours.
-
-La `0.9.0` conserve ce plan détaillé en interne, mais le writer n’expose plus chaque micro-étape au moteur vidéo. Le prompt final utilise seulement les débuts des beats majeurs, la pose finale et un éventuel mouvement de caméra comme jalons horodatés ; chaque beat est rédigé comme une transition continue cause → action → réaction → état observable. Le planner traite aussi la construction visible du vêtement comme un contrat physique : un haut sans manches conserve des emmanchures ou des bretelles et ne peut plus être réinterprété comme un vêtement à manches. Les arbitrages sont formulés en résultats visibles plutôt qu’en vocabulaire de moteur 3D.
-
-La `0.10.0` conserve la grammaire compacte et empirique de `0.9.0`, mais remplace la caméra libre par le protocole versionné `minimax.h3.protocol@0.1.0`. Le planner choisit une directive dans le vocabulaire officiel, le writer place seulement un placeholder, puis PanelForge compile la clause exacte depuis le plan approuvé, normalise les tags H3 et persiste le `compiler_context`. `0.9.0` reste le témoin A/B sans ce compilateur canonique.
-
-La `0.11.0` cible les défauts génériques observés sur plusieurs retraits : un vêtement reste un objet connecté, suit une seule route compatible avec ses ouvertures visibles, conserve des prises de mains explicites et franchit les parties du corps avant d’être relâché puis posé. Le planner utilise le plus petit nombre de transitions permettant de prouver cette continuité, sans multiplier les micro-timestamps. Le writer restitue ensuite cette route en prose fluide et interdit duplication, séparation en panneaux, téléportation ou changement de topologie. Aucune couleur, tenue, pose ou pièce propre à un exemple n’est codée dans la recette.
-
-Cette sortie reste volontairement le format compact `minimax.h3.ref2v.single_shot_supervised_compact_h3_v1` qualifié pour ce cookbook. Ce n’est pas le format Ref2VA officiel à six sections ; une future recette six-sections devra porter un contrat distinct au lieu d’être introduite silencieusement ici.
-
-Une caméra explicitement décrite comme fixe mais encodée par le LLM dans l’objet `camera` est normalisée en `camera: null` avec avertissement. Un véritable mouvement peut accompagner l’action, assurer une transition, parcourir tout le plan ou entourer la pose finale. Si le LLM le marque à tort `held_final_pose` alors que ses timestamps commencent plus tôt, PanelForge corrige sa phase et avertit sans rejeter le candidat. En `0.11.0`, un `target_clause` optionnel invalide est retiré avec avertissement tout en conservant le mouvement typé ; la `0.10.0` garde son comportement strict. L’ordre impossible des gestes, les mouvements caméra inconnus et leur chevauchement avec la pose finale restent bloquants.
-
-Une interface d’arbitrage présente chaque conflit sous forme de carte. L’utilisateur peut reprendre la recommandation, accepter explicitement le risque, écrire sa décision ou ajouter une instruction globale telle qu’un changement de durée. « Appliquer les décisions au plan » déclenche un troisième appel optionnel qui réécrit réellement les sous-gestes et les timings. Le résultat redevient non validé pour contrôle humain ; le serveur refuse de le persister si une décision nommée disparaît ou n’est pas recopiée exactement dans sa résolution. Si seules les résolutions changent sans aucun effet sur les gestes, timings, états, décor ou caméra, un avertissement non bloquant le signale. Le JSON reste disponible comme recours avancé.
-
-Le code vérifie seulement la structure, l’ordre et la cohérence des intervalles. Il ne prétend pas estimer la durée sémantique correcte d’un geste : les timings proposés restent modifiables. Une pose finale sans marge est toujours prolongée automatiquement et une caméra de moins d’une seconde produit désormais un avertissement plutôt qu’un rejet.
-
-En `0.11.0`, chaque slot porte une politique de preuve persistante. La seconde image est projetée de manière déterministe sur les seules sections âge apparent et apparence stable avant le Brief puis avant le planner. Le mapping final envoyé à H3 répète explicitement que cette image ne définit ni tenue, état instantané, pose, mains, expression, objectif, angle, lumière, décor ou composition. Ces attributs ne sont donc plus transmis comme preuves par PanelForge, même si la fidélité réelle du moteur à cette frontière doit encore être qualifiée visuellement. La politique fait partie du snapshot du Brief et de la provenance. Les sessions et recettes antérieures conservent leur comportement historique.
-
-Les versions `0.1.0` à `0.10.0` restent disponibles pour comparaison. La future variante à une seule référence corporelle, où les vêtements initiaux sont entièrement décrits, n’est pas incluse dans `0.11.0`.
-
-L’interface permet d’analyser les deux images en une action ou de relancer, corriger et valider chaque observation séparément. Observation et Brief réutilisent le profil générique `minimax.h3.reference@0.3.0`, tandis que la politique de preuve est attachée à chaque référence : les autres parcours restent en politique `full` et ne sont pas filtrés.
-
-Les neuf titres du Brief sont normalisés par code avec ou sans tiret initial, puis validés exactement une fois et dans le bon ordre avant persistance. Après chaque génération, les éditeurs reviennent en haut du document.
 
 ### Ref2V — brief multimodal sans observation intermédiaire
 
@@ -377,9 +261,10 @@ python scripts\run_lab.py `
 
 Puis ouvrir `http://127.0.0.1:7860`.
 
-Unsloth Studio peut servir de second fournisseur LLM sur le poste PanelForge.
-Lancez-le séparément, créez une clé dans `Settings > API`, puis configurez la
-connexion avant de démarrer PanelForge :
+Unsloth Studio et vLLM peuvent servir de fournisseurs LLM locaux sur le poste
+PanelForge. Lancez le ou les serveurs voulus séparément. Pour Unsloth, créez une
+clé dans `Settings > API`, puis configurez la connexion avant de démarrer
+PanelForge :
 
 ```powershell
 unsloth studio -p 8888
@@ -390,16 +275,26 @@ python scripts\run_lab.py `
   --llm-base-url http://bucket:8083/v1
 ```
 
-Chaque sélecteur LLM propose alors la case `Local · Unsloth`. La liste locale
-est relue dynamiquement depuis `/v1/models` ; les IDs locaux sont enregistrés
-avec leur provenance afin que toutes les étapes suivantes d'un même parcours
-restent sur le poste local. Si Unsloth est arrêté, inaccessible ou refuse la
-clé, le catalogue serveur reste disponible et la liste locale apparaît vide,
-sans bloquer PanelForge. Les parcours qui envoient des images exigent bien sûr
-un modèle Unsloth compatible vision. Le bouton `VRAM LLM` continue de piloter
-uniquement llama.swap sur le serveur et ne décharge pas Unsloth Studio.
+vLLM est automatiquement interrogé sur `http://127.0.0.1:8000/v1` avec la clé
+factice `local-vllm`. Ces valeurs peuvent être remplacées par
+`PANELFORGE_VLLM_URL`, `PANELFORGE_VLLM_API_KEY` et
+`PANELFORGE_VLLM_MAX_OUTPUT_TOKENS`. La limite de sortie vLLM vaut 32 768
+tokens par défaut afin de laisser de la place à l'entrée dans le contexte
+actuel de 65 536 tokens.
 
-Les données techniques locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/krea2_batches`, `workspace/krea2_assisted`, `workspace/krea2_edits`, `workspace/video_runs`, `workspace/storyboard_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL`, `PANELFORGE_LLM_URL` et `PANELFORGE_LOCAL_LLM_URL`; la clé Unsloth reste dans `PANELFORGE_LOCAL_LLM_API_KEY` et ne doit pas être versionnée. Les projets KREA2 Edit validés utilisent séparément `D:\AI\PanelForge\KREA2 Projects` ou la racine configurée par `PANELFORGE_KREA2_PROJECTS_ROOT`. Les créations assistées explicitement enregistrées utilisent `D:\AI\PanelForge\KREA2 Creations` ou `PANELFORGE_KREA2_CREATIONS_ROOT`.
+Chaque sélecteur LLM propose alors la case `Local · Unsloth / vLLM`. Les listes
+locales sont relues dynamiquement depuis leurs `/v1/models` ; les IDs sont
+préfixés par leur provenance (`local::` ou `vllm::`) afin que toutes les étapes
+suivantes d'un même parcours restent sur le fournisseur sélectionné. Si un
+serveur local est arrêté ou inaccessible, son catalogue est simplement masqué
+sans bloquer les autres. Les parcours qui envoient des images exigent un modèle
+compatible vision. PanelForge transmet toutes les images choisies au
+fournisseur sans appliquer de limite locale ; une éventuelle limite reste donc
+celle du serveur appelé.
+Le bouton `VRAM LLM` continue de piloter uniquement llama.swap sur le serveur et
+ne décharge ni Unsloth Studio ni vLLM.
+
+Les données techniques locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/krea2_batches`, `workspace/krea2_assisted`, `workspace/krea2_edits`, `workspace/video_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL`, `PANELFORGE_LLM_URL`, `PANELFORGE_LOCAL_LLM_URL` et `PANELFORGE_VLLM_URL`; les clés restent dans `PANELFORGE_LOCAL_LLM_API_KEY` et `PANELFORGE_VLLM_API_KEY` et ne doivent pas être versionnées. Les projets KREA2 Edit validés utilisent séparément `D:\AI\PanelForge\KREA2 Projects` ou la racine configurée par `PANELFORGE_KREA2_PROJECTS_ROOT`. Les créations assistées explicitement enregistrées utilisent `D:\AI\PanelForge\KREA2 Creations` ou `PANELFORGE_KREA2_CREATIONS_ROOT`.
 
 Le catalogue KREA2 utilise par défaut les chemins UNC stables du montage SSHFS :
 `\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion\_models\Krea2` pour
@@ -413,7 +308,7 @@ métadonnées locales restent alors indiquées comme inconnues.
 
 Le Lab appelle seulement les API du serveur. llama.swap reste responsable du chargement, du swap et de la mémoire GPU ; aucune bibliothèque d’inférence n’est installée par PanelForge. Le bouton global `Libérer la VRAM` passe par PanelForge puis appelle l’endpoint administratif officiel de llama.swap : tous les modèles LLM actifs sont déchargés et le prochain appel recharge automatiquement le modèle demandé. Cette action peut interrompre une génération LLM en cours.
 
-Le streaming repose sur `stream=true` et des événements SSE internes réutilisables par les prochaines fenêtres du Prompt Lab. Les appels disposent d’un budget de sortie de 32 768 tokens adapté aux modèles thinking. Si le serveur termine avec `finish_reason=length`, l’interface signale explicitement la troncature et conserve le texte partiel sans l’enregistrer automatiquement comme une révision complète. Avec `sendLoadingState: true` dans llama.swap, PanelForge reconnaît aussi son message de chargement et l’éventuelle position dans la file. llama.swap ne fournit actuellement pas de pourcentage de chargement fiable : l’interface n’en invente donc pas. Les contenus de raisonnement ordinaires du modèle ne sont jamais affichés comme état système.
+Le streaming repose sur `stream=true` et des événements SSE internes partagés par H3 Base et Ref2V. Les appels disposent d’un budget de sortie de 32 768 tokens adapté aux modèles thinking. Si le serveur termine avec `finish_reason=length`, l’interface signale explicitement la troncature et conserve le texte partiel sans l’enregistrer automatiquement comme une révision complète. Avec `sendLoadingState: true` dans llama.swap, PanelForge reconnaît aussi son message de chargement et l’éventuelle position dans la file. llama.swap ne fournit actuellement pas de pourcentage de chargement fiable : l’interface n’en invente donc pas. Les contenus de raisonnement ordinaires du modèle ne sont jamais affichés comme état système.
 
 Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opération, modèle, prompts exacts, réponse, durée, tokens, statut transport, issue applicative, `finish_reason` et erreurs éventuelles. Les images ne sont jamais recopiées dans ce journal ; seules leurs métadonnées et leur SHA-256 sont enregistrées. Ce fichier local peut contenir du texte sensible, reste ignoré par Git et n’est pas exposé par l’API du Lab.
 
@@ -428,7 +323,6 @@ Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opérat
 - `features/lab` : fine interface FastAPI et HTML/CSS/JavaScript natif ;
 - `prompt_profiles` : instructions LLM immuables, versionnées et modifiables indépendamment ;
 - `prompt_cookbooks` : recettes vidéo versionnées, slots, contrats et templates propres à un cas d’usage ;
-- `storyboard_recipes` : recettes texte-vers-storyboard immuables et compilateurs de prompts KREA2 ;
 - `workflows` : snapshots ComfyUI et manifests explicites.
 
 Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni de ComfyUI, ni d’un fournisseur LLM.
@@ -443,46 +337,39 @@ Les node IDs restent dans les manifests. Le domaine ne dépend ni de FastAPI, ni
 
 Les transitions stylisées et le dialogue continu à travers les coupes restent hors scope tant que ce premier A/B n’est pas qualifié.
 
-### 2. Qualifier Fighter Arcade
-
-- qualifier `Qwen3.6-27B-Huihui-abliterated-Q8_0` sur plusieurs jeux de références ;
-- tester le flux complet avec plusieurs jeux de références ;
-- comparer les sorties H3, puis versionner les corrections de prompts et du linter ;
-- rendre durée, issue et intensité caméra paramétrables seulement après qualification.
-
-### 3. Vérifier la réutilisabilité du moteur vidéo
+### 2. Vérifier la réutilisabilité du moteur vidéo
 
 - permettre plusieurs compositions/forks sur une même session pour comparer deux versions sans réanalyser les images ;
 - ajouter un cookbook de transition comme deuxième cas d’école ;
 - introduire explicitement son contrat T2VA/FL2VA au lieu de le forcer dans Ref2VA ;
 - conserver les mêmes portes de génération, édition et approbation.
 
-### 4. Qualifier l’Image Lab actuel
+### 3. Qualifier l’Image Lab actuel
 
 - refaire le smoke réel de `character.change_view` ;
 - évaluer la matrice visuelle sur plusieurs personnages ;
 - ajuster les bornes LoRA uniquement à partir des résultats observés.
 
-### 5. Qualifier la génération KREA2
+### 4. Qualifier la génération KREA2
 
 - faire un smoke réel des ratios et résolutions de `image.generate.t2i/krea2@0.1.0` ;
-- comparer les checkpoints qualifiés sur les mêmes prompts Storyboard et seeds ;
+- comparer les checkpoints qualifiés sur les mêmes prompts et seeds ;
 - ajouter les LoRAs dans une nouvelle version seulement après qualification de
   leur chargement, de leur ordre et de leurs poids.
 
-### 6. Étendre l’édition d’image
+### 5. Étendre l’édition d’image
 
 - recettes à un, deux ou trois slots sémantiques (`source`, `identity_reference`, `scene_reference`, `previous_panel`) ;
 - opérations dédiées telles que changement d’âge ou édition libre ;
 - continuité optionnelle depuis le panel précédent lorsque la scène ne casse pas.
 
-### 7. Construire la Forge narrative
+### 6. Construire la Forge narrative
 
 - importer une histoire et proposer personnages, lieux et props ;
 - constituer des reference packs approuvés ;
 - planifier les panels par `asset_id`, puis les rendre avec les recettes qualifiées.
 
-Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; les autres workflows vidéo restent à qualifier avant intégration. Limitation V1 : une session Prompt Lab ne porte encore qu’une seule composition/cookbook. PanelForge ne cherche pas à devenir un éditeur universel de graphes ComfyUI ni à découvrir automatiquement leurs paramètres.
+Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; les autres workflows vidéo restent à qualifier avant intégration. Limitation V1 : une session de génération ne porte encore qu’une seule composition/cookbook. PanelForge ne cherche pas à devenir un éditeur universel de graphes ComfyUI ni à découvrir automatiquement leurs paramètres.
 
 ## Vérification
 
@@ -490,4 +377,4 @@ Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; l
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab ; elle compte actuellement 698 tests verts. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.

@@ -109,6 +109,18 @@ class FakeComfyRuntime:
         self.free_calls += 1
 
 
+class FakeLocalGpuMonitor:
+    def get_stats(self):
+        return SimpleNamespace(
+            name="NVIDIA GeForce RTX 5090",
+            total_bytes=32_607 * 1024**2,
+            used_bytes=30_000 * 1024**2,
+            free_bytes=2_188 * 1024**2,
+            used_percent=92.0,
+            temperature_c=67.0,
+        )
+
+
 class FakeRuntimeSocket:
     def __init__(self):
         self.messages = [
@@ -160,6 +172,7 @@ class LabWebTest(unittest.TestCase):
         self.comfy = ImmediateComfy()
         self.model_runtime = FakeModelRuntime()
         self.comfy_runtime = FakeComfyRuntime()
+        self.local_gpu_monitor = FakeLocalGpuMonitor()
         self.runtime_connector = FakeRuntimeConnector()
         runner = ChangeViewRunner(
             recipe=recipe,
@@ -172,6 +185,7 @@ class LabWebTest(unittest.TestCase):
                 runner,
                 model_runtime=self.model_runtime,
                 comfy_runtime=self.comfy_runtime,
+                local_gpu_monitor=self.local_gpu_monitor,
                 runtime_monitor_connector=self.runtime_connector,
             )
         )
@@ -191,12 +205,16 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="release-llm-vram"', page.text)
         self.assertIn('id="release-comfy-vram"', page.text)
         self.assertIn('id="runtime-monitor"', page.text)
+        self.assertIn('id="runtime-server-monitor"', page.text)
+        self.assertIn('id="runtime-local-monitor"', page.text)
+        self.assertIn('id="runtime-local-vram"', page.text)
+        self.assertIn('id="runtime-local-temp"', page.text)
         self.assertIn('id="runtime-services" class="runtime-services warning" hidden', page.text)
         self.assertLess(
             page.text.index('id="release-llm-vram"'),
             page.text.index('id="release-comfy-vram"'),
         )
-        self.assertIn("/static/lab.js?v=20260824.1", page.text)
+        self.assertIn("/static/lab.js?v=20260826.2", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
@@ -213,6 +231,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("((temperature - 25) / (100 - 25)) * 100", script.text)
         self.assertIn('temperature <= 60 ? "green" : temperature <= 80 ? "orange" : "red"', script.text)
         self.assertIn('ui["runtime-services"].hidden = serviceWarnings.length === 0', script.text)
+        self.assertIn('serviceWarnings.push("GPU local indisponible")', script.text)
         self.assertIn('preferredPromptModelId = "Qwen3.8-27B"', script.text)
         self.assertIn('includes("qwen3.8-27b")', script.text)
         self.assertIn('includes("qwen3.6-27b")', script.text)
@@ -221,12 +240,12 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260824.4", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260824.2", page.text)
+        self.assertIn("/static/lab.css?v=20260829.2", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260830.2", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
-        prompt_script = self.client.get("/static/prompt-lab.js")
+        core_script = self.client.get("/static/lab-core.js")
         self.assertEqual(direct_script.status_code, 200)
-        self.assertIn('const preferredCookbookVersion = "0.3.3"', direct_script.text)
+        self.assertIn('const preferredCookbookVersion = "0.4.0"', direct_script.text)
         self.assertIn('const multishotCookbookId = "minimax.h3.ref2v.direct.multishot"', direct_script.text)
         self.assertIn('2–6 plans automatiques', direct_script.text)
         self.assertIn('for (let index = 0; index < shots.length; index += 1)', direct_script.text)
@@ -255,15 +274,14 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('object-fit: cover', stylesheet.text)
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
-        self.assertEqual(prompt_script.status_code, 200)
-        self.assertIn("/static/prompt-lab.js?v=20260821.1", page.text)
-        self.assertIn('data-lab-view="archives"', page.text)
-        self.assertIn('id="archives-workspace"', page.text)
-        self.assertIn('data-archive-view="i2v"', page.text)
-        self.assertIn('data-archive-view="ref2v"', page.text)
+        self.assertEqual(core_script.status_code, 200)
+        self.assertIn("/static/lab-core.js?v=20260830.2", page.text)
+        self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
+        self.assertNotIn('data-lab-view="prompt-lab"', page.text)
+        self.assertNotIn('data-lab-view="archives"', page.text)
+        self.assertNotIn('id="archives-workspace"', page.text)
         self.assertNotIn('data-lab-view="i2v"', page.text)
         self.assertNotIn('data-lab-view="ref2v"', page.text)
-        self.assertIn('class="prompt-workspace i2v-workspace legacy-archive"', page.text)
         self.assertIn('id="ref2vd-mode-warning"', page.text)
         self.assertIn('id="ref2vd-role-warning"', page.text)
         self.assertIn('id="ref2vd-role-confirmation"', page.text)
@@ -282,22 +300,24 @@ class LabWebTest(unittest.TestCase):
             "État visuel final exact",
         ):
             self.assertIn(expected, direct_script.text)
-        self.assertIn("function lockLegacyArchives()", prompt_script.text)
-        self.assertIn("new MutationObserver(lockTextareas)", prompt_script.text)
-        self.assertIn("if (!textarea.readOnly) textarea.readOnly = true", prompt_script.text)
-        self.assertIn('button.id.endsWith("-copy-prompt")', prompt_script.text)
         self.assertIn("function intentionRequestsMultipleShots(value)", direct_script.text)
         self.assertIn("function invalidateRoleConfirmation()", direct_script.text)
         self.assertIn("state.rolesConfirmed", direct_script.text)
         self.assertIn("if (!state.rolesConfirmed)", direct_script.text)
         self.assertIn("state.rolesConfirmed = false", direct_script.text)
         self.assertIn("allAdditionalReferencesAreSubjects", direct_script.text)
-        self.assertIn("function playCompletionTone()", prompt_script.text)
-        self.assertIn('oscillator.type = "triangle"', prompt_script.text)
-        self.assertIn("frequency: 660", prompt_script.text)
-        self.assertIn("frequency: 880", prompt_script.text)
-        self.assertIn("exponentialRampToValueAtTime(0.08", prompt_script.text)
-        self.assertIn('event.kind === "completed"', prompt_script.text)
+        self.assertIn("function playCompletionTone()", core_script.text)
+        self.assertIn('oscillator.type = "triangle"', core_script.text)
+        self.assertIn("frequency: 660", core_script.text)
+        self.assertIn("frequency: 880", core_script.text)
+        self.assertIn("function playFailureTone()", core_script.text)
+        self.assertIn("frequency: 440", core_script.text)
+        self.assertIn("frequency: 220", core_script.text)
+        self.assertIn("function createLlmOutcomeTone()", core_script.text)
+        self.assertIn("if (!started || settled) return", core_script.text)
+        self.assertIn("{ completionTone = false }", core_script.text)
+        self.assertIn("exponentialRampToValueAtTime(0.08", core_script.text)
+        self.assertIn('event.kind === "completed"', core_script.text)
         ids = re.findall(r'\bid="([^"]+)"', page.text)
         self.assertEqual(len(ids), len(set(ids)), "HTML IDs must remain unique")
         self.assertEqual(spec.status_code, 200)
@@ -310,27 +330,26 @@ class LabWebTest(unittest.TestCase):
         )
         self.assertIsInstance(payload["controls"]["seed"]["default"], str)
 
-    def test_exposes_the_local_unsloth_switch_for_every_llm_selector(self):
+    def test_exposes_the_local_unsloth_and_vllm_switch_for_every_llm_selector(self):
         page = self.client.get("/")
         script = self.client.get("/static/lab.js")
 
-        self.assertEqual(page.text.count('data-llm-local-for="'), 9)
+        self.assertEqual(page.text.count('data-llm-local-for="'), 6)
         for select_id in (
             "krea2-assisted-llm",
             "krea2-batch-llm",
             "krea2-edit-llm",
-            "storyboard-lab-model",
-            "prompt-model",
-            "i2v-model",
             "i2vd-model",
-            "ref2v-model",
             "ref2vd-model",
+            "social-llm",
         ):
             self.assertIn(
                 f'data-llm-local-for="{select_id}"',
                 page.text,
             )
-        self.assertIn('model.id.startsWith("local::")', script.text)
+        self.assertIn('new Set(["local", "vllm"])', script.text)
+        self.assertIn('model.id.startsWith("vllm::")', script.text)
+        self.assertEqual(page.text.count("Local · Unsloth / vLLM"), 6)
         self.assertIn("Aucun modèle local disponible", script.text)
 
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
@@ -338,7 +357,7 @@ class LabWebTest(unittest.TestCase):
         script = self.client.get("/static/i2v-direct.js")
         render_script = self.client.get("/static/h3-render-lab.js")
         styles = self.client.get("/static/lab.css")
-        prompt_script = self.client.get("/static/prompt-lab.js")
+        core_script = self.client.get("/static/lab-core.js")
 
         self.assertEqual(page.status_code, 200)
         self.assertEqual(script.status_code, 200)
@@ -359,10 +378,15 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="h3r-lab"', page.text)
         self.assertIn('id="h3r-music"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260825.1', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260830.2', page.text)
+        self.assertIn('id="h3r-revision-version"', page.text)
+        self.assertIn('id="h3r-revision-draft"', page.text)
         self.assertIn('panelforge:h3-base-context', script.text)
         self.assertIn('/api/h3-render/projects/', render_script.text)
-        self.assertIn('/static/i2v-direct.js?v=20260824.5', page.text)
+        self.assertIn("core.createLlmOutcomeTone()", render_script.text)
+        self.assertIn("outcomeTone.success()", render_script.text)
+        self.assertIn("outcomeTone.failure()", render_script.text)
+        self.assertIn('/static/i2v-direct.js?v=20260830.2', page.text)
         self.assertIn('id="i2vd-animal-interview-fields"', page.text)
         self.assertEqual(page.text.count('class="field-label animal-interview-primary-field"'), 2)
         self.assertIn('id="i2vd-dialogue-language"', page.text)
@@ -370,13 +394,28 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('aria-label="Afficher le guide de durée du dialogue"', page.text)
         self.assertIn('id="i2vd-duration-guide"', page.text)
         self.assertIn('Une réplique ≈ 4 s ; deux ≈ 8 s ; quatre ≈ 16 s.', page.text)
+        self.assertIn('id="i2vd-remove-first-image"', page.text)
+        self.assertIn('id="i2vd-remove-last-image"', page.text)
+        self.assertIn('id="i2vd-setup-preview"', page.text)
+        self.assertIn('id="i2vd-setup-first-image"', page.text)
+        self.assertIn('id="i2vd-setup-last-image"', page.text)
         self.assertIn(
             ".h3-base-frame-inputs .i2v-upload > b,",
             styles.text,
         )
         self.assertIn("text-overflow: ellipsis", styles.text)
+        self.assertIn('.h3-base-setup-preview[data-count="1"]', styles.text)
+        self.assertIn(".h3-base-setup-frame img", styles.text)
+        self.assertIn("object-fit: contain", styles.text)
         self.assertIn('title.title = reference.label', script.text)
-        self.assertIn('const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.1" }', script.text)
+        self.assertIn("function removeSelectedFile(slot)", script.text)
+        self.assertIn("function renderSetupPreview()", script.text)
+        self.assertIn("const visible = !state.session && count > 0", script.text)
+        self.assertIn('elements.empty.hidden = Boolean(session)', script.text)
+        self.assertIn('elements.editor.hidden = !session', script.text)
+        self.assertIn('elements.removeFirstImage.addEventListener("click"', script.text)
+        self.assertIn('elements.removeLastImage.addEventListener("click"', script.text)
+        self.assertIn('const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.3" }', script.text)
         self.assertIn('const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" }', script.text)
         self.assertIn('const animalInterviewProfile = { id: "minimax.h3.base.animal-interview", version: "0.1.0" }', script.text)
         self.assertIn('const preferredCookbookKey = `${monoCookbookId}@${monoProfile.version}`', script.text)
@@ -402,21 +441,21 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('function hydrateSourceInputs(sourceText)', script.text)
         self.assertIn('sessionInputModeLabel(session)', script.text)
         self.assertIn('core.decorateSessionLink(button, session.references)', script.text)
-        self.assertIn('function decorateSessionLink(button, references)', prompt_script.text)
-        self.assertIn('image.loading = "lazy"', prompt_script.text)
-        self.assertIn('session-link-thumbnail', prompt_script.text)
+        self.assertIn('function decorateSessionLink(button, references)', core_script.text)
+        self.assertIn('image.loading = "lazy"', core_script.text)
+        self.assertIn('session-link-thumbnail', core_script.text)
         self.assertIn("beat-sheet/reconcile/stream", script.text)
-        self.assertIn('i2vDirect: $("#i2vd-workspace")', prompt_script.text)
+        self.assertIn('i2vDirect: $("#i2vd-workspace")', core_script.text)
         self.assertIn(
-            'elements.i2vDirect.hidden = view !== "i2v-direct"',
-            prompt_script.text,
+            '[elements.i2vDirect, view === "i2v-direct"]',
+            core_script.text,
         )
 
     def test_serves_video_lab_and_ref2v_prefill_bridge(self):
         page = self.client.get("/")
         script = self.client.get("/static/video-lab.js")
         ref2v_script = self.client.get("/static/ref2v-direct.js")
-        navigation = self.client.get("/static/prompt-lab.js")
+        navigation = self.client.get("/static/lab-core.js")
 
         self.assertEqual(page.status_code, 200)
         self.assertEqual(script.status_code, 200)
@@ -551,7 +590,7 @@ class LabWebTest(unittest.TestCase):
         ref2v = self.client.get("/static/ref2v-direct.js")
 
         self.assertEqual(quick.status_code, 200)
-        self.assertIn('/static/quick-pipeline.js?v=20260813.1', page.text)
+        self.assertIn('/static/quick-pipeline.js?v=20260830.2', page.text)
         self.assertIn('id="i2vd-quick-mode" type="checkbox"', page.text)
         self.assertIn('id="ref2vd-execution-mode"', page.text)
         self.assertIn('id="ref2vd-execution-mode-control"', page.text)
@@ -576,6 +615,11 @@ class LabWebTest(unittest.TestCase):
         positions = [quick.text.index(action) for action in ordered_actions]
         self.assertEqual(positions, sorted(positions))
         self.assertIn('if (snapshot()[step.complete]) continue', quick.text)
+        self.assertIn("const maxAttemptsPerStep = 2", quick.text)
+        self.assertIn("attempt <= maxAttemptsPerStep", quick.text)
+        self.assertIn('publish(sessionId, "retrying"', quick.text)
+        self.assertIn("onAttemptOutcome(step, false, attempt)", quick.text)
+        self.assertIn('["running", "retrying"].includes(record.status)', quick.text)
         self.assertIn('status: "interrupted"', quick.text)
         self.assertNotIn("reconcile", quick.text)
         for script in (i2v.text, ref2v.text):
@@ -585,6 +629,9 @@ class LabWebTest(unittest.TestCase):
             self.assertIn("!(documentState.validation_errors || []).length", script)
             self.assertNotIn("validation_warnings || []", script.split("function quickSnapshot()", 1)[1].split("function renderQuickStatus()", 1)[0])
             self.assertIn("reasoningTrace.streamUrl", script)
+            self.assertIn("core.playCompletionTone()", script)
+            self.assertIn("core.playFailureTone()", script)
+            self.assertIn("tentative ${record.attempt}/${record.maxAttempts}", script)
         self.assertIn("async function runSuperFastMode", ref2v.text)
         self.assertIn("/super-fast/stream", ref2v.text)
         self.assertIn("minimax.h3.ref2v.direct.multishot.superfast", ref2v.text)
@@ -629,7 +676,7 @@ class LabWebTest(unittest.TestCase):
 
     def test_exposes_direct_rerun_compound_actions_and_reference_name_copy(self):
         page = self.client.get("/")
-        prompt_navigation = self.client.get("/static/prompt-lab.js")
+        prompt_navigation = self.client.get("/static/lab-core.js")
         scripts = {
             "i2vd": self.client.get("/static/i2v-direct.js").text,
             "ref2vd": self.client.get("/static/ref2v-direct.js").text,
@@ -748,6 +795,10 @@ class LabWebTest(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["gpu"]["used_bytes"], 625)
         self.assertEqual(payload["gpu"]["used_percent"], 62.5)
+        self.assertTrue(payload["local_gpu"]["available"])
+        self.assertEqual(payload["local_gpu"]["name"], "NVIDIA GeForce RTX 5090")
+        self.assertEqual(payload["local_gpu"]["used_percent"], 92.0)
+        self.assertEqual(payload["local_gpu"]["temperature_c"], 67.0)
         self.assertEqual(payload["comfy"]["queue_running"], 0)
         self.assertTrue(payload["comfy"]["cleanup_allowed"])
         self.assertEqual(payload["llm"]["running_models"], ["Qwen3.8-27B"])
@@ -770,6 +821,7 @@ class LabWebTest(unittest.TestCase):
                 ),
                 model_runtime=Offline(),
                 comfy_runtime=Offline(),
+                local_gpu_monitor=Offline(),
             )
             with TestClient(app) as client:
                 response = client.get("/api/runtime/status")
@@ -778,8 +830,10 @@ class LabWebTest(unittest.TestCase):
         payload = response.json()
         self.assertFalse(payload["comfy"]["available"])
         self.assertFalse(payload["llm"]["available"])
+        self.assertFalse(payload["local_gpu"]["available"])
         self.assertEqual(payload["comfy"]["warning"], "ComfyUI indisponible.")
         self.assertEqual(payload["llm"]["warning"], "llama.swap indisponible.")
+        self.assertEqual(payload["local_gpu"]["warning"], "GPU local indisponible.")
         self.assertNotIn("private infrastructure detail", response.text)
 
     def test_unloads_comfy_only_when_requested(self):

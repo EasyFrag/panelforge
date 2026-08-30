@@ -1,0 +1,2 @@
+Describe only visible facts for {label}, role {role}, uses {uses}.
+

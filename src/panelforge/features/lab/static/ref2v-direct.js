@@ -1,17 +1,17 @@
 (() => {
   "use strict";
 
-  const core = window.PanelForgePromptLab;
+  const core = window.PanelForgeLabCore;
   const quickPipeline = window.PanelForgeQuickPipeline;
   if (!core || !quickPipeline) return;
   const $ = (selector) => document.querySelector(selector);
   const profileId = "minimax.h3.ref2v.direct";
-  const profileVersion = "0.1.0";
+  const profileVersion = "0.4.0";
   const cookbookId = "minimax.h3.ref2v.direct";
   const multishotCookbookId = "minimax.h3.ref2v.direct.multishot";
   const superFastCookbookId = "minimax.h3.ref2v.direct.multishot.superfast";
   const superFastCookbookVersion = "0.2.0";
-  const preferredCookbookVersion = "0.3.3";
+  const preferredCookbookVersion = "0.4.0";
   const preferredCookbookValue = `${cookbookId}@${preferredCookbookVersion}`;
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame", "État visible complet à 0,00 s : sujets, pose, cadrage, perspective, décor, lumière et composition."],
@@ -447,7 +447,7 @@
   }
 
   function addFiles(fileList) {
-    const available = Math.max(0, 3 - state.drafts.length);
+    const available = Math.max(0, 9 - state.drafts.length);
     const addedFiles = [...fileList].slice(0, available);
     addedFiles.forEach((file) => {
       const role = state.drafts.length === 0 ? "first_frame" : "subject_reference";
@@ -460,7 +460,7 @@
     if (addedFiles.length) invalidateRoleConfirmation();
     elements.imageInput.value = "";
     if (fileList.length > available) {
-      showSetupMessage("Ref2V Direct accepte trois images au maximum.");
+      showSetupMessage("Ref2V Direct accepte neuf images au maximum.");
     } else {
       showSetupMessage("");
     }
@@ -607,7 +607,7 @@
   function setupValidationError() {
     if (!selectedProfile() || !state.cookbook) return "Le profil Direct est encore en cours de chargement.";
     if (!state.drafts.length) return "Ajoutez au moins une image.";
-    if (state.drafts.length > 3) return "Trois images au maximum.";
+    if (state.drafts.length > 9) return "Neuf images au maximum.";
     if (!state.rolesConfirmed) return "Vérifiez et confirmez le rôle attribué à chaque image.";
     if (!elements.model.value) return "Choisissez un modèle multimodal.";
     if (!elements.intention.value.trim()) return "Décrivez votre intention.";
@@ -848,14 +848,17 @@
     const completedBecameIncomplete = record.status === "completed"
       && state.session && !quickSnapshot().promptApproved;
     const visibleStatus = completedBecameIncomplete ? "interrupted" : record.status;
-    elements.quickStatus.className = `quick-mode-status ${visibleStatus}`;
+    elements.quickStatus.className = `quick-mode-status ${visibleStatus === "retrying" ? "running" : visibleStatus}`;
     elements.quickResume.hidden = !["stopped", "interrupted"].includes(visibleStatus);
     elements.quickResume.textContent = "Reprendre";
     elements.quickResume.disabled = interactionLocked();
     if (completedBecameIncomplete) {
       elements.quickStatusLabel.textContent = "Parcours modifié après le mode rapide · reprise disponible.";
     } else if (record.status === "running") {
-      elements.quickStatusLabel.textContent = `Mode rapide · ${record.stepLabel}…`;
+      const attempt = record.attempt ? ` · tentative ${record.attempt}/${record.maxAttempts}` : "";
+      elements.quickStatusLabel.textContent = `Mode rapide · ${record.stepLabel}${attempt}…`;
+    } else if (record.status === "retrying") {
+      elements.quickStatusLabel.textContent = `Mode rapide · ${record.stepLabel} · tentative ${record.attempt}/${record.maxAttempts} échouée, nouvelle tentative…`;
     } else if (record.status === "completed") {
       elements.quickStatusLabel.textContent = "Mode rapide terminé · Prompt validé.";
     } else {
@@ -881,6 +884,10 @@
           generatePrompt: () => streamCompositionStage("final-prompt"),
           approvePrompt: () => documentAction("final-prompt", "approve"),
         },
+        onAttemptOutcome: (_step, succeeded) => {
+          if (succeeded) core.playCompletionTone();
+          else core.playFailureTone();
+        },
         onState: (record) => { state.quickRecord = record; render(); },
       });
     } finally {
@@ -897,9 +904,11 @@
     state.superFastRunning = true;
     state.superFastRecord = { status: "running", error: "" };
     state.quickRecord = null;
+    const outcomeTone = core.createLlmOutcomeTone();
     render();
     if (directToPrompt) revealSuperFastPrompt();
     try {
+      outcomeTone.start();
       const completed = await streamResult(
         `/api/prompt-lab/sessions/${sessionId}/super-fast/stream`,
         {
@@ -910,8 +919,10 @@
         (event) => { if (event.composition) state.composition = event.composition; },
         directToPrompt ? "Prompt H3 rédigé et validé directement."
           : "Plan automatique compilé en prompt H3.",
+        { notifyOutcome: false },
       );
       if (!completed) {
+        outcomeTone.failure();
         state.superFastRecord = {
           status: "stopped",
           error: streamView.message.textContent
@@ -931,8 +942,10 @@
       elements.prompt.message.className = "message";
       elements.prompt.message.textContent = "Prompt H3 compilé et validé en un appel LLM.";
       if (directToPrompt) revealSuperFastPrompt();
+      outcomeTone.success();
       return true;
     } catch (error) {
+      outcomeTone.failure();
       state.superFastRecord = { status: "stopped", error: error.message };
       showStageError(streamView, error, Boolean(streamView.content.value.trim()));
       if (directToPrompt) revealSuperFastPrompt();
@@ -986,7 +999,7 @@
     elements.start.disabled = locked || Boolean(state.openingSessionId)
       || Boolean(state.session) || Boolean(setupValidationError());
     elements.imageInput.disabled = locked || Boolean(state.session)
-      || Boolean(state.forkSource) || state.drafts.length >= 3;
+      || Boolean(state.forkSource) || state.drafts.length >= 9;
     elements.model.disabled = locked || Boolean(state.session);
     window.PanelForgeModelPicker.setDisabled(elements.model, elements.model.disabled);
     elements.refreshModels.disabled = locked;
@@ -1003,6 +1016,9 @@
     elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
     if (!session) {
       elements.promptReferences.hidden = true;
+      window.dispatchEvent(new CustomEvent("panelforge:ref2v-context", {
+        detail: { session_id: null, prompt_revision_id: null, ready: false },
+      }));
       return;
     }
 
@@ -1056,6 +1072,13 @@
     elements.sendVideoLab.disabled = locked || !prompt
       || !prompt.active_revision_id || !elements.prompt.content.value.trim();
     renderPromptReferences(prompt);
+    window.dispatchEvent(new CustomEvent("panelforge:ref2v-context", {
+      detail: {
+        session_id: session.id,
+        prompt_revision_id: prompt ? prompt.active_revision_id : null,
+        ready: Boolean(generatedDocument(prompt) && !promptState.draft),
+      },
+    }));
   }
 
   function renderDock() {
@@ -1553,6 +1576,7 @@
       elements.brief,
       (event) => { if (event.session) state.session = event.session; },
       revision ? "Brief révisé à partir des images." : "Brief multimodal généré.",
+      { notifyOutcome: !state.quickRunning },
     );
     if (completed) {
       if (revision) elements.brief.instruction.value = "";
@@ -1623,6 +1647,7 @@
         view,
         (event) => { if (event.composition) state.composition = event.composition; },
         revision ? "Révision enregistrée." : stageName === "beat-sheet" ? "Plan proposé." : "Prompt H3 compilé.",
+        { notifyOutcome: !state.quickRunning },
       );
       if (completed && revision) view.instruction.value = "";
       return completed;
@@ -1679,8 +1704,9 @@
     }
   }
 
-  async function streamResult(url, payload, view, onEvent, successMessage) {
+  async function streamResult(url, payload, view, onEvent, successMessage, { notifyOutcome = true } = {}) {
     const previous = view.content.value;
+    const outcomeTone = core.createLlmOutcomeTone();
     let received = false;
     let completed = false;
     setBusy(true);
@@ -1694,6 +1720,7 @@
     reasoningTrace.begin(traceLabel, traceStep);
     core.updateStreamState(view.stream, { phase: "preparing", text: "Préparation ou chargement du modèle…", progress: null });
     try {
+      outcomeTone.start();
       await core.streamRequest(reasoningTrace.streamUrl(url), {
         method: "POST",
         headers: payload ? { "Content-Type": "application/json" } : undefined,
@@ -1720,11 +1747,13 @@
       if (!completed) throw new Error("Le flux s’est terminé sans résultat persistant.");
       view.message.className = "message";
       view.message.textContent = successMessage;
+      if (notifyOutcome) outcomeTone.success();
       return true;
     } catch (error) {
       if (!received) view.content.value = previous;
       showStageError(view, error, received);
       core.failStreamState(view.stream, error.message);
+      if (notifyOutcome) outcomeTone.failure();
       return false;
     } finally {
       reasoningTrace.finish();

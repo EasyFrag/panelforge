@@ -561,9 +561,9 @@ class PromptLabSession:
             raise ValueError("references must not be empty")
         if (
             self.session_mode is PromptSessionMode.DIRECT_MULTIMODAL
-            and len(self.references) > 3
+            and len(self.references) > 9
         ):
-            raise ValueError("direct multimodal sessions support at most 3 references")
+            raise ValueError("direct multimodal sessions support at most 9 references")
         if self.session_mode is PromptSessionMode.H3_BASE and len(self.references) > 2:
             raise ValueError("H3 Base sessions support at most 2 frame references")
         reference_ids: set[str] = set()

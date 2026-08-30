@@ -1,7 +1,0 @@
-CURRENT APPROVED-WORKFLOW DRAFT
-{{CURRENT}}
-
-REQUESTED CHANGE
-{{INSTRUCTION}}
-
-Return the complete revised prompt and nothing else.

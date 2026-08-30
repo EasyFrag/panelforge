@@ -114,12 +114,46 @@ def action_plan_v2(*, with_camera: bool = True) -> dict:
     return value
 
 
+def action_plan_v4(
+    *,
+    with_camera: bool = True,
+    camera_at_zero: bool = False,
+    dialogue_text: str | None = None,
+) -> dict:
+    value = action_plan_v2(with_camera=with_camera)
+    value["beats"][-1]["end_ms"] = 12000
+    value["beats"][-1]["steps"][-1]["end_ms"] = 12000
+    value["final_state"]["final_hold_ms"] = 0
+    value["dialogue_cues"] = (
+        [{
+            "cue_id": "dialogue_1",
+            "speaker_id": "S1",
+            "speaker": "Courier",
+            "start_ms": 2000,
+            "language": "French",
+            "delivery": "calmly",
+            "text": dialogue_text,
+        }]
+        if dialogue_text is not None
+        else []
+    )
+    value["motion_contract"] = {
+        "primary_motion": "The courier walks while handing the parcel to the recipient.",
+        "end_behavior": "continue_motion",
+    }
+    if camera_at_zero and value["camera_directives"]:
+        value["camera_directives"][0]["start_ms"] = 0
+        value["camera_directives"][0]["end_ms"] = 8000
+    return value
+
+
 def final_document(
     *,
     with_camera: bool = True,
     duration: str = "12",
     camera_layout: str = "canonical",
     camera_owned: bool = False,
+    with_dialogue_placeholder: bool = False,
 ) -> str:
     camera = (
         (
@@ -138,6 +172,11 @@ def final_document(
         camera = "At 00:08.000, the transfer is complete.\n"
     elif with_camera and camera_layout == "embedded_prose":
         camera = "At 00:08.000, the recipient turns while [[camera:camera_1]] following the parcel.\n"
+    dialogue = (
+        "At 00:02.000, [[dialogue:dialogue_1]]\n"
+        if with_dialogue_placeholder
+        else ""
+    )
     return (
         "scene_setup:\n"
         f"The target video is one continuous {duration}-second shot. The same warm room, "
@@ -145,6 +184,7 @@ def final_document(
         f"{shot_header}"
         "The courier crosses the room with both hands supporting the parcel. The "
         "recipient takes a shared grip before the courier releases it.\n"
+        f"{dialogue}"
         f"{camera}"
         "The recipient holds the parcel while both people maintain natural balance "
         "and eye contact until the end.\n"
@@ -162,20 +202,33 @@ class DirectGateway:
         with_camera: bool = True,
         camera_layout: str = "canonical",
         camera_owned: bool = False,
+        camera_at_zero: bool = False,
+        dialogue_text: str | None = None,
     ) -> None:
         self.with_camera = with_camera
         self.camera_layout = camera_layout
         self.camera_owned = camera_owned
+        self.camera_at_zero = camera_at_zero
+        self.dialogue_text = dialogue_text
         self.requests: list[CompletionRequest] = []
 
     def complete(self, request: CompletionRequest) -> CompletionResult:
         self.requests.append(request)
+        is_v4 = '"motion_contract"' in request.user_prompt
         is_v2 = "REQUIRED DIRECT REF2V V2" in request.user_prompt
         if request.operation_id == "action_plan.generate":
             content = json.dumps(
-                action_plan_v2(with_camera=self.with_camera)
-                if is_v2
-                else action_plan(with_camera=self.with_camera)
+                action_plan_v4(
+                    with_camera=self.with_camera,
+                    camera_at_zero=self.camera_at_zero,
+                    dialogue_text=self.dialogue_text,
+                )
+                if is_v4
+                else (
+                    action_plan_v2(with_camera=self.with_camera)
+                    if is_v2
+                    else action_plan(with_camera=self.with_camera)
+                )
             )
         else:
             content = final_document(
@@ -183,6 +236,7 @@ class DirectGateway:
                 duration="12",
                 camera_layout=self.camera_layout,
                 camera_owned=self.camera_owned,
+                with_dialogue_placeholder=self.dialogue_text is not None,
             )
         return CompletionResult(
             model_id=request.model_id,
@@ -276,11 +330,19 @@ class ArbitrationGateway(DirectGateway):
 def direct_session(
     assets: LocalAssetStore,
     reference_count: int,
+    *,
+    source_text: str = "Le coursier remet le colis au destinataire.",
 ) -> tuple[PromptLabSession, tuple[bytes, ...]]:
     definitions = (
         ("first_frame", ReferenceUse.FIRST_FRAME, "Opening frame"),
         ("subject_reference", ReferenceUse.SUBJECT, "Identity reference"),
         ("environment_reference", ReferenceUse.ENVIRONMENT, "Room reference"),
+        ("composition_reference", ReferenceUse.COMPOSITION, "Composition reference"),
+        ("style_reference", ReferenceUse.STYLE, "Style reference"),
+        ("motion_reference", ReferenceUse.MOTION, "Motion reference"),
+        ("keyframe_reference", ReferenceUse.KEYFRAME, "Keyframe reference"),
+        ("last_frame", ReferenceUse.LAST_FRAME, "Final frame"),
+        ("subject_reference", ReferenceUse.SUBJECT, "Secondary identity reference"),
     )[:reference_count]
     references: list[PromptReference] = []
     contents: list[bytes] = []
@@ -308,7 +370,7 @@ def direct_session(
     session = session.add_brief_revision(
         BriefRevision(
             revision_id="brief-1",
-            source_text="Le coursier remet le colis au destinataire.",
+            source_text=source_text,
             content=(
                 "Le décor, les identités et les limites d'influence de chaque image "
                 "doivent rester stables pendant une remise de colis continue."
@@ -335,15 +397,27 @@ def configured_service(
     *,
     with_camera: bool = True,
     cookbook_version: str = "0.1.0",
+    camera_at_zero: bool = False,
+    dialogue_text: str | None = None,
 ):
-    asset_ids = iter(f"asset-{index}" for index in range(1, 4))
+    asset_ids = iter(f"asset-{index}" for index in range(1, 10))
     assets = LocalAssetStore(directory, id_factory=lambda: next(asset_ids))
-    session, contents = direct_session(assets, reference_count)
+    session, contents = direct_session(
+        assets,
+        reference_count,
+        source_text=(
+            f'Le coursier dit «{dialogue_text}» en remettant le colis.'
+            if dialogue_text is not None
+            else "Le coursier remet le colis au destinataire."
+        ),
+    )
     sessions = LocalPromptSessionStore(directory)
     sessions.create(session)
     gateway = DirectGateway(
         with_camera=with_camera,
-        camera_owned=cookbook_version == "0.3.3",
+        camera_owned=cookbook_version in {"0.3.3", "0.4.0"},
+        camera_at_zero=camera_at_zero,
+        dialogue_text=dialogue_text,
     )
     service = PromptCompositionService(
         gateway=gateway,
@@ -367,6 +441,120 @@ def configured_service(
 
 
 class DirectRef2VCompositionTest(unittest.TestCase):
+    def test_v4_sends_nine_native_images_in_picture_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway, image_contents = configured_service(
+                directory,
+                9,
+                cookbook_version="0.4.0",
+            )
+
+            service.generate("direct-session", CompositionStage.BEAT_SHEET)
+
+            request = gateway.requests[-1]
+            self.assertEqual(len(request.images), 9)
+            self.assertEqual(
+                tuple(image.content for image in request.images),
+                image_contents,
+            )
+            self.assertEqual(
+                tuple(image.label.split(" ·", 1)[0] for image in request.images),
+                tuple(f"<Picture {index}>" for index in range(1, 10)),
+            )
+
+    def test_v4_compiles_exact_dialogue_inside_ref2v_shot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, _ = configured_service(
+                directory,
+                2,
+                cookbook_version="0.4.0",
+                dialogue_text="Bonjour, gardez le colis.",
+            )
+            service.generate("direct-session", CompositionStage.BEAT_SHEET)
+            service.approve("direct-session", CompositionStage.BEAT_SHEET)
+
+            composition = service.generate(
+                "direct-session",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+            final = composition.final_prompt.active_revision.content
+            self.assertEqual(final.count("Bonjour, gardez le colis."), 1)
+            self.assertIn(
+                '(S1) says calmly: <d>[French] Bonjour, gardez le colis.</d>',
+                final,
+            )
+            self.assertNotIn("[[dialogue:", final)
+
+    def test_v4_compiles_continuing_motion_camera_and_reference_header(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway, _ = configured_service(
+                directory,
+                2,
+                cookbook_version="0.4.0",
+            )
+
+            composition = service.generate(
+                "direct-session",
+                CompositionStage.BEAT_SHEET,
+            )
+            plan = json.loads(composition.beat_sheet.active_revision.content)
+            self.assertEqual(
+                plan["motion_contract"]["end_behavior"],
+                "continue_motion",
+            )
+            self.assertEqual(plan["final_state"]["final_hold_ms"], 0)
+            service.approve("direct-session", CompositionStage.BEAT_SHEET)
+
+            composition = service.generate(
+                "direct-session",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+            writer_request = gateway.requests[-1]
+            self.assertNotIn('"risks"', writer_request.user_prompt)
+            self.assertNotIn('"technical_adjustments"', writer_request.user_prompt)
+            final = composition.final_prompt.active_revision.content
+            self.assertIn("<Picture 1>", final)
+            self.assertIn("<Picture 2>", final)
+            self.assertIn("The camera pushes in", final)
+            self.assertIn(
+                "The video ends during the same ongoing motion, without a pause, "
+                "freeze, or held pose.",
+                final,
+            )
+            self.assertNotIn("[[camera:", final)
+
+    def test_v4_keeps_zero_ms_camera_before_compiled_motion_continuity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, _ = configured_service(
+                directory,
+                2,
+                cookbook_version="0.4.0",
+                camera_at_zero=True,
+            )
+            service.generate("direct-session", CompositionStage.BEAT_SHEET)
+            service.approve("direct-session", CompositionStage.BEAT_SHEET)
+
+            composition = service.generate(
+                "direct-session",
+                CompositionStage.FINAL_PROMPT,
+            )
+
+            final = composition.final_prompt.active_revision.content
+            camera = "The camera pushes in with small amplitude at slow speed"
+            continuity = "Throughout the entire shot, the courier walks"
+            shot_start = final.index("Shot 1:")
+            self.assertRegex(
+                final[shot_start:],
+                r"^Shot 1:\s*The camera pushes in with small amplitude at slow speed",
+            )
+            self.assertLess(final.index(camera), final.index(continuity))
+            self.assertLess(
+                final.index(continuity),
+                final.index("The courier crosses the room"),
+            )
+
     def test_camera_owned_mono_writer_uses_landmarks_and_code_inserts_camera(self):
         with tempfile.TemporaryDirectory() as directory:
             service, gateway, _ = configured_service(

@@ -1,5 +1,4 @@
 from pathlib import Path
-import hashlib
 import tempfile
 import unittest
 
@@ -83,16 +82,6 @@ class ImmediateKrea2Comfy:
         self.cancelled.append(prompt_id)
 
 
-class FakeStoryboardLab:
-    def __init__(self) -> None:
-        self.run_ids = {"storyboard-42"}
-
-    def get(self, run_id):
-        if run_id not in self.run_ids:
-            raise KeyError(run_id)
-        return object()
-
-
 class Krea2LabWebTest(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -114,13 +103,7 @@ class Krea2LabWebTest(unittest.TestCase):
             run_id_factory=iter(("krea2-1", "krea2-2", "krea2-3")).__next__,
             sleep=lambda _: None,
         )
-        self.client = TestClient(
-            create_app(
-                change_runner,
-                krea2_lab=self.krea2_lab,
-                storyboard_lab=FakeStoryboardLab(),
-            )
-        )
+        self.client = TestClient(create_app(change_runner, krea2_lab=self.krea2_lab))
 
     def tearDown(self) -> None:
         self.client.close()
@@ -146,9 +129,8 @@ class Krea2LabWebTest(unittest.TestCase):
         self.assertNotIn("preview", value)
         self.assertNotIn("preview_ws_url", value)
 
-    def test_prepare_start_and_final_png_keep_exact_controls_and_provenance(self):
-        prompt = "A strict six-panel storyboard page."
-        source_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    def test_prepare_start_and_final_png_keep_exact_controls(self):
+        prompt = "A strict image prompt."
         prepared_response = self.client.post(
             "/api/image-lab/krea2/runs",
             json={
@@ -158,8 +140,6 @@ class Krea2LabWebTest(unittest.TestCase):
                 "megapixels": 4.0,
                 "seed": "18446744073709551615",
                 "seed_locked": True,
-                "source_storyboard_run_id": "storyboard-42",
-                "source_prompt_sha256": "f" * 64,
             },
         )
 
@@ -170,8 +150,8 @@ class Krea2LabWebTest(unittest.TestCase):
         self.assertEqual(prepared["aspect_ratio"], "1:1 (Square)")
         self.assertEqual(prepared["megapixels"], 4.0)
         self.assertEqual(prepared["seed"], "18446744073709551615")
-        self.assertEqual(prepared["source_storyboard_run_id"], "storyboard-42")
-        self.assertEqual(prepared["source_prompt_sha256"], source_hash)
+        self.assertIsNone(prepared["source_storyboard_run_id"])
+        self.assertIsNone(prepared["source_prompt_sha256"])
         self.assertEqual(self.comfy.submitted, [])
 
         started = self.client.post(
@@ -246,25 +226,6 @@ class Krea2LabWebTest(unittest.TestCase):
         history = self.client.get("/api/image-lab/krea2/runs?limit=10")
         self.assertEqual(history.status_code, 200)
         self.assertEqual(history.json()["runs"][0]["run_id"], prepared["run_id"])
-
-    def test_storyboard_provenance_requires_an_existing_source(self):
-        unknown = self.client.post(
-            "/api/image-lab/krea2/runs",
-            json={
-                "prompt": "An edited Storyboard prompt.",
-                "source_storyboard_run_id": "storyboard-missing",
-                "source_prompt_sha256": "0" * 64,
-            },
-        )
-        self.assertEqual(unknown.status_code, 404)
-        self.assertEqual(unknown.json()["detail"], "Storyboard source run not found")
-
-        orphan_hash = self.client.post(
-            "/api/image-lab/krea2/runs",
-            json={"prompt": "A prompt.", "source_prompt_sha256": "0" * 64},
-        )
-        self.assertEqual(orphan_hash.status_code, 422)
-        self.assertIn("requires source_storyboard_run_id", orphan_hash.json()["detail"])
 
     def test_unavailable_discovery_keeps_allowlist_usable_as_unknown(self):
         self.comfy.discovery_error = OSError("ComfyUI offline")

@@ -6,9 +6,12 @@ from pathlib import Path
 from panelforge.application.direct_i2v_prompt import apply_direct_i2v_timing
 from panelforge.application.direct_ref2v_plan import (
     canonical_direct_ref2v_action_plan_v4,
+    canonical_direct_ref2v_action_plan_v4_late_anchor,
+    continuing_motion_final_anchor_errors,
     direct_ref2v_writer_plan_v4_camera_clean,
     direct_ref2v_action_plan_schema_v4,
     direct_ref2v_action_plan_warnings_v4,
+    parse_direct_ref2v_action_plan_v4,
 )
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
 from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
@@ -104,6 +107,26 @@ def camera_contaminated_motion_plan() -> dict:
     return plan
 
 
+def late_anchor_motion_plan(*, end_behavior: str = "continue_motion") -> dict:
+    plan = motion_plan(end_behavior=end_behavior, final_hold_ms=0)
+    plan["beats"][-1]["primary_action"] = (
+        "The crown assembles while the couple keeps waltzing at a steady tempo."
+    )
+    plan["beats"][-1]["steps"][-1]["action"] = (
+        "The crown assembles during the same uninterrupted waltz rotation."
+    )
+    plan["beats"][-1]["steps"][-1]["continuity_after"] = (
+        "The couple keeps rotating and their clothing continues responding to motion."
+    )
+    plan["beats"][-1]["observable_end_state"] = (
+        "The transformed couple remains visibly mid-rotation."
+    )
+    plan["final_state"]["description"] = (
+        "The transformed gown and crown are fully visible while the couple is mid-rotation."
+    )
+    return plan
+
+
 class H3BaseMotionV3Test(unittest.TestCase):
     def test_catalog_keeps_v2_and_adds_motion_aware_v3(self):
         cookbooks = LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks")
@@ -127,6 +150,153 @@ class H3BaseMotionV3Test(unittest.TestCase):
         profiles = LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles")
         profile = profiles.get("minimax.h3.fl2va.direct", "0.3.1")
         self.assertIn("caméra nette", profile.display_name)
+
+    def test_catalog_adds_instantaneous_anchor_v4_without_replacing_camera_clean(self):
+        cookbooks = LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks")
+        previous = cookbooks.get("minimax.h3.fl2va.direct", "0.3.1")
+        current = cookbooks.get("minimax.h3.fl2va.direct", "0.3.2")
+        self.assertEqual(
+            previous.output_contract,
+            "minimax.h3.fl2va.direct_compact_h3_v3",
+        )
+        self.assertEqual(
+            current.output_contract,
+            "minimax.h3.fl2va.direct_compact_h3_v4",
+        )
+        self.assertEqual(current.writer_projection, "camera_clean_v4")
+        self.assertIn(
+            "changing background parallax",
+            current.beat_sheet_system_prompt,
+        )
+        self.assertIn(
+            "Do not split or taper one continuous camera move",
+            current.beat_sheet_system_prompt,
+        )
+        self.assertIn(
+            "instantaneous frame sampled from ongoing motion",
+            current.final_prompt_system_prompt,
+        )
+        profiles = LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles")
+        profile = profiles.get("minimax.h3.fl2va.direct", "0.3.2")
+        self.assertIn("ancre finale instantanée", profile.display_name)
+        self.assertIn("impression de sur-place", profile.brief_system_prompt)
+
+    def test_catalog_adds_json_robust_v033_without_replacing_v032(self):
+        cookbooks = LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks")
+        previous = cookbooks.get("minimax.h3.fl2va.direct", "0.3.2")
+        current = cookbooks.get("minimax.h3.fl2va.direct", "0.3.3")
+
+        self.assertEqual(current.output_contract, previous.output_contract)
+        self.assertEqual(current.writer_projection, previous.writer_projection)
+        self.assertIn("strict JSON syntax pass", current.beat_sheet_system_prompt)
+        profiles = LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles")
+        self.assertIn(
+            "JSON robuste",
+            profiles.get("minimax.h3.fl2va.direct", "0.3.3").display_name,
+        )
+
+    def test_action_plan_repairs_one_missing_opening_key_quote(self):
+        malformed = json.dumps(late_anchor_motion_plan(), indent=2).replace(
+            '"risk_id":',
+            'risk_id":',
+            1,
+        )
+
+        parsed = parse_direct_ref2v_action_plan_v4(malformed)
+
+        self.assertEqual(parsed.motion_contract.end_behavior.value, "continue_motion")
+
+    def test_late_anchor_guard_rejects_early_final_frame_convergence(self):
+        plan = late_anchor_motion_plan()
+        plan["beats"][-1]["steps"][-1]["action"] = (
+            "The couple settles into the locked final-frame composition while dancing."
+        )
+
+        errors = continuing_motion_final_anchor_errors(json.dumps(plan))
+
+        self.assertTrue(any("must not settle into" in error for error in errors))
+        with self.assertRaisesRegex(ValueError, "instantaneous pass-through"):
+            canonical_direct_ref2v_action_plan_v4_late_anchor(json.dumps(plan))
+
+    def test_late_anchor_guard_rejects_frame_bookkeeping_in_final_snapshot(self):
+        plan = late_anchor_motion_plan()
+        plan["final_state"]["description"] = (
+            "The moving couple matches the locked final frame."
+        )
+
+        with self.assertRaisesRegex(ValueError, "frame matching remains"):
+            canonical_direct_ref2v_action_plan_v4_late_anchor(json.dumps(plan))
+
+    def test_late_anchor_guard_rejects_camera_convergence_on_locked_frame(self):
+        plan = late_anchor_motion_plan()
+        plan["camera_directives"] = [
+            {
+                "directive_id": "camera_1",
+                "start_ms": 0,
+                "end_ms": 8000,
+                "motion": "tracking_shot",
+                "amplitude": "small",
+                "speed": "fast",
+                "target_clause": None,
+                "visible_change": (
+                    "The tracking move ends exactly on the locked-frame composition."
+                ),
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "instantaneous pass-through"):
+            canonical_direct_ref2v_action_plan_v4_late_anchor(json.dumps(plan))
+
+    def test_late_anchor_guard_accepts_tracking_motion_and_pass_through(self):
+        plan = late_anchor_motion_plan()
+        plan["beats"][-1]["steps"][-1]["action"] = (
+            "The tracked couple passes through the final-frame composition as "
+            "background parallax and cloth motion continue."
+        )
+
+        canonical = canonical_direct_ref2v_action_plan_v4_late_anchor(
+            json.dumps(plan)
+        )
+
+        self.assertEqual(continuing_motion_final_anchor_errors(canonical), ())
+
+    def test_late_anchor_guard_accepts_an_explicit_no_convergence_clause(self):
+        plan = late_anchor_motion_plan()
+        plan["beats"][-1]["steps"][-1]["continuity_after"] = (
+            "The couple keeps rotating without settling into the final-frame composition."
+        )
+
+        canonical = canonical_direct_ref2v_action_plan_v4_late_anchor(
+            json.dumps(plan)
+        )
+
+        self.assertEqual(continuing_motion_final_anchor_errors(canonical), ())
+
+    def test_late_anchor_guard_does_not_change_a_requested_natural_settle(self):
+        plan = late_anchor_motion_plan(end_behavior="natural_settle")
+        plan["final_state"]["final_hold_ms"] = 1000
+        plan["beats"][-1]["steps"][-1]["action"] = (
+            "The umbrella settles into the final-frame position."
+        )
+
+        canonical = canonical_direct_ref2v_action_plan_v4_late_anchor(
+            json.dumps(plan)
+        )
+
+        self.assertEqual(json.loads(canonical)["final_state"]["final_hold_ms"], 1000)
+
+    def test_late_anchor_guard_does_not_change_a_requested_intentional_hold(self):
+        plan = late_anchor_motion_plan(end_behavior="intentional_hold")
+        plan["final_state"]["final_hold_ms"] = 1200
+        plan["beats"][-1]["steps"][-1]["action"] = (
+            "The dancer locks into the explicitly requested final-frame pose."
+        )
+
+        canonical = canonical_direct_ref2v_action_plan_v4_late_anchor(
+            json.dumps(plan)
+        )
+
+        self.assertEqual(json.loads(canonical)["final_state"]["final_hold_ms"], 1200)
 
     def test_camera_clean_projection_removes_plan_camera_prose_only(self):
         projection = json.loads(
@@ -293,6 +463,43 @@ class H3BaseMotionV3Test(unittest.TestCase):
                 '"camera_landmarks_ms"', '"landmarks_ms"'
             )
             self.assertNotIn("camera", writer_input)
+
+    def test_full_instantaneous_anchor_generation_uses_v4_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = configured_service(
+                directory,
+                ("first_frame", "last_frame"),
+                source_text="Valse dynamique en un plan de 9 secondes.",
+                profile_version="0.3.2",
+                cookbook_version="0.3.2",
+            )
+
+            def response(request):
+                if request.operation_id == "action_plan.generate":
+                    return json.dumps(late_anchor_motion_plan())
+                return writer_body()
+
+            gateway._content = response
+            planned = service.generate(
+                "h3-base-session", CompositionStage.BEAT_SHEET
+            )
+            self.assertEqual(
+                continuing_motion_final_anchor_errors(
+                    planned.beat_sheet.active_revision.content
+                ),
+                (),
+            )
+            service.approve("h3-base-session", CompositionStage.BEAT_SHEET)
+            completed = service.generate(
+                "h3-base-session", CompositionStage.FINAL_PROMPT
+            )
+
+            final = completed.final_prompt.active_revision.content
+            self.assertIn("The video ends during the same ongoing motion", final)
+            self.assertIn(
+                "instantaneous frame sampled from ongoing motion",
+                gateway.requests[-1].system_prompt,
+            )
 
 
 if __name__ == "__main__":
