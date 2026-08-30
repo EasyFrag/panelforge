@@ -1107,3 +1107,21 @@
 
 ### Risks / open questions
 - Le dernier impératif de `brief_user.txt` emploie encore « direction créative mono-plan forte » quel que soit le niveau. Les règles système et la politique injectée définissent ensuite précisément 0–3 et restent prioritaires ; le point est non bloquant, mais pourra être reformulé dans une future version de prompt si les essais montrent une audace excessive aux niveaux 0–1.
+
+## Publication 2026-08-30 — snapshot avant LoRA vidéo
+
+### Works
+- Le snapshot applicatif audité est le commit `e11f3efc92d3ffe7517dae93ad0876a3563e71a2` sur la branche `production-orchestrator-v1`.
+- Le tag annoté `stable-production-orchestrator-audacity-2026-08-30` pointe sur ce commit.
+- La branche et le tag ont été publiés avec succès sur `https://github.com/EasyFrag/panelforge.git` après confirmation explicite de l'utilisateur.
+
+### Broken / missing
+- Aucun échec de publication connu.
+
+### Next steps (max 3)
+1. Conserver le tag stable comme point de retour avant l'évolution LoRA vidéo.
+2. Implémenter le profil LoRA MiniMax partagé par H3 Base et Production, puis l'étendre à Ref2V après validation réelle.
+3. Comparer séparément les quatre niveaux d'audace sur une même scène lorsque des essais qualitatifs seront disponibles.
+
+### Risks / open questions
+- La branche de travail pourra avancer avec le patch LoRA ; le tag stable doit rester immuable sur `e11f3ef`.
