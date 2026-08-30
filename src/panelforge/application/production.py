@@ -318,6 +318,16 @@ class ProductionService:
                 "seed": str(job.video_seed) if job.video_seed is not None else None,
                 "seed_locked": job.video_seed is not None,
                 "music_enabled": job.config.music_enabled,
+                "h3_video_lora": (
+                    {
+                        "name": job.config.h3_video_lora.name,
+                        "strength": job.config.h3_video_lora.strength,
+                        "clip_last_layer": job.config.h3_video_lora.clip_last_layer,
+                        "overlay_version": job.config.h3_video_lora.overlay_version,
+                    }
+                    if job.config.h3_video_lora is not None
+                    else None
+                ),
             },
             "documents": documents,
             "current_prompt": project.current_prompt if project is not None else None,
@@ -1011,7 +1021,8 @@ class ProductionService:
                 f"Prompt H3 final · compilé pour {project.input_mode.value.upper()} · "
                 f"ratio {job.config.image_settings.aspect_ratio.value} · "
                 f"{job.config.duration_seconds:g} s · {job.config.video_steps} steps · "
-                f"seed {seed} verrouillée · musique {'ON' if job.config.music_enabled else 'OFF'}."
+                f"seed {seed} verrouillée · musique {'ON' if job.config.music_enabled else 'OFF'} · "
+                f"{_h3_video_lora_label(job.config.h3_video_lora)}."
             ),
         )
         return self._transition(
@@ -1099,6 +1110,11 @@ class ProductionService:
                 prompt=project.current_prompt,
                 settings=self._video_settings(job, job.config.preview_megapixels),
                 music_enabled=job.config.music_enabled,
+                **(
+                    {"video_lora": job.config.h3_video_lora}
+                    if job.config.h3_video_lora is not None
+                    else {}
+                ),
             )
             attempt = project.attempts[-1]
             latest = self.jobs.get(job.job_id)
@@ -1217,6 +1233,11 @@ class ProductionService:
                 prompt=project.current_prompt,
                 settings=self._video_settings(job, job.config.final_megapixels),
                 music_enabled=job.config.music_enabled,
+                **(
+                    {"video_lora": job.config.h3_video_lora}
+                    if job.config.h3_video_lora is not None
+                    else {}
+                ),
             )
             attempt = project.attempts[-1]
             job = self.jobs.save(replace(
@@ -1580,6 +1601,7 @@ class ProductionService:
                 f"{job.config.duration_seconds:g} s · {job.config.video_steps} steps · "
                 f"preview {job.config.preview_megapixels:g} MP · final {job.config.final_megapixels:g} MP · "
                 f"musique {'ON' if job.config.music_enabled else 'OFF'} · "
+                f"{_h3_video_lora_label(job.config.h3_video_lora)} · "
                 f"direction créative {'ON' if job.config.creative_direction_enabled else 'OFF'} · "
                 f"audace {job.config.creative_audacity}/3."
             ),
@@ -1768,6 +1790,16 @@ def _production_lora_strength(value: float) -> float:
     """Keep Production renders safe while legacy plans remain readable."""
 
     return max(-1.0, min(1.0, float(value)))
+
+
+def _h3_video_lora_label(value: object) -> str:
+    if value is None:
+        return "LoRA vidéo H3 Standard"
+    clip = " · CLIP -2" if getattr(value, "clip_last_layer", None) == -2 else ""
+    return (
+        f"LoRA vidéo H3 {getattr(value, 'name', '?')} × "
+        f"{float(getattr(value, 'strength', 0)):.2f}{clip}"
+    )
 
 
 def _normalized_lora_name(value: str) -> str:

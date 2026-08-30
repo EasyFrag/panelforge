@@ -10,7 +10,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from panelforge.domain.h3_render import H3RenderInputMode
+from panelforge.domain.h3_render import (
+    H3_VIDEO_LORA_OVERLAY_VERSION,
+    H3RenderInputMode,
+    H3VideoLoraSelection,
+)
 from panelforge.domain.recipes import RecipeRef
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
 
@@ -28,6 +32,23 @@ class H3RenderPresetValidationError(ValueError):
 class InputBinding:
     node_id: str
     input_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class NodeOutputBinding:
+    node_id: str
+    output_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class VideoLoraOverlayBinding:
+    version: str
+    lora_node_id: str
+    clip_last_layer_node_id: str
+    model_source: NodeOutputBinding
+    clip_source: NodeOutputBinding
+    model_target: InputBinding
+    clip_targets: tuple[InputBinding, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +100,7 @@ class ValidatedH3RenderWorkflow:
     last_frame: FrameBinding
     output_video: OutputBinding
     keyframes: KeyframeBinding
+    video_lora_overlay: VideoLoraOverlayBinding | None
     presets: Mapping[str, H3RenderPreset]
     _workflow_json: bytes = field(repr=False)
 
@@ -151,6 +173,7 @@ class H3RenderPresetRecipe:
         settings: VideoLabSettings,
         output_filename_prefix: str,
         keyframe_indices: tuple[int, ...],
+        video_lora: H3VideoLoraSelection | None = None,
     ) -> dict[str, Any]:
         return build_h3_render_workflow(
             self.preset,
@@ -161,6 +184,7 @@ class H3RenderPresetRecipe:
             settings=settings,
             output_filename_prefix=output_filename_prefix,
             keyframe_indices=keyframe_indices,
+            video_lora=video_lora,
         )
 
 
@@ -241,6 +265,11 @@ def validate_h3_render_workflow(
         margin_ms=_positive_integer(keyframes.get("margin_ms"), "keyframes.margin_ms"),
         maximum=_positive_integer(keyframes.get("maximum"), "keyframes.maximum"),
     )
+    video_lora_overlay = (
+        _video_lora_overlay_binding(bindings.get("video_lora_overlay"), nodes)
+        if "video_lora_overlay" in bindings
+        else None
+    )
     _validate_assertions(manifest.get("workflow_assertions"), nodes)
     presets = _validate_presets(manifest.get("presets"))
     if DEFAULT_H3_RENDER_PRESET_ID not in presets:
@@ -256,6 +285,7 @@ def validate_h3_render_workflow(
         last_frame=last,
         output_video=output,
         keyframes=keyframe_binding,
+        video_lora_overlay=video_lora_overlay,
         presets=MappingProxyType(presets),
         _workflow_json=serialized,
     )
@@ -271,6 +301,7 @@ def build_h3_render_workflow(
     settings: VideoLabSettings,
     output_filename_prefix: str,
     keyframe_indices: tuple[int, ...],
+    video_lora: H3VideoLoraSelection | None = None,
 ) -> dict[str, Any]:
     if not isinstance(input_mode, H3RenderInputMode):
         raise TypeError("input_mode must be an H3RenderInputMode")
@@ -296,6 +327,8 @@ def build_h3_render_workflow(
         raise ValueError("too many keyframes")
     if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in keyframe_indices):
         raise ValueError("keyframe indices must be non-negative integers")
+    if video_lora is not None and not isinstance(video_lora, H3VideoLoraSelection):
+        raise TypeError("video_lora must be an H3VideoLoraSelection or None")
 
     workflow = preset.workflow
     scalar_values: Mapping[str, object] = {
@@ -315,6 +348,10 @@ def build_h3_render_workflow(
 
     _apply_frame(workflow, preset.first_frame, first_frame, synthetic=False)
     _apply_frame(workflow, preset.last_frame, last_frame, synthetic=False)
+    if video_lora is not None:
+        if preset.video_lora_overlay is None:
+            raise ValueError("this H3 render workflow does not support video LoRAs")
+        _apply_video_lora(workflow, preset.video_lora_overlay, video_lora)
     for index, frame_index in enumerate(keyframe_indices):
         selector_id = str(preset.keyframes.selector_node_base + index)
         save_id = str(preset.keyframes.save_node_base + index)
@@ -336,6 +373,47 @@ def build_h3_render_workflow(
             "_meta": {"title": f"Save PanelForge keyframe {index + 1}"},
         }
     return workflow
+
+
+def _apply_video_lora(
+    workflow: dict[str, Any],
+    binding: VideoLoraOverlayBinding,
+    selection: H3VideoLoraSelection,
+) -> None:
+    if selection.overlay_version != binding.version:
+        raise ValueError("H3 video LoRA overlay version disagrees with the workflow")
+    workflow[binding.lora_node_id] = {
+        "inputs": {
+            "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+            "lora_1": {
+                "on": True,
+                "lora": selection.name,
+                "strength": selection.strength,
+            },
+            "\u2795 Add Lora": "",
+            "model": [binding.model_source.node_id, binding.model_source.output_index],
+            "clip": [binding.clip_source.node_id, binding.clip_source.output_index],
+        },
+        "class_type": "Power Lora Loader (rgthree)",
+        "_meta": {"title": "PanelForge MiniMax video LoRA"},
+    }
+    workflow[binding.model_target.node_id]["inputs"][binding.model_target.input_name] = [
+        binding.lora_node_id,
+        0,
+    ]
+    clip_output: list[object] = [binding.lora_node_id, 1]
+    if selection.clip_last_layer is not None:
+        workflow[binding.clip_last_layer_node_id] = {
+            "inputs": {
+                "stop_at_clip_layer": selection.clip_last_layer,
+                "clip": clip_output,
+            },
+            "class_type": "CLIPSetLastLayer",
+            "_meta": {"title": "PanelForge MiniMax LoRA CLIP layer"},
+        }
+        clip_output = [binding.clip_last_layer_node_id, 0]
+    for target in binding.clip_targets:
+        workflow[target.node_id]["inputs"][target.input_name] = clip_output
 
 
 def _apply_frame(
@@ -385,6 +463,70 @@ def _frame_binding(
     if not targets:
         raise H3RenderPresetValidationError(f"{label} requires targets")
     return FrameBinding(load_node_id, input_name, targets)
+
+
+def _video_lora_overlay_binding(
+    value: Any,
+    workflow: Mapping[str, Any],
+) -> VideoLoraOverlayBinding:
+    label = "bindings.video_lora_overlay"
+    config = _object(value, label)
+    version = _text(config.get("version"), f"{label}.version")
+    if version != H3_VIDEO_LORA_OVERLAY_VERSION:
+        raise H3RenderPresetValidationError("unsupported video LoRA overlay version")
+    lora_node_id = _text(config.get("lora_node_id"), f"{label}.lora_node_id")
+    clip_node_id = _text(
+        config.get("clip_last_layer_node_id"),
+        f"{label}.clip_last_layer_node_id",
+    )
+    if lora_node_id == clip_node_id or lora_node_id in workflow or clip_node_id in workflow:
+        raise H3RenderPresetValidationError("video LoRA overlay node IDs must be unused")
+
+    def source(raw: Any, source_label: str) -> NodeOutputBinding:
+        source_config = _object(raw, source_label)
+        node_id = _text(source_config.get("node_id"), f"{source_label}.node_id")
+        if node_id not in workflow:
+            raise H3RenderPresetValidationError(f"{source_label} node is missing")
+        return NodeOutputBinding(
+            node_id=node_id,
+            output_index=_non_negative_integer(
+                source_config.get("output_index"),
+                f"{source_label}.output_index",
+            ),
+        )
+
+    model_source = source(config.get("model_source"), f"{label}.model_source")
+    clip_source = source(config.get("clip_source"), f"{label}.clip_source")
+    model_target = _input_binding(
+        config.get("model_target"), workflow, f"{label}.model_target"
+    )
+    clip_targets = _input_bindings(
+        config.get("clip_targets"), workflow, f"{label}.clip_targets"
+    )
+    if workflow[model_target.node_id]["inputs"][model_target.input_name] != [
+        model_source.node_id,
+        model_source.output_index,
+    ]:
+        raise H3RenderPresetValidationError(
+            "video LoRA model target does not consume the declared source"
+        )
+    for target in clip_targets:
+        if workflow[target.node_id]["inputs"][target.input_name] != [
+            clip_source.node_id,
+            clip_source.output_index,
+        ]:
+            raise H3RenderPresetValidationError(
+                "video LoRA CLIP target does not consume the declared source"
+            )
+    return VideoLoraOverlayBinding(
+        version=version,
+        lora_node_id=lora_node_id,
+        clip_last_layer_node_id=clip_node_id,
+        model_source=model_source,
+        clip_source=clip_source,
+        model_target=model_target,
+        clip_targets=clip_targets,
+    )
 
 
 def _input_binding(value: Any, workflow: Mapping[str, Any], label: str, *, require_input: bool = True) -> InputBinding:

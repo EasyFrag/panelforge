@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "operation": "video.generate.h3-base",
+  "recipe_id": "minimax-h3-latent-speed",
+  "version": "0.1.2",
+  "status": "experimental",
+  "scope": {
+    "fps": 24,
+    "input_modes": ["t2va", "i2va", "l2va", "fl2va"]
+  },
+  "workflow": {
+    "file": "workflow_api.json",
+    "sha256": "5a7e6e2283ee91764b785e520aa7c7b3f0002de98ba1c48e703c807e5e39c78a"
+  },
+  "bindings": {
+    "positive_prompt": {"node_id": "14", "input": "value"},
+    "aspect_ratio": [
+      {"node_id": "15", "input": "aspect_ratio"},
+      {"node_id": "22", "input": "aspect_ratio"}
+    ],
+    "megapixels": {"node_id": "27", "input": "value"},
+    "duration_seconds": {"node_id": "20", "input": "value"},
+    "steps": [
+      {"node_id": "8", "input": "steps"},
+      {"node_id": "3", "input": "step"}
+    ],
+    "seed": {"node_id": "37", "input": "noise_seed"},
+    "output_filename_prefix": {"node_id": "4", "input": "filename_prefix"},
+    "first_frame": {
+      "load_node_id": "9",
+      "input": "image",
+      "targets": [
+        {"node_id": "16", "input": "first_frame"},
+        {"node_id": "19", "input": "first_frame"}
+      ]
+    },
+    "last_frame": {
+      "load_node_id": "10",
+      "input": "image",
+      "targets": [
+        {"node_id": "16", "input": "last_frame"},
+        {"node_id": "19", "input": "last_frame"}
+      ]
+    },
+    "decoded_images": {"node_id": "11", "output_index": 0},
+    "output_video": {"node_id": "4", "history_field": "images"},
+    "keyframes": {
+      "selector_node_base": 9000,
+      "save_node_base": 9100,
+      "history_field": "images",
+      "margin_ms": 500,
+      "maximum": 8
+    },
+    "video_lora_overlay": {
+      "version": "0.1.0",
+      "lora_node_id": "9200",
+      "clip_last_layer_node_id": "9201",
+      "model_source": {"node_id": "34", "output_index": 0},
+      "clip_source": {"node_id": "21", "output_index": 0},
+      "model_target": {"node_id": "42", "input": "model"},
+      "clip_targets": [
+        {"node_id": "16", "input": "clip"},
+        {"node_id": "19", "input": "clip"}
+      ]
+    }
+  },
+  "presets": [
+    {
+      "id": "h3-latent-speed",
+      "label": "H3 Latent Speed",
+      "aspect_ratio": "9:16 (Portrait Widescreen)",
+      "megapixels": 1.2,
+      "duration_seconds": 6.0,
+      "steps": 25,
+      "preview": {
+        "frames": 8,
+        "fps": 24,
+        "jpeg_quality": 80,
+        "max_resolution": 1024
+      }
+    }
+  ],
+  "workflow_assertions": [
+    {"id": "video_vae", "node_id": "7", "input": "vae_name", "equals": "minimax_h3_video_vae_fp16.safetensors"},
+    {"id": "audio_vae", "node_id": "13", "input": "vae_name", "equals": "minimax_h3_audio_vae_fp32.safetensors"},
+    {"id": "unet", "node_id": "34", "input": "unet_name", "equals": "minimax_h3_fl2va_bf16.safetensors"},
+    {"id": "clip", "node_id": "21", "input": "clip_name", "equals": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"},
+    {"id": "fps", "node_id": "36", "input": "fps", "equals": 24},
+    {"id": "low_resolution_megapixels", "node_id": "22", "input": "megapixels", "equals": 0.2},
+    {"id": "latent_upscaler", "node_id": "28", "input": "model_name", "equals": "minimax_h3_latent_upscaler_3d_bf16.safetensors"},
+    {"id": "preview_vae", "node_id": "17", "input": "tiny_vae", "equals": "taeh3.safetensors"}
+  ]
+}

@@ -40,6 +40,7 @@ from panelforge.domain.h3_render import (
     H3RenderInputMode,
     H3RenderKeyframe,
     H3RenderProject,
+    H3VideoLoraSelection,
 )
 from panelforge.domain.krea2_assisted import (
     Krea2AssistedAttempt,
@@ -119,7 +120,14 @@ class LocalProductionJobStoreTest(unittest.TestCase):
                 intention="Turn the portrait into a moving ten-second scene.",
                 source_asset_id="asset-source",
                 source_filename="source.png",
-                config=replace(config(), creative_direction_enabled=True),
+                config=replace(
+                    config(),
+                    creative_direction_enabled=True,
+                    h3_video_lora=H3VideoLoraSelection(
+                        name="minmax_nsfw/model.safetensors",
+                        strength=0.4,
+                    ),
+                ),
                 status=ProductionStatus.RUNNING,
                 stage=ProductionStage.IMAGE_SELECTION,
                 krea_project_id="krea-project",
@@ -168,9 +176,12 @@ class LocalProductionJobStoreTest(unittest.TestCase):
 
             path = Path(root) / "production_jobs" / "job-1" / "job.json"
             raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["schema_version"] = 1
             del raw["config"]["creative_audacity"]
+            del raw["config"]["h3_video_lora"]
             path.write_text(json.dumps(raw), encoding="utf-8")
             self.assertEqual(store.get("job-1").config.creative_audacity, 1)
+            self.assertIsNone(store.get("job-1").config.h3_video_lora)
 
 
 class MemoryJobs:
@@ -390,7 +401,7 @@ class FakeH3:
     def new_seed(self):
         return 4242
 
-    def prepare_attempt(self, _project_id, *, prompt, settings, music_enabled):
+    def prepare_attempt(self, _project_id, *, prompt, settings, music_enabled, video_lora=None):
         attempt = H3RenderAttempt(
             attempt_id=f"video-{len(self.project.attempts) + 1}",
             index=len(self.project.attempts) + 1,
@@ -399,6 +410,7 @@ class FakeH3:
             settings=settings,
             music_enabled=music_enabled,
             keyframe_timestamps_ms=(0, 5000, 9950),
+            video_lora=video_lora,
         )
         self.project = self.project.add_attempt(attempt)
         return self.project
@@ -660,6 +672,47 @@ class ProductionServiceTest(unittest.TestCase):
             "integrated_multimodal_description: detailed H3 prompt",
         )
 
+    def test_h3_video_lora_is_locked_across_preview_and_final(self):
+        assets = MemoryAssets()
+        jobs = MemoryJobs()
+        h3 = FakeH3(assets)
+        service = ProductionService(
+            gateway=FakeGateway(),
+            assets=assets,
+            jobs=jobs,
+            krea2=FakeKrea(assets),
+            prompt_lab=FakePromptLab(),
+            composition=FakeComposition(),
+            h3_render=h3,
+            thermal_monitor=SafeThermal(),
+            monitor_interval=0.001,
+        )
+        selection = H3VideoLoraSelection(
+            name="minmax_nsfw/MysticXXX_MMH3-V2.safetensors",
+            strength=0.65,
+        )
+        value = replace(
+            config(),
+            h3_video_lora=selection,
+            thermal=replace(config().thermal, cooldown_seconds=0),
+        )
+        job = service.create_job(
+            name="H3 LoRA test",
+            intention="Animate the portrait.",
+            source_asset_id="source",
+            source_filename="source.png",
+            config=value,
+        )
+        jobs.save(replace(job, status=ProductionStatus.QUEUED))
+
+        result = service.run(job.job_id)
+
+        self.assertEqual(result.status, ProductionStatus.SUCCEEDED)
+        attempts = h3.get("h3-project").attempts
+        self.assertGreaterEqual(len(attempts), 2)
+        self.assertTrue(all(attempt.video_lora == selection for attempt in attempts))
+        self.assertEqual(service.h3_audit(result.job_id)["input"]["h3_video_lora"]["strength"], 0.65)
+        self.assertTrue(any("LoRA vidéo H3" in event.message for event in result.events))
     def test_creative_direction_selects_only_the_versioned_brief_variant(self):
         assets = MemoryAssets()
         jobs = MemoryJobs()

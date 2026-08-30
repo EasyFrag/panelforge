@@ -26,6 +26,12 @@ class BuildComfyClient:
     def list_unet_models(self):
         return (DEFAULT_MODEL,)
 
+    def list_lora_models(self):
+        return (
+            "krea2/ignored.safetensors",
+            "minmax_nsfw/MysticXXX_MMH3-V2.safetensors",
+        )
+
     @property
     def websocket_url(self):
         return f"ws://gpu.test:8188/ws?clientId={self.client_id}"
@@ -174,6 +180,12 @@ class RunLabBuildTest(unittest.TestCase):
                 "0.2.0",
             )
             self.assertEqual(
+                h3_render_spec.json()["video_lora"]["models"],
+                ["minmax_nsfw/MysticXXX_MMH3-V2.safetensors"],
+            )
+            self.assertTrue(h3_render_spec.json()["video_lora"]["supported"])
+            self.assertFalse(ref2v_render_spec.json()["video_lora"]["supported"])
+            self.assertEqual(
                 ref2v_render_spec.json()["revision_versions"],
                 [{"version": "0.1.0", "label": "Legacy 0.1.0"}],
             )
@@ -184,10 +196,10 @@ class RunLabBuildTest(unittest.TestCase):
             self.assertEqual(ref2v_render_spec.json()["recipe"]["version"], "0.2.0")
             self.assertEqual(ref2v_render_spec.json()["defaults"]["megapixels"], 1.2)
             self.assertEqual(ref2v_render_spec.json()["defaults"]["duration_seconds"], 10.0)
-            self.assertEqual(h3_render_spec.json()["recipe"]["version"], "0.1.1")
+            self.assertEqual(h3_render_spec.json()["recipe"]["version"], "0.1.2")
             self.assertEqual(
                 h3_render_spec.json()["recipe"]["workflow_sha256"],
-                "a2b473aba5464daaa23ed871091c1763e3ac911010611fde3d2961c98f2a94db",
+                "5a7e6e2283ee91764b785e520aa7c7b3f0002de98ba1c48e703c807e5e39c78a",
             )
             self.assertNotIn("preview_ws_url", spec.json())
             self.assertEqual(len(BuildProjectExporter.instances), 1)

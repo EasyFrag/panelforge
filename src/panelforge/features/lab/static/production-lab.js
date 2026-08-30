@@ -10,6 +10,9 @@
     llm: $("#production-llm"), renderModel: $("#production-render-model"), ratio: $("#production-ratio"),
     imageMp: $("#production-image-mp"), loras: $("#production-loras"), loraAssisted: $("#production-lora-assisted"), refresh: $("#production-refresh"),
     catalogManager: $("#production-catalog-manager"),
+    h3VideoLoraProfile: $("#production-h3-video-lora-profile"), h3VideoLoraFields: $("#production-h3-video-lora-fields"),
+    h3VideoLoraModel: $("#production-h3-video-lora-model"), h3VideoLoraStrength: $("#production-h3-video-lora-strength"),
+    h3VideoLoraClip: $("#production-h3-video-lora-clip"), h3VideoLoraWarning: $("#production-h3-video-lora-warning"),
     creativeDirection: $("#production-creative-direction"),
     creativeAudacity: $("#production-audacity"), creativeAudacityValue: $("#production-audacity-value"),
     sceneLife: $("#production-scene-life"), camera: $("#production-camera"), extraMotion: $("#production-extra-motion"),
@@ -64,6 +67,7 @@
     const previousLlm = elements.llm.value;
     const previousModel = elements.renderModel.value;
     const previousRatio = elements.ratio.value;
+    const previousH3Lora = elements.h3VideoLoraModel.value;
     state.spec = nextSpec;
     if (window.PanelForgeModelPicker) {
       window.PanelForgeModelPicker.populate(elements.llm, state.spec.llm_models || [], previousLlm);
@@ -85,6 +89,23 @@
       : state.spec.defaults.aspect_ratio;
     renderLoras();
     renderCatalogManager();
+    elements.h3VideoLoraModel.replaceChildren(...(state.spec.h3_video_loras || []).map((name) => option(name, name)));
+    if (previousH3Lora && [...elements.h3VideoLoraModel.options].some((item) => item.value === previousH3Lora)) {
+      elements.h3VideoLoraModel.value = previousH3Lora;
+    }
+    const loraOption = elements.h3VideoLoraProfile.querySelector('option[value="lora"]');
+    if (loraOption) loraOption.disabled = !(state.spec.h3_video_loras || []).length;
+    elements.h3VideoLoraWarning.textContent = state.spec.h3_video_lora_warning || (!(state.spec.h3_video_loras || []).length ? "Aucun LoRA MiniMax trouvé dans minmax_nsfw/." : "");
+    elements.h3VideoLoraWarning.hidden = !elements.h3VideoLoraWarning.textContent;
+    renderH3VideoLoraControls();
+  }
+
+  function renderH3VideoLoraControls() {
+    const enabled = elements.h3VideoLoraProfile.value === "lora";
+    elements.h3VideoLoraFields.hidden = !enabled;
+    elements.h3VideoLoraModel.disabled = !enabled;
+    elements.h3VideoLoraStrength.disabled = !enabled;
+    elements.h3VideoLoraClip.disabled = !enabled;
   }
 
   function renderLoras() {
@@ -162,6 +183,10 @@
       data.set("assisted_lora_selection", String(elements.loraAssisted.checked));
       data.set("creative_direction_enabled", String(elements.creativeDirection.checked));
       data.set("creative_audacity", elements.creativeAudacity.value);
+      data.set("h3_video_lora_enabled", String(elements.h3VideoLoraProfile.value === "lora"));
+      data.set("h3_video_lora_name", elements.h3VideoLoraModel.value);
+      data.set("h3_video_lora_strength", elements.h3VideoLoraStrength.value);
+      data.set("h3_video_lora_clip_last_layer", String(elements.h3VideoLoraClip.checked));
       let payload = await core.request("/api/production/jobs", { method: "POST", body: data });
       state.job = payload.job; state.selectedImage = null; state.selectedPreview = null; state.revisionSuggestionJobId = null; renderJob();
       payload = await core.request(`/api/production/jobs/${state.job.job_id}/start`, { method: "POST" });
@@ -342,6 +367,9 @@
       `Preview ${input.preview_megapixels ?? job.config.preview_megapixels} MP → final ${input.final_megapixels ?? job.config.final_megapixels} MP`,
       `Seed : ${input.seed || job.video_seed || "à créer"}${input.seed_locked || job.video_seed ? " · verrouillée" : ""}`,
       `Musique ${(input.music_enabled ?? job.config.music_enabled) ? "ON" : "OFF"}`,
+      (input.h3_video_lora || job.config.h3_video_lora)
+        ? `LoRA vidéo H3 ${(input.h3_video_lora || job.config.h3_video_lora).name} × ${Number((input.h3_video_lora || job.config.h3_video_lora).strength).toFixed(2)}${(input.h3_video_lora || job.config.h3_video_lora).clip_last_layer === -2 ? " · CLIP -2" : ""}`
+        : "LoRA vidéo H3 Standard",
       `Direction créative ${job.config.creative_direction_enabled ? `ON · Brief 0.2.0 · audace ${loaded?.brief_audacity ?? job.config.creative_audacity}/3` : "OFF · Brief standard"}`,
     ];
     elements.h3Contract.replaceChildren(...pills.map((text) => {
@@ -487,6 +515,7 @@
   }
   elements.creativeDirection.addEventListener("change", renderCreativeDirectionControls);
   elements.creativeAudacity.addEventListener("input", renderCreativeDirectionControls);
+  elements.h3VideoLoraProfile.addEventListener("change", renderH3VideoLoraControls);
   elements.refresh.addEventListener("click", () => loadSpec().catch((error) => showError(error.message)));
   elements.refreshJobs.addEventListener("click", () => loadJobs().catch((error) => showError(error.message)));
   elements.cancel.addEventListener("click", async () => {
@@ -515,5 +544,6 @@
   window.addEventListener("beforeunload", () => { if (state.sourcePreviewUrl) URL.revokeObjectURL(state.sourcePreviewUrl); });
 
   renderCreativeDirectionControls();
+  renderH3VideoLoraControls();
   Promise.all([loadSpec(), loadJobs()]).catch((error) => showError(error.message));
 })();

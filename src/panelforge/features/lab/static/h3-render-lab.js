@@ -18,6 +18,13 @@
     attempts: $(`${prefix}-attempts`), revisionVersion: $(`${prefix}-revision-version`),
     revisionDraft: $(`${prefix}-revision-draft`), revisionError: $(`${prefix}-revision-error`),
     revisionDraftContent: $(`${prefix}-revision-draft-content`),
+    videoLoraProfile: $(`${prefix}-video-lora-profile`),
+    videoLoraFields: $(`${prefix}-video-lora-fields`),
+    videoLoraModel: $(`${prefix}-video-lora-model`),
+    videoLoraStrength: $(`${prefix}-video-lora-strength`),
+    videoLoraStrengthValue: $(`${prefix}-video-lora-strength-value`),
+    videoLoraClip: $(`${prefix}-video-lora-clip`),
+    videoLoraWarning: $(`${prefix}-video-lora-warning`),
   };
   if (!elements.lab) return;
 
@@ -78,6 +85,16 @@
     return fallback;
   }
 
+  function syncVideoLoraControls() {
+    if (!elements.videoLoraProfile) return;
+    const enabled = elements.videoLoraProfile.value === "lora";
+    elements.videoLoraFields.hidden = !enabled;
+    if (elements.videoLoraStrengthValue) {
+      elements.videoLoraStrengthValue.textContent = Number(elements.videoLoraStrength.value || 0.5).toFixed(2);
+    }
+    renderControls();
+  }
+
   function hydrateDefaults() {
     if (!state.spec) return;
     const defaults = state.spec.defaults;
@@ -94,6 +111,21 @@
     elements.seed.value = randomSeed();
     elements.seedLock.checked = false;
     elements.music.value = "off";
+    if (elements.videoLoraProfile) {
+      const config = state.spec.video_lora || {};
+      const models = config.models || [];
+      elements.videoLoraModel.replaceChildren(...models.map((name) => {
+        const option = document.createElement("option"); option.value = name; option.textContent = name; return option;
+      }));
+      const loraOption = elements.videoLoraProfile.querySelector('option[value="lora"]');
+      if (loraOption) loraOption.disabled = !config.supported || !models.length;
+      elements.videoLoraProfile.value = "standard";
+      elements.videoLoraStrength.value = String(config.defaults?.strength ?? 0.5);
+      elements.videoLoraClip.checked = (config.defaults?.clip_last_layer ?? -2) === -2;
+      elements.videoLoraWarning.textContent = config.warning || (!models.length ? "Aucun LoRA MiniMax trouvé dans minmax_nsfw/." : "");
+      elements.videoLoraWarning.hidden = !elements.videoLoraWarning.textContent;
+      syncVideoLoraControls();
+    }
     if (elements.revisionVersion) {
       elements.revisionVersion.replaceChildren(...(state.spec.revision_versions || []).map((item) => {
         const option = document.createElement("option");
@@ -115,6 +147,15 @@
     elements.seed.value = String(settings.seed);
     elements.seedLock.checked = true;
     elements.music.value = attempt.music_enabled ? "on" : "off";
+    if (elements.videoLoraProfile) {
+      elements.videoLoraProfile.value = attempt.video_lora ? "lora" : "standard";
+      if (attempt.video_lora) {
+        elements.videoLoraModel.value = attempt.video_lora.name;
+        elements.videoLoraStrength.value = String(attempt.video_lora.strength);
+        elements.videoLoraClip.checked = attempt.video_lora.clip_last_layer === -2;
+      }
+      syncVideoLoraControls();
+    }
   }
 
   function setPreviewBlob(blob) {
@@ -230,7 +271,10 @@
 
   function settingsSummary(attempt) {
     const s = attempt.settings;
-    return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"}`;
+    const lora = attempt.video_lora
+      ? ` · LoRA ${attempt.video_lora.name} × ${Number(attempt.video_lora.strength).toFixed(2)}${attempt.video_lora.clip_last_layer === -2 ? " · CLIP -2" : ""}`
+      : " · Standard";
+    return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"}${lora}`;
   }
 
   function renderAttempts() {
@@ -312,10 +356,14 @@
   function renderControls() {
     const active = activeAttempt();
     const disabled = state.busy || Boolean(active);
-    elements.render.disabled = disabled || !state.project || !elements.prompt.value.trim();
+    const missingLora = elements.videoLoraProfile?.value === "lora" && !elements.videoLoraModel?.value;
+    elements.render.disabled = disabled || !state.project || !elements.prompt.value.trim() || missingLora;
     elements.cancel.disabled = !active || state.busy;
     elements.refine.disabled = disabled || !state.project || !elements.message.value.trim();
     for (const field of [elements.prompt, elements.ratio, elements.megapixels, elements.duration, elements.steps, elements.seed, elements.seedLock, elements.music]) field.disabled = disabled;
+    for (const field of [elements.videoLoraProfile, elements.videoLoraModel, elements.videoLoraStrength, elements.videoLoraClip]) {
+      if (field) field.disabled = disabled || (field !== elements.videoLoraProfile && elements.videoLoraProfile.value !== "lora");
+    }
     if (elements.revisionVersion) elements.revisionVersion.disabled = disabled;
     if (active) setStatus(active.status === "cancel_pending" ? "Annulation…" : "Rendu…", "active");
   }
@@ -355,6 +403,11 @@
           megapixels: Number(elements.megapixels.value), duration_seconds: Number(elements.duration.value),
           steps: Number(elements.steps.value), seed: elements.seedLock.checked ? elements.seed.value.trim() : null,
           seed_locked: elements.seedLock.checked, music_enabled: elements.music.value === "on",
+          video_lora: elements.videoLoraProfile?.value === "lora" ? {
+            name: elements.videoLoraModel.value,
+            strength: Number(elements.videoLoraStrength.value),
+            clip_last_layer: elements.videoLoraClip.checked ? -2 : null,
+          } : null,
         }),
       });
       renderProject(prepared.project, { preservePrompt: true });
@@ -426,6 +479,9 @@
   elements.refine.addEventListener("click", refinePrompt);
   elements.message.addEventListener("input", renderControls);
   elements.prompt.addEventListener("input", renderControls);
+  if (elements.videoLoraProfile) elements.videoLoraProfile.addEventListener("change", syncVideoLoraControls);
+  if (elements.videoLoraModel) elements.videoLoraModel.addEventListener("change", renderControls);
+  if (elements.videoLoraStrength) elements.videoLoraStrength.addEventListener("input", syncVideoLoraControls);
   if (elements.revisionVersion) elements.revisionVersion.addEventListener("change", () => {
     state.selectedRevisionVersion = elements.revisionVersion.value;
   });

@@ -59,6 +59,8 @@ from .video_lab import (
     VideoLabSettings,
 )
 from .h3_render import (
+    H3_VIDEO_LORA_OVERLAY_VERSION,
+    H3_VIDEO_LORA_PREFIX,
     H3RenderAttempt,
     H3RenderAttemptStatus,
     H3RenderInputMode,
@@ -67,6 +69,8 @@ from .h3_render import (
     H3RenderRevisionVersion,
     H3RenderTurn,
     H3RenderTurnRole,
+    H3VideoLoraSelection,
+    canonical_h3_video_lora_name,
 )
 from .social_lab import (
     SocialChannelProfile,
@@ -172,6 +176,8 @@ __all__ = [
     "H3CameraMotion",
     "H3CameraSpeed",
     "H3MediaKind",
+    "H3_VIDEO_LORA_OVERLAY_VERSION",
+    "H3_VIDEO_LORA_PREFIX",
     "H3RenderAttempt",
     "H3RenderAttemptStatus",
     "H3RenderInputMode",
@@ -180,6 +186,7 @@ __all__ = [
     "H3RenderRevisionVersion",
     "H3RenderTurn",
     "H3RenderTurnRole",
+    "H3VideoLoraSelection",
     "SocialChannelProfile",
     "SocialLanguage",
     "SocialProject",
@@ -231,4 +238,5 @@ __all__ = [
     "VideoLabSettings",
     "h3_media_label",
     "direct_reference_required_use",
+    "canonical_h3_video_lora_name",
 ]

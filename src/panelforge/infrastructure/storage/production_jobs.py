@@ -16,6 +16,7 @@ from panelforge.domain.krea2_batch import (
     Krea2BatchSettings,
     Krea2LoraSelection,
 )
+from panelforge.domain.h3_render import H3VideoLoraSelection
 from panelforge.domain.production import (
     ProductionCandidateAssessment,
     ProductionConfig,
@@ -106,7 +107,7 @@ class LocalProductionJobStore:
 
 def _serialize_job(job: ProductionJob, created_at: str, updated_at: str) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": created_at,
         "updated_at": updated_at,
         "job_id": job.job_id,
@@ -143,7 +144,7 @@ def _serialize_job(job: ProductionJob, created_at: str, updated_at: str) -> dict
 
 
 def _deserialize_job(value: dict[str, Any]) -> ProductionJob:
-    if value.get("schema_version") != 1:
+    if value.get("schema_version") not in {1, 2}:
         raise ValueError("unsupported production job schema")
     return ProductionJob(
         job_id=value["job_id"],
@@ -209,6 +210,16 @@ def _serialize_config(config: ProductionConfig) -> dict[str, object]:
         "assisted_lora_selection": config.assisted_lora_selection,
         "creative_direction_enabled": config.creative_direction_enabled,
         "creative_audacity": config.creative_audacity,
+        "h3_video_lora": (
+            {
+                "name": config.h3_video_lora.name,
+                "strength": config.h3_video_lora.strength,
+                "clip_last_layer": config.h3_video_lora.clip_last_layer,
+                "overlay_version": config.h3_video_lora.overlay_version,
+            }
+            if config.h3_video_lora is not None
+            else None
+        ),
         "thermal": {
             "stop_temperature_c": config.thermal.stop_temperature_c,
             "resume_temperature_c": config.thermal.resume_temperature_c,
@@ -224,6 +235,7 @@ def _deserialize_config(value: dict[str, Any]) -> ProductionConfig:
     image = _object(value.get("image_settings"), "image_settings")
     axes = _object(value.get("creative_axes"), "creative_axes")
     thermal = _object(value.get("thermal"), "thermal")
+    h3_video_lora = value.get("h3_video_lora")
     return ProductionConfig(
         model_id=value["model_id"],
         image_settings=Krea2BatchSettings(
@@ -257,6 +269,16 @@ def _deserialize_config(value: dict[str, Any]) -> ProductionConfig:
         creative_audacity=value.get(
             "creative_audacity",
             1 if value.get("creative_direction_enabled", False) else 0,
+        ),
+        h3_video_lora=(
+            H3VideoLoraSelection(
+                name=h3_video_lora["name"],
+                strength=h3_video_lora.get("strength", 0.5),
+                clip_last_layer=h3_video_lora.get("clip_last_layer", -2),
+                overlay_version=h3_video_lora.get("overlay_version", "0.1.0"),
+            )
+            if isinstance(h3_video_lora, dict)
+            else None
         ),
         thermal=ThermalPolicy(
             stop_temperature_c=thermal.get("stop_temperature_c", 85.0),

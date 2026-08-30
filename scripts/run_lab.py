@@ -102,7 +102,7 @@ H3_RENDER_WORKFLOW_DIRECTORY = (
     / "workflows"
     / "video.generate.h3-base"
     / "minimax-h3-latent-speed"
-    / "0.1.1"
+    / "0.1.2"
 )
 KREA2_BATCH_WORKFLOW_DIRECTORY = (
     PROJECT_ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"

@@ -1108,6 +1108,31 @@
 ### Risks / open questions
 - Le dernier impératif de `brief_user.txt` emploie encore « direction créative mono-plan forte » quel que soit le niveau. Les règles système et la politique injectée définissent ensuite précisément 0–3 et restent prioritaires ; le point est non bloquant, mais pourra être reformulé dans une future version de prompt si les essais montrent une audace excessive aux niveaux 0–1.
 
+## Update 2026-08-30 — profil LoRA vidéo MiniMax H3 Base et Production
+
+### Works
+- La branche de travail est `h3-video-lora`. La recette H3 Base active passe à `minimax-h3-latent-speed@0.1.2`; son graphe est identique à `0.1.1` avant l'overlay dynamique (seule la fin de fichier JSON a été normalisée, SHA-256 `5a7e6e2283ee91764b785e520aa7c7b3f0002de98ba1c48e703c807e5e39c78a`). La `0.1.1` publiée reste intacte, chargeable et Standard uniquement.
+- Le profil `Standard` compile toujours le graphe original sans nouveau nœud ni liaison. Le profil expérimental `LoRA MiniMax` injecte uniquement `Power Lora Loader (rgthree)` entre l'UNET/CLIP et leurs consommateurs, puis `CLIPSetLastLayer -2` sur la branche CLIP si l'option est cochée. La passe 0,2 MP à 25 steps, l'upscale latent vers 1,2 MP, le raffinement final et Spectrum OFF ne changent pas.
+- L'inventaire est découvert via ComfyUI puis filtré sur `minmax_nsfw/*.safetensors`. Un seul LoRA est accepté, avec force bornée à `0..1`, défaut `0.5`, et CLIP `-2` activé par défaut. Le chemin est revalidé contre l'inventaire au moment de préparer un rendu; une panne d'inventaire ne bloque jamais le profil Standard.
+- H3 Base expose le profil dans `Créer et ajuster la vidéo`, restaure ses réglages depuis un ancien essai et affiche LoRA, force et CLIP dans l'historique. Les attempts persistés passent au schéma 2; le schéma 1 reste lisible et migre vers Standard.
+- Production expose une section distincte `LoRA vidéo H3`, séparée des LoRA image KREA2. La sélection est enregistrée dans le job puis réutilisée sans variation sur chaque preview `H3_low` et sur le final `H3_high`; contrat H3, journal et audit l'affichent. Les jobs passent au schéma 2 et les jobs schéma 1 restent lisibles en Standard.
+- Ref2V reste volontairement hors périmètre de cette première validation et refuse un LoRA vidéo au backend. L'API l'indique sans exposer de contrôle trompeur.
+- Validation finale : 676 tests complets réussis en 82 secondes, compilation Python réussie et `git diff --check` propre. Node.js n'est toujours pas installé; le JavaScript est couvert par les tests statiques/Web.
+
+### Broken / missing
+- Aucun rendu ComfyUI réel n'a encore validé les deux nouveaux nœuds avec les LoRA présents sur le serveur. Les contrats du graphe correspondent au workflow utilisateur fourni, mais le smoke test GPU reste à faire.
+- Ref2V ne propose pas encore de LoRA vidéo; son adaptation est reportée après validation qualitative et technique de H3 Base.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge sur `h3-video-lora`, vérifier que les fichiers de `minmax_nsfw/` apparaissent, puis comparer un rendu H3 Base Standard et LoRA avec prompt, seed et réglages identiques.
+2. Tester le même LoRA dans Production et confirmer dans la trace que preview 0,2 MP et final 1,2 MP conservent exactement le même nom, la même force et le même réglage CLIP.
+3. Après validation réelle, créer une recette Ref2V versionnée avec son propre binding LoRA/CLIP, sans modifier le workflow Ref2V publié actuel.
+
+### Risks / open questions
+- Le nœud `Power Lora Loader (rgthree)` et `CLIPSetLastLayer` doivent être présents sous les mêmes `class_type` dans le ComfyUI distant; sinon ComfyUI refusera le workflow avec une erreur de nœud explicite.
+- Certains LoRA pourraient ne pas nécessiter CLIP `-2`; l'option reste donc visible et désactivable par essai au lieu d'être imposée globalement.
+- Un LoRA supprimé ou renommé après un ancien essai reste visible dans l'historique, mais sa relance est volontairement refusée tant qu'il n'est plus déclaré par l'inventaire ComfyUI.
+
 ## Publication 2026-08-30 — snapshot avant LoRA vidéo
 
 ### Works
@@ -1125,3 +1150,19 @@
 
 ### Risks / open questions
 - La branche de travail pourra avancer avec le patch LoRA ; le tag stable doit rester immuable sur `e11f3ef`.
+
+## Current handoff 2026-08-30 — branche `h3-video-lora`
+
+### Works
+- L'évolution LoRA vidéo décrite dans la section précédente est implémentée sur `h3-video-lora`, avec recette active H3 Base `0.1.2`, H3 Base et Production couverts, migrations legacy testées et 676 tests verts.
+
+### Broken / missing
+- Le smoke test ComfyUI réel reste à exécuter; Ref2V reste volontairement Standard uniquement.
+
+### Next steps (max 3)
+1. Redémarrer la branche et comparer Standard/LoRA dans H3 Base à prompt et seed identiques.
+2. Valider ensuite que Production conserve le même LoRA entre preview et final.
+3. N'ouvrir l'évolution Ref2V qu'après ces deux validations.
+
+### Risks / open questions
+- La disponibilité réelle des `class_type` rgthree/CLIP et la compatibilité de chaque LoRA avec CLIP `-2` doivent être confirmées sur le serveur ComfyUI.

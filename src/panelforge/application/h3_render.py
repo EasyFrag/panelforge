@@ -23,6 +23,8 @@ from panelforge.domain.h3_render import (
     H3RenderRevisionVersion,
     H3RenderTurn,
     H3RenderTurnRole,
+    H3VideoLoraSelection,
+    canonical_h3_video_lora_name,
 )
 from panelforge.domain.prompt_composition import CompositionStage, PromptComposition
 from panelforge.domain.prompt_lab import PromptLabSession
@@ -105,6 +107,7 @@ class UploadedImage(Protocol):
 
 
 class H3RenderComfy(Protocol):
+    def list_lora_models(self) -> tuple[str, ...]: ...
     def upload_image(self, content: bytes, *, filename: str, subfolder: str = "") -> UploadedImage: ...
     def submit_workflow(self, workflow: Mapping[str, Any]) -> str: ...
     def get_history(self, prompt_id: str) -> dict[str, Any]: ...
@@ -164,6 +167,7 @@ class H3RenderRecipe(Protocol):
         settings: VideoLabSettings,
         output_filename_prefix: str,
         keyframe_indices: tuple[int, ...],
+        video_lora: H3VideoLoraSelection | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -474,6 +478,21 @@ class H3RenderService:
                 _error(error),
             )
 
+    def video_lora_inventory(self) -> tuple[tuple[str, ...], str | None]:
+        """Return safe MiniMax video LoRAs without making standard renders depend on discovery."""
+        try:
+            raw_models = self.comfy.list_lora_models()
+        except Exception as error:
+            return (), f"Inventaire LoRA vid\u00e9o indisponible : {_error(error)}"
+        models: dict[str, str] = {}
+        for raw in raw_models:
+            try:
+                name = canonical_h3_video_lora_name(raw)
+            except (TypeError, ValueError):
+                continue
+            models.setdefault(name.casefold(), name)
+        return tuple(sorted(models.values(), key=str.casefold)), None
+
     def prepare_attempt(
         self,
         project_id: str,
@@ -481,14 +500,27 @@ class H3RenderService:
         prompt: str,
         settings: VideoLabSettings,
         music_enabled: bool = False,
+        video_lora: H3VideoLoraSelection | None = None,
     ) -> H3RenderProject:
         prompt = _bounded_text(prompt, "prompt", 60_000)
         if not isinstance(settings, VideoLabSettings):
             raise TypeError("settings must be VideoLabSettings")
         if not isinstance(music_enabled, bool):
             raise TypeError("music_enabled must be a boolean")
+        if video_lora is not None and not isinstance(video_lora, H3VideoLoraSelection):
+            raise TypeError("video_lora must be an H3VideoLoraSelection or None")
         with self._lock:
             project = self.projects.get(project_id)
+            if video_lora is not None:
+                if project.input_mode is H3RenderInputMode.REF2VA:
+                    raise ValueError("H3 video LoRA is not available for Ref2V yet")
+                models, warning = self.video_lora_inventory()
+                if warning is not None:
+                    raise ValueError(warning)
+                if video_lora.name.casefold() not in {
+                    value.casefold() for value in models
+                }:
+                    raise ValueError("selected H3 video LoRA is not available in ComfyUI")
             recipe = self._recipe_for(project)
             prompt = canonicalize_h3_revision(project.current_prompt, prompt, project.input_mode)
             duration_ms = round(settings.effective_duration_seconds * 1000)
@@ -508,6 +540,7 @@ class H3RenderService:
                 settings=settings,
                 music_enabled=music_enabled,
                 keyframe_timestamps_ms=timestamps,
+                video_lora=video_lora,
             )
             project = replace(project, current_prompt=prompt)
             return self.projects.save(project.add_attempt(attempt))
@@ -569,6 +602,7 @@ class H3RenderService:
                     settings=attempt.settings,
                     output_filename_prefix=output_prefix,
                     keyframe_indices=keyframe_indices,
+                    video_lora=attempt.video_lora,
                 )
             workflow_digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
             with self._lock:
@@ -1272,6 +1306,16 @@ def _attempt_context(attempt: H3RenderAttempt | None) -> str:
         "steps": attempt.settings.steps,
         "seed": str(attempt.settings.seed),
         "music_enabled": attempt.music_enabled,
+        "video_lora": (
+            {
+                "name": attempt.video_lora.name,
+                "strength": attempt.video_lora.strength,
+                "clip_last_layer": attempt.video_lora.clip_last_layer,
+                "overlay_version": attempt.video_lora.overlay_version,
+            }
+            if attempt.video_lora is not None
+            else None
+        ),
         "keyframe_timestamps_ms": list(attempt.keyframe_timestamps_ms),
     }, ensure_ascii=False, indent=2)
 

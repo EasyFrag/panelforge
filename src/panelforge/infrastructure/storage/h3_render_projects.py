@@ -21,6 +21,7 @@ from panelforge.domain.h3_render import (
     H3RenderRevisionVersion,
     H3RenderTurn,
     H3RenderTurnRole,
+    H3VideoLoraSelection,
 )
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
 
@@ -114,7 +115,7 @@ class LocalH3RenderProjectStore:
 
 def _serialize(project: H3RenderProject) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "source_session_id": project.source_session_id,
@@ -174,6 +175,16 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
             "seed_locked": attempt.settings.seed_locked,
         },
         "music_enabled": attempt.music_enabled,
+        "video_lora": (
+            {
+                "name": attempt.video_lora.name,
+                "strength": attempt.video_lora.strength,
+                "clip_last_layer": attempt.video_lora.clip_last_layer,
+                "overlay_version": attempt.video_lora.overlay_version,
+            }
+            if attempt.video_lora is not None
+            else None
+        ),
         "keyframe_timestamps_ms": list(attempt.keyframe_timestamps_ms),
         "status": attempt.status.value,
         "execution_id": attempt.execution_id,
@@ -193,7 +204,7 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> H3RenderProject:
-    if value.get("schema_version") != 1:
+    if value.get("schema_version") not in {1, 2}:
         raise ValueError("unsupported H3 render project schema")
     return H3RenderProject(
         project_id=value["project_id"],
@@ -243,6 +254,7 @@ def _deserialize(value: dict[str, Any]) -> H3RenderProject:
 
 def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
     settings = value["settings"]
+    video_lora = value.get("video_lora")
     return H3RenderAttempt(
         attempt_id=value["attempt_id"],
         index=value["index"],
@@ -257,6 +269,16 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
             seed_locked=settings.get("seed_locked", False),
         ),
         music_enabled=value["music_enabled"],
+        video_lora=(
+            H3VideoLoraSelection(
+                name=video_lora["name"],
+                strength=video_lora.get("strength", 0.5),
+                clip_last_layer=video_lora.get("clip_last_layer", -2),
+                overlay_version=video_lora.get("overlay_version", "0.1.0"),
+            )
+            if isinstance(video_lora, dict)
+            else None
+        ),
         keyframe_timestamps_ms=tuple(value.get("keyframe_timestamps_ms", [])),
         status=H3RenderAttemptStatus(value["status"]),
         execution_id=value.get("execution_id"),

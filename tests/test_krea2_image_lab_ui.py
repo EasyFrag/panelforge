@@ -55,7 +55,7 @@ class Krea2ImageLabUiTest(unittest.TestCase):
         self.assertNotIn("preview", self.script.lower())
 
     def test_final_png_is_contained_without_being_stretched(self):
-        self.assertIn('/static/lab.css?v=20260830.7', self.page)
+        self.assertIn('/static/lab.css?v=20260830.8', self.page)
         self.assertIn(".krea2-image-lab-output { width: min(100%, 760px)", self.styles)
         self.assertIn("min-height: clamp(300px, 42vw, 600px)", self.styles)
         self.assertIn(

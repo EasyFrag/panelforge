@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import StrEnum
+import math
 import re
 
 from .video_lab import VideoAspectRatio, VideoLabSettings
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+H3_VIDEO_LORA_PREFIX = "minmax_nsfw/"
+H3_VIDEO_LORA_OVERLAY_VERSION = "0.1.0"
 
 
 class H3RenderInputMode(StrEnum):
@@ -38,6 +41,48 @@ class H3RenderAttemptStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True, slots=True)
+class H3VideoLoraSelection:
+    """A validated MiniMax video LoRA overlay for an H3 Base render."""
+
+    name: str
+    strength: float = 0.5
+    clip_last_layer: int | None = -2
+    overlay_version: str = H3_VIDEO_LORA_OVERLAY_VERSION
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "name", canonical_h3_video_lora_name(self.name))
+        if (
+            isinstance(self.strength, bool)
+            or not isinstance(self.strength, (int, float))
+            or not math.isfinite(float(self.strength))
+            or not 0 <= float(self.strength) <= 1
+        ):
+            raise ValueError("H3 video LoRA strength must be between 0 and 1")
+        object.__setattr__(self, "strength", float(self.strength))
+        if self.clip_last_layer not in {None, -2}:
+            raise ValueError("H3 video LoRA clip_last_layer must be -2 or None")
+        if self.overlay_version != H3_VIDEO_LORA_OVERLAY_VERSION:
+            raise ValueError("unsupported H3 video LoRA overlay version")
+
+
+def canonical_h3_video_lora_name(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("H3 video LoRA name must not be empty")
+    normalized = value.strip().replace("\\", "/")
+    parts = normalized.split("/")
+    if (
+        len(parts) < 2
+        or any(not part or part in {".", ".."} for part in parts)
+        or not normalized.casefold().startswith(H3_VIDEO_LORA_PREFIX.casefold())
+        or not normalized.casefold().endswith(".safetensors")
+    ):
+        raise ValueError(
+            f"H3 video LoRA must be a .safetensors file below {H3_VIDEO_LORA_PREFIX}"
+        )
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +139,7 @@ class H3RenderAttempt:
     settings: VideoLabSettings
     music_enabled: bool
     keyframe_timestamps_ms: tuple[int, ...]
+    video_lora: H3VideoLoraSelection | None = None
     status: H3RenderAttemptStatus = H3RenderAttemptStatus.CREATED
     execution_id: str | None = None
     compiled_workflow_sha256: str | None = None
@@ -112,6 +158,10 @@ class H3RenderAttempt:
             raise TypeError("settings must be VideoLabSettings")
         if not isinstance(self.music_enabled, bool):
             raise TypeError("music_enabled must be a boolean")
+        if self.video_lora is not None and not isinstance(
+            self.video_lora, H3VideoLoraSelection
+        ):
+            raise TypeError("video_lora must be an H3VideoLoraSelection or None")
         if not isinstance(self.keyframe_timestamps_ms, tuple):
             raise TypeError("keyframe_timestamps_ms must be a tuple")
         if tuple(sorted(set(self.keyframe_timestamps_ms))) != self.keyframe_timestamps_ms:
@@ -448,6 +498,8 @@ def _digest(value: object) -> str:
 
 
 __all__ = [
+    "H3_VIDEO_LORA_OVERLAY_VERSION",
+    "H3_VIDEO_LORA_PREFIX",
     "H3RenderAttempt",
     "H3RenderAttemptStatus",
     "H3RenderInputMode",
@@ -455,6 +507,8 @@ __all__ = [
     "H3RenderProject",
     "H3RenderTurn",
     "H3RenderTurnRole",
+    "H3VideoLoraSelection",
     "VideoAspectRatio",
     "VideoLabSettings",
+    "canonical_h3_video_lora_name",
 ]

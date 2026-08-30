@@ -7,6 +7,7 @@ from enum import StrEnum
 import math
 
 from .krea2_batch import Krea2BatchSettings
+from .h3_render import H3VideoLoraSelection
 from .prompt_lab import CreativeFreedomAxes
 
 
@@ -183,6 +184,7 @@ class ProductionConfig:
     assisted_lora_selection: bool = False
     creative_direction_enabled: bool = False
     creative_audacity: int = 2
+    h3_video_lora: H3VideoLoraSelection | None = None
     thermal: ThermalPolicy = field(default_factory=ThermalPolicy)
 
     def __post_init__(self) -> None:
@@ -224,6 +226,10 @@ class ProductionConfig:
             or not 0 <= self.creative_audacity <= 3
         ):
             raise ValueError("creative_audacity must be between 0 and 3")
+        if self.h3_video_lora is not None and not isinstance(
+            self.h3_video_lora, H3VideoLoraSelection
+        ):
+            raise TypeError("h3_video_lora must be an H3VideoLoraSelection or None")
         if not isinstance(self.thermal, ThermalPolicy):
             raise TypeError("thermal must be a ThermalPolicy")
 

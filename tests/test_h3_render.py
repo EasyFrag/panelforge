@@ -28,6 +28,7 @@ from panelforge.domain import (
     H3RenderInputMode,
     H3RenderAttemptStatus,
     H3RenderProject,
+    H3VideoLoraSelection,
     CompositionRevision,
     CompositionStage,
     CookbookBinding,
@@ -60,8 +61,9 @@ WORKFLOW_DIRECTORY = (
     / "workflows"
     / "video.generate.h3-base"
     / "minimax-h3-latent-speed"
-    / "0.1.1"
+    / "0.1.2"
 )
+LEGACY_WORKFLOW_DIRECTORY = WORKFLOW_DIRECTORY.parent / "0.1.1"
 REF2V_WORKFLOW_DIRECTORY = (
     Path(__file__).resolve().parents[1]
     / "workflows"
@@ -84,6 +86,12 @@ class ImmediateH3Comfy:
 
     def upload_image(self, content, *, filename, subfolder=""):
         return Uploaded(f"{subfolder}/{filename}")
+
+    def list_lora_models(self):
+        return (
+            "krea2/ignored.safetensors",
+            "minmax_nsfw/MysticXXX_MMH3-V2.safetensors",
+        )
 
     def submit_workflow(self, workflow):
         self.submitted.append(workflow)
@@ -142,7 +150,11 @@ class H3RenderWorkflowTest(unittest.TestCase):
             seed=123,
         )
 
-    def compile(self, mode: H3RenderInputMode):
+    def compile(
+        self,
+        mode: H3RenderInputMode,
+        video_lora: H3VideoLoraSelection | None = None,
+    ):
         return self.recipe.build_workflow(
             input_mode=mode,
             first_frame="first.png" if mode in {H3RenderInputMode.I2VA, H3RenderInputMode.FL2VA} else None,
@@ -151,13 +163,14 @@ class H3RenderWorkflowTest(unittest.TestCase):
             settings=self.settings,
             output_filename_prefix="video/h3/test",
             keyframe_indices=(0, 72, 96, 215),
+            video_lora=video_lora,
         )
 
     def test_exact_supplied_workflow_is_versioned(self) -> None:
-        self.assertEqual(self.recipe.reference.version, "0.1.1")
+        self.assertEqual(self.recipe.reference.version, "0.1.2")
         self.assertEqual(
             self.recipe.reference.workflow_sha256,
-            "a2b473aba5464daaa23ed871091c1763e3ac911010611fde3d2961c98f2a94db",
+            "5a7e6e2283ee91764b785e520aa7c7b3f0002de98ba1c48e703c807e5e39c78a",
         )
         workflow = self.recipe.preset.workflow
         self.assertEqual(workflow["9"]["class_type"], "LoadImage")
@@ -167,6 +180,23 @@ class H3RenderWorkflowTest(unittest.TestCase):
         self.assertEqual(workflow["17"]["inputs"]["preview_fps"], 24)
         self.assertEqual(workflow["36"]["inputs"]["fps"], 24)
         self.assertEqual(self.recipe.presets["h3-latent-speed"].preview_fps, 24)
+
+    def test_published_legacy_workflow_remains_standard_only(self) -> None:
+        legacy = H3RenderPresetRecipe(load_h3_render_workflow(LEGACY_WORKFLOW_DIRECTORY))
+        self.assertEqual(legacy.reference.version, "0.1.1")
+        with self.assertRaisesRegex(ValueError, "does not support video LoRAs"):
+            legacy.build_workflow(
+                input_mode=H3RenderInputMode.T2VA,
+                first_frame=None,
+                last_frame=None,
+                prompt="integrated_multimodal_description:\n[Shot 1] Test.\noverall_soundscape:\nNone.\nnon_diegetic_music:\nN/A",
+                settings=self.settings,
+                output_filename_prefix="video/h3/legacy",
+                keyframe_indices=(),
+                video_lora=H3VideoLoraSelection(
+                    name="minmax_nsfw/model.safetensors"
+                ),
+            )
 
     def test_compiles_all_four_input_modes_without_synthetic_frames(self) -> None:
         t2v = self.compile(H3RenderInputMode.T2VA)
@@ -199,6 +229,65 @@ class H3RenderWorkflowTest(unittest.TestCase):
         self.assertEqual(workflow["9000"]["inputs"]["image"], ["11", 0])
         self.assertEqual(workflow["9001"]["inputs"]["batch_index"], 72)
         self.assertEqual(workflow["9103"]["inputs"]["images"], ["9003", 0])
+
+    def test_standard_profile_keeps_the_published_graph_unchanged(self) -> None:
+        workflow = self.compile(H3RenderInputMode.I2VA)
+
+        self.assertNotIn("9200", workflow)
+        self.assertNotIn("9201", workflow)
+        self.assertEqual(workflow["42"]["inputs"]["model"], ["34", 0])
+        self.assertEqual(workflow["16"]["inputs"]["clip"], ["21", 0])
+        self.assertEqual(workflow["19"]["inputs"]["clip"], ["21", 0])
+
+    def test_video_lora_overlay_rewires_only_model_and_clip_consumers(self) -> None:
+        selection = H3VideoLoraSelection(
+            name="minmax_nsfw/MysticXXX_MMH3-V2.safetensors",
+            strength=0.5,
+        )
+        workflow = self.compile(H3RenderInputMode.I2VA, selection)
+
+        self.assertEqual(workflow["9200"]["class_type"], "Power Lora Loader (rgthree)")
+        self.assertEqual(workflow["9200"]["inputs"]["model"], ["34", 0])
+        self.assertEqual(workflow["9200"]["inputs"]["clip"], ["21", 0])
+        self.assertEqual(
+            workflow["9200"]["inputs"]["lora_1"],
+            {"on": True, "lora": selection.name, "strength": 0.5},
+        )
+        self.assertEqual(workflow["42"]["inputs"]["model"], ["9200", 0])
+        self.assertEqual(workflow["9201"]["class_type"], "CLIPSetLastLayer")
+        self.assertEqual(workflow["9201"]["inputs"]["stop_at_clip_layer"], -2)
+        self.assertEqual(workflow["16"]["inputs"]["clip"], ["9201", 0])
+        self.assertEqual(workflow["19"]["inputs"]["clip"], ["9201", 0])
+        self.assertEqual(workflow["8"]["inputs"]["model"], ["34", 0])
+
+    def test_video_lora_can_keep_the_standard_clip_layers(self) -> None:
+        workflow = self.compile(
+            H3RenderInputMode.T2VA,
+            H3VideoLoraSelection(
+                name="minmax_nsfw/MysticXXX_MMH3-V2.safetensors",
+                strength=1,
+                clip_last_layer=None,
+            ),
+        )
+
+        self.assertNotIn("9201", workflow)
+        self.assertEqual(workflow["16"]["inputs"]["clip"], ["9200", 1])
+        self.assertEqual(workflow["19"]["inputs"]["clip"], ["9200", 1])
+
+    def test_video_lora_contract_rejects_unsafe_paths_and_strengths(self) -> None:
+        for name in (
+            "krea2/not-video.safetensors",
+            "minmax_nsfw/../escape.safetensors",
+            "minmax_nsfw/not-a-model.txt",
+        ):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                H3VideoLoraSelection(name=name)
+        for strength in (-0.01, 1.01, True):
+            with self.subTest(strength=strength), self.assertRaises(ValueError):
+                H3VideoLoraSelection(
+                    name="minmax_nsfw/model.safetensors",
+                    strength=strength,
+                )
 
     def test_ref2v_adapter_compiles_nine_images_and_keyframes(self) -> None:
         recipe = Ref2VH3RenderPresetRecipe(
@@ -549,6 +638,10 @@ class H3RenderProjectPersistenceTest(unittest.TestCase):
                     steps=25,
                     seed=42,
                 ),
+                video_lora=H3VideoLoraSelection(
+                    name="minmax_nsfw/MysticXXX_MMH3-V2.safetensors",
+                    strength=0.5,
+                ),
             )
             service.queue_attempt(prepared.project_id, "attempt-1")
             result = service.execute_attempt(prepared.project_id, "attempt-1")
@@ -557,9 +650,18 @@ class H3RenderProjectPersistenceTest(unittest.TestCase):
             self.assertEqual(attempt.status, H3RenderAttemptStatus.SUCCEEDED)
             self.assertEqual(len(attempt.keyframes), 5)
             self.assertEqual(result.feedback_attempt_id, "attempt-1")
+            self.assertEqual(attempt.video_lora.name, "minmax_nsfw/MysticXXX_MMH3-V2.safetensors")
             self.assertNotIn("9", comfy.submitted[0])
             self.assertNotIn("10", comfy.submitted[0])
+            self.assertEqual(comfy.submitted[0]["42"]["inputs"]["model"], ["9200", 0])
             self.assertEqual(comfy.submitted[0]["14"]["inputs"]["value"].rstrip(), prompt)
+
+            path = Path(directory) / "h3_render_projects" / "project-1" / "project.json"
+            legacy = json.loads(path.read_text(encoding="utf-8"))
+            legacy["schema_version"] = 1
+            legacy["attempts"][0].pop("video_lora", None)
+            path.write_text(json.dumps(legacy), encoding="utf-8")
+            self.assertIsNone(projects.get("project-1").attempt("attempt-1").video_lora)
 
     def test_reopening_the_same_prompt_revision_resumes_the_same_project(self) -> None:
         prompt = (

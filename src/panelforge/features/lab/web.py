@@ -66,6 +66,7 @@ from panelforge.domain import (
     CreativeFreedomAxes,
     H3RenderInputMode,
     H3RenderProject,
+    H3VideoLoraSelection,
     Krea2AssistedProject,
     Krea2AssistedTurnMode,
     Krea2AspectRatio,
@@ -352,6 +353,12 @@ class H3RenderChatBody(BaseModel):
     revision_version: str | None = None
 
 
+class H3VideoLoraBody(BaseModel):
+    name: str
+    strength: float = Field(default=0.5, ge=0, le=1)
+    clip_last_layer: int | None = -2
+
+
 class H3RenderAttemptBody(BaseModel):
     prompt: str
     aspect_ratio: str
@@ -361,6 +368,7 @@ class H3RenderAttemptBody(BaseModel):
     seed: str | int | None = None
     seed_locked: bool = False
     music_enabled: bool = False
+    video_lora: H3VideoLoraBody | None = None
 
 
 class H3RenderFeedbackBody(BaseModel):
@@ -490,6 +498,15 @@ def create_app(
     def production_spec() -> dict[str, object]:
         service = _require_production(production)
         assisted = _require_krea2_assisted(krea2_assisted)
+        h3_service = h3_render or getattr(service, "h3_render", None)
+        if h3_service is None:
+            h3_video_loras, h3_video_lora_warning = (), "Service H3 indisponible."
+        else:
+            try:
+                h3_video_loras, h3_video_lora_warning = h3_service.video_lora_inventory()
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
+                h3_video_loras = ()
+                h3_video_lora_warning = f"Inventaire LoRA vidéo indisponible : {error}"
         return {
             "llm_models": [
                 _serialize_llm_model(model) for model in assisted.list_models()
@@ -502,6 +519,8 @@ def create_app(
                 serialize_krea2_resource(resource)
                 for resource in assisted.resources.list_loras()
             ],
+            "h3_video_loras": list(h3_video_loras),
+            "h3_video_lora_warning": h3_video_lora_warning,
             "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
             "defaults": {
                 "mode": ProductionMode.FULL_AUTO.value,
@@ -522,6 +541,12 @@ def create_app(
                 "assisted_lora_selection": False,
                 "creative_direction_enabled": False,
                 "creative_audacity": 2,
+                "h3_video_lora": {
+                    "enabled": False,
+                    "strength": 0.5,
+                    "clip_last_layer": -2,
+                    "overlay_version": "0.1.0",
+                },
                 "thermal": {
                     "stop_temperature_c": 85.0,
                     "resume_temperature_c": 40.0,
@@ -573,6 +598,10 @@ def create_app(
         assisted_lora_selection: Annotated[bool, Form()] = False,
         creative_direction_enabled: Annotated[bool, Form()] = False,
         creative_audacity: Annotated[int, Form()] = 2,
+        h3_video_lora_enabled: Annotated[bool, Form()] = False,
+        h3_video_lora_name: Annotated[str, Form()] = "",
+        h3_video_lora_strength: Annotated[float, Form()] = 0.5,
+        h3_video_lora_clip_last_layer: Annotated[bool, Form()] = True,
         stop_temperature_c: Annotated[float, Form()] = 85.0,
         resume_temperature_c: Annotated[float, Form()] = 40.0,
         cooldown_seconds: Annotated[int, Form()] = 120,
@@ -619,6 +648,17 @@ def create_app(
                 assisted_lora_selection=assisted_lora_selection,
                 creative_direction_enabled=creative_direction_enabled,
                 creative_audacity=creative_audacity,
+                h3_video_lora=(
+                    H3VideoLoraSelection(
+                        name=h3_video_lora_name,
+                        strength=h3_video_lora_strength,
+                        clip_last_layer=(
+                            -2 if h3_video_lora_clip_last_layer else None
+                        ),
+                    )
+                    if h3_video_lora_enabled
+                    else None
+                ),
                 thermal=ThermalPolicy(
                     stop_temperature_c=stop_temperature_c,
                     resume_temperature_c=resume_temperature_c,
@@ -2428,6 +2468,11 @@ def create_app(
                 "minimum": recipe.minimum_reference_images,
                 "maximum": recipe.maximum_reference_images,
             }
+        video_lora_models: tuple[str, ...] = ()
+        video_lora_warning: str | None = None
+        video_lora_supported = input_mode is not H3RenderInputMode.REF2VA
+        if video_lora_supported:
+            video_lora_models, video_lora_warning = service.video_lora_inventory()
         return {
             "operation_id": recipe.reference.operation_id,
             "recipe": {
@@ -2456,6 +2501,16 @@ def create_app(
             "default_revision_version": service.default_revision_version(
                 input_mode
             ).value,
+            "video_lora": {
+                "supported": video_lora_supported,
+                "overlay_version": "0.1.0",
+                "models": list(video_lora_models),
+                "warning": video_lora_warning,
+                "defaults": {"strength": 0.5, "clip_last_layer": -2},
+                "limits": {
+                    "strength": {"minimum": 0, "maximum": 1, "step": 0.05}
+                },
+            },
         }
 
     @app.post(
@@ -2507,6 +2562,15 @@ def create_app(
         service = _require_h3_render(h3_render)
         try:
             seed = _parse_json_seed(body.seed)
+            video_lora = (
+                H3VideoLoraSelection(
+                    name=body.video_lora.name,
+                    strength=body.video_lora.strength,
+                    clip_last_layer=body.video_lora.clip_last_layer,
+                )
+                if body.video_lora is not None
+                else None
+            )
             project = service.prepare_attempt(
                 project_id,
                 prompt=body.prompt,
@@ -2519,6 +2583,11 @@ def create_app(
                     seed_locked=body.seed_locked,
                 ),
                 music_enabled=body.music_enabled,
+                **(
+                    {"video_lora": video_lora}
+                    if video_lora is not None
+                    else {}
+                ),
             )
             return {"project": serialize_h3_render_project(project)}
         except (KeyError, FileNotFoundError) as error:
@@ -3329,6 +3398,16 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
             "prompt": attempt.prompt,
             "effective_prompt": attempt.effective_prompt,
             "music_enabled": attempt.music_enabled,
+            "video_lora": (
+                {
+                    "name": attempt.video_lora.name,
+                    "strength": attempt.video_lora.strength,
+                    "clip_last_layer": attempt.video_lora.clip_last_layer,
+                    "overlay_version": attempt.video_lora.overlay_version,
+                }
+                if attempt.video_lora is not None
+                else None
+            ),
             "settings": settings,
             "execution_id": attempt.execution_id,
             "compiled_workflow_sha256": attempt.compiled_workflow_sha256,
@@ -4218,6 +4297,16 @@ def serialize_production_job(
             "assisted_lora_selection": job.config.assisted_lora_selection,
             "creative_direction_enabled": job.config.creative_direction_enabled,
             "creative_audacity": job.config.creative_audacity,
+            "h3_video_lora": (
+                {
+                    "name": job.config.h3_video_lora.name,
+                    "strength": job.config.h3_video_lora.strength,
+                    "clip_last_layer": job.config.h3_video_lora.clip_last_layer,
+                    "overlay_version": job.config.h3_video_lora.overlay_version,
+                }
+                if job.config.h3_video_lora is not None
+                else None
+            ),
             "image_settings": {
                 "model_id": job.config.image_settings.model_name,
                 "aspect_ratio": job.config.image_settings.aspect_ratio.value,
