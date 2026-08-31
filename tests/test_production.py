@@ -51,7 +51,7 @@ from panelforge.infrastructure.storage import LocalProductionJobStore
 
 def config() -> ProductionConfig:
     return ProductionConfig(
-        model_id="vllm::qwen",
+        model_id="local::qwen",
         image_settings=Krea2BatchSettings(
             model_name="Krea2/model.safetensors",
             aspect_ratio=Krea2AspectRatio.PORTRAIT_WIDESCREEN,
@@ -387,7 +387,7 @@ class FakeH3:
                 project_id="h3-project",
                 source_session_id="prompt-session",
                 source_prompt_revision_id="final-revision",
-                model_id="vllm::qwen",
+                model_id="local::qwen",
                 input_mode=H3RenderInputMode.I2VA,
                 current_prompt="integrated_multimodal_description: detailed H3 prompt",
                 first_frame_asset_id="asset-3",

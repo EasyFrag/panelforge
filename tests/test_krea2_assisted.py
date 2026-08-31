@@ -198,6 +198,7 @@ class Krea2AssistedServiceTest(unittest.TestCase):
             project = list(service.stream_chat(
                 project.project_id,
                 "Cadre-le entièrement en reprenant la posture de l’image d’appoint.",
+                model_id="local::revision-qwen",
                 guidance_asset_id=guidance.asset_id,
                 guidance_filename="pose-guide.png",
             ))[-1].project
@@ -209,6 +210,11 @@ class Krea2AssistedServiceTest(unittest.TestCase):
             self.assertEqual(project.turns[-2].guidance_asset_id, guidance.asset_id)
             self.assertEqual(project.turns[-2].guidance_filename, "pose-guide.png")
             self.assertIn('"seed": 42', gateway.requests[1].user_prompt)
+            self.assertEqual(gateway.requests[1].model_id, "local::revision-qwen")
+            self.assertEqual(gateway.requests[1].max_tokens, 131_072)
+            self.assertEqual(project.model_id, "Qwen3.8-27B")
+            self.assertEqual(project.revision_model_id, "local::revision-qwen")
+            self.assertEqual(project.turns[-1].model_id, "local::revision-qwen")
 
             project = service.save_image(project.project_id, "attempt-1")
             self.assertIsNone(project.export_error)
@@ -224,6 +230,7 @@ class Krea2AssistedServiceTest(unittest.TestCase):
                 [image.label for image in gateway.requests[2].images],
                 ["REFERENCE IMAGE", "GENERATED RESULT"],
             )
+            self.assertEqual(gateway.requests[2].model_id, "local::revision-qwen")
             self.assertIn("TURN GUIDANCE IMAGE USED: pose-guide.png", gateway.requests[2].user_prompt)
             self.assertEqual(project.recipe_draft.recipe_id, "fantasy_chinese_zodiac")
             project, published = service.publish_recipe(project.project_id)

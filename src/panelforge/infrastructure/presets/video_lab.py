@@ -11,7 +11,17 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from panelforge.domain import RecipeRef, VideoAspectRatio, VideoLabSettings
+from panelforge.domain import (
+    H3_VIDEO_LORA_OVERLAY_VERSION,
+    H3VideoLoraSelection,
+    RecipeRef,
+    VideoAspectRatio,
+    VideoLabSettings,
+)
+from .render_progress import (
+    RenderProgressProfile,
+    validate_render_progress_profile,
+)
 
 
 VIDEO_OPERATION_ID = "video.generate.ref2v"
@@ -27,6 +37,23 @@ class VideoPresetValidationError(ValueError):
 class WorkflowInputBinding:
     node_id: str
     input_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class NodeOutputBinding:
+    node_id: str
+    output_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class VideoLoraOverlayBinding:
+    version: str
+    lora_node_id: str
+    clip_last_layer_node_id: str
+    model_source: NodeOutputBinding
+    clip_source: NodeOutputBinding
+    model_target: WorkflowInputBinding
+    clip_targets: tuple[WorkflowInputBinding, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,8 +102,10 @@ class ValidatedVideoLabWorkflow:
     status: str
     workflow_sha256: str
     inputs: Mapping[str, tuple[WorkflowInputBinding, ...]]
+    video_lora_overlay: VideoLoraOverlayBinding | None
     reference_images: tuple[ReferenceImageBinding, ...]
     output_video: VideoOutputBinding
+    progress_profile: RenderProgressProfile | None
     presets: Mapping[str, VideoLabPreset]
     _workflow_json: bytes = field(repr=False)
 
@@ -123,6 +152,14 @@ class VideoLabPresetRecipe:
     def output_history_field(self) -> str:
         return self.preset.output_video.history_field
 
+    @property
+    def progress_profile(self) -> RenderProgressProfile | None:
+        return self.preset.progress_profile
+
+    @property
+    def supports_video_lora(self) -> bool:
+        return self.preset.video_lora_overlay is not None
+
     def build_workflow(
         self,
         *,
@@ -130,6 +167,8 @@ class VideoLabPresetRecipe:
         prompt: str,
         settings: VideoLabSettings,
         output_filename_prefix: str,
+        spectrum_enabled: bool = False,
+        video_lora: H3VideoLoraSelection | None = None,
     ) -> dict[str, Any]:
         return build_video_lab_workflow(
             self.preset,
@@ -137,6 +176,8 @@ class VideoLabPresetRecipe:
             prompt=prompt,
             settings=settings,
             output_filename_prefix=output_filename_prefix,
+            spectrum_enabled=spectrum_enabled,
+            video_lora=video_lora,
         )
 
 
@@ -175,6 +216,14 @@ class Ref2VH3RenderPresetRecipe:
     def output_history_field(self) -> str:
         return self.recipe.output_history_field
 
+    @property
+    def progress_profile(self) -> RenderProgressProfile | None:
+        return self.recipe.progress_profile
+
+    @property
+    def supports_video_lora(self) -> bool:
+        return self.recipe.supports_video_lora
+
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]:
         if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= self.maximum_keyframes:
             raise ValueError("invalid Ref2V keyframe count")
@@ -188,6 +237,8 @@ class Ref2VH3RenderPresetRecipe:
         settings: VideoLabSettings,
         output_filename_prefix: str,
         keyframe_indices: tuple[int, ...],
+        spectrum_enabled: bool = False,
+        video_lora: H3VideoLoraSelection | None = None,
     ) -> dict[str, Any]:
         if not self.minimum_reference_images <= len(source_images) <= self.maximum_reference_images:
             raise ValueError(
@@ -202,6 +253,8 @@ class Ref2VH3RenderPresetRecipe:
             prompt=prompt,
             settings=settings,
             output_filename_prefix=output_filename_prefix,
+            spectrum_enabled=spectrum_enabled,
+            video_lora=video_lora,
         )
         binding = self.recipe.preset.reference_images[-1]
         template = self.recipe.preset.workflow[binding.load_node_id]
@@ -325,15 +378,19 @@ def validate_video_lab_workflow(
         "seed",
         "output_filename_prefix",
     }
-    expected_binding_keys = required_inputs | {"reference_images", "output_video"}
-    if set(bindings) != expected_binding_keys:
+    optional_inputs = {"spectrum_enabled"}
+    optional_bindings = {"video_lora_overlay"}
+    required_binding_keys = required_inputs | {"reference_images", "output_video"}
+    expected_binding_keys = required_binding_keys | optional_inputs | optional_bindings
+    binding_keys = set(bindings)
+    if not required_binding_keys <= binding_keys or not binding_keys <= expected_binding_keys:
         raise VideoPresetValidationError(
-            f"bindings must define exactly {sorted(expected_binding_keys)!r}"
+            "bindings must define the required render inputs and only supported optional inputs"
         )
 
     input_bindings = {
         name: _input_bindings(bindings[name], nodes, f"bindings.{name}")
-        for name in required_inputs
+        for name in required_inputs | (optional_inputs & set(bindings))
     }
     prompt_config = _object(bindings["positive_prompt"], "positive_prompt")
     prompt_sentinel = _text(prompt_config.get("sentinel"), "positive_prompt.sentinel")
@@ -353,6 +410,11 @@ def validate_video_lab_workflow(
         _reference_binding(value, nodes, index)
         for index, value in enumerate(references_raw)
     )
+    video_lora_overlay = (
+        _video_lora_overlay_binding(bindings["video_lora_overlay"], nodes)
+        if "video_lora_overlay" in bindings
+        else None
+    )
 
     output_config = _object(bindings["output_video"], "output_video")
     output_node_id = _text(output_config.get("node_id"), "output_video.node_id")
@@ -369,6 +431,11 @@ def validate_video_lab_workflow(
 
     _validate_assertions(manifest.get("workflow_assertions"), nodes)
     _validate_no_orphans(nodes, output.node_id)
+    progress_profile = validate_render_progress_profile(
+        manifest.get("progress"),
+        nodes,
+        error_type=VideoPresetValidationError,
+    )
     presets = _validate_presets(manifest.get("presets"))
     if DEFAULT_VIDEO_PRESET_ID not in presets:
         raise VideoPresetValidationError(
@@ -386,8 +453,10 @@ def validate_video_lab_workflow(
         status=status,
         workflow_sha256=workflow_sha256,
         inputs=MappingProxyType(input_bindings),
+        video_lora_overlay=video_lora_overlay,
         reference_images=references,
         output_video=output,
+        progress_profile=progress_profile,
         presets=MappingProxyType(presets),
         _workflow_json=serialized,
     )
@@ -400,12 +469,18 @@ def build_video_lab_workflow(
     prompt: str,
     settings: VideoLabSettings,
     output_filename_prefix: str,
+    spectrum_enabled: bool = False,
+    video_lora: H3VideoLoraSelection | None = None,
 ) -> dict[str, Any]:
     """Compile an isolated workflow and prune unused reference slots."""
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must not be empty")
     if not isinstance(settings, VideoLabSettings):
         raise TypeError("settings must be VideoLabSettings")
+    if not isinstance(spectrum_enabled, bool):
+        raise TypeError("spectrum_enabled must be a boolean")
+    if video_lora is not None and not isinstance(video_lora, H3VideoLoraSelection):
+        raise TypeError("video_lora must be an H3VideoLoraSelection or None")
     if not 1 <= len(source_images) <= 3:
         raise ValueError("source_images must contain between 1 and 3 images")
     for source_image in source_images:
@@ -423,8 +498,13 @@ def build_video_lab_workflow(
         "steps": settings.steps,
         "seed": settings.seed,
         "output_filename_prefix": output_filename_prefix,
+        "spectrum_enabled": spectrum_enabled,
     }
     for name, value in values.items():
+        if name not in preset.inputs:
+            if name == "spectrum_enabled" and value:
+                raise ValueError("this Ref2V workflow does not support Spectrum")
+            continue
         for binding in preset.inputs[name]:
             workflow[binding.node_id]["inputs"][binding.input_name] = value
 
@@ -437,7 +517,52 @@ def build_video_lab_workflow(
         else:
             target_inputs.pop(binding.target_input, None)
             workflow.pop(binding.load_node_id, None)
+    if video_lora is not None:
+        if preset.video_lora_overlay is None:
+            raise ValueError("this Ref2V workflow does not support video LoRAs")
+        _apply_video_lora(workflow, preset.video_lora_overlay, video_lora)
     return workflow
+
+
+def _apply_video_lora(
+    workflow: dict[str, Any],
+    binding: VideoLoraOverlayBinding,
+    selection: H3VideoLoraSelection,
+) -> None:
+    if selection.overlay_version != binding.version:
+        raise ValueError("H3 video LoRA overlay version disagrees with the Ref2V workflow")
+    workflow[binding.lora_node_id] = {
+        "inputs": {
+            "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+            "lora_1": {
+                "on": True,
+                "lora": selection.name,
+                "strength": selection.strength,
+            },
+            "\u2795 Add Lora": "",
+            "model": [binding.model_source.node_id, binding.model_source.output_index],
+            "clip": [binding.clip_source.node_id, binding.clip_source.output_index],
+        },
+        "class_type": "Power Lora Loader (rgthree)",
+        "_meta": {"title": "PanelForge MiniMax Ref2V LoRA"},
+    }
+    workflow[binding.model_target.node_id]["inputs"][binding.model_target.input_name] = [
+        binding.lora_node_id,
+        0,
+    ]
+    clip_output: list[object] = [binding.lora_node_id, 1]
+    if selection.clip_last_layer is not None:
+        workflow[binding.clip_last_layer_node_id] = {
+            "inputs": {
+                "stop_at_clip_layer": selection.clip_last_layer,
+                "clip": clip_output,
+            },
+            "class_type": "CLIPSetLastLayer",
+            "_meta": {"title": "PanelForge MiniMax Ref2V LoRA CLIP layer"},
+        }
+        clip_output = [binding.clip_last_layer_node_id, 0]
+    for target in binding.clip_targets:
+        workflow[target.node_id]["inputs"][target.input_name] = clip_output
 
 
 def _input_binding(
@@ -468,6 +593,73 @@ def _input_bindings(
     return tuple(
         _input_binding(item, workflow, f"{label}[{index}]")
         for index, item in enumerate(values)
+    )
+
+
+def _video_lora_overlay_binding(
+    value: Any,
+    workflow: Mapping[str, Any],
+) -> VideoLoraOverlayBinding:
+    label = "bindings.video_lora_overlay"
+    config = _object(value, label)
+    version = _text(config.get("version"), f"{label}.version")
+    if version != H3_VIDEO_LORA_OVERLAY_VERSION:
+        raise VideoPresetValidationError("unsupported Ref2V video LoRA overlay version")
+    lora_node_id = _text(config.get("lora_node_id"), f"{label}.lora_node_id")
+    clip_node_id = _text(
+        config.get("clip_last_layer_node_id"),
+        f"{label}.clip_last_layer_node_id",
+    )
+    if lora_node_id == clip_node_id or lora_node_id in workflow or clip_node_id in workflow:
+        raise VideoPresetValidationError("Ref2V video LoRA overlay node IDs must be unused")
+
+    def source(raw: Any, source_label: str) -> NodeOutputBinding:
+        source_config = _object(raw, source_label)
+        node_id = _text(source_config.get("node_id"), f"{source_label}.node_id")
+        if node_id not in workflow:
+            raise VideoPresetValidationError(f"{source_label} node is missing")
+        output_index = source_config.get("output_index")
+        if isinstance(output_index, bool) or not isinstance(output_index, int) or output_index < 0:
+            raise VideoPresetValidationError(
+                f"{source_label}.output_index must be a non-negative integer"
+            )
+        return NodeOutputBinding(node_id=node_id, output_index=output_index)
+
+    model_source = source(config.get("model_source"), f"{label}.model_source")
+    clip_source = source(config.get("clip_source"), f"{label}.clip_source")
+    model_target = _input_binding(
+        config.get("model_target"),
+        workflow,
+        f"{label}.model_target",
+    )
+    clip_targets = _input_bindings(
+        config.get("clip_targets"),
+        workflow,
+        f"{label}.clip_targets",
+    )
+    if _node_input(workflow, model_target) != [
+        model_source.node_id,
+        model_source.output_index,
+    ]:
+        raise VideoPresetValidationError(
+            "Ref2V video LoRA model target does not consume the declared source"
+        )
+    for target in clip_targets:
+        if _node_input(workflow, target) != [
+            clip_source.node_id,
+            clip_source.output_index,
+        ]:
+            raise VideoPresetValidationError(
+                "Ref2V video LoRA CLIP target does not consume the declared source"
+            )
+    return VideoLoraOverlayBinding(
+        version=version,
+        lora_node_id=lora_node_id,
+        clip_last_layer_node_id=clip_node_id,
+        model_source=model_source,
+        clip_source=clip_source,
+        model_target=model_target,
+        clip_targets=clip_targets,
     )
 
 

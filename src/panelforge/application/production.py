@@ -40,7 +40,12 @@ from panelforge.domain.production import (
 from panelforge.domain.prompt_composition import CookbookBinding, CompositionStage
 from panelforge.domain.prompt_lab import ReferenceEvidencePolicy, ReferenceUse
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
-from panelforge.application.prompt_lab import CompletionRequest, ImageInput, NewReference
+from panelforge.application.prompt_lab import (
+    CompletionRequest,
+    ImageInput,
+    NewReference,
+    truncated_response_message,
+)
 from panelforge.application.production_resources import (
     ResourceLeaseManager,
     ResourceRequirement,
@@ -1547,7 +1552,7 @@ class ProductionService:
         images: tuple[ImageInput, ...],
         operation_id: str,
         *,
-        max_tokens: int | None = 2_048,
+        max_tokens: int | None = 16_384,
     ) -> dict[str, Any]:
         attempt_index = 0
 
@@ -1556,7 +1561,7 @@ class ProductionService:
             token_budget = (
                 None
                 if max_tokens is None
-                else min(max_tokens * (2 ** attempt_index), 32_768)
+                else min(max_tokens * (2 ** attempt_index), 262_144)
             )
             attempt_index += 1
             result = self.gateway.complete(CompletionRequest(
@@ -1570,11 +1575,7 @@ class ProductionService:
             ))
             if getattr(result, "finish_reason", None) == "length":
                 raise ValueError(
-                    (
-                        f"{operation_id} returned a truncated JSON response at the provider or context limit"
-                        if token_budget is None
-                        else f"{operation_id} returned a truncated JSON response at {token_budget} tokens"
-                    )
+                    f"{operation_id} · {truncated_response_message(token_budget)}"
                 )
             return _json_object(result.content)
 

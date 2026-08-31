@@ -203,25 +203,6 @@ def parse_args() -> argparse.Namespace:
         help="Unsloth Studio API key; prefer PANELFORGE_LOCAL_LLM_API_KEY",
     )
     parser.add_argument(
-        "--vllm-base-url",
-        default=os.environ.get(
-            "PANELFORGE_VLLM_URL",
-            "http://127.0.0.1:8000/v1",
-        ),
-        help="Local vLLM OpenAI-compatible URL (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--vllm-api-key",
-        default=os.environ.get("PANELFORGE_VLLM_API_KEY", "local-vllm"),
-        help="Placeholder API key sent to the local vLLM server",
-    )
-    parser.add_argument(
-        "--vllm-max-output-tokens",
-        type=int,
-        default=int(os.environ.get("PANELFORGE_VLLM_MAX_OUTPUT_TOKENS", "32768")),
-        help="Maximum completion budget for the 65536-token vLLM context (default: %(default)s)",
-    )
-    parser.add_argument(
         "--workspace",
         type=Path,
         default=PROJECT_ROOT / "workspace",
@@ -343,24 +324,6 @@ def build_app(args: argparse.Namespace):
                     or "panelforge-local-unconfigured"
                 ),
                 timeout=args.llm_timeout,
-            ),
-            "vllm": OpenAICompatibleGateway(
-                getattr(
-                    args,
-                    "vllm_base_url",
-                    "http://127.0.0.1:8000/v1",
-                ),
-                api_key=(
-                    getattr(args, "vllm_api_key", "local-vllm")
-                    or "local-vllm"
-                ),
-                timeout=args.llm_timeout,
-                maximum_output_tokens=getattr(
-                    args,
-                    "vllm_max_output_tokens",
-                    32768,
-                ),
-                source_label="vLLM",
             ),
         }
     )

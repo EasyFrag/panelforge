@@ -3,13 +3,12 @@
 const $ = (id) => document.getElementById(id);
 const preferredPromptModelId = "Qwen3.8-27B";
 const llmCatalogs = new WeakMap();
-const llmLocalSources = new Set(["local", "vllm"]);
+const llmLocalSources = new Set(["local"]);
 
 function llmSource(model) {
   if (model && typeof model.source === "string" && model.source) return model.source;
   if (model && typeof model.id === "string") {
     if (model.id.startsWith("local::")) return "local";
-    if (model.id.startsWith("vllm::")) return "vllm";
   }
   return "server";
 }
@@ -20,9 +19,8 @@ function isLocalLlm(model) {
 
 function llmModelLabel(model) {
   const source = llmSource(model);
-  const raw = model.label || model.id.replace(/^(?:local|vllm)::/, "");
+  const raw = model.label || model.id.replace(/^[^:]+::/, "");
   if (source === "local") return `Unsloth · ${raw}`;
-  if (source === "vllm") return `vLLM · ${raw}`;
   return raw;
 }
 
@@ -82,7 +80,7 @@ window.PanelForgeModelPicker = Object.freeze({
     if (![...select.options].some((option) => option.value === modelId)) {
       const option = document.createElement("option");
       option.value = modelId;
-      option.textContent = `${modelId.replace(/^(?:local|vllm)::/, "")} · ${unavailableSuffix}`;
+      option.textContent = `${modelId.replace(/^[^:]+::/, "")} · ${unavailableSuffix}`;
       option.dataset.missing = "true";
       select.prepend(option);
     }

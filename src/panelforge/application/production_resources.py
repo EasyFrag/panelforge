@@ -113,7 +113,7 @@ def llm_compute_resource(
     if not isinstance(model_id, str) or not model_id.strip():
         raise ValueError("model_id must not be empty")
     source, separator, _ = model_id.partition("::")
-    if separator and source in {"local", "vllm"}:
+    if separator and source == "local":
         return ComputeResource.LOCAL_GPU
     return server_resource
 

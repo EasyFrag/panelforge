@@ -23,6 +23,8 @@
     jobList: $("#production-job-list"), empty: $("#production-empty"), job: $("#production-job"),
     title: $("#production-job-title"), status: $("#production-job-status"), stage: $("#production-stage-label"),
     progress: $("#production-progress-bar"), message: $("#production-job-message"), cancel: $("#production-cancel"), retry: $("#production-retry"),
+    renderProgress: $("#production-render-progress"), renderProgressPhase: $("#production-render-progress-phase"),
+    renderProgressMeta: $("#production-render-progress-meta"), renderProgressBar: $("#production-render-progress-bar"),
     images: $("#production-images"), imageRecommendation: $("#production-image-recommendation"), imageReview: $("#production-image-review"), approveImage: $("#production-approve-image"),
     h3Audit: $("#production-h3-audit"), h3AuditStatus: $("#production-h3-audit-status"),
     h3Contract: $("#production-h3-contract"), h3Documents: $("#production-h3-documents"),
@@ -39,6 +41,8 @@
     h3Audit: null, h3AuditKey: null, h3AuditError: null,
     sourcePreviewUrl: null, previewRenderKey: null, finalRenderKey: null,
     revisionSuggestionJobId: null, revisionSuggestionAttemptId: null, revisionSuggestionText: "",
+    renderSocket: null, renderAttemptId: "", renderProgressStartedAt: 0,
+    renderProgressTimer: null, renderProgressData: null,
   };
   const stages = ["setup", "image_generation", "image_selection", "h3_prompt", "video_preview", "video_evaluation", "video_final", "complete"];
   const stageLabels = {
@@ -209,6 +213,113 @@
 
   function isTerminal(job) { return ["succeeded", "failed", "cancelled", "waiting_for_review"].includes(job.status); }
 
+  function elapsedLabel(startedAt) {
+    const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  }
+
+  function paintRenderProgress() {
+    const data = state.renderProgressData;
+    if (!data || !elements.renderProgress) return;
+    const percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
+    const steps = Number(data.current_step) > 0 && Number(data.total_steps) > 0
+      ? `step ${data.current_step} / ${data.total_steps} · ` : "";
+    const estimate = data.estimated === false ? "" : " estimé";
+    elements.renderProgress.hidden = false;
+    elements.renderProgressPhase.textContent = data.phase_label || "Rendu H3 en cours";
+    elements.renderProgressBar.value = percent;
+    elements.renderProgressMeta.textContent = `${steps}${Math.round(percent)} %${estimate} · écoulé ${elapsedLabel(state.renderProgressStartedAt || Date.now())}`;
+  }
+
+  function stopRenderProgressClock() {
+    if (state.renderProgressTimer !== null) window.clearInterval(state.renderProgressTimer);
+    state.renderProgressTimer = null;
+  }
+
+  function closeRenderSocket() {
+    const socket = state.renderSocket;
+    state.renderSocket = null;
+    if (socket) socket.close();
+  }
+
+  function beginRenderProgress(attempt) {
+    if (state.renderAttemptId !== attempt.attempt_id) {
+      closeRenderSocket();
+      stopRenderProgressClock();
+      state.renderAttemptId = attempt.attempt_id;
+      state.renderProgressStartedAt = Date.now();
+      state.renderProgressData = { phase_label: "Préparation des modèles", percent: 0, estimated: true };
+    }
+    if (state.renderProgressTimer === null) {
+      state.renderProgressTimer = window.setInterval(paintRenderProgress, 1000);
+    }
+    paintRenderProgress();
+  }
+
+  function finishRenderProgress(attempt) {
+    if (!attempt || state.renderAttemptId !== attempt.attempt_id) return;
+    stopRenderProgressClock();
+    closeRenderSocket();
+    if (attempt.status === "succeeded") {
+      state.renderProgressData = { phase_label: "Terminé", percent: 100, estimated: false };
+    } else if (["failed", "cancelled"].includes(attempt.status)) {
+      state.renderProgressData = {
+        ...(state.renderProgressData || {}),
+        phase_label: attempt.status === "cancelled" ? "Rendu annulé" : "Rendu interrompu",
+      };
+    }
+    paintRenderProgress();
+  }
+
+  function connectRenderProgress(attempt) {
+    if (!attempt?.events_url || state.renderSocket) return;
+    const target = new URL(attempt.events_url, window.location.href);
+    target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
+    try {
+      const socket = new WebSocket(target.href);
+      state.renderSocket = socket;
+      socket.addEventListener("message", (event) => {
+        if (typeof event.data !== "string") return;
+        let payload = null;
+        try { payload = JSON.parse(event.data); } catch (_) { return; }
+        const data = payload.data || payload;
+        const eventExecutionId = data.prompt_id || payload.prompt_id || data.execution_id;
+        if (eventExecutionId && attempt.execution_id && eventExecutionId !== attempt.execution_id) return;
+        if (payload.type === "panelforge_render_progress") {
+          state.renderProgressData = data;
+          paintRenderProgress();
+        }
+      });
+      socket.addEventListener("close", () => { if (state.renderSocket === socket) state.renderSocket = null; });
+      socket.addEventListener("error", () => { if (state.renderSocket === socket) state.renderSocket = null; });
+    } catch (_) { state.renderSocket = null; }
+  }
+
+  function activeVideoAttempt(job) {
+    const attempts = [...(job.previews || [])];
+    if (job.final_attempt) attempts.push(job.final_attempt);
+    return [...attempts].reverse().find((attempt) => ["created", "queued", "running", "cancel_pending"].includes(attempt.status)) || null;
+  }
+
+  function syncRenderProgress(job) {
+    const active = activeVideoAttempt(job);
+    if (active) {
+      beginRenderProgress(active);
+      connectRenderProgress(active);
+      return;
+    }
+    const relevant = job.stage === "video_final" || job.stage === "complete"
+      ? job.final_attempt
+      : (job.previews || []).at(-1);
+    if (relevant && state.renderAttemptId === relevant.attempt_id) {
+      finishRenderProgress(relevant);
+    } else if (!["video_preview", "video_final"].includes(job.stage)) {
+      elements.renderProgress.hidden = true;
+      closeRenderSocket();
+      stopRenderProgressClock();
+    }
+  }
+
   function startPolling() {
     if (state.timer) clearTimeout(state.timer);
     const poll = async () => {
@@ -231,6 +342,7 @@
     elements.cancel.textContent = job.cancel_requested ? "Arrêt demandé…" : "Arrêter le flux";
     elements.retry.hidden = job.status !== "failed"; elements.retry.disabled = job.status !== "failed";
     renderImages(job); renderH3Audit(job); renderPreviews(job); renderFinal(job); renderEvents(job); renderRevisionSuggestion(job);
+    syncRenderProgress(job);
     if (["succeeded", "failed", "cancelled"].includes(job.status) && state.lastTerminal !== `${job.job_id}:${job.status}`) {
       state.lastTerminal = `${job.job_id}:${job.status}`;
       if (job.status === "succeeded") core.playCompletionTone(); else core.playFailureTone();

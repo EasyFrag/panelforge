@@ -79,11 +79,6 @@ class FakeGateway:
                 source="local",
                 display_name="Qwen3.8-27B-UD-Q6_K_XL-Dynamic-V3",
             ),
-            ModelDescriptor(
-                "vllm::qwen3.8-27b-nvfp4",
-                source="vllm",
-                display_name="qwen3.8-27b-nvfp4",
-            ),
         )
 
     def complete(self, request):
@@ -180,13 +175,13 @@ class PromptLabWebTest(unittest.TestCase):
         self.assertNotIn('data-lab-view="prompt-lab"', page.text)
         self.assertEqual(core.status_code, 200)
         self.assertIn("window.PanelForgeLabCore", core.text)
-        self.assertEqual(len(models.json()["models"]), 4)
+        self.assertEqual(len(models.json()["models"]), 3)
         self.assertEqual(
             models.json()["models"][-1],
             {
-                "id": "vllm::qwen3.8-27b-nvfp4",
-                "label": "qwen3.8-27b-nvfp4",
-                "source": "vllm",
+                "id": "local::Qwen3.8-27B-UD-Q6_K_XL-Dynamic-V3",
+                "label": "Qwen3.8-27B-UD-Q6_K_XL-Dynamic-V3",
+                "source": "local",
             },
         )
         profile_ids = {item["id"] for item in spec.json()["profiles"]}

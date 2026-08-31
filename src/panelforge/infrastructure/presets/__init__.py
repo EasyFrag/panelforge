@@ -62,6 +62,11 @@ from .h3_render import (
     load_h3_render_workflow,
     validate_h3_render_workflow,
 )
+from .render_progress import (
+    RenderProgressPhase,
+    RenderProgressProfile,
+    validate_render_progress_profile,
+)
 
 __all__ = [
     "MULTIPLE_ANGLES_LORA_STRENGTH",
@@ -95,6 +100,8 @@ __all__ = [
     "VideoLabPreset",
     "VideoLabPresetRecipe",
     "Ref2VH3RenderPresetRecipe",
+    "RenderProgressPhase",
+    "RenderProgressProfile",
     "VideoPresetValidationError",
     "WorkflowInputBinding",
     "build_krea2_t2i_workflow",
@@ -109,5 +116,6 @@ __all__ = [
     "validate_krea2_t2i_workflow",
     "validate_h3_render_workflow",
     "validate_video_lab_workflow",
+    "validate_render_progress_profile",
     "build_video_lab_workflow",
 ]

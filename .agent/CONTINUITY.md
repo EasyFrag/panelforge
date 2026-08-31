@@ -8,7 +8,7 @@
 
 - Works:
   - KREA2 Edit applique explicitement les défauts de rendu dès que le spec est chargé, puis les remplace par les métadonnées de la source ou les réglages du dernier essai. Une initialisation partielle n'est plus verrouillée comme réussie : rouvrir l'onglet relance le chargement, et des champs incomplets sont réhydratés sans écraser des réglages valides déjà saisis. Le dernier PNG audité conservait correctement checkpoint, ratio, mégapixels et seed ; le défaut était limité au cycle d'initialisation frontend. Cache `krea2-edit-lab.js?v=20260826.1`, 601 tests verts.
-  - PanelForge découvre désormais vLLM comme troisième fournisseur OpenAI-compatible indépendant sur `http://127.0.0.1:8000/v1` (clé factice `local-vllm`). Les modèles sont namespacés `vllm::`, regroupés avec Unsloth derrière les cases `Local · Unsloth / vLLM`, et restent routés vers vLLM pendant toutes les étapes d'un parcours. La configuration réelle mise à jour expose un contexte de 65 536 tokens ; quatre images sont acceptées et une cinquième est rejetée explicitement par vLLM. PanelForge utilise donc 32 768 tokens de sortie et quatre images par défaut, configurables par environnement. Le modèle réel `qwen3.8-27b-nvfp4` a été découvert puis testé via l'adaptateur PanelForge avec quatre images (`OK`, `finish_reason=stop`) ; 601 tests passent.
+  - PanelForge ne configure plus vLLM. Le catalogue et le routage actifs comprennent uniquement le serveur distant et Unsloth Studio sous le namespace `local::`; aucune requête n'est envoyée au port 8000. Tous les sélecteurs affichent `Local · Unsloth`. Les anciens identifiants namespacés restent lisibles comme valeurs historiques indisponibles et ne sont jamais redirigés silencieusement vers Unsloth.
   - Image Lab exécute `character.change_view@0.2.0`; le moteur partagé fournit streaming, carillon de fin renforcé, révisions, approbations et journal borné des appels LLM.
   - L’interface produit ne conserve que `Image Lab`, `H3 Base`, `Ref2V` et `Video Lab`. Storyboard, le Prompt Lab autonome et Archives ont été retirés avec leurs scripts, routes dédiées, recettes et tests verticaux. Le noyau de sessions/compositions reste partagé par H3 Base et Ref2V via `lab-core.js`. Les historiques présents sous `workspace` n’ont pas été supprimés ni migrés. Validation : 599 tests verts et compilation Python complète.
   - Ref2V réalise 1–3 images natives → Brief multimodal → Plan JSON multimodal → prompt H3, sans Observation séparée.
@@ -97,6 +97,8 @@
   - Le lancement isolé de `D:\Code\localQ\.panelpatch\scripts\run_lab.py` sur le port 7861 a confirmé le runtime de la branche `cleanup-orphan-labs` et le Prompt H3 Base a été généré correctement. Le rejet précédent provenait vraisemblablement du brouillon d'un ancien run ou d'une ancienne instance sur 7860. Le warning Git `dubious ownership` concerne uniquement les commandes Git sur le worktree créé par `CodexSandboxOffline` et n'empêche pas Python de lancer PanelForge.
   - Le workflow H3 Render `minimax-h3-latent-speed@0.1.1` porte la lecture de la preview animée `ModelPreviewOverrideKJ` de 12 à 24 fps, sans modifier les 24 fps de la vidéo finale ni la version historique `0.1.0`. Le manifeste et le workflow exposent la même valeur, le runtime charge la nouvelle version et les 599 tests passent.
 - Broken / missing:
+  - Audit des reglages Unsloth : le gateway OpenAI-compatible envoie seulement `model`, `messages`, `temperature`, `stream` et, selon l'etape, `max_tokens`. Il fixe un timeout de 300 s et desactive les retries du SDK. `top_p`, `top_k`, `min_p`, penalites, seed, schema JSON, `reasoning_effort`, `enable_thinking`, MTP/speculative decoding, contexte et pretraitement des images restent aux valeurs du serveur. Le dernier chat KREA2 utilisait `temperature=0.35`, `max_tokens=16384`, `stream=true` et deux PNG encodes en data URL.
+  - Le projet Creation assistee KREA2 `krea2-create-d95a4c1f39da4ecc9c2e1e46b16f8b28` confirme le defaut MTMD intermittent avec `local::unsloth/Qwen3.8-27B-GGUF` : plusieurs tours utilisateur identiques ont ete persistes pendant les echecs, puis le meme contexte multimodal a reussi. Ce n'est ni Spectrum, ni le workflow H3/LoRA, ni un rejet permanent du prompt ; la mitigation applicative reste un retry borne MTMD et une persistance transactionnelle du tour.
   - L'arrêt de PanelForge peut rester sur `Shutting down` lorsqu'une requête longue lancée via FastAPI `BackgroundTasks` est encore suivie (rendu ComfyUI, batch ou édition, avec timeout applicatif pouvant atteindre 3600 s). Le polling navigateur `/api/runtime/status` peut encore laisser apparaître une dernière requête mais n'est pas la cause racine. Uvicorn 0.52.1 attend par défaut indéfiniment ses connexions/tâches ; un second `Ctrl+C` positionne son `force_exit`. Aucun listener 7860/7861 ni essai H3 actif ne subsistait lors de l'audit. Une correction durable devra borner l'arrêt gracieux ou détacher coopérativement les workers longs sans annuler implicitement les jobs ComfyUI.
   - Audit `Music OFF` du projet H3 Render `h3-render-c3fd4f9d57834f398e188f30c9b2021b` : les trois essais persistent `music_enabled=false`, leur `effective_prompt` finit par `non_diegetic_music: N/A` et le workflow compilé transmet exactement cette valeur au nœud prompt 14. Le contrôle fonctionne donc comme substitution sémantique, pas comme suppression d'une piste audio séparée. Le `overall_soundscape` courant contient toutefois `bright chime` et `faint shimmering sparkle bed`, formulation susceptible d'être rendue comme une nappe musicale par H3 malgré `N/A`. Un durcissement éventuel doit distinguer effets diégétiques et vocabulaire musical sans supprimer dialogues ni ambiance.
   - Audit du projet Création assistée KREA2 `krea2-create-12240d33ffdc471a9d02f2582f9a1ca4` : quatre appels locaux Qwen3.8 ont échoué en amont avec `APIError: failed to process mtmd chunk` (deux paires de deux échecs), puis les mêmes requêtes ont réussi avec les mêmes images. Le défaut est donc transitoire dans le traitement multimodal llama.cpp/Unsloth, pas un rejet du prompt, du JSON ou de ComfyUI. Les requêtes envoyaient une référence 1032×1840 (~3 Mo) et un rendu 1664×2960 (~7,3–7,6 Mo).
@@ -1166,3 +1168,284 @@
 
 ### Risks / open questions
 - La disponibilité réelle des `class_type` rgthree/CLIP et la compatibilité de chaque LoRA avec CLIP `-2` doivent être confirmées sur le serveur ComfyUI.
+
+## Design en discussion 2026-08-31 - modèle LLM de révision
+
+### Works
+- H3 Render conserve actuellement le modèle du parcours initial dans `project.model_id`; KREA2 Assisted fait de même. La recette de révision H3 est déjà sélectionnable indépendamment du parcours initial.
+
+### Broken / missing
+- Aucun des deux chats ne permet encore de choisir un autre modèle pour un ajustement sans changer le modèle historique du projet.
+
+### Next steps (max 3)
+1. Ajouter un sélecteur de modèle dans `Ajuster avec le LLM` pour H3 Base/Ref2V et dans la conversation KREA2 Assisted.
+2. Conserver le modèle initial immuable, persister une préférence de révision séparée et tracer le modèle effectivement utilisé sur chaque tour.
+3. Faire porter le choix uniquement sur les appels directs de révision, sans rejouer Brief, Plan ou Prompt initial.
+
+### Risks / open questions
+- Le sélecteur doit restaurer un ancien modèle même s'il est momentanément absent du catalogue, sans rerouter silencieusement l'appel vers un autre fournisseur.
+
+## Update 2026-08-31 - modèle LLM de révision sélectionnable
+
+### Works
+- H3 Base, Ref2V et KREA2 Création assistée proposent maintenant un sélecteur LLM dans leur zone d'ajustement. Le choix ne concerne que le prochain appel direct de révision : il ne rejoue ni Brief, ni Plan, ni génération initiale.
+- Le modèle initial du projet reste immuable dans `model_id`. Une préférence distincte `revision_model_id` est persistée et reprise aux ajustements suivants ; le modèle effectivement renvoyé par la gateway est conservé sur chaque tour assistant et affiché dans l'historique.
+- Les anciens projets restent lisibles : H3 Render accepte les schémas 1/2 et écrit le schéma 3 ; KREA2 Assisted accepte le schéma 1 et écrit le schéma 2. Un modèle historique momentanément absent du catalogue reste sélectionné et signalé, sans fallback silencieux.
+- Validation : 678 tests complets réussis en 82 secondes, compilation Python réussie et `git diff --check` sans erreur de whitespace.
+
+### Broken / missing
+- Aucun défaut fonctionnel détecté par les tests automatisés.
+- Aucun smoke test navigateur réel n'a encore vérifié le basculement serveur/local au milieu d'une conversation historique.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et ouvrir un ancien projet H3 Base, Ref2V puis KREA2 Assisted pour confirmer la restauration de l'historique.
+2. Basculer le modèle dans la zone d'ajustement, envoyer un tour, puis vérifier le badge du modèle sur la réponse et la conservation du modèle initial.
+3. Tester un second ajustement sans retoucher le sélecteur afin de confirmer la persistance de la préférence.
+
+### Risks / open questions
+- Un modèle peut rester visible comme historique alors qu'il a été déchargé après la lecture du catalogue ; l'appel échoue alors explicitement sur ce modèle au lieu d'être rerouté.
+
+## Diagnostic 2026-08-31 - Plans H3 tronqués par le budget de sortie
+
+### Works
+- Les journaux du dernier parcours identifient trois appels `action_plan.generate` à 08:57:32, 08:58:26 et 08:59:58 UTC. Unsloth a terminé chacun avec `finish_reason=length` et PanelForge avait envoyé `max_tokens=32768`.
+- Les trois réponses visibles font seulement 5 853, 7 449 et 6 862 caractères, mais sont réellement coupées au milieu du JSON. Le budget de complétion inclut le raisonnement non exposé du modèle, ce qui explique qu'une sortie finale courte puisse épuiser 32 768 tokens.
+- Le retry automatique a correctement rejoué l'étape, mais avec le même budget client ; il ne pouvait donc pas supprimer cette classe d'échec.
+
+### Broken / missing
+- Le message UI « flux terminé sans résultat persistant » masque la cause précise `finish_reason=length`.
+- Les appels du parcours Prompt Composition/H3 imposent historiquement `max_tokens=32768` au lieu de laisser le fournisseur utiliser son budget natif. Cette limite n'a pas été ajoutée par le dernier patch de sélection de modèle, mais elle est bien la cause directe de ce run.
+
+### Next steps (max 3)
+1. Après validation utilisateur, omettre la limite client sur les appels structurés longs H3 (`max_tokens=None`) afin que seul le contexte du fournisseur borne la génération.
+2. Afficher explicitement « réponse tronquée par la limite de sortie/contexte » et conserver le brouillon, au lieu du seul message terminal générique.
+3. Tester Brief, Plan et Writer avec Unsloth en thinking long, puis vérifier qu'un retry ne réemploie pas une borne fautive.
+
+### Risks / open questions
+- Omettre `max_tokens` ne rend pas la sortie infinie : la fenêtre de contexte et les réglages du serveur Unsloth/vLLM restent les limites finales. Un modèle qui raisonne jusqu'à épuiser son contexte peut encore être tronqué par le fournisseur.
+
+## Update 2026-08-31 - garde-fous LLM doublés et diagnostic explicite
+
+### Works
+- Tous les plafonds numériques applicatifs ont été doublés sans modifier les appels déjà configurés avec `max_tokens=None` : défaut 32 768→65 536, H3/KREA Assisted/Edit et révisions Batch 16 384→32 768, Social 8 000→16 000, retries Production 2 048→4 096 avec plafond 32 768→65 536.
+- Brief, Plan, Writer et arbitrages H3/Ref2V utilisent désormais 65 536 tokens. Le plafond client vLLM par défaut passe lui aussi à 65 536 via `PANELFORGE_VLLM_MAX_OUTPUT_TOKENS`, tout en laissant le contexte combiné du serveur autoritaire.
+- Une troncature `finish_reason=length` affiche désormais le budget exact, précise que le raisonnement interne le consomme et conserve le brouillon. H3 Base et Ref2V ne remplacent plus ce diagnostic par « flux terminé sans résultat persistant ».
+- Le message détaillé est partagé par H3 Render, KREA2 Assisted, Batch, Edit, Social et Production. README et documentation des services locaux sont alignés.
+- Validation : 137 tests ciblés puis 679 tests complets réussis en 77 secondes ; compilation Python et `git diff --check` réussis.
+
+### Broken / missing
+- Aucun défaut automatisé détecté.
+- Le dernier Plan ayant échoué doit être relancé après redémarrage : son appel historique reste légitimement enregistré comme tronqué à 32 768 tokens.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge sur `h3-video-lora`, recharger la page pour prendre les nouveaux scripts puis relancer uniquement le Plan du parcours concerné.
+2. Vérifier dans `workspace/llm_calls.json` que le nouvel appel `action_plan.generate` annonce `max_tokens: 65536`.
+3. Si Unsloth renvoie encore `finish_reason=length`, comparer sa fenêtre de contexte et son réglage de thinking avant d'augmenter de nouveau le garde-fou.
+
+### Risks / open questions
+- Pour vLLM configuré avec un contexte total de 65 536, le serveur peut réduire ou refuser un budget de sortie de 65 536 lorsque le prompt occupe déjà une partie du contexte. La variable d'environnement permet de conserver 32 768 pour ce seul fournisseur si nécessaire, sans réduire le nouveau budget Unsloth.
+
+## Update 2026-08-31 - retrait de la source vLLM
+
+### Works
+- Le lanceur ne déclare plus les options ni variables `PANELFORGE_VLLM_*` et ne construit plus de gateway vers `127.0.0.1:8000`; la découverte active couvre seulement le serveur distant et Unsloth Studio.
+- Le catalogue frontend considère uniquement `local::` comme source locale. Les dix sélecteurs LLM affichent désormais `Local · Unsloth`, avec cache frontend renouvelé.
+- Le routage des ressources et le bandeau d'activité classent uniquement `local::` sur le GPU local. Les anciens IDs préfixés restent affichables comme modèles historiques indisponibles, sans reroutage.
+- README et `docs/local-services.md` ne documentent plus vLLM comme service actif.
+- Validation : 107 tests ciblés puis 679 tests complets réussis. Les seuls avertissements de catalogue du build concernent maintenant `server` et `local`; aucune tentative vLLM n'est observée.
+
+### Broken / missing
+- Aucun défaut automatisé détecté.
+- Un ancien run enregistré avec un modèle `vllm::...` reste consultable, mais une nouvelle exécution avec cet ID échoue explicitement comme source inconnue jusqu'à ce que l'utilisateur choisisse un modèle Unsloth ou serveur.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis forcer le rechargement du navigateur pour prendre `lab.js?v=20260831.1` et les nouveaux libellés.
+2. Ouvrir les listes locale et serveur et confirmer que seul le catalogue Unsloth apparaît sous la case locale.
+3. Sur un ancien run vLLM, choisir explicitement un modèle disponible avant de relancer une étape.
+
+### Risks / open questions
+- Les mentions vLLM antérieures restent dans les sections historiques de ce journal de continuité ; elles décrivent l'état passé et non la configuration active.
+
+## Update 2026-08-31 - garde-fous LLM portés à x4
+
+### Works
+- Tous les budgets applicatifs numériques courants sont multipliés par quatre : défaut et appels H3/Ref2V longs `65 536→262 144`, révisions H3/KREA et workshop Batch `32 768→131 072`, Social `16 000→64 000`.
+- Les appels JSON courts de Production commencent à `16 384` au lieu de `4 096`; leur croissance exponentielle est plafonnée à `262 144` au lieu de `65 536`. La sélection d'image explicitement configurée avec `max_tokens=None` reste sans limite client.
+- Le message de troncature continue d'afficher le budget exact et de conserver le brouillon. README précise que ces plafonds très hauts servent principalement de protection contre une génération sans fin.
+- Validation : 102 tests ciblés puis 679 tests complets réussis en 82 secondes. La recherche statique ne trouve plus les anciens budgets dans le code applicatif.
+
+### Broken / missing
+- Aucun défaut automatisé détecté.
+- Un fournisseur dont la fenêtre de contexte est inférieure à `262 144` peut plafonner ou refuser la requête avant d'atteindre le garde-fou PanelForge.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis relancer l'étape qui épuisait `65 536` tokens.
+2. Vérifier dans `workspace/llm_calls.json` que `action_plan.generate` transmet maintenant `max_tokens: 262144`.
+3. Si le fournisseur renvoie encore `finish_reason=length`, vérifier sa fenêtre de contexte et sa limite serveur plutôt que d'augmenter encore PanelForge.
+
+### Risks / open questions
+- Un budget de sortie élevé n'allonge pas la fenêtre de contexte du modèle et peut augmenter fortement la durée maximale d'un appel qui boucle dans son raisonnement.
+
+## Update 2026-08-31 - Texte Instagram par défaut et JSON final récupérable
+
+### Works
+- Dans Video Lab, `Texte Instagram` précède désormais `Générer une vidéo` et devient la vue ouverte par défaut lorsque l'utilisateur clique sur l'onglet principal Video Lab. Les préremplissages explicites vers le générateur vidéo continuent d'ouvrir ce dernier directement.
+- Le parseur Social Lab récupère désormais un objet ou tableau JSON complet auquel le modèle a seulement omis des fermetures en toute fin de réponse. Il ne modifie aucun champ et refuse toujours une chaîne JSON coupée ou une structure ambiguë.
+- Les trois rejets Social Lab récents observés dans `llm_calls.json` avaient précisément la dernière accolade de l'objet absente malgré trois variantes complètes; ils sont couverts par la réparation déterministe.
+- Aucun prompt ni appel LLM supplémentaire n'a été ajouté. Le cache de `lab-core.js` passe à `20260831.2`.
+- Validation : 7 tests ciblés puis 681 tests complets réussis en 78 secondes.
+
+### Broken / missing
+- Un vrai contenu tronqué au milieu d'une chaîne ou un JSON sémantiquement invalide reste volontairement rejeté avec `Social Lab response is not valid JSON`.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge ou forcer le rechargement de la page pour charger `lab-core.js?v=20260831.2`.
+2. Ouvrir Video Lab et confirmer que Texte Instagram apparaît en premier et s'ouvre immédiatement.
+3. Relancer une génération Social Lab avec le modèle local et vérifier qu'une accolade finale omise ne fait plus perdre les variantes.
+
+### Risks / open questions
+- La réparation est syntaxique et bornée à la fin de sortie; elle ne doit pas être étendue à des réécritures heuristiques de captions ou hashtags sans cas réel supplémentaire.
+
+## Update 2026-08-31 - aperçu latéral de l'image d'appoint KREA2
+
+### Works
+- Création assistée duplique désormais l'image d'appoint sélectionnée dans un grand aperçu à droite de la discussion, sans retirer la vignette compacte ni le bouton `Retirer` existants.
+- Le panneau latéral n'occupe aucun espace sans image, utilise `object-fit: contain`, suit immédiatement sélection, remplacement, réutilisation et suppression, et ouvre la lightbox au clic. Sous 860 px, il repasse en une colonne.
+- Aucun changement de stockage, de payload, de prompt ou d'appel LLM. Les caches passent à `krea2-assisted-lab.js?v=20260831.3` et `lab.css?v=20260831.2`.
+- Validation : 24 tests ciblés puis 681 tests complets réussis en 80 secondes.
+
+### Broken / missing
+- Aucun défaut automatisé détecté; le rendu visuel exact doit encore être confirmé dans le navigateur avec une image portrait et une image paysage.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge ou forcer `Ctrl+F5` pour charger les nouveaux assets frontend.
+2. Sélectionner une image d'appoint portrait puis paysage et vérifier la taille du panneau à la largeur d'écran habituelle.
+3. Ajuster seulement la proportion latérale actuelle de 30 % si le smoke test montre que la zone de texte devient trop étroite.
+
+### Risks / open questions
+- Sur une fenêtre relativement étroite mais supérieure à 860 px, le panneau peut réduire la largeur du fil de discussion; le breakpoint peut être remonté après test visuel réel.
+
+## Alignment 2026-08-31 - progression approximative des rendus H3
+
+### Current state
+- Le relais WebSocket PanelForge transmet déjà tels quels les événements texte et binaires ComfyUI au navigateur. Les événements structurés `progress`, `executing` et `executed` peuvent donc alimenter une progression sans analyser les logs console ni changer le workflow.
+- Dans la recette H3 Latent Speed actuelle, le sampler `26` correspond à la passe principale configurée à 25 steps, le nœud `28` à l'upscale latent 3D et le sampler `25` à la passe de raffinement fixe de 3 steps. Ces IDs doivent être déclarés dans le manifeste de recette, jamais codés en dur dans l'UI.
+- Les deux traces fournies durent 256 et 279 secondes : la passe 25 steps prend 93–95 s, la passe 3 steps 120–122 s, et préparation/transferts/upscale/décodage/export environ 39–67 s. Le nombre brut de steps ne constitue donc pas un pourcentage global valide.
+
+### Proposed progress profile
+- Pondération initiale indicative : préparation `0–8 %`, diffusion principale `8–43 %`, upscale/transferts `43–50 %`, raffinement `50–95 %`, VAE/audio/encodage `95–100 %`.
+- L'interface afficherait la phase, le step local (`17/25` ou `2/3`), un pourcentage marqué `estimé` et le temps écoulé. Le terminal réussi fixe exactement 100 %.
+- Chaque événement doit être filtré par `prompt_id == execution_id` afin qu'un autre rendu ComfyUI parallèle ne modifie jamais la barre du job affiché.
+
+### Next steps (max 3)
+1. Ajouter au manifeste H3 un profil de phases/poids associé aux nœuds de la recette et l'exposer avec chaque tentative.
+2. Créer un composant frontend partagé pour H3 Base, Ref2V, Video Lab et Production, avec fallback `Rendu en cours` si une recette ne déclare pas de profil.
+3. Tester les événements ComfyUI réels des deux samplers et ajuster les poids à partir de plusieurs rendus plutôt qu'avec une estimation unique.
+
+### Risks / open questions
+- Les événements `executing` signalent les changements de nœud mais pas toujours l'avancement interne des chargements, de l'upscale ou du VAE; ces portions resteront volontairement approximatives.
+
+## Update 2026-08-31 - progression approximative des rendus H3
+
+### Works
+- Les manifestes actifs H3 Base `0.1.2` et Ref2V `0.2.0` déclarent maintenant leurs nœuds de progression par phase : diffusion principale, upscale latent, raffinement haute résolution, puis décodage/export. Aucun ID de nœud n'est codé en dur dans les interfaces.
+- Le relais WebSocket conserve les événements ComfyUI bruts et émet en plus `panelforge_render_progress`, filtré dynamiquement sur l'`execution_id` du run. La progression reste monotone et atteint 100 % uniquement sur succès confirmé.
+- H3 Base, Ref2V, Video Lab et Production affichent la phase, le step local quand ComfyUI le fournit, le pourcentage marqué comme estimé et le temps écoulé. Les mises à jour ciblent seulement ces champs et ne reconstruisent pas les lecteurs vidéo.
+- Production expose désormais l'`execution_id` et l'URL d'événements de chaque essai H3 sérialisé, afin de suivre aussi bien les previews 0,2 MP que le rendu final 1,2 MP.
+- Les caches passent à `lab.css?v=20260831.3`, `h3-render-lab.js?v=20260831.3`, `video-lab.js?v=20260831.1` et `production-lab.js?v=20260831.1`.
+- Validation : tests de manifeste, normalisation des deux samplers, filtrage inter-job et UI ajoutés ; 682 tests complets passent en 81 secondes.
+
+### Broken / missing
+- Aucun défaut automatisé détecté.
+- La préparation des modèles, l'upscale et l'export ne publient pas de sous-progression fiable ; le pourcentage avance donc par jalons pendant ces phases.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge ou forcer `Ctrl+F5`, puis lancer un rendu H3 Base et un Ref2V pour confirmer les noms de phases avec le serveur ComfyUI réel.
+2. Comparer trois à cinq durées de rendu et ajuster uniquement les poids des manifestes si la barre paraît systématiquement trop rapide ou trop lente.
+3. Vérifier un preview puis un final Production afin de confirmer que la barre se rattache au nouvel essai à chaque itération.
+
+### Risks / open questions
+- Le temps écoulé commence à la connexion de la page au rendu ; après un rechargement du navigateur pendant un calcul actif, il repart de zéro sans affecter le job.
+- Les pourcentages sont calibrés sur les deux traces disponibles et restent une estimation, surtout pendant la passe de raffinement dont chaque step est beaucoup plus coûteux que ceux de la passe principale.
+
+## Update 2026-08-31 — aperçu du feedback KREA2 assisté
+
+### Works
+- Le panneau visuel placé à droite de la discussion suit maintenant aussi l’essai actuellement sélectionné avec le bouton `Feedback`, et plus seulement l’image d’appoint ajoutée au prochain message.
+- Une image d’appoint explicitement choisie reste prioritaire pour l’échange courant. Après son envoi ou son retrait, le panneau revient automatiquement au feedback persistant du projet.
+- Le bandeau du panneau distingue `FEEDBACK VISUEL` et `IMAGE D’APPOINT`; l’image reste agrandissable dans la lightbox existante. Le cache du script passe à `20260831.4`.
+- Les 18 tests KREA2 assistés ciblés et les 682 tests complets passent.
+
+### Broken / missing
+- Aucun défaut automatisé connu. Le comportement doit encore être confirmé dans le navigateur sur un projet existant possédant déjà un feedback sélectionné.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge ou forcer `Ctrl+F5`, puis sélectionner et désélectionner le bouton `Feedback` d’un essai KREA2.
+2. Vérifier qu’une image d’appoint remplace temporairement cet aperçu et que le feedback réapparaît après l’échange.
+
+### Risks / open questions
+- Un feedback ancien sans `output_url` exploitable reste volontairement sans aperçu, même si son identifiant est encore présent dans le projet.
+
+## Update 2026-08-31 — Spectrum optionnel dans les ateliers H3
+
+### Works
+- Les ateliers intégrés `Créer et ajuster la vidéo` de H3 Base et Ref2V proposent maintenant une case `Spectrum · Activer`, décochée par défaut.
+- Le booléen est validé, persisté par essai, restauré avec `Reprendre prompt + réglages`, sérialisé dans l’API et rappelé dans le résumé de l’historique.
+- Les compilateurs utilisent les bindings déclarés par les manifestes (`H3 Base: node 43.enabled`, `Ref2V: node 40.enabled`) sans coder les IDs dans l’interface. Tous les autres réglages Spectrum restent ceux des workflows publiés.
+- Les anciens projets sans champ Spectrum sont relus avec `false`. Le workflow H3 legacy sans binding refuse seulement une activation explicite et conserve son comportement standard sinon.
+- Les caches passent à `h3-render-lab.js?v=20260831.4` et `lab.css?v=20260831.4`. Les 57 tests ciblés puis les 684 tests complets passent.
+
+### Broken / missing
+- Ref2V conserve trois écarts UX/fonctionnels par rapport à H3 Base : pas de LoRA vidéo/CLIP -2, seulement le moteur de révision Ref2V legacy (pas de contrat caméra compilé 0.2.0), et pas d’encart visible pour le candidat de révision rejeté.
+- Les différences d’entrées (1–9 références Ref2V contre T2VA/I2VA/L2VA/FL2VA H3 Base) sont propres aux modèles et ne constituent pas un retard.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge ou forcer `Ctrl+F5`, puis lancer un court essai Spectrum OFF et ON dans chaque atelier.
+2. Vérifier dans ComfyUI que `enabled` change seul sur le nœud Spectrum des deux workflows.
+3. Décider séparément si le prochain rattrapage Ref2V doit prioriser l’affichage des brouillons rejetés ou le support LoRA vidéo.
+
+### Risks / open questions
+- Spectrum reste expérimental et peut modifier nettement le rendu ou son coût; aucun autre paramètre interne du nœud n’est exposé pour éviter de multiplier les variables.
+
+## Update 2026-08-31 — alignement de l’atelier Ref2V sur H3 Base
+
+### Works
+- Ref2V expose désormais le même profil `LoRA MiniMax · expérimental` que H3 Base : un seul LoRA, force bornée de 0 à 1 et `CLIP Set Last Layer · -2` optionnel.
+- L’overlay Ref2V est décrit par le manifeste et injecté uniquement à la compilation d’un essai LoRA : modèle entre le chargeur hybride `44` et le Sigma Shift `38`, CLIP entre le loader `15` et l’encodeur Ref2V `11`. Les nœuds applicatifs `22000/22001` restent absents des rendus standard.
+- Ref2V propose maintenant `Stable 0.2.0 · caméra compilée` par défaut et conserve `Legacy 0.1.0`. La version stable protège les clauses caméra avec des tokens, recompile les directives validées et préserve l’en-tête canonique `<Picture N>`.
+- L’atelier Ref2V affiche maintenant la recette de révision et conserve visiblement un candidat rejeté avec son erreur, comme H3 Base.
+- Le catalogue LoRA Ref2V réutilise la même découverte sûre `minmax_nsfw/`; aucun workflow ComfyUI standard, sampler, upscale, Spectrum ou câblage de références n’a été modifié.
+- Validation : 53 tests ciblés puis 686 tests complets passent; `git diff --check` ne signale aucune erreur.
+
+### Broken / missing
+- Aucun écart fonctionnel connu ne subsiste dans l’atelier conversationnel commun. Les modes d’entrée restent volontairement différents : références Ref2V contre ancres T2VA/I2VA/L2VA/FL2VA H3 Base.
+- Un smoke test ComfyUI réel reste requis pour confirmer que les custom nodes Power LoRA Loader et CLIPSetLastLayer acceptent le modèle hybride Ref2V sur l’installation serveur.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge ou forcer `Ctrl+F5`, puis vérifier la présence du profil LoRA et du sélecteur Stable/Legacy dans Ref2V.
+2. Lancer un court rendu Ref2V standard puis LoRA et comparer les workflows compilés/nœuds actifs.
+3. Tester un ajustement stable accepté puis un candidat volontairement invalide afin de confirmer l’encart de brouillon.
+
+### Risks / open questions
+- Les LoRA MiniMax disponibles ont pu être entraînés surtout sur H3 Base; leur compatibilité technique Ref2V est câblée, mais leur qualité avec le modèle hybride doit être évaluée LoRA par LoRA.
+- Comme dans H3 Base stable, une révision caméra conserve le nombre de directives compilées; ajouter ou retirer une phase caméra entière nécessite encore le mode Legacy.
+
+## Release 2026-08-31 — ateliers H3 Base et Ref2V stabilisés
+
+### Works
+- Le périmètre courant réunit les ateliers H3 Base et Ref2V alignés, Spectrum optionnel, le profil LoRA vidéo, les moteurs de révision sélectionnables, l'aperçu de feedback KREA2, la progression de rendu et les correctifs de robustesse LLM/UI accumulés depuis le précédent socle Production.
+- La suite complète passe avec 686 tests verts et `git diff --check` ne signale aucune erreur de contenu.
+- La publication stable cible le commit `Stabilize H3 and Ref2V creation workflows` et le tag `stable-h3-ref2v-workshops-2026-08-31` sur `EasyFrag/panelforge`.
+
+### Broken / missing
+- Les overlays LoRA et Spectrum nécessitent encore un smoke test sur le serveur ComfyUI réel pour valider les custom nodes et les modèles installés.
+- Production sait déjà enchaîner un projet simple, mais sa boucle d'évaluation vidéo n'est pas encore assez structurée pour piloter seule plusieurs révisions fiables.
+
+### Next steps (max 3)
+1. Publier le commit complet et le tag stable sur GitHub, puis vérifier leurs références distantes.
+2. Construire un patch Production borné autour de l'évaluation visuelle du preview 0,2 MP, d'une décision structurée et d'une instruction de révision préremplie.
+3. Ajouter ensuite la reprise déterministe d'une étape échouée avant d'étendre l'orchestrateur à une file nocturne multi-projets.
+
+### Risks / open questions
+- L'évaluation Production devra rester un appel LLM unique après rendu et ne devra pas rejouer Brief/Plan/Prompt lors d'une simple révision du prompt final.
+- Les seuils d'acceptation automatique devront être visibles et bornés; la validation humaine restera disponible tant que la boucle mono-projet n'aura pas été éprouvée.

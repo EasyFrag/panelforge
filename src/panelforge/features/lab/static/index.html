@@ -4,21 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260830.8">
-  <script src="/static/lab.js?v=20260830.4" defer></script>
-  <script src="/static/lab-core.js?v=20260830.3" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260831.4">
+  <script src="/static/lab.js?v=20260831.1" defer></script>
+  <script src="/static/lab-core.js?v=20260831.2" defer></script>
   <script src="/static/quick-pipeline.js?v=20260830.2" defer></script>
-  <script src="/static/i2v-direct.js?v=20260830.4" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260830.3" defer></script>
-  <script src="/static/video-lab.js?v=20260816.6" defer></script>
+  <script src="/static/i2v-direct.js?v=20260831.1" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260831.4" defer></script>
+  <script src="/static/video-lab.js?v=20260831.1" defer></script>
   <script src="/static/social-lab.js?v=20260830.2" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260830.2" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260831.1" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260817.1" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260822.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260830.2" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260831.4" defer></script>
   <script src="/static/krea2-batch-lab.js?v=20260830.2" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260830.2" defer></script>
-  <script src="/static/production-lab.js?v=20260830.11" defer></script>
+  <script src="/static/production-lab.js?v=20260831.1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -267,7 +267,7 @@
           <label>Intention<textarea id="krea2-assisted-intention" rows="7" maxlength="12000" placeholder="Ex. une famille de tigres fantastiques inspirés du zodiaque chinois…" required></textarea></label>
           <label>Image de référence facultative<input id="krea2-assisted-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
           <label>Modèle LLM<select id="krea2-assisted-llm" required><option value="">Chargement…</option></select></label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm"> Local · Unsloth / vLLM</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm"> Local · Unsloth</label>
           <button id="krea2-assisted-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
           <p id="krea2-assisted-new-message" class="error" hidden></p>
         </section>
@@ -287,34 +287,52 @@
 
         <section class="krea2-assisted-conversation-panel">
           <h3>Discussion</h3>
-          <div id="krea2-assisted-conversation" class="krea2-assisted-conversation"></div>
-          <label>Votre message<textarea id="krea2-assisted-message" rows="4" placeholder="Répondez aux questions, précisez le rendu ou demandez un ajustement…"></textarea></label>
-          <div class="krea2-assisted-guidance-compose">
-            <label class="krea2-assisted-guidance-add">＋ Image d’appoint
-              <input id="krea2-assisted-guidance-file" type="file" accept="image/png,image/jpeg,image/webp">
-            </label>
-            <div id="krea2-assisted-guidance-preview" class="krea2-assisted-guidance-preview" hidden>
-              <img id="krea2-assisted-guidance-image" alt="Image d’appoint du prochain échange">
-              <span><b id="krea2-assisted-guidance-name"></b><small>Prochain échange uniquement</small></span>
-              <button id="krea2-assisted-guidance-remove" type="button" aria-label="Retirer l’image d’appoint">Retirer</button>
+          <div id="krea2-assisted-conversation-layout" class="krea2-assisted-conversation-layout">
+            <div class="krea2-assisted-conversation-main">
+              <div id="krea2-assisted-conversation" class="krea2-assisted-conversation"></div>
+              <div class="krea2-assisted-revision-model">
+                <label>Modèle LLM de l’ajustement
+                  <select id="krea2-assisted-revision-llm" required><option value="">Chargement…</option></select>
+                </label>
+                <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-revision-llm"> Local · Unsloth</label>
+                <small>Ce choix concerne les prochains échanges, sans modifier le modèle initial du projet.</small>
+              </div>
+              <label>Votre message<textarea id="krea2-assisted-message" rows="4" placeholder="Répondez aux questions, précisez le rendu ou demandez un ajustement…"></textarea></label>
+              <div class="krea2-assisted-guidance-compose">
+                <label class="krea2-assisted-guidance-add">＋ Image d’appoint
+                  <input id="krea2-assisted-guidance-file" type="file" accept="image/png,image/jpeg,image/webp">
+                </label>
+                <div id="krea2-assisted-guidance-preview" class="krea2-assisted-guidance-preview" hidden>
+                  <img id="krea2-assisted-guidance-image" alt="Image d’appoint du prochain échange">
+                  <span><b id="krea2-assisted-guidance-name"></b><small>Prochain échange uniquement</small></span>
+                  <button id="krea2-assisted-guidance-remove" type="button" aria-label="Retirer l’image d’appoint">Retirer</button>
+                </div>
+              </div>
+              <div class="krea2-assisted-chat-actions">
+                <label class="reasoning-toggle"><input id="krea2-assisted-show-reasoning" type="checkbox"> Trace modèle</label>
+                <label class="krea2-assisted-prompt-language">Langue du prompt
+                  <select id="krea2-assisted-prompt-language" aria-label="Langue du prompt KREA2">
+                    <option value="en" selected>English</option>
+                    <option value="zh">中文</option>
+                  </select>
+                </label>
+                <button id="krea2-assisted-chat" class="primary" type="button">Affiner le prompt</button>
+                <button id="krea2-assisted-recipe-chat" type="button">Préparer la recette</button>
+              </div>
+              <details id="krea2-assisted-reasoning" class="reasoning-trace" hidden open>
+                <summary><b>Trace modèle</b><small id="krea2-assisted-reasoning-label">Création</small></summary>
+                <p id="krea2-assisted-reasoning-empty" class="muted">En attente d’une trace séparée…</p>
+                <pre id="krea2-assisted-reasoning-content"></pre>
+              </details>
             </div>
+            <aside id="krea2-assisted-guidance-dock" class="krea2-assisted-guidance-dock" hidden aria-label="Aperçu du contexte visuel du prochain échange">
+              <div><small id="krea2-assisted-guidance-dock-kind"></small><small id="krea2-assisted-guidance-dock-note"></small></div>
+              <button id="krea2-assisted-guidance-dock-open" type="button" title="Agrandir l’image de contexte">
+                <img id="krea2-assisted-guidance-dock-image" alt="Aperçu agrandi du contexte visuel">
+              </button>
+              <b id="krea2-assisted-guidance-dock-name"></b>
+            </aside>
           </div>
-          <div class="krea2-assisted-chat-actions">
-            <label class="reasoning-toggle"><input id="krea2-assisted-show-reasoning" type="checkbox"> Trace modèle</label>
-            <label class="krea2-assisted-prompt-language">Langue du prompt
-              <select id="krea2-assisted-prompt-language" aria-label="Langue du prompt KREA2">
-                <option value="en" selected>English</option>
-                <option value="zh">中文</option>
-              </select>
-            </label>
-            <button id="krea2-assisted-chat" class="primary" type="button">Affiner le prompt</button>
-            <button id="krea2-assisted-recipe-chat" type="button">Préparer la recette</button>
-          </div>
-          <details id="krea2-assisted-reasoning" class="reasoning-trace" hidden open>
-            <summary><b>Trace modèle</b><small id="krea2-assisted-reasoning-label">Création</small></summary>
-            <p id="krea2-assisted-reasoning-empty" class="muted">En attente d’une trace séparée…</p>
-            <pre id="krea2-assisted-reasoning-content"></pre>
-          </details>
         </section>
 
         <section class="krea2-assisted-prompt-panel">
@@ -396,7 +414,7 @@
           <div class="krea2-image-lab-parameter-grid">
             <label>Nombre d’images<input id="krea2-batch-count" type="number" min="1" max="10" step="1" value="5" required></label>
             <label>Modèle LLM<select id="krea2-batch-llm" required><option value="">Chargement…</option></select></label>
-            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-batch-llm"> Local · Unsloth / vLLM</label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-batch-llm"> Local · Unsloth</label>
           </div>
           <label class="field-label">Direction facultative
             <textarea id="krea2-batch-direction" rows="3" placeholder="Ex. davantage de palettes froides, sans changer la composition…"></textarea>
@@ -541,7 +559,7 @@
           </label>
           <div class="krea2-edit-prompt-actions">
             <label>Modèle LLM<select id="krea2-edit-llm"><option value="">Chargement…</option></select></label>
-            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-edit-llm"> Local · Unsloth / vLLM</label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-edit-llm"> Local · Unsloth</label>
             <label class="krea2-prompt-language">Langue du prompt
               <select id="krea2-edit-prompt-language" aria-label="Langue du prompt KREA2 Edit">
                 <option value="en">English</option>
@@ -635,7 +653,7 @@
           <label class="field-label">Modèle LLM
             <select id="i2vd-model" required><option value="">Chargement…</option></select>
           </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-model"> Local · Unsloth / vLLM</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-model"> Local · Unsloth</label>
           <label class="field-label">Recette versionnée
             <select id="i2vd-cookbook" required><option value="">Chargement…</option></select>
           </label>
@@ -838,6 +856,7 @@
                 <label>Steps<input id="h3r-steps" type="number" min="1" max="100" step="1"></label>
                 <label class="h3-render-seed">Seed<input id="h3r-seed" type="text" inputmode="numeric"><span><input id="h3r-seed-lock" type="checkbox"> Réutiliser</span></label>
                 <label class="h3-render-music"><span>Musique</span><select id="h3r-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
+                <label class="h3-render-feature-toggle"><span>Spectrum</span><span><input id="h3r-spectrum" type="checkbox"> Activer</span></label>
               </div>
               <section class="h3-video-lora" aria-label="Profil LoRA video H3">
                 <label>Profil de rendu<select id="h3r-video-lora-profile"><option value="standard" selected>Standard</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
@@ -853,6 +872,10 @@
                 <button id="h3r-cancel" type="button" disabled>Annuler</button>
                 <small id="h3r-mode">Mode en attente</small>
               </div>
+              <div id="h3r-render-progress" class="render-progress-panel" aria-live="polite" hidden>
+                <div><strong id="h3r-render-progress-phase">Préparation des modèles</strong><output id="h3r-render-progress-meta">0 % estimé · écoulé 0:00</output></div>
+                <progress id="h3r-render-progress-bar" max="100" value="0"></progress>
+              </div>
               <div class="h3-render-preview-grid">
                 <figure><figcaption>Preview live</figcaption><div class="h3-render-media"><img id="h3r-live-preview" alt="Preview H3 live" hidden><span id="h3r-live-empty">En attente du rendu ComfyUI.</span></div></figure>
                 <figure><figcaption>Dernière vidéo</figcaption><div class="h3-render-media"><video id="h3r-final-video" controls playsinline hidden></video><span id="h3r-final-empty">Aucun rendu.</span></div></figure>
@@ -860,10 +883,18 @@
               <section class="h3-render-conversation">
                 <div class="section-title"><h3>Ajuster avec le LLM</h3><small>Un seul appel réécrit directement le prompt final.</small></div>
                 <div class="h3-render-revision-selector">
-                  <label for="h3r-revision-version">Moteur de révision
-                    <select id="h3r-revision-version" aria-label="Version du moteur de révision H3"></select>
-                  </label>
-                  <small>Ce choix affecte uniquement le prochain ajustement.</small>
+                  <div class="h3-render-revision-fields">
+                    <label for="h3r-revision-version">Recette de révision
+                      <select id="h3r-revision-version" aria-label="Version de la recette de révision H3"></select>
+                    </label>
+                    <div class="h3-render-revision-model">
+                      <label for="h3r-revision-model">Modèle LLM
+                        <select id="h3r-revision-model" aria-label="Modèle LLM du prochain ajustement H3"></select>
+                      </label>
+                      <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="h3r-revision-model"> Local · Unsloth</label>
+                    </div>
+                  </div>
+                  <small>Ces choix concernent les prochains ajustements, sans modifier le modèle initial.</small>
                 </div>
                 <div id="h3r-turns" class="h3-render-turns"><p class="muted">Le premier échange apparaîtra ici.</p></div>
                 <details id="h3r-revision-draft" class="h3-render-revision-draft" hidden>
@@ -901,7 +932,7 @@
           <label class="field-label">Modèle LLM
             <select id="ref2vd-model" required><option value="">Chargement…</option></select>
           </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-model"> Local · Unsloth / vLLM</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-model"> Local · Unsloth</label>
           <label class="field-label">Recette versionnée
             <select id="ref2vd-cookbook" required><option value="">Chargement…</option></select>
           </label>
@@ -1073,11 +1104,25 @@
                 <label>Steps principaux<input id="ref2vr-steps" type="number" min="1" max="100" step="1" title="La seconde passe d'upscale conserve 3 steps fixes."></label>
                 <label class="h3-render-seed">Seed<input id="ref2vr-seed" type="text" inputmode="numeric"><span><input id="ref2vr-seed-lock" type="checkbox"> Réutiliser</span></label>
                 <label class="h3-render-music"><span>Musique</span><select id="ref2vr-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
+                <label class="h3-render-feature-toggle"><span>Spectrum</span><span><input id="ref2vr-spectrum" type="checkbox"> Activer</span></label>
               </div>
+              <section class="h3-video-lora" aria-label="Profil LoRA video Ref2V">
+                <label>Profil de rendu<select id="ref2vr-video-lora-profile"><option value="standard" selected>Standard</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
+                <div id="ref2vr-video-lora-fields" class="h3-video-lora-fields" hidden>
+                  <label>LoRA vidéo<select id="ref2vr-video-lora-model"><option value="">Chargement…</option></select></label>
+                  <label>Force <output id="ref2vr-video-lora-strength-value">0.50</output><input id="ref2vr-video-lora-strength" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+                  <label class="h3-video-lora-clip"><input id="ref2vr-video-lora-clip" type="checkbox" checked> CLIP Set Last Layer · -2</label>
+                </div>
+                <small id="ref2vr-video-lora-warning" class="warning-text" hidden></small>
+              </section>
               <div class="h3-render-actions">
                 <button id="ref2vr-render" class="primary" type="button">Lancer un rendu</button>
                 <button id="ref2vr-cancel" type="button" disabled>Annuler</button>
                 <small id="ref2vr-mode">Mode en attente</small>
+              </div>
+              <div id="ref2vr-render-progress" class="render-progress-panel" aria-live="polite" hidden>
+                <div><strong id="ref2vr-render-progress-phase">Préparation des modèles</strong><output id="ref2vr-render-progress-meta">0 % estimé · écoulé 0:00</output></div>
+                <progress id="ref2vr-render-progress-bar" max="100" value="0"></progress>
               </div>
               <div class="h3-render-preview-grid">
                 <figure><figcaption>Preview live</figcaption><div class="h3-render-media"><img id="ref2vr-live-preview" alt="Preview H3 Ref2V live" hidden><span id="ref2vr-live-empty">En attente du rendu ComfyUI.</span></div></figure>
@@ -1085,7 +1130,26 @@
               </div>
               <section class="h3-render-conversation">
                 <div class="section-title"><h3>Ajuster avec le LLM</h3><small>Un appel réécrit directement le prompt Ref2V final.</small></div>
+                <div class="h3-render-revision-selector">
+                  <div class="h3-render-revision-fields">
+                    <label for="ref2vr-revision-version">Recette de révision
+                      <select id="ref2vr-revision-version" aria-label="Version de la recette de révision Ref2V"></select>
+                    </label>
+                    <div class="h3-render-revision-model">
+                      <label for="ref2vr-revision-model">Modèle LLM
+                        <select id="ref2vr-revision-model" aria-label="Modèle LLM du prochain ajustement Ref2V"></select>
+                      </label>
+                      <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vr-revision-model"> Local · Unsloth</label>
+                    </div>
+                  </div>
+                  <small>Ce choix concerne les prochains ajustements, sans modifier le modèle initial.</small>
+                </div>
                 <div id="ref2vr-turns" class="h3-render-turns"><p class="muted">Le premier échange apparaîtra ici.</p></div>
+                <details id="ref2vr-revision-draft" class="h3-render-revision-draft" hidden>
+                  <summary>Candidat refusé conservé comme brouillon</summary>
+                  <p id="ref2vr-revision-error" class="error-text"></p>
+                  <textarea id="ref2vr-revision-draft-content" rows="8" readonly aria-label="Prompt Ref2V candidat refusé"></textarea>
+                </details>
                 <label>Votre retour<textarea id="ref2vr-message" rows="3" placeholder="Ex. Garde les références mais rends le mouvement principal plus continu jusqu’à la fin."></textarea></label>
                 <label class="debug-reasoning-option"><input id="ref2vr-reasoning" type="checkbox"><span><b>Afficher la trace modèle</b><small>Debug uniquement.</small></span></label>
                 <button id="ref2vr-refine" class="primary" type="button">Ajuster le prompt</button>
@@ -1104,8 +1168,8 @@
 
   <main id="video-lab-workspace" class="video-lab-workspace" hidden>
     <nav class="video-lab-modebar" aria-label="Modes Video Lab">
-      <button class="active" type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
       <button type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
+      <button class="active" type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
     </nav>
     <aside class="controls video-lab-controls">
       <div class="title-row">
@@ -1203,8 +1267,8 @@
 
   <main id="social-lab-workspace" class="social-lab-workspace" hidden>
     <nav class="video-lab-modebar" aria-label="Modes Video Lab">
-      <button type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
       <button class="active" type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
+      <button type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
     </nav>
 
     <aside class="controls social-lab-controls">
@@ -1228,7 +1292,7 @@
         <section>
           <div class="section-title"><h2>Modèle</h2><button id="social-refresh-models" class="text-button" type="button">Actualiser</button></div>
           <label class="field-label">Modèle LLM<select id="social-llm" required></select></label>
-          <label class="llm-local-toggle"><input id="social-local-llm" type="checkbox" data-llm-local-for="social-llm"> Local · Unsloth / vLLM</label>
+          <label class="llm-local-toggle"><input id="social-local-llm" type="checkbox" data-llm-local-for="social-llm"> Local · Unsloth</label>
           <label class="reasoning-toggle"><input id="social-show-reasoning" type="checkbox"> Trace modèle</label>
           <div class="social-compact-grid">
             <label>Langue<select id="social-language"><option value="en" selected>English</option><option value="fr">Français</option></select></label>
@@ -1331,7 +1395,7 @@
         <section>
           <div class="section-title"><h2>Modèles</h2><button id="production-refresh" class="text-button" type="button">Actualiser</button></div>
           <label class="field-label">LLM orchestrateur<select id="production-llm" required></select></label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="production-llm"> Local · Unsloth / vLLM</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="production-llm"> Local · Unsloth</label>
           <label class="field-label">Checkpoint KREA2<select id="production-render-model" required></select></label>
           <div class="production-compact-grid">
             <label>Ratio<select id="production-ratio"></select></label>
@@ -1401,6 +1465,10 @@
           <div class="result-head"><div><small id="production-stage-label">PRODUCTION</small><h2 id="production-job-title">Job</h2></div><span id="production-job-status" class="run-status">● Prêt</span></div>
           <div class="production-progress"><span id="production-progress-bar"></span></div>
           <p id="production-job-message" class="message" aria-live="polite"></p>
+          <div id="production-render-progress" class="render-progress-panel" aria-live="polite" hidden>
+            <div><strong id="production-render-progress-phase">Préparation des modèles</strong><output id="production-render-progress-meta">0 % estimé · écoulé 0:00</output></div>
+            <progress id="production-render-progress-bar" max="100" value="0"></progress>
+          </div>
           <div class="actions"><button id="production-retry" class="primary" type="button" hidden>Relancer cette étape</button><button id="production-cancel" type="button" title="Interrompt immédiatement un rendu Comfy actif. Un appel LLM déjà envoyé s’arrête dès que le serveur rend la main.">Arrêter le flux</button></div>
         </section>
         <section class="results">

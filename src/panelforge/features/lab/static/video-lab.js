@@ -65,6 +65,10 @@
     outputCanonicalUrl: null,
     specReady: false,
     pendingPrefill: null,
+    renderProgressRunId: "",
+    renderProgressStartedAt: 0,
+    renderProgressTimer: null,
+    renderProgressData: null,
   };
 
   function randomSeed() {
@@ -434,6 +438,58 @@
     }[status] || status || "Prêt";
   }
 
+  function elapsedLabel(startedAt) {
+    const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  }
+
+  function paintEstimatedProgress() {
+    const data = state.renderProgressData;
+    if (!data) return;
+    const percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
+    const steps = Number(data.current_step) > 0 && Number(data.total_steps) > 0
+      ? `Step ${data.current_step} / ${data.total_steps} · ` : "";
+    const estimate = data.estimated === false ? "" : " estimé";
+    elements.progress.value = percent / 100;
+    elements.progressLabel.textContent = `${data.phase_label || "Rendu en cours"} · ${steps}${Math.round(percent)} %${estimate} · écoulé ${elapsedLabel(state.renderProgressStartedAt || Date.now())}`;
+  }
+
+  function stopRenderProgressClock() {
+    if (state.renderProgressTimer !== null) window.clearInterval(state.renderProgressTimer);
+    state.renderProgressTimer = null;
+  }
+
+  function beginRenderProgress(run) {
+    const key = runId(run);
+    if (!key) return;
+    if (state.renderProgressRunId !== key) {
+      state.renderProgressRunId = key;
+      state.renderProgressStartedAt = Date.now();
+      state.renderProgressData = {
+        phase_label: "Préparation des modèles",
+        percent: 0,
+        estimated: true,
+      };
+    }
+    stopRenderProgressClock();
+    state.renderProgressTimer = window.setInterval(paintEstimatedProgress, 1000);
+    paintEstimatedProgress();
+  }
+
+  function finishRenderProgress(run, status) {
+    if (state.renderProgressRunId !== runId(run)) return;
+    stopRenderProgressClock();
+    if (["succeeded", "completed"].includes(status)) {
+      state.renderProgressData = { phase_label: "Terminé", percent: 100, estimated: false };
+    } else if (terminalStatuses.has(status)) {
+      state.renderProgressData = {
+        ...(state.renderProgressData || {}),
+        phase_label: status.startsWith("cancel") ? "Rendu annulé" : "Rendu interrompu",
+      };
+    }
+    paintEstimatedProgress();
+  }
+
   function renderRun(run) {
     if (!run) {
       elements.status.textContent = "● Prêt";
@@ -445,12 +501,22 @@
     const status = String(run.status || "prepared").toLowerCase();
     elements.status.textContent = `● ${statusLabel(status)}`;
     elements.status.className = `run-status ${terminalStatuses.has(status) ? (status === "failed" ? "failed" : status.startsWith("cancel") ? "" : "success") : "active"}`;
-    const progress = Number(run.progress ?? run.progress_ratio);
-    if (Number.isFinite(progress)) elements.progress.value = Math.max(0, Math.min(1, progress > 1 ? progress / 100 : progress));
-    const currentStep = run.current_step ?? run.step;
-    const totalSteps = run.total_steps ?? runParameter(run, "steps");
-    elements.progressLabel.textContent = currentStep && totalSteps
-      ? `Step ${currentStep} / ${totalSteps}` : statusLabel(status);
+    if (terminalStatuses.has(status)) {
+      if (state.renderProgressRunId === runId(run)) finishRenderProgress(run, status);
+      else {
+        elements.progress.value = ["succeeded", "completed"].includes(status) ? 1 : 0;
+        elements.progressLabel.textContent = statusLabel(status);
+      }
+    } else if (state.renderProgressRunId === runId(run) && state.renderProgressData) {
+      paintEstimatedProgress();
+    } else {
+      const progress = Number(run.progress ?? run.progress_ratio);
+      if (Number.isFinite(progress)) elements.progress.value = Math.max(0, Math.min(1, progress > 1 ? progress / 100 : progress));
+      const currentStep = run.current_step ?? run.step;
+      const totalSteps = run.total_steps ?? runParameter(run, "steps");
+      elements.progressLabel.textContent = currentStep && totalSteps
+        ? `Step ${currentStep} / ${totalSteps}` : statusLabel(status);
+    }
     if (run.preview_url) setPreview(run.preview_url, run.preview_label || "Dernière preview", run.preview_mime);
     const outputUrl = run.output_url || run.output_content_url || run.final_url || run.video_url;
     if (outputUrl) setOutput(outputUrl, run.output_filename || run.filename || "Vidéo finale");
@@ -576,6 +642,10 @@
     elements.outputCaption.textContent = "Aucun rendu";
     elements.download.hidden = true;
     elements.progress.value = 0;
+    stopRenderProgressClock();
+    state.renderProgressRunId = "";
+    state.renderProgressStartedAt = 0;
+    state.renderProgressData = null;
   }
 
   function formDataForRun() {
@@ -679,6 +749,7 @@
 
   function connectPreview(run) {
     closeSocket();
+    beginRenderProgress(run);
     setPreviewConnection("connecting");
     return new Promise((resolve) => {
       let settled = false;
@@ -719,6 +790,7 @@
   }
 
   function renderSocketProgress(value, maximum) {
+    if (state.renderProgressData) return;
     const step = Number(value);
     const total = Number(maximum);
     if (!Number.isFinite(step) || !Number.isFinite(total) || total <= 0) return;
@@ -743,6 +815,9 @@
       else if (data.status === "error") {
         setPreviewConnection("error", data.message || "La preview live est indisponible ; le rendu continue.");
       }
+    } else if (type === "panelforge_render_progress") {
+      state.renderProgressData = data;
+      paintEstimatedProgress();
     } else if (type === "kj_preview_override") {
       try {
         setKjPreview(data);

@@ -227,6 +227,7 @@ class Krea2BatchServiceTest(unittest.TestCase):
             self.assertEqual(ready.status, Krea2BatchStatus.READY)
             self.assertEqual(len(ready.items), 3)
             self.assertEqual(len(gateway.requests), 1)
+            self.assertEqual(gateway.requests[0].max_tokens, 262_144)
             self.assertTrue(gateway.requests[0].include_reasoning)
             self.assertTrue(any(event.kind is StreamEventKind.REASONING for event in events))
             service.start_rendering(batch.batch_id)

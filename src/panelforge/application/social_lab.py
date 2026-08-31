@@ -28,6 +28,7 @@ from .prompt_lab import (
     MultimodalGateway,
     StreamEventKind,
     StreamPhase,
+    truncated_response_message,
 )
 from .revised_documents import strip_markdown_fence
 
@@ -258,7 +259,7 @@ class SocialLabService:
                 if event.kind is StreamEventKind.DELTA:
                     parts.append(event.text)
                 if event.kind is StreamEventKind.TRUNCATED:
-                    error = ValueError("La réponse du modèle a été tronquée.")
+                    error = ValueError(truncated_response_message(request.max_tokens))
                     self._report(
                         event.result.call_id if event.result else None,
                         LlmCallApplicationOutcome.REJECTED,
@@ -387,7 +388,7 @@ Return exactly {project.variant_count} complete variants now."""
             user_prompt=user_prompt,
             images=tuple(images),
             temperature=0.75,
-            max_tokens=8_000,
+            max_tokens=64_000,
             operation_id=operation,
             include_reasoning=include_reasoning,
         )
@@ -430,10 +431,17 @@ def parse_social_response(
 ) -> tuple[str, tuple[SocialVariant, ...]]:
     if not isinstance(raw, str) or not raw.strip():
         raise ValueError("Social Lab response is empty")
+    text = strip_markdown_fence(raw.strip())
     try:
-        value = json.loads(strip_markdown_fence(raw.strip()))
+        value = json.loads(text)
     except json.JSONDecodeError as error:
-        raise ValueError("Social Lab response is not valid JSON") from error
+        repaired = _close_unterminated_json_containers(text)
+        if repaired == text:
+            raise ValueError("Social Lab response is not valid JSON") from error
+        try:
+            value = json.loads(repaired)
+        except json.JSONDecodeError:
+            raise ValueError("Social Lab response is not valid JSON") from error
     if not isinstance(value, dict):
         raise ValueError("Social Lab response must be an object")
     variants_raw = value.get("variants")
@@ -466,6 +474,36 @@ def parse_social_response(
     if not isinstance(message, str) or not message.strip():
         message = "Voici les propositions éditoriales."
     return message.strip()[:20_000], tuple(variants)
+
+
+def _close_unterminated_json_containers(value: str) -> str:
+    """Close only unambiguous arrays or objects left open at end of output."""
+
+    expected_closers: list[str] = []
+    in_string = False
+    escaped = False
+    for character in value:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "{":
+            expected_closers.append("}")
+        elif character == "[":
+            expected_closers.append("]")
+        elif character in "}]":
+            if not expected_closers or expected_closers[-1] != character:
+                return value
+            expected_closers.pop()
+    if in_string or not expected_closers:
+        return value
+    return value.rstrip() + "".join(reversed(expected_closers))
 
 
 def _turn_context(turn: SocialTurn, index: int) -> str:

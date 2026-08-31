@@ -39,6 +39,7 @@ from .prompt_lab import (
     MultimodalGateway,
     StreamEventKind,
     StreamPhase,
+    truncated_response_message,
 )
 
 
@@ -358,7 +359,7 @@ class Krea2EditService:
             user_prompt=user,
             images=tuple(images),
             temperature=0.2,
-            max_tokens=16384,
+            max_tokens=131_072,
             operation_id="krea2.edit.prompt.rewrite_or_reconstruct@0.3.0",
             include_reasoning=include_reasoning,
         )
@@ -372,7 +373,7 @@ class Krea2EditService:
                     terminal = self._finish_prompt_failure(
                         source,
                         raw,
-                        "La réponse du modèle a été tronquée.",
+                        truncated_response_message(request.max_tokens),
                         truncated=True,
                     )
                     self._report(event.result.call_id if event.result else None, LlmCallApplicationOutcome.REJECTED, ValueError("truncated edit prompt"))

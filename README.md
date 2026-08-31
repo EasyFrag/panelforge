@@ -261,8 +261,8 @@ python scripts\run_lab.py `
 
 Puis ouvrir `http://127.0.0.1:7860`.
 
-Unsloth Studio et vLLM peuvent servir de fournisseurs LLM locaux sur le poste
-PanelForge. Lancez le ou les serveurs voulus séparément. Pour Unsloth, créez une
+Unsloth Studio peut servir de fournisseur LLM local sur le poste PanelForge.
+Lancez-le séparément, créez une
 clé dans `Settings > API`, puis configurez la connexion avant de démarrer
 PanelForge :
 
@@ -275,16 +275,9 @@ python scripts\run_lab.py `
   --llm-base-url http://bucket:8083/v1
 ```
 
-vLLM est automatiquement interrogé sur `http://127.0.0.1:8000/v1` avec la clé
-factice `local-vllm`. Ces valeurs peuvent être remplacées par
-`PANELFORGE_VLLM_URL`, `PANELFORGE_VLLM_API_KEY` et
-`PANELFORGE_VLLM_MAX_OUTPUT_TOKENS`. La limite de sortie vLLM vaut 32 768
-tokens par défaut afin de laisser de la place à l'entrée dans le contexte
-actuel de 65 536 tokens.
-
-Chaque sélecteur LLM propose alors la case `Local · Unsloth / vLLM`. Les listes
-locales sont relues dynamiquement depuis leurs `/v1/models` ; les IDs sont
-préfixés par leur provenance (`local::` ou `vllm::`) afin que toutes les étapes
+Chaque sélecteur LLM propose alors la case `Local · Unsloth`. La liste locale
+est relue dynamiquement depuis `/v1/models` ; les IDs sont
+préfixés par leur provenance (`local::`) afin que toutes les étapes
 suivantes d'un même parcours restent sur le fournisseur sélectionné. Si un
 serveur local est arrêté ou inaccessible, son catalogue est simplement masqué
 sans bloquer les autres. Les parcours qui envoient des images exigent un modèle
@@ -292,9 +285,9 @@ compatible vision. PanelForge transmet toutes les images choisies au
 fournisseur sans appliquer de limite locale ; une éventuelle limite reste donc
 celle du serveur appelé.
 Le bouton `VRAM LLM` continue de piloter uniquement llama.swap sur le serveur et
-ne décharge ni Unsloth Studio ni vLLM.
+ne décharge pas Unsloth Studio.
 
-Les données techniques locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/krea2_batches`, `workspace/krea2_assisted`, `workspace/krea2_edits`, `workspace/video_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL`, `PANELFORGE_LLM_URL`, `PANELFORGE_LOCAL_LLM_URL` et `PANELFORGE_VLLM_URL`; les clés restent dans `PANELFORGE_LOCAL_LLM_API_KEY` et `PANELFORGE_VLLM_API_KEY` et ne doivent pas être versionnées. Les projets KREA2 Edit validés utilisent séparément `D:\AI\PanelForge\KREA2 Projects` ou la racine configurée par `PANELFORGE_KREA2_PROJECTS_ROOT`. Les créations assistées explicitement enregistrées utilisent `D:\AI\PanelForge\KREA2 Creations` ou `PANELFORGE_KREA2_CREATIONS_ROOT`.
+Les données techniques locales sont écrites sous `workspace/assets`, `workspace/runs`, `workspace/krea2_runs`, `workspace/krea2_batches`, `workspace/krea2_assisted`, `workspace/krea2_edits`, `workspace/video_runs`, `workspace/prompt_sessions` et `workspace/prompt_compositions`, tous ignorés par Git. Les URLs peuvent aussi être définies avec `PANELFORGE_COMFY_URL`, `PANELFORGE_LLM_URL` et `PANELFORGE_LOCAL_LLM_URL`; la clé Unsloth reste dans `PANELFORGE_LOCAL_LLM_API_KEY` et ne doit pas être versionnée. Les projets KREA2 Edit validés utilisent séparément `D:\AI\PanelForge\KREA2 Projects` ou la racine configurée par `PANELFORGE_KREA2_PROJECTS_ROOT`. Les créations assistées explicitement enregistrées utilisent `D:\AI\PanelForge\KREA2 Creations` ou `PANELFORGE_KREA2_CREATIONS_ROOT`.
 
 Le catalogue KREA2 utilise par défaut les chemins UNC stables du montage SSHFS :
 `\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion\_models\Krea2` pour
@@ -308,7 +301,7 @@ métadonnées locales restent alors indiquées comme inconnues.
 
 Le Lab appelle seulement les API du serveur. llama.swap reste responsable du chargement, du swap et de la mémoire GPU ; aucune bibliothèque d’inférence n’est installée par PanelForge. Le bouton global `Libérer la VRAM` passe par PanelForge puis appelle l’endpoint administratif officiel de llama.swap : tous les modèles LLM actifs sont déchargés et le prochain appel recharge automatiquement le modèle demandé. Cette action peut interrompre une génération LLM en cours.
 
-Le streaming repose sur `stream=true` et des événements SSE internes partagés par H3 Base et Ref2V. Les appels disposent d’un budget de sortie de 32 768 tokens adapté aux modèles thinking. Si le serveur termine avec `finish_reason=length`, l’interface signale explicitement la troncature et conserve le texte partiel sans l’enregistrer automatiquement comme une révision complète. Avec `sendLoadingState: true` dans llama.swap, PanelForge reconnaît aussi son message de chargement et l’éventuelle position dans la file. llama.swap ne fournit actuellement pas de pourcentage de chargement fiable : l’interface n’en invente donc pas. Les contenus de raisonnement ordinaires du modèle ne sont jamais affichés comme état système.
+Le streaming repose sur `stream=true` et des événements SSE internes partagés par H3 Base et Ref2V. Les garde-fous de sortie sont échelonnés à 64 000, 131 072 ou 262 144 tokens selon le type d'appel ; les étapes structurées longues Brief/Plan/Writer H3 utilisent 262 144. Ces valeurs sont volontairement très hautes et servent surtout de protection contre une génération sans fin ; la fenêtre de contexte du fournisseur peut imposer une borne inférieure. Si le serveur termine avec `finish_reason=length`, l’interface indique le budget épuisé, rappelle que le raisonnement interne y est inclus et conserve le texte partiel sans l’enregistrer automatiquement comme une révision complète. Avec `sendLoadingState: true` dans llama.swap, PanelForge reconnaît aussi son message de chargement et l’éventuelle position dans la file. llama.swap ne fournit actuellement pas de pourcentage de chargement fiable : l’interface n’en invente donc pas. Les contenus de raisonnement ordinaires du modèle ne sont jamais affichés comme état système.
 
 Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opération, modèle, prompts exacts, réponse, durée, tokens, statut transport, issue applicative, `finish_reason` et erreurs éventuelles. Les images ne sont jamais recopiées dans ce journal ; seules leurs métadonnées et leur SHA-256 sont enregistrées. Ce fichier local peut contenir du texte sensible, reste ignoré par Git et n’est pas exposé par l’API du Lab.
 

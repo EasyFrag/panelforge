@@ -77,10 +77,9 @@ class RunLabBuildTest(unittest.TestCase):
         )
         self.assertEqual(args.local_llm_base_url, "http://127.0.0.1:8888/v1")
         self.assertEqual(args.local_llm_api_key, "")
-        self.assertEqual(args.vllm_base_url, "http://127.0.0.1:8000/v1")
-        self.assertEqual(args.vllm_api_key, "local-vllm")
-        self.assertEqual(args.vllm_max_output_tokens, 32768)
-        self.assertFalse(hasattr(args, "vllm_max_images"))
+        self.assertFalse(hasattr(args, "vllm_base_url"))
+        self.assertFalse(hasattr(args, "vllm_api_key"))
+        self.assertFalse(hasattr(args, "vllm_max_output_tokens"))
 
     def test_local_unsloth_connection_can_be_configured_from_the_environment(self):
         with (
@@ -90,9 +89,6 @@ class RunLabBuildTest(unittest.TestCase):
                 {
                     "PANELFORGE_LOCAL_LLM_URL": "http://workstation:8888/v1",
                     "PANELFORGE_LOCAL_LLM_API_KEY": "test-unsloth-key",
-                    "PANELFORGE_VLLM_URL": "http://workstation:8000/v1",
-                    "PANELFORGE_VLLM_API_KEY": "test-vllm-key",
-                    "PANELFORGE_VLLM_MAX_OUTPUT_TOKENS": "12000",
                 },
                 clear=True,
             ),
@@ -104,10 +100,6 @@ class RunLabBuildTest(unittest.TestCase):
             "http://workstation:8888/v1",
         )
         self.assertEqual(args.local_llm_api_key, "test-unsloth-key")
-        self.assertEqual(args.vllm_base_url, "http://workstation:8000/v1")
-        self.assertEqual(args.vllm_api_key, "test-vllm-key")
-        self.assertEqual(args.vllm_max_output_tokens, 12000)
-        self.assertFalse(hasattr(args, "vllm_max_images"))
 
     def test_build_app_configures_krea2_recipe_store_and_dedicated_transport(self):
         with tempfile.TemporaryDirectory() as workspace:
@@ -130,9 +122,6 @@ class RunLabBuildTest(unittest.TestCase):
                 llm_timeout=300.0,
                 local_llm_base_url="http://local.test:8888/v1",
                 local_llm_api_key="local-unsloth-test",
-                vllm_base_url="http://local.test:8000/v1",
-                vllm_api_key="local-vllm",
-                vllm_max_output_tokens=32768,
                 workspace=workspace,
             )
             BuildComfyClient.instances = []
@@ -184,10 +173,20 @@ class RunLabBuildTest(unittest.TestCase):
                 ["minmax_nsfw/MysticXXX_MMH3-V2.safetensors"],
             )
             self.assertTrue(h3_render_spec.json()["video_lora"]["supported"])
-            self.assertFalse(ref2v_render_spec.json()["video_lora"]["supported"])
+            self.assertTrue(ref2v_render_spec.json()["video_lora"]["supported"])
+            self.assertEqual(
+                ref2v_render_spec.json()["video_lora"]["models"],
+                ["minmax_nsfw/MysticXXX_MMH3-V2.safetensors"],
+            )
             self.assertEqual(
                 ref2v_render_spec.json()["revision_versions"],
-                [{"version": "0.1.0", "label": "Legacy 0.1.0"}],
+                [
+                    {
+                        "version": "0.2.0",
+                        "label": "Stable 0.2.0 · caméra compilée",
+                    },
+                    {"version": "0.1.0", "label": "Legacy 0.1.0"},
+                ],
             )
             self.assertEqual(
                 ref2v_render_spec.json()["limits"]["reference_images"],

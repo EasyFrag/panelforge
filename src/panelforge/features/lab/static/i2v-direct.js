@@ -1444,6 +1444,7 @@
     const outcomeTone = core.createLlmOutcomeTone();
     let received = false;
     let completed = false;
+    let truncationError = "";
     setBusy(true);
     view.content.value = "";
     view.message.className = "message";
@@ -1475,11 +1476,12 @@
         if (event.kind === "completed") completed = true;
         if (event.kind === "truncated") {
           received = true;
+          truncationError = core.truncationMessage(event);
           view.message.className = "message warning-text";
-          view.message.textContent = "Réponse tronquée : le brouillon partiel reste éditable.";
+          view.message.textContent = truncationError;
         }
       });
-      if (!completed) throw new Error("Le flux s’est terminé sans résultat persistant.");
+      if (!completed) throw new Error(truncationError || "Le flux s’est terminé sans résultat persistant.");
       view.message.className = "message";
       view.message.textContent = successMessage;
       if (notifyOutcome) outcomeTone.success();

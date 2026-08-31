@@ -17,6 +17,10 @@ from panelforge.domain.h3_render import (
 )
 from panelforge.domain.recipes import RecipeRef
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
+from .render_progress import (
+    RenderProgressProfile,
+    validate_render_progress_profile,
+)
 
 
 H3_RENDER_OPERATION_ID = "video.generate.h3-base"
@@ -95,12 +99,14 @@ class ValidatedH3RenderWorkflow:
     status: str
     workflow_sha256: str
     scalar_inputs: Mapping[str, InputBinding]
+    spectrum_enabled: InputBinding | None
     multi_inputs: Mapping[str, tuple[InputBinding, ...]]
     first_frame: FrameBinding
     last_frame: FrameBinding
     output_video: OutputBinding
     keyframes: KeyframeBinding
     video_lora_overlay: VideoLoraOverlayBinding | None
+    progress_profile: RenderProgressProfile | None
     presets: Mapping[str, H3RenderPreset]
     _workflow_json: bytes = field(repr=False)
 
@@ -153,6 +159,14 @@ class H3RenderPresetRecipe:
     def maximum_keyframes(self) -> int:
         return self.preset.keyframes.maximum
 
+    @property
+    def progress_profile(self) -> RenderProgressProfile | None:
+        return self.preset.progress_profile
+
+    @property
+    def supports_video_lora(self) -> bool:
+        return self.preset.video_lora_overlay is not None
+
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]:
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise ValueError("keyframe count must be a non-negative integer")
@@ -173,6 +187,7 @@ class H3RenderPresetRecipe:
         settings: VideoLabSettings,
         output_filename_prefix: str,
         keyframe_indices: tuple[int, ...],
+        spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
     ) -> dict[str, Any]:
         return build_h3_render_workflow(
@@ -184,6 +199,7 @@ class H3RenderPresetRecipe:
             settings=settings,
             output_filename_prefix=output_filename_prefix,
             keyframe_indices=keyframe_indices,
+            spectrum_enabled=spectrum_enabled,
             video_lora=video_lora,
         )
 
@@ -241,6 +257,15 @@ def validate_h3_render_workflow(
         name: _input_bindings(bindings.get(name), nodes, f"bindings.{name}")
         for name in ("aspect_ratio", "steps")
     }
+    spectrum_enabled = (
+        _input_binding(
+            bindings.get("spectrum_enabled"),
+            nodes,
+            "bindings.spectrum_enabled",
+        )
+        if "spectrum_enabled" in bindings
+        else None
+    )
     first = _frame_binding(bindings.get("first_frame"), nodes, "bindings.first_frame", synthetic=False)
     last = _frame_binding(bindings.get("last_frame"), nodes, "bindings.last_frame", synthetic=False)
     output_config = _object(bindings.get("output_video"), "bindings.output_video")
@@ -270,6 +295,11 @@ def validate_h3_render_workflow(
         if "video_lora_overlay" in bindings
         else None
     )
+    progress_profile = validate_render_progress_profile(
+        manifest.get("progress"),
+        nodes,
+        error_type=H3RenderPresetValidationError,
+    )
     _validate_assertions(manifest.get("workflow_assertions"), nodes)
     presets = _validate_presets(manifest.get("presets"))
     if DEFAULT_H3_RENDER_PRESET_ID not in presets:
@@ -280,12 +310,14 @@ def validate_h3_render_workflow(
         status=_text(manifest.get("status"), "status"),
         workflow_sha256=workflow_sha256,
         scalar_inputs=MappingProxyType(scalar_inputs),
+        spectrum_enabled=spectrum_enabled,
         multi_inputs=MappingProxyType(multi_inputs),
         first_frame=first,
         last_frame=last,
         output_video=output,
         keyframes=keyframe_binding,
         video_lora_overlay=video_lora_overlay,
+        progress_profile=progress_profile,
         presets=MappingProxyType(presets),
         _workflow_json=serialized,
     )
@@ -301,6 +333,7 @@ def build_h3_render_workflow(
     settings: VideoLabSettings,
     output_filename_prefix: str,
     keyframe_indices: tuple[int, ...],
+    spectrum_enabled: bool = False,
     video_lora: H3VideoLoraSelection | None = None,
 ) -> dict[str, Any]:
     if not isinstance(input_mode, H3RenderInputMode):
@@ -321,6 +354,8 @@ def build_h3_render_workflow(
         raise ValueError("output_filename_prefix must not be empty")
     if not isinstance(keyframe_indices, tuple):
         raise TypeError("keyframe_indices must be a tuple")
+    if not isinstance(spectrum_enabled, bool):
+        raise TypeError("spectrum_enabled must be a boolean")
     if tuple(sorted(set(keyframe_indices))) != keyframe_indices:
         raise ValueError("keyframe indices must be unique and chronological")
     if len(keyframe_indices) > preset.keyframes.maximum:
@@ -345,6 +380,12 @@ def build_h3_render_workflow(
         workflow[binding.node_id]["inputs"][binding.input_name] = settings.aspect_ratio.value
     for binding in preset.multi_inputs["steps"]:
         workflow[binding.node_id]["inputs"][binding.input_name] = settings.steps
+    if preset.spectrum_enabled is not None:
+        workflow[preset.spectrum_enabled.node_id]["inputs"][
+            preset.spectrum_enabled.input_name
+        ] = spectrum_enabled
+    elif spectrum_enabled:
+        raise ValueError("this H3 render workflow does not support Spectrum")
 
     _apply_frame(workflow, preset.first_frame, first_frame, synthetic=False)
     _apply_frame(workflow, preset.last_frame, last_frame, synthetic=False)

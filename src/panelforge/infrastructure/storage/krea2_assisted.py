@@ -105,12 +105,13 @@ class LocalKrea2AssistedProjectStore:
 
 def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "name": project.name,
         "intention": project.intention,
         "model_id": project.model_id,
+        "revision_model_id": project.revision_model_id,
         "prompt_language": project.prompt_language.value,
         "reference_asset_id": project.reference_asset_id,
         "reference_filename": project.reference_filename,
@@ -125,6 +126,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
                 "questions": list(turn.questions),
                 "prompt": turn.prompt,
                 "recommendations": list(turn.recommendations),
+                "model_id": turn.model_id,
             }
             for turn in project.turns
         ],
@@ -157,13 +159,14 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
-    if value.get("schema_version") != 1:
+    if value.get("schema_version") not in {1, 2}:
         raise ValueError("unsupported KREA2 assisted project schema")
     return Krea2AssistedProject(
         project_id=value["project_id"],
         name=value["name"],
         intention=value["intention"],
         model_id=value["model_id"],
+        revision_model_id=value.get("revision_model_id"),
         prompt_language=Krea2PromptLanguage(value.get("prompt_language", "en")),
         reference_asset_id=value.get("reference_asset_id"),
         reference_filename=value.get("reference_filename"),
@@ -178,6 +181,7 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
                 questions=tuple(item.get("questions", [])),
                 prompt=item.get("prompt"),
                 recommendations=tuple(item.get("recommendations", [])),
+                model_id=item.get("model_id"),
             )
             for item in value.get("turns", [])
         ),

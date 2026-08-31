@@ -10,12 +10,13 @@
     lab: $(`${prefix}-lab`), status: $(`${prefix}-status`), warnings: $(`${prefix}-warnings`),
     prompt: $(`${prefix}-prompt`), ratio: $(`${prefix}-ratio`), megapixels: $(`${prefix}-megapixels`),
     duration: $(`${prefix}-duration`), steps: $(`${prefix}-steps`), seed: $(`${prefix}-seed`),
-    seedLock: $(`${prefix}-seed-lock`), music: $(`${prefix}-music`), render: $(`${prefix}-render`),
+    seedLock: $(`${prefix}-seed-lock`), music: $(`${prefix}-music`), spectrum: $(`${prefix}-spectrum`), render: $(`${prefix}-render`),
     cancel: $(`${prefix}-cancel`), mode: $(`${prefix}-mode`), live: $(`${prefix}-live-preview`),
     liveEmpty: $(`${prefix}-live-empty`), final: $(`${prefix}-final-video`),
     finalEmpty: $(`${prefix}-final-empty`), turns: $(`${prefix}-turns`), message: $(`${prefix}-message`),
     reasoning: $(`${prefix}-reasoning`), refine: $(`${prefix}-refine`), trace: $(`${prefix}-trace`),
     attempts: $(`${prefix}-attempts`), revisionVersion: $(`${prefix}-revision-version`),
+    revisionModel: $(`${prefix}-revision-model`),
     revisionDraft: $(`${prefix}-revision-draft`), revisionError: $(`${prefix}-revision-error`),
     revisionDraftContent: $(`${prefix}-revision-draft-content`),
     videoLoraProfile: $(`${prefix}-video-lora-profile`),
@@ -25,6 +26,10 @@
     videoLoraStrengthValue: $(`${prefix}-video-lora-strength-value`),
     videoLoraClip: $(`${prefix}-video-lora-clip`),
     videoLoraWarning: $(`${prefix}-video-lora-warning`),
+    renderProgress: $(`${prefix}-render-progress`),
+    renderProgressPhase: $(`${prefix}-render-progress-phase`),
+    renderProgressMeta: $(`${prefix}-render-progress-meta`),
+    renderProgressBar: $(`${prefix}-render-progress-bar`),
   };
   if (!elements.lab) return;
 
@@ -41,6 +46,10 @@
     previewUrl: null,
     finalUrl: "",
     selectedRevisionVersion: "",
+    renderProgressAttemptId: "",
+    renderProgressStartedAt: 0,
+    renderProgressTimer: null,
+    renderProgressData: null,
   };
 
   async function request(url, options = {}) {
@@ -111,6 +120,7 @@
     elements.seed.value = randomSeed();
     elements.seedLock.checked = false;
     elements.music.value = "off";
+    elements.spectrum.checked = false;
     if (elements.videoLoraProfile) {
       const config = state.spec.video_lora || {};
       const models = config.models || [];
@@ -135,6 +145,21 @@
       state.selectedRevisionVersion = state.project?.revision_version || state.spec.default_revision_version || "0.2.0";
       elements.revisionVersion.value = state.selectedRevisionVersion;
     }
+    if (elements.revisionModel) {
+      const selectedModel = state.project?.revision_model_id || state.project?.model_id || "";
+      window.PanelForgeModelPicker.populate(
+        elements.revisionModel,
+        state.spec.llm_models || [],
+        selectedModel,
+      );
+      if (selectedModel) {
+        window.PanelForgeModelPicker.select(
+          elements.revisionModel,
+          selectedModel,
+          "modèle historique indisponible",
+        );
+      }
+    }
   }
 
   function fillSettings(attempt) {
@@ -147,6 +172,7 @@
     elements.seed.value = String(settings.seed);
     elements.seedLock.checked = true;
     elements.music.value = attempt.music_enabled ? "on" : "off";
+    elements.spectrum.checked = Boolean(attempt.spectrum_enabled);
     if (elements.videoLoraProfile) {
       elements.videoLoraProfile.value = attempt.video_lora ? "lora" : "standard";
       if (attempt.video_lora) {
@@ -192,9 +218,67 @@
     if (socket) socket.close();
   }
 
+  function elapsedLabel(startedAt) {
+    const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  }
+
+  function paintRenderProgress() {
+    const data = state.renderProgressData;
+    if (!data || !elements.renderProgress) return;
+    const percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
+    const steps = Number(data.current_step) > 0 && Number(data.total_steps) > 0
+      ? `step ${data.current_step} / ${data.total_steps} · ` : "";
+    const estimate = data.estimated === false ? "" : " estimé";
+    elements.renderProgress.hidden = false;
+    elements.renderProgressPhase.textContent = data.phase_label || "Rendu en cours";
+    elements.renderProgressBar.value = percent;
+    elements.renderProgressMeta.textContent = `${steps}${Math.round(percent)} %${estimate} · écoulé ${elapsedLabel(state.renderProgressStartedAt || Date.now())}`;
+  }
+
+  function stopRenderProgressClock() {
+    if (state.renderProgressTimer !== null) window.clearInterval(state.renderProgressTimer);
+    state.renderProgressTimer = null;
+  }
+
+  function beginRenderProgress(attempt) {
+    if (!attempt || !elements.renderProgress) return;
+    if (state.renderProgressAttemptId !== attempt.attempt_id) {
+      state.renderProgressAttemptId = attempt.attempt_id;
+      state.renderProgressStartedAt = Date.now();
+      state.renderProgressData = {
+        phase_label: "Préparation des modèles",
+        percent: 0,
+        estimated: true,
+      };
+    }
+    stopRenderProgressClock();
+    state.renderProgressTimer = window.setInterval(paintRenderProgress, 1000);
+    paintRenderProgress();
+  }
+
+  function finishRenderProgress(attempt) {
+    if (!attempt || state.renderProgressAttemptId !== attempt.attempt_id) return;
+    stopRenderProgressClock();
+    if (attempt.status === "succeeded") {
+      state.renderProgressData = {
+        phase_label: "Terminé",
+        percent: 100,
+        estimated: false,
+      };
+    } else if (terminalStatuses.has(attempt.status)) {
+      state.renderProgressData = {
+        ...(state.renderProgressData || {}),
+        phase_label: attempt.status === "cancelled" ? "Rendu annulé" : "Rendu interrompu",
+      };
+    }
+    paintRenderProgress();
+  }
+
   function connectPreview(attempt) {
     closeSocket();
     if (!attempt?.events_url) return;
+    beginRenderProgress(attempt);
     const target = new URL(attempt.events_url, window.location.href);
     target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
     try {
@@ -206,7 +290,12 @@
         let payload;
         try { payload = JSON.parse(event.data); } catch (_) { return; }
         const data = payload.data || payload;
-        if (payload.type === "kj_preview_override" && data.image) base64Preview(data.image, data.mime);
+        const eventExecutionId = data.prompt_id || payload.prompt_id || data.execution_id;
+        if (eventExecutionId && attempt.execution_id && eventExecutionId !== attempt.execution_id) return;
+        if (payload.type === "panelforge_render_progress") {
+          state.renderProgressData = data;
+          paintRenderProgress();
+        } else if (payload.type === "kj_preview_override" && data.image) base64Preview(data.image, data.mime);
         else if (payload.type === "preview" && (data.preview_url || data.url || data.data_url)) {
           elements.live.src = data.preview_url || data.url || data.data_url;
           elements.live.hidden = false;
@@ -261,6 +350,12 @@
         version.textContent = `Révision ${turn.revision_version}`;
         article.append(version);
       }
+      if (turn.model_id) {
+        const model = document.createElement("small");
+        model.className = "h3-render-revision-badge";
+        model.textContent = `Modèle ${turn.model_id.replace(/^[^:]+::/, "")}`;
+        article.append(model);
+      }
       article.append(body);
       if (turn.questions?.length) {
         const questions = document.createElement("small"); questions.textContent = `Questions : ${turn.questions.join(" · ")}`; article.append(questions);
@@ -274,7 +369,7 @@
     const lora = attempt.video_lora
       ? ` · LoRA ${attempt.video_lora.name} × ${Number(attempt.video_lora.strength).toFixed(2)}${attempt.video_lora.clip_last_layer === -2 ? " · CLIP -2" : ""}`
       : " · Standard";
-    return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"}${lora}`;
+    return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"} · Spectrum ${attempt.spectrum_enabled ? "ON" : "OFF"}${lora}`;
   }
 
   function renderAttempts() {
@@ -332,12 +427,26 @@
 
   function renderProject(project, { preservePrompt = false } = {}) {
     const changed = state.project?.project_id !== project.project_id;
+    if (changed) {
+      stopRenderProgressClock();
+      state.renderProgressAttemptId = "";
+      state.renderProgressStartedAt = 0;
+      state.renderProgressData = null;
+      if (elements.renderProgress) elements.renderProgress.hidden = true;
+    }
     state.project = project;
     elements.lab.hidden = false;
     if (changed || !preservePrompt || document.activeElement !== elements.prompt) elements.prompt.value = project.current_prompt;
     if (elements.revisionVersion && changed) {
       state.selectedRevisionVersion = project.revision_version || state.spec?.default_revision_version || "0.2.0";
       elements.revisionVersion.value = state.selectedRevisionVersion;
+    }
+    if (elements.revisionModel && changed) {
+      window.PanelForgeModelPicker.select(
+        elements.revisionModel,
+        project.revision_model_id || project.model_id,
+        "modèle historique indisponible",
+      );
     }
     if (elements.revisionDraft) {
       const rejected = Boolean(project.revision_error);
@@ -346,11 +455,12 @@
       elements.revisionDraftContent.value = project.revision_draft || "";
       if (rejected) elements.revisionDraft.open = true;
     }
-    elements.mode.textContent = `Mode ${project.input_mode.toUpperCase()} · modèle LLM ${project.model_id}`;
+    elements.mode.textContent = `Mode ${project.input_mode.toUpperCase()} · modèle initial ${project.model_id}`;
     const warnings = project.warnings || [];
     elements.warnings.hidden = !warnings.length;
     elements.warnings.textContent = warnings.join(" · ");
     renderTurns(); renderAttempts(); renderOutput(); renderControls();
+    finishRenderProgress(latestAttempt());
   }
 
   function renderControls() {
@@ -359,19 +469,23 @@
     const missingLora = elements.videoLoraProfile?.value === "lora" && !elements.videoLoraModel?.value;
     elements.render.disabled = disabled || !state.project || !elements.prompt.value.trim() || missingLora;
     elements.cancel.disabled = !active || state.busy;
-    elements.refine.disabled = disabled || !state.project || !elements.message.value.trim();
-    for (const field of [elements.prompt, elements.ratio, elements.megapixels, elements.duration, elements.steps, elements.seed, elements.seedLock, elements.music]) field.disabled = disabled;
+    elements.refine.disabled = disabled || !state.project || !elements.message.value.trim() || !elements.revisionModel?.value;
+    for (const field of [elements.prompt, elements.ratio, elements.megapixels, elements.duration, elements.steps, elements.seed, elements.seedLock, elements.music, elements.spectrum]) field.disabled = disabled;
     for (const field of [elements.videoLoraProfile, elements.videoLoraModel, elements.videoLoraStrength, elements.videoLoraClip]) {
       if (field) field.disabled = disabled || (field !== elements.videoLoraProfile && elements.videoLoraProfile.value !== "lora");
     }
     if (elements.revisionVersion) elements.revisionVersion.disabled = disabled;
+    if (elements.revisionModel) {
+      elements.revisionModel.disabled = disabled;
+      window.PanelForgeModelPicker.setDisabled(elements.revisionModel, disabled);
+    }
     if (active) setStatus(active.status === "cancel_pending" ? "Annulation…" : "Rendu…", "active");
   }
 
   async function openContext(detail) {
     state.context = detail;
     if (!detail?.ready || !detail.session_id || !detail.prompt_revision_id) {
-      elements.lab.hidden = true; state.project = null; stopPolling(); closeSocket(); return;
+      elements.lab.hidden = true; state.project = null; stopPolling(); closeSocket(); stopRenderProgressClock(); return;
     }
     const key = `${detail.session_id}:${detail.prompt_revision_id}`;
     if (state.openingKey === key || (state.project?.source_session_id === detail.session_id && state.project?.source_prompt_revision_id === detail.prompt_revision_id)) return;
@@ -403,6 +517,7 @@
           megapixels: Number(elements.megapixels.value), duration_seconds: Number(elements.duration.value),
           steps: Number(elements.steps.value), seed: elements.seedLock.checked ? elements.seed.value.trim() : null,
           seed_locked: elements.seedLock.checked, music_enabled: elements.music.value === "on",
+          spectrum_enabled: elements.spectrum.checked,
           video_lora: elements.videoLoraProfile?.value === "lora" ? {
             name: elements.videoLoraModel.value,
             strength: Number(elements.videoLoraStrength.value),
@@ -459,6 +574,7 @@
         method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
         body: JSON.stringify({
           message,
+          model_id: elements.revisionModel?.value || state.project.revision_model_id || state.project.model_id,
           feedback_attempt_id: state.project.feedback_attempt_id,
           revision_version: elements.revisionVersion?.value || state.project.revision_version || null,
         }),
@@ -485,6 +601,7 @@
   if (elements.revisionVersion) elements.revisionVersion.addEventListener("change", () => {
     state.selectedRevisionVersion = elements.revisionVersion.value;
   });
+  if (elements.revisionModel) elements.revisionModel.addEventListener("change", renderControls);
   window.addEventListener(contextEvent, (event) => openContext(event.detail));
   window.addEventListener("beforeunload", () => { stopPolling(); closeSocket(); if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); });
   }

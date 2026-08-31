@@ -68,7 +68,9 @@
     button.addEventListener("click", () => switchView(
       button.dataset.labView === "change-view"
         ? "krea2-assisted-lab"
-        : button.dataset.labView,
+        : button.dataset.labView === "video-lab"
+          ? "social-lab"
+          : button.dataset.labView,
     ));
   });
   elements.videoLabModes.forEach((button) => {
@@ -192,6 +194,15 @@
     }
   }
 
+  function truncationMessage(event = {}) {
+    const rawBudget = Number(event.max_tokens);
+    if (Number.isSafeInteger(rawBudget) && rawBudget > 0) {
+      const budget = new Intl.NumberFormat("fr-FR").format(rawBudget);
+      return `Réponse tronquée : le budget de sortie de ${budget} tokens a été épuisé. Le raisonnement interne compte dans ce budget ; le brouillon partiel reste éditable.`;
+    }
+    return "Réponse tronquée par la limite de contexte du fournisseur ; le brouillon partiel reste éditable.";
+  }
+
   function updateStreamState(view, event) {
     view.container.hidden = false;
     const terminalClass = ["completed", "truncated"].includes(event.phase)
@@ -206,7 +217,7 @@
       loading: "Chargement du modèle…",
       generating: "Génération…",
       completed: "Terminé",
-      truncated: "Réponse tronquée — budget de tokens épuisé",
+      truncated: truncationMessage(event),
     };
     view.label.textContent = lines.at(-1) || labels[event.phase] || "Traitement…";
     if (typeof event.progress === "number") {
@@ -368,6 +379,7 @@
   window.PanelForgeLabCore = Object.freeze({
     request,
     streamRequest,
+    truncationMessage,
     updateStreamState,
     failStreamState,
     createReasoningTrace,

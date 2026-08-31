@@ -119,6 +119,7 @@ class Krea2AssistedWebTest(unittest.TestCase):
             json={
                 "message": "Un tigre céleste",
                 "mode": "creation",
+                "model_id": "local::revision-qwen",
                 "prompt_language": "en",
                 "guidance_asset_id": guidance_value["asset_id"],
                 "guidance_filename": guidance_value["filename"],
@@ -128,6 +129,15 @@ class Krea2AssistedWebTest(unittest.TestCase):
         terminal = decode_sse(streamed.text)[-1]
         self.assertEqual(terminal["project"]["current_prompt"], PROMPT)
         self.assertEqual(terminal["project"]["prompt_language"], "en")
+        self.assertEqual(
+            terminal["project"]["revision_model_id"],
+            "local::revision-qwen",
+        )
+        self.assertEqual(
+            terminal["project"]["turns"][-1]["model_id"],
+            "local::revision-qwen",
+        )
+        self.assertEqual(self.gateway.requests[0].model_id, "local::revision-qwen")
         user_turn = terminal["project"]["turns"][0]
         self.assertEqual(user_turn["guidance_asset_id"], guidance_value["asset_id"])
         self.assertEqual(user_turn["guidance_filename"], "pose.png")

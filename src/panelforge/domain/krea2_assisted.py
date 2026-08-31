@@ -43,6 +43,7 @@ class Krea2AssistedTurn:
     questions: tuple[str, ...] = ()
     prompt: str | None = None
     recommendations: tuple[str, ...] = ()
+    model_id: str | None = None
 
     def __post_init__(self) -> None:
         _text(self.turn_id, "turn_id")
@@ -63,6 +64,10 @@ class Krea2AssistedTurn:
         _strings(self.recommendations, "recommendations", maximum=8)
         if self.prompt is not None:
             _text(self.prompt, "prompt")
+        if self.model_id is not None:
+            _text(self.model_id, "model_id")
+        if self.role is Krea2AssistedTurnRole.USER and self.model_id is not None:
+            raise ValueError("user turns cannot own a model ID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +243,7 @@ class Krea2AssistedProject:
     intention: str
     model_id: str
     prompt_language: Krea2PromptLanguage = Krea2PromptLanguage.ENGLISH
+    revision_model_id: str | None = None
     reference_asset_id: str | None = None
     reference_filename: str | None = None
     turns: tuple[Krea2AssistedTurn, ...] = ()
@@ -262,6 +268,8 @@ class Krea2AssistedProject:
             _text(value, label)
         if self.reference_asset_id is not None:
             _text(self.reference_asset_id, "reference_asset_id")
+        if self.revision_model_id is not None:
+            _text(self.revision_model_id, "revision_model_id")
         if not isinstance(self.prompt_language, Krea2PromptLanguage):
             raise TypeError("prompt_language must be a Krea2PromptLanguage")
         if self.reference_filename is not None:
@@ -300,6 +308,13 @@ class Krea2AssistedProject:
             self,
             turns=(*self.turns, user, assistant),
             current_prompt=(assistant.prompt or self.current_prompt),
+            revision_model_id=(assistant.model_id or self.revision_model_id),
+        )
+
+    def select_revision_model(self, model_id: str) -> Krea2AssistedProject:
+        return replace(
+            self,
+            revision_model_id=_text(model_id, "revision_model_id"),
         )
 
     def add_attempt(self, attempt: Krea2AssistedAttempt) -> Krea2AssistedProject:

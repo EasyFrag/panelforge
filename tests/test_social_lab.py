@@ -10,6 +10,7 @@ from panelforge.application import (
     SocialLabService,
     StreamEventKind,
     StreamPhase,
+    parse_social_response,
 )
 from panelforge.domain import SocialLanguage
 from panelforge.infrastructure.storage import LocalAssetStore, LocalSocialLabStore
@@ -69,6 +70,22 @@ class Gateway:
 
 
 class SocialLabServiceTest(unittest.TestCase):
+    def test_parser_closes_only_missing_final_json_containers(self):
+        raw = response("Recovered")[:-1]
+
+        message, variants = parse_social_response(raw, expected_count=3)
+
+        self.assertEqual(message, "Recovered proposals are ready.")
+        self.assertEqual(len(variants), 3)
+        self.assertEqual(variants[-1].hook, "Recovered hook 3")
+
+    def test_parser_does_not_repair_an_unterminated_json_string(self):
+        with self.assertRaisesRegex(ValueError, "not valid JSON"):
+            parse_social_response(
+                '{"message":"unfinished',
+                expected_count=3,
+            )
+
     def test_four_keyframes_profiles_and_complete_conversation_are_persisted(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -122,6 +139,7 @@ class SocialLabServiceTest(unittest.TestCase):
             project = first[-1].project
             self.assertIsNotNone(project)
             self.assertEqual(len(project.latest_variants), 3)
+            self.assertEqual(gateway.requests[0].max_tokens, 64_000)
             self.assertEqual(len(gateway.requests[0].images), 4)
             self.assertEqual(
                 [image.label for image in gateway.requests[0].images],

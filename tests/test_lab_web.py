@@ -226,7 +226,7 @@ class LabWebTest(unittest.TestCase):
             page.text.index('id="release-llm-vram"'),
             page.text.index('id="release-comfy-vram"'),
         )
-        self.assertIn("/static/lab.js?v=20260830.4", page.text)
+        self.assertIn("/static/lab.js?v=20260831.1", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
@@ -252,8 +252,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260830.8", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260830.2", page.text)
+        self.assertIn("/static/lab.css?v=20260831.4", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260831.1", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         core_script = self.client.get("/static/lab-core.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -287,7 +287,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(core_script.status_code, 200)
-        self.assertIn("/static/lab-core.js?v=20260830.3", page.text)
+        self.assertIn("/static/lab-core.js?v=20260831.2", page.text)
         self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
         self.assertNotIn('data-lab-view="prompt-lab"', page.text)
         self.assertNotIn('data-lab-view="archives"', page.text)
@@ -326,6 +326,9 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("frequency: 440", core_script.text)
         self.assertIn("frequency: 220", core_script.text)
         self.assertIn("function createLlmOutcomeTone()", core_script.text)
+        self.assertIn("function truncationMessage(event = {})", core_script.text)
+        self.assertIn("Le raisonnement interne compte dans ce budget", core_script.text)
+        self.assertIn("truncationError = core.truncationMessage(event)", direct_script.text)
         self.assertIn("if (!started || settled) return", core_script.text)
         self.assertIn("{ completionTone = false }", core_script.text)
         self.assertIn("exponentialRampToValueAtTime(0.08", core_script.text)
@@ -342,11 +345,11 @@ class LabWebTest(unittest.TestCase):
         )
         self.assertIsInstance(payload["controls"]["seed"]["default"], str)
 
-    def test_exposes_the_local_unsloth_and_vllm_switch_for_every_llm_selector(self):
+    def test_exposes_the_local_unsloth_switch_for_every_llm_selector(self):
         page = self.client.get("/")
         script = self.client.get("/static/lab.js")
 
-        self.assertEqual(page.text.count('data-llm-local-for="'), 7)
+        self.assertEqual(page.text.count('data-llm-local-for="'), 10)
         for select_id in (
             "krea2-assisted-llm",
             "krea2-batch-llm",
@@ -355,14 +358,17 @@ class LabWebTest(unittest.TestCase):
             "ref2vd-model",
             "social-llm",
             "production-llm",
+            "krea2-assisted-revision-llm",
+            "h3r-revision-model",
+            "ref2vr-revision-model",
         ):
             self.assertIn(
                 f'data-llm-local-for="{select_id}"',
                 page.text,
             )
-        self.assertIn('new Set(["local", "vllm"])', script.text)
-        self.assertIn('model.id.startsWith("vllm::")', script.text)
-        self.assertEqual(page.text.count("Local · Unsloth / vLLM"), 7)
+        self.assertIn('new Set(["local"])', script.text)
+        self.assertNotIn('model.id.startsWith("vllm::")', script.text)
+        self.assertEqual(page.text.count("Local · Unsloth"), 10)
         self.assertIn("Aucun modèle local disponible", script.text)
 
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
@@ -390,20 +396,38 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="i2vd-prompt-step"', page.text)
         self.assertIn('id="h3r-lab"', page.text)
         self.assertIn('id="h3r-music"', page.text)
+        self.assertIn('id="h3r-spectrum" type="checkbox"', page.text)
+        self.assertIn('id="ref2vr-spectrum" type="checkbox"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260830.3', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260831.4', page.text)
+        self.assertIn('id="h3r-render-progress"', page.text)
+        self.assertIn('id="ref2vr-render-progress"', page.text)
+        self.assertIn('payload.type === "panelforge_render_progress"', render_script.text)
+        production_script = self.client.get("/static/production-lab.js")
+        self.assertIn('id="production-render-progress"', page.text)
+        self.assertIn('payload.type === "panelforge_render_progress"', production_script.text)
+        self.assertIn('/static/production-lab.js?v=20260831.1', page.text)
         self.assertIn('id="h3r-video-lora-profile"', page.text)
         self.assertIn('id="h3r-video-lora-model"', page.text)
         self.assertIn('id="h3r-video-lora-strength"', page.text)
+        self.assertIn('id="ref2vr-video-lora-profile"', page.text)
+        self.assertIn('id="ref2vr-video-lora-model"', page.text)
+        self.assertIn('id="ref2vr-video-lora-strength"', page.text)
         self.assertIn('video_lora: elements.videoLoraProfile', render_script.text)
+        self.assertIn('spectrum_enabled: elements.spectrum.checked', render_script.text)
+        self.assertIn('elements.spectrum.checked = false', render_script.text)
         self.assertIn('id="h3r-revision-version"', page.text)
+        self.assertIn('id="h3r-revision-model"', page.text)
+        self.assertIn('id="ref2vr-revision-model"', page.text)
+        self.assertIn('id="ref2vr-revision-version"', page.text)
         self.assertIn('id="h3r-revision-draft"', page.text)
+        self.assertIn('id="ref2vr-revision-draft"', page.text)
         self.assertIn('panelforge:h3-base-context', script.text)
         self.assertIn('/api/h3-render/projects/', render_script.text)
         self.assertIn("core.createLlmOutcomeTone()", render_script.text)
         self.assertIn("outcomeTone.success()", render_script.text)
         self.assertIn("outcomeTone.failure()", render_script.text)
-        self.assertIn('/static/i2v-direct.js?v=20260830.4', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260831.1', page.text)
         self.assertIn('id="i2vd-animal-interview-fields"', page.text)
         self.assertEqual(page.text.count('class="field-label animal-interview-primary-field"'), 2)
         self.assertIn('id="i2vd-dialogue-language"', page.text)
@@ -492,7 +516,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('value="2:3 (Portrait Photo)"', page.text)
         self.assertIn('min="5" max="15"', page.text)
         self.assertIn('Modifier la durée ne réécrit pas les timestamps du prompt.', page.text)
-        self.assertIn('/static/video-lab.js?v=20260816.6', page.text)
+        self.assertIn('/static/video-lab.js?v=20260831.1', page.text)
+        self.assertIn('type === "panelforge_render_progress"', script.text)
 
         self.assertIn('request("/api/video-lab/runs"', script.text)
         self.assertIn('/start`, { method: "POST" }', script.text)
@@ -843,7 +868,7 @@ class LabWebTest(unittest.TestCase):
             SimpleNamespace(
                 call_id="llm-active",
                 operation_id="krea2.assisted.creation_chat@0.3.0",
-                model_id="vllm::qwen",
+                model_id="local::qwen",
             ),
         )
 

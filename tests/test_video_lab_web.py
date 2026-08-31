@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from panelforge.application import ChangeViewRunner, VideoLabRunner
 from panelforge.features.lab.web import create_app
+from panelforge.features.lab.web import _RenderProgressTracker
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
     VideoLabPresetRecipe,
@@ -88,7 +89,15 @@ class ImmediateVideoComfy:
 class FakePreviewConnection:
     def __init__(self):
         self.messages = [
-            json.dumps({"type": "progress", "data": {"value": 1, "max": 4}}),
+            json.dumps({
+                "type": "progress",
+                "data": {
+                    "prompt_id": "video-prompt-1",
+                    "node": "21",
+                    "value": 1,
+                    "max": 4,
+                },
+            }),
             b"binary-preview",
         ]
 
@@ -227,18 +236,65 @@ class VideoLabWebTest(unittest.TestCase):
                 "preset_id": "h3-balanced",
             },
         ).json()
+        self.client.post(f"/api/video-lab/runs/{prepared['run_id']}/start")
 
         with self.client.websocket_connect(prepared["events_url"]) as websocket:
             status_event = websocket.receive_json()
+            raw_progress_event = websocket.receive_json()
             progress_event = websocket.receive_json()
             preview = websocket.receive_bytes()
             websocket.close()
 
         self.assertEqual(status_event["type"], "panelforge_preview_status")
         self.assertEqual(status_event["data"]["status"], "connected")
-        self.assertEqual(progress_event["type"], "progress")
+        self.assertEqual(raw_progress_event["type"], "progress")
+        self.assertEqual(progress_event["type"], "panelforge_render_progress")
+        self.assertEqual(progress_event["data"]["phase_id"], "base_sampling")
+        self.assertEqual(progress_event["data"]["percent"], 16.75)
+        self.assertEqual(progress_event["data"]["current_step"], 1)
+        self.assertEqual(progress_event["data"]["total_steps"], 4)
         self.assertEqual(preview, b"binary-preview")
         self.assertEqual(self.preview_connector.urls, [self.comfy.websocket_url])
+
+    def test_progress_tracker_keeps_the_two_sampling_passes_distinct(self):
+        tracker = _RenderProgressTracker(
+            self.video_lab.recipe.progress_profile,
+            lambda: "video-prompt-1",
+        )
+
+        main_start = tracker.consume({
+            "type": "executing",
+            "data": {"prompt_id": "video-prompt-1", "node": "21"},
+        })
+        main_end = tracker.consume({
+            "type": "progress",
+            "data": {"prompt_id": "video-prompt-1", "node": "21", "value": 25, "max": 25},
+        })
+        upscale_end = tracker.consume({
+            "type": "executed",
+            "data": {"prompt_id": "video-prompt-1", "node": "26"},
+        })
+        refinement = tracker.consume({
+            "type": "progress",
+            "data": {"prompt_id": "video-prompt-1", "node": "16", "value": 1, "max": 3},
+        })
+        ignored = tracker.consume({
+            "type": "progress",
+            "data": {"prompt_id": "another-prompt", "node": "16", "value": 3, "max": 3},
+        })
+        complete = tracker.consume({
+            "type": "execution_success",
+            "data": {"prompt_id": "video-prompt-1"},
+        })
+
+        self.assertEqual(main_start["data"]["percent"], 8.0)
+        self.assertEqual(main_end["data"]["percent"], 43.0)
+        self.assertEqual(upscale_end["data"]["percent"], 50.0)
+        self.assertEqual(refinement["data"]["phase_id"], "refinement")
+        self.assertEqual(refinement["data"]["percent"], 65.0)
+        self.assertIsNone(ignored)
+        self.assertEqual(complete["data"]["percent"], 100.0)
+        self.assertFalse(complete["data"]["estimated"])
 
     def test_asset_prefill_path_and_created_cancellation(self):
         source = self.assets.create(PNG, media_type="image/png")

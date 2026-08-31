@@ -115,12 +115,13 @@ class LocalH3RenderProjectStore:
 
 def _serialize(project: H3RenderProject) -> dict[str, object]:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "source_session_id": project.source_session_id,
         "source_prompt_revision_id": project.source_prompt_revision_id,
         "model_id": project.model_id,
+        "revision_model_id": project.revision_model_id,
         "input_mode": project.input_mode.value,
         "current_prompt": project.current_prompt,
         "planned_cut_times_ms": list(project.planned_cut_times_ms),
@@ -151,6 +152,7 @@ def _serialize(project: H3RenderProject) -> dict[str, object]:
                 "revision_version": (
                     turn.revision_version.value if turn.revision_version else None
                 ),
+                "model_id": turn.model_id,
             }
             for turn in project.turns
         ],
@@ -175,6 +177,7 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
             "seed_locked": attempt.settings.seed_locked,
         },
         "music_enabled": attempt.music_enabled,
+        "spectrum_enabled": attempt.spectrum_enabled,
         "video_lora": (
             {
                 "name": attempt.video_lora.name,
@@ -204,13 +207,14 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> H3RenderProject:
-    if value.get("schema_version") not in {1, 2}:
+    if value.get("schema_version") not in {1, 2, 3}:
         raise ValueError("unsupported H3 render project schema")
     return H3RenderProject(
         project_id=value["project_id"],
         source_session_id=value["source_session_id"],
         source_prompt_revision_id=value["source_prompt_revision_id"],
         model_id=value["model_id"],
+        revision_model_id=value.get("revision_model_id"),
         input_mode=H3RenderInputMode(value["input_mode"]),
         current_prompt=value["current_prompt"],
         planned_cut_times_ms=tuple(value.get("planned_cut_times_ms", [])),
@@ -243,6 +247,7 @@ def _deserialize(value: dict[str, Any]) -> H3RenderProject:
                     H3RenderRevisionVersion(item["revision_version"])
                     if item.get("revision_version") else None
                 ),
+                model_id=item.get("model_id"),
             )
             for item in value.get("turns", [])
         ),
@@ -269,6 +274,7 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
             seed_locked=settings.get("seed_locked", False),
         ),
         music_enabled=value["music_enabled"],
+        spectrum_enabled=value.get("spectrum_enabled", False),
         video_lora=(
             H3VideoLoraSelection(
                 name=video_lora["name"],

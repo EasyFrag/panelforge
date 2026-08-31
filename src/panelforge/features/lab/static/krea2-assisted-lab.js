@@ -11,6 +11,7 @@
     intention: $("krea2-assisted-intention"),
     reference: $("krea2-assisted-reference"),
     llm: $("krea2-assisted-llm"),
+    revisionLlm: $("krea2-assisted-revision-llm"),
     create: $("krea2-assisted-create"),
     newMessage: $("krea2-assisted-new-message"),
     refresh: $("krea2-assisted-refresh"),
@@ -20,6 +21,7 @@
     title: $("krea2-assisted-title"),
     status: $("krea2-assisted-status"),
     warnings: $("krea2-assisted-warnings"),
+    conversationLayout: $("krea2-assisted-conversation-layout"),
     conversation: $("krea2-assisted-conversation"),
     message: $("krea2-assisted-message"),
     guidanceFile: $("krea2-assisted-guidance-file"),
@@ -27,6 +29,12 @@
     guidanceImage: $("krea2-assisted-guidance-image"),
     guidanceName: $("krea2-assisted-guidance-name"),
     guidanceRemove: $("krea2-assisted-guidance-remove"),
+    guidanceDock: $("krea2-assisted-guidance-dock"),
+    guidanceDockOpen: $("krea2-assisted-guidance-dock-open"),
+    guidanceDockImage: $("krea2-assisted-guidance-dock-image"),
+    guidanceDockName: $("krea2-assisted-guidance-dock-name"),
+    guidanceDockKind: $("krea2-assisted-guidance-dock-kind"),
+    guidanceDockNote: $("krea2-assisted-guidance-dock-note"),
     chat: $("krea2-assisted-chat"),
     recipeChat: $("krea2-assisted-recipe-chat"),
     showReasoning: $("krea2-assisted-show-reasoning"),
@@ -101,6 +109,8 @@
     elements.create.disabled = value || !state.spec;
     elements.chat.disabled = value || !state.project;
     elements.recipeChat.disabled = value || !state.project;
+    elements.revisionLlm.disabled = value || !state.project;
+    window.PanelForgeModelPicker.setDisabled(elements.revisionLlm, value || !state.project);
     elements.promptLanguage.disabled = value || !state.project;
     elements.guidanceFile.disabled = value || !state.project;
     elements.guidanceRemove.disabled = value || !state.project;
@@ -135,6 +145,12 @@
       elements.llm,
       state.spec.llm_models || [],
       previousLlm,
+    );
+    const previousRevisionLlm = elements.revisionLlm.value;
+    window.PanelForgeModelPicker.populate(
+      elements.revisionLlm,
+      state.spec.llm_models || [],
+      previousRevisionLlm,
     );
 
     const previousModel = elements.model.value;
@@ -272,11 +288,43 @@
     renderGuidanceCompose();
   }
 
+  function selectedFeedbackPreview() {
+    const project = state.project;
+    if (!project?.feedback_attempt_id) return null;
+    const attempt = (project.attempts || []).find(
+      (value) => value.attempt_id === project.feedback_attempt_id && value.output_url,
+    );
+    if (!attempt) return null;
+    return {
+      source: attempt.output_url,
+      name: `Essai ${attempt.index}`,
+      kind: "FEEDBACK VISUEL",
+      note: "Prochain échange",
+    };
+  }
+
+  function currentConversationPreview() {
+    const guidance = state.guidanceAsset;
+    const source = state.guidanceObjectUrl || (guidance && guidance.url);
+    if (source) {
+      return {
+        source,
+        name: state.guidanceFile?.name || guidance?.filename || "Image d’appoint",
+        kind: "IMAGE D’APPOINT",
+        note: "Prochain échange",
+      };
+    }
+    return selectedFeedbackPreview();
+  }
+
   function renderGuidanceCompose() {
     const guidance = state.guidanceAsset;
     const source = state.guidanceObjectUrl || (guidance && guidance.url);
     const name = state.guidanceFile?.name || guidance?.filename || "";
+    const conversationPreview = currentConversationPreview();
     elements.guidancePreview.hidden = !source;
+    elements.guidanceDock.hidden = !conversationPreview;
+    elements.conversationLayout.classList.toggle("has-guidance", Boolean(conversationPreview));
     if (source) {
       elements.guidanceImage.src = source;
       elements.guidanceName.textContent = name;
@@ -285,6 +333,23 @@
       elements.guidanceImage.removeAttribute("src");
       elements.guidanceName.textContent = "";
     }
+    if (conversationPreview) {
+      elements.guidanceDockImage.src = conversationPreview.source;
+      elements.guidanceDockName.textContent = conversationPreview.name;
+      elements.guidanceDockName.title = conversationPreview.name;
+      elements.guidanceDockKind.textContent = conversationPreview.kind;
+      elements.guidanceDockNote.textContent = conversationPreview.note;
+    } else {
+      elements.guidanceDockImage.removeAttribute("src");
+      elements.guidanceDockName.textContent = "";
+      elements.guidanceDockKind.textContent = "";
+      elements.guidanceDockNote.textContent = "";
+    }
+  }
+
+  function openCurrentGuidance() {
+    const preview = currentConversationPreview();
+    if (preview) openLightbox(preview.source, preview.name);
   }
 
   function selectGuidanceFile() {
@@ -336,6 +401,9 @@
       article.className = `krea2-assisted-turn ${turn.role} ${turn.mode}`;
       const label = document.createElement("small");
       label.textContent = `${turn.role === "user" ? "Vous" : "Assistant"} · ${turn.mode === "recipe" ? "recette" : "création"}`;
+      if (turn.model_id) {
+        label.textContent += ` · ${turn.model_id.replace(/^[^:]+::/, "")}`;
+      }
       const content = document.createElement("p");
       content.textContent = turn.content;
       article.append(label, content);
@@ -470,10 +538,18 @@
   }
 
   function renderProject(project, { preservePrompt = false } = {}) {
+    const changed = state.project?.project_id !== project.project_id;
     state.project = project;
     elements.editor.hidden = false;
     elements.title.textContent = project.name;
     elements.promptLanguage.value = project.prompt_language || "en";
+    if (changed) {
+      window.PanelForgeModelPicker.select(
+        elements.revisionLlm,
+        project.revision_model_id || project.model_id,
+        "modèle historique indisponible",
+      );
+    }
     if (!preservePrompt || !elements.prompt.value.trim()) elements.prompt.value = project.current_prompt || "";
     elements.warnings.replaceChildren();
     (project.warnings || []).forEach((warning) => { const item = document.createElement("p"); item.textContent = warning; elements.warnings.append(item); });
@@ -491,6 +567,7 @@
       setMessage(`Image validée, mais export en échec : ${project.export.error}`, true);
     }
     renderGallery();
+    renderGuidanceCompose();
     renderStatus();
   }
 
@@ -517,12 +594,20 @@
 
   async function loadSpec(preserve = false) {
     const previousModel = preserve ? elements.model.value : "";
+    const previousRevisionLlm = preserve ? elements.revisionLlm.value : "";
     const previousSlots = state.loraSlots.map((slot) => ({ ...slot }));
     state.spec = await request("/api/image-lab/krea2-assisted/spec");
     fillOptions();
     if (preserve) {
       ensureMissingOption(elements.model, previousModel);
       if (previousModel) elements.model.value = previousModel;
+      if (previousRevisionLlm) {
+        window.PanelForgeModelPicker.select(
+          elements.revisionLlm,
+          previousRevisionLlm,
+          "modèle historique indisponible",
+        );
+      }
       state.loraSlots = previousSlots;
       renderLoraStack();
     }
@@ -594,6 +679,7 @@
           body: JSON.stringify({
             message,
             mode,
+            model_id: elements.revisionLlm.value || state.project.revision_model_id || state.project.model_id,
             feedback_attempt_id: state.project.feedback_attempt_id,
             prompt_language: elements.promptLanguage.value,
             guidance_asset_id: guidance?.asset_id || null,
@@ -757,6 +843,8 @@
   elements.recipeChat.addEventListener("click", () => sendChat("recipe"));
   elements.guidanceFile.addEventListener("change", selectGuidanceFile);
   elements.guidanceRemove.addEventListener("click", clearGuidance);
+  elements.guidanceImage.addEventListener("click", openCurrentGuidance);
+  elements.guidanceDockOpen.addEventListener("click", openCurrentGuidance);
   elements.render.addEventListener("click", renderAttempt);
   elements.cancel.addEventListener("click", cancelAttempt);
   elements.copyPrompt.addEventListener("click", async () => {

@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260830.2', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260831.4', self.page)
         self.assertIn('"krea2-assisted-lab"', (STATIC / "lab-core.js").read_text(encoding="utf-8"))
 
     def test_initial_visible_assisted_view_loads_its_catalog_automatically(self):
@@ -134,6 +134,21 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn('prompt_language: elements.promptLanguage.value', self.script)
         self.assertIn("elements.promptLanguage.disabled = value || !state.project", self.script)
 
+    def test_revision_model_is_independent_and_sent_with_each_chat(self):
+        self.assertIn('id="krea2-assisted-revision-llm"', self.page)
+        self.assertIn(
+            'data-llm-local-for="krea2-assisted-revision-llm"',
+            self.page,
+        )
+        self.assertIn(
+            "project.revision_model_id || project.model_id",
+            self.script,
+        )
+        self.assertIn(
+            "model_id: elements.revisionLlm.value",
+            self.script,
+        )
+
     def test_turn_guidance_image_is_compact_persisted_and_reusable(self):
         self.assertIn('id="krea2-assisted-guidance-file"', self.page)
         self.assertIn('id="krea2-assisted-guidance-preview"', self.page)
@@ -142,6 +157,25 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn("async function resolveGuidance()", self.script)
         self.assertIn(".krea2-assisted-turn-guidance", self.css)
         self.assertIn(".krea2-assisted-guidance-preview", self.css)
+        self.assertIn('id="krea2-assisted-guidance-dock"', self.page)
+        self.assertIn('id="krea2-assisted-guidance-dock-image"', self.page)
+        self.assertIn(
+            'elements.conversationLayout.classList.toggle("has-guidance", Boolean(conversationPreview))',
+            self.script,
+        )
+        self.assertIn(
+            'elements.guidanceDockOpen.addEventListener("click", openCurrentGuidance)',
+            self.script,
+        )
+        self.assertIn(
+            ".krea2-assisted-conversation-layout.has-guidance",
+            self.css,
+        )
+        self.assertIn("function selectedFeedbackPreview()", self.script)
+        self.assertIn("value.attempt_id === project.feedback_attempt_id && value.output_url", self.script)
+        self.assertIn('kind: "FEEDBACK VISUEL"', self.script)
+        self.assertIn("const conversationPreview = currentConversationPreview();", self.script)
+        self.assertIn('id="krea2-assisted-guidance-dock-kind"', self.page)
 
 
 if __name__ == "__main__":

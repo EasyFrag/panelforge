@@ -119,7 +119,7 @@ class CompletionRequest:
     user_prompt: str
     images: tuple[ImageInput, ...] = ()
     temperature: float = 0.2
-    max_tokens: int | None = 32768
+    max_tokens: int | None = 262_144
     operation_id: str = "unspecified"
     include_reasoning: bool = False
 
@@ -128,6 +128,20 @@ class CompletionRequest:
             raise TypeError("include_reasoning must be a boolean")
         if self.max_tokens is not None:
             _require_non_negative_int(self.max_tokens, "max_tokens", positive=True)
+
+
+def truncated_response_message(max_tokens: int | None) -> str:
+    if max_tokens is None:
+        return (
+            "La réponse du modèle a été tronquée par la limite de contexte du "
+            "fournisseur. Le brouillon partiel reste disponible."
+        )
+    formatted_budget = f"{max_tokens:,}".replace(",", " ")
+    return (
+        "La réponse du modèle a été tronquée : le budget de sortie de "
+        f"{formatted_budget} tokens a été épuisé. Le raisonnement interne compte "
+        "dans ce budget ; le brouillon partiel reste disponible."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1740,7 +1754,7 @@ def _required_text(value: str, name: str) -> str:
 
 def _completed_content(result: CompletionResult) -> str:
     if result.finish_reason == "length":
-        raise ValueError("model response was truncated because its token budget was exhausted")
+        raise ValueError(truncated_response_message(None))
     return result.content
 
 

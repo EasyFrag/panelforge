@@ -28,7 +28,11 @@ from panelforge.application import (
     creative_freedom_from_axes,
     creative_freedom_policy,
 )
-from panelforge.application.prompt_lab import _brief_inputs, project_reference_evidence
+from panelforge.application.prompt_lab import (
+    _brief_inputs,
+    project_reference_evidence,
+    truncated_response_message,
+)
 from panelforge.domain import (
     AnalysisRevision,
     BriefReferenceSnapshot,
@@ -806,6 +810,14 @@ class FakeCompletions:
 
 
 class OpenAICompatibleGatewayTest(unittest.TestCase):
+    def test_truncation_message_explains_numeric_and_provider_limits(self):
+        bounded = truncated_response_message(262_144)
+        provider = truncated_response_message(None)
+
+        self.assertIn("262 144 tokens", bounded)
+        self.assertIn("raisonnement interne", bounded)
+        self.assertIn("limite de contexte du fournisseur", provider)
+
     def test_reasoning_trace_is_strictly_opt_in(self):
         self.assertFalse(
             CompletionRequest("vision-a", "System", "User").include_reasoning
@@ -845,7 +857,7 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
         self.assertEqual(models, (ModelDescriptor("vision-a"), ModelDescriptor("vision-b")))
         self.assertEqual(result.content, "résultat")
         self.assertEqual(result.prompt_tokens, 12)
-        self.assertEqual(completions.kwargs["max_tokens"], 32768)
+        self.assertEqual(completions.kwargs["max_tokens"], 262_144)
         parts = completions.kwargs["messages"][1]["content"]
         self.assertEqual([part["type"] for part in parts], ["text", "text", "image_url", "text", "image_url"])
         self.assertIn("data:image/png;base64,", parts[2]["image_url"]["url"])
@@ -854,19 +866,19 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
     def test_applies_source_specific_output_and_image_limits(self):
         completions = FakeCompletions()
         gateway = OpenAICompatibleGateway(
-            "http://127.0.0.1:8000/v1",
+            "http://provider.test:8000/v1",
             client=SimpleNamespace(
                 models=FakeModels(),
                 chat=SimpleNamespace(completions=completions),
             ),
             maximum_output_tokens=32768,
             maximum_images=4,
-            source_label="vLLM",
+            source_label="Limited provider",
         )
 
         gateway.complete(
             CompletionRequest(
-                model_id="qwen3.8-27b-nvfp4",
+                model_id="vision-model",
                 system_prompt="System",
                 user_prompt="User",
                 max_tokens=32768,
@@ -878,10 +890,10 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
         )
 
         self.assertEqual(completions.kwargs["max_tokens"], 32768)
-        with self.assertRaisesRegex(ValueError, "vLLM accepts at most 4 images"):
+        with self.assertRaisesRegex(ValueError, "Limited provider accepts at most 4 images"):
             gateway.complete(
                 CompletionRequest(
-                    model_id="qwen3.8-27b-nvfp4",
+                    model_id="vision-model",
                     system_prompt="System",
                     user_prompt="User",
                     images=tuple(
@@ -894,18 +906,18 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
     def test_omits_max_tokens_when_the_request_has_no_client_limit(self):
         completions = FakeCompletions()
         gateway = OpenAICompatibleGateway(
-            "http://127.0.0.1:8000/v1",
+            "http://provider.test:8000/v1",
             client=SimpleNamespace(
                 models=FakeModels(),
                 chat=SimpleNamespace(completions=completions),
             ),
             maximum_output_tokens=32768,
-            source_label="vLLM",
+            source_label="Limited provider",
         )
 
         gateway.complete(
             CompletionRequest(
-                model_id="qwen3.8-27b-nvfp4",
+                model_id="vision-model",
                 system_prompt="System",
                 user_prompt="User",
                 max_tokens=None,

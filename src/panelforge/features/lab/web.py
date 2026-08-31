@@ -110,12 +110,191 @@ from panelforge.infrastructure.krea2_resources import (
     serialize_krea2_resource,
 )
 from panelforge.infrastructure.krea2_image_metadata import recover_krea2_metadata
+from panelforge.infrastructure.presets import (
+    RenderProgressPhase,
+    RenderProgressProfile,
+)
 
 
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
 MAX_SOCIAL_VIDEO_BYTES = 250 * 1024 * 1024
 MAX_PROMPT_REFERENCES = 9
 _STATIC_DIRECTORY = Path(__file__).with_name("static")
+
+
+class _RenderProgressTracker:
+    """Translate workflow-specific ComfyUI nodes into one stable UI event."""
+
+    def __init__(
+        self,
+        profile: RenderProgressProfile,
+        execution_id: Callable[[], str | None],
+    ) -> None:
+        self.profile = profile
+        self.execution_id = execution_id
+        self.current_node_id: str | None = None
+        self.percent = 0.0
+        self.phase_id = profile.initial_phase_id
+        self.phase_label = profile.initial_label
+
+    def initial_event(self) -> dict[str, object]:
+        return self._event(status="running")
+
+    def consume(self, payload: object) -> dict[str, object] | None:
+        if not isinstance(payload, dict):
+            return None
+        event_type = payload.get("type") or payload.get("event")
+        data = payload.get("data")
+        if not isinstance(event_type, str) or not isinstance(data, dict):
+            return None
+        expected_id = self._expected_execution_id()
+        event_id = data.get("prompt_id") or payload.get("prompt_id") or data.get("execution_id")
+        if expected_id is None:
+            return None
+        if isinstance(event_id, str) and event_id != expected_id:
+            return None
+
+        if event_type == "execution_start":
+            return self._event(prompt_id=expected_id, status="running")
+        if event_type == "executing":
+            node_id = data.get("node")
+            if node_id is None:
+                return None
+            self.current_node_id = str(node_id)
+            return self._node_event(
+                self.current_node_id,
+                completed=False,
+                prompt_id=expected_id,
+            )
+        if event_type == "progress":
+            node_id = data.get("node")
+            if node_id is not None:
+                self.current_node_id = str(node_id)
+            return self._step_event(data, prompt_id=expected_id)
+        if event_type == "executed":
+            node_id = data.get("node")
+            if node_id is None:
+                return None
+            self.current_node_id = str(node_id)
+            return self._node_event(
+                self.current_node_id,
+                completed=True,
+                prompt_id=expected_id,
+            )
+        if event_type == "execution_cached":
+            result = None
+            nodes = data.get("nodes")
+            if isinstance(nodes, list):
+                for node_id in nodes:
+                    result = self._node_event(
+                        str(node_id),
+                        completed=True,
+                        prompt_id=expected_id,
+                    ) or result
+            return result
+        if event_type in {"execution_success", "execution_complete"}:
+            self.percent = 100.0
+            self.phase_id = "complete"
+            self.phase_label = "Terminé"
+            return self._event(prompt_id=expected_id, status="succeeded")
+        if event_type in {"execution_error", "execution_interrupted"}:
+            return self._event(prompt_id=expected_id, status="failed")
+        return None
+
+    def _step_event(
+        self,
+        data: dict[str, object],
+        *,
+        prompt_id: str,
+    ) -> dict[str, object] | None:
+        phase = self.profile.phase_for_node(self.current_node_id)
+        if phase is None:
+            return None
+        current = data.get("value")
+        maximum = data.get("max")
+        if (
+            not phase.tracks_steps
+            or isinstance(current, bool)
+            or isinstance(maximum, bool)
+            or not isinstance(current, (int, float))
+            or not isinstance(maximum, (int, float))
+            or maximum <= 0
+        ):
+            return self._node_event(
+                self.current_node_id or "",
+                completed=False,
+                prompt_id=prompt_id,
+            )
+        ratio = max(0.0, min(1.0, float(current) / float(maximum)))
+        candidate = (
+            phase.start_percent
+            + ((phase.end_percent - phase.start_percent) * ratio)
+        )
+        if candidate < self.percent:
+            return None
+        self._select_phase(phase)
+        self.percent = candidate
+        return self._event(
+            prompt_id=prompt_id,
+            status="running",
+            current_step=current,
+            total_steps=maximum,
+        )
+
+    def _node_event(
+        self,
+        node_id: str,
+        *,
+        completed: bool,
+        prompt_id: str,
+    ) -> dict[str, object] | None:
+        phase = self.profile.phase_for_node(node_id)
+        if phase is None:
+            return None
+        node_index = phase.node_ids.index(node_id)
+        fraction = (node_index + (1 if completed else 0)) / len(phase.node_ids)
+        candidate = (
+            phase.start_percent
+            + ((phase.end_percent - phase.start_percent) * fraction)
+        )
+        if candidate < self.percent:
+            return None
+        self._select_phase(phase)
+        self.percent = candidate
+        return self._event(prompt_id=prompt_id, status="running")
+
+    def _select_phase(self, phase: RenderProgressPhase) -> None:
+        self.phase_id = phase.phase_id
+        self.phase_label = phase.label
+
+    def _expected_execution_id(self) -> str | None:
+        try:
+            value = self.execution_id()
+        except (KeyError, FileNotFoundError, ValueError):
+            return None
+        return value if isinstance(value, str) and value else None
+
+    def _event(
+        self,
+        *,
+        prompt_id: str | None = None,
+        status: str,
+        current_step: object | None = None,
+        total_steps: object | None = None,
+    ) -> dict[str, object]:
+        return {
+            "type": "panelforge_render_progress",
+            "data": {
+                "prompt_id": prompt_id,
+                "phase_id": self.phase_id,
+                "phase_label": self.phase_label,
+                "percent": round(self.percent, 2),
+                "estimated": self.percent < 100,
+                "current_step": current_step,
+                "total_steps": total_steps,
+                "status": status,
+            },
+        }
 
 _AZIMUTH_LABELS = {
     CameraAzimuth.FRONT: "Face",
@@ -313,6 +492,7 @@ class Krea2EditPromotionBody(BaseModel):
 class Krea2AssistedChatBody(BaseModel):
     message: str
     mode: str = "creation"
+    model_id: str | None = None
     feedback_attempt_id: str | None = None
     prompt_language: str | None = None
     guidance_asset_id: str | None = None
@@ -349,6 +529,7 @@ class Krea2AssistedRecipePublishBody(BaseModel):
 
 class H3RenderChatBody(BaseModel):
     message: str
+    model_id: str | None = None
     feedback_attempt_id: str | None = None
     revision_version: str | None = None
 
@@ -368,6 +549,7 @@ class H3RenderAttemptBody(BaseModel):
     seed: str | int | None = None
     seed_locked: bool = False
     music_enabled: bool = False
+    spectrum_enabled: bool = False
     video_lora: H3VideoLoraBody | None = None
 
 
@@ -1762,6 +1944,7 @@ def create_app(
             project_id,
             body.message,
             mode=mode,
+            model_id=body.model_id,
             feedback_attempt_id=body.feedback_attempt_id,
             prompt_language=prompt_language,
             guidance_asset_id=body.guidance_asset_id,
@@ -2239,7 +2422,7 @@ def create_app(
             await websocket.close(code=4403, reason="Video Lab is not configured")
             return
         try:
-            video_lab.runs.get(run_id)
+            video_lab.get(run_id)
         except (KeyError, FileNotFoundError, ValueError):
             await websocket.close(code=4404, reason="Video Lab run not found")
             return
@@ -2259,7 +2442,16 @@ def create_app(
                         "data": {"status": "connected", "run_id": run_id},
                     }
                 )
-                await _relay_video_preview(websocket, upstream)
+                await _relay_video_preview(
+                    websocket,
+                    upstream,
+                    progress_profile=getattr(
+                        video_lab.recipe,
+                        "progress_profile",
+                        None,
+                    ),
+                    execution_id=lambda: video_lab.get(run_id).execution_id,
+                )
         except WebSocketDisconnect:
             return
         except asyncio.CancelledError:
@@ -2470,11 +2662,14 @@ def create_app(
             }
         video_lora_models: tuple[str, ...] = ()
         video_lora_warning: str | None = None
-        video_lora_supported = input_mode is not H3RenderInputMode.REF2VA
+        video_lora_supported = recipe.supports_video_lora
         if video_lora_supported:
             video_lora_models, video_lora_warning = service.video_lora_inventory()
         return {
             "operation_id": recipe.reference.operation_id,
+            "llm_models": [
+                _serialize_llm_model(model) for model in service.list_models()
+            ],
             "recipe": {
                 "id": recipe.reference.recipe_id,
                 "version": recipe.reference.version,
@@ -2546,6 +2741,7 @@ def create_app(
         return _h3_render_stream_response(service.stream_chat(
             project_id,
             body.message,
+            model_id=body.model_id,
             feedback_attempt_id=body.feedback_attempt_id,
             revision_version=body.revision_version,
             include_reasoning=include_reasoning,
@@ -2583,6 +2779,7 @@ def create_app(
                     seed_locked=body.seed_locked,
                 ),
                 music_enabled=body.music_enabled,
+                spectrum_enabled=body.spectrum_enabled,
                 **(
                     {"video_lora": video_lora}
                     if video_lora is not None
@@ -2653,7 +2850,8 @@ def create_app(
             await websocket.close(code=4403, reason="H3 renderer is not configured")
             return
         try:
-            h3_render.get(project_id).attempt(attempt_id)
+            project = h3_render.get(project_id)
+            project.attempt(attempt_id)
         except (KeyError, FileNotFoundError, ValueError):
             await websocket.close(code=4404, reason="H3 render attempt not found")
             return
@@ -2669,7 +2867,16 @@ def create_app(
                     "type": "panelforge_preview_status",
                     "data": {"status": "connected", "attempt_id": attempt_id},
                 })
-                await _relay_video_preview(websocket, upstream)
+                await _relay_video_preview(
+                    websocket,
+                    upstream,
+                    progress_profile=h3_render.workflow_for_mode(
+                        project.input_mode
+                    ).progress_profile,
+                    execution_id=lambda: h3_render.get(project_id)
+                    .attempt(attempt_id)
+                    .execution_id,
+                )
         except WebSocketDisconnect:
             return
         except asyncio.CancelledError:
@@ -3398,6 +3605,7 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
             "prompt": attempt.prompt,
             "effective_prompt": attempt.effective_prompt,
             "music_enabled": attempt.music_enabled,
+            "spectrum_enabled": attempt.spectrum_enabled,
             "video_lora": (
                 {
                     "name": attempt.video_lora.name,
@@ -3439,6 +3647,7 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
         "source_session_id": project.source_session_id,
         "source_prompt_revision_id": project.source_prompt_revision_id,
         "model_id": project.model_id,
+        "revision_model_id": project.revision_model_id,
         "input_mode": project.input_mode.value,
         "current_prompt": project.current_prompt,
         "revision_version": (
@@ -3482,6 +3691,7 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
                 "revision_version": (
                     turn.revision_version.value if turn.revision_version else None
                 ),
+                "model_id": turn.model_id,
             }
             for turn in project.turns
         ],
@@ -3521,7 +3731,7 @@ def _active_llm_calls(monitor: Any | None) -> list[dict[str, str]]:
         source = model_id.partition("::")[0] if "::" in model_id else "server"
         values.append({
             "call_id": call_id,
-            "source": "local" if source in {"local", "vllm"} else "server",
+            "source": "local" if source == "local" else "server",
             "operation": operation_id,
             "label": _llm_activity_label(operation_id),
         })
@@ -3852,6 +4062,7 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
         "name": project.name,
         "intention": project.intention,
         "model_id": project.model_id,
+        "revision_model_id": project.revision_model_id,
         "prompt_language": project.prompt_language.value,
         "reference_asset_id": project.reference_asset_id,
         "reference_filename": project.reference_filename,
@@ -3876,6 +4087,7 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
                 "questions": list(turn.questions),
                 "prompt": turn.prompt,
                 "recommendations": list(turn.recommendations),
+                "model_id": turn.model_id,
             }
             for turn in project.turns
         ],
@@ -4072,14 +4284,32 @@ def _connect_video_preview(url: str):
     )
 
 
-async def _relay_video_preview(websocket: WebSocket, upstream: Any) -> None:
+async def _relay_video_preview(
+    websocket: WebSocket,
+    upstream: Any,
+    *,
+    progress_profile: RenderProgressProfile | None = None,
+    execution_id: Callable[[], str | None] | None = None,
+) -> None:
     """Forward ComfyUI text/binary events until either peer disconnects."""
 
+    tracker = (
+        _RenderProgressTracker(progress_profile, execution_id)
+        if progress_profile is not None and execution_id is not None
+        else None
+    )
     async def forward_upstream() -> None:
         while True:
             message = await upstream.recv()
             if isinstance(message, str):
                 await websocket.send_text(message)
+                if tracker is not None:
+                    try:
+                        normalized = tracker.consume(json.loads(message))
+                    except json.JSONDecodeError:
+                        normalized = None
+                    if normalized is not None:
+                        await websocket.send_json(normalized)
             else:
                 await websocket.send_bytes(bytes(message))
 
@@ -4259,11 +4489,13 @@ def serialize_production_job(
                 attempt = project.attempt(attempt_id)
                 previews.append(_serialize_production_video_attempt(
                     attempt,
+                    project_id=project.project_id,
                     selected=attempt.attempt_id == job.selected_preview_attempt_id,
                 ))
             if job.final_attempt_id is not None:
                 final_attempt = _serialize_production_video_attempt(
                     project.attempt(job.final_attempt_id),
+                    project_id=project.project_id,
                     selected=True,
                 )
         except (KeyError, FileNotFoundError, ValueError):
@@ -4387,13 +4619,23 @@ def serialize_production_job(
     }
 
 
-def _serialize_production_video_attempt(attempt, *, selected: bool) -> dict[str, object]:
+def _serialize_production_video_attempt(
+    attempt,
+    *,
+    project_id: str,
+    selected: bool,
+) -> dict[str, object]:
     return {
         "attempt_id": attempt.attempt_id,
         "index": attempt.index,
         "status": attempt.status.value,
         "prompt": attempt.prompt,
         "effective_prompt": attempt.effective_prompt,
+        "execution_id": attempt.execution_id,
+        "events_url": (
+            f"/api/h3-render/projects/{project_id}/attempts/"
+            f"{attempt.attempt_id}/events"
+        ),
         "output_asset_id": attempt.output_asset_id,
         "output_url": (
             f"/api/assets/{attempt.output_asset_id}/content"

@@ -38,6 +38,7 @@ from .prompt_lab import (
     MultimodalGateway,
     StreamEventKind,
     StreamPhase,
+    truncated_response_message,
 )
 
 
@@ -231,9 +232,12 @@ class Krea2AssistedService:
         prompt_language: Krea2PromptLanguage | None = None,
         guidance_asset_id: str | None = None,
         guidance_filename: str | None = None,
+        model_id: str | None = None,
         include_reasoning: bool = False,
     ) -> Iterator[Krea2AssistedStreamEvent]:
         message = _bounded_text(message, "message", 12_000)
+        if model_id is not None:
+            model_id = _bounded_text(model_id, "model_id", 300)
         if not isinstance(mode, Krea2AssistedTurnMode):
             raise TypeError("mode must be Krea2AssistedTurnMode")
         if prompt_language is not None and not isinstance(prompt_language, Krea2PromptLanguage):
@@ -251,6 +255,9 @@ class Krea2AssistedService:
             raise ValueError("guidance_filename requires guidance_asset_id")
         with self._lock:
             project = self.projects.get(project_id)
+            project = project.select_revision_model(
+                model_id or project.revision_model_id or project.model_id
+            )
             if prompt_language is not None:
                 project = project.with_prompt_language(prompt_language)
             if feedback_attempt_id is not None:
@@ -272,7 +279,7 @@ class Krea2AssistedService:
                     parts.append(event.text)
                 if event.kind is StreamEventKind.TRUNCATED:
                     raw = event.result.content if event.result is not None else "".join(parts)
-                    error = ValueError("La réponse du modèle a été tronquée.")
+                    error = ValueError(truncated_response_message(request.max_tokens))
                     self._report(event.result.call_id if event.result else None, LlmCallApplicationOutcome.REJECTED, error)
                     yield Krea2AssistedStreamEvent(
                         StreamEventKind.TRUNCATED,
@@ -286,7 +293,12 @@ class Krea2AssistedService:
                     if event.result is None:
                         raise ValueError("model stream completed without a result")
                     try:
-                        terminal = self._accept_chat_response(project_id, mode, event.result.content)
+                        terminal = self._accept_chat_response(
+                            project_id,
+                            mode,
+                            event.result.content,
+                            event.result.model_id,
+                        )
                     except Exception as error:
                         self._report(event.result.call_id, LlmCallApplicationOutcome.REJECTED, error)
                         yield Krea2AssistedStreamEvent(
@@ -582,12 +594,12 @@ class Krea2AssistedService:
             f"NEW USER MESSAGE (authoritative):\n{message}",
         ))
         return CompletionRequest(
-            model_id=project.model_id,
+            model_id=project.revision_model_id or project.model_id,
             system_prompt=_CREATION_SYSTEM if mode is Krea2AssistedTurnMode.CREATION else _RECIPE_SYSTEM,
             user_prompt=user,
             images=tuple(images),
             temperature=0.35 if mode is Krea2AssistedTurnMode.CREATION else 0.2,
-            max_tokens=16_384,
+            max_tokens=131_072,
             operation_id=(
                 "krea2.assisted.creation_chat@0.3.0"
                 if mode is Krea2AssistedTurnMode.CREATION
@@ -601,6 +613,7 @@ class Krea2AssistedService:
         project_id: str,
         mode: Krea2AssistedTurnMode,
         raw: str,
+        model_id: str,
     ) -> Krea2AssistedProject:
         value = _decode_json(raw)
         message = _bounded_text(value.get("message"), "assistant message", 12_000)
@@ -631,6 +644,7 @@ class Krea2AssistedService:
                     questions=questions,
                     prompt=prompt,
                     recommendations=recommendations,
+                    model_id=_bounded_text(model_id, "model_id", 300),
                 )
                 return self.projects.save(replace(
                     project,
@@ -646,6 +660,7 @@ class Krea2AssistedService:
                 role=Krea2AssistedTurnRole.ASSISTANT,
                 content=message,
                 questions=questions,
+                model_id=_bounded_text(model_id, "model_id", 300),
             )
             project = replace(project, turns=(*project.turns, assistant))
             if draft is not None:

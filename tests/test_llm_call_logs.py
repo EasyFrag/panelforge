@@ -202,7 +202,7 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
                 id_factory=lambda: "call-active",
             )
             request = CompletionRequest(
-                model_id="vllm::qwen",
+                model_id="local::qwen",
                 system_prompt="System",
                 user_prompt="User",
                 operation_id="krea2.assisted.creation_chat@0.3.0",
@@ -212,7 +212,7 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
             worker.start()
             self.assertTrue(delegate.entered.wait(1))
             self.assertEqual(gateway.active_calls()[0].call_id, "call-active")
-            self.assertEqual(gateway.active_calls()[0].model_id, "vllm::qwen")
+            self.assertEqual(gateway.active_calls()[0].model_id, "local::qwen")
             delegate.release.set()
             worker.join(2)
 

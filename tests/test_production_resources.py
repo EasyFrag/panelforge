@@ -77,7 +77,6 @@ class ResourceLeaseManagerTest(unittest.TestCase):
 
     def test_model_sources_map_to_their_physical_machine(self):
         self.assertEqual(llm_compute_resource("local::qwen"), ComputeResource.LOCAL_GPU)
-        self.assertEqual(llm_compute_resource("vllm::qwen"), ComputeResource.LOCAL_GPU)
         self.assertEqual(llm_compute_resource("server-model"), ComputeResource.REMOTE_GPU)
 
 
@@ -109,7 +108,7 @@ def _job() -> ProductionJob:
         source_asset_id="source",
         source_filename="source.png",
         config=ProductionConfig(
-            model_id="vllm::qwen",
+            model_id="local::qwen",
             image_settings=Krea2BatchSettings(
                 model_name="Krea2/model.safetensors",
                 aspect_ratio=Krea2AspectRatio.PORTRAIT_WIDESCREEN,

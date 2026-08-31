@@ -36,6 +36,7 @@ from .prompt_lab import (
     StreamPhase,
     creative_freedom_policy,
     project_reference_evidence,
+    truncated_response_message,
 )
 from .direct_i2v_prompt import (
     I2VA_FIELDS as DIRECT_I2VA_FIELDS,
@@ -807,9 +808,7 @@ class PromptCompositionService:
         request_values = self._super_fast_direct_request(source_session_id)
         result = self.gateway.complete(request_values[4])
         if result.finish_reason == "length":
-            raise ValueError(
-                "model response was truncated because its token budget was exhausted"
-            )
+            raise ValueError(truncated_response_message(request_values[4].max_tokens))
         try:
             composition = self._complete_super_fast_direct(
                 *request_values[:4],
@@ -837,9 +836,7 @@ class PromptCompositionService:
         plan_request = self._super_fast_plan_request(source_session_id)
         result = self.gateway.complete(plan_request[4])
         if result.finish_reason == "length":
-            raise ValueError(
-                "model response was truncated because its token budget was exhausted"
-            )
+            raise ValueError(truncated_response_message(plan_request[4].max_tokens))
         try:
             composition = self._complete_super_fast_plan(
                 *plan_request[:4],
@@ -1073,7 +1070,7 @@ class PromptCompositionService:
             ),
             images=self._direct_reference_images(session, composition),
             temperature=0.2,
-            max_tokens=32768,
+            max_tokens=262_144,
             operation_id="ref2v.super_fast.prompt_direct.generate",
             include_reasoning=include_reasoning,
         )
@@ -1535,7 +1532,7 @@ class PromptCompositionService:
                 ),
             ),
             temperature=0.2,
-            max_tokens=32768,
+            max_tokens=262_144,
             operation_id="action_plan.reconcile",
             include_reasoning=include_reasoning,
         )
@@ -1715,7 +1712,7 @@ class PromptCompositionService:
                 ),
             ),
             temperature=0.2,
-            max_tokens=32768,
+            max_tokens=262_144,
             operation_id="action_plan.reconcile",
             include_reasoning=include_reasoning,
         )
@@ -2135,7 +2132,7 @@ class PromptCompositionService:
                 CompositionStage.BEAT_SHEET: 0.3,
                 CompositionStage.FINAL_PROMPT: 0.2,
             }[stage],
-            max_tokens=32768,
+            max_tokens=262_144,
             operation_id=f"{operation_stage}.{origin_operation}",
             include_reasoning=include_reasoning,
         )

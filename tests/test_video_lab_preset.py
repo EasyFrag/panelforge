@@ -37,6 +37,12 @@ class VideoLabPresetTest(unittest.TestCase):
         self.assertEqual(workflow["2"]["inputs"]["value"], "PANELFORGE_PROMPT_REQUIRED")
         self.assertEqual(self.preset.presets["h3-balanced"].megapixels, 1.2)
         self.assertEqual(self.preset.presets["h3-balanced"].duration_seconds, 10.0)
+        self.assertEqual(
+            [phase.phase_id for phase in self.preset.progress_profile.phases],
+            ["base_sampling", "latent_upscale", "refinement", "encoding"],
+        )
+        self.assertEqual(self.preset.progress_profile.phases[0].node_ids, ("21",))
+        self.assertEqual(self.preset.progress_profile.phases[2].node_ids, ("16",))
         self.assertNotIn("6", workflow)
         self.assertNotIn("30", workflow)
 
@@ -60,6 +66,18 @@ class VideoLabPresetTest(unittest.TestCase):
         self.assertEqual(workflow["24"]["inputs"]["steps"], 40)
         self.assertEqual(workflow["13"]["inputs"]["step"], 40)
         self.assertEqual(workflow["31"]["inputs"]["noise_seed"], 123)
+        self.assertFalse(workflow["40"]["inputs"]["enabled"])
+
+    def test_spectrum_is_opt_in(self) -> None:
+        workflow = build_video_lab_workflow(
+            self.preset,
+            source_images=("panelforge/one.png",),
+            prompt="The subject turns toward the light.",
+            settings=self.settings,
+            output_filename_prefix="video/run-spectrum",
+            spectrum_enabled=True,
+        )
+        self.assertTrue(workflow["40"]["inputs"]["enabled"])
 
     def test_compiles_three_images_in_picture_order(self) -> None:
         workflow = build_video_lab_workflow(

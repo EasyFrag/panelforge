@@ -39,6 +39,7 @@ from .prompt_lab import (
     MultimodalGateway,
     StreamEventKind,
     StreamPhase,
+    truncated_response_message,
 )
 
 
@@ -199,7 +200,7 @@ class Krea2BatchService:
             system_prompt=system,
             user_prompt=user,
             temperature=0.55,
-            max_tokens=32768,
+            max_tokens=262_144,
             operation_id=f"krea2.batch.prompts.{recipe.recipe_id}@{recipe.version}",
             include_reasoning=include_reasoning,
         )
@@ -222,7 +223,7 @@ class Krea2BatchService:
                     return
                 if event.kind is StreamEventKind.TRUNCATED:
                     raw = event.result.content if event.result is not None else "".join(parts)
-                    error = RuntimeError("The model response was truncated.")
+                    error = RuntimeError(truncated_response_message(request.max_tokens))
                     failed = self.batches.save(batch.fail(str(error), raw_response=raw))
                     self._report(event.result.call_id if event.result else None, LlmCallApplicationOutcome.REJECTED, error)
                     yield Krea2BatchStreamEvent(StreamEventKind.TRUNCATED, StreamPhase.TRUNCATED, text=raw, batch=failed)
@@ -383,7 +384,7 @@ class Krea2BatchService:
             system_prompt=system,
             user_prompt=user,
             temperature=0.2,
-            max_tokens=16384,
+            max_tokens=131_072,
             operation_id=f"krea2.batch.recipe_workshop.{base.recipe_id}@{base.version}",
         ))
         try:

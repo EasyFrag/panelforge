@@ -179,6 +179,7 @@ class DirectFL2VACompositionTest(unittest.TestCase):
                 CompositionStage.BEAT_SHEET,
             )
             plan_request = gateway.requests[-1]
+            self.assertEqual(plan_request.max_tokens, 262_144)
             self.assertNotIn("last_frame.png", plan_request.user_prompt)
             self.assertNotIn("last_frame.png", plan_request.images[0].label)
             plan = json.loads(planned.beat_sheet.active_revision.content)
@@ -195,6 +196,7 @@ class DirectFL2VACompositionTest(unittest.TestCase):
                 CompositionStage.FINAL_PROMPT,
             )
             writer_request = gateway.requests[-1]
+            self.assertEqual(writer_request.max_tokens, 262_144)
             self.assertNotIn("last_frame.png", writer_request.user_prompt)
             final = composition.final_prompt.active_revision
             self.assertIn("aligns with the 8.00-second mark", final.content)

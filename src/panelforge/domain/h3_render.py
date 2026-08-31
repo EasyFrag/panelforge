@@ -94,6 +94,7 @@ class H3RenderTurn:
     questions: tuple[str, ...] = ()
     recommendations: tuple[str, ...] = ()
     revision_version: H3RenderRevisionVersion | None = None
+    model_id: str | None = None
 
     def __post_init__(self) -> None:
         _text(self.turn_id, "turn_id")
@@ -111,6 +112,10 @@ class H3RenderTurn:
             raise TypeError("revision_version must be an H3RenderRevisionVersion or None")
         if self.role is H3RenderTurnRole.USER and self.revision_version is not None:
             raise ValueError("user turns cannot own a revision version")
+        if self.model_id is not None:
+            _text(self.model_id, "model_id")
+        if self.role is H3RenderTurnRole.USER and self.model_id is not None:
+            raise ValueError("user turns cannot own a model ID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +144,7 @@ class H3RenderAttempt:
     settings: VideoLabSettings
     music_enabled: bool
     keyframe_timestamps_ms: tuple[int, ...]
+    spectrum_enabled: bool = False
     video_lora: H3VideoLoraSelection | None = None
     status: H3RenderAttemptStatus = H3RenderAttemptStatus.CREATED
     execution_id: str | None = None
@@ -158,6 +164,8 @@ class H3RenderAttempt:
             raise TypeError("settings must be VideoLabSettings")
         if not isinstance(self.music_enabled, bool):
             raise TypeError("music_enabled must be a boolean")
+        if not isinstance(self.spectrum_enabled, bool):
+            raise TypeError("spectrum_enabled must be a boolean")
         if self.video_lora is not None and not isinstance(
             self.video_lora, H3VideoLoraSelection
         ):
@@ -296,6 +304,7 @@ class H3RenderProject:
     model_id: str
     input_mode: H3RenderInputMode
     current_prompt: str
+    revision_model_id: str | None = None
     planned_cut_times_ms: tuple[int, ...] = ()
     first_frame_asset_id: str | None = None
     first_frame_label: str | None = None
@@ -324,6 +333,8 @@ class H3RenderProject:
             _text(value, label)
         if not isinstance(self.input_mode, H3RenderInputMode):
             raise TypeError("input_mode must be an H3RenderInputMode")
+        if self.revision_model_id is not None:
+            _text(self.revision_model_id, "revision_model_id")
         if tuple(sorted(set(self.planned_cut_times_ms))) != self.planned_cut_times_ms:
             raise ValueError("planned cut times must be unique and chronological")
         for value in self.planned_cut_times_ms:
@@ -377,8 +388,6 @@ class H3RenderProject:
         ):
             raise TypeError("revision_version must be an H3RenderRevisionVersion or None")
         _strings(self.camera_clauses, "camera_clauses", maximum=8)
-        if self.input_mode is H3RenderInputMode.REF2VA and self.camera_clauses:
-            raise ValueError("Ref2V render projects do not use H3 Base camera clauses")
         if self.revision_draft is not None:
             _text(self.revision_draft, "revision_draft")
         if self.revision_error is not None:
@@ -402,6 +411,11 @@ class H3RenderProject:
             self,
             turns=(*self.turns, turn),
             current_prompt=prompt,
+            revision_model_id=(
+                turn.model_id
+                if turn.role is H3RenderTurnRole.ASSISTANT and turn.model_id
+                else self.revision_model_id
+            ),
             revision_draft=None if clear_draft else self.revision_draft,
             revision_error=None if clear_draft else self.revision_error,
             revision_draft_version=(
@@ -416,6 +430,12 @@ class H3RenderProject:
         if not isinstance(version, H3RenderRevisionVersion):
             raise TypeError("version must be an H3RenderRevisionVersion")
         return replace(self, revision_version=version)
+
+    def select_revision_model(self, model_id: str) -> H3RenderProject:
+        return replace(
+            self,
+            revision_model_id=_text(model_id, "revision_model_id"),
+        )
 
     def reject_revision(
         self,

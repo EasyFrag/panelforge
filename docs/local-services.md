@@ -1,6 +1,6 @@
 # Services IA locaux
 
-État vérifié le 2026-08-26. Ce fichier consigne des capacités observées ; les endpoints et modèles restent configurables et aucun secret ne doit être ajouté ici.
+État mis à jour le 2026-08-31. Ce fichier consigne des capacités observées ; les endpoints et modèles restent configurables et aucun secret ne doit être ajouté ici.
 
 ## Accès
 
@@ -8,7 +8,6 @@
 | --- | --- | --- |
 | llama.swap | `http://bucket:8083/v1` | `/health`, `/v1/models`, `/running` et chat OK |
 | Unsloth Studio | `http://127.0.0.1:8888/v1` | `/v1/models` et chat OpenAI-compatible ; clé API requise selon les réglages Studio |
-| vLLM | `http://127.0.0.1:8000/v1` | `/health`, `/v1/models` et chat OpenAI-compatible OK avec `qwen3.8-27b-nvfp4` |
 | ComfyUI | `http://bucket:8188` | `/system_stats` et `/queue` OK |
 
 - `bucket` est le nom MagicDNS Tailscale ; éviter de figer l'IP `100.x` dans le code.
@@ -17,22 +16,14 @@
 - Unsloth Studio est facultatif. PanelForge masque uniquement son catalogue s'il
   est indisponible et conserve celui de llama.swap. Les variables sont
   `PANELFORGE_LOCAL_LLM_URL` et `PANELFORGE_LOCAL_LLM_API_KEY`.
-- vLLM est également facultatif et découvert indépendamment. Ses variables sont
-  `PANELFORGE_VLLM_URL`, `PANELFORGE_VLLM_API_KEY` et
-  `PANELFORGE_VLLM_MAX_OUTPUT_TOKENS` ; les valeurs par défaut ciblent le
-  serveur local sur le port 8000, la clé factice `local-vllm` et 32 768 tokens
-  de sortie. PanelForge n'impose aucune limite locale au nombre d'images.
+- PanelForge ne configure plus de troisième source LLM locale : la source locale
+  active est exclusivement Unsloth Studio.
 
 ## Capacités LLM validées
 
 - Le catalogue live contient 18 IDs ; `GET /v1/models` est la source de vérité, pas un ancien `.env`.
 - `Qwen3.6-35B-A3B-UD-Q8_K_XL-instruct` : texte, une image et trois images ordonnées validés.
 - Le nouvel adaptateur `OpenAICompatibleGateway` a été validé en situation réelle : 18 modèles découverts et inférence une image réussie.
-- Le vLLM local expose `qwen3.8-27b-nvfp4`, avec un contexte configuré à 65 536
-  tokens. La découverte, une complétion Chat et une requête de quatre images ont
-  été validées depuis Windows ; une cinquième image est rejetée par vLLM.
-  PanelForge limite ce fournisseur à 32 768 tokens de sortie, mais transmet le
-  nombre d'images choisi sans prévalidation locale.
 - Cette validation porte sur le modèle MoE actuellement servi. Les parcours H3 Base et Ref2V peuvent cibler un modèle dense lorsqu’il est disponible dans le catalogue.
 - `/v1/models` ne décrit pas fiablement les modalités : PanelForge devra conserver des capacités explicitement qualifiées par modèle.
 

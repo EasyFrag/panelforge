@@ -19,7 +19,6 @@ _LOGGER = logging.getLogger(__name__)
 _SEPARATOR = "::"
 DEFAULT_LLM_SOURCE = "server"
 LOCAL_LLM_SOURCE = "local"
-VLLM_LLM_SOURCE = "vllm"
 
 
 class RoutedMultimodalGateway:

@@ -9,6 +9,7 @@ STATIC = ROOT / "src" / "panelforge" / "features" / "lab" / "static"
 class SocialLabUiTest(unittest.TestCase):
     def test_video_lab_exposes_instagram_copy_workspace(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
+        core = (STATIC / "lab-core.js").read_text(encoding="utf-8")
         script = (STATIC / "social-lab.js").read_text(encoding="utf-8")
         self.assertIn('data-video-lab-mode="social-lab"', html)
         self.assertIn('id="social-lab-workspace"', html)
@@ -25,6 +26,15 @@ class SocialLabUiTest(unittest.TestCase):
         self.assertIn("outcomeTone.success()", script)
         self.assertIn("outcomeTone.failure()", script)
         self.assertIn("{ completionTone: false }", script)
+        first_modebar = html.split('class="video-lab-modebar"', 1)[1]
+        self.assertLess(
+            first_modebar.index('data-video-lab-mode="social-lab"'),
+            first_modebar.index('data-video-lab-mode="video-lab"'),
+        )
+        self.assertIn(
+            'button.dataset.labView === "video-lab"\n          ? "social-lab"',
+            core,
+        )
 
 
 if __name__ == "__main__":
