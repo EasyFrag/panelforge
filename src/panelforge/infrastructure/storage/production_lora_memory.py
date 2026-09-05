@@ -22,7 +22,13 @@ class LocalProductionLoraMemory:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
 
-    def context(self, names: Sequence[str], *, observations_per_lora: int = 3) -> tuple[dict[str, object], ...]:
+    def context(
+        self,
+        names: Sequence[str],
+        *,
+        observations_per_lora: int = 3,
+        profile_id: str | None = None,
+    ) -> tuple[dict[str, object], ...]:
         if observations_per_lora < 0:
             raise ValueError("observations_per_lora must be non-negative")
         with self._lock:
@@ -39,6 +45,7 @@ class LocalProductionLoraMemory:
                 dict(item)
                 for item in observations
                 if isinstance(item, Mapping) and item.get("normalized_name") == normalized
+                and (profile_id is None or item.get("profile_id") == profile_id)
             ][-observations_per_lora:]
             hypotheses = profile.get("hypotheses", [])
             values.append({
@@ -51,8 +58,10 @@ class LocalProductionLoraMemory:
                 "compatible_checkpoints": _strings(profile.get("compatible_checkpoints")),
                 "warnings": _strings(profile.get("warnings")),
                 "model_hypotheses": [
-                    dict(item) for item in hypotheses[-3:] if isinstance(item, Mapping)
-                ] if isinstance(hypotheses, list) else [],
+                    dict(item) for item in hypotheses
+                    if isinstance(item, Mapping)
+                    and (profile_id is None or item.get("profile_id") == profile_id)
+                ][-3:] if isinstance(hypotheses, list) else [],
                 "recent_observations": recent,
             })
         return tuple(values)
@@ -96,6 +105,7 @@ class LocalProductionLoraMemory:
         checkpoint: str,
         plan: ProductionLoraPlan,
         timestamp: str | None = None,
+        profile_id: str | None = None,
     ) -> None:
         recorded_at = timestamp or _timestamp()
         with self._lock:
@@ -118,6 +128,7 @@ class LocalProductionLoraMemory:
                     "expected_effect": choice.expected_effect,
                     "plan_rationale": plan.rationale,
                     "confidence": "hypothesis",
+                    "profile_id": profile_id,
                 })
                 current.setdefault("name", choice.name)
                 current.setdefault("declared_effects", [])
@@ -143,6 +154,7 @@ class LocalProductionLoraMemory:
         score: int | None,
         selection: str,
         timestamp: str | None = None,
+        profile_id: str | None = None,
     ) -> None:
         if score is not None and (isinstance(score, bool) or not 0 <= score <= 100):
             raise ValueError("score must be between 0 and 100")
@@ -170,6 +182,7 @@ class LocalProductionLoraMemory:
                     "score": score,
                     "selection": _text(selection, "selection", 80),
                     "confidence": "low_observational",
+                    "profile_id": profile_id,
                 })
             deduplicated = {
                 item["observation_id"]: item

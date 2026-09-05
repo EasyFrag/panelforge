@@ -566,13 +566,14 @@ class ProductionService:
             )
             for value in job.config.image_settings.loras
         )
-        remaining_slots = 4 - len(manual)
+        remaining_slots = 10 - len(manual)
         resources = tuple(self.lora_resources.list_loras()) if self.lora_resources is not None else ()
         pinned = {_normalized_lora_name(value.name) for value in manual}
         available_by_name = {
             _normalized_lora_name(getattr(resource, "comfy_name", "")): resource
             for resource in resources
             if isinstance(getattr(resource, "comfy_name", None), str)
+            and getattr(resource, "selectable", True)
             and _normalized_lora_name(getattr(resource, "comfy_name")) not in pinned
         }
         model_choices: list[ProductionLoraChoice] = []
@@ -599,6 +600,11 @@ class ProductionService:
                     "filename": getattr(resource, "filename", name),
                     "favorite": bool(getattr(resource, "favorite", False)),
                     "safety": getattr(safety, "value", str(safety or "unclassified")),
+                    "category": getattr(
+                        getattr(resource, "lora_category", None),
+                        "value",
+                        "unclassified",
+                    ),
                     "memory": memory_by_name.get(_normalized_lora_name(name), {"name": name}),
                 })
             payload = self._json_completion(
@@ -662,7 +668,7 @@ class ProductionService:
                     + "."
                 )[:4_000]
         elif remaining_slots == 0:
-            rationale = "The four user-selected LoRAs are pinned; no assisted slot remains."
+            rationale = "The ten user-selected LoRAs are pinned; no assisted slot remains."
         elif not resources:
             rationale = "The installed LoRA catalogue is unavailable; no assisted LoRA was added."
         else:

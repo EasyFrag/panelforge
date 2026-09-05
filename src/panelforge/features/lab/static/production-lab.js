@@ -43,6 +43,7 @@
     revisionSuggestionJobId: null, revisionSuggestionAttemptId: null, revisionSuggestionText: "",
     renderSocket: null, renderAttemptId: "", renderProgressStartedAt: 0,
     renderProgressTimer: null, renderProgressData: null,
+    kreaLoras: [],
   };
   const stages = ["setup", "image_generation", "image_selection", "h3_prompt", "video_preview", "video_evaluation", "video_final", "complete"];
   const stageLabels = {
@@ -79,7 +80,11 @@
       elements.llm.replaceChildren(...(state.spec.llm_models || []).map((model) => option(model.model_id, model.display_name || model.model_id)));
     }
     if (resourceUi) {
-      resourceUi.appendGroupedOptions(elements.renderModel, state.spec.render_models || [], resourceUi.modelGroups);
+      resourceUi.renderModelPicker(elements.renderModel, {
+        resources: state.spec.render_models || [],
+        updatePreference,
+        refreshResource,
+      });
     } else {
       elements.renderModel.replaceChildren(...(state.spec.render_models || []).map((model) => option(model.comfy_name, model.filename || model.comfy_name)));
     }
@@ -87,6 +92,7 @@
     elements.renderModel.value = previousModel && [...elements.renderModel.options].some((item) => item.value === previousModel)
       ? previousModel
       : (renderDefault?.comfy_name || "");
+    resourceUi?.syncModelPicker(elements.renderModel);
     elements.ratio.replaceChildren(...(state.spec.aspect_ratios || []).map((ratio) => option(ratio, ratio)));
     elements.ratio.value = previousRatio && [...elements.ratio.options].some((item) => item.value === previousRatio)
       ? previousRatio
@@ -113,34 +119,25 @@
   }
 
   function renderLoras() {
-    const values = [...elements.loras.querySelectorAll(".production-lora-row")].map((row) => ({
-      name: row.querySelector("select").value, strength: row.querySelector("input").value,
-    }));
-    elements.loras.replaceChildren();
-    for (let index = 0; index < 4; index += 1) {
-      const row = document.createElement("div"); row.className = "production-lora-row";
-      const select = document.createElement("select");
-      if (resourceUi) {
-        resourceUi.appendGroupedOptions(select, state.spec.loras || [], resourceUi.loraGroups, { includeEmpty: true });
-      } else {
-        select.append(option("", "Aucun"));
-        (state.spec.loras || []).forEach((lora) => select.append(option(lora.comfy_name, lora.filename || lora.comfy_name)));
-      }
-      const strength = document.createElement("input"); strength.type = "number"; strength.min = "-1"; strength.max = "1"; strength.step = "0.05"; strength.value = values[index]?.strength || "0";
-      if (values[index]?.name) select.value = values[index].name;
-      select.addEventListener("change", () => { if (!select.value) strength.value = "0"; });
-      strength.addEventListener("change", () => {
-        const value = Number(strength.value);
-        strength.value = String(Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : 0);
-      });
-      row.append(select, strength); elements.loras.append(row);
-    }
+    if (!resourceUi) return;
+    resourceUi.renderLoraStack(elements.loras, {
+      resources: state.spec?.loras || [],
+      selections: state.kreaLoras,
+      maximum: 10,
+      rowClass: "production-lora-row",
+      updatePreference,
+      refreshResource,
+      onChange: (values) => {
+        state.kreaLoras = values;
+        renderLoras();
+      },
+    });
   }
 
   function selectedLoras() {
-    return [...elements.loras.querySelectorAll(".production-lora-row")].map((row) => {
-      const name = row.querySelector("select").value;
-      const strength = Number(row.querySelector("input").value);
+    return state.kreaLoras.map((lora) => {
+      const name = lora.name;
+      const strength = Number(lora.strength);
       if (name && (!Number.isFinite(strength) || strength < -1 || strength > 1)) {
         throw new Error("La force de chaque LoRA Production doit être comprise entre -1 et 1.");
       }
@@ -150,14 +147,24 @@
 
   async function updatePreference(resource, values) {
     try {
-      await core.request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
+      const updated = await core.request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
       await loadSpec();
       showError();
-    } catch (error) { showError(error.message); }
+      return updated;
+    } catch (error) { showError(error.message); return false; }
+  }
+
+  async function refreshResource(resource) {
+    try {
+      const updated = await core.request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/refresh`, { method: "POST" });
+      await loadSpec();
+      showError();
+      return updated;
+    } catch (error) { showError(`Recherche CivitAI indisponible : ${error.message}`); return false; }
   }
 
   function renderCatalogManager() {
@@ -166,6 +173,7 @@
       models: state.spec?.render_models || [],
       loras: state.spec?.loras || [],
       updatePreference,
+      refreshResource,
     });
   }
 

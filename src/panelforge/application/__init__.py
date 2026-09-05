@@ -42,6 +42,7 @@ from .h3_render import (
     disable_non_diegetic_music,
     extract_plan_cut_times_ms,
     extract_prompt_cut_times_ms,
+    h3_prompt_duration_warning,
     plan_keyframe_timestamps_ms,
 )
 from .social_lab import (
@@ -50,6 +51,7 @@ from .social_lab import (
     parse_social_response,
 )
 from .production import ProductionService
+from .production_v2 import ProductionV2Service
 from .production_resources import (
     ResourceLeaseManager,
     ResourceOwner,
@@ -152,6 +154,7 @@ __all__ = [
     "PromptLabStreamEvent",
     "PromptProfile",
     "ProductionService",
+    "ProductionV2Service",
     "ResourceLeaseManager",
     "ResourceOwner",
     "ResourceRequirement",

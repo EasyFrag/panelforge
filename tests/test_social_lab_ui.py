@@ -35,6 +35,10 @@ class SocialLabUiTest(unittest.TestCase):
             'button.dataset.labView === "video-lab"\n          ? "social-lab"',
             core,
         )
+        self.assertIn(
+            'document.querySelectorAll(\'[data-lab-view="video-lab"], [data-video-lab-mode="social-lab"]\')',
+            script,
+        )
 
 
 if __name__ == "__main__":

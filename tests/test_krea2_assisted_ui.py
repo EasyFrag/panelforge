@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260831.4', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260903.2', self.page)
         self.assertIn('"krea2-assisted-lab"', (STATIC / "lab-core.js").read_text(encoding="utf-8"))
 
     def test_initial_visible_assisted_view_loads_its_catalog_automatically(self):
@@ -79,8 +79,9 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn("[...(project.attempts || [])].reverse().forEach", self.script)
 
     def test_reuses_grouped_resources_and_never_calls_the_edit_workflow(self):
-        self.assertIn("resourceUi.appendGroupedOptions", self.script)
-        self.assertIn("Array.from({ length: 4 }", self.script)
+        self.assertIn("resourceUi.renderModelPicker", self.script)
+        self.assertIn("resourceUi.renderLoraStack", self.script)
+        self.assertIn("maximum: 10", self.script)
         self.assertIn("GENERATED RESULT", (ROOT / "src" / "panelforge" / "application" / "krea2_assisted.py").read_text(encoding="utf-8"))
         self.assertNotIn("/api/image-lab/krea2-edit", self.script)
         self.assertIn(".krea2-assisted-gallery", self.css)
@@ -113,18 +114,18 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn('save.textContent = attempt.accepted ? "Enregistrée ✓" : "Enregistrer"', self.script)
         self.assertIn("grid-template-columns: 1.35fr .8fr .9fr", self.css)
 
-    def test_lora_stack_uses_the_compact_two_column_layout(self):
+    def test_lora_stack_uses_compact_single_line_rows(self):
         self.assertIn(
-            "#krea2-assisted-loras { grid-template-columns: repeat(2",
+            "#krea2-assisted-loras { grid-template-columns: 1fr",
             self.css,
         )
         self.assertIn(
-            "#krea2-assisted-loras .krea2-lora-row",
+            "#krea2-assisted-loras .krea2-lora-active-row",
             self.css,
         )
         self.assertNotIn('row.draggable = true', self.script)
         self.assertNotIn('row.addEventListener("dragstart"', self.script)
-        self.assertIn("0 à 4 · quatre emplacements", self.page)
+        self.assertIn("0 à 10 · seuls les emplacements utilisés sont affichés", self.page)
 
     def test_prompt_language_can_switch_between_iterations(self):
         self.assertIn('id="krea2-assisted-prompt-language"', self.page)

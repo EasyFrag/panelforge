@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  const resourceUi = window.PanelForgeKrea2ResourceUi;
+
   const $ = (id) => document.getElementById(id);
   const terminalStatuses = new Set(["succeeded", "completed", "failed", "cancelled", "canceled"]);
   const activeStatuses = new Set(["queued", "running", "cancel_pending"]);
@@ -347,6 +349,32 @@
     }
   }
 
+  async function updateResourcePreference(resource, values) {
+    try {
+      const updated = await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      await loadSpec({ preserve: true });
+      return updated;
+    } catch (error) {
+      showFormMessage(error.message, true);
+      return false;
+    }
+  }
+
+  async function refreshResource(resource) {
+    try {
+      const updated = await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/refresh`, { method: "POST" });
+      await loadSpec({ preserve: true });
+      return updated;
+    } catch (error) {
+      showFormMessage(`Recherche CivitAI indisponible : ${error.message}`, true);
+      return false;
+    }
+  }
+
   function ratioValue(value) {
     if (typeof value === "string") return value;
     return value && (value.value || value.id || value.aspect_ratio || value.label);
@@ -392,6 +420,18 @@
     const previousMegapixels = preserve ? elements.megapixels.value : "";
     state.spec = { ...(state.spec || {}), ...(spec || {}) };
     populateModels(state.spec.models, previousModel);
+    if (resourceUi && (state.spec.render_models || []).length) {
+      const selected = elements.model.value;
+      resourceUi.renderModelPicker(elements.model, {
+        resources: state.spec.render_models,
+        updatePreference: updateResourcePreference,
+        refreshResource,
+      });
+      if ([...elements.model.options].some((option) => option.value === selected)) {
+        elements.model.value = selected;
+      }
+      resourceUi.syncModelPicker(elements.model);
+    }
     populateRatios(state.spec.aspect_ratios || state.spec.ratios, previousRatio);
     const limits = megapixelLimits(state.spec);
     elements.megapixels.min = String(limits.minimum);

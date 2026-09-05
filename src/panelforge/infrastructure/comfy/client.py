@@ -280,6 +280,33 @@ class ComfyHttpClient:
         )
         return _parse_model_list(self._read_json(request))
 
+    def get_cached_model_info(
+        self,
+        kind: str,
+        comfy_name: str,
+    ) -> Mapping[str, Any] | None:
+        """Return metadata already cached by rgthree without hashing a model."""
+
+        if kind not in {"model", "lora"}:
+            raise ValueError("kind must be model or lora")
+        if not isinstance(comfy_name, str) or not comfy_name.strip():
+            raise ValueError("comfy_name must not be empty")
+        model_type = "loras" if kind == "lora" else "checkpoints"
+        encoded_name = urllib.parse.quote(comfy_name.replace("\\", "/"), safe="")
+        request = urllib.request.Request(
+            f"{self.base_url}/rgthree/api/{model_type}/info?files={encoded_name}",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        response = self._read_json(request)
+        if response.get("status") != 200:
+            return None
+        values = response.get("data")
+        if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+            return None
+        value = values[0] if values else None
+        return value if isinstance(value, Mapping) else None
+
     def get_queue(self) -> ComfyQueueSnapshot:
         """Return a normalized snapshot of ComfyUI's execution queue."""
         request = urllib.request.Request(

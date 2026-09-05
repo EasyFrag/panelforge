@@ -272,8 +272,8 @@ class ProductionLoraPlan:
             not isinstance(value, ProductionLoraChoice) for value in self.choices
         ):
             raise TypeError("LoRA plan choices must contain ProductionLoraChoice values")
-        if len(self.choices) > 4:
-            raise ValueError("a LoRA plan supports at most four choices")
+        if len(self.choices) > 10:
+            raise ValueError("a LoRA plan supports at most ten choices")
         normalized = [value.name.replace("\\", "/").casefold() for value in self.choices]
         if len(normalized) != len(set(normalized)):
             raise ValueError("a LoRA plan cannot select the same LoRA twice")

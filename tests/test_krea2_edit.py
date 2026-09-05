@@ -240,6 +240,34 @@ class Krea2EditTest(unittest.TestCase):
         self.assertTrue(compiled["113"]["inputs"]["lora_1"]["on"])
         self.assertFalse(compiled["113"]["inputs"]["lora_2"]["on"])
 
+    def test_recipe_extends_the_power_loader_to_ten_general_loras(self):
+        workflow = load_krea2_edit_workflow(WORKFLOW)
+        settings = Krea2EditSettings(
+            model_name="Krea2/model.safetensors",
+            aspect_ratio=Krea2AspectRatio.PORTRAIT_PHOTO,
+            megapixels=2.1,
+            seed=9,
+            ref_boost=3.2,
+            steps=14,
+            loras=tuple(
+                Krea2LoraSelection(f"krea2/lora-{index}.safetensors", index / 10)
+                for index in range(1, 11)
+            ),
+        )
+
+        compiled = workflow.build(
+            source_image="panelforge/source.png",
+            prompt="Edited prompt",
+            settings=settings,
+            output_prefix="image/edit/test",
+            sidecar_text="{}",
+        )
+
+        loader = compiled["113"]
+        self.assertEqual(loader["class_type"], "Power Lora Loader (rgthree)")
+        self.assertEqual(loader["inputs"]["lora_10"]["lora"], "krea2/lora-10.safetensors")
+        self.assertEqual(loader["inputs"]["lora_10"]["strength"], 1.0)
+
     def test_one_multimodal_call_rewrites_known_prompt_and_allows_adult_prompting(self):
         with tempfile.TemporaryDirectory() as workspace:
             gateway = FakeGateway()

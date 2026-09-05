@@ -6,9 +6,11 @@
   const activeStatuses = new Set(["generating_prompts", "rendering", "cancel_pending"]);
   const {
     modelGroups,
-    loraGroups,
     appendGroupedOptions,
+    renderModelPicker,
+    syncModelPicker,
     renderCatalogManager,
+    renderLoraStack: renderLoraPickerStack,
   } = window.PanelForgeKrea2ResourceUi;
 
   const elements = {
@@ -65,7 +67,7 @@
     recipes: [],
     models: [],
     loras: [],
-    loraSlots: Array.from({ length: 4 }, () => ({ name: "", strength: 0 })),
+    loraSlots: [],
     activeBatch: null,
     batches: [],
     workshopRoot: null,
@@ -73,7 +75,6 @@
     draftDirty: false,
     busy: false,
     pollTimer: null,
-    dragIndex: null,
   };
   const core = window.PanelForgeLabCore;
   const reasoningTrace = core && typeof core.createReasoningTrace === "function"
@@ -108,10 +109,6 @@
 
   function selectedModelResource() {
     return state.models.find((resource) => resource.comfy_name === elements.model.value) || null;
-  }
-
-  function loraResource(name) {
-    return state.loras.find((resource) => resource.comfy_name === name) || null;
   }
 
   function setFormMessage(message = "", isError = true) {
@@ -156,25 +153,27 @@
   }
 
   async function updatePreference(resource, values) {
-    if (!resource || state.busy) return;
+    if (!resource || state.busy) return false;
     try {
-      await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
+      const updated = await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
       await loadSpec({ preserve: true });
-    } catch (error) { setFormMessage(error.message); }
+      return updated;
+    } catch (error) { setFormMessage(error.message); return false; }
   }
 
   async function refreshResource(resource) {
-    if (!resource || state.busy) return;
+    if (!resource || state.busy) return false;
     setFormMessage("Vérification CivitAI en cours…", false);
     try {
-      await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/refresh`, { method: "POST" });
+      const updated = await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/refresh`, { method: "POST" });
       await loadSpec({ preserve: true });
       setFormMessage("Informations CivitAI actualisées.", false);
-    } catch (error) { setFormMessage(`Vérification indisponible : ${error.message}`); }
+      return updated;
+    } catch (error) { setFormMessage(`Vérification indisponible : ${error.message}`); return false; }
   }
 
   function renderModelMeta() {
@@ -221,97 +220,27 @@
   }
 
   function renderLoraStack() {
-    elements.loraStack.replaceChildren();
-    state.loraSlots.forEach((slot, index) => {
-      const row = document.createElement("div");
-      row.className = "krea2-lora-row";
-      row.draggable = true;
-      row.dataset.index = String(index);
-
-      const grip = document.createElement("span");
-      grip.className = "krea2-lora-grip";
-      grip.textContent = "⋮⋮";
-      grip.title = "Glisser pour réordonner";
-
-      const select = document.createElement("select");
-      select.setAttribute("aria-label", `LoRA ${index + 1}`);
-      appendGroupedOptions(select, state.loras, loraGroups, { includeEmpty: true });
-      ensureMissingOption(select, slot.name, slot.name);
-      select.value = slot.name;
-
-      const strength = document.createElement("input");
-      strength.type = "number";
-      strength.min = "-20";
-      strength.max = "20";
-      strength.step = "0.05";
-      strength.value = String(slot.strength);
-      strength.setAttribute("aria-label", `Force LoRA ${index + 1}`);
-
-      const tools = document.createElement("span");
-      tools.className = "krea2-lora-tools";
-      const resource = loraResource(slot.name);
-      tools.append(resourceLink(resource, true));
-      if (resource) {
-        const favorite = document.createElement("button");
-        favorite.type = "button";
-        favorite.className = "resource-icon-button";
-        favorite.textContent = resource.favorite ? "★" : "☆";
-        favorite.title = resource.favorite ? "Retirer des favoris" : "Ajouter aux favoris";
-        favorite.addEventListener("click", () => updatePreference(resource, { favorite: !resource.favorite }));
-        const refresh = document.createElement("button");
-        refresh.type = "button";
-        refresh.className = "resource-icon-button";
-        refresh.textContent = "↻";
-        refresh.title = "Vérifier la fiche et les mises à jour CivitAI";
-        refresh.addEventListener("click", () => refreshResource(resource));
-        const safety = document.createElement("select");
-        safety.className = "krea2-lora-safety";
-        safety.title = "Classer la LoRA";
-        [["unclassified", "—"], ["sfw", "SFW"], ["nsfw", "NSFW"]].forEach(([value, label]) => {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = label;
-          safety.append(option);
-        });
-        safety.value = resource.safety || "unclassified";
-        safety.addEventListener("change", () => updatePreference(resource, { safety: safety.value }));
-        tools.append(favorite, refresh, safety);
-        if (resource.update_available === true) {
-          const update = document.createElement("span");
-          update.className = "resource-update compact";
-          update.textContent = "MAJ";
-          update.title = resource.latest_version_name
-            ? `Version disponible : ${resource.latest_version_name}`
-            : "Une nouvelle version est disponible";
-          tools.append(update);
-        }
-      }
-      select.addEventListener("change", () => {
-        slot.name = select.value;
-        if (!slot.name) slot.strength = 0;
+    renderLoraPickerStack(elements.loraStack, {
+      resources: state.loras,
+      selections: state.loraSlots,
+      maximum: 10,
+      minimumStrength: -20,
+      maximumStrength: 20,
+      draggable: true,
+      disabled: state.busy,
+      updatePreference,
+      refreshResource,
+      onChange: (values) => {
+        state.loraSlots = values;
         renderLoraStack();
-      });
-      strength.addEventListener("change", () => { slot.strength = Number(strength.value) || 0; });
-      row.addEventListener("dragstart", () => { state.dragIndex = index; row.classList.add("dragging"); });
-      row.addEventListener("dragend", () => { state.dragIndex = null; row.classList.remove("dragging"); });
-      row.addEventListener("dragover", (event) => event.preventDefault());
-      row.addEventListener("drop", (event) => {
-        event.preventDefault();
-        if (state.dragIndex === null || state.dragIndex === index) return;
-        const [moved] = state.loraSlots.splice(state.dragIndex, 1);
-        state.loraSlots.splice(index, 0, moved);
-        state.dragIndex = null;
-        renderLoraStack();
-      });
-      row.append(grip, select, strength, tools);
-      elements.loraStack.append(row);
+      },
     });
   }
 
   function setLoras(values) {
-    state.loraSlots = Array.from({ length: 4 }, (_, index) => ({
-      name: values && values[index] ? values[index].name : "",
-      strength: values && values[index] ? Number(values[index].strength) : 0,
+    state.loraSlots = (values || []).slice(0, 10).filter((value) => value && value.name).map((value) => ({
+      name: value.name,
+      strength: Number(value.strength) || 0,
     }));
     renderLoraStack();
   }
@@ -330,9 +259,14 @@
   }
 
   function populateModels(current = "") {
-    appendGroupedOptions(elements.model, state.models, modelGroups);
+    renderModelPicker(elements.model, {
+      resources: state.models,
+      updatePreference,
+      refreshResource,
+    });
     ensureMissingOption(elements.model, current, current);
     if (current) elements.model.value = current;
+    syncModelPicker(elements.model);
   }
 
   function populateRatios(current = "") {
@@ -400,6 +334,7 @@
       models: state.models,
       loras: state.loras,
       updatePreference,
+      refreshResource,
     });
     renderWarnings(state.activeBatch);
     renderControls();
@@ -641,6 +576,7 @@
     elements.generate.disabled = state.busy || !hasCoreInputs || activeStatuses.has(state.activeBatch && state.activeBatch.status);
     [elements.recipe, elements.count, elements.llm, elements.direction, elements.model, elements.ratio, elements.megapixels]
       .forEach((element) => { element.disabled = state.busy || activeStatuses.has(state.activeBatch && state.activeBatch.status); });
+    syncModelPicker(elements.model);
     renderRevision(state.activeBatch);
   }
 

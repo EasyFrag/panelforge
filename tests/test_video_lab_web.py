@@ -260,11 +260,21 @@ class VideoLabWebTest(unittest.TestCase):
         tracker = _RenderProgressTracker(
             self.video_lab.recipe.progress_profile,
             lambda: "video-prompt-1",
+            configured_steps=25,
         )
 
         main_start = tracker.consume({
             "type": "executing",
             "data": {"prompt_id": "video-prompt-1", "node": "21"},
+        })
+        nested_main_progress = tracker.consume({
+            "type": "progress",
+            "data": {
+                "prompt_id": "video-prompt-1",
+                "node": "21",
+                "value": 3,
+                "max": 50,
+            },
         })
         main_end = tracker.consume({
             "type": "progress",
@@ -278,6 +288,15 @@ class VideoLabWebTest(unittest.TestCase):
             "type": "progress",
             "data": {"prompt_id": "video-prompt-1", "node": "16", "value": 1, "max": 3},
         })
+        nested_refinement_progress = tracker.consume({
+            "type": "progress",
+            "data": {
+                "prompt_id": "video-prompt-1",
+                "node": "16",
+                "value": 2,
+                "max": 6,
+            },
+        })
         ignored = tracker.consume({
             "type": "progress",
             "data": {"prompt_id": "another-prompt", "node": "16", "value": 3, "max": 3},
@@ -288,10 +307,12 @@ class VideoLabWebTest(unittest.TestCase):
         })
 
         self.assertEqual(main_start["data"]["percent"], 8.0)
+        self.assertIsNone(nested_main_progress)
         self.assertEqual(main_end["data"]["percent"], 43.0)
         self.assertEqual(upscale_end["data"]["percent"], 50.0)
         self.assertEqual(refinement["data"]["phase_id"], "refinement")
         self.assertEqual(refinement["data"]["percent"], 65.0)
+        self.assertIsNone(nested_refinement_progress)
         self.assertIsNone(ignored)
         self.assertEqual(complete["data"]["percent"], 100.0)
         self.assertFalse(complete["data"]["estimated"])

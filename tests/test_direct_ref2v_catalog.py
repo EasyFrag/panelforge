@@ -16,6 +16,9 @@ class DirectRef2VCatalogTest(unittest.TestCase):
         cls.profile = LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles").get(
             "minimax.h3.ref2v.direct", "0.1.0"
         )
+        cls.current_profile = LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles").get(
+            "minimax.h3.ref2v.direct", "0.4.0"
+        )
         cls.cookbook = LocalPromptCookbookCatalog(
             PROJECT_ROOT / "prompt_cookbooks"
         ).get("minimax.h3.ref2v.direct", "0.1.0")
@@ -60,6 +63,17 @@ class DirectRef2VCatalogTest(unittest.TestCase):
             self.assertIn(heading, system)
         self.assertIn("images natives", system)
         self.assertIn("Relis directement", self.profile.brief_revision_system_prompt)
+
+    def test_current_profile_exposes_ref2v_creative_audacity_variant(self):
+        variant = self.current_profile.brief_variant("creative-direction", "0.2.0")
+
+        self.assertEqual(
+            variant.display_name,
+            "Direction créative Ref2V avec audace — expérimental",
+        )
+        self.assertIn("AUDACE CRÉATIVE", variant.brief_user_prompt)
+        self.assertIn("transfert entre canaux", variant.brief_system_prompt)
+        self.assertIn("une seule prise continue", variant.brief_system_prompt)
 
     def test_cookbook_accepts_one_to_three_references(self):
         cookbook = self.cookbook

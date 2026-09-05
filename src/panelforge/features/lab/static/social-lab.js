@@ -74,7 +74,7 @@
     empty: elements.traceEmpty,
   });
 
-  document.querySelectorAll('[data-video-lab-mode="social-lab"]').forEach((button) => {
+  document.querySelectorAll('[data-lab-view="video-lab"], [data-video-lab-mode="social-lab"]').forEach((button) => {
     button.addEventListener("click", () => initialize().catch((error) => {
       showError(elements.formMessage, error.message);
     }));

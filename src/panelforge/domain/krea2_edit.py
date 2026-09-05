@@ -70,8 +70,8 @@ class Krea2EditMetadata:
             or not 0 <= self.seed < 2**64
         ):
             raise ValueError("metadata seed must be between 0 and 2^64 - 1")
-        if not isinstance(self.loras, tuple) or len(self.loras) > 4:
-            raise ValueError("metadata supports at most four LoRAs")
+        if not isinstance(self.loras, tuple) or len(self.loras) > 10:
+            raise ValueError("metadata supports at most ten LoRAs")
         if any(not isinstance(value, Krea2LoraSelection) for value in self.loras):
             raise TypeError("metadata loras must contain Krea2LoraSelection values")
         _text(self.origin, "metadata origin")
@@ -104,8 +104,8 @@ class Krea2EditSettings:
             raise TypeError("steps must be an integer")
         if not 1 <= self.steps <= 100:
             raise ValueError("steps must be between 1 and 100")
-        if not isinstance(self.loras, tuple) or len(self.loras) > 4:
-            raise ValueError("at most four general LoRAs are supported")
+        if not isinstance(self.loras, tuple) or len(self.loras) > 10:
+            raise ValueError("at most ten general LoRAs are supported")
         if any(not isinstance(value, Krea2LoraSelection) for value in self.loras):
             raise TypeError("loras must contain Krea2LoraSelection values")
         normalized = [value.name.replace("\\", "/").casefold() for value in self.loras]

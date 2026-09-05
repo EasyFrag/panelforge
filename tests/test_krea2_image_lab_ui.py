@@ -16,7 +16,7 @@ class Krea2ImageLabUiTest(unittest.TestCase):
         cls.styles = (STATIC_ROOT / "lab.css").read_text(encoding="utf-8")
 
     def test_exposes_krea2_as_a_mode_inside_image_lab(self):
-        self.assertIn('/static/krea2-image-lab.js?v=20260817.1', self.page)
+        self.assertIn('/static/krea2-image-lab.js?v=20260903.1', self.page)
         self.assertIn('data-image-lab-mode="change-view"', self.page)
         self.assertIn('data-image-lab-mode="krea2-image-lab"', self.page)
         self.assertIn('id="krea2-image-lab-workspace"', self.page)
@@ -55,7 +55,7 @@ class Krea2ImageLabUiTest(unittest.TestCase):
         self.assertNotIn("preview", self.script.lower())
 
     def test_final_png_is_contained_without_being_stretched(self):
-        self.assertIn('/static/lab.css?v=20260831.4', self.page)
+        self.assertIn('/static/lab.css?v=20260903.3', self.page)
         self.assertIn(".krea2-image-lab-output { width: min(100%, 760px)", self.styles)
         self.assertIn("min-height: clamp(300px, 42vw, 600px)", self.styles)
         self.assertIn(

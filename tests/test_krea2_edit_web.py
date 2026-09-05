@@ -268,7 +268,7 @@ class Krea2EditWebTest(unittest.TestCase):
         ).json()["sources"]
         self.assertFalse(any(value["state"] == "pending" for value in pending))
 
-    def test_ui_is_single_workspace_with_backlog_reasoning_and_four_loras(self):
+    def test_ui_is_single_workspace_with_backlog_reasoning_and_ten_loras(self):
         html = (ROOT / "src/panelforge/features/lab/static/index.html").read_text(
             encoding="utf-8"
         )
@@ -282,7 +282,7 @@ class Krea2EditWebTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('id="krea2-edit-lab-workspace"', html)
-        self.assertIn('/static/krea2-edit-lab.js?v=20260830.2', html)
+        self.assertIn('/static/krea2-edit-lab.js?v=20260903.2', html)
         self.assertIn('id="krea2-edit-prompt-language"', html)
         self.assertIn('id="krea2-edit-show-reasoning"', html)
         self.assertIn('id="krea2-edit-backlog"', html)
@@ -296,7 +296,9 @@ class Krea2EditWebTest(unittest.TestCase):
             html.index('id="krea2-edit-render"'),
             html.index('class="krea2-edit-images"'),
         )
-        self.assertIn("Array.from({ length: 4 }", script)
+        self.assertIn("renderLoraPickerStack", script)
+        self.assertIn("maximum: 10", script)
+        self.assertIn("renderModelPicker", script)
         self.assertIn("function applyDefaultRenderSettings()", script)
         self.assertIn("function renderSettingsComplete()", script)
         self.assertIn("state.initialized = false", script)
@@ -337,8 +339,8 @@ class Krea2EditWebTest(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", css)
         self.assertIn(".krea2-edit-lightbox-body img", css)
         self.assertIn("max-width: none; max-height: none", css)
-        self.assertIn("appendGroupedOptions(elements.model", script)
-        self.assertIn("appendGroupedOptions(select", script)
+        self.assertIn("renderModelPicker(elements.model", script)
+        self.assertIn("renderLoraPickerStack", script)
         for label in ("Favoris · BF16", "Favoris · INT8", "SFW", "NSFW"):
             self.assertIn(label, resources)
         self.assertIn("reasoningTrace.streamUrl", script)
@@ -352,7 +354,7 @@ class Krea2EditWebTest(unittest.TestCase):
         self.assertIn("white-space: nowrap", css)
         self.assertIn("object-fit: contain", css)
         self.assertIn("max-height: 75vh", css)
-        self.assertIn("#krea2-edit-loras { grid-template-columns: repeat(2", css)
+        self.assertIn("#krea2-edit-loras { grid-template-columns: 1fr", css)
         self.assertIn(".krea2-edit-settings .krea2-catalog-manager", css)
         self.assertNotIn("height: clamp(260px, 52vh, 480px)", css)
         self.assertIn('id="krea2-edit-catalog-manager"', html)

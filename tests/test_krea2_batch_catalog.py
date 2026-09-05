@@ -3,6 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from panelforge.domain import (
@@ -14,7 +15,11 @@ from panelforge.domain import (
     Krea2PromptLanguage,
 )
 from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
-from panelforge.infrastructure.krea2_resources import CivitaiMetadataClient, LocalKrea2ResourceCatalog
+from panelforge.infrastructure.krea2_resources import (
+    CivitaiMetadataClient,
+    Krea2LoraCategory,
+    LocalKrea2ResourceCatalog,
+)
 from panelforge.infrastructure.presets import load_krea2_batch_workflow
 
 
@@ -44,6 +49,211 @@ class Krea2BatchCatalogTest(unittest.TestCase):
         self.assertEqual(value["latest_version_id"], 11)
         self.assertEqual(value["latest_version_name"], "new release")
         self.assertIn("modelVersionId=10", value["source_url"])
+
+    def test_civitai_filename_match_enriches_a_checkpoint_card_without_a_hash(self):
+        def open_request(request, _timeout):
+            if "/models?" in request.full_url:
+                return json.dumps({"items": [{
+                    "id": 22,
+                    "name": "Cinematic KREA",
+                    "description": "<p>Moody <b>cinematic</b> checkpoint.</p>",
+                    "modelVersions": [{
+                        "id": 10,
+                        "name": "BF16 release",
+                        "status": "Published",
+                        "baseModel": "Krea 2",
+                        "trainedWords": ["CINEMATIC"],
+                        "files": [{"name": "cinematic_bf16.safetensors"}],
+                        "images": [
+                            {"url": "https://image.civitai.com/one.webp"},
+                            {"url": "https://image.civitai.com/two.webp"},
+                            {"url": "javascript:alert(1)"},
+                        ],
+                    }],
+                }]}).encode()
+            if "/models/22" in request.full_url:
+                return json.dumps({
+                    "id": 22,
+                    "name": "Cinematic KREA",
+                    "description": "<p>Moody <b>cinematic</b> checkpoint.</p>",
+                    "modelVersions": [{
+                        "id": 10,
+                        "name": "BF16 release",
+                        "status": "Published",
+                    }],
+                }).encode()
+            raise AssertionError(request.full_url)
+
+        value = CivitaiMetadataClient(opener=open_request).inspect(
+            filename="cinematic_bf16.safetensors",
+            sha256=None,
+        )
+
+        self.assertEqual(value["display_name"], "Cinematic KREA")
+        self.assertEqual(value["base_model"], "Krea 2")
+        self.assertEqual(value["trained_words"], ["CINEMATIC"])
+        self.assertEqual(value["description"], "Moody cinematic checkpoint.")
+        self.assertEqual(
+            value["preview_urls"],
+            [
+                "https://image.civitai.com/one.webp",
+                "https://image.civitai.com/two.webp",
+            ],
+        )
+
+    def test_civitai_filename_match_does_not_choose_an_ambiguous_card(self):
+        def open_request(request, _timeout):
+            if "/models?" in request.full_url:
+                version = {
+                    "id": 10,
+                    "files": [{"name": "same.safetensors"}],
+                }
+                return json.dumps({"items": [
+                    {"id": 21, "modelVersions": [version]},
+                    {"id": 22, "modelVersions": [{**version, "id": 11}]},
+                ]}).encode()
+            raise AssertionError(request.full_url)
+
+        value = CivitaiMetadataClient(opener=open_request).inspect(
+            filename="same.safetensors",
+            sha256=None,
+        )
+
+        self.assertIn("Plusieurs fiches", value["warning"])
+        self.assertNotIn("current_version_id", value)
+
+    def test_civitai_searches_nsfw_with_a_normalized_checkpoint_name(self):
+        search_urls = []
+
+        def open_request(request, _timeout):
+            if "/models?" in request.full_url:
+                search_urls.append(request.full_url)
+                query = parse_qs(urlsplit(request.full_url).query)
+                if query.get("query") == ["Henmix Turbo"]:
+                    return json.dumps({"items": [{
+                        "id": 2868735,
+                        "name": "Krea2_Henmix_Turbo",
+                        "nsfw": True,
+                        "modelVersions": [{
+                            "id": 3241061,
+                            "name": "v1.0",
+                            "baseModel": "Krea 2",
+                            "files": [{"name": "krea2HenmixTurbo_v10.safetensors"}],
+                            "images": [{"url": "https://image.civitai.com/henmix.webp"}],
+                        }],
+                    }]}).encode()
+                return json.dumps({"items": []}).encode()
+            if "/models/2868735" in request.full_url:
+                return json.dumps({
+                    "id": 2868735,
+                    "name": "Krea2_Henmix_Turbo",
+                    "nsfw": True,
+                    "modelVersions": [{
+                        "id": 3241061,
+                        "name": "v1.0",
+                        "status": "Published",
+                    }],
+                }).encode()
+            raise AssertionError(request.full_url)
+
+        value = CivitaiMetadataClient(opener=open_request).inspect(
+            filename="krea2HenmixTurbo_v10_BF16.safetensors",
+            sha256=None,
+        )
+
+        self.assertEqual(value["display_name"], "Krea2_Henmix_Turbo")
+        self.assertEqual(value["safety"], "nsfw")
+        self.assertIn("civitai.red/models/2868735", value["source_url"])
+        self.assertIn("non vérifiée par hash", value["warning"])
+        self.assertTrue(search_urls)
+        self.assertTrue(all("nsfw=true" in url for url in search_urls))
+
+    def test_civitai_uses_curated_checkpoint_overrides_without_hashing(self):
+        models = {
+            2242173: {
+                "id": 2242173,
+                "name": "Dark Beast Director Edition",
+                "nsfw": True,
+                "modelVersions": [
+                    {
+                        "id": 3173268,
+                        "name": "Dark Beast 3.0",
+                        "status": "Published",
+                        "baseModel": "Krea 2",
+                        "images": [{"url": "https://image.civitai.com/dark-3.webp"}],
+                    },
+                    {
+                        "id": 3078453,
+                        "name": "Dark Beast KREA 2 FP8",
+                        "status": "Published",
+                        "baseModel": "Krea 2",
+                        "images": [{"url": "https://image.civitai.com/dark-fp8.webp"}],
+                    },
+                ],
+            },
+            2883206: {
+                "id": 2883206,
+                "name": "Chimera Center Kroma",
+                "nsfw": False,
+                "modelVersions": [{
+                    "id": 3269650,
+                    "name": "v2.0 bf16 and fp8",
+                    "status": "Published",
+                    "baseModel": "Krea 2",
+                    "images": [{"url": "https://image.civitai.com/chimera.webp"}],
+                }],
+            },
+            452459: {
+                "id": 452459,
+                "name": "REDGPT2 krea2 Turbo",
+                "nsfw": True,
+                "modelVersions": [{
+                    "id": 3123514,
+                    "name": "KREA2 GPT",
+                    "status": "Published",
+                    "baseModel": "Krea 2",
+                    "images": [{"url": "https://image.civitai.com/gpt.webp"}],
+                }],
+            },
+            2812328: {
+                "id": 2812328,
+                "name": "CielBleu Krea2",
+                "nsfw": True,
+                "modelVersions": [{
+                    "id": 3171612,
+                    "name": "v1",
+                    "status": "Published",
+                    "baseModel": "Krea 2",
+                    "images": [{"url": "https://image.civitai.com/cielbleu.webp"}],
+                }],
+            },
+        }
+
+        def open_request(request, _timeout):
+            for model_id, payload in models.items():
+                if f"/models/{model_id}" in request.full_url:
+                    return json.dumps(payload).encode()
+            raise AssertionError(request.full_url)
+
+        cases = (
+            ("darkBeast30BF16_darkBeast330krea2.safetensors", 3173268, "dark-3.webp", True),
+            ("darkBeast30BF16INT8_darkBeastKREA2FP8.safetensors", 3078453, "dark-fp8.webp", True),
+            ("chimeraCenterKroma_v20Bf16AndFp8.safetensors", 3269650, "chimera.webp", False),
+            ("krea2GPTGrandPUSSYTruth_gptINT4INT8Convrot.safetensors", 3123514, "gpt.webp", True),
+            ("cielbleuKrea2_v1bf16.safetensors", 3171612, "cielbleu.webp", True),
+        )
+        for filename, version_id, preview, is_nsfw in cases:
+            with self.subTest(filename=filename):
+                value = CivitaiMetadataClient(opener=open_request).inspect(
+                    filename=filename,
+                    sha256=None,
+                )
+                self.assertEqual(value["current_version_id"], version_id)
+                self.assertIn(preview, value["preview_urls"][0])
+                self.assertEqual(value["safety"], "nsfw" if is_nsfw else "sfw")
+                expected_host = "civitai.red" if is_nsfw else "civitai.com"
+                self.assertIn(expected_host, value["source_url"])
+                self.assertIn("non vérifiée par hash", value["warning"])
 
     def test_loads_six_recipe_families_with_kroma_for_jewelry(self):
         with tempfile.TemporaryDirectory() as workspace:
@@ -89,6 +299,33 @@ class Krea2BatchCatalogTest(unittest.TestCase):
         self.assertEqual(workflow["299"]["class_type"], "SaveImageKJ")
         self.assertEqual(workflow["299"]["inputs"]["caption"], sidecar)
         self.assertEqual(workflow["299"]["inputs"]["caption_file_extension"], ".txt")
+
+    def test_workflow_extends_to_ten_loras_with_the_dynamic_power_loader(self):
+        recipe = load_krea2_batch_workflow(WORKFLOW)
+        settings = Krea2BatchSettings(
+            model_name="Krea2/model.safetensors",
+            aspect_ratio=Krea2AspectRatio.PORTRAIT_WIDESCREEN,
+            megapixels=2.1,
+            loras=tuple(
+                Krea2LoraSelection(f"krea2/lora-{index}.safetensors", index / 10)
+                for index in range(1, 11)
+            ),
+        )
+
+        compiled = recipe.build(
+            prompt="vertical 9:16 test prompt",
+            settings=settings,
+            seed=7,
+            output_prefix="image/test",
+            sidecar_text="metadata",
+        )
+
+        loader = compiled["418"]
+        self.assertEqual(loader["class_type"], "Power Lora Loader (rgthree)")
+        self.assertEqual(loader["inputs"]["lora_1"]["lora"], "krea2/lora-1.safetensors")
+        self.assertEqual(loader["inputs"]["lora_10"]["lora"], "krea2/lora-10.safetensors")
+        self.assertEqual(loader["inputs"]["lora_10"]["strength"], 1.0)
+        self.assertNotIn("lora_01", loader["inputs"])
 
     def test_workflow_uses_the_live_rgthree_seed_limit(self):
         recipe = load_krea2_batch_workflow(WORKFLOW)
@@ -213,9 +450,24 @@ class Krea2BatchCatalogTest(unittest.TestCase):
             lora = loras / "style.safetensors"
             lora.write_bytes(b"lora")
             lora.with_name(f"{lora.name}.rgthree-info.json").write_text(json.dumps({
+                "name": "Detailed style",
+                "baseModel": "Krea 2",
+                "trainedWords": ["DETAIL", {"word": "TEXTURE"}],
+                "images": [
+                    {"url": "https://image.civitai.com/example.webp"},
+                    {"url": "https://image.civitai.com/example-2.webp"},
+                    {"url": "https://image.civitai.com/example-3.webp"},
+                    {"url": "https://image.civitai.com/example-4.webp"},
+                    {"url": "javascript:alert(1)"},
+                ],
                 "links": ["https://civitai.com/models/123?modelVersionId=456"],
                 "sha256": "a" * 64,
-                "raw": {"civitai": {"id": 456, "modelId": 123, "nsfwLevel": 4}},
+                "raw": {"civitai": {
+                    "id": 456,
+                    "modelId": 123,
+                    "nsfwLevel": 4,
+                    "description": "<p>Sharp <b>details</b>.</p>",
+                }},
             }), encoding="utf-8")
             with patch("panelforge.infrastructure.krea2_resources._BF16_THRESHOLD_BYTES", 10):
                 catalog = LocalKrea2ResourceCatalog(models_root=models, loras_root=loras, workspace_root=workspace)
@@ -224,9 +476,163 @@ class Krea2BatchCatalogTest(unittest.TestCase):
                 self.assertEqual(by_name["small.safetensors"].category, "int8")
                 classified = catalog.list_loras()[0]
                 self.assertEqual(classified.safety.value, "nsfw")
+                self.assertEqual(classified.category, "unclassified")
+                self.assertEqual(classified.display_name, "Detailed style")
+                self.assertEqual(classified.base_model, "Krea 2")
+                self.assertEqual(classified.trained_words, ("DETAIL", "TEXTURE"))
+                self.assertEqual(classified.description, "Sharp details.")
+                self.assertEqual(
+                    classified.preview_urls,
+                    (
+                        "https://image.civitai.com/example.webp",
+                        "https://image.civitai.com/example-2.webp",
+                        "https://image.civitai.com/example-3.webp",
+                    ),
+                )
                 self.assertIn("civitai.red/models/123", classified.source_url)
                 classified = catalog.set_preference(classified.resource_id, favorite=True)
                 self.assertEqual(classified.category, "favorite")
+                annotated = catalog.set_annotations(classified.resource_id, {
+                    "display_name": "My detailed style",
+                    "strength_min": -0.25,
+                    "strength_max": 0.7,
+                    "notes": "Best around 0.45.",
+                })
+                self.assertEqual(annotated.display_name, "My detailed style")
+                self.assertEqual(annotated.strength_min, -0.25)
+                self.assertEqual(annotated.strength_max, 0.7)
+                self.assertEqual(annotated.notes, "Best around 0.45.")
+                with self.assertRaisesRegex(ValueError, "lower than or equal"):
+                    catalog.set_annotations(classified.resource_id, {
+                        "strength_min": 0.8,
+                        "strength_max": 0.2,
+                    })
+
+                model = by_name["large.safetensors"]
+                annotated_model = catalog.set_annotations(model.resource_id, {
+                    "display_name": "My checkpoint",
+                    "notes": "Useful for cinematic portraits.",
+                })
+                self.assertEqual(annotated_model.display_name, "My checkpoint")
+                self.assertEqual(annotated_model.notes, "Useful for cinematic portraits.")
+                with self.assertRaisesRegex(ValueError, "only edit a LoRA"):
+                    catalog.set_annotations(model.resource_id, {"strength_min": 0.2})
+
+    def test_remote_checkpoint_metadata_is_cached_in_the_local_catalog_state(self):
+        class Civitai:
+            def inspect(self, **_values):
+                return {
+                    "source_url": "https://civitai.com/models/22?modelVersionId=10",
+                    "display_name": "Remote checkpoint card",
+                    "base_model": "Krea 2",
+                    "trained_words": ["KREA"],
+                    "description": "Remote description.",
+                    "preview_urls": ["https://image.civitai.com/remote.webp"],
+                    "current_version_id": 10,
+                    "warning": None,
+                }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            models = root / "models"
+            loras = root / "loras"
+            models.mkdir()
+            loras.mkdir()
+            (models / "remote_bf16.safetensors").write_bytes(b"model")
+            catalog = LocalKrea2ResourceCatalog(
+                models_root=models,
+                loras_root=loras,
+                workspace_root=root / "workspace",
+                civitai=Civitai(),
+            )
+
+            resource = catalog.refresh_remote(catalog.list_models()[0].resource_id)
+
+            self.assertEqual(resource.display_name, "Remote checkpoint card")
+            self.assertEqual(resource.base_model, "Krea 2")
+            self.assertEqual(resource.trained_words, ("KREA",))
+            self.assertEqual(resource.description, "Remote description.")
+            self.assertEqual(
+                resource.preview_urls,
+                ("https://image.civitai.com/remote.webp",),
+            )
+
+    def test_remote_nsfw_checkpoint_keeps_the_civitai_red_source(self):
+        class Civitai:
+            def inspect(self, **_values):
+                return {
+                    "source_url": "https://civitai.red/models/2242173?modelVersionId=3173268",
+                    "display_name": "Dark Beast",
+                    "safety": "nsfw",
+                    "preview_urls": ["https://image.civitai.com/dark.webp"],
+                    "current_version_id": 3173268,
+                    "warning": "Fiche rattachée sans hash.",
+                }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            models = root / "models"
+            loras = root / "loras"
+            models.mkdir()
+            loras.mkdir()
+            (models / "dark.safetensors").write_bytes(b"model")
+            catalog = LocalKrea2ResourceCatalog(
+                models_root=models,
+                loras_root=loras,
+                workspace_root=root / "workspace",
+                civitai=Civitai(),
+            )
+
+            resource = catalog.refresh_remote(catalog.list_models()[0].resource_id)
+
+            self.assertEqual(resource.safety.value, "nsfw")
+            self.assertIn("civitai.red/models/2242173", resource.source_url)
+
+    def test_refresh_prefers_cached_rgthree_lora_previews_without_civitai_lookup(self):
+        class ComfyInventory:
+            def list_unet_models(self):
+                return ()
+
+            def list_lora_models(self):
+                return ("krea2/style.safetensors",)
+
+            def get_cached_model_info(self, kind, comfy_name):
+                self.request = (kind, comfy_name)
+                return {
+                    "name": "Cached style card",
+                    "baseModel": "Krea 2",
+                    "trainedWords": ["STYLE"],
+                    "images": [{"url": "https://image.civitai.com/cached.webp"}],
+                    "links": ["https://civitai.com/models/42?modelVersionId=7"],
+                    "raw": {"civitai": {"id": 7, "description": "<p>Cached description.</p>"}},
+                }
+
+        class Civitai:
+            def inspect(self, **_values):
+                raise AssertionError("CivitAI must not be called when rgthree has previews")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            comfy = ComfyInventory()
+            catalog = LocalKrea2ResourceCatalog(
+                models_root=root / "missing-models",
+                loras_root=root / "missing-loras",
+                workspace_root=root / "workspace",
+                comfy=comfy,
+                civitai=Civitai(),
+            )
+
+            resource = catalog.refresh_remote(catalog.list_loras()[0].resource_id)
+
+            self.assertEqual(comfy.request, ("lora", "krea2/style.safetensors"))
+            self.assertEqual(resource.display_name, "Cached style card")
+            self.assertEqual(resource.base_model, "Krea 2")
+            self.assertEqual(resource.trained_words, ("STYLE",))
+            self.assertEqual(resource.description, "Cached description.")
+            self.assertEqual(
+                resource.preview_urls,
+                ("https://image.civitai.com/cached.webp",),
+            )
 
     def test_comfy_inventory_fills_missing_local_roots_and_stays_krea2_only(self):
         class ComfyInventory:
@@ -283,9 +689,46 @@ class Krea2BatchCatalogTest(unittest.TestCase):
             self.assertEqual(automatic_model.category, "favorite_unknown")
             classified = catalog.set_preference(
                 loras[0].resource_id,
-                safety=type(loras[0].safety).NSFW,
+                lora_category=Krea2LoraCategory.NSFW_GLOBAL,
             )
-            self.assertEqual(classified.category, "nsfw")
+            self.assertEqual(classified.category, "nsfw_global")
+            self.assertEqual(classified.safety.value, "nsfw")
+
+    def test_default_lora_taxonomy_includes_new_slider_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            models = root / "models"
+            loras = root / "loras"
+            models.mkdir()
+            loras.mkdir()
+            names = (
+                "wetness_krea2_loraholic.safetensors",
+                "realism_engine_krea2_v3.1.safetensors",
+                "krea2_identity_edit_v1_2.safetensors",
+                "poses/krea doggy.safetensors",
+                "sliders/Age_Slider_krea2t_000000020.safetensors",
+                "sliders/slider_penis_size_krea2_v2_loraholic.safetensors",
+                "sliders/CrunchyBanana_Krea_Cleavage_Slider.safetensors",
+            )
+            for name in names:
+                path = loras / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"lora")
+            catalog = LocalKrea2ResourceCatalog(
+                models_root=models,
+                loras_root=loras,
+                workspace_root=root / "workspace",
+            )
+
+            resources = {value.relative_path: value for value in catalog.list_loras()}
+
+            self.assertEqual(resources[names[0]].lora_category, Krea2LoraCategory.SFW_UTILITY)
+            self.assertEqual(resources[names[1]].lora_category, Krea2LoraCategory.NSFW_GLOBAL)
+            self.assertFalse(resources[names[2]].selectable)
+            self.assertEqual(resources[names[3]].lora_category, Krea2LoraCategory.NSFW_POSES)
+            self.assertEqual(resources[names[4]].lora_category, Krea2LoraCategory.SFW_SLIDERS)
+            self.assertEqual(resources[names[5]].lora_category, Krea2LoraCategory.NSFW_SLIDERS)
+            self.assertEqual(resources[names[6]].lora_category, Krea2LoraCategory.NSFW_SLIDERS)
 
     def test_missing_local_root_remains_visible_when_comfy_has_no_fallback(self):
         class EmptyComfyInventory:

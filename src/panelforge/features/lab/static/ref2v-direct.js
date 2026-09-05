@@ -13,6 +13,7 @@
   const superFastCookbookVersion = "0.2.0";
   const preferredCookbookVersion = "0.4.0";
   const preferredCookbookValue = `${cookbookId}@${preferredCookbookVersion}`;
+  const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame", "État visible complet à 0,00 s : sujets, pose, cadrage, perspective, décor, lumière et composition."],
     ["subject_reference", "Sujet / identité", "subject", "Identité, apparence stable et attributs explicitement attribués."],
@@ -64,6 +65,11 @@
     creativeCameraValue: $("#ref2vd-creative-camera-value"),
     creativeExtraMotion: $("#ref2vd-creative-extra-motion"),
     creativeExtraMotionValue: $("#ref2vd-creative-extra-motion-value"),
+    creativeAudacityControl: $("#ref2vd-creative-audacity-control"),
+    creativeAudacity: $("#ref2vd-creative-audacity"),
+    creativeAudacityValue: $("#ref2vd-creative-audacity-value"),
+    creativeDirectionOption: $("#ref2vd-creative-direction-option"),
+    creativeDirection: $("#ref2vd-creative-direction"),
     start: $("#ref2vd-start"),
     setupMessage: $("#ref2vd-setup-message"),
     executionModeControl: $("#ref2vd-execution-mode-control"),
@@ -199,6 +205,26 @@
 
   function isMultishotCookbook(cookbook) {
     return Boolean(cookbook && [multishotCookbookId, superFastCookbookId].includes(cookbook.id));
+  }
+
+  function creativeBriefAvailable(cookbook = state.cookbook) {
+    const profile = selectedProfile();
+    return Boolean(
+      cookbook && cookbook.id === cookbookId
+      && profile && (profile.brief_variants || []).some(
+        (value) => value.id === creativeBriefVariant.id
+          && value.version === creativeBriefVariant.version,
+      ),
+    );
+  }
+
+  function creativeBriefPayload() {
+    return elements.creativeDirection.checked
+      ? {
+        brief_variant_id: creativeBriefVariant.id,
+        brief_variant_version: creativeBriefVariant.version,
+      }
+      : { brief_variant_id: null, brief_variant_version: null };
   }
 
   function isSuperFastReference(reference) {
@@ -389,10 +415,16 @@
           session.active_brief.creative_axes,
           session.active_brief.creative_freedom ?? 35,
         );
+        setCreativeAudacity(session.active_brief.creative_audacity ?? 0);
       } else {
         elements.intention.value = "";
         setCreativeAxes(null, 0);
+        setCreativeAudacity(2);
       }
+      elements.creativeDirection.checked = Boolean(
+        session.brief_variant
+        && session.brief_variant.id === creativeBriefVariant.id,
+      );
       if (openedSuperFast) {
         const completed = superFastRunApproved();
         state.superFastRecord = {
@@ -438,6 +470,11 @@
     const brief = source.active_brief;
     elements.intention.value = brief ? brief.source_text || "" : "";
     setCreativeAxes(brief && brief.creative_axes, brief ? brief.creative_freedom ?? 35 : 0);
+    setCreativeAudacity(brief ? brief.creative_audacity ?? 0 : 2);
+    elements.creativeDirection.checked = Boolean(
+      source.brief_variant
+      && source.brief_variant.id === creativeBriefVariant.id,
+    );
     elements.executionMode.value = "supervised";
     clearStageDrafts();
     showSetupMessage("");
@@ -635,7 +672,11 @@
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model_id: elements.model.value }),
+            body: JSON.stringify({
+              model_id: elements.model.value,
+              ...creativeBriefPayload(),
+              inherit_brief_variant: false,
+            }),
           },
         );
       } else {
@@ -650,6 +691,10 @@
         body.append("model_id", elements.model.value);
         body.append("profile_id", profile.id);
         body.append("profile_version", profile.version);
+        if (elements.creativeDirection.checked) {
+          body.append("brief_variant_id", creativeBriefVariant.id);
+          body.append("brief_variant_version", creativeBriefVariant.version);
+        }
         state.session = await core.request("/api/prompt-lab/sessions", { method: "POST", body });
       }
       state.forkSource = null;
@@ -704,6 +749,14 @@
     elements.creativeExtraMotionValue.value = elements.creativeExtraMotion.value;
   }
 
+  function setCreativeAudacity(value = 2) {
+    const resolved = Number(value);
+    elements.creativeAudacity.value = String(
+      Number.isInteger(resolved) ? Math.max(0, Math.min(3, resolved)) : 2,
+    );
+    elements.creativeAudacityValue.value = elements.creativeAudacity.value;
+  }
+
   function creativeAxesMatch(brief) {
     if (!brief) return false;
     const expected = brief.creative_axes || (() => {
@@ -716,9 +769,22 @@
       && expected.extra_motion === current.extra_motion;
   }
 
+  function creativeAudacityMatch(brief) {
+    if (!brief) return false;
+    return Number(brief.creative_audacity ?? 0) === Number(
+      elements.creativeDirection.checked ? elements.creativeAudacity.value : 0,
+    );
+  }
+
   function creativePayload() {
     const creative_axes = currentCreativeAxes();
-    return { creative_freedom: creativeAggregate(creative_axes), creative_axes };
+    return {
+      creative_freedom: creativeAggregate(creative_axes),
+      creative_axes,
+      creative_audacity: elements.creativeDirection.checked
+        ? Number(elements.creativeAudacity.value)
+        : 0,
+    };
   }
 
   function interactionLocked() {
@@ -730,7 +796,8 @@
     const brief = state.session && state.session.active_brief;
     return Boolean(brief
       && (brief.source_text || "").trim() === elements.intention.value.trim()
-      && creativeAxesMatch(brief));
+      && creativeAxesMatch(brief)
+      && creativeAudacityMatch(brief));
   }
 
   function generatedDocument(documentState) {
@@ -982,6 +1049,14 @@
     const activeCookbook = activeCookbookSpec();
     const locked = interactionLocked();
     const directSuperFast = directSuperFastModeActive();
+    const creativeBriefVisible = creativeBriefAvailable(activeCookbook || state.cookbook);
+    if (!creativeBriefVisible && !session) elements.creativeDirection.checked = false;
+    elements.creativeDirectionOption.hidden = !creativeBriefVisible;
+    elements.creativeAudacityControl.hidden = !creativeBriefVisible;
+    elements.creativeDirection.disabled = locked || !creativeBriefVisible
+      || Boolean(session && session.active_brief);
+    elements.creativeAudacity.disabled = locked || !creativeBriefVisible
+      || !elements.creativeDirection.checked || Boolean(session && session.active_brief);
     renderWorkflowShape(directSuperFast);
     renderQuickStatus();
     renderRoleReview();
@@ -1027,6 +1102,7 @@
     const briefInputsCurrent = !brief || (
       (brief.source_text || "").trim() === elements.intention.value.trim()
       && creativeAxesMatch(brief)
+      && creativeAudacityMatch(brief)
     );
     const documents = state.composition ? state.composition.documents || {} : {};
     const plan = documents.beat_sheet || null;
@@ -1060,7 +1136,13 @@
     const recipeLabel = recipeReference
       ? `${recipeReference.id}@${recipeReference.version}${compositionReference ? "" : " · à verrouiller"}`
         : "non sélectionnée";
-    elements.sessionConfig.textContent = `Modèle : ${session.model_id} · Recette : ${recipeLabel}`;
+    const audacityLabel = brief
+      ? brief.creative_audacity ?? 0
+      : Number(elements.creativeAudacity.value);
+    const briefLabel = session.brief_variant
+      ? `Brief : direction créative ${session.brief_variant.version} · audace ${audacityLabel}/3`
+      : `Brief : standard ${session.profile.version}`;
+    elements.sessionConfig.textContent = `Modèle : ${session.model_id} · ${briefLabel} · Recette : ${recipeLabel}`;
     elements.progress.textContent = !briefState.ready ? "Brief requis"
       : !directSuperFast && !planState.ready ? "Plan requis"
         : !promptState.ready ? "Prompt requis" : "Parcours validé";
@@ -1874,6 +1956,8 @@
     renderDraftReferences();
     elements.intention.value = "";
     setCreativeAxes(null, 0);
+    setCreativeAudacity(2);
+    elements.creativeDirection.checked = false;
     elements.executionMode.value = "supervised";
     clearStageDrafts();
     render();
@@ -1891,9 +1975,37 @@
   });
   elements.intention.addEventListener("input", render);
   elements.model.addEventListener("change", render);
+  elements.creativeDirection.addEventListener("change", async () => {
+    if (!state.session) return render();
+    if (state.session.active_brief) return render();
+    setBusy(true);
+    try {
+      state.session = await core.request(
+        `/api/prompt-lab/sessions/${state.session.id}/brief/variant`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(creativeBriefPayload()),
+        },
+      );
+      elements.brief.message.textContent = elements.creativeDirection.checked
+        ? "Direction créative Ref2V 0.2.0 activée pour le Brief."
+        : "Brief Ref2V standard 0.4.0 activé.";
+      await loadSessions();
+    } catch (error) {
+      elements.creativeDirection.checked = Boolean(state.session.brief_variant);
+      showSetupMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  });
   for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
     control.addEventListener("input", () => { updateCreativeAxes(); render(); });
   }
+  elements.creativeAudacity.addEventListener("input", () => {
+    elements.creativeAudacityValue.value = elements.creativeAudacity.value;
+    render();
+  });
   elements.roleConfirmation.addEventListener("change", () => {
     state.rolesConfirmed = elements.roleConfirmation.checked;
     render();
@@ -1955,6 +2067,7 @@
   elements.sendVideoLab.addEventListener("click", sendToVideoLab);
 
   updateCreativeAxes();
+  setCreativeAudacity(2);
   renderRoleHelp();
   renderDraftReferences();
   render();

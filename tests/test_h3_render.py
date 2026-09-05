@@ -8,6 +8,7 @@ from panelforge.application import (
     canonicalize_h3_revision,
     disable_non_diegetic_music,
     H3RenderService,
+    h3_prompt_duration_warning,
     extract_plan_cut_times_ms,
     plan_keyframe_timestamps_ms,
 )
@@ -188,6 +189,8 @@ class H3RenderWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(self.recipe.progress_profile.phases[0].node_ids, ("26",))
         self.assertEqual(self.recipe.progress_profile.phases[2].node_ids, ("25",))
+        self.assertEqual(self.recipe.progress_profile.phases[0].expected_steps, "configured")
+        self.assertEqual(self.recipe.progress_profile.phases[2].expected_steps, 3)
         self.assertFalse(workflow["43"]["inputs"]["enabled"])
 
     def test_spectrum_is_opt_in(self) -> None:
@@ -367,6 +370,20 @@ class H3RenderWorkflowTest(unittest.TestCase):
 
 
 class H3RenderPromptAndKeyframeTest(unittest.TestCase):
+    def test_duration_mismatch_is_a_warning_and_matching_duration_is_silent(self) -> None:
+        prompt = (
+            "How the reference pictures align with the target video — <Picture 1> "
+            "aligns with the 6.00-second mark of the target video.\n\n"
+            "integrated_multimodal_description:\n"
+            "[Shot 1] The target video is one continuous 6-second shot."
+        )
+
+        self.assertIsNone(h3_prompt_duration_warning(prompt, 6.0))
+        warning = h3_prompt_duration_warning(prompt, 10.0)
+        self.assertIn("Prompt compilé pour 6 s", warning)
+        self.assertIn("rendu configuré pour 10 s", warning)
+        self.assertIn("ne sont pas réécrits automatiquement", warning)
+
     def test_camera_locked_revision_preserves_compiled_clauses(self) -> None:
         current = (
             "integrated_multimodal_description:\n"
@@ -542,7 +559,9 @@ class H3RenderRevisionVersionTest(unittest.TestCase):
             projects=projects,
             sessions=object(),
             compositions=object(),
-            turn_id_factory=iter(("turn-user", "turn-assistant")).__next__,
+            turn_id_factory=iter(
+                ("turn-user", "turn-assistant", "turn-repair", "turn-repaired")
+            ).__next__,
         )
         return service, gateway
 
@@ -568,9 +587,84 @@ class H3RenderRevisionVersionTest(unittest.TestCase):
 
         self.assertEqual(gateway.requests[0].operation_id, "h3.base.render.revision@0.2.0")
         self.assertIn("[[camera:camera_1]]", gateway.requests[0].user_prompt)
+        self.assertIn("must be a JSON array", gateway.requests[0].user_prompt)
+        self.assertIn("centered on, focused on, ending on", gateway.requests[0].user_prompt)
+        self.assertIn("point-of-view, roll, dolly, orbit", gateway.requests[0].user_prompt)
+        self.assertIn('"target_clause":"toward the rider as she passes"', gateway.requests[0].user_prompt)
+        self.assertNotIn("REVISION CREATIVE AUDACITY", gateway.requests[0].user_prompt)
         self.assertIn("listens and smiles", terminal.current_prompt)
         self.assertEqual(terminal.turns[-1].revision_version.value, "0.2.0")
         self.assertIsNone(terminal.revision_error)
+
+    def test_revision_audacity_is_explicit_without_adding_an_llm_call(self) -> None:
+        response = json.dumps({
+            "message": "Le rythme est maintenant plus affirmé.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The camera holds a static shot.",
+                "[[camera:camera_1]]",
+            ).replace("The kitten listens.", "The kitten listens, then springs forward."),
+            "recommendations": [],
+            "camera_directives": None,
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = self.service(directory, response)
+
+            list(service.stream_chat(
+                "project-1",
+                "La scène est trop lente.",
+                revision_version="0.2.0",
+                creative_audacity=3,
+            ))
+
+        self.assertEqual(len(gateway.requests), 1)
+        self.assertIn("REVISION CREATIVE AUDACITY", gateway.requests[0].user_prompt)
+        self.assertIn("3/3", gateway.requests[0].user_prompt)
+        self.assertIn("canonical camera directives", gateway.requests[0].user_prompt)
+
+    def test_zero_revision_audacity_keeps_the_historical_contract(self) -> None:
+        response = json.dumps({
+            "message": "Le rythme reste fidèle à la demande.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The camera holds a static shot.",
+                "[[camera:camera_1]]",
+            ).replace("The kitten listens.", "The kitten listens and smiles."),
+            "recommendations": [],
+            "camera_directives": None,
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = self.service(directory, response)
+
+            list(service.stream_chat(
+                "project-1",
+                "Fais sourire le chaton.",
+                revision_version="0.2.0",
+                creative_audacity=0,
+            ))
+
+        self.assertEqual(len(gateway.requests), 1)
+        self.assertNotIn("REVISION CREATIVE AUDACITY", gateway.requests[0].user_prompt)
+
+    def test_prepare_attempt_keeps_duration_mismatch_as_a_non_blocking_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _ = self.service(directory, "{}")
+
+            project = service.prepare_attempt(
+                "project-1",
+                prompt=self.prompt(),
+                settings=VideoLabSettings(
+                    aspect_ratio=VideoAspectRatio.PORTRAIT_WIDESCREEN,
+                    megapixels=0.2,
+                    duration_seconds=10.0,
+                    steps=25,
+                    seed=42,
+                ),
+            )
+
+        attempt = project.attempts[-1]
+        self.assertEqual(attempt.settings.duration_seconds, 10.0)
+        self.assertIn("Prompt compilé pour 9 s", attempt.warnings[0])
 
     def test_v020_keeps_a_rejected_candidate_without_changing_prompt(self) -> None:
         response = json.dumps({
@@ -597,6 +691,77 @@ class H3RenderRevisionVersionTest(unittest.TestCase):
         self.assertIn("Camera movement: static", terminal.revision_draft)
         self.assertIn("canonical compiled directive", terminal.revision_error)
         self.assertEqual(terminal.revision_draft_version.value, "0.2.0")
+
+    def test_explicit_repair_includes_rejected_draft_and_validator_error(self) -> None:
+        rejected = json.dumps({
+            "message": "Caméra statique.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The camera holds a static shot.",
+                "[[camera:camera_1]] Camera movement: static.",
+            ),
+            "recommendations": [],
+            "camera_directives": None,
+        })
+        accepted = json.dumps({
+            "message": "La structure est corrigée.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The camera holds a static shot.",
+                "[[camera:camera_1]]",
+            ).replace("The kitten listens.", "The kitten listens and smiles."),
+            "recommendations": [],
+            "camera_directives": None,
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            service, gateway = self.service(directory, rejected)
+            first = list(service.stream_chat(
+                "project-1", "Ne change rien.", revision_version="0.2.0",
+            ))[-1].project
+            gateway.response = accepted
+
+            terminal = list(service.stream_chat(
+                "project-1",
+                "Corrige la structure de la dernière proposition refusée.",
+                repair_rejected=True,
+            ))[-1].project
+
+        self.assertEqual(len(gateway.requests), 2)
+        self.assertEqual(first.current_prompt, self.prompt())
+        self.assertIn("REJECTED REVISION REPAIR", gateway.requests[1].user_prompt)
+        self.assertIn("EXACT VALIDATOR ERROR", gateway.requests[1].user_prompt)
+        self.assertIn("Camera movement: static", gateway.requests[1].user_prompt)
+        self.assertIn("listens and smiles", terminal.current_prompt)
+        self.assertIsNone(terminal.revision_error)
+        self.assertIsNone(terminal.revision_draft)
+
+    def test_single_camera_directive_object_is_safely_wrapped_as_an_array(self) -> None:
+        response = json.dumps({
+            "message": "La caméra avance maintenant.",
+            "questions": [],
+            "prompt": self.prompt().replace(
+                "The camera holds a static shot.",
+                "[[camera:camera_1]]",
+            ),
+            "recommendations": [],
+            "camera_directives": {
+                "id": "camera_1",
+                "start_ms": 0,
+                "motion": "push.in",
+                "amplitude": "small",
+                "speed": "slow",
+                "target_clause": "toward the kitten",
+            },
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            service, _ = self.service(directory, response)
+
+            terminal = list(service.stream_chat(
+                "project-1", "Avance vers le chaton.", revision_version="0.2.0",
+            ))[-1].project
+
+        self.assertIsNone(terminal.revision_error)
+        self.assertIn("toward the kitten", terminal.current_prompt)
 
     def test_v020_migrates_the_former_static_camera_label_on_next_revision(self) -> None:
         legacy_prompt = self.prompt().replace(
@@ -776,7 +941,7 @@ class H3RenderProjectPersistenceTest(unittest.TestCase):
                 settings=VideoLabSettings(
                     aspect_ratio=VideoAspectRatio.PORTRAIT_WIDESCREEN,
                     megapixels=1.2,
-                    duration_seconds=9.0,
+                    duration_seconds=10.0,
                     steps=25,
                     seed=42,
                 ),
@@ -791,6 +956,7 @@ class H3RenderProjectPersistenceTest(unittest.TestCase):
 
             attempt = result.attempt("attempt-1")
             self.assertEqual(attempt.status, H3RenderAttemptStatus.SUCCEEDED)
+            self.assertIn("Prompt compilé pour 9 s", attempt.warnings[0])
             self.assertEqual(len(attempt.keyframes), 5)
             self.assertEqual(result.feedback_attempt_id, "attempt-1")
             self.assertEqual(attempt.video_lora.name, "minmax_nsfw/MysticXXX_MMH3-V2.safetensors")

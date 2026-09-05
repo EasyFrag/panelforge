@@ -13,6 +13,7 @@ from .h3_render_projects import LocalH3RenderProjectStore
 from .social_lab import LocalSocialLabStore
 from .production_jobs import LocalProductionJobStore
 from .production_lora_memory import LocalProductionLoraMemory
+from .production_v2 import LocalProductionV2Store
 
 __all__ = [
     "LocalAssetStore",
@@ -25,6 +26,7 @@ __all__ = [
     "LocalPromptCompositionStore",
     "LocalProductionJobStore",
     "LocalProductionLoraMemory",
+    "LocalProductionV2Store",
     "LocalPromptSessionStore",
     "LocalVideoRunStore",
     "LocalRunStore",

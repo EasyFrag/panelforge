@@ -252,8 +252,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260831.4", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260831.1", page.text)
+        self.assertIn("/static/lab.css?v=20260903.3", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260904.1", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         core_script = self.client.get("/static/lab-core.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -287,7 +287,9 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(core_script.status_code, 200)
-        self.assertIn("/static/lab-core.js?v=20260831.2", page.text)
+        self.assertIn("/static/lab-core.js?v=20260901.2", page.text)
+        self.assertIn("function errorDetailMessage(detail)", core_script.text)
+        self.assertIn('item.loc.filter((part) => part !== "body")', core_script.text)
         self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
         self.assertNotIn('data-lab-view="prompt-lab"', page.text)
         self.assertNotIn('data-lab-view="archives"', page.text)
@@ -349,7 +351,7 @@ class LabWebTest(unittest.TestCase):
         page = self.client.get("/")
         script = self.client.get("/static/lab.js")
 
-        self.assertEqual(page.text.count('data-llm-local-for="'), 10)
+        self.assertEqual(page.text.count('data-llm-local-for="'), 14)
         for select_id in (
             "krea2-assisted-llm",
             "krea2-batch-llm",
@@ -361,6 +363,10 @@ class LabWebTest(unittest.TestCase):
             "krea2-assisted-revision-llm",
             "h3r-revision-model",
             "ref2vr-revision-model",
+            "production-v2-initial-llm",
+            "production-v2-krea-llm",
+            "production-v2-compile-llm",
+            "production-v2-video-llm",
         ):
             self.assertIn(
                 f'data-llm-local-for="{select_id}"',
@@ -368,7 +374,7 @@ class LabWebTest(unittest.TestCase):
             )
         self.assertIn('new Set(["local"])', script.text)
         self.assertNotIn('model.id.startsWith("vllm::")', script.text)
-        self.assertEqual(page.text.count("Local · Unsloth"), 10)
+        self.assertEqual(page.text.count("Local · Unsloth"), 14)
         self.assertIn("Aucun modèle local disponible", script.text)
 
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
@@ -399,14 +405,14 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="h3r-spectrum" type="checkbox"', page.text)
         self.assertIn('id="ref2vr-spectrum" type="checkbox"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260831.4', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260902.2', page.text)
         self.assertIn('id="h3r-render-progress"', page.text)
         self.assertIn('id="ref2vr-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', render_script.text)
         production_script = self.client.get("/static/production-lab.js")
         self.assertIn('id="production-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', production_script.text)
-        self.assertIn('/static/production-lab.js?v=20260831.1', page.text)
+        self.assertIn('/static/production-lab.js?v=20260903.2', page.text)
         self.assertIn('id="h3r-video-lora-profile"', page.text)
         self.assertIn('id="h3r-video-lora-model"', page.text)
         self.assertIn('id="h3r-video-lora-strength"', page.text)
@@ -418,10 +424,26 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('elements.spectrum.checked = false', render_script.text)
         self.assertIn('id="h3r-revision-version"', page.text)
         self.assertIn('id="h3r-revision-model"', page.text)
+        self.assertIn(
+            'id="h3r-revision-audacity" type="range" min="0" max="3" step="1" value="0"',
+            page.text,
+        )
+        self.assertIn('id="h3r-revision-audacity-value">0/3</output>', page.text)
+        self.assertIn('0 standard historique', page.text)
+        self.assertIn(
+            'id="ref2vr-revision-audacity" type="range" min="0" max="3" step="1" value="0"',
+            page.text,
+        )
+        self.assertIn('revision_audacity: Number(elements.revisionAudacity?.value || 0)', render_script.text)
         self.assertIn('id="ref2vr-revision-model"', page.text)
         self.assertIn('id="ref2vr-revision-version"', page.text)
         self.assertIn('id="h3r-revision-draft"', page.text)
         self.assertIn('id="ref2vr-revision-draft"', page.text)
+        self.assertIn('id="h3r-revision-retry"', page.text)
+        self.assertIn('id="ref2vr-revision-retry"', page.text)
+        self.assertIn("repair_rejected: repairRejected", render_script.text)
+        self.assertIn("function renderWarnings()", render_script.text)
+        self.assertIn('elements.duration.addEventListener("input", renderWarnings)', render_script.text)
         self.assertIn('panelforge:h3-base-context', script.text)
         self.assertIn('/api/h3-render/projects/', render_script.text)
         self.assertIn("core.createLlmOutcomeTone()", render_script.text)
@@ -611,16 +633,16 @@ class LabWebTest(unittest.TestCase):
                     page.text,
                 )
                 self.assertIn(f'id="{prefix}-creative-{axis}-value">0</output>', page.text)
-        self.assertIn(
-            'id="i2vd-creative-audacity" type="range" min="0" max="3" step="1" value="2"',
-            page.text,
-        )
-        self.assertIn('id="i2vd-creative-audacity-value">2</output>', page.text)
-        self.assertEqual(
-            page.text.count("Autorisations indépendantes appliquées seulement si la scène paraît trop vide."),
-            1,
-        )
-        self.assertIn("L’audace fixe l’objectif de nouveauté", page.text)
+        for prefix in ("i2vd", "ref2vd"):
+            self.assertIn(f'id="{prefix}-creative-direction" type="checkbox"', page.text)
+            self.assertIn(
+                f'id="{prefix}-creative-audacity" type="range" min="0" max="3" step="1" value="2"',
+                page.text,
+            )
+            self.assertIn(f'id="{prefix}-creative-audacity-value">2</output>', page.text)
+        self.assertEqual(page.text.count("L’audace fixe l’objectif de nouveauté"), 2)
+        self.assertIn('id="h3r-revision-audacity-value">0/3</output>', page.text)
+        self.assertIn('id="ref2vr-revision-audacity-value">0/3</output>', page.text)
 
         for script in scripts:
             self.assertEqual(script.status_code, 200)
@@ -630,8 +652,8 @@ class LabWebTest(unittest.TestCase):
             self.assertIn("function creativePayload()", script.text)
             self.assertIn("creative_axes", script.text)
             self.assertNotIn("setFreedom", script.text)
-        self.assertIn("function creativeAudacityMatch(brief)", scripts[0].text)
-        self.assertIn("creative_audacity", scripts[0].text)
+            self.assertIn("function creativeAudacityMatch(brief)", script.text)
+            self.assertIn("creative_audacity", script.text)
 
     def test_exposes_shared_quick_mode_for_both_direct_workspaces(self):
         page = self.client.get("/")
@@ -795,7 +817,10 @@ class LabWebTest(unittest.TestCase):
                     script,
                 )
             else:
-                self.assertIn("Modèle : ${session.model_id} · Recette : ${recipeLabel}", script)
+                self.assertIn(
+                    "Modèle : ${session.model_id} · ${briefLabel} · Recette : ${recipeLabel}",
+                    script,
+                )
             self.assertIn("next.open = true", script)
             self.assertIn(
                 'next.scrollIntoView({ behavior: "smooth", block: "start" })',
@@ -811,10 +836,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('anchor.before(panel)', prompt_navigation.text)
         self.assertIn('panel.scrollIntoView({ behavior: "smooth", block: "nearest" })', prompt_navigation.text)
 
-        self.assertIn(
-            'JSON.stringify({ model_id: elements.model.value })',
-            scripts["ref2vd"],
-        )
+        self.assertIn("...creativeBriefPayload()", scripts["ref2vd"])
+        self.assertIn("inherit_brief_variant: false", scripts["ref2vd"])
         self.assertIn("profile_id: profile.id", scripts["i2vd"])
         self.assertIn("profile_version: profile.version", scripts["i2vd"])
 

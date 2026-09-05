@@ -4,21 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260831.4">
+  <link rel="stylesheet" href="/static/lab.css?v=20260903.3">
   <script src="/static/lab.js?v=20260831.1" defer></script>
-  <script src="/static/lab-core.js?v=20260831.2" defer></script>
+  <script src="/static/lab-core.js?v=20260901.2" defer></script>
   <script src="/static/quick-pipeline.js?v=20260830.2" defer></script>
   <script src="/static/i2v-direct.js?v=20260831.1" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260831.4" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260902.2" defer></script>
   <script src="/static/video-lab.js?v=20260831.1" defer></script>
-  <script src="/static/social-lab.js?v=20260830.2" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260831.1" defer></script>
-  <script src="/static/krea2-image-lab.js?v=20260817.1" defer></script>
-  <script src="/static/krea2-resource-ui.js?v=20260822.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260831.4" defer></script>
-  <script src="/static/krea2-batch-lab.js?v=20260830.2" defer></script>
-  <script src="/static/krea2-edit-lab.js?v=20260830.2" defer></script>
-  <script src="/static/production-lab.js?v=20260831.1" defer></script>
+  <script src="/static/social-lab.js?v=20260902.1" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260904.1" defer></script>
+  <script src="/static/krea2-image-lab.js?v=20260903.1" defer></script>
+  <script src="/static/krea2-resource-ui.js?v=20260904.1" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260903.2" defer></script>
+  <script src="/static/krea2-batch-lab.js?v=20260903.2" defer></script>
+  <script src="/static/krea2-edit-lab.js?v=20260903.2" defer></script>
+  <script src="/static/production-lab.js?v=20260903.2" defer></script>
+  <script src="/static/production-v2-lab.js?v=20260903.3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -28,7 +29,8 @@
       <button type="button" data-lab-view="i2v-direct">H3 Base</button>
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
       <button type="button" data-lab-view="video-lab">Video Lab</button>
-      <button type="button" data-lab-view="production-lab">Production</button>
+      <button type="button" data-lab-view="production-v2-lab">Production V2</button>
+      <button type="button" data-lab-view="production-lab">Production V1</button>
     </nav>
     <div class="topbar-actions">
       <div id="runtime-monitor" class="runtime-monitor" title="Statistiques globales des GPU ; la VRAM n’est pas attribuée par processus.">
@@ -348,7 +350,7 @@
             <label>Mégapixels<input id="krea2-assisted-megapixels" type="number" min="0.5" max="4" step="0.1" value="2.1"></label>
             <label>Seed<input id="krea2-assisted-seed" type="text" inputmode="numeric" pattern="[0-9]+" placeholder="Aléatoire"></label>
           </div>
-          <div class="section-title"><h3>LoRA</h3><small>0 à 4 · quatre emplacements</small></div>
+          <div class="section-title"><h3>LoRA</h3><small>0 à 10 · seuls les emplacements utilisés sont affichés</small></div>
           <div id="krea2-assisted-loras" class="krea2-lora-stack"></div>
           <details class="krea2-catalog-manager">
             <summary><b>Organiser le catalogue KREA2</b><small>Le classement est partagé avec Batch et Edit</small></summary>
@@ -435,7 +437,7 @@
         </section>
 
         <section>
-          <div class="section-title"><div><h2>3. LoRA de la recette</h2><small>0 à 4 · glisser pour réordonner</small></div></div>
+          <div class="section-title"><div><h2>3. LoRA de la recette</h2><small>0 à 10 · seuls les emplacements utilisés sont affichés</small></div></div>
           <div id="krea2-batch-lora-stack" class="krea2-lora-stack"></div>
           <p class="muted">Une ressource absente reste dans la recette avec un warning et sera ignorée au rendu.</p>
           <details class="krea2-catalog-manager">
@@ -596,7 +598,7 @@
             <label>Steps<input id="krea2-edit-steps" type="number" min="1" max="100" step="1"></label>
             <label>Seed<input id="krea2-edit-seed" type="text" inputmode="numeric" pattern="[0-9]+"></label>
           </div>
-          <div class="section-title"><h3>LoRA généraux</h3><small>0 à 4 · la LoRA technique KREA Edit reste fixe</small></div>
+          <div class="section-title"><h3>LoRA généraux</h3><small>0 à 10 · la LoRA technique KREA Edit reste fixe</small></div>
           <div id="krea2-edit-loras" class="krea2-lora-stack"></div>
           <small id="krea2-edit-fixed-note" class="muted"></small>
           <details class="krea2-catalog-manager">
@@ -896,11 +898,14 @@
                   </div>
                   <small>Ces choix concernent les prochains ajustements, sans modifier le modèle initial.</small>
                 </div>
+                <label class="production-audacity-control">Audace du prochain ajustement <output id="h3r-revision-audacity-value">0/3</output><small>0 standard historique · 1 enrichissement discret · 2 initiative affirmée · 3 rééquilibrage audacieux sans empiler les actions.</small><input id="h3r-revision-audacity" type="range" min="0" max="3" step="1" value="0"></label>
                 <div id="h3r-turns" class="h3-render-turns"><p class="muted">Le premier échange apparaîtra ici.</p></div>
                 <details id="h3r-revision-draft" class="h3-render-revision-draft" hidden>
                   <summary>Candidat refusé conservé comme brouillon</summary>
                   <p id="h3r-revision-error" class="error-text"></p>
+                  <p><b>Le prompt courant n’a pas été modifié.</b></p>
                   <textarea id="h3r-revision-draft-content" rows="8" readonly aria-label="Prompt candidat refusé"></textarea>
+                  <button id="h3r-revision-retry" type="button">Corriger la structure et réessayer · 1 appel LLM</button>
                 </details>
                 <label>Votre retour<textarea id="h3r-message" rows="3" placeholder="Ex. La seconde action commence trop tard ; garde la caméra mais avance-la de deux secondes."></textarea></label>
                 <label class="debug-reasoning-option"><input id="h3r-reasoning" type="checkbox"><span><b>Afficher la trace modèle</b><small>Debug uniquement.</small></span></label>
@@ -972,8 +977,13 @@
         <section>
           <h2>Intention simple</h2>
           <textarea id="ref2vd-intention" rows="8" placeholder="Ex. À partir de ces références, crée un plan continu où le personnage traverse la pièce, prend l’objet puis se retourne vers la caméra." required></textarea>
+          <label id="ref2vd-creative-direction-option" class="quick-mode-option creative-direction-option">
+            <input id="ref2vd-creative-direction" type="checkbox">
+            <span><b>Direction créative <span class="experimental">expérimental</span></b><small>Le Brief choisit une progression visuelle plus ambitieuse ; Plan et Writer restent en recette standard.</small></span>
+          </label>
           <div class="creative-axes-control" aria-describedby="ref2vd-creative-summary">
-            <div class="creative-axes-heading"><b>Liberté créative</b><small>Autorisations indépendantes appliquées seulement si la scène paraît trop vide.</small></div>
+            <div class="creative-axes-heading"><b>Liberté créative</b><small>L’audace fixe l’objectif de nouveauté ; les autres axes indiquent où intervenir.</small></div>
+            <label id="ref2vd-creative-audacity-control" class="creative-audacity-axis"><span>Audace créative<small>Originalité de l’idée-signature</small></span><input id="ref2vd-creative-audacity" type="range" min="0" max="3" step="1" value="2"><output id="ref2vd-creative-audacity-value">2</output></label>
             <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="ref2vd-creative-scene-life" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-scene-life-value">0</output></label>
             <label><span>Caméra<small>Mouvements non demandés</small></span><input id="ref2vd-creative-camera" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-camera-value">0</output></label>
             <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="ref2vd-creative-extra-motion" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-extra-motion-value">0</output></label>
@@ -1144,11 +1154,14 @@
                   </div>
                   <small>Ce choix concerne les prochains ajustements, sans modifier le modèle initial.</small>
                 </div>
+                <label class="production-audacity-control">Audace du prochain ajustement <output id="ref2vr-revision-audacity-value">0/3</output><small>0 standard historique · 1 enrichissement discret · 2 initiative affirmée · 3 rééquilibrage audacieux sans empiler les actions.</small><input id="ref2vr-revision-audacity" type="range" min="0" max="3" step="1" value="0"></label>
                 <div id="ref2vr-turns" class="h3-render-turns"><p class="muted">Le premier échange apparaîtra ici.</p></div>
                 <details id="ref2vr-revision-draft" class="h3-render-revision-draft" hidden>
                   <summary>Candidat refusé conservé comme brouillon</summary>
                   <p id="ref2vr-revision-error" class="error-text"></p>
+                  <p><b>Le prompt courant n’a pas été modifié.</b></p>
                   <textarea id="ref2vr-revision-draft-content" rows="8" readonly aria-label="Prompt Ref2V candidat refusé"></textarea>
+                  <button id="ref2vr-revision-retry" type="button">Corriger la structure et réessayer · 1 appel LLM</button>
                 </details>
                 <label>Votre retour<textarea id="ref2vr-message" rows="3" placeholder="Ex. Garde les références mais rends le mouvement principal plus continu jusqu’à la fin."></textarea></label>
                 <label class="debug-reasoning-option"><input id="ref2vr-reasoning" type="checkbox"><span><b>Afficher la trace modèle</b><small>Debug uniquement.</small></span></label>
@@ -1372,6 +1385,242 @@
       </section>
     </div>
   </main>
+
+  <main id="production-v2-lab-workspace" class="production-v2-workspace" hidden>
+    <aside class="controls production-v2-controls">
+      <div class="title-row">
+        <div><small>PRODUCTION / V2</small><h1>Atelier image → vidéo</h1></div>
+        <span class="experimental">Validation humaine</span>
+      </div>
+      <p class="muted">Calibrez une recette KREA2, créez vos ancres puis testez H3 ou Ref2V en 6 secondes.</p>
+
+      <form id="production-v2-create-form">
+        <section>
+          <h2>Nouveau projet</h2>
+          <label class="prompt-upload production-v2-source-upload" for="production-v2-source">
+            <input id="production-v2-source" type="file" accept="image/png,image/jpeg,image/webp" required>
+            <img id="production-v2-source-preview" alt="Source immuable" hidden>
+            <span><b>＋ Image source immuable</b><small id="production-v2-source-name">PNG, JPEG ou WebP</small></span>
+          </label>
+          <label class="field-label">Nom<input id="production-v2-name" type="text" maxlength="120" required></label>
+          <label class="field-label">Intention vidéo<textarea id="production-v2-intention" rows="6" maxlength="20000" required></textarea></label>
+          <label>Profil mémoire<select id="production-v2-create-memory"></select></label>
+          <button id="production-v2-create-memory-button" class="text-button" type="button" aria-controls="production-v2-create-memory-editor" aria-expanded="false">＋ Nouveau profil mémoire</button>
+          <div id="production-v2-create-memory-editor" class="production-v2-memory-create" hidden>
+            <label>Nom du profil<input id="production-v2-create-memory-name" type="text" maxlength="80" autocomplete="off" placeholder="Ex. SFW cinématique"></label>
+            <div>
+              <button id="production-v2-create-memory-save" type="button">Créer et sélectionner</button>
+              <button id="production-v2-create-memory-cancel" type="button">Annuler</button>
+            </div>
+          </div>
+          <label>Modèle LLM initial<select id="production-v2-initial-llm" required></select></label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="production-v2-initial-llm"> Local · Unsloth</label>
+          <label>Preset<select disabled><option>Exploration humaine</option></select></label>
+          <details class="production-v2-subdetails"><summary>Options vidéo initiales</summary>
+            <div class="production-v2-create-video-options">
+              <label><input id="production-v2-create-music" type="checkbox"> Musique H3</label>
+              <label>Profil vidéo<select id="production-v2-create-video-lora-profile"><option value="standard">Standard</option><option value="lora">LoRA MiniMax</option></select></label>
+              <label>LoRA H3<select id="production-v2-create-video-lora"><option value="">Chargement…</option></select></label>
+              <label>Force<input id="production-v2-create-video-lora-strength" type="number" min="0" max="1" step="0.05" value="0.5"></label>
+              <label><input id="production-v2-create-video-lora-clip" type="checkbox" checked> CLIP Set Last Layer · −2</label>
+            </div>
+          </details>
+          <details class="production-v2-subdetails"><summary>Sécurité thermique</summary>
+            <div class="production-v2-create-video-options">
+              <label>Stop serveur °C<input id="production-v2-create-stop-temp" type="number" min="30" max="110" value="85"></label>
+              <label>Reprise serveur °C<input id="production-v2-create-resume-temp" type="number" min="15" max="100" value="40"></label>
+              <label>Attente minimale (s)<input id="production-v2-create-cooldown" type="number" min="0" max="86400" value="120"></label>
+            </div>
+          </details>
+          <p id="production-v2-create-error" class="error" hidden></p>
+          <button class="primary" type="submit">Créer l’atelier</button>
+        </section>
+        <section class="production-v2-recent">
+          <div class="section-title"><h2>Projets V2 récents</h2><button id="production-v2-landing-refresh" class="text-button" type="button">↻</button></div>
+          <div id="production-v2-landing-project-list"><p class="muted">Aucun projet V2.</p></div>
+        </section>
+      </form>
+
+      <div id="production-v2-sidebar" hidden>
+        <button id="production-v2-new" class="text-button" type="button">＋ Nouveau projet</button>
+        <details id="production-v2-project-section" class="production-v2-step" open>
+          <summary><span><b>1 · Projet</b><small id="production-v2-project-summary"></small></span><em id="production-v2-project-state">Actif</em></summary>
+          <div class="production-v2-step-body">
+            <img id="production-v2-project-source" class="production-v2-sidebar-source" alt="Source immuable">
+            <p id="production-v2-project-intention" class="muted"></p>
+            <label>Profil mémoire actif<select id="production-v2-memory"></select></label>
+            <small>Le changement affecte les prochains candidats sans réécrire l’historique.</small>
+          </div>
+        </details>
+
+        <details id="production-v2-image-section" class="production-v2-step" open>
+          <summary><span><b>2 · Atelier KREA2</b><small id="production-v2-image-summary">Base à trouver</small></span><em id="production-v2-image-state">Actif</em></summary>
+          <div class="production-v2-step-body">
+            <aside id="production-v2-recipe-lock" class="production-v2-lock" hidden></aside>
+            <label>Rôle recherché<select id="production-v2-role">
+              <option value="calibration">Calibration visuelle</option>
+              <option value="first_frame">Première frame</option>
+              <option value="last_frame">Dernière frame</option>
+              <option value="reference">Référence Ref2V</option>
+            </select></label>
+            <div class="production-v2-compact-grid">
+              <label>Candidats<input id="production-v2-count" type="number" min="1" max="6" value="3"></label>
+              <label>MP image<input id="production-v2-image-mp" type="number" min="0.5" max="4" step="0.1" value="0.8"></label>
+            </div>
+            <label>Stratégie du prompt<select id="production-v2-prompt-strategy">
+              <option value="preserve_current">Conserver le prompt actuel</option>
+              <option value="rewrite_once" selected>Réécrire une fois puis conserver</option>
+              <option value="evolve_between">Faire évoluer entre les rendus</option>
+            </select></label>
+            <div class="production-v2-preserve-grid">
+              <label class="production-v2-check"><input id="production-v2-preserve-seed" type="checkbox"> Conserver Seed</label>
+              <label class="production-v2-check"><input id="production-v2-preserve-model" type="checkbox"> Conserver Modèle</label>
+              <label class="production-v2-check"><input id="production-v2-preserve-loras" type="checkbox"> Conserver LoRA</label>
+            </div>
+            <label><span id="production-v2-render-model-label">Checkpoint du candidat 1</span><select id="production-v2-render-model"></select></label>
+            <small>Le checkpoint sélectionné est toujours utilisé par le candidat 1. Si le modèle n’est pas conservé, les suivants sont tirés aléatoirement en favorisant les moins utilisés dans le profil mémoire.</small>
+            <label>Ratio<select id="production-v2-ratio"></select></label>
+            <details class="production-v2-subdetails"><summary>LoRA KREA2</summary>
+              <label class="production-v2-check"><input id="production-v2-lora-assisted" type="checkbox"> Exploration LoRA assistée <span class="experimental">expérimental</span></label>
+              <small>Disponible lorsque les LoRA ne sont pas conservées. Un appel LLM prépare une baseline et des variantes distinctes.</small>
+              <label>Contrainte LoRA<input id="production-v2-lora-instruction" type="text" maxlength="4000" placeholder="Ex. inclure wetness ; éviter les LoRA NSFW…"></label>
+              <div id="production-v2-loras" class="production-v2-loras"></div>
+            </details>
+            <div class="production-v2-section-title"><b>Point de départ</b><button id="production-v2-new-recipe-branch" class="text-button" type="button">Nouvelle branche depuis R1</button></div>
+            <label>Continuer depuis<select id="production-v2-feedback-parent"><option value="">Aucun · nouvelle branche</option></select></label>
+            <label>Guidage visuel transmis au LLM<select id="production-v2-reference-mode">
+              <option value="none">Aucune image</option>
+              <option value="recipe" selected>Source immuable / recette visuelle R1</option>
+              <option value="recipe_and_guidance">R1 + image choisie</option>
+            </select></label>
+            <label id="production-v2-guidance-field">Image de guidage<select id="production-v2-guidance-candidate"><option value="">Choisir une image…</option></select></label>
+            <div class="production-v2-feedback-context">
+            <div id="production-v2-parent-context" class="production-v2-parent-context" hidden>
+              <button id="production-v2-parent-image-button" class="production-v2-image-button" type="button"><img id="production-v2-parent-image" alt="Image utilisée comme feedback"></button>
+              <div><b id="production-v2-parent-title">Candidat parent</b><small id="production-v2-parent-meta"></small></div>
+            </div>
+            <div id="production-v2-krea-chat" class="production-v2-chat"><p class="muted">Choisissez une image pour retrouver les recommandations de sa branche.</p></div>
+            </div>
+            <label>Modèle du prochain échange KREA2<select id="production-v2-krea-llm"></select></label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="production-v2-krea-llm"> Local · Unsloth</label>
+            <label>Direction / feedback<textarea id="production-v2-image-instruction" rows="4" placeholder="Ce que vous voulez explorer ou corriger…"></textarea></label>
+            <div id="production-v2-batch-cost" class="production-v2-batch-cost" aria-live="polite"></div>
+            <button id="production-v2-generate-images" class="primary" type="button">Lancer · 3 rendus KREA2 · 1 appel LLM</button>
+            <small>Aucune recommandation LLM comparative : vous choisissez, likez et commentez.</small>
+          </div>
+        </details>
+
+        <details id="production-v2-video-section" class="production-v2-step">
+          <summary><span><b>3 · Création vidéo</b><small id="production-v2-video-summary">Ancres attendues</small></span><em id="production-v2-video-state">En attente</em></summary>
+          <div class="production-v2-step-body">
+            <div id="production-v2-video-contract" class="production-v2-contract"></div>
+            <p id="production-v2-video-duration-warning" class="h3-render-warnings" hidden></p>
+            <label>Intention vidéo<textarea id="production-v2-video-intention" rows="5" maxlength="20000"></textarea></label>
+            <small>Préremplie depuis le projet. Elle ne modifie pas les images et sera utilisée à la prochaine compilation.</small>
+            <label>Modèle LLM de compilation<select id="production-v2-compile-llm"></select></label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="production-v2-compile-llm"> Local · Unsloth</label>
+            <small>Ce modèle effectue les trois appels Brief → Plan → Prompt. Il est indépendant de KREA2 et des échanges vidéo suivants.</small>
+            <label class="production-audacity-control">Audace de conception <output id="production-v2-creative-audacity-value">3</output><small>0 fidèle · 1 discret · 2 une idée-signature · 3 direction forte. Appliquée au Brief avant le Plan et le Prompt.</small><input id="production-v2-creative-audacity" type="range" min="0" max="3" step="1" value="3"></label>
+            <button id="production-v2-compile" class="primary" type="button">Compiler Brief → Plan → Prompt + preview 0,2 MP</button>
+            <details class="production-v2-subdetails"><summary>Réglages du prochain rendu H3 / Ref2V</summary>
+              <label>Ratio<select id="production-v2-video-ratio"></select></label>
+              <div class="production-v2-compact-grid">
+                <label>Durée (s)<input id="production-v2-video-duration" type="number" min="5" max="15" step="1" value="6"></label>
+                <label>Steps<input id="production-v2-video-steps" type="number" min="1" max="100" value="25"></label>
+                <label>Preview MP<input id="production-v2-video-preview-mp" type="number" min="0.1" max="16" step="0.1" value="0.2"></label>
+                <label>Final MP<input id="production-v2-video-final-mp" type="number" min="0.1" max="16" step="0.1" value="1.2"></label>
+              </div>
+              <div class="production-v2-seed-row"><label>Seed<input id="production-v2-video-seed" type="text" readonly value="À créer"></label><button id="production-v2-video-new-seed" type="button">Nouvelle seed</button></div>
+              <label class="production-v2-check"><input id="production-v2-video-seed-locked" type="checkbox" checked> Figer la seed entre les previews</label>
+              <label class="production-v2-check"><input id="production-v2-video-spectrum" type="checkbox" checked> Spectrum</label>
+              <label class="production-v2-check"><input id="production-v2-video-music" type="checkbox"> Musique</label>
+              <label>Profil vidéo<select id="production-v2-video-lora-profile"><option value="standard">Standard · aucun LoRA</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
+              <label>LoRA H3<select id="production-v2-video-lora"><option value="">Chargement…</option></select></label>
+              <label>Force<input id="production-v2-video-lora-strength" type="number" min="0" max="1" step="0.05" value="0.5"></label>
+              <label class="production-v2-check"><input id="production-v2-video-lora-clip" type="checkbox" checked> CLIP Set Last Layer · −2</label>
+            </details>
+            <div id="production-v2-video-chat" class="production-v2-chat"><p class="muted">Le premier échange vidéo apparaîtra ici après la compilation.</p></div>
+            <details id="production-v2-video-revision-draft" class="h3-render-revision-draft" hidden>
+              <summary>Révision vidéo refusée · prompt courant inchangé</summary>
+              <p id="production-v2-video-revision-error" class="error-text"></p>
+              <p><b>Le prompt courant n’a pas été modifié.</b></p>
+              <textarea id="production-v2-video-revision-draft-content" rows="8" readonly aria-label="Prompt vidéo candidat refusé"></textarea>
+              <button id="production-v2-video-revision-retry" type="button">Corriger la structure et réessayer · 1 appel LLM</button>
+            </details>
+            <label>Modèle du prochain échange vidéo<select id="production-v2-video-llm"></select></label>
+            <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="production-v2-video-llm"> Local · Unsloth</label>
+            <label class="production-audacity-control">Audace du prochain ajustement <output id="production-v2-revision-audacity-value">3</output><small>0 standard historique · 1 enrichissement discret · 2 initiative affirmée · 3 rééquilibrage audacieux sans empiler les actions.</small><input id="production-v2-revision-audacity" type="range" min="0" max="3" step="1" value="3"></label>
+            <label>Message au LLM<textarea id="production-v2-video-instruction" rows="4" placeholder="Expliquez ce qui doit évoluer ou répondez aux questions du modèle…"></textarea></label>
+            <button id="production-v2-revise-video" type="button">Envoyer au LLM</button>
+            <button id="production-v2-render-preview" class="primary" type="button">Lancer un preview 0,2 MP</button>
+            <button id="production-v2-render-final" type="button">Rendu final 1,2 MP</button>
+          </div>
+        </details>
+
+        <details class="production-v2-step">
+          <summary><span><b>Réglages avancés</b><small>Contrat thermique et technique</small></span></summary>
+          <div class="production-v2-step-body">
+            <p><b>Vidéo :</b> 6 s · 25 steps + 3 raffinement · Spectrum ON · final manuel uniquement.</p>
+            <p id="production-v2-thermal-summary"><b>Thermique :</b> stop 85 °C · reprise 40 °C · stabilité 120 s.</p>
+            <small>Ces valeurs sont persistées pour préparer l’automatisation future. Les rendus distants ne sont jamais bloqués par la température du GPU LLM local.</small>
+          </div>
+        </details>
+        <p id="production-v2-action-error" class="error" hidden></p>
+        <button id="production-v2-cancel" type="button">Arrêter l’opération en cours</button>
+        <section class="production-v2-recent">
+          <div class="section-title"><h2>Projets récents</h2><button id="production-v2-refresh" class="text-button" type="button">↻</button></div>
+          <div id="production-v2-project-list"></div>
+        </section>
+      </div>
+    </aside>
+
+    <div class="content production-v2-content">
+      <section id="production-v2-empty" class="results production-empty">
+        <span>◎</span><h2>Un atelier humain avant l’automatisation</h2>
+        <p class="muted">La V1 reste disponible. Ici, chaque recette, préférence, ancre et décision est conservée.</p>
+      </section>
+      <section id="production-v2-project" hidden>
+        <section class="results">
+          <div class="result-head"><div><small id="production-v2-stage">PRODUCTION V2</small><h2 id="production-v2-title">Projet</h2></div><span id="production-v2-status" class="run-status">● Prêt</span></div>
+          <p id="production-v2-message" class="message"></p>
+          <div id="production-v2-llm-traces" class="production-v2-llm-traces" hidden></div>
+        </section>
+        <section class="results">
+          <div class="result-head"><div><small>BASE ET ANCRES VALIDÉES</small><h2>Route vidéo <span id="production-v2-route">PENDING</span></h2></div></div>
+          <div id="production-v2-anchors" class="production-v2-anchor-grid"></div>
+        </section>
+        <section class="results">
+          <div class="result-head"><div><small>ATELIER KREA2</small><h2>Candidats et feedback humain</h2></div></div>
+          <div id="production-v2-candidates" class="production-v2-candidate-workshops"></div>
+        </section>
+        <section id="production-v2-h3-panel" class="results" hidden>
+          <div class="result-head"><div><small>BRIEF · PLAN · PROMPT</small><h2>Trace H3 / Ref2V</h2></div></div>
+          <details><summary>Prompt final courant</summary><pre id="production-v2-h3-prompt"></pre></details>
+          <div id="production-v2-render-progress" class="render-progress-panel" aria-live="polite" hidden>
+            <div><strong id="production-v2-render-progress-phase">Préparation des modèles</strong><output id="production-v2-render-progress-meta">0 % estimé · écoulé 0:00</output></div>
+            <progress id="production-v2-render-progress-bar" max="100" value="0"></progress>
+            <figure class="production-v2-render-live">
+              <figcaption>Aperçu de création</figcaption>
+              <div class="h3-render-media">
+                <img id="production-v2-render-live-preview" alt="Aperçu live du rendu H3" hidden>
+                <span id="production-v2-render-live-empty">En attente des premières images du rendu.</span>
+              </div>
+            </figure>
+            <button id="production-v2-render-cancel" type="button" disabled>Annuler ce rendu</button>
+          </div>
+          <div id="production-v2-previews" class="production-video-grid"></div>
+          <div id="production-v2-final"></div>
+          <details id="production-v2-archives" hidden><summary>Historique vidéo invalidé mais conservé</summary><div id="production-v2-archives-list" class="production-v2-archives-list"></div></details>
+        </section>
+        <section class="history"><div class="result-head"><div><small>JOURNAL DURABLE</small><h2>Décisions et étapes</h2></div></div><ol id="production-v2-events" class="production-events"></ol></section>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="production-v2-image-dialog" class="production-image-dialog">
+    <div class="production-image-dialog-head"><strong id="production-v2-image-dialog-title">Aperçu</strong><button id="production-v2-image-dialog-close" type="button">×</button></div>
+    <img id="production-v2-image-dialog-content" alt="">
+  </dialog>
 
   <main id="production-lab-workspace" class="production-lab-workspace" hidden>
     <aside class="controls production-controls">

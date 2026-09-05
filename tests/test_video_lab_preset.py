@@ -43,6 +43,8 @@ class VideoLabPresetTest(unittest.TestCase):
         )
         self.assertEqual(self.preset.progress_profile.phases[0].node_ids, ("21",))
         self.assertEqual(self.preset.progress_profile.phases[2].node_ids, ("16",))
+        self.assertEqual(self.preset.progress_profile.phases[0].expected_steps, "configured")
+        self.assertEqual(self.preset.progress_profile.phases[2].expected_steps, 3)
         self.assertNotIn("6", workflow)
         self.assertNotIn("30", workflow)
 

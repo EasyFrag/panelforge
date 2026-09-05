@@ -23,6 +23,7 @@ from panelforge.application import (
     PromptCompositionService,
     PromptLabService,
     ProductionService,
+    ProductionV2Service,
     SocialLabService,
     VideoLabRunner,
 )
@@ -70,6 +71,7 @@ from panelforge.infrastructure.storage import (
     LocalPromptCompositionStore,
     LocalProductionLoraMemory,
     LocalProductionJobStore,
+    LocalProductionV2Store,
     LocalRunStore,
     LocalSocialLabStore,
     LocalVideoRunStore,
@@ -237,6 +239,7 @@ def build_app(args: argparse.Namespace):
     prompt_compositions = LocalPromptCompositionStore(args.workspace)
     llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
     production_jobs = LocalProductionJobStore(args.workspace)
+    production_v2_store = LocalProductionV2Store(args.workspace)
     comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-lab-{uuid4().hex}",
@@ -455,6 +458,11 @@ def build_app(args: argparse.Namespace):
         source_prompt_resolver=resolve_social_source_prompt,
     )
     local_gpu_monitor = NvidiaSmiMonitor()
+    production_thermal_monitor = CombinedProductionThermalMonitor(
+        local=local_gpu_monitor,
+        remote=CrystoolsRemoteGpuMonitor(production_monitor_comfy.websocket_url),
+    )
+    production_lora_memory = LocalProductionLoraMemory(args.workspace)
     production = ProductionService(
         gateway=gateway,
         assets=assets,
@@ -463,12 +471,21 @@ def build_app(args: argparse.Namespace):
         prompt_lab=prompt_lab,
         composition=prompt_composition,
         h3_render=h3_render,
-        thermal_monitor=CombinedProductionThermalMonitor(
-            local=local_gpu_monitor,
-            remote=CrystoolsRemoteGpuMonitor(production_monitor_comfy.websocket_url),
-        ),
+        thermal_monitor=production_thermal_monitor,
         lora_resources=krea2_resources,
-        lora_memory=LocalProductionLoraMemory(args.workspace),
+        lora_memory=production_lora_memory,
+    )
+    production_v2 = ProductionV2Service(
+        assets=assets,
+        store=production_v2_store,
+        krea2=krea2_assisted,
+        prompt_lab=prompt_lab,
+        composition=prompt_composition,
+        h3_render=h3_render,
+        thermal_monitor=production_thermal_monitor,
+        gateway=gateway,
+        lora_resources=krea2_resources,
+        lora_memory=production_lora_memory,
     )
     return create_app(
         runner,
@@ -482,6 +499,7 @@ def build_app(args: argparse.Namespace):
         krea2_assisted=krea2_assisted,
         social_lab=social_lab,
         production=production,
+        production_v2=production_v2,
         llm_activity_monitor=gateway,
         model_runtime=LlamaSwapAdminClient(
             args.llm_base_url,

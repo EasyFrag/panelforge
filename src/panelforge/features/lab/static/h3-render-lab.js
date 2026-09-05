@@ -17,8 +17,11 @@
     reasoning: $(`${prefix}-reasoning`), refine: $(`${prefix}-refine`), trace: $(`${prefix}-trace`),
     attempts: $(`${prefix}-attempts`), revisionVersion: $(`${prefix}-revision-version`),
     revisionModel: $(`${prefix}-revision-model`),
+    revisionAudacity: $(`${prefix}-revision-audacity`),
+    revisionAudacityValue: $(`${prefix}-revision-audacity-value`),
     revisionDraft: $(`${prefix}-revision-draft`), revisionError: $(`${prefix}-revision-error`),
     revisionDraftContent: $(`${prefix}-revision-draft-content`),
+    revisionRetry: $(`${prefix}-revision-retry`),
     videoLoraProfile: $(`${prefix}-video-lora-profile`),
     videoLoraFields: $(`${prefix}-video-lora-fields`),
     videoLoraModel: $(`${prefix}-video-lora-model`),
@@ -83,6 +86,7 @@
 
   function inferredDuration(prompt, fallback) {
     const matches = [
+      /aligns with the\s+([0-9]+(?:\.[0-9]+)?)-second mark of the target video/i,
       /one continuous(?: approximately)?\s+([0-9]+(?:\.[0-9]+)?)-second shot/i,
       /target video is(?: approximately)?\s+([0-9]+(?:\.[0-9]+)?)[ -]second/i,
     ];
@@ -94,6 +98,24 @@
     return fallback;
   }
 
+  function renderWarnings() {
+    const warnings = [...(state.project?.warnings || [])];
+    const promptDuration = inferredDuration(elements.prompt?.value || state.project?.current_prompt, NaN);
+    const renderDuration = Number(elements.duration?.value);
+    if (
+      Number.isFinite(promptDuration)
+      && Number.isFinite(renderDuration)
+      && Math.abs(promptDuration - renderDuration) >= 0.001
+    ) {
+      warnings.push(
+        `Prompt compilé pour ${promptDuration} s · rendu configuré pour ${renderDuration} s. `
+        + "Les timestamps et l’ancre finale ne sont pas réécrits automatiquement.",
+      );
+    }
+    elements.warnings.hidden = !warnings.length;
+    elements.warnings.textContent = warnings.join(" · ");
+  }
+
   function syncVideoLoraControls() {
     if (!elements.videoLoraProfile) return;
     const enabled = elements.videoLoraProfile.value === "lora";
@@ -102,6 +124,11 @@
       elements.videoLoraStrengthValue.textContent = Number(elements.videoLoraStrength.value || 0.5).toFixed(2);
     }
     renderControls();
+  }
+
+  function syncRevisionAudacity() {
+    if (!elements.revisionAudacity || !elements.revisionAudacityValue) return;
+    elements.revisionAudacityValue.textContent = `${elements.revisionAudacity.value}/3`;
   }
 
   function hydrateDefaults() {
@@ -160,6 +187,7 @@
         );
       }
     }
+    renderWarnings();
   }
 
   function fillSettings(attempt) {
@@ -182,6 +210,7 @@
       }
       syncVideoLoraControls();
     }
+    renderWarnings();
   }
 
   function setPreviewBlob(blob) {
@@ -456,9 +485,7 @@
       if (rejected) elements.revisionDraft.open = true;
     }
     elements.mode.textContent = `Mode ${project.input_mode.toUpperCase()} · modèle initial ${project.model_id}`;
-    const warnings = project.warnings || [];
-    elements.warnings.hidden = !warnings.length;
-    elements.warnings.textContent = warnings.join(" · ");
+    renderWarnings();
     renderTurns(); renderAttempts(); renderOutput(); renderControls();
     finishRenderProgress(latestAttempt());
   }
@@ -470,11 +497,15 @@
     elements.render.disabled = disabled || !state.project || !elements.prompt.value.trim() || missingLora;
     elements.cancel.disabled = !active || state.busy;
     elements.refine.disabled = disabled || !state.project || !elements.message.value.trim() || !elements.revisionModel?.value;
+    if (elements.revisionRetry) {
+      elements.revisionRetry.disabled = disabled || !state.project?.revision_error || !elements.revisionModel?.value;
+    }
     for (const field of [elements.prompt, elements.ratio, elements.megapixels, elements.duration, elements.steps, elements.seed, elements.seedLock, elements.music, elements.spectrum]) field.disabled = disabled;
     for (const field of [elements.videoLoraProfile, elements.videoLoraModel, elements.videoLoraStrength, elements.videoLoraClip]) {
       if (field) field.disabled = disabled || (field !== elements.videoLoraProfile && elements.videoLoraProfile.value !== "lora");
     }
     if (elements.revisionVersion) elements.revisionVersion.disabled = disabled;
+    if (elements.revisionAudacity) elements.revisionAudacity.disabled = disabled;
     if (elements.revisionModel) {
       elements.revisionModel.disabled = disabled;
       window.PanelForgeModelPicker.setDisabled(elements.revisionModel, disabled);
@@ -561,8 +592,8 @@
     } catch (error) { setStatus(error.message, "error"); }
   }
 
-  async function refinePrompt() {
-    const message = elements.message.value.trim(); if (!message || state.busy || !state.project) return;
+  async function submitPromptRevision(message, { repairRejected = false } = {}) {
+    if (!message || state.busy || !state.project) return;
     state.busy = true; elements.trace.textContent = ""; elements.trace.hidden = !elements.reasoning.checked; renderControls();
     let streamError = "";
     const outcomeTone = core.createLlmOutcomeTone();
@@ -577,6 +608,8 @@
           model_id: elements.revisionModel?.value || state.project.revision_model_id || state.project.model_id,
           feedback_attempt_id: state.project.feedback_attempt_id,
           revision_version: elements.revisionVersion?.value || state.project.revision_version || null,
+          revision_audacity: Number(elements.revisionAudacity?.value || 0),
+          repair_rejected: repairRejected,
         }),
       }, (event) => {
         if (event.kind === "reasoning" && event.text) { elements.trace.textContent += event.text; elements.trace.scrollTop = elements.trace.scrollHeight; }
@@ -585,22 +618,37 @@
       }, { completionTone: false });
       if (streamError) throw new Error(streamError);
       outcomeTone.success();
-      elements.message.value = ""; setStatus("Prompt ajusté", "success");
+      if (!repairRejected) elements.message.value = "";
+      setStatus(repairRejected ? "Structure corrigée" : "Prompt ajusté", "success");
     } catch (error) { outcomeTone.failure(); setStatus(error.message, "error"); }
     finally { state.busy = false; renderControls(); }
+  }
+
+  async function refinePrompt() {
+    await submitPromptRevision(elements.message.value.trim());
+  }
+
+  async function retryRejectedRevision() {
+    await submitPromptRevision(
+      "Corrige la structure de la dernière proposition refusée sans changer mon intention.",
+      { repairRejected: true },
+    );
   }
 
   elements.render.addEventListener("click", renderAttempt);
   elements.cancel.addEventListener("click", cancelAttempt);
   elements.refine.addEventListener("click", refinePrompt);
+  if (elements.revisionRetry) elements.revisionRetry.addEventListener("click", retryRejectedRevision);
   elements.message.addEventListener("input", renderControls);
-  elements.prompt.addEventListener("input", renderControls);
+  elements.prompt.addEventListener("input", () => { renderWarnings(); renderControls(); });
+  elements.duration.addEventListener("input", renderWarnings);
   if (elements.videoLoraProfile) elements.videoLoraProfile.addEventListener("change", syncVideoLoraControls);
   if (elements.videoLoraModel) elements.videoLoraModel.addEventListener("change", renderControls);
   if (elements.videoLoraStrength) elements.videoLoraStrength.addEventListener("input", syncVideoLoraControls);
   if (elements.revisionVersion) elements.revisionVersion.addEventListener("change", () => {
     state.selectedRevisionVersion = elements.revisionVersion.value;
   });
+  if (elements.revisionAudacity) elements.revisionAudacity.addEventListener("input", syncRevisionAudacity);
   if (elements.revisionModel) elements.revisionModel.addEventListener("change", renderControls);
   window.addEventListener(contextEvent, (event) => openContext(event.detail));
   window.addEventListener("beforeunload", () => { stopPolling(); closeSocket(); if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); });

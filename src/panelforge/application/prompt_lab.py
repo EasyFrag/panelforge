@@ -1163,6 +1163,7 @@ class PromptLabService:
         creative_freedom: int,
         *,
         creative_axes: CreativeFreedomAxes | None = None,
+        creative_audacity: int = 0,
         legacy_plan: bool = False,
     ) -> PromptLabSession:
         """Persist and approve a deterministic Brief capsule without an LLM call."""
@@ -1171,6 +1172,7 @@ class PromptLabService:
         exact_source_text = _required_text(source_text, "source_text")
         intention = _inline_text(exact_source_text)
         freedom, axes = _creative_settings(creative_freedom, creative_axes)
+        audacity = _creative_audacity(creative_audacity)
         _, snapshots = _brief_inputs(session)
         reference_lines = []
         for picture_index, reference in enumerate(session.references, 1):
@@ -1219,7 +1221,10 @@ class PromptLabService:
                 "Respect every reference boundary, preserve physical and spatial "
                 "continuity across cuts, and introduce no unsupported visual fact."
             ),
-            f"- LIBERTÉS AUTORISÉES\nCreative freedom {freedom}/100. {policy}",
+            (
+                f"- LIBERTÉS AUTORISÉES\nCreative freedom {freedom}/100. {policy} "
+                f"Creative audacity {audacity}/3. {creative_audacity_policy(audacity)}"
+            ),
             (
                 "- QUESTIONS OU AMBIGUÏTÉS\n"
                 "No interactive recommendation step in Super rapide mode. Resolve "
@@ -1232,6 +1237,7 @@ class PromptLabService:
             content=_normalize_brief_document(content),
             creative_freedom=freedom,
             creative_axes=axes,
+            creative_audacity=audacity,
             references=snapshots,
             origin=RevisionOrigin.MANUAL,
         )

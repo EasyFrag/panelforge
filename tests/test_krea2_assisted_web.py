@@ -92,7 +92,7 @@ class Krea2AssistedWebTest(unittest.TestCase):
     def test_project_chat_and_single_t2i_render(self):
         spec = self.client.get("/api/image-lab/krea2-assisted/spec")
         self.assertEqual(spec.status_code, 200)
-        self.assertEqual(spec.json()["limits"]["lora_count"], 4)
+        self.assertEqual(spec.json()["limits"]["lora_count"], 10)
         model = spec.json()["render_models"][0]["comfy_name"]
         lora = spec.json()["loras"][0]["comfy_name"]
 

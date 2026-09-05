@@ -226,7 +226,7 @@ class H3RenderAttempt:
             output_asset_id=_text(asset_id, "asset_id"),
             keyframes=keyframes,
             error=None,
-            warnings=warnings,
+            warnings=tuple(dict.fromkeys((*self.warnings, *warnings))),
         )
 
     def fail(self, error: str) -> H3RenderAttempt:

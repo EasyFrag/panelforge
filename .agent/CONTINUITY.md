@@ -1449,3 +1449,1002 @@
 ### Risks / open questions
 - L'évaluation Production devra rester un appel LLM unique après rendu et ne devra pas rejouer Brief/Plan/Prompt lors d'une simple révision du prompt final.
 - Les seuils d'acceptation automatique devront être visibles et bornés; la validation humaine restera disponible tant que la boucle mono-projet n'aura pas été éprouvée.
+
+## Update 2026-08-31 — compteurs de steps H3 fiables
+
+### Works
+- La progression H3 Base et Ref2V distingue désormais les vraies passes de diffusion des sous-progressions internes émises par ComfyUI sur les mêmes nœuds.
+- Les recettes déclarent le total attendu : la valeur principale configurée par l'utilisateur, puis 3 steps fixes pour le raffinement haute résolution.
+- Les compteurs parasites comme `3/50` ou `2/6` sont ignorés; l'interface conserve les compteurs réels `25/25` puis `1…3/3`. Spectrum ne change pas ces totaux.
+- Validation : 37 tests ciblés puis 686 tests complets passent; `git diff --check` ne signale aucune erreur.
+
+### Broken / missing
+- Aucun défaut automatisé connu. Un rendu ComfyUI réel doit encore confirmer que toutes les versions installées publient les événements `25/25` et `3/3` dans le même ordre.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et lancer un rendu H3 avec Spectrum OFF puis ON pour vérifier les deux compteurs affichés.
+2. Si le serveur publie un nouveau sous-compteur, conserver la trace WebSocket brute afin de l'ajouter comme cas de test sans modifier les steps du workflow.
+3. Reprendre ensuite le patch Production consacré à la boucle d'évaluation du preview 0,2 MP.
+
+### Risks / open questions
+- Le filtrage est volontairement limité aux ateliers H3 Base/Ref2V, où PanelForge connaît le réglage principal de l'essai. Le Video Lab autonome conserve son comportement historique tant que son relais n'est pas aligné explicitement.
+
+## Audit 2026-09-01 — état du parcours Production V1
+
+### Works
+- Production est un orchestrateur V1 mono-projet borné : source immuable + intention, trois candidats KREA2 conversationnels, sélection visuelle LLM, compilation H3 Base I2VA, puis une à trois previews 0,2 MP évaluées et un nouveau rendu final 1,2 MP avec prompt et seed du preview retenu.
+- Le moteur KREA2 est celui de Création assistée avec le workflow Batch `krea2-community@0.2.0`, son historique conversationnel, son catalogue partagé et les réglages checkpoint/ratio/MP/LoRA. Chaque candidat après le premier utilise le rendu précédent comme feedback d'un nouvel appel LLM.
+- La compilation vidéo utilise le profil/cookbook H3 Base mono `minimax.h3.fl2va.direct@0.3.3`, le Brief créatif optionnel `creative-direction@0.2.0`, le workflow de rendu `minimax-h3-latent-speed@0.1.2`, 25 steps principaux, la révision caméra stable, une seed verrouillée, les LoRA vidéo et la musique OFF par défaut.
+- Full auto sélectionne l'image, évalue chaque preview et peut accepter avant la limite. Human review ajoute un point de validation image puis un point de validation après chaque preview produit. Les étapes échouées sont reprenables sans rejouer les prédécesseurs valides.
+
+### Broken / missing
+- Production ne possède pas encore de champ Spectrum et n'en transmet aucun à H3 Render; les previews et le final sont donc Spectrum OFF.
+- La V1 ne garantit pas trois previews : elle s'arrête dès qu'une évaluation accepte le résultat ou atteint le seuil. En mode humain, la validation vidéo peut revenir jusqu'à trois fois au lieu de constituer un unique second point d'arrêt.
+- Le « final 1,2 MP » est un nouveau rendu H3 depuis le prompt et la seed du preview choisi, pas un upscale direct du fichier vidéo low-res.
+
+### Next steps (max 3)
+1. Ajouter Spectrum à la configuration Production, activé par défaut pour les previews et le final, sans changer le défaut OFF des ateliers H3 Base/Ref2V.
+2. Décider si Production doit toujours produire et noter exactement trois previews avant sélection, ou conserver l'arrêt anticipé actuel en full auto.
+3. Si deux points humains stricts sont retenus, déplacer la validation vidéo après la galerie complète des trois previews et leur comparaison finale.
+
+### Risks / open questions
+- Activer Spectrum uniquement sur les previews puis le couper au final rendrait la comparaison peu fiable; le même réglage devrait être conservé sur toute la série.
+- Forcer trois previews augmente fortement le temps et la chauffe par rapport à l'arrêt anticipé actuel, mais fournit un choix réel et des évaluations comparables.
+
+## Alignment 2026-09-01 — vision Production V2 par ancres
+
+### Works / decisions
+- La cible n'est plus un batch fixe de trois images, mais une recherche itérative de candidats KREA2 organisée par rôle vidéo : `first_frame`, `last_frame` ou `reference` Ref2V.
+- En mode humain, aucun appel LLM de comparaison globale des images n'est requis : l'utilisateur like/dislike, choisit un feedback, ajoute une correction et relance un nouveau lot jusqu'à promouvoir une image dans un rôle.
+- En mode autonome, le LLM doit évaluer les candidats et décider de continuer ou promouvoir une image; chaque boucle automatique conserve une limite stricte.
+- La recherche d'images peut explorer plusieurs checkpoints KREA2 BF16 installés et qualifiés. Checkpoint et pile LoRA peuvent être verrouillés dès le départ ou après une direction convaincante; chaque candidat conserve prompt, modèle, LoRA, seed, parent et feedback.
+- Les rôles dérivent le moteur sans ambiguïté : first seule → I2VA, last seule → L2VA, first + last → FL2VA, référence(s) → Ref2V. La source ou tout candidat validé peut être promu comme ancre/référence.
+- Les previews vidéo restent en 0,2 MP, 25 + 3 steps et Spectrum ON sur toute la série, final compris. En mode humain, chaque nouvelle itération est explicitement demandée et n'a pas besoin de plafond automatique; en full auto, la limite est obligatoire.
+
+### Broken / missing
+- Production V1 ne modélise qu'une image sélectionnée comme first frame I2VA et un checkpoint KREA2 unique par job. Elle ne possède ni branches d'ancres, ni rôles first/last/reference, ni exploration autonome multi-checkpoints.
+- Le like/dislike et les commentaires KREA2 ne sont pas encore une mémoire de recherche Production durable; la recommandation LLM globale est actuellement toujours calculée, même en mode humain.
+
+### Next steps (max 3)
+1. Concevoir un schéma Production V2 séparé et relisible, sans migrer ni altérer les jobs V1 : branches d'ancres, rounds, candidats, préférences et verrouillage checkpoint/LoRA.
+2. Implémenter d'abord le parcours humain KREA2 → promotion first/last/reference, avec dérivation I2VA/L2VA/FL2VA/Ref2V et sans appel comparatif inutile.
+3. Ajouter ensuite la politique autonome bornée et la boucle vidéo Spectrum ON, en réutilisant les ateliers H3 Base/Ref2V existants.
+
+### Risks / open questions
+- Explorer librement tous les checkpoints crée des comparaisons confondues entre prompt et modèle; l'UI doit rendre les réglages de chaque candidat immédiatement visibles et permettre de verrouiller la direction retenue.
+- Une first et une last générées indépendamment peuvent diverger visuellement. La seconde branche devrait pouvoir prendre l'ancre déjà validée comme référence de cohérence.
+
+## Alignment 2026-09-01 — périmètre humain et UX de Production V2
+
+### Works / decisions
+- Production V2 sera une page dédiée `Production / V2`, séparée de l'orchestrateur V1 et de ses historiques. La première version est exclusivement pilotée par validation humaine; le mode autonome reste une cible d'architecture, pas une option active.
+- Les vidéos de calibration utilisent 6 secondes par défaut, preview 0,2 MP, 25 + 3 steps et Spectrum ON. Le rendu 1,2 MP est une action explicite réservée au parcours humain après validation d'un preview.
+- Un futur mode autonome ne devra pas lancer de rendu 1,2 MP tant que cette politique n'est pas réévaluée. Ses limites de boucles resteront obligatoires même si le mode humain peut itérer sans plafond automatique.
+- Le mapping est confirmé : image(s) `reference` → Ref2V; `first_frame`/`last_frame` → H3 Base I2VA/L2VA/FL2VA.
+- La mémoire de préférences devient profilée. Plusieurs profils persistants et sélectionnables (par exemple SFW, NSFW) isolent likes, dislikes, commentaires et effets observés des checkpoints/LoRA. Un candidat conserve toujours le profil actif et les réglages réellement utilisés.
+- Le modèle LLM initial reste choisi au démarrage, mais chaque zone d'échange KREA2 et H3 vidéo possède son propre sélecteur `Modèle du prochain échange`, hérité par défaut et modifiable sans réécrire l'historique.
+- Le panneau gauche utilisera un preset humain simple et des réglages progressifs : projet/source/intention/profil mémoire au départ; paramètres KREA2 au stade image; paramètres H3 au stade vidéo; options techniques et futur contrat d'automatisation dans un volet avancé.
+
+### Broken / missing
+- Aucun schéma V2, profil mémoire, route dédiée ni UI progressive n'est encore implémenté. La V1 reste active avec 10 secondes, son mode full auto et son formulaire monolithique.
+- Le sélecteur de modèle de révision existe déjà dans les ateliers KREA2/H3 autonomes, mais Production V1 ne l'expose pas et réutilise le modèle initial du job pour toutes les opérations.
+
+### Next steps (max 3)
+1. Créer le domaine et le stockage V2 versionnés : projet humain, profils mémoire, branches d'ancres, rounds/candidats et promotion des rôles.
+2. Construire la page dédiée avec preset `Exploration humaine` et paramètres contextuels, puis brancher la recherche KREA2 BF16 et les sélecteurs LLM par échange.
+3. Brancher H3 Base/Ref2V avec preview 6 s Spectrum ON et bouton humain explicite de rendu final 1,2 MP; laisser l'automatisation désactivée.
+
+### Risks / open questions
+- Le profil mémoire actif doit être visible sur chaque round pour éviter qu'un feedback NSFW enrichisse accidentellement un profil SFW. Un changement de profil ne doit jamais reclasser rétroactivement les candidats passés.
+- Les options nécessaires au futur agent doivent rester dans le contrat durable sans encombrer le formulaire humain; l'UI progressive ne doit donc pas supprimer les paramètres avancés du modèle de données.
+
+## Alignment final 2026-09-01 — calibration puis recette visuelle verrouillée
+
+### Works / decisions
+- Les sections du panneau gauche restent toujours accessibles. Elles s'ouvrent au stade courant, puis se replient automatiquement avec un résumé des réglages effectivement utilisés; l'utilisateur peut les rouvrir à tout moment.
+- Production V2 ne propose qu'un preset initial `Exploration humaine`. Il n'existe pas de preset de départ « Fidélité verrouillée ».
+- Les premiers rounds KREA2 servent à calibrer la recette visuelle : checkpoint BF16, pile LoRA et intensités, ratio et mégapixels. Le prompt, la seed et le rôle d'ancre ne font pas partie du verrouillage stylistique.
+- Lorsqu'un candidat convainc, l'utilisateur valide sa recette visuelle. Un snapshot versionné de ces réglages devient le défaut commun des branches suivantes `first_frame`, `last_frame` et `reference`; le déverrouiller crée une nouvelle révision sans altérer les anciens candidats.
+- Le candidat de calibration peut être promu directement comme référence Ref2V, créant un parcours court qui saute la génération d'ancres first/last.
+
+### Broken / missing
+- Ces comportements restent à implémenter dans Production V2; la V1 ne connaît ni recette visuelle validée ni résumé progressif des sections.
+
+### Next steps (max 3)
+1. Patch 1 : domaine/stockage V2, profils mémoire, calibration KREA2, snapshots de recette visuelle et panneau progressif repliable.
+2. Patch 2 : branches first/last/reference, promotion Ref2V courte, compilation vidéo et boucle humaine 6 s Spectrum ON.
+3. Valider chaque patch avec les tests V1 existants afin de garantir l'absence de régression sur les historiques Production actuels.
+
+### Risks / open questions
+- Changer une recette visuelle après création d'une ancre doit afficher clairement que les ancres précédentes appartiennent à une révision différente; aucune mise à jour implicite ne doit les masquer.
+
+## Update 2026-09-01 — Production V2 humaine implémentée
+
+### Works
+- Une page dédiée `Production V2` coexiste avec `Production V1` sans migration ni modification de ses projets. Le parcours est exclusivement humain et commence par une source immuable, une intention, un profil mémoire, un modèle LLM et le preset unique `Exploration humaine`.
+- Les profils mémoire SFW/NSFW et personnalisés sont persistants et isolés. Chaque candidat conserve le profil, le modèle LLM, le prompt, le checkpoint, les LoRA bornées entre -1 et 1, la seed, le parent et le feedback effectivement utilisés.
+- La recherche KREA2 génère 1 à 6 candidats sans appel comparatif LLM en mode humain. L'exploration peut faire tourner plusieurs checkpoints BF16, puis un candidat valide un snapshot versionné checkpoint + LoRA + ratio + mégapixels réutilisé sur les branches suivantes.
+- La source ou un candidat peut être promu en `first_frame`, `last_frame` ou `reference`. Les routes sont dérivées automatiquement : I2VA, L2VA, FL2VA ou Ref2V; le mélange silencieux entre familles H3 Base et Ref2V est refusé.
+- Le déverrouillage de la recette conserve l'historique, archive les prompts/rendus vidéo aval et ouvre une nouvelle calibration au lieu de modifier les anciens essais.
+- La compilation vidéo réutilise les recettes stables H3 Base `0.3.3` ou Ref2V `0.4.0` et exécute Brief, Plan JSON puis Prompt final avec une seconde tentative bornée par étape. Les révisions de preview restent un seul appel LLM avec le modèle sélectionné près de la zone d'échange.
+- Les previews utilisent 6 secondes, 0,2 MP, 25 steps principaux + 3 fixes, Spectrum ON et une seed persistée. Le rendu 1,2 MP est uniquement lancé par une action humaine explicite depuis un preview sélectionné.
+- Le panneau gauche est progressif et repliable : Projet, Recherche d'ancre, Création vidéo et Réglages avancés. Les candidats/ancres sont agrandissables, les réglages restent inspectables et les versions vidéo invalidées restent lisibles.
+- La protection thermique ne bloque KREA2/H3 qu'en fonction du GPU serveur distant : stop 85 °C, reprise sous 40 °C et attente minimale 120 s par défaut, tous paramétrables. La chauffe du GPU local LLM n'empêche pas les rendus distants.
+- Validation finale : compilation Python réussie, `git diff --check` sans erreur de contenu et 697 tests complets passent.
+
+### Broken / missing
+- Le futur mode agent/autonome, ses limites de boucles et l'ordonnancement multi-projets ne sont volontairement pas activés dans cette V2 humaine.
+- Aucun smoke test réel Unsloth/KREA2/H3 n'a été lancé pendant ce patch; les services externes étaient hors du périmètre des tests automatisés.
+- Node.js n'est pas installé dans l'environnement : le JavaScript est couvert par les tests statiques/API mais n'a pas pu être passé dans `node --check`.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et faire un smoke navigateur complet : source → deux rounds KREA2 → verrouillage de recette → promotion d'ancre → compilation → preview 6 s → final explicite.
+2. Tester une route H3 Base puis une route Ref2V sur le serveur réel, notamment Spectrum ON, les LoRA et la restauration des historiques invalidés.
+3. Après calibration humaine, formaliser les décisions observées avant d'ajouter l'agent autonome et la file multi-projets.
+
+### Risks / open questions
+- Les catalogues BF16/LoRA et les custom nodes disponibles varient avec l'installation ComfyUI; un nom présent dans le catalogue doit encore être validé qualitativement sur le serveur.
+- Une last frame générée depuis une first frame peut encore diverger malgré la référence de cohérence; l'efficacité du guidage doit être mesurée sur des cas réels.
+- Le verrou thermique attend un délai minimal depuis son déclenchement puis exige une température sous le seuil de reprise; il ne mesure pas encore une fenêtre continue de 120 secondes sous 40 °C.
+
+## Hotfix 2026-09-01 — saisie des feedbacks Production V2
+
+### Works
+- La galerie de candidats Production V2 n'est plus reconstruite lorsque le polling rapporte exactement le même état. Après la fin du batch, le polling à cinq secondes ne détruit donc plus les zones de feedback.
+- Si un autre candidat passe de `prompting` à `rendering` ou `succeeded` pendant la saisie, le brouillon local, le focus et la position du curseur du textarea actif sont capturés puis restaurés sans scroll forcé.
+- Les brouillons restent isolés par candidat et sont vidés uniquement lors du changement de projet ou du retour au formulaire de création. Le cache du script passe à `production-v2-lab.js?v=20260901.2`.
+- Validation : 31 tests Production V2/Web ciblés passent et `git diff --check` ne signale aucune erreur de contenu.
+
+### Broken / missing
+- Le comportement doit encore être confirmé dans un navigateur pendant un vrai batch KREA2, Node.js n'étant pas disponible pour une validation dynamique du script dans cet environnement.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge ou forcer `Ctrl+F5` pour charger la version `20260901.2`.
+2. Commencer un feedback sur le candidat 1 pendant que les candidats 2/3 avancent, puis vérifier que texte et caret restent stables après leur finalisation.
+3. Continuer ensuite le smoke complet Production V2 jusqu'au preview H3.
+
+### Risks / open questions
+- Les brouillons non validés par Like/Dislike restent volontairement locaux à la page et ne survivent pas à un rechargement complet du navigateur.
+
+## Update 2026-09-01 — Production V2, base souple et ateliers d’ancres
+
+### Works
+- La validation d’un candidat crée désormais une `Base visuelle` versionnée avec son image, son prompt, sa seed, son checkpoint, son ratio, ses mégapixels et ses LoRA. Cette base préremplit les ateliers suivants sans verrouiller les contrôles : checkpoint, MP et pile LoRA restent modifiables.
+- L’historique KREA2 est regroupé dans quatre ateliers repliables : calibration de la base, First frame, Last frame et références Ref2V. Une base ou une ancre validée apparaît dans le bandeau supérieur tandis que sa recherche se replie mais reste consultable.
+- `Feedback suivant` devient `Continuer depuis cette image`. Cette action choisit uniquement la branche de feedback et son rôle; elle ne fige pas le checkpoint et ne désactive pas l’exploration BF16.
+- Chaque candidat terminé peut être relancé à 2,1 MP. Ce clone réutilise exactement le prompt, la seed, le checkpoint, le ratio et les LoRA, sans appel LLM supplémentaire; seule la résolution change et le résultat reste lié au même round.
+- Les candidats de calibration proposent `Valider comme base` et `Utiliser directement en Ref2V`. Les ateliers suivants exposent des promotions contextuelles First frame, Last frame ou référence; Ref2V reste plafonné à neuf références actives.
+- Le mode `Comparaison technique` réutilise le prompt, la seed, le checkpoint et la résolution du candidat parent. Avec `Exploration LoRA assistée`, un seul appel LLM planifie tout le batch : baseline avec les LoRA manuelles, puis variantes avec ajouts distincts pris dans la liste installée et forces strictement bornées entre -1 et 1.
+- La mémoire LoRA expérimentale accepte désormais un `profile_id`. Les hypothèses et observations SFW/NSFW utilisées par Production V2 sont filtrées par profil, tandis que les connaissances déclarées du catalogue restent communes.
+- Les anciens documents Production V2 restent lisibles grâce aux valeurs par défaut des nouveaux champs; Production V1 et ses historiques ne sont pas modifiés par ce parcours.
+- Validation finale : compilation Python réussie, `git diff --check` sans erreur de contenu et 705 tests complets passent.
+
+### Broken / missing
+- Aucun smoke test réel KREA2/Unsloth/H3 n’a été exécuté pendant ce patch. Il faut encore confirmer dans le navigateur le clone 2,1 MP, la galerie repliable et une comparaison LoRA sur les ressources réellement installées.
+- Node.js n’est pas disponible dans l’environnement; le script Production V2 est couvert par les tests statiques et les contrats API, mais n’a pas pu être soumis à `node --check`.
+- Le mode autonome et l’ordonnancement multi-projets restent volontairement hors de cette évolution humaine.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge ou forcer `Ctrl+F5`, puis tester calibration 0,8 MP → `Continuer depuis cette image` → clone 2,1 MP → validation de la base.
+2. Tester un atelier First/Last puis un parcours direct Ref2V et vérifier que les blocs validés se replient sans perdre leur historique.
+3. Lancer une comparaison LoRA assistée à trois candidats avec une contrainte explicite telle que `inclure wetness`, puis liker/disliker sous deux profils mémoire différents.
+
+### Risks / open questions
+- Le clone 2,1 MP transmet la même seed au moteur KREA2, mais le changement de résolution peut naturellement modifier la composition malgré des paramètres identiques.
+- Les choix LoRA du modèle sont limités à la liste exacte découverte sur le serveur; une ressource absente ou mal nommée provoque une erreur explicite plutôt qu’une substitution silencieuse.
+
+## Update 2026-09-01 — Production V2, feedback contextualisé et boucle vidéo H3
+
+### Works
+- `Figer le checkpoint` et `Figer le prompt et la seed` sont désormais deux choix indépendants. Un prompt/seed figé peut encore comparer plusieurs checkpoints BF16; l’exploration LoRA assistée active seulement le gel prompt/seed.
+- `Continuer depuis cette image` restaure le rôle, checkpoint, ratio, mégapixels et toute la pile LoRA réellement utilisée, sans changer le modèle LLM choisi ni les cases de gel. L’image parente, ses réglages et les réponses/recommandations de sa branche sont visibles à côté du feedback.
+- Les ateliers First/Last peuvent être rouverts depuis l’ancre validée; l’ancienne ancre reste active jusqu’à validation de son remplacement. Les emplacements manquants First/Last ouvrent directement l’atelier correspondant.
+- La création vidéo n’expose plus le raccourci ambigu de promotion de la source. L’intention vidéo est modifiable avant compilation; une recompilation explicite archive le prompt H3 et les rendus précédents.
+- Les réglages vidéo Production V2 sont persistants et alignés sur H3/Ref2V : ratio, durée 6 s par défaut, preview 0,2 MP, final 1,2 MP, 25 steps, seed verrouillable/régénérable, Spectrum ON, musique et LoRA MiniMax optionnelles. Chaque preview conserve son snapshot; le final réutilise celui du preview sélectionné en ne changeant que les MP.
+- Le chat vidéo révise le prompt final en un seul appel LLM et n’enchaîne plus automatiquement un rendu coûteux. Les réponses, recommandations, questions et prompts proposés restent consultables.
+- Les lecteurs vidéo ne sont plus reconstruits pendant le polling si les médias n’ont pas changé. Les previews et candidats sont triés par index décroissant, avec trois cartes maximum par ligne.
+- La progression H3/Ref2V est disponible dans Production V2 via le relais WebSocket existant et affiche les vraies passes 25 puis 3, sans doubler les steps lorsque Spectrum est actif.
+- Validation finale : 23 tests ciblés, compilation Python, `git diff --check` et les 710 tests complets passent.
+
+### Broken / missing
+- Aucun smoke navigateur réel KREA2/H3/Ref2V n’a été exécuté pendant ce patch. Node.js reste absent, donc le script n’a pas pu être vérifié avec `node --check`.
+- Le mode autonome et la comparaison qualitative automatique restent volontairement hors de cette V2 humaine.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et tester un round KREA2 pendant la génération en saisissant déjà les feedbacks, puis vérifier le contexte parent et les ateliers First/Last rouverts.
+2. Compiler une intention vidéo corrigée, envoyer un message au chat H3 sans lancer de rendu, puis produire plusieurs previews et vérifier lecture stable, tri décroissant et progression 25/3.
+3. Sélectionner un preview avec LoRA/Spectrum, modifier les réglages du prochain essai, puis confirmer que le final reprend bien le snapshot du preview retenu sauf la résolution finale.
+
+### Risks / open questions
+- Les réponses de chat KREA2 sont relues depuis les projets enfants; un ancien projet enfant supprimé laisse simplement la conversation vide sans casser le projet Production V2.
+- Un changement de statut réel (`queued` → `running` → `succeeded`) reconstruit encore la carte concernée; après succès, le polling de journal seul ne touche plus au lecteur vidéo.
+
+## Hotfix 2026-09-01 — rendu final direct depuis une preview
+
+### Works
+- Chaque preview 0,2 MP terminée expose désormais `Générer en 1,2 MP` directement sur sa carte. L’action transmet l’identifiant de cette preview sans nécessiter une sélection préalable.
+- Le backend réactive le prompt historique du preview choisi et reprend son snapshot complet : seed, ratio, durée, steps, Spectrum, musique et LoRA. Seuls les mégapixels passent à la résolution finale configurée.
+- `Sélectionner` conserve son sens non destructif : il marque la preview pour le feedback visuel des prochains échanges LLM, sans remplacer immédiatement le prompt courant. Le prompt réellement envoyé par chaque preview est maintenant consultable dans ses détails.
+- Validation : compilation Python, `git diff --check` et 24 tests Production V2 ciblés passent.
+
+### Broken / missing
+- Le bouton doit encore être vérifié dans le navigateur sur un rendu H3 réel; Node.js reste indisponible pour `node --check`.
+
+### Next steps (max 3)
+1. Recharger PanelForge et lancer le final depuis une ancienne preview après avoir révisé le prompt courant.
+2. Vérifier dans les détails et le journal que le prompt/seed/LoRA historiques ont été repris.
+3. Confirmer que la preview reste lisible pendant le rendu final et que la progression 25/3 s’affiche.
+
+### Risks / open questions
+- Un rendu final depuis une ancienne preview restaure volontairement son ancien prompt dans le projet H3; les révisions plus récentes restent dans l’historique mais ne pilotent pas ce final.
+
+## Alignment 2026-09-01 — audace de conception et de révision vidéo
+
+### Current state
+- Production V2 compile actuellement le Brief avec une liberté agrégée à 100 et les trois axes à 3/3, mais sans contrôle UX ni variante de Brief créative. La valeur `creative_audacity=2` est codée en dur et le template standard ne consomme pas cette consigne d’audace.
+- Le chat vidéo H3/Ref2V effectue bien un seul appel de révision du prompt final avec mémoire et keyframes, mais ne possède aucun niveau d’audace distinct.
+- H3 Base possède déjà la variante de Brief `creative-direction@0.2.0`; Ref2V n’a pas encore d’équivalent dédié respectant sa grammaire de références.
+
+### Next steps (max 3)
+1. Ajouter à Production V2 une audace de conception 0–3, réglable et à 3 par défaut, puis la persister et l’afficher dans la trace de compilation.
+2. Ajouter une audace de révision 0–3 au prochain échange vidéo, sans appel LLM supplémentaire, avec une politique anti-empilement et conservation des invariants H3/Ref2V.
+3. Réutiliser la variante H3 existante et créer un équivalent Ref2V dédié avant de déclarer les deux routes alignées; différer l’audace KREA2 Production après expérimentation dans KREA Assist.
+
+### Risks / open questions
+- Une audace maximale répétée ne doit pas accumuler mécaniquement de nouvelles actions à chaque tour : le modèle doit pouvoir remplacer ou rééquilibrer l’idée-signature existante.
+- Une modification de caméra en révision doit passer par les directives canoniques compilées et non par de la prose caméra libre.
+
+## Update 2026-09-01 — audace Production V2 implémentée
+
+### Works
+- Production V2 expose maintenant `Audace de conception` de 0 à 3 juste avant `Compiler Brief → Plan → Prompt`, avec 3 par défaut. La valeur est persistée, visible dans le contrat vidéo et son changement invalide explicitement une compilation existante.
+- Les routes H3 Base utilisent réellement `creative-direction@0.2.0` au lieu du Brief standard. Ref2V possède désormais sa propre variante `creative-direction@0.2.0`, qui conserve les rôles, usages et frontières de transfert de ses une à neuf références.
+- Le chat vidéo expose séparément `Audace du prochain ajustement`, de 0 à 3 avec 3 par défaut. La valeur est envoyée dans le même et unique appel LLM, mémorisée dans le projet et inscrite dans le journal durable.
+- La politique de révision demande de rééquilibrer ou remplacer les passages faibles plutôt que d'empiler des actions. Au niveau 3, elle autorise une idée-signature, au plus un effet de soutien et une modification de caméra uniquement via les directives canoniques compilées.
+- Les chats H3 Base/Ref2V existants qui n'envoient pas ce nouveau contrôle conservent leur comportement antérieur : aucune politique d'audace implicite ne leur est ajoutée.
+- Les anciens projets Production V2 migrent sans rupture avec les deux valeurs à 3. Le stockage passe au schéma 4 et le cache navigateur Production V2 à `20260901.7`.
+- Validation : compilation Python, `git diff --check`, 93 tests ciblés puis les 715 tests complets passent.
+
+### Broken / missing
+- Aucun smoke navigateur ou appel réel Unsloth/H3/Ref2V n'a été exécuté pendant ce patch. La réaction qualitative des modèles au niveau 3 doit encore être calibrée sur de vrais previews.
+- L'audace KREA2 Production reste volontairement différée jusqu'à son expérimentation dans KREA Assist.
+
+### Next steps (max 3)
+1. Recharger PanelForge, compiler une route H3 Base puis Ref2V à audace 3 et vérifier que la trace annonce bien la variante créative et le niveau retenu.
+2. Comparer sur une même preview une révision à 0 puis à 3, en demandant de densifier une scène lente, et vérifier que le niveau 3 rééquilibre sans surcharger.
+3. Ajuster les formulations ou les niveaux seulement après comparaison réelle des prompts et vidéos produits.
+
+### Risks / open questions
+- L'audace 3 est volontairement maximale par défaut; selon le modèle LLM, elle peut nécessiter une calibration si l'idée-signature devient trop spectaculaire ou trop dense pour six secondes.
+- La variante Ref2V créative protège explicitement les canaux de référence, mais son respect doit être confirmé avec les modèles locaux réellement utilisés.
+
+## Hotfix 2026-09-01 — hauteur des aperçus KREA2 Production V2
+
+### Works
+- Les cartes de candidats KREA2 ne sont plus limitées à une hauteur fixe de 330 px. Chaque aperçu reprend maintenant le ratio enregistré dans sa recette (`9:16`, `16:9`, carré, etc.) et affiche l'image entière avec `object-fit: contain`.
+- Le contexte compact affiché à côté du feedback conserve volontairement sa hauteur de 150 px afin de ne pas écraser la zone de discussion.
+- Les versions de cache passent à `lab.css?v=20260901.3` et `production-v2-lab.js?v=20260901.8`.
+- Validation : `git diff --check`, 37 tests UI ciblés et les 716 tests complets passent.
+
+### Broken / missing
+- Aucun contrôle visuel dans un navigateur réel n'a été exécuté pendant ce hotfix.
+
+### Next steps (max 3)
+1. Recharger Production V2 et vérifier un batch `9:16` sur une fenêtre large puis étroite.
+2. Confirmer que l'ouverture plein écran et l'aperçu compact du feedback restent pratiques.
+
+### Risks / open questions
+- Sur un écran large, une carte `9:16` est volontairement nettement plus haute; l'historique reste organisé en trois colonnes mais demande davantage de défilement vertical.
+
+## Update 2026-09-01 — modèle LLM dédié à la compilation vidéo V2
+
+### Works
+- La section `Création vidéo` expose désormais `Modèle LLM de compilation` juste avant l'audace et le bouton `Compiler Brief → Plan → Prompt`, avec le sélecteur Local · Unsloth habituel.
+- Le choix est distinct du modèle LLM initial, du prochain échange KREA2 et du prochain échange vidéo. Il est prérempli depuis le modèle initial pour les anciens/nouveaux projets, puis persisté indépendamment pour les recompilations.
+- La session Prompt Lab utilise ce modèle unique pour toute la chaîne de compilation : Brief, Plan JSON et Prompt final. Le journal durable indique le modèle au lancement.
+- Un changement de modèle après une compilation est traité comme un changement de contrat et demande une recompilation explicite; les anciens projets migrent avec leur modèle initial. Le stockage passe au schéma 5 et le cache Production V2 à `20260901.9`.
+- Validation : compilation Python, `git diff --check`, 47 tests ciblés et les 717 tests complets passent.
+
+### Broken / missing
+- Aucun appel LLM réel ni smoke navigateur n'a été exécuté pendant ce patch.
+
+### Next steps (max 3)
+1. Recharger Production V2, choisir un modèle différent dans `Modèle LLM de compilation`, puis lancer une compilation.
+2. Vérifier dans le journal et la trace Prompt Lab que Brief, Plan et Prompt utilisent ce modèle.
+3. Confirmer que les sélecteurs KREA2 et échange vidéo ont conservé leurs choix précédents.
+
+### Risks / open questions
+- Les trois étapes partagent volontairement le même modèle de compilation; un choix séparé par étape n'est pas exposé afin de garder le parcours lisible.
+
+## Diagnostic 2026-09-01 — révision caméra et comportement historique d'audace
+
+### Works
+- Le run `fLYING woman` a été retrouvé. Les deux révisions rejetées ont conservé le prompt H3 courant et n'ont donc pas corrompu le projet.
+- Le LLM avait correctement choisi `arc_shot`, amplitude `large`, vitesse `fast`; les erreurs ont eu lieu à audace 3/3, pas à 0/3.
+
+### Broken / missing
+- Le contrat de révision demande `target_clause` sans expliquer que la valeur doit commencer par une continuation telle que `around`, `following`, `focused on` ou `as`. Qwen a renvoyé les groupes nominaux naturels `the woman flying horizontally over the lake` puis `the flying woman`, que le validateur a rejetés deux fois.
+- Dans Production V2, 0/3 n'est pas le comportement historique : il ajoute une politique stricte « uniquement la correction demandée ». L'ancien comportement sans bloc d'audace n'est actuellement pas sélectionnable dans cette page, même s'il reste utilisé par les parcours qui omettent le paramètre.
+
+### Next steps (max 3)
+1. Aligner le contrat LLM caméra sur la grammaire réellement validée, avec exemples explicites, puis ajouter une récupération bornée pour un groupe nominal évident.
+2. Exposer `Standard (historique)` séparément des niveaux 0–3; conserver 0 comme correction stricte et 3 comme initiative maximale.
+3. Ajouter des tests reproduisant les deux `target_clause` rejetés du run réel.
+
+### Risks / open questions
+- Préfixer automatiquement une cible doit dépendre du mouvement (`around` pour `arc_shot`, `following` pour un tracking, etc.) afin de ne pas modifier arbitrairement l'intention.
+
+## Update 2026-09-01 — niveau 0 historique et diagnostic du gel L2VA
+
+### Works
+- Dans Production V2, `Audace du prochain ajustement = 0` retrouve maintenant exactement le contrat historique : aucun bloc de politique d'audace n'est ajouté à l'appel H3. Les niveaux 1 à 3 conservent leur politique explicite.
+- Le libellé UX et le journal durable indiquent `standard historique` pour le niveau 0. Les instructions `target_clause` et les retries caméra n'ont volontairement pas été modifiés.
+- Le run réel `fLYING woman` a été audité. Sa première ligne L2VA est correcte et les protections `continue_motion`, `final_hold_ms: 0`, `instantaneous sample` et `without a pause, freeze, or held pose` sont bien présentes.
+- Validation : 29 tests Production V2 ciblés puis les 718 tests complets passent.
+
+### Broken / missing
+- Le preview sélectionné demande 6,0 s mais le workflow arrondit 144 frames à 158 pour respecter la contrainte latente `17n+5`, soit 6,583 s effectives à 24 fps. Le prompt et son ancre finale restent pourtant compilés à 6,00 s.
+- Les keyframes du run montrent encore une évolution à 3,27 s, puis des compositions presque identiques à 4,91 s et 6,54 s : l'ancre L2VA est atteinte environ 1,6 s trop tôt malgré le garde-fou textuel.
+- Le Plan possède des étapes à 0 / 1,5 / 3 / 4,5 / 6 s, mais le writer actuel les résume sans timestamps intermédiaires; le prompt final ne contraint donc pas une convergence réellement tardive. La caméra est en outre compilée `at slow speed`.
+
+### Next steps (max 3)
+1. Aligner la durée inscrite dans le header, le Brief/Plan et le prompt H3 sur la durée effective du nombre de frames réellement rendu.
+2. Concevoir un contrat L2VA de convergence tardive qui conserve des jalons temporels intermédiaires et n'atteint la composition exacte que sur la dernière frame, sans changer les règles caméra demandées dans ce tour.
+3. Comparer le même dernier frame avec ce contrat sur une seed figée et vérifier les keyframes de la dernière seconde avant généralisation.
+
+### Risks / open questions
+- Le décalage de 0,583 s explique une partie de la tenue finale, mais pas à lui seul les quelque 1,6 s quasi figées : la convergence L2VA anticipée et la formulation photographique de l'ancre restent les facteurs principaux.
+
+## Update 2026-09-01 — compilation vidéo et preview en un clic
+
+### Works
+- Le bouton Production V2 compile ou recompile désormais `Brief → Plan → Prompt`, puis enchaîne automatiquement la preview avec les réglages vidéo courants, 0,2 MP et Spectrum ON par défaut.
+- L'enchaînement est réalisé dans le même travail backend : il continue pendant les rafraîchissements de page, passe de `h3_compile_preview` à `h3_preview`, puis expose la progression H3 dès que l'essai existe.
+- Le bouton manuel de preview reste disponible après les échanges LLM. `Envoyer au LLM` conserve son fonctionnement de chat multi-round sans lancer automatiquement de rendu.
+- Le libellé du bouton affiche les mégapixels de preview courants et son cache passe à `production-v2-lab.js?v=20260901.10`.
+- Validation : compilation Python, `git diff --check`, 30 tests Production V2 ciblés puis les 719 tests complets passent.
+
+### Broken / missing
+- Aucun appel LLM ni rendu ComfyUI réel n'a été lancé pendant ce patch.
+- La convergence anticipée L2VA et le décalage entre durée demandée et durée effective restent volontairement inchangés.
+- Les contrats `target_clause` et la politique de retry n'ont pas été modifiés.
+
+### Next steps (max 3)
+1. Recharger Production V2 et vérifier qu'un clic compile les trois étapes puis lance bien une preview 0,2 MP sans intervention intermédiaire.
+2. Vérifier qu'après plusieurs échanges `Envoyer au LLM`, aucun rendu ne part avant un clic explicite sur `Lancer un preview`.
+3. Reporter la correction de convergence/durée L2VA à un patch dédié si les essais longs la rendent encore nécessaire.
+
+### Risks / open questions
+- Si la sécurité thermique bloque le lancement après une compilation réussie, le prompt H3 reste disponible et la preview peut être relancée manuellement lorsque le serveur est froid.
+
+## Diagnostic 2026-09-01 — retrait de la last frame sur le dernier run
+
+### Works
+- Le dernier rendu du projet `fLYING woman` est bien compilé en I2VA avec le candidat 21 comme unique `first_frame`; le projet persistant ne contient aucune `last_frame` ni référence.
+- Le workflow ComfyUI de l'essai `attempt-6721832d5dac4068839cc2afda7be244` charge seulement l'asset de first frame. Le nœud de chargement de last frame est absent et les deux entrées `last_frame` des nœuds H3 ont été retirées.
+- Le candidat 20 créé comme `last_frame` et le candidat 21 créé comme `first_frame` ont exactement les mêmes pixels : prompt, seed, checkpoint, résolution et LoRA avaient été figés et sont identiques.
+
+### Broken / missing
+- Aucun reliquat de paramétrage `last_frame` n'a été trouvé. L'UX ne signale toutefois pas qu'un changement de rôle avec prompt et seed figés peut recréer une image pixel pour pixel identique.
+- Le prompt I2VA courant demande un tonneau complet, puis un retour au vol bas avec la main qui retouche l'eau à la fin; cette trajectoire cyclique peut aussi faire ressembler la fin de la vidéo à son image de départ.
+
+### Next steps (max 3)
+1. Si souhaité, afficher un badge `image identique / même recette et seed` lorsqu'un candidat reproduit exactement un candidat antérieur sous un autre rôle.
+2. Décider si un changement de rôle doit seulement avertir ou proposer de déverrouiller la seed, sans modifier automatiquement le comportement actuel.
+
+### Risks / open questions
+- Le rôle `first_frame` ou `last_frame` est une affectation de l'image dans H3; il ne transforme pas l'image KREA2 elle-même. Avec une recette et une seed identiques, les pixels restent donc identiques quel que soit le rôle choisi.
+
+## Update 2026-09-01 — audace du prochain ajustement dans H3 Base
+
+### Works
+- La section `Ajuster avec le LLM` de H3 Base expose maintenant `Audace du prochain ajustement`, de 0 à 3, initialisée à `0/3` et accompagnée des mêmes niveaux lisibles que Production V2.
+- Le niveau 0 est normalisé en absence de politique d'audace, dans la route web comme dans le service H3 : il produit donc exactement le contrat de révision historique. Les niveaux 1 à 3 utilisent le même appel LLM avec leur politique explicite.
+- Le contrôle est volontairement limité à H3 Base; Ref2V conserve son interface et son comportement actuels. Le cache de `h3-render-lab.js` passe à `20260901.1`.
+- Validation : compilation Python, `git diff --check`, 8 tests de révision H3, 19 tests web ciblés et les 720 tests complets passent.
+
+### Broken / missing
+- Aucun smoke navigateur ni appel LLM réel n'a été exécuté pendant ce patch.
+- La valeur choisie reste un réglage du prochain échange dans la page courante; elle n'est pas persistée dans le projet H3 Base.
+
+### Next steps (max 3)
+1. Recharger H3 Base et confirmer que le curseur apparaît à `0/3` dans `Ajuster avec le LLM`.
+2. Comparer un même ajustement à 0 puis à 3 pour calibrer l'effet qualitatif sans modifier le nombre d'appels.
+3. Décider ultérieurement si ce réglage doit aussi être exposé dans Ref2V ou persisté par projet.
+
+### Risks / open questions
+- Le niveau 0 est garanti identique au comportement historique; les niveaux 1 à 3 dépendent toujours de la sensibilité du modèle local aux consignes d'audace.
+
+## Hotfix 2026-09-01 — LoRA KREA2 et lisibilité Production V2
+
+### Works
+- Les retours de chat KREA2 dans Production V2 utilisent maintenant la typographie compacte déjà employée dans les autres conversations KREA2 (`.64rem`, interligne 1.45).
+- Sélectionner une LoRA KREA2 dans un emplacement dont la force vaut 0 initialise automatiquement sa force à 1. La force reste ensuite modifiable et bornée entre −1 et 1; choisir `Aucun` la remet à 0.
+- Activer `Exploration LoRA assistée` impose désormais 3 candidats, au cochage puis au lancement : une baseline manuelle et deux variantes. Le prompt et la seed restent automatiquement figés comme auparavant.
+- Les erreurs de validation FastAPI en liste affichent maintenant leur chemin et leur message précis au lieu du seul `Erreur HTTP 422` / `Unprocessable Entity`.
+- Le run réel `Monstre Poison Ivy` a confirmé que le backend fonctionne : le candidat 14 a été rendu sans LoRA, puis le candidat 15 a réussi avec `krea2/wetness_krea2_loraholic.safetensors` à force 1.0.
+- Les caches passent à `lab.css?v=20260901.4`, `lab-core.js?v=20260901.2` et `production-v2-lab.js?v=20260901.11`. Validation : tests ciblés puis les 721 tests complets passent; `git diff --check` est propre hors avertissements CRLF existants.
+
+### Broken / missing
+- Aucun smoke navigateur n'a été exécuté après rechargement du nouveau frontend; l'application actuellement ouverte doit être redémarrée ou rechargée pour prendre les nouveaux assets.
+- L'erreur 422 originale n'était pas persistée dans le projet. Le dernier état observé avait un batch de 1 candidat, incompatible avec l'exploration assistée qui exige baseline + variante; les nouveaux garde-fous suppriment ce chemin invalide et le détail API restera visible si une autre validation échoue.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge, choisir `wetness` dans un emplacement vide et confirmer que la force passe immédiatement à 1.
+2. Continuer depuis une image, cocher l'exploration assistée et confirmer que le nombre de candidats passe à 3 avant le lancement.
+3. Si une nouvelle erreur apparaît, relever le message désormais détaillé afin d'isoler le champ ou l'appel LLM exact.
+
+### Risks / open questions
+- Une LoRA sélectionnée à force 1 peut être très marquée; la valeur est un défaut d'activation visible, pas un verrou, et peut être réduite avant le rendu.
+
+## Diagnostic 2026-09-01 — contamination last frame vers first frame
+
+### Works
+- Le run `Monstre Poison Ivy` confirme que les rôles et parents sont correctement persistés : la base visuelle vient du candidat 7, la last frame promue du candidat 13 et les candidats 14 à 21 sont bien étiquetés `first_frame`.
+- La cause principale est identifiée : `_consistency_anchor()` choisit volontairement l'ancre temporelle opposée. Les premiers candidats first frame 14 et 15, sans parent, ont donc reçu l'asset de la last frame 13 comme `guidance_asset_id`; le projet KREA2 du candidat 14 le confirme explicitement.
+- La mémoire textuelle SFW n'est pas la source directe du sang dans ce run : elle mélange les observations de tous les rôles, mais `_memory_context()` ne transmet que préférence, rôle, checkpoint, LoRA et commentaire; les commentaires last frame concernés sont vides.
+- Les candidats 19 à 21 sont des comparaisons LoRA techniques : ils recopient exactement prompt et seed du candidat 17 sans appel LLM. Leur instruction `Fait en sorte de faire disparaitre le sang des mains` ne pouvait donc pas réécrire le prompt.
+
+### Broken / missing
+- Une ancre last frame peut contaminer visuellement la création initiale d'une first frame, puis cette contamination se propage par les parents first frame successifs.
+- La mémoire de préférences n'est pas cloisonnée par rôle; même si elle n'a pas transmis le contenu sanglant ici, elle expose des choix last frame lors de la création first frame.
+- Le mode de comparaison LoRA laisse saisir une correction sémantique alors que son contrat fige le prompt et ne peut appliquer cette correction.
+
+### Next steps (max 3)
+1. Séparer la continuité d'identité fournie par la recette de base de la continuité temporelle first/last, et ne plus injecter automatiquement l'ancre opposée comme image de feedback.
+2. Cloisonner le contexte de travail par rôle tout en conservant un profil esthétique global explicite.
+3. Clarifier la comparaison LoRA : correction du prompt avant comparaison ou champ de correction désactivé tant que prompt et seed sont figés.
+
+### Risks / open questions
+- Il reste à décider si l'ancre opposée doit être totalement interdite, optionnelle via une case `cohérence avec l'autre frame`, ou seulement fournie comme contexte faible explicitement annoté.
+
+## Alignement 2026-09-02 — principes UX des itérations KREA2
+
+### Works
+- Direction retenue pour simplifier l'interface : ne plus exposer `Comparaison technique` comme un mode distinct; elle découle des quatre choix explicites `Conserver Prompt`, `Conserver Seed`, `Conserver Modèle` et `Conserver LoRA`.
+- Lorsque `Conserver Prompt` est actif, la conversation de réécriture doit être grisée. L'assistance LoRA reste un appel LLM indépendant et doit être comptée même si prompt et seed sont conservés.
+- Le bouton de lancement doit annoncer dynamiquement le coût logique du batch, par exemple `3 rendus · aucun appel LLM` ou `3 rendus · 1 appel LLM`.
+- Le guidage visuel doit devenir explicite et distinct de la mémoire : aucune image, recette R1 par défaut, ou ancre/candidat choisi; aucune ancre temporelle opposée ne doit être injectée silencieusement.
+
+### Broken / missing
+- L'interface actuelle mélange réécriture narrative, comparaison technique, planification LoRA et guidage visuel, ce qui masque quels appels LLM auront réellement lieu.
+- Le backend courant ne distingue pas encore clairement la référence visuelle commune, le parent de branche et l'ancre temporelle facultative.
+
+### Next steps (max 3)
+1. Définir la matrice exacte des quatre options de conservation et le compteur d'appels LLM associé.
+2. Concevoir un bloc compact `Point de départ / Guidage visuel` avec miniatures et choix explicite `aucune référence`.
+3. Implémenter ensuite l'isolation des branches first/last et l'état `Nouvelle branche depuis R1` dans un patch dédié.
+
+### Risks / open questions
+- `Conserver LoRA` doit signifier conservation exacte; si l'exploration assistée reste autorisée simultanément, son libellé doit indiquer clairement qu'elle ajoute des variantes au-delà de la pile conservée.
+
+## Alignement 2026-09-02 — matrice des appels LLM
+
+### Works
+- Principe retenu pour la future implémentation : la réécriture du prompt est un appel unique au niveau du batch, puis tous les candidats utilisent ce prompt commun; elle ne doit pas être répétée une fois par image.
+- `Conserver Prompt` décoché ajoute 1 appel LLM. `Exploration LoRA assistée` ajoute séparément 1 appel LLM. Les deux ensemble annoncent donc 2 appels, quel que soit le nombre de rendus KREA2 du batch.
+- Le bouton devra afficher `X rendus · Y appels LLM`, avec une infobulle détaillant chaque appel prévu.
+- L'état supérieur devra suivre l'appel actif par son rôle et son avancement. Pour chaque appel, `thinking` disponible et sortie finale devront être persistés et consultables dans des volets repliables, ouverts par défaut sur la possibilité de les inspecter.
+
+### Broken / missing
+- Le backend courant effectue encore la génération de prompt par candidat créatif; il faudra introduire une préparation de batch pour garantir le décompte convenu.
+- Les traces actuelles ne forment pas encore un journal uniforme distinguant réécriture du prompt et planification LoRA.
+
+### Next steps (max 3)
+1. Concevoir l'objet de préparation du batch avec prompt commun et plan LoRA optionnel.
+2. Ajouter le calcul prévisionnel et le détail du coût dans le bouton et l'état global.
+3. Persister pour chaque appel son modèle, son statut, son thinking lorsqu'il existe et sa sortie finale.
+
+### Risks / open questions
+- L'API locale peut ne pas toujours séparer un canal `thinking`; dans ce cas l'interface devra afficher honnêtement `thinking non fourni` plutôt que fabriquer une trace.
+
+## Réalignement 2026-09-02 — stratégie de prompt du batch
+
+### Works
+- Le comportement actuel a été vérifié : chaque candidat créatif déclenche son propre appel LLM avant son rendu, mais tous ces appels repartent du même parent et de la même image de guidage; ils ne forment pas une boucle d'analyse du rendu précédent.
+- Pour éviter deux cases `Conserver Prompt` ambiguës, la proposition devient un choix exclusif à trois états : `Conserver le prompt actuel`, `Réécrire une fois puis conserver`, `Faire évoluer entre les rendus`.
+- Avec 3 rendus, ces états représentent respectivement 0, 1 ou 3 appels de prompt. L'assistance LoRA ajoute indépendamment 1 appel au total affiché.
+- Le mode évolutif devra être une vraie chaîne : chaque appel suivant reçoit le prompt et l'image du candidat précédent.
+
+### Broken / missing
+- Le code actuel ne sait ni partager un nouveau prompt commun entre les candidats, ni chaîner automatiquement le rendu précédent dans le candidat suivant.
+
+### Next steps (max 3)
+1. Remplacer la logique binaire de prompt figé par la stratégie explicite à trois états dans le contrat et l'interface.
+2. Implémenter la préparation unique du prompt commun et le chaînage séquentiel du mode évolutif.
+3. Calculer le nombre exact d'appels, assistance LoRA comprise, avant le lancement.
+
+### Risks / open questions
+- Le mode évolutif est nécessairement plus lent, car appels LLM et rendus deviennent séquentiels; il doit rester optionnel et ne pas être le défaut des comparaisons techniques.
+
+## Alignement 2026-09-02 — presets d'itération
+
+### Works
+- Proposition UX retenue pour le patch : ajouter un menu `Preset d'itération` qui préremplit les contrôles visibles sans créer de mode backend caché ni les verrouiller.
+- Toute modification manuelle d'un contrôle fait passer automatiquement le preset à `Personnalisé`; le coût en rendus et appels LLM est recalculé immédiatement.
+- Presets proposés : `Ajustement standard`, `Comparer les modèles`, `Comparer les LoRA`, `Exploration créative`, puis `Personnalisé`.
+
+### Broken / missing
+- La combinaison exacte des réglages est encore à implémenter et devra rester lisible sous le menu, notamment la stratégie de prompt à trois états et les quatre paramètres conservés.
+
+### Next steps (max 3)
+1. Implémenter le menu comme raccourci de formulaire, sans persister un comportement parallèle aux valeurs explicites.
+2. Définir et tester la matrice de chaque preset et le passage automatique à `Personnalisé`.
+3. Relier le compteur et son infobulle aux valeurs effectives après application ou modification du preset.
+
+### Risks / open questions
+- Le preset `Exploration créative` devrait faire varier prompt et seed tout en conservant modèle et LoRA par défaut, afin de ne pas modifier trop de dimensions simultanément; les comparaisons de modèle et de LoRA restent des presets séparés.
+
+## Implémentation 2026-09-02 — parcours d’itération KREA2 Production V2
+
+### Works
+- Production V2 expose désormais quatre presets qui ne font que remplir des contrôles visibles (`Ajustement standard`, `Comparer les modèles`, `Comparer les LoRA`, `Exploration créative`) et bascule sur `Personnalisé` dès qu’un réglage est modifié.
+- La stratégie de prompt est explicite : conservation du prompt courant (0 appel), réécriture commune au batch (1 appel), ou évolution réellement séquentielle où chaque nouveau prompt reçoit le rendu précédent (1 appel par rendu). L’assistance LoRA ajoute exactement un appel distinct, sans retry caché.
+- `Conserver Seed`, `Conserver Modèle` et `Conserver LoRA` sont indépendants. Une comparaison initiale sans parent peut créer une seed commune; la conservation modèle/LoRA fige la sélection courante, ou restaure la recette/branche lorsqu’elle existe.
+- Le bouton annonce `X rendus KREA2 · Y appels LLM`; son infobulle détaille chaque appel dans son ordre réel. Le statut supérieur affiche l’appel actif et toutes les entrées, références, sorties et traces de thinking disponibles sont persistées dans des volets repliables.
+- Les branches narratives sont cloisonnées par rôle : un parent de feedback doit appartenir au même rôle. Une image d’un autre rôle ne passe que par le guidage visuel explicite (`aucune`, `source/R1`, `R1 + image choisie`). `Nouvelle branche depuis R1` efface parent et guidage secondaire.
+- La mémoire globale ne transmet entre rôles que les préférences checkpoint/LoRA; les commentaires narratifs ne sont fournis qu’au rôle courant. Cela empêche un commentaire Last Frame comme des mains ensanglantées de contaminer automatiquement une First Frame.
+- Les LoRA manuelles restent la baseline de l’exploration assistée; les variantes ajoutées restent bornées entre −1 et 1 et leur mémoire utilise le checkpoint réel de chaque candidat, même si les checkpoints varient dans le même batch.
+- Persistance Production V2 passée au schéma 6 avec compatibilité des anciens projets. Cache frontend passé à `production-v2-lab.js?v=20260902.1` et `lab.css?v=20260902.1`.
+- Validation : 38 tests Production V2 ciblés puis 728 tests complets passent; compilation Python et `git diff --check` sont propres hors avertissements CRLF existants.
+
+### Broken / missing
+- Aucun smoke test manuel dans un navigateur réel n’a été exécuté après le patch; il faut recharger complètement PanelForge pour prendre les nouveaux assets.
+- Le canal `thinking` n’est affiché que si le gateway LLM le fournit réellement; sinon la trace indique explicitement qu’il n’a pas été fourni.
+
+### Next steps (max 3)
+1. Recharger Production V2 et vérifier visuellement les quatre presets, leur coût et le grisage du feedback lorsque le prompt est conservé.
+2. Tester un passage Last Frame → Nouvelle branche First Frame depuis R1, puis ajouter volontairement une ancienne image via le guidage explicite pour comparer les deux comportements.
+3. Tester un batch `Comparer les LoRA` avec une contrainte `inclure wetness` et contrôler dans la trace l’appel unique de planification et les piles réellement rendues.
+
+### Risks / open questions
+- `Faire évoluer entre les rendus` est volontairement séquentiel et donc plus lent; son coût augmente avec le nombre de candidats et reste visible avant lancement.
+- `Ajustement standard` réécrit un prompt commun et utilise de nouvelles seeds afin d’éviter trois sorties déterministes identiques; les presets techniques conservent une seed commune pour rendre la comparaison interprétable.
+
+## Patch 2026-09-02 — aperçu live Production V2 et initialisation Video Lab
+
+### Works
+- L’audit du run `Futuristic moto` confirme que son premier Plan caméra était valide et que le preview a réussi. Les erreurs suivantes venaient de réponses de révision LLM invalides (`target_clause` commençant par `Begin`/`Start`, objet au lieu d’une liste, puis vocabulaire caméra interdit) ; elles ont été rejetées avant persistance et n’ont pas modifié le snapshot utilisé par le rendu final.
+- Production V2 relaie maintenant les previews H3 exactement comme H3 Base : frames WebSocket binaires, `kj_preview_override` en base64 et URLs de preview sont affichés dans un bloc `Aperçu de création` pendant le preview ou le rendu final.
+- Un bouton `Annuler ce rendu` est placé directement dans le panneau de progression. Il réutilise l’annulation Production V2 existante, qui transmet déjà la demande à l’essai H3 actif.
+- L’entrée principale `Video Lab` initialise désormais le menu `Texte Instagram`, comme le faisait déjà son sous-onglet. Les modèles LLM, profils éditoriaux et projets sont donc chargés sans rafraîchissement manuel de la page.
+- Les caches passent à `lab.css?v=20260902.2`, `production-v2-lab.js?v=20260902.2` et `social-lab.js?v=20260902.1`.
+- Validation : 42 tests ciblés puis les 728 tests complets passent ; `git diff --check` ne remonte que les avertissements CRLF préexistants.
+
+### Broken / missing
+- Aucun rendu ComfyUI réel ni smoke test navigateur n’a été lancé pendant ce patch.
+- Le contrat strict des directives caméra et l’absence de retry silencieux restent volontairement inchangés.
+
+### Next steps (max 3)
+1. Recharger PanelForge, lancer un rendu final Production V2 et confirmer que l’aperçu live se met à jour puis que `Annuler ce rendu` interrompt bien l’essai H3.
+2. Ouvrir Video Lab depuis l’onglet principal et vérifier que modèles LLM et profils Instagram apparaissent au premier clic.
+3. Si les rejets caméra restent fréquents sur de nouveaux runs, prévoir un patch séparé sur le contrat de révision plutôt qu’un contournement silencieux.
+
+### Risks / open questions
+- La disponibilité et la fréquence des images live dépendent des événements envoyés par les nœuds ComfyUI ; en leur absence, la progression continue et l’interface indique honnêtement que l’aperçu est en attente.
+
+## Diagnostic 2026-09-02 — rejets des révisions caméra H3
+
+### Works
+- La révision caméra `0.2.0` est transactionnelle : une réponse invalide conserve le prompt et les directives précédents, tout en gardant le candidat comme brouillon. Aucun prompt partiellement invalide n’est envoyé à ComfyUI.
+- Les échecs du run `Futuristic moto` ne viennent ni de l’audace ni d’un seul modèle : les deux modèles sélectionnés ont produit des formes rejetées à température 0,25.
+- Cause racine : le contrat visible par le LLM demande une `spatial or visual continuation`, mais n’énumère ni les préfixes réellement acceptés par `_TARGET_PREFIX`, ni l’interdiction exacte des termes caméra, ni un exemple non-null montrant que `camera_directives` reste toujours une liste.
+
+### Broken / missing
+- Après un rejet, le modèle ne reçoit pas au prochain échange l’erreur précise du validateur. Répéter le même retour ajoute donc un nouveau tour utilisateur, mais ne lui apprend pas comment corriger sa structure.
+- Production V2 montre l’erreur dans le journal, sans rendre le brouillon refusé et sa cause aussi visibles que H3 Base.
+
+### Next steps (max 3)
+1. Aligner le prompt de révision sur le validateur avec préfixes autorisés, termes interdits et exemple JSON valide pour une directive unique.
+2. Ajouter une action utilisateur explicite `Corriger la structure et réessayer`, qui transmet l’erreur et le brouillon dans un appel supplémentaire non silencieux.
+3. Exposer dans Production V2 le brouillon refusé et rappeler que le prompt courant n’a pas été modifié.
+
+### Risks / open questions
+- Un auto-fix sémantique silencieux de `target_clause` pourrait modifier l’intention caméra ; les seules normalisations déterministes sûres sont structurelles, par exemple envelopper un objet unique dans une liste quand un seul token est attendu.
+
+## Patch 2026-09-02 — contrat caméra et réparation explicite
+
+### Works
+- Les recettes de révision caméra H3 Base et Ref2V indiquent maintenant explicitement que `camera_directives` reste toujours un tableau JSON, même pour une seule directive. Le contrat injecté énumère les préfixes `target_clause` acceptés, les termes caméra interdits et un exemple JSON non-null valide.
+- Une réponse contenant un objet unique pour l’unique token caméra est normalisée mécaniquement en liste. Aucune correction sémantique de `target_clause` n’est réalisée : une formulation invalide reste refusée avant persistance.
+- H3 Base, Ref2V et Production V2 affichent le brouillon refusé, l’erreur exacte et la garantie que le prompt courant est inchangé. Le bouton `Corriger la structure et réessayer · 1 appel LLM` déclenche uniquement sur action utilisateur un nouvel appel contenant l’erreur du validateur et le brouillon conservé; aucun retry silencieux n’a été ajouté.
+- Production V2 sérialise désormais les informations de rejet du projet H3 enfant et journalise séparément la correction explicite. Les caches passent à `h3-render-lab.js?v=20260902.1` et `production-v2-lab.js?v=20260902.3`.
+- Validation : 88 tests ciblés puis 731 tests complets passent. La vérification JavaScript avec Node n’a pas pu être exécutée car Node n’est pas installé dans cet environnement; les tests UI statiques passent.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n’a été effectué après ce patch.
+- Le brouillon persistant est le prompt candidat récupéré de la réponse; lorsqu’aucun champ `prompt` ne peut être décodé, la réponse brute bornée est conservée.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge pour prendre les nouveaux assets, puis provoquer une révision caméra invalide et vérifier l’affichage du rejet dans H3 Base et Production V2.
+2. Cliquer sur la correction explicite et vérifier dans les logs qu’un seul nouvel appel LLM est émis et qu’aucun rendu ne démarre automatiquement.
+3. Surveiller les prochains runs pour confirmer que le contrat détaillé réduit les rejets `target_clause` sans assouplir le validateur.
+
+### Risks / open questions
+- Le modèle peut encore produire une clause sémantiquement invalide malgré le contrat détaillé; elle restera volontairement bloquée et nécessitera le bouton explicite.
+- L’enveloppement objet-vers-liste ne s’applique que lorsqu’un seul token caméra est attendu, afin de ne masquer aucune ambiguïté multi-directive.
+
+## Patch 2026-09-02 — durée de rendu non bloquante
+
+### Works
+- L’audit du dernier projet Production V2 confirme que le blocage venait de `configure_video` : toute durée différente de celle utilisée lors de la compilation déclenchait une erreur 422 avant enregistrement. Le projet et ses trois essais étaient donc restés à 6 s.
+- Une modification de durée seule ne force plus la recompilation et ne supprime ni le projet H3 ni les previews existantes. Intention, ratio, modèle LLM de compilation et audace de conception restent des changements structurels exigeant une recompilation.
+- Production V2 affiche immédiatement un avertissement du type `Prompt compilé pour 6 s · rendu configuré pour 10 s`, tout en laissant lancer une nouvelle preview. La recompilation volontaire continue d’archiver l’ancienne version et réaligne Brief, Plan, Prompt et durée.
+- H3 Base et Ref2V utilisent le même avertissement non bloquant. Il est affiché dès la modification du champ et persisté sur l’essai rendu; les avertissements de durée survivent maintenant à la réussite et à l’import des keyframes.
+- Les bornes techniques 5–15 s restent imposées par `VideoLabSettings`. Les caches passent à `h3-render-lab.js?v=20260902.2` et `production-v2-lab.js?v=20260902.4`.
+- Validation : 91 tests ciblés, compilation Python, `git diff --check`, puis 734 tests complets passent. Seuls les avertissements CRLF préexistants sont signalés.
+
+### Broken / missing
+- Aucun smoke test navigateur ni rendu ComfyUI réel n’a été lancé après ce patch.
+- Si un prompt libre n’emploie aucune des formulations de durée reconnues, aucun avertissement n’est fabriqué; le rendu reste autorisé.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge, passer un projet compilé à 6 s vers 10 s et vérifier que l’avertissement apparaît sans erreur 422.
+2. Lancer une preview avec cette durée divergente et confirmer que l’essai conserve le warning dans ses détails.
+3. Tester ensuite `Recompiler` pour vérifier que la nouvelle compilation à 10 s fait disparaître l’avertissement.
+
+### Risks / open questions
+- Allonger un rendu sans recompiler peut produire une fin ralentie ou tenue après les événements minutés; raccourcir peut couper les événements tardifs. Le warning rend désormais ce compromis explicite sans interdire l’expérimentation.
+
+## Patch 2026-09-02 — LoRA actifs visibles sur les candidats Production V2
+
+### Works
+- Chaque carte candidat Production V2 affiche maintenant ses LoRA actifs directement dans l’en-tête replié du volet de métadonnées.
+- L’affichage reste compact : un LoRA par ligne, nom tronqué par ellipsis, force toujours visible et nom complet disponible au survol.
+- Les candidats sans LoRA conservent exactement leur résumé checkpoint/résolution précédent; le détail complet existant reste disponible à l’ouverture.
+- Les caches passent à `lab.css?v=20260902.3` et `production-v2-lab.js?v=20260902.5`.
+- Validation : 42 tests UI ciblés puis 735 tests complets passent; `git diff --check` ne remonte que les avertissements CRLF préexistants.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n’a été effectué pendant ce patch.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge et vérifier une carte avec plusieurs LoRA dans les états ouvert et fermé.
+2. Confirmer sur une carte étroite que les noms longs sont tronqués tandis que les forces restent visibles.
+
+### Risks / open questions
+- Une pile comportant beaucoup de LoRA augmente nécessairement la hauteur du résumé, même si chaque ligne est volontairement très compacte.
+
+## Patch 2026-09-02 — base visuelle assignable directement aux frames
+
+### Works
+- La carte `Base visuelle` de Production V2 propose maintenant deux actions compactes : `First frame` et `Last frame`.
+- Ces actions réutilisent directement le candidat source et l’asset de la recette active; aucun rendu KREA2 ni nouvel asset n’est créé.
+- La promotion passe par le contrat d’ancre existant : une frame du même rôle est remplacée, l’ajout de l’autre frame fait évoluer automatiquement la route vers FL2VA, et les rendus vidéo aval sont invalidés selon la règle existante.
+- Un rôle déjà assigné à la base est indiqué par une coche et désactivé. En route Ref2V, les deux actions sont désactivées avec une explication au survol, car les références doivent être retirées avant de revenir aux ancres H3 Base.
+- Les caches passent à `lab.css?v=20260902.4` et `production-v2-lab.js?v=20260902.6`.
+- Validation : 43 tests UI ciblés puis 736 tests complets passent; `git diff --check` ne remonte que les avertissements CRLF préexistants.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n’a été effectué pendant ce patch.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge et assigner une base seule comme First, puis comme Last, pour vérifier les routes I2VA et L2VA.
+2. Affecter la même base aux deux rôles et vérifier que la route devient FL2VA avec les deux cartes d’ancre visibles.
+3. Vérifier qu’un projet Ref2V explique bien au survol pourquoi ces actions sont temporairement indisponibles.
+
+### Risks / open questions
+- Utiliser exactement la même image en First et Last frame est autorisé; cela peut être utile pour une boucle mais contraindre fortement le mouvement H3 selon le prompt.
+
+## Patch 2026-09-02 — exploration aléatoire équilibrée des checkpoints KREA2
+
+### Works
+- Lorsque `Conserver Modèle` est décoché dans Production V2, la sélection des checkpoints est maintenant effectuée côté serveur par tirage aléatoire pondéré et ne dépend plus de l’ordre alphabétique du catalogue.
+- Le poids favorise fortement les checkpoints les moins utilisés. L’historique est calculé sur tous les candidats Production V2 durables associés au profil mémoire actif, y compris les projets précédents.
+- Les choix sont effectués sans doublon tant que le nombre de BF16 disponibles suffit pour remplir le batch. Si le catalogue ne marque aucun BF16, le pool complet reste le fallback historique.
+- `Conserver Modèle` garde son comportement de verrouillage. L’interface renomme le sélecteur en `Checkpoint manuel` et explique quand le tirage équilibré s’applique.
+- L’API accepte le nouveau drapeau explicite `explore_models`; sa valeur par défaut reste `false` pour préserver les autres appelants et tests existants.
+- Le cache passe à `production-v2-lab.js?v=20260902.7`.
+- Validation : compilation Python, 63 tests ciblés puis 738 tests complets passent; `git diff --check` ne remonte que les avertissements CRLF préexistants.
+
+### Broken / missing
+- Aucun batch KREA2 réel ni smoke test navigateur n’a été lancé pendant ce patch.
+
+### Next steps (max 3)
+1. Recharger PanelForge et lancer plusieurs batches avec `Conserver Modèle` décoché pour confirmer la diversité du catalogue réel.
+2. Vérifier dans deux profils mémoire différents que leurs fréquences de sélection évoluent indépendamment.
+3. Ajuster la force de pondération seulement après observation de plusieurs batches réels.
+
+### Risks / open questions
+- Le calcul relit l’historique des projets Production V2 au lancement d’un batch; le coût restera négligeable au volume actuel mais pourra nécessiter un compteur indexé si plusieurs milliers de projets s’accumulent.
+- Un checkpoint tenté puis échoué compte actuellement comme utilisé, car le compteur mesure l’exposition du modèle plutôt que les seuls succès ou likes.
+
+## Patch 2026-09-02 — création visible des profils mémoire Production V2
+
+### Works
+- Le bouton `Nouveau profil mémoire` n’utilise plus `window.prompt`, qui pouvait être bloqué ou invisible selon le contexte navigateur.
+- Il ouvre maintenant un éditeur directement sous le sélecteur avec un champ de nom et les actions `Créer et sélectionner` / `Annuler`.
+- Le nouveau profil est ajouté via l’API existante, le catalogue est rechargé puis ce profil est automatiquement sélectionné pour le nouveau projet.
+- Entrée valide, Échap ferme, un nom vide utilise la validation native du champ et les doubles soumissions sont bloquées pendant la requête.
+- Les caches passent à `lab.css?v=20260902.5` et `production-v2-lab.js?v=20260902.8`.
+- Validation : 71 tests ciblés puis 739 tests complets passent; `git diff --check` ne remonte que les avertissements CRLF préexistants.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n’a été effectué pendant ce patch.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge, créer un profil depuis le formulaire d’un nouveau projet et vérifier sa sélection immédiate.
+2. Créer un projet avec ce profil, puis confirmer que les futures sélections aléatoires de checkpoints utilisent son historique indépendant.
+
+### Risks / open questions
+- Si la création serveur réussit mais que le rechargement immédiat du catalogue échoue, le profil existera malgré l’erreur affichée et réapparaîtra au prochain chargement.
+
+## Patch 2026-09-02 — démarrage Ref2V sans base préalable
+
+### Works
+- Production V2 permet maintenant de terminer un parcours commencé directement dans l’atelier `Référence Ref2V`, sans passer auparavant par un candidat de calibration.
+- Tant qu’aucune recette visuelle n’est active, chaque candidat `reference` réussi expose `Démarrer Ref2V avec cette référence`. Cette action réutilise le chemin atomique existant : le candidat devient la recette technique interne et la première référence Ref2V.
+- Une fois la recette créée, les candidats suivants retrouvent l’action normale `Ajouter aux références Ref2V`. Les First/Last frames restent indisponibles sans recette active.
+- Le cache passe à `production-v2-lab.js?v=20260902.9`.
+- Validation : 45 tests Production V2 ciblés puis 739 tests complets passent.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n’a été effectué pendant ce patch.
+- Le catalogue LoRA ne possède encore que les dimensions `favorite` et `safety`; la future famille fonctionnelle discutée n’est pas implémentée.
+
+### Next steps (max 3)
+1. Recharger Production V2 et vérifier le nouveau bouton sur un projet sans base contenant des candidats `reference`.
+2. Confirmer que cette action crée une route Ref2V puis que les références suivantes peuvent être ajoutées normalement.
+3. Aligner la taxonomie LoRA avant implémentation : favori indépendant, filtre SFW/NSFW et famille fonctionnelle principale.
+
+### Risks / open questions
+- La recette visuelle existe techniquement après le raccourci, même si l’utilisateur n’a pas effectué une étape de base séparée; elle sert à conserver le checkpoint, le prompt, la seed et les LoRA du candidat initial.
+- Les familles fonctionnelles LoRA doivent rester assez peu nombreuses pour éviter de remplacer une longue liste par une taxonomie tout aussi difficile à parcourir.
+
+## Patch 2026-09-02 — catalogue LoRA fonctionnel et sliders
+
+### Works
+- Le favori LoRA est maintenant indépendant de sa catégorie durable. Le catalogue propose `SFW · Utility`, `SFW · Style`, `SFW · Sliders`, `NSFW · Utility`, `NSFW · Global`, `NSFW · Sliders`, `NSFW · Details`, `NSFW · Poses`, `Other · KREA EDIT — ne pas utiliser` et `Non classé`.
+- L’organisateur en colonnes glissables est remplacé par une liste compacte : nom tronqué, menu de catégorie, étoile de favori et bouton `i`. La popup lit la sidecard locale et expose fichier, hash, base model, trained words, description, lien CivitAI et jusqu’à quatre aperçus chargés uniquement à l’ouverture.
+- Les LoRA techniques KREA Edit restent visibles dans l’organisateur mais sont retirées des sélecteurs et des catalogues transmis à l’exploration LoRA assistée.
+- L’inventaire réel contient 59 LoRA. Les 19 nouveaux fichiers du dossier `sliders` sont classés automatiquement : Cleavage, Underboob, Cum Amount et Penis Size dans `NSFW · Sliders`; les 15 autres dans `SFW · Sliders`.
+- `b3tterbreast` était déjà absent du dossier et n’a donc nécessité aucune suppression. Les classements fonctionnels discutés pour Wetness, styles, global NSFW, détails, poses et autres sliders historiques sont appliqués par défaut et restent modifiables.
+- Les caches passent à `lab.css?v=20260902.6` et `krea2-resource-ui.js?v=20260902.2`. Validation : 60 tests ciblés, compilation Python, inventaire réel, `git diff --check`, puis 740 tests complets passent.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n’a été effectué pendant ce patch.
+- Trois anciens LoRA restent volontairement `Non classés` faute de consigne fonctionnelle : `INSANE_BY_STX_V4`, `Krea_2_zidiusArt_Melancholy_v2` et `we_paint_krea2`.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge et vérifier la densité de la liste ainsi que la popup `i` sur une sidecard réelle.
+2. Tester un favori puis un changement de catégorie pour confirmer que les deux propriétés restent indépendantes dans tous les sélecteurs.
+3. Classer les trois LoRA restants seulement après validation de leur usage réel.
+
+### Risks / open questions
+- Les aperçus de sidecards sont servis par CivitAI et nécessitent donc une connexion au moment où la popup est ouverte; le reste de la fiche reste local.
+
+## Patch 2026-09-02 — fiche LoRA éditable
+
+### Works
+- La popup `i` charge maintenant immédiatement jusqu’à trois images de la sidecard locale au moment de son ouverture. Aucun aperçu distant n’est chargé tant que la fiche reste fermée.
+- Les lignes `Nom`, `Force minimale`, `Force maximale` et `Notes additionnelles` possèdent un crayon. Chaque crayon ouvre le même formulaire d’édition et place le focus sur le champ demandé.
+- Les annotations sont conservées dans l’état PanelForge `krea2_resources.json`; les fichiers `.rgthree-info.json` restent inchangés. Un nom vide restaure le nom de la sidecard, et les forces peuvent être laissées vides.
+- Les forces éditées sont bornées entre −1 et 1 et la sauvegarde refuse une force minimale supérieure à la maximale. Fichier, hash, modèle de base, trained words et description CivitAI restent en lecture seule.
+- Les caches passent à `lab.css?v=20260902.7`, `krea2-resource-ui.js?v=20260902.3` et `20260902.1` pour les quatre consommateurs du catalogue. Validation : 81 tests ciblés, compilation Python, `git diff --check`, puis 740 tests complets passent.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n’a été effectué pendant ce patch.
+- Une sidecard comportant moins de trois images ne peut naturellement afficher que les aperçus disponibles.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge, ouvrir une fiche riche en aperçus et vérifier le rendu des trois images.
+2. Modifier le nom, les forces et les notes, rouvrir la fiche puis confirmer leur persistance.
+
+### Risks / open questions
+- Les aperçus dépendent toujours des URLs CivitAI enregistrées dans la sidecard et peuvent être indisponibles hors connexion.
+
+## Patch 2026-09-03 — fiches checkpoint et sélecteur LoRA KREA2 moderne (patch 1)
+
+### Works
+- Les checkpoints KREA2 disposent maintenant du bouton `i` dans le catalogue. Leur fiche expose fichier, taille, précision, nom, base model, trained words, description, notes, lien CivitAI et jusqu’à trois aperçus chargés uniquement à l’ouverture.
+- Le nom affiché et les notes d’un checkpoint sont éditables localement avec le crayon. Les champs de force restent réservés aux LoRA et sont rejetés par l’API pour un checkpoint.
+- La recherche CivitAI est explicite depuis la fiche : elle utilise le hash déjà présent dans une sidecar, sinon un nom de fichier exactement identique. Une correspondance ambiguë n’est jamais choisie silencieusement et les métadonnées retenues sont mises en cache dans `krea2_resources.json`.
+- Aucun SHA-256 de checkpoint ou de LoRA n’est calculé. Le SHA-256 interne restant ne porte que sur le petit identifiant texte stable de la ressource; les hashes de sidecars existants restent lus sans parcourir les poids.
+- Le sélecteur LoRA KREA2 partagé remplace les quatre menus vides fixes : sans LoRA, seul `+ Ajouter une LoRA` apparaît; la popup permet recherche, filtre de catégorie, favoris et accès à la fiche `i`.
+- Chaque LoRA active occupe une ligne compacte avec nom tronqué, force, fiche et suppression. Les doublons sont exclus et le réordonnancement reste disponible dans Batch.
+- Le composant est branché dans KREA2 Assisted, Batch, Edit, Production V1 et Production V2. La limite fonctionnelle reste volontairement à quatre LoRA dans ce premier patch.
+- Les caches passent à `20260903.1` pour le CSS, le composant de ressources et ses cinq consommateurs. Validation : compilation Python, 66 tests UI ciblés, 18 tests catalogue/API ciblés, `git diff --check`, puis 743 tests complets passent.
+
+### Broken / missing
+- Aucun smoke test navigateur réel n’a été effectué pendant ce patch; Node.js n’est pas installé dans l’environnement pour exécuter un parseur JS séparé.
+- Les checkpoints sans correspondance CivitAI exacte restent avec leur fiche locale et un lien de recherche; aucune sidecar artificielle n’est créée automatiquement.
+- Le passage de quatre à dix LoRA et son alignement complet dans les contrats/domaines restent réservés au patch 2.
+
+### Next steps (max 3)
+1. Recharger complètement PanelForge et tester le sélecteur moderne ainsi que la fiche `i` dans Production V2 puis KREA2 Assisted.
+2. Lancer explicitement la recherche CivitAI sur quelques checkpoints réels et relever les fichiers sans correspondance exacte pour créer leurs sidecars par itération.
+3. Implémenter le patch 2 : pile dynamique jusqu’à dix LoRA KREA2 dans toutes les interfaces et validations serveur concernées.
+
+### Risks / open questions
+- La recherche sans hash dépend du nom de fichier public CivitAI : un fichier renommé peut ne pas être trouvé, tandis qu’un nom dupliqué restera volontairement non résolu.
+- Les aperçus distants restent tributaires de CivitAI et de la connexion au moment de l’ouverture de la fiche.
+
+## Patch 2026-09-03 — premier checkpoint exploratoire et clones image 4 MP
+
+### Works
+- Dans Production V2, décocher `Conserver Modèle` ne remplace plus le checkpoint choisi pour le premier candidat. Le candidat 1 utilise toujours la valeur visible dans le sélecteur; seuls les candidats 2 à X sont tirés aléatoirement en favorisant les checkpoints les moins utilisés.
+- Les checkpoints exploratoires suivants restent sans doublon tant que le catalogue BF16 comporte assez d’alternatives. Si aucune alternative n’existe, le checkpoint choisi est réutilisé.
+- Le formulaire indique dynamiquement `Checkpoint du candidat 1` en exploration et `Checkpoint retenu pour tous les candidats` lorsque le modèle est conservé.
+- Chaque image KREA2 réussie propose maintenant côte à côte les clones `2,1 MP` et `4 MP`. Les deux actions reprennent strictement le prompt, la seed, le checkpoint et la pile LoRA du candidat source, sans appel LLM.
+- L’historique des clones affiche leur résolution réelle au lieu du libellé fixe `clone 2,1 MP`.
+- Le cache Production V2 passe à `production-v2-lab.js?v=20260903.2`. Validation : compilation Python, 67 tests ciblés, `git diff --check`, puis 746 tests complets passent.
+
+### Broken / missing
+- Aucun rendu KREA2 réel ni smoke test navigateur n’a été exécuté pendant ce patch.
+- La pile dynamique jusqu’à dix LoRA n’est pas incluse ici et reste le patch 2 convenu.
+
+### Next steps (max 3)
+1. Recharger complètement Production V2 et confirmer visuellement le checkpoint du candidat 1 sur un batch exploratoire réel.
+2. Lancer un clone 4 MP depuis une image basse résolution et vérifier son coût/temps sur ComfyUI.
+3. Implémenter le patch 2 pour autoriser jusqu’à dix LoRA KREA2 dans toutes les interfaces et validations concernées.
+
+### Risks / open questions
+- Un clone 4 MP est volontairement coûteux; l’action reste explicite et ne fait pas partie d’un batch automatique.
+
+## Patch 2026-09-03 — sélecteurs KREA2 modernes, dix LoRA et traces de compilation (patch 2)
+
+### Works
+- Le checkpoint KREA2 n’est plus un menu natif dans les ateliers concernés : le contrôle compact ouvre un sélecteur recherchable et groupé (`Favoris`, `BF16`, `INT8`, précision inconnue), avec étoile et fiche `i` accessibles à la fois sur la valeur active et dans chaque résultat. Fermer une fiche ouverte depuis le sélecteur rend la main au même sélecteur sans perdre recherche ni position.
+- La pile LoRA KREA2 partagée accepte maintenant de zéro à dix entrées. Seules les lignes actives et le bouton `+ Ajouter une LoRA` sont affichés; recherche, catégories, favoris, fiche `i`, remplacement, suppression et réordonnancement Batch restent disponibles.
+- Les contrats serveur KREA2 Assisted, Batch, Edit, Production V1 et Production V2 acceptent dix LoRA. Les rendus Batch de cinq à dix LoRA convertissent uniquement le graphe compilé historique vers `Power Lora Loader (rgthree)`; KREA2 Edit ajoute les entrées dynamiques au Power Loader déjà présent. Les workflows sources et leurs hashes versionnés restent inchangés.
+- Le menu `Preset d’itération` de Production V2 est supprimé. Les contrôles explicites Conserver Prompt/Seed/Modèle/LoRA et l’indicateur du nombre de rendus/appels LLM restent la seule configuration visible.
+- La compilation vidéo Production V2 conserve une trace durable par tentative pour Brief, Plan JSON et Prompt final. Pendant le streaming, l’appel actif ouvre automatiquement son `Thinking du modèle`; l’entrée, l’output brut et toute erreur de transport ou de validation restent consultables après succès, retry ou échec.
+- Les caches passent à `lab.css?v=20260903.3`, `krea2-resource-ui.js?v=20260903.3` et aux versions datées du jour pour tous les consommateurs modifiés. Validation : compilation Python, 135 tests ciblés, trois tests verticaux des nouveaux chemins, `git diff --check`, puis 752 tests complets passent.
+
+### Broken / missing
+- Aucun smoke test dans un navigateur réel ni rendu ComfyUI à dix LoRA n’a été exécuté pendant ce patch; Node.js n’est pas installé pour un parsing JS indépendant.
+- Le petit atelier T2I KREA2 historique ne possède toujours pas de pile LoRA dans son contrat de rendu; il reçoit le nouveau sélecteur de checkpoint lorsque le catalogue KREA2 partagé est disponible.
+
+### Next steps (max 3)
+1. Redémarrer/recharger complètement PanelForge et vérifier le checkpoint compact `nom + étoile + i` dans Production V2.
+2. Ouvrir le sélecteur LoRA, naviguer fiche → fermer → sélecteur, puis lancer un rendu réel avec cinq LoRA avant de tester une pile de dix.
+3. Lancer une compilation Brief → Plan → Prompt et confirmer que le thinking et l’output brut progressent dans les volets pendant les trois appels.
+
+### Risks / open questions
+- Le support de cinq à dix LoRA repose sur les entrées dynamiques officielles de `Power Lora Loader (rgthree)`; un smoke ComfyUI réel reste nécessaire pour confirmer la version du custom node installée sur la machine.
+- Les fiches et aperçus de checkpoints sans sidecar dépendent toujours d’une correspondance exacte par nom sur CivitAI; aucune ambiguïté n’est résolue automatiquement.
+
+## Audit 2026-09-04 — file KREA2 Assisted et fiche cielbleu
+
+### Works
+- L’interface KREA2 Assisted autorise déjà un nouveau clic dès que la requête de lancement précédente est revenue; les tentatives et leurs réglages sont persistés séparément.
+- La file native ComfyUI et l’annulation ciblée permettent techniquement de soumettre plusieurs rendus sans exécution GPU parallèle.
+- L’inventaire ComfyUI confirme les noms `Krea2/cielbleuKrea2_v1bf16.safetensors` et `Krea2/soliloquy_v2.safetensors`.
+
+### Broken / missing
+- `Krea2AssistedService.queue_attempt` refuse actuellement tout second rendu Assisted tant qu’une tentative quelconque est queued/running/cancel_pending, y compris dans un autre projet. Le second clic peut donc créer une tentative `created`, puis échouer au démarrage au lieu de l’ajouter à la file.
+- L’API rgthree ne retourne aucune métadonnée en cache pour cielbleu ni Soliloquy. La recherche publique CivitAI sur le nom exact `cielbleuKrea2_v1bf16` ne retourne aucune fiche; PanelForge ne peut donc pas inventer ses aperçus.
+
+### Next steps (max 3)
+1. Remplacer le hard stop KREA2 Assisted par une soumission durable à la file ComfyUI et afficher `⚠ Ajouté à la file · position N` lorsque d’autres tentatives sont actives.
+2. Éviter toute tentative `created` orpheline si la soumission échoue, et préciser l’état queued/running dans les cartes.
+3. Ajouter à la fiche ressource un rattachement manuel par URL/ID CivitAI ou des aperçus locaux pour les checkpoints comme cielbleu sans correspondance automatique.
+
+### Risks / open questions
+- Avec plusieurs rendus soumis, le bouton d’annulation global doit viser explicitement le rendu en cours; l’annulation individuelle d’un élément encore en file serait une amélioration utile mais peut rester hors du premier patch.
+- Soliloquy peut tirer ses images d’une sidecar locale ou d’un cache PanelForge antérieur; le workspace du serveur n’était pas actif au moment de l’audit pour confirmer cette provenance exacte.
+
+## Audit 2026-09-04 — couverture des fiches checkpoints KREA2
+
+### Works
+- L’inventaire live ComfyUI contient 28 checkpoints KREA2. Sept sont déjà retrouvés par la recherche exacte actuelle : Artaix, Art Universe, Fascium, ReaKrea2 Turbo, Serendipity, Soliloquy et Solstice.
+- Seize autres fichiers peuvent être rattachés à une fiche publique par recherche de famille, normalisation des suffixes techniques ou inclusion des résultats NSFW : Chimera Center Kroma, CielBleu Krea2, Krea 2 Turbo, les deux Henmix Turbo, Lustify, les familles Moody Amateur/Cutie/Krea2 Mix et RedCraft.
+- La fiche CielBleu Krea2 existe (`model 2812328`, version `3171612`) et expose 20 aperçus. Elle est masquée par défaut dans la recherche API car NSFW, et son fichier public `cielbleuKrea2_v1.safetensors` diffère du nom local `cielbleuKrea2_v1bf16.safetensors`.
+- Les fichiers Kroma v0.2 et v0.3 ont une source exacte et documentée sur Hugging Face (`lodestones/Kroma`), mais pas de fiche CivitAI exacte équivalente trouvée.
+
+### Broken / missing
+- Le résolveur CivitAI actuel ne demande pas les résultats NSFW et n’essaie que le stem brut du fichier avec une égalité stricte du nom; 21 des 28 checkpoints échouent donc aujourd’hui, alors que 16 ont une fiche de famille identifiable.
+- Aucune fiche source fiable n’a été retrouvée pour les deux fichiers Dark Beast ni pour `krea2GPTGrandPUSSYTruth_gptINT4INT8Convrot.safetensors`.
+- Les rattachements Moody Amateur v1 non-BF16 et RedCraft 3.0 restent probables mais non exacts, car leurs noms de fichiers publics diffèrent de ceux installés.
+
+### Next steps (max 3)
+1. Demander les URLs/IDs manuels pour Dark Beast (deux variantes) et GPT Grand PUSSY Truth; demander une fiche CivitAI Kroma seulement si elle est souhaitée à la place de Hugging Face.
+2. Étendre le résolveur par une seconde passe explicite : `nsfw=true`, nom sans suffixes BF16/INT8/FP8 et recherche par famille, avec confirmation en cas d’ambiguïté.
+3. Ajouter les rattachements confirmés au catalogue/sidecars sans calculer de SHA-256 sur les gros checkpoints.
+
+### Risks / open questions
+- Un nom de famille plausible ne prouve pas que le fichier local est byte-identique; les variantes renommées ou quantifiées doivent rester marquées comme rattachements de fiche, pas comme vérifications de hash.
+
+## Patch 2026-09-04 — fiches checkpoints KREA2 via CivitAI.red
+
+### Works
+- Le lecteur de métadonnées utilise maintenant l’API `civitai.red`, inclut explicitement les résultats NSFW et essaie une recherche de famille après le nom de fichier brut. Les suffixes terminaux BF16/FP8/INT8/INT4/ConvRot peuvent être ignorés pour retrouver un fichier public équivalent.
+- Des rattachements explicites, sans calcul de hash, couvrent CielBleu v1, Chimera Center Kroma v2, Dark Beast 3.0, Dark Beast KREA2 FP8 et REDGPT2/KREA2 GPT. Les deux fichiers Dark Beast locaux pointent vers leurs versions distinctes `3173268` et `3078453`.
+- La sécurité retournée par CivitAI est conservée dans le catalogue : les fiches NSFW ouvrent `civitai.red`, les fiches SFW restent sur `civitai.com`. Un rattachement nominal affiche un avertissement indiquant que l’identité binaire n’a pas été vérifiée par hash.
+- Le chemin réel a été testé contre l’API : Dark Beast 3.0, Dark Beast FP8, Chimera, REDGPT2, CielBleu et Henmix retournent chacun la bonne version et trois aperçus. Validation : compilation, tests ciblés, `git diff --check` et 755 tests complets passent.
+
+### Broken / missing
+- Les anciennes recherches négatives déjà présentes dans `workspace/krea2_resources.json` ne sont pas effacées automatiquement; le bouton `Actualiser depuis CivitAI` recharge la fiche avec le nouveau résolveur.
+- Kroma v0.2/v0.3 reste documenté par Hugging Face sans fiche CivitAI exacte connue. Les variantes Moody Amateur non-BF16 et RedCraft renommée restent des rattachements de famille non confirmés.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge, ouvrir les fiches concernées puis utiliser `Actualiser depuis CivitAI` si une ancienne réponse vide est encore affichée.
+2. Confirmer visuellement les trois aperçus de CielBleu, Dark Beast et REDGPT2 dans le sélecteur de checkpoints.
+3. Reprendre séparément le patch de file d’attente KREA2 Assisted demandé précédemment.
+
+### Risks / open questions
+- Les IDs fournis identifient la fiche et la version attendues, mais les fichiers locaux renommés/quantifiés ne sont volontairement pas déclarés byte-identiques sans hash.
+
+## Audit 2026-09-04 — état REF2V et loader Hybrid
+
+### Works
+- Le workflow REF2V `0.2.0` charge bien les poids officiels BF16 `minimax_h3_fl2va_bf16.safetensors` et `minimax_h3_ref2va_bf16.safetensors` avec `MiniMaxH3HybridLoader`, preset `block_range_adaln`, blocs 25 à 49. Le schéma live ComfyUI contient le nœud et les deux poids.
+- Cette configuration correspond au preset courant du loader de Scott Mudge : le code amont expose lui aussi 25–49 par défaut. Le guide Ref2VA épinglé par le profil PanelForge `0.4.0` est octet pour octet identique au guide officiel courant.
+- Le backend partagé sait déjà traiter l’audace de Brief (`creative_audacity`, 0–3) et l’audace des révisions vidéo (`revision_audacity`, 0–3). La valeur de révision 0 conserve le comportement historique.
+
+### Broken / missing
+- L’interface REF2V Direct n’expose pas l’audace créative initiale ni le curseur d’audace des échanges vidéo présent dans H3 Base. Le payload du Brief omet `creative_audacity`; le mode rapide omet aussi ce champ dans son contrat. Les révisions vidéo partent donc implicitement à 0.
+- Le workflow ne constitue pas l’unique recette Hybrid récente : l’implémentation communautaire ANe5s propose une stratégie plus légère 45–49 et n’est pas installée. Elle est alternative, pas démontrée supérieure au preset 25–49 actuel.
+- La surface REF2V reste image-only dans PanelForge. MiniMax Ref2VA officiel accepte aussi des références vidéo/audio; l’UI autorise 1–9 images mais le snapshot du manifeste porte encore 1–3 et la durée publique PanelForge commence à 5 s alors que le cœur de plan accepte 4 s.
+
+### Next steps (max 3)
+1. Ajouter à REF2V Direct la parité d’audace : direction créative du Brief et curseur de révision vidéo `0/3 = standard historique`, y compris le mode rapide et la persistance/hydratation.
+2. Publier une nouvelle version de workflow avec choix explicite de recette (`Hybrid 25–49` actuel, `Hybrid 45–49` expérimental, `Ref2VA natif`) et les comparer à prompt/seed/références identiques avant de changer le défaut.
+3. Harmoniser ensuite les limites déclarées (jusqu’à 9 images, 4–15 s) et décider séparément si les références vidéo/audio entrent dans le périmètre PanelForge.
+
+### Risks / open questions
+- « Plus récent » ne signifie pas « meilleur » : 25–49 transfère davantage de comportement Ref2VA, tandis que 45–49 cherche une influence plus légère. Un A/B réel est nécessaire.
+- Les deux poids BF16 complets sont très lourds; le workflow dépend du chargement dynamique/offload. Une variante préfusionnée ou quantifiée serait un axe de coût/mémoire, pas une mise à niveau qualitative automatique.
+
+## Patch 2026-09-04 — parité d’audace REF2V / H3 Base
+
+### Works
+- REF2V Direct expose maintenant `Direction créative` et le curseur d’audace du Brief comme H3 Base. La direction reste désactivée par défaut; lorsqu’elle est activée, l’audace proposée est 2/3 et la variante `creative-direction@0.2.0` est attachée à la session.
+- Le choix de variante et l’audace sont envoyés lors de la création, conservés lors d’un fork explicite, restaurés à la réouverture et intégrés au contrôle d’obsolescence du Brief. Le mode rapide standard réutilise le même payload.
+- Le chat vidéo REF2V possède désormais `Audace du prochain ajustement`, initialisée à `0/3 = standard historique`; le moteur H3 partagé transmet déjà cette valeur sans changer le comportement par défaut.
+- La route Super Fast accepte et persiste aussi `creative_audacity` dans son Brief déterministe. Le cache de `ref2v-direct.js` passe à `20260904.1`.
+- Le workflow ComfyUI REF2V, le loader Hybrid, les poids BF16 et le preset de blocs 25–49 sont inchangés. Validation : compilation Python, 88 tests ciblés, `git diff --check`, puis 755 tests complets passent.
+
+### Broken / missing
+- Aucun smoke test dans un navigateur réel ni génération REF2V réelle n’a été exécuté pendant ce patch.
+- La direction créative reste volontairement limitée à la recette mono-plan standard, conformément à H3 Base; les recettes multi-plan conservent leur comportement actuel.
+
+### Next steps (max 3)
+1. Redémarrer/recharger complètement PanelForge et vérifier que REF2V affiche les deux curseurs d’audace aux emplacements attendus.
+2. Tester un run supervisé puis un run rapide avec Direction créative activée et confirmer le libellé `audace N/3` dans la session.
+3. Comparer une révision vidéo à 0 puis à 2 ou 3 sur le même prompt REF2V.
+
+### Risks / open questions
+- Une session ayant déjà un Brief conserve son niveau d’audace historique; il faut repartir de ce run pour choisir une nouvelle variante de Brief, comme dans H3 Base.
+
+## Handoff produit 2026-09-05 — contexte difficilement dérivable du code
+
+### Works / décisions produit à préserver
+- Production V2 est actuellement un atelier **human-first** de calibration et d’expérimentation. Le mode automatique/agent est une cible future : conserver états, traces et mémoire compatibles avec cette cible, sans encombrer l’usage humain présent.
+- Parcours voulu : explorer environ 3 candidats KREA2 basse résolution pour trouver une recette visuelle ; commenter/liker chaque candidat ; poursuivre depuis une image avec un feedback général ; valider une recette ; créer indépendamment une First Frame, une Last Frame ou des références Ref2V ; compiler ensuite la vidéo avec les ancres réellement retenues.
+- La recette visuelle transporte l’identité esthétique et technique (checkpoint, LoRA, style, prompt/seed de base), mais pas automatiquement toute la narration d’une branche. Un feedback Last Frame comme « mains ensanglantées » ne doit pas contaminer une nouvelle branche First Frame demandant des mains intactes.
+- Les références entre branches doivent être **explicites et optionnelles** : montrer une autre frame peut préserver une pièce, une identité ou une composition, mais une nouvelle branche depuis la recette R1 doit pouvoir repartir proprement.
+- Contrôles d’itération indépendants : `Conserver Seed`, `Conserver Prompt`, `Conserver Modèle`, `Conserver LoRA`. Une comparaison technique fixe prompt et seed, mais peut explorer plusieurs checkpoints. Si le prompt est conservé, l’échange LLM est grisé ; l’exploration LoRA assistée reste un appel LLM si les LoRA ne sont pas conservées.
+- En exploration de checkpoints, le candidat 1 utilise toujours le checkpoint choisi ; seuls les suivants sont randomisés, avec préférence pour les modèles les moins souvent essayés dans le profil mémoire actif.
+- Ordre visuel : plus récent en haut à gauche ; vidéos limitées à 3 cartes par ligne. Pour KREA2, des IDs historiques 1/2/3 s’affichent donc 3/2/1.
+- Chaque candidat image doit pouvoir être relancé à réglages strictement identiques en 2,1 MP ou 4 MP. `Continuer depuis cette image` restaure checkpoint, résolution, LoRA, etc., et montre une copie de l’image près du feedback.
+- Une base visuelle peut être affectée directement comme First Frame ou Last Frame. Une candidate peut aussi partir directement en Ref2V sans base préalable. `Utiliser directement cette image comme référence` signifie Ref2V ; First/Last restent le parcours H3 Base.
+- Une recherche First/Last validée se replie mais doit pouvoir être rouverte. La carte `Base visuelle` est une recette/contexte et ne doit pas devenir silencieusement une entrée vidéo supplémentaire quand First/Last sont définies.
+- Plusieurs profils mémoire sont indispensables, notamment SFW et NSFW. Le profil reste généralement stable dans un projet, avec possibilité secondaire de le changer.
+- Le modèle LLM est choisi initialement puis peut changer à chaque nouvel échange KREA ou vidéo, sans réécrire l’historique. Les réponses doivent former un petit chat : changements recommandés, questions restantes, thinking/output repliables et visibles pendant le streaming.
+- Contrat caméra : ne pas corriger silencieusement une `target_clause` sémantiquement invalide et ne pas retenter silencieusement. Rejeter transactionnellement, conserver le prompt courant, montrer le brouillon et l’erreur exacte, puis laisser l’utilisateur relancer. Une normalisation structurelle sûre reste acceptable.
+- Sémantique de l’audace : `0/3` signifie toujours comportement historique. Elle autorise une mise en scène plus remplie quand la vidéo est trop lente, sans empiler mécaniquement des actions. H3 Base et Ref2V Direct gardent la direction créative désactivée par défaut ; activée, la proposition initiale est 2/3. Ne pas homogénéiser silencieusement les valeurs historiques de Production V2 sans discussion.
+- Pour les tests : durée vidéo par défaut 6 s, previews Production V2 0,2 MP avec Spectrum ON, final 1,2 MP déclenché humainement. Changer la durée sans recompiler produit un warning, jamais un hard stop.
+- Le ralentissement/gel final en L2VA 6 s est connu : H3 converge trop tôt vers la Last Frame. Décision actuelle : ne pas patcher ; défaut jugé moins gênant sur des durées longues.
+- Le polling/refresh ne doit jamais voler le focus des textareas ni recharger les médias. C’est un point de régression important.
+- UI progressive à gauche : `Projet` toujours visible ; `Recherche d’ancre` pendant KREA2 ; `Création vidéo` après validation ; `Réglages avancés` fermé. Un panneau replié conserve un résumé compact des réglages utilisés.
+- LoRA : favoris indépendants des catégories ; sélecteur avec recherche/catégorie/favori/info ; fermer `i` revient au sélecteur au même filtre/scroll ; jusqu’à 10 LoRA, uniquement les lignes actives puis `+`. Résumé : un LoRA par ligne, nom tronqué + force, nom complet au survol.
+- Taxonomie demandée : SFW Utility/Style/Sliders ; NSFW Utility/Global/Sliders/Details/Poses ; `Other - KREA EDIT - do not use` ; Unclassified. `Realism Engine Ideogram 4 + Krea 2 v3` est NSFW malgré son nom. Ne calculer automatiquement le SHA-256 ni des gros checkpoints ni des LoRA.
+- Ref2V Hybrid doit rester inchangé pour le moment : loader Scott et plages actuelles. La demande est la parité UI/audace avec H3 Base, **pas** un changement de Hybrid.
+
+### Broken / missing
+- Le patch Ref2V audace a 755 tests verts, mais aucun smoke navigateur/Comfy réel n’a validé les chemins standard, rapide et une vraie génération Hybrid.
+- La file d’un second rendu KREA2 Assisted pendant qu’un rendu tourne reste à faire : soumission durable à Comfy, message `Ajouté à la file · position N`, états queued/running explicites et annulation ciblée sans tentative orpheline.
+- Plusieurs composants récents (jusqu’à 10 LoRA, navigation `i`, profils mémoire, progression/annulation des finals) restent sensibles aux essais navigateur réels malgré les tests.
+- Les caches CivitAI négatifs anciens demandent parfois un rafraîchissement manuel. Kroma v0.2/v0.3 n’a pas de fiche exacte connue. Trois LoRA restent à classer : `INSANE_BY_STX_V4`, `Krea_2_zidiusArt_Melancholy_v2`, `we_paint_krea2`.
+- Ref2V reste image-only dans l’UI ; vidéo/audio, manifeste 1–9 et minimum 4 s sont des évolutions possibles, pas des priorités validées.
+
+### Next steps (max 3)
+1. Redémarrer/recharger et faire un smoke navigateur + une vraie génération Ref2V : direction créative ON/OFF, révision audace 0 puis 2/3, chemin rapide, Hybrid inchangé.
+2. Tester réellement une pile de 5–10 LoRA, le retour fiche `i` → sélecteur et la création/changement de profil mémoire.
+3. Implémenter ensuite la queue KREA2 Assisted si la priorité est confirmée.
+
+### Risks / open questions
+- Worktree actif : `D:\Code\localQ\.panelpatch`, très sale avec des changements utilisateur accumulés. Ne rien reset/revert et garder les diffs petits.
+- Des tests verts ne garantissent ni un asset JS rafraîchi dans le navigateur ni le comportement d’un flux Comfy réel.
+- La séparation mémoire esthétique/narrative par branche est une intention forte, mais son interface et sa persistance ne sont pas encore entièrement spécifiées.

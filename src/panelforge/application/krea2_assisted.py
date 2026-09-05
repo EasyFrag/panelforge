@@ -828,6 +828,7 @@ def _resource_memory(models: tuple[object, ...], loras: tuple[object, ...]) -> s
         getattr(value, "comfy_name", "")
         for value in loras[:80]
         if getattr(value, "comfy_name", "")
+        and getattr(value, "selectable", True)
     ]
     return (
         "CHECKPOINTS:\n- "

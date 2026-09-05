@@ -18,6 +18,7 @@ class RenderProgressPhase:
     start_percent: float
     end_percent: float
     tracks_steps: bool
+    expected_steps: int | str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +92,17 @@ def validate_render_progress_profile(
         tracks_steps = raw.get("tracks_steps", False)
         if not isinstance(tracks_steps, bool):
             raise error_type(f"{label}.tracks_steps must be a boolean")
+        expected_steps = raw.get("expected_steps")
+        if expected_steps is not None:
+            if isinstance(expected_steps, bool) or not (
+                isinstance(expected_steps, int) and expected_steps > 0
+                or expected_steps == "configured"
+            ):
+                raise error_type(
+                    f"{label}.expected_steps must be a positive integer or 'configured'"
+                )
+            if not tracks_steps:
+                raise error_type(f"{label}.expected_steps requires tracks_steps")
         phases.append(RenderProgressPhase(
             phase_id=phase_id,
             label=phase_label,
@@ -98,6 +110,7 @@ def validate_render_progress_profile(
             start_percent=start,
             end_percent=end,
             tracks_steps=tracks_steps,
+            expected_steps=expected_steps,
         ))
     return RenderProgressProfile(
         initial_phase_id=initial_phase_id,

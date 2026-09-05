@@ -239,7 +239,7 @@ def _loras_from_list(value: object) -> tuple[Krea2LoraSelection, ...]:
     if not isinstance(value, list):
         return ()
     result: list[Krea2LoraSelection] = []
-    for raw in value[:4]:
+    for raw in value[:10]:
         if not isinstance(raw, Mapping):
             continue
         name = _optional_text(raw.get("name"))

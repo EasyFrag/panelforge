@@ -87,6 +87,15 @@ class ValidatedKrea2EditWorkflow:
                     "lora": "None",
                     "strength": 0,
                 }
+        for index, lora in enumerate(settings.loras[len(self.lora_inputs):], start=len(self.lora_inputs) + 1):
+            # Power Lora Loader accepts dynamic optional lora_N inputs. The
+            # source graph keeps its original four exported rows while the
+            # compiled job may carry up to the domain limit of ten.
+            lora_inputs[f"lora_{index}"] = {
+                "on": True,
+                "lora": lora.name,
+                "strength": lora.strength,
+            }
         return workflow
 
 

@@ -85,11 +85,38 @@ class ValidatedKrea2BatchWorkflow:
         for name, value in values.items():
             binding = self.inputs[name]
             workflow[binding.node_id]["inputs"][binding.input_name] = value
-        for index, slot in enumerate(self.lora_slots):
-            lora = settings.loras[index] if index < len(settings.loras) else None
-            inputs = workflow[slot.node_id]["inputs"]
-            inputs[slot.name_input] = lora.name if lora is not None else "None"
-            inputs[slot.strength_input] = lora.strength if lora is not None else 0.0
+        if len(settings.loras) <= len(self.lora_slots):
+            for index, slot in enumerate(self.lora_slots):
+                lora = settings.loras[index] if index < len(settings.loras) else None
+                inputs = workflow[slot.node_id]["inputs"]
+                inputs[slot.name_input] = lora.name if lora is not None else "None"
+                inputs[slot.strength_input] = lora.strength if lora is not None else 0.0
+        else:
+            # The historical graph exports rgthree's deprecated four-slot stack.
+            # Its model/clip outputs are compatible with Power Lora Loader, whose
+            # optional inputs are intentionally dynamic. Upgrade only the compiled
+            # job when the user needs more than four entries; the immutable source
+            # workflow and its hash remain untouched.
+            node_ids = {slot.node_id for slot in self.lora_slots}
+            if len(node_ids) != 1:
+                raise ValueError("extended KREA2 LoRA stacks require one shared loader node")
+            node = workflow[next(iter(node_ids))]
+            previous = _mapping(node.get("inputs"), "LoRA inputs")
+            node["class_type"] = "Power Lora Loader (rgthree)"
+            node["inputs"] = {
+                "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+                **{
+                    f"lora_{index + 1}": {
+                        "on": True,
+                        "lora": lora.name,
+                        "strength": lora.strength,
+                    }
+                    for index, lora in enumerate(settings.loras)
+                },
+                "➕ Add Lora": "",
+                "model": previous["model"],
+                "clip": previous["clip"],
+            }
         return workflow
 
 

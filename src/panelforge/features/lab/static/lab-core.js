@@ -13,6 +13,7 @@
     videoLab: $("#video-lab-workspace"),
     socialLab: $("#social-lab-workspace"),
     productionLab: $("#production-lab-workspace"),
+    productionV2Lab: $("#production-v2-lab-workspace"),
     recipeBadge: $("#recipe-badge"),
     i2vDirectNewRun: $("#i2vd-topbar-new"),
     ref2vDirectNewRun: $("#ref2vd-topbar-new"),
@@ -40,6 +41,7 @@
       [elements.videoLab, view === "video-lab"],
       [elements.socialLab, view === "social-lab"],
       [elements.productionLab, view === "production-lab"],
+      [elements.productionV2Lab, view === "production-v2-lab"],
     ];
     visibility.forEach(([element, visible]) => {
       if (element) element.hidden = !visible;
@@ -77,13 +79,26 @@
     button.addEventListener("click", () => switchView(button.dataset.videoLabMode));
   });
 
+  function errorDetailMessage(detail) {
+    if (typeof detail === "string") return detail;
+    if (!Array.isArray(detail)) return "";
+    return detail.map((item) => {
+      if (!item || typeof item !== "object") return String(item || "");
+      const path = Array.isArray(item.loc)
+        ? item.loc.filter((part) => part !== "body").join(".")
+        : "";
+      const message = item.msg || item.message || "Entrée invalide";
+      return path ? `${path} : ${message}` : message;
+    }).filter(Boolean).join(" · ");
+  }
+
   async function request(url, options = {}) {
     const response = await fetch(url, options);
     let payload = null;
     try { payload = await response.json(); } catch (_) { /* empty response */ }
     if (!response.ok) {
       const detail = payload && payload.detail;
-      throw new Error(typeof detail === "string" ? detail : `Erreur HTTP ${response.status}`);
+      throw new Error(errorDetailMessage(detail) || `Erreur HTTP ${response.status}`);
     }
     return payload;
   }

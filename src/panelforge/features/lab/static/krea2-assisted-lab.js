@@ -75,7 +75,7 @@
     spec: null,
     projects: [],
     project: null,
-    loraSlots: Array.from({ length: 4 }, () => ({ name: "", strength: 0 })),
+    loraSlots: [],
     busy: false,
     pollTimer: null,
     draftSnapshot: "",
@@ -154,11 +154,16 @@
     );
 
     const previousModel = elements.model.value;
-    resourceUi.appendGroupedOptions(elements.model, state.spec.render_models || [], resourceUi.modelGroups);
+    resourceUi.renderModelPicker(elements.model, {
+      resources: state.spec.render_models || [],
+      updatePreference,
+      refreshResource,
+    });
     const renderDefault = preferredRenderModel(state.spec.render_models || []);
     elements.model.value = previousModel && [...elements.model.options].some((option) => option.value === previousModel)
       ? previousModel
       : (renderDefault ? renderDefault.comfy_name : "");
+    resourceUi.syncModelPicker(elements.model);
 
     const previousRatio = elements.ratio.value;
     elements.ratio.replaceChildren();
@@ -183,42 +188,43 @@
   }
 
   function renderLoraStack() {
-    elements.loras.replaceChildren();
-    state.loraSlots.forEach((slot, index) => {
-      const row = document.createElement("div");
-      row.className = "krea2-lora-row";
-      const select = document.createElement("select");
-      select.setAttribute("aria-label", `LoRA ${index + 1}`);
-      resourceUi.appendGroupedOptions(select, state.spec ? state.spec.loras || [] : [], resourceUi.loraGroups, { includeEmpty: true });
-      ensureMissingOption(select, slot.name);
-      select.value = slot.name;
-      const strength = document.createElement("input");
-      strength.type = "number";
-      strength.min = "-20";
-      strength.max = "20";
-      strength.step = "0.05";
-      strength.value = String(slot.strength);
-      strength.setAttribute("aria-label", `Force LoRA ${index + 1}`);
-      select.addEventListener("change", () => {
-        slot.name = select.value;
-        if (!slot.name) slot.strength = 0;
+    resourceUi.renderLoraStack(elements.loras, {
+      resources: state.spec ? state.spec.loras || [] : [],
+      selections: state.loraSlots,
+      maximum: 10,
+      minimumStrength: -20,
+      maximumStrength: 20,
+      updatePreference,
+      refreshResource,
+      onChange: (values) => {
+        state.loraSlots = values;
         renderLoraStack();
-      });
-      strength.addEventListener("change", () => { slot.strength = Number(strength.value) || 0; });
-      row.append(select, strength);
-      elements.loras.append(row);
+      },
     });
   }
 
   async function updatePreference(resource, values) {
     try {
-      await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
+      const updated = await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
       await loadSpec(true);
-    } catch (error) { setMessage(error.message, true); }
+      return updated;
+    } catch (error) { setMessage(error.message, true); return false; }
+  }
+
+  async function refreshResource(resource) {
+    try {
+      const updated = await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/refresh`, { method: "POST" });
+      await loadSpec(true);
+      setMessage("Informations CivitAI actualisées.");
+      return updated;
+    } catch (error) {
+      setMessage(`Recherche CivitAI indisponible : ${error.message}`, true);
+      throw error;
+    }
   }
 
   function renderCatalogManager() {
@@ -226,6 +232,7 @@
       models: state.spec ? state.spec.render_models || [] : [],
       loras: state.spec ? state.spec.loras || [] : [],
       updatePreference,
+      refreshResource,
     });
   }
 
@@ -258,13 +265,14 @@
     elements.model.value = attempt.settings.model_id;
     ensureMissingOption(elements.model, attempt.settings.model_id);
     elements.model.value = attempt.settings.model_id;
+    resourceUi.syncModelPicker(elements.model);
     elements.ratio.value = attempt.settings.aspect_ratio;
     elements.megapixels.value = String(attempt.settings.megapixels);
     elements.seed.value = attempt.seed || "";
-    state.loraSlots = Array.from({ length: 4 }, (_, index) => {
-      const value = (attempt.settings.loras || [])[index];
-      return value ? { name: value.name, strength: value.strength } : { name: "", strength: 0 };
-    });
+    state.loraSlots = (attempt.settings.loras || []).slice(0, 10).map((value) => ({
+      name: value.name,
+      strength: value.strength,
+    }));
     renderLoraStack();
   }
 

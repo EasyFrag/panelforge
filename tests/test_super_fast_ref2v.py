@@ -746,6 +746,7 @@ class SuperFastRef2VTest(unittest.TestCase):
                     json={
                         "source_text": "Le coureur saute\npuis atterrit.",
                         "creative_freedom": 35,
+                        "creative_audacity": 3,
                     },
                 )
 
@@ -774,6 +775,11 @@ class SuperFastRef2VTest(unittest.TestCase):
                 self.assertEqual(
                     persisted.active_brief_revision.source_text,
                     "Le coureur saute\npuis atterrit.",
+                )
+                self.assertEqual(persisted.active_brief_revision.creative_audacity, 3)
+                self.assertIn(
+                    "Creative audacity 3/3",
+                    persisted.active_brief_revision.content,
                 )
 
     def test_web_boundaries_reject_wrong_profile_and_manual_internal_configuration(self):

@@ -5,9 +5,11 @@
   const activeAttemptStatuses = new Set(["queued", "running", "cancel_pending"]);
   const {
     modelGroups,
-    loraGroups,
     appendGroupedOptions,
+    renderModelPicker,
+    syncModelPicker,
     renderCatalogManager,
+    renderLoraStack: renderLoraPickerStack,
   } = window.PanelForgeKrea2ResourceUi;
   const elements = {
     workspace: $("krea2-edit-lab-workspace"),
@@ -84,7 +86,7 @@
     sources: [],
     source: null,
     feedbackAttemptId: null,
-    loraSlots: Array.from({ length: 4 }, () => ({ name: "", strength: 0 })),
+    loraSlots: [],
     pollTimer: null,
   };
   const core = window.PanelForgeLabCore;
@@ -194,16 +196,17 @@
     const model = settings.model_id || "";
     ensureOption(elements.model, model, model);
     elements.model.value = model;
+    syncModelPicker(elements.model);
     elements.ratio.value = settings.aspect_ratio || "";
     elements.megapixels.value = String(settings.megapixels ?? "");
     elements.refBoost.value = String(settings.ref_boost ?? "");
     elements.steps.value = String(settings.steps ?? "");
     elements.seed.value = String(settings.seed ?? randomSeed());
     const loras = Array.isArray(settings.loras) ? settings.loras : [];
-    state.loraSlots = Array.from({ length: 4 }, (_, index) => {
-      const value = loras[index];
-      return value ? { name: value.name, strength: value.strength } : { name: "", strength: 0 };
-    });
+    state.loraSlots = loras.slice(0, 10).filter((value) => value && value.name).map((value) => ({
+      name: value.name,
+      strength: value.strength,
+    }));
     renderLoras();
   }
 
@@ -235,7 +238,11 @@
             state.spec.llm_models || [],
             elements.llm.value,
           );
-          appendGroupedOptions(elements.model, state.spec.render_models || [], modelGroups);
+          renderModelPicker(elements.model, {
+            resources: state.spec.render_models || [],
+            updatePreference: updateResourcePreference,
+            refreshResource,
+          });
           options(elements.ratio, state.spec.aspect_ratios || [], (value) => value, (value) => value);
           applyDefaultRenderSettings();
           elements.fixedNote.textContent = `Fixe : ${state.spec.fixed.identity_lora} × ${state.spec.fixed.identity_lora_strength} · Euler / Simple · CFG ${state.spec.fixed.cfg}.`;
@@ -358,26 +365,19 @@
   }
 
   function renderLoras() {
-    elements.loras.replaceChildren();
-    state.loraSlots.forEach((slot, index) => {
-      const row = document.createElement("div");
-      row.className = "krea2-lora-row";
-      const label = document.createElement("small");
-      label.textContent = String(index + 1);
-      const select = document.createElement("select");
-      appendGroupedOptions(select, state.spec?.loras || [], loraGroups, { includeEmpty: true });
-      ensureOption(select, slot.name, slot.name);
-      select.value = slot.name;
-      select.addEventListener("change", () => { slot.name = select.value; if (!slot.name) slot.strength = 0; });
-      const strength = document.createElement("input");
-      strength.type = "number";
-      strength.min = "-20";
-      strength.max = "20";
-      strength.step = "0.05";
-      strength.value = String(slot.strength);
-      strength.addEventListener("input", () => { slot.strength = Number(strength.value); });
-      row.append(label, select, strength);
-      elements.loras.append(row);
+    renderLoraPickerStack(elements.loras, {
+      resources: state.spec?.loras || [],
+      selections: state.loraSlots,
+      maximum: 10,
+      minimumStrength: -20,
+      maximumStrength: 20,
+      disabled: state.busy,
+      updatePreference: updateResourcePreference,
+      refreshResource,
+      onChange: (values) => {
+        state.loraSlots = values;
+        renderLoras();
+      },
     });
   }
 
@@ -386,28 +386,61 @@
       models: state.spec?.render_models || [],
       loras: state.spec?.loras || [],
       updatePreference: updateResourcePreference,
+      refreshResource,
     });
   }
 
   async function updateResourcePreference(resource, values) {
-    if (!resource || state.busy) return;
+    if (!resource || state.busy) return false;
     const selectedModel = elements.model.value;
     try {
-      await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
+      const updated = await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/preference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
       state.spec = await request("/api/image-lab/krea2-edit/spec");
-      appendGroupedOptions(elements.model, state.spec.render_models || [], modelGroups);
+      renderModelPicker(elements.model, {
+        resources: state.spec.render_models || [],
+        updatePreference: updateResourcePreference,
+        refreshResource,
+      });
       ensureOption(elements.model, selectedModel, selectedModel);
       elements.model.value = selectedModel;
+      syncModelPicker(elements.model);
       renderLoras();
       renderResourceManager();
       render();
       setMessage("Classement du catalogue enregistré.");
+      return updated;
     } catch (error) {
       setMessage(error.message, true);
+      return false;
+    }
+  }
+
+  async function refreshResource(resource) {
+    if (!resource || state.busy) return false;
+    try {
+      const updated = await request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/refresh`, { method: "POST" });
+      const selectedModel = elements.model.value;
+      state.spec = await request("/api/image-lab/krea2-edit/spec");
+      renderModelPicker(elements.model, {
+        resources: state.spec.render_models || [],
+        updatePreference: updateResourcePreference,
+        refreshResource,
+      });
+      ensureOption(elements.model, selectedModel, selectedModel);
+      elements.model.value = selectedModel;
+      syncModelPicker(elements.model);
+      renderLoras();
+      renderResourceManager();
+      render();
+      setMessage("Informations CivitAI actualisées.");
+      return updated;
+    } catch (error) {
+      setMessage(`Recherche CivitAI indisponible : ${error.message}`, true);
+      return false;
     }
   }
 

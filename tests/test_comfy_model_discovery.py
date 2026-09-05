@@ -135,6 +135,29 @@ class ComfyModelDiscoveryTest(unittest.TestCase):
         self.assertEqual(request.full_url, "http://gpu:8188/models/loras")
         self.assertEqual(request.get_method(), "GET")
 
+    @patch("panelforge.infrastructure.comfy.client.urllib.request.urlopen")
+    def test_reads_cached_rgthree_lora_info_without_refreshing_or_hashing(self, urlopen):
+        urlopen.return_value = response({
+            "status": 200,
+            "data": [{
+                "file": "krea2/style.safetensors",
+                "name": "Style card",
+                "images": [{"url": "https://image.civitai.com/style.webp"}],
+            }],
+        })
+        client = ComfyHttpClient("http://gpu:8188", client_id="image-lab")
+
+        value = client.get_cached_model_info("lora", "krea2/style.safetensors")
+
+        self.assertEqual(value["name"], "Style card")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            "http://gpu:8188/rgthree/api/loras/info?files=krea2%2Fstyle.safetensors",
+        )
+        self.assertNotIn("refresh", request.full_url)
+        self.assertEqual(request.get_method(), "GET")
+
 
 if __name__ == "__main__":
     unittest.main()

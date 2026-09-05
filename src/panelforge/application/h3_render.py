@@ -75,6 +75,7 @@ Return raw JSON only, with exactly these fields:
 The complete prompt is always required and immediately runnable after application compilation. Rewrite the CURRENT H3 PROMPT directly; never return a Brief, JSON action plan, patch, diff or commentary inside the prompt. Preserve the exact input-mode reference-alignment header, canonical Picture labels, the three sections integrated_multimodal_description, overall_soundscape and non_diegetic_music, and every explicit quoted dialogue unless the user explicitly asks to change it. Preserve the shot count and cut timestamps unless the user explicitly requests a structural change.
 
 Camera tokens such as [[camera:camera_1]] are application-owned. Copy every supplied token exactly once at the same chronological position and write no other camera, lens, framing, zoom, pan, tilt, tracking, orbit, dolly or crane prose. When the user does not explicitly request a camera change, camera_directives must be null. When the user explicitly requests a camera change, return one object per supplied token in the same order with exactly id, start_ms, motion, amplitude, speed and target_clause. Use only the motion enum shown in the CAMERA CONTRACT; use null for absent amplitude, speed or target_clause. Never add or remove a camera token.
+camera_directives must always be a JSON array when it is not null, including when there is exactly one camera token. Follow the target_clause prefix and forbidden-term rules from the CAMERA CONTRACT exactly.
 
 GENERATED KEYFRAMES are visual evidence sampled away from expected cut boundaries. Compare them with the user's goal and the exact render settings. They reveal composition, continuity and visible motion states, but not voice quality, music, sound, fine lip sync or everything occurring between samples. Never claim to have heard the video. Treat the newest user message as authoritative for audiovisual problems that keyframes cannot prove.
 
@@ -95,6 +96,7 @@ Return raw JSON only, with exactly these fields:
 The complete prompt is always required and immediately runnable after application compilation. Rewrite the CURRENT H3 PROMPT directly; never return a Brief, action plan, patch or diff. Preserve the application-owned opening <Picture N> reference rules exactly, followed by the scene setup, Shot 1, overall_soundscape and non_diegetic_music. Preserve every explicit quoted dialogue unless the user explicitly asks to change it. Never invent, remove, renumber or reinterpret a reference.
 
 Camera tokens such as [[camera:camera_1]] are application-owned. Copy every supplied token exactly once at the same chronological position and write no other camera, lens, framing, zoom, pan, tilt, tracking, orbit, dolly or crane prose. When the user does not explicitly request a camera change, camera_directives must be null. When the user explicitly requests a camera change, return one object per supplied token in the same order with exactly id, start_ms, motion, amplitude, speed and target_clause. Use only the motion enum shown in the CAMERA CONTRACT; use null for absent amplitude, speed or target_clause. Never add or remove a camera token.
+camera_directives must always be a JSON array when it is not null, including when there is exactly one camera token. Follow the target_clause prefix and forbidden-term rules from the CAMERA CONTRACT exactly.
 
 GENERATED KEYFRAMES are visual samples, not audio evidence. Use them to compare composition, continuity and visible motion with the user's goal and exact render settings. Never claim to have heard the video. Keep the Ref2V shot chronological, physically achievable and concise; each timed event appears once and ongoing motion remains visible through the cut when requested. Do not output Markdown or text outside the JSON."""
 
@@ -395,13 +397,26 @@ class H3RenderService:
         feedback_attempt_id: str | None = None,
         revision_version: str | H3RenderRevisionVersion | None = None,
         model_id: str | None = None,
+        creative_audacity: int | None = None,
         include_reasoning: bool = False,
+        repair_rejected: bool = False,
     ) -> Iterator[H3RenderStreamEvent]:
         message = _bounded_text(message, "message", 12_000)
+        if creative_audacity is not None:
+            creative_audacity = _revision_audacity(creative_audacity)
+            if creative_audacity == 0:
+                creative_audacity = None
         if model_id is not None:
             model_id = _bounded_text(model_id, "model_id", 300)
+        repair_error: str | None = None
+        repair_draft: str | None = None
         with self._lock:
             project = self.projects.get(project_id)
+            if repair_rejected:
+                if project.revision_error is None:
+                    raise ValueError("there is no rejected H3 revision to repair")
+                repair_error = project.revision_error
+                repair_draft = project.revision_draft
             if not project.camera_clauses:
                 current_prompt, camera_clauses = _migrate_legacy_camera_contract(
                     project.current_prompt
@@ -412,7 +427,12 @@ class H3RenderService:
                     camera_clauses=camera_clauses,
                 )
             version = _revision_version(
-                revision_version or project.revision_version
+                (
+                    project.revision_draft_version
+                    if repair_rejected and project.revision_draft_version is not None
+                    else revision_version
+                )
+                or project.revision_version
                 or self.default_revision_version(project.input_mode)
             )
             if version not in self.revision_versions_for_mode(project.input_mode):
@@ -431,7 +451,14 @@ class H3RenderService:
                 content=message,
             )
             project = self.projects.save(project.add_turn(user))
-        request = self._completion_request(project, message, include_reasoning)
+        request = self._completion_request(
+            project,
+            message,
+            include_reasoning,
+            creative_audacity,
+            repair_error=repair_error,
+            repair_draft=repair_draft,
+        )
         parts: list[str] = []
         try:
             for event in self.gateway.stream(request):
@@ -555,6 +582,10 @@ class H3RenderService:
                 maximum=recipe.maximum_keyframes,
             )
             effective_prompt = prompt if music_enabled else disable_non_diegetic_music(prompt)
+            duration_warning = h3_prompt_duration_warning(
+                prompt,
+                settings.duration_seconds,
+            )
             attempt = H3RenderAttempt(
                 attempt_id=self._attempt_id_factory(),
                 index=len(project.attempts) + 1,
@@ -565,6 +596,7 @@ class H3RenderService:
                 keyframe_timestamps_ms=timestamps,
                 spectrum_enabled=spectrum_enabled,
                 video_lora=video_lora,
+                warnings=(duration_warning,) if duration_warning else (),
             )
             project = replace(project, current_prompt=prompt)
             return self.projects.save(project.add_attempt(attempt))
@@ -738,6 +770,10 @@ class H3RenderService:
         project: H3RenderProject,
         message: str,
         include_reasoning: bool,
+        creative_audacity: int | None,
+        *,
+        repair_error: str | None = None,
+        repair_draft: str | None = None,
     ) -> CompletionRequest:
         recipe = self._recipe_for(project)
         feedback = project.attempt(project.feedback_attempt_id) if project.feedback_attempt_id else None
@@ -778,7 +814,7 @@ class H3RenderService:
             if camera_locked
             else "Camera clauses remain part of the editable legacy prompt."
         )
-        user_prompt = "\n\n".join((
+        sections = [
             f"H3 INPUT MODE (immutable): {project.input_mode.value.upper()}",
             f"CURRENT COMPLETE H3 PROMPT:\n{current_prompt}",
             f"CAMERA CONTRACT:\n{camera_contract}",
@@ -788,8 +824,24 @@ class H3RenderService:
                 "KEYFRAME SAMPLING NOTE:\nFrames around planned cuts are sampled "
                 f"{recipe.keyframe_margin_ms} ms before and after each cut, never at the exact boundary."
             ),
-            f"NEW USER MESSAGE (authoritative):\n{message}",
-        ))
+        ]
+        if creative_audacity is not None:
+            sections.append(
+                "REVISION CREATIVE AUDACITY (explicit user control):\n"
+                f"{creative_audacity}/3 — "
+                f"{video_revision_audacity_policy(creative_audacity)}"
+            )
+        if repair_error is not None:
+            sections.append(
+                "REJECTED REVISION REPAIR (explicitly requested by the user):\n"
+                "Correct the structure so the answer satisfies the application contract. "
+                "Preserve the latest user intention and all valid content; do not invent a new request.\n"
+                f"EXACT VALIDATOR ERROR:\n{repair_error}\n\n"
+                "REJECTED PROMPT DRAFT:\n"
+                f"{repair_draft or 'No prompt field could be recovered; rebuild it from CURRENT COMPLETE H3 PROMPT.'}"
+            )
+        sections.append(f"NEW USER MESSAGE (authoritative):\n{message}")
+        user_prompt = "\n\n".join(sections)
         return CompletionRequest(
             model_id=project.revision_model_id or project.model_id,
             system_prompt=(
@@ -1189,6 +1241,40 @@ def disable_non_diegetic_music(prompt: str) -> str:
     return prompt[:music.end()] + "N/A\n" + prompt[end:].lstrip("\r\n")
 
 
+def h3_prompt_duration_warning(
+    prompt: str,
+    render_duration_seconds: float,
+) -> str | None:
+    """Describe a prompt/render duration mismatch without blocking the render."""
+
+    if not isinstance(prompt, str):
+        raise TypeError("prompt must be a string")
+    if isinstance(render_duration_seconds, bool) or not isinstance(
+        render_duration_seconds,
+        (int, float),
+    ):
+        raise TypeError("render_duration_seconds must be a number")
+    patterns = (
+        r"\baligns with the\s+([0-9]+(?:\.[0-9]+)?)-second mark of the target video\b",
+        r"\bone continuous(?: approximately)?\s+([0-9]+(?:\.[0-9]+)?)-second shot\b",
+        r"\btarget video is(?: approximately)?\s+([0-9]+(?:\.[0-9]+)?)[ -]second\b",
+    )
+    values = tuple(dict.fromkeys(
+        float(match.group(1))
+        for pattern in patterns
+        for match in re.finditer(pattern, prompt, flags=re.IGNORECASE)
+    ))
+    requested = float(render_duration_seconds)
+    if not values or all(abs(value - requested) < 0.001 for value in values):
+        return None
+    prompt_duration = " / ".join(_format_seconds(value) for value in values)
+    return (
+        f"Prompt compilé pour {prompt_duration} s · rendu configuré pour "
+        f"{_format_seconds(requested)} s. Les timestamps et l’ancre finale ne sont "
+        "pas réécrits automatiquement."
+    )
+
+
 def canonicalize_h3_revision(
     current_prompt: str,
     candidate: str,
@@ -1385,6 +1471,10 @@ def _image_media_type(content: bytes) -> str:
     raise ValueError("keyframe output is not a supported image")
 
 
+def _format_seconds(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
 def _validate_mp4(content: bytes, filename: str) -> None:
     if not filename.lower().endswith(".mp4"):
         raise ValueError("ComfyUI output is not an MP4 video")
@@ -1409,10 +1499,20 @@ def _camera_contract_prompt(camera_clauses: tuple[str, ...]) -> str:
     ) or "- No compiled camera directive is present."
     return (
         f"{clauses}\n"
-        "When explicitly changing camera, return camera_directives objects with "
+        "When explicitly changing camera, camera_directives must be a JSON array with "
+        "one object per token, even when there is only one token. Each object has exactly "
         "id, start_ms, motion, amplitude, speed, target_clause. "
         f"Allowed motion values: {motions}. Amplitude: small, large or null. "
-        "Speed: slow, fast or null."
+        "Speed: slow, fast or null. target_clause must be null/empty or begin with exactly one "
+        "of these spatial or visual continuations: to, toward, onto, into, from, behind, beside, "
+        "above, below, away from, around, along, across, past, through, following, keeping, "
+        "maintaining, revealing, showing, centered on, focused on, ending on, framing, holding, "
+        "leaving, placing, as, while, until, with. target_clause must not contain camera-control "
+        "terms or their inflections: camera, zoom, push, pull, pan, truck, tilt, pedestal, arc, "
+        "track, shake, POV, point-of-view, roll, dolly, orbit, crane, handheld.\n"
+        "Valid one-token JSON shape: "
+        '[{"id":"camera_1","start_ms":0,"motion":"push.in","amplitude":"small",'
+        '"speed":"slow","target_clause":"toward the rider as she passes"}]'
     )
 
 
@@ -1422,6 +1522,8 @@ def _revision_camera_clauses(
 ) -> tuple[str, ...]:
     if value is None:
         return current
+    if isinstance(value, Mapping) and len(current) == 1:
+        value = [value]
     if not isinstance(value, list) or len(value) != len(current):
         raise ValueError(
             "camera_directives must be null or contain one object per camera token"
@@ -1518,6 +1620,41 @@ def _string_array(value: object, label: str, maximum: int) -> tuple[str, ...]:
     return tuple(_bounded_text(item, label, 2000) for item in value)
 
 
+def _revision_audacity(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3:
+        raise ValueError("creative_audacity must be between 0 and 3")
+    return value
+
+
+def video_revision_audacity_policy(value: int) -> str:
+    value = _revision_audacity(value)
+    common = (
+        "Work inside the existing duration, reference roles, identities and shot structure. "
+        "Rebalance or replace weak beats instead of mechanically stacking more actions. "
+    )
+    if value == 0:
+        return common + (
+            "Make only the correction explicitly requested; volunteer no new action, staging, "
+            "environmental event or camera change."
+        )
+    if value == 1:
+        return common + (
+            "You may add one subtle, theme-compatible enrichment when it directly helps the "
+            "requested correction, but keep the current direction dominant."
+        )
+    if value == 2:
+        return common + (
+            "Take an assertive initiative: strengthen action density or staging with one clear "
+            "signature beat, while keeping every addition subordinate and physically achievable."
+        )
+    return common + (
+        "Take a bold but coherent initiative: diagnose empty or slow passages, reshape the timing "
+        "around one strong signature beat and at most one supporting effect. This selected level is "
+        "explicit authorization to revise the canonical camera directives when a motivated camera "
+        "change materially improves pacing; never write free camera prose."
+    )
+
+
 def _bounded_text(value: object, label: str, maximum: int) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must not be empty")
@@ -1541,4 +1678,5 @@ __all__ = [
     "extract_plan_cut_times_ms",
     "extract_prompt_cut_times_ms",
     "plan_keyframe_timestamps_ms",
+    "video_revision_audacity_policy",
 ]

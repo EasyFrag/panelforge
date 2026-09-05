@@ -77,7 +77,7 @@ class Krea2BatchWebTest(unittest.TestCase):
         value = spec.json()
         self.assertEqual(len(value["recipes"]), 6)
         self.assertEqual(len(value["render_models"]), 2)
-        self.assertEqual(value["limits"], {"image_count": {"minimum": 1, "maximum": 10}, "lora_count": 4})
+        self.assertEqual(value["limits"], {"image_count": {"minimum": 1, "maximum": 10}, "lora_count": 10})
 
         model_resource = value["render_models"][0]
         classified = self.client.post(
@@ -87,6 +87,56 @@ class Krea2BatchWebTest(unittest.TestCase):
         self.assertEqual(classified.status_code, 200)
         self.assertEqual(classified.json()["precision"], "bf16")
         self.assertEqual(classified.json()["precision_source"], "manual")
+        annotated_model = self.client.post(
+            f"/api/image-lab/krea2-batch/resources/{model_resource['resource_id']}/preference",
+            json={
+                "display_name": "Checkpoint cinematic",
+                "notes": "Direction visuelle validÃ©e localement.",
+            },
+        )
+        self.assertEqual(annotated_model.status_code, 200)
+        self.assertEqual(annotated_model.json()["display_name"], "Checkpoint cinematic")
+        self.assertEqual(
+            annotated_model.json()["notes"],
+            "Direction visuelle validÃ©e localement.",
+        )
+        invalid_model_strength = self.client.post(
+            f"/api/image-lab/krea2-batch/resources/{model_resource['resource_id']}/preference",
+            json={"strength_min": 0.2},
+        )
+        self.assertEqual(invalid_model_strength.status_code, 422)
+
+        lora_resource = value["loras"][0]
+        categorized = self.client.post(
+            f"/api/image-lab/krea2-batch/resources/{lora_resource['resource_id']}/preference",
+            json={"category": "sfw_sliders", "favorite": True},
+        )
+        self.assertEqual(categorized.status_code, 200)
+        self.assertEqual(categorized.json()["lora_category"], "sfw_sliders")
+        self.assertEqual(categorized.json()["category"], "favorite")
+        self.assertEqual(categorized.json()["safety"], "sfw")
+        annotated = self.client.post(
+            f"/api/image-lab/krea2-batch/resources/{lora_resource['resource_id']}/preference",
+            json={
+                "display_name": "Detail helper",
+                "strength_min": -0.2,
+                "strength_max": 0.65,
+                "notes": "Use for restrained texture detail.",
+            },
+        )
+        self.assertEqual(annotated.status_code, 200)
+        self.assertEqual(annotated.json()["display_name"], "Detail helper")
+        self.assertEqual(annotated.json()["strength_min"], -0.2)
+        self.assertEqual(annotated.json()["strength_max"], 0.65)
+        self.assertEqual(
+            annotated.json()["notes"],
+            "Use for restrained texture detail.",
+        )
+        invalid_range = self.client.post(
+            f"/api/image-lab/krea2-batch/resources/{lora_resource['resource_id']}/preference",
+            json={"strength_min": 0.8, "strength_max": 0.2},
+        )
+        self.assertEqual(invalid_range.status_code, 422)
 
         created = self.client.post("/api/image-lab/krea2-batch/batches", json={
             "recipe_id": "space_megastructure_photoreal_v1",

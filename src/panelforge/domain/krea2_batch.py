@@ -80,8 +80,8 @@ class Krea2BatchSettings:
         )
         if not isinstance(self.loras, tuple):
             raise TypeError("loras must be a tuple")
-        if len(self.loras) > 4:
-            raise ValueError("at most four LoRAs are supported")
+        if len(self.loras) > 10:
+            raise ValueError("at most ten LoRAs are supported")
         seen: set[str] = set()
         for lora in self.loras:
             if not isinstance(lora, Krea2LoraSelection):

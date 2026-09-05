@@ -114,7 +114,8 @@
         "node_ids": ["21"],
         "start_percent": 8,
         "end_percent": 43,
-        "tracks_steps": true
+        "tracks_steps": true,
+        "expected_steps": "configured"
       },
       {
         "id": "latent_upscale",
@@ -129,7 +130,8 @@
         "node_ids": ["16"],
         "start_percent": 50,
         "end_percent": 95,
-        "tracks_steps": true
+        "tracks_steps": true,
+        "expected_steps": 3
       },
       {
         "id": "encoding",

@@ -62,6 +62,34 @@ class LocalProductionLoraMemoryTest(unittest.TestCase):
             self.assertEqual(context["recent_observations"][0]["confidence"], "low_observational")
             self.assertEqual(context["recent_observations"][0]["score"], 91)
 
+    def test_observational_memory_can_be_isolated_by_profile(self):
+        with tempfile.TemporaryDirectory() as root:
+            memory = LocalProductionLoraMemory(root)
+            plan = ProductionLoraPlan(
+                choices=(ProductionLoraChoice(
+                    name="wetness.safetensors", strength=0.5,
+                    source=ProductionLoraChoiceSource.MODEL,
+                    expected_effect="Wet surface detail.",
+                ),),
+                rationale="Controlled comparison.",
+            )
+            for profile_id, selection in (("sfw", "like"), ("nsfw", "dislike")):
+                memory.record_plan(
+                    job_id=f"job-{profile_id}", checkpoint="Krea2/model.safetensors",
+                    plan=plan, profile_id=profile_id,
+                )
+                memory.record_observation(
+                    job_id=f"job-{profile_id}", attempt_id=f"attempt-{profile_id}",
+                    checkpoint="Krea2/model.safetensors", prompt="A wet portrait.", seed=42,
+                    plan=plan, score=None, selection=selection, profile_id=profile_id,
+                )
+
+            sfw = memory.context(("wetness.safetensors",), profile_id="sfw")[0]
+            nsfw = memory.context(("wetness.safetensors",), profile_id="nsfw")[0]
+            self.assertEqual([item["selection"] for item in sfw["recent_observations"]], ["like"])
+            self.assertEqual([item["selection"] for item in nsfw["recent_observations"]], ["dislike"])
+            self.assertEqual({item["profile_id"] for item in sfw["model_hypotheses"]}, {"sfw"})
+
 
 if __name__ == "__main__":
     unittest.main()
