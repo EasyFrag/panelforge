@@ -92,6 +92,7 @@ class LocalLlmCallStoreTest(unittest.TestCase):
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 1
             for call in raw["calls"]:
+                call.pop("reasoning_text")
                 call.pop("application_outcome")
                 call.pop("application_error_type")
                 call.pop("application_error_message")
@@ -102,7 +103,7 @@ class LocalLlmCallStoreTest(unittest.TestCase):
             store.append(sample_record(2))
 
             rewritten = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(rewritten["schema_version"], 2)
+            self.assertEqual(rewritten["schema_version"], 3)
             self.assertIn("application_outcome", rewritten["calls"][0])
 
 
@@ -331,7 +332,7 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
             self.assertEqual(record.status, LlmCallStatus.CANCELLED)
             self.assertEqual(record.error_type, "GeneratorExit")
 
-    def test_reasoning_events_pass_through_but_never_enter_response_log(self):
+    def test_reasoning_events_are_stored_separately_from_the_final_answer(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalLlmCallStore(directory)
             gateway = LoggedMultimodalGateway(
@@ -362,6 +363,38 @@ class LoggedMultimodalGatewayTest(unittest.TestCase):
             self.assertEqual(record.status, LlmCallStatus.SUCCEEDED)
             self.assertEqual(record.response_text, "Done")
             self.assertNotIn("Private reasoning", record.response_text)
+            self.assertEqual(record.reasoning_text, events[0].text)
+
+    def test_reasoning_is_logged_when_ui_display_is_disabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalLlmCallStore(directory)
+            gateway = LoggedMultimodalGateway(ReasoningThenTerminalGateway(), store)
+            events = list(gateway.stream(CompletionRequest("vision-model", "System", "User")))
+            self.assertFalse(any(event.kind is StreamEventKind.REASONING for event in events))
+            self.assertTrue(store.list()[0].reasoning_text)
+
+    def test_schema_two_journal_remains_readable_without_reasoning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalLlmCallStore(directory)
+            store.append(sample_record(1))
+            path = Path(directory) / "llm_calls.json"
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["schema_version"] = 2
+            for call in raw["calls"]:
+                call.pop("reasoning_text")
+            path.write_text(json.dumps(raw), encoding="utf-8")
+            self.assertEqual(store.list()[0].reasoning_text, "")
+
+    def test_non_streaming_reasoning_is_logged(self):
+        class Gateway(SuccessfulGateway):
+            def complete(self, request):
+                return replace(super().complete(request), reasoning_text="Provider trace")
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalLlmCallStore(directory)
+            gateway = LoggedMultimodalGateway(Gateway(), store)
+            gateway.complete(CompletionRequest("vision-model", "System", "User"))
+            self.assertEqual(store.list()[0].reasoning_text, "Provider trace")
 
 
 if __name__ == "__main__":

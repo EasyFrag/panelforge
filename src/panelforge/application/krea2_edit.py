@@ -41,6 +41,7 @@ from .prompt_lab import (
     StreamPhase,
     truncated_response_message,
 )
+from . import krea2_edit_assistance
 
 
 _PROMPT_SYSTEM = """You write one production-ready KREA2 image-edit prompt in the explicitly requested target language.
@@ -297,7 +298,11 @@ class Krea2EditService:
         feedback_attempt_id: str | None = None,
         prompt_language: Krea2PromptLanguage | None = None,
         include_reasoning: bool = False,
+        assistance_version: str = "1.0.0",
     ) -> Iterator[Krea2EditStreamEvent]:
+        if assistance_version not in {"1.0.0", krea2_edit_assistance.VERSION}:
+            raise ValueError("unsupported edit assistance version")
+        conversational = assistance_version == krea2_edit_assistance.VERSION
         if not isinstance(include_reasoning, bool):
             raise TypeError("include_reasoning must be a boolean")
         normalized_base = (
@@ -353,14 +358,17 @@ class Krea2EditService:
             )
             + feedback_note
         )
+        if conversational:
+            user += krea2_edit_assistance.context(source)
         request = CompletionRequest(
             model_id=model_id,
-            system_prompt=_PROMPT_SYSTEM,
+            system_prompt=krea2_edit_assistance.SYSTEM if conversational else _PROMPT_SYSTEM,
             user_prompt=user,
             images=tuple(images),
             temperature=0.2,
             max_tokens=131_072,
-            operation_id="krea2.edit.prompt.rewrite_or_reconstruct@0.3.0",
+            operation_id=(krea2_edit_assistance.OPERATION if conversational
+                          else "krea2.edit.prompt.rewrite_or_reconstruct@0.3.0"),
             include_reasoning=include_reasoning,
         )
         parts: list[str] = []
@@ -384,8 +392,11 @@ class Krea2EditService:
                         raise ValueError("model stream completed without a result")
                     raw = event.result.content
                     try:
+                        assistant_message, candidate = (
+                            krea2_edit_assistance.decode(raw) if conversational else (None, raw)
+                        )
                         prompt = normalize_krea2_edit_prompt(
-                            raw,
+                            candidate,
                             source.prompt_language,
                         )
                         terminal = self._finish_prompt_success(
@@ -396,6 +407,8 @@ class Krea2EditService:
                             feedback_attempt_id=(
                                 feedback.attempt_id if feedback is not None else None
                             ),
+                            assistant_message=assistant_message,
+                            assistance_version=assistance_version,
                         )
                     except Exception as error:
                         terminal = self._finish_prompt_failure(
@@ -496,6 +509,8 @@ class Krea2EditService:
                     seed=attempt.settings.seed,
                     loras=attempt.settings.loras,
                     origin="edit",
+                    ref_boost=attempt.settings.ref_boost,
+                    steps=attempt.settings.steps,
                 ),
                 prompt_language=source.prompt_language,
                 project_id=source.project_id,
@@ -505,6 +520,7 @@ class Krea2EditService:
                 project_name=requested_name,
                 prompt_status=Krea2EditPromptStatus.READY,
                 generated_prompt=attempt.prompt,
+                prompt_model_id=source.prompt_model_id,
             )
             advanced = source.advance(
                 attempt_id,
@@ -756,6 +772,8 @@ class Krea2EditService:
         *,
         base_prompt: str | None,
         feedback_attempt_id: str | None,
+        assistant_message: str | None = None,
+        assistance_version: str = "1.0.0",
     ) -> Krea2EditSource:
         with self._lock:
             current = self.sources.get(expected.source_id)
@@ -773,6 +791,8 @@ class Krea2EditService:
                 model_id=current.prompt_model_id or expected.prompt_model_id or "unknown",
                 prompt_language=current.prompt_language,
                 feedback_attempt_id=feedback_attempt_id,
+                assistant_message=assistant_message,
+                assistance_version=assistance_version,
             )
             return self.sources.save(current.finish_prompt(raw, prompt, revision))
 

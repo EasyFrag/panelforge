@@ -208,7 +208,7 @@ class H3BaseMotionV3Test(unittest.TestCase):
 
     def test_late_anchor_guard_rejects_early_final_frame_convergence(self):
         plan = late_anchor_motion_plan()
-        plan["beats"][-1]["steps"][-1]["action"] = (
+        plan["beats"][0]["steps"][0]["action"] = (
             "The couple settles into the locked final-frame composition while dancing."
         )
 
@@ -218,14 +218,35 @@ class H3BaseMotionV3Test(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "instantaneous pass-through"):
             canonical_direct_ref2v_action_plan_v4_late_anchor(json.dumps(plan))
 
-    def test_late_anchor_guard_rejects_frame_bookkeeping_in_final_snapshot(self):
+    def test_late_anchor_guard_accepts_frame_matching_in_final_snapshot(self):
         plan = late_anchor_motion_plan()
         plan["final_state"]["description"] = (
             "The moving couple matches the locked final frame."
         )
 
-        with self.assertRaisesRegex(ValueError, "frame matching remains"):
-            canonical_direct_ref2v_action_plan_v4_late_anchor(json.dumps(plan))
+        self.assertEqual(continuing_motion_final_anchor_errors(json.dumps(plan)), ())
+
+    def test_terminal_state_matches_at_cut_without_magic_words(self):
+        plan = late_anchor_motion_plan()
+        plan["beats"][-1]["steps"][-1]["continuity_after"] = (
+            "The visible state reaches the exact final frame with motion still underway."
+        )
+        self.assertEqual(continuing_motion_final_anchor_errors(json.dumps(plan)), ())
+
+    def test_ambiguous_terminal_action_is_a_warning(self):
+        plan = late_anchor_motion_plan()
+        plan["beats"][-1]["steps"][-1]["action"] = (
+            "The couple settles into the final-frame composition while dancing."
+        )
+        self.assertEqual(continuing_motion_final_anchor_errors(json.dumps(plan)), ())
+        self.assertTrue(any("Fin a verifier" in item for item in direct_ref2v_action_plan_warnings_v4(json.dumps(plan))))
+
+    def test_explicit_final_pose_hold_stays_invalid(self):
+        plan = late_anchor_motion_plan()
+        plan["beats"][-1]["steps"][-1]["action"] = (
+            "The couple holds the final pose until the cut."
+        )
+        self.assertTrue(continuing_motion_final_anchor_errors(json.dumps(plan)))
 
     def test_late_anchor_guard_rejects_camera_convergence_on_locked_frame(self):
         plan = late_anchor_motion_plan()
@@ -400,6 +421,31 @@ class H3BaseMotionV3Test(unittest.TestCase):
         self.assertIn("At 00:08.000, the umbrella rests fully open.", compiled)
         self.assertNotIn("without a pause, freeze, or held pose", compiled)
         self.assertNotIn("Throughout the entire shot", compiled)
+
+    def test_final_snapshot_labels_are_normalized_after_timing_compilation(self):
+        for roles, label in (
+            (("first_frame",), "<Picture 1>"),
+            (("first_frame", "last_frame"), "Picture 1"),
+        ):
+            with self.subTest(roles=roles), tempfile.TemporaryDirectory() as directory:
+                service, gateway = configured_service(
+                    directory, roles,
+                    source_text="One continuous shot of 9 seconds.",
+                    profile_version="0.4.0", cookbook_version="0.4.0",
+                )
+                plan = late_anchor_motion_plan()
+                plan["final_state"]["description"] += " The gown retains the colors of <Image 1>."
+
+                def response(request):
+                    return json.dumps(plan) if request.operation_id == "action_plan.generate" else writer_body()
+
+                gateway._content = response
+                service.generate("h3-base-session", CompositionStage.BEAT_SHEET)
+                service.approve("h3-base-session", CompositionStage.BEAT_SHEET)
+                completed = service.generate("h3-base-session", CompositionStage.FINAL_PROMPT)
+                final = completed.final_prompt.active_revision.content
+                self.assertNotIn("<Image 1>", final)
+                self.assertIn(f"colors of {label}", final)
 
     def test_full_mono_generation_uses_v3_and_compiles_motion_guard(self):
         with tempfile.TemporaryDirectory() as directory:

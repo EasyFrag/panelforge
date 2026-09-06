@@ -204,7 +204,7 @@ class Krea2AssistedServiceTest(unittest.TestCase):
             ))[-1].project
             self.assertEqual(
                 [image.label for image in gateway.requests[1].images],
-                ["REFERENCE IMAGE", "GENERATED RESULT", "TURN GUIDANCE IMAGE"],
+                ["GENERATED RESULT", "TURN GUIDANCE IMAGE"],
             )
             self.assertIn("does not become persistent project identity", gateway.requests[1].user_prompt)
             self.assertEqual(project.turns[-2].guidance_asset_id, guidance.asset_id)
@@ -228,7 +228,7 @@ class Krea2AssistedServiceTest(unittest.TestCase):
             ))[-1].project
             self.assertEqual(
                 [image.label for image in gateway.requests[2].images],
-                ["REFERENCE IMAGE", "GENERATED RESULT"],
+                ["GENERATED RESULT"],
             )
             self.assertEqual(gateway.requests[2].model_id, "local::revision-qwen")
             self.assertIn("TURN GUIDANCE IMAGE USED: pose-guide.png", gateway.requests[2].user_prompt)

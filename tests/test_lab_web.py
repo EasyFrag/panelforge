@@ -252,12 +252,12 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260903.3", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260904.1", page.text)
+        self.assertIn("/static/lab.css?v=20260905.3", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260905.4", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         core_script = self.client.get("/static/lab-core.js")
         self.assertEqual(direct_script.status_code, 200)
-        self.assertIn('const preferredCookbookVersion = "0.4.0"', direct_script.text)
+        self.assertIn('const preferredCookbookValue = `${cookbookId}@${experimentalProfileVersion}`', direct_script.text)
         self.assertIn('const multishotCookbookId = "minimax.h3.ref2v.direct.multishot"', direct_script.text)
         self.assertIn('2–6 plans automatiques', direct_script.text)
         self.assertIn('for (let index = 0; index < shots.length; index += 1)', direct_script.text)
@@ -287,7 +287,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(core_script.status_code, 200)
-        self.assertIn("/static/lab-core.js?v=20260901.2", page.text)
+        self.assertIn("/static/lab-core.js?v=20260905.4", page.text)
         self.assertIn("function errorDetailMessage(detail)", core_script.text)
         self.assertIn('item.loc.filter((part) => part !== "body")', core_script.text)
         self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
@@ -405,7 +405,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="h3r-spectrum" type="checkbox"', page.text)
         self.assertIn('id="ref2vr-spectrum" type="checkbox"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260902.2', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260905.1', page.text)
         self.assertIn('id="h3r-render-progress"', page.text)
         self.assertIn('id="ref2vr-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', render_script.text)
@@ -449,7 +449,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("core.createLlmOutcomeTone()", render_script.text)
         self.assertIn("outcomeTone.success()", render_script.text)
         self.assertIn("outcomeTone.failure()", render_script.text)
-        self.assertIn('/static/i2v-direct.js?v=20260831.1', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260905.5', page.text)
         self.assertIn('id="i2vd-animal-interview-fields"', page.text)
         self.assertEqual(page.text.count('class="field-label animal-interview-primary-field"'), 2)
         self.assertIn('id="i2vd-dialogue-language"', page.text)
@@ -481,7 +481,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.3" }', script.text)
         self.assertIn('const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" }', script.text)
         self.assertIn('const animalInterviewProfile = { id: "minimax.h3.base.animal-interview", version: "0.1.0" }', script.text)
-        self.assertIn('const preferredCookbookKey = `${monoCookbookId}@${monoProfile.version}`', script.text)
+        self.assertIn('const preferredCookbookKey = `${monoCookbookId}@${experimentalMonoProfile.version}`', script.text)
         self.assertIn('elements.cookbook.value = cookbookKey(compositionReference || state.cookbook)', script.text)
         self.assertIn('const selectedCookbook = directCookbooks().find(', script.text)
         self.assertIn('const monoCookbookId = "minimax.h3.fl2va.direct"', script.text)
@@ -662,14 +662,14 @@ class LabWebTest(unittest.TestCase):
         ref2v = self.client.get("/static/ref2v-direct.js")
 
         self.assertEqual(quick.status_code, 200)
-        self.assertIn('/static/quick-pipeline.js?v=20260830.2', page.text)
+        self.assertIn('/static/quick-pipeline.js?v=20260905.1', page.text)
         self.assertIn('id="i2vd-quick-mode" type="checkbox"', page.text)
         self.assertIn('id="ref2vd-execution-mode"', page.text)
         self.assertIn('id="ref2vd-execution-mode-control"', page.text)
         self.assertIn('>Orchestration', page.text)
         self.assertIn('<option value="supervised" selected>', page.text)
         self.assertIn('<option value="quick">', page.text)
-        self.assertIn('3 appels LLM', page.text)
+        self.assertIn('Rapide · toutes les étapes', page.text)
         self.assertNotIn('<option value="super_fast">', page.text)
         for prefix in ("i2vd", "ref2vd"):
             self.assertIn(f'id="{prefix}-quick-status"', page.text)
@@ -813,7 +813,7 @@ class LabWebTest(unittest.TestCase):
             self.assertIn("elements.sessionConfig.textContent", script)
             if prefix == "i2vd":
                 self.assertIn(
-                    "Modèle : ${session.model_id} · ${briefLabel} · Plan/Writer : ${recipeLabel}",
+                    "Modèle : ${session.model_id} · ${briefLabel} · Recette : ${recipeLabel}",
                     script,
                 )
             else:

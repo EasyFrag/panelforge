@@ -104,6 +104,7 @@ class OpenAICompatibleGateway:
         usage = getattr(response, "usage", None)
         return CompletionResult(
             model_id=getattr(response, "model", request.model_id),
+            reasoning_text=_reasoning_text(choice.message) or "",
             content=content.strip() if isinstance(content, str) else "",
             prompt_tokens=getattr(usage, "prompt_tokens", None),
             completion_tokens=getattr(usage, "completion_tokens", None),

@@ -59,6 +59,7 @@ from panelforge.infrastructure.production_thermal import (
     CombinedProductionThermalMonitor,
     CrystoolsRemoteGpuMonitor,
 )
+from panelforge.infrastructure.storage.krea2_style_presets import LocalKrea2StylePresetStore
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
     LocalH3RenderProjectStore,
@@ -366,6 +367,7 @@ def build_app(args: argparse.Namespace):
     )
     krea2_assisted = Krea2AssistedService(
         gateway=gateway,
+        presets=LocalKrea2StylePresetStore(args.workspace),
         recipes=krea2_visual_recipes,
         workflow=krea2_batch_workflow,
         comfy=krea2_assisted_comfy,

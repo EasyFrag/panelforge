@@ -4,20 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260903.3">
+  <link rel="stylesheet" href="/static/lab.css?v=20260905.3">
   <script src="/static/lab.js?v=20260831.1" defer></script>
-  <script src="/static/lab-core.js?v=20260901.2" defer></script>
-  <script src="/static/quick-pipeline.js?v=20260830.2" defer></script>
-  <script src="/static/i2v-direct.js?v=20260831.1" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260902.2" defer></script>
+  <script src="/static/lab-core.js?v=20260905.4" defer></script>
+  <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260905.5" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260905.1" defer></script>
   <script src="/static/video-lab.js?v=20260831.1" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260904.1" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260905.4" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260903.1" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260904.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260903.2" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260906.1" defer></script>
   <script src="/static/krea2-batch-lab.js?v=20260903.2" defer></script>
-  <script src="/static/krea2-edit-lab.js?v=20260903.2" defer></script>
+  <script src="/static/krea2-edit-lab.js?v=20260905.1" defer></script>
   <script src="/static/production-lab.js?v=20260903.2" defer></script>
   <script src="/static/production-v2-lab.js?v=20260903.3" defer></script>
 </head>
@@ -260,14 +260,18 @@
     </nav>
 
     <aside class="controls krea2-assisted-controls">
-      <div class="title-row"><div><small>KREA2 · LLM</small><h1>Création assistée</h1></div><span class="experimental">● V1</span></div>
+      <div class="title-row"><div><small>KREA2 · LLM</small><h1>Création assistée</h1></div><span class="experimental">● T2I</span></div>
       <p class="muted">Construisez un prompt en discutant, testez-le en T2I puis publiez éventuellement une recette Batch.</p>
       <form id="krea2-assisted-new-form">
         <section>
           <h2>Nouveau projet</h2>
           <label>Nom<input id="krea2-assisted-name" type="text" maxlength="120" placeholder="Ex. Zodiaque fantastique" required></label>
-          <label>Intention<textarea id="krea2-assisted-intention" rows="7" maxlength="12000" placeholder="Ex. une famille de tigres fantastiques inspirés du zodiaque chinois…" required></textarea></label>
+          <label>Intention (facultative avec une image)<textarea id="krea2-assisted-intention" rows="7" maxlength="12000" placeholder="Décris ton idée, ou ajoute simplement une image de référence…"></textarea></label>
           <label>Image de référence facultative<input id="krea2-assisted-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
+          <label>Preset de style<select id="krea2-assisted-new-preset"><option value="">Sans preset</option></select></label>
+          <small id="krea2-assisted-new-preset-note" class="muted"></small>
+          <small class="muted">Avec une image seule, le LLM propose un prompt pour en reproduire le sujet, la composition et l’ambiance.</small>
+          <label>Recette d’assistance<select id="krea2-assisted-assistance-recipe" required><option value="1.0.0">V1 · classique</option><option value="2.0.0" selected>V2 · sujet et contexte compact · expérimental</option></select></label>
           <label>Modèle LLM<select id="krea2-assisted-llm" required><option value="">Chargement…</option></select></label>
           <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm"> Local · Unsloth</label>
           <button id="krea2-assisted-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
@@ -282,13 +286,26 @@
     <div class="content krea2-assisted-content">
       <section id="krea2-assisted-editor" class="results" hidden>
         <div class="result-head">
-          <div><small>PROJET CONVERSATIONNEL</small><h2 id="krea2-assisted-title">Création</h2></div>
+          <div><small>PROJET CONVERSATIONNEL</small><h2 id="krea2-assisted-title">Création</h2>
+          <small id="krea2-assisted-active-recipe" class="muted"></small></div>
           <span id="krea2-assisted-status" class="run-status">● Prêt</span>
         </div>
         <div id="krea2-assisted-warnings" class="krea2-batch-warnings" hidden></div>
+        <section class="krea2-style-preset-panel" aria-label="Preset de style actif">
+          <img id="krea2-assisted-preset-image" alt="Exemple du preset actif" hidden>
+          <div><label>Preset de style<select id="krea2-assisted-preset"><option value="">Sans preset</option></select></label>
+          <small id="krea2-assisted-preset-note" class="muted"></small></div>
+          <button id="krea2-assisted-reapply-preset" type="button">Réappliquer</button>
+          <button id="krea2-assisted-remove-preset" type="button">Retirer</button>
+        </section>
 
         <section class="krea2-assisted-conversation-panel">
           <h3>Discussion</h3>
+          <details id="krea2-assisted-branches" class="krea2-assisted-branches">
+            <summary>Arbre des explorations · <b id="krea2-assisted-active-branch">Exploration initiale</b></summary>
+            <p class="muted">« Repartir d’ici » sur un essai crée une piste à son point de conversation. Les autres pistes restent accessibles ici.</p>
+            <ul id="krea2-assisted-branch-tree" aria-label="Branches de conversation"></ul>
+          </details>
           <div id="krea2-assisted-conversation-layout" class="krea2-assisted-conversation-layout">
             <div class="krea2-assisted-conversation-main">
               <div id="krea2-assisted-conversation" class="krea2-assisted-conversation"></div>
@@ -301,7 +318,7 @@
               </div>
               <label>Votre message<textarea id="krea2-assisted-message" rows="4" placeholder="Répondez aux questions, précisez le rendu ou demandez un ajustement…"></textarea></label>
               <div class="krea2-assisted-guidance-compose">
-                <label class="krea2-assisted-guidance-add">＋ Image d’appoint
+                <label class="krea2-assisted-guidance-add">＋ Image d’inspiration
                   <input id="krea2-assisted-guidance-file" type="file" accept="image/png,image/jpeg,image/webp">
                 </label>
                 <div id="krea2-assisted-guidance-preview" class="krea2-assisted-guidance-preview" hidden>
@@ -327,12 +344,21 @@
                 <pre id="krea2-assisted-reasoning-content"></pre>
               </details>
             </div>
-            <aside id="krea2-assisted-guidance-dock" class="krea2-assisted-guidance-dock" hidden aria-label="Aperçu du contexte visuel du prochain échange">
+            <aside id="krea2-assisted-guidance-dock" class="krea2-assisted-guidance-dock" hidden aria-label="Images du prochain échange">
+              <section id="krea2-assisted-feedback-card" class="krea2-assisted-context-card" hidden>
+                <b>Résultat à corriger</b>
+                <button id="krea2-assisted-feedback-open" type="button" title="Agrandir le résultat sélectionné">
+                  <img id="krea2-assisted-feedback-image" alt="Résultat sélectionné comme feedback">
+                </button>
+                <small id="krea2-assisted-feedback-name"></small>
+              </section>
+              <section id="krea2-assisted-inspiration-card" class="krea2-assisted-context-card" hidden>
               <div><small id="krea2-assisted-guidance-dock-kind"></small><small id="krea2-assisted-guidance-dock-note"></small></div>
               <button id="krea2-assisted-guidance-dock-open" type="button" title="Agrandir l’image de contexte">
                 <img id="krea2-assisted-guidance-dock-image" alt="Aperçu agrandi du contexte visuel">
               </button>
               <b id="krea2-assisted-guidance-dock-name"></b>
+              </section>
             </aside>
           </div>
         </section>
@@ -360,6 +386,8 @@
             <button id="krea2-assisted-render" class="primary" type="button">Lancer un rendu</button>
             <button id="krea2-assisted-cancel" type="button" disabled>Annuler</button>
           </div>
+          <p id="krea2-assisted-queue-summary" class="muted" aria-live="polite">Chaque clic conserve ses réglages. Les rendus passent l’un après l’autre.</p>
+          <button id="krea2-assisted-queue-open" type="button" hidden>Voir l’atelier en cours</button>
           <p id="krea2-assisted-message-state" class="message" aria-live="polite"></p>
         </section>
 
@@ -381,6 +409,19 @@
       </section>
     </div>
   </main>
+
+  <dialog id="krea2-assisted-preset-dialog" class="krea2-preset-dialog" aria-labelledby="krea2-assisted-preset-dialog-title">
+    <form id="krea2-assisted-preset-form">
+      <h2 id="krea2-assisted-preset-dialog-title">Enregistrer un preset</h2>
+      <p id="krea2-assisted-preset-source" class="muted"></p>
+      <label>Destination<select id="krea2-assisted-preset-target"><option value="">Nouveau preset</option></select></label>
+      <label>Nom<input id="krea2-assisted-preset-name" type="text" maxlength="120" required></label>
+      <small>Le modèle, les LoRA, le prompt et l’image de cet essai seront conservés. La seed sert uniquement à sa provenance.</small>
+      <p id="krea2-assisted-preset-error" class="error" role="alert"></p>
+      <div class="actions"><button id="krea2-assisted-preset-save" class="primary" type="submit">Enregistrer</button>
+      <button id="krea2-assisted-preset-close" type="button">Fermer</button></div>
+    </form>
+  </dialog>
 
   <dialog id="krea2-assisted-lightbox" class="krea2-edit-lightbox" aria-labelledby="krea2-assisted-lightbox-title">
     <div class="krea2-edit-lightbox-head"><span id="krea2-assisted-lightbox-title">Image en taille réelle</span><button id="krea2-assisted-lightbox-close" type="button">Fermer</button></div>
@@ -555,7 +596,33 @@
           </div>
         </section>
 
+        <div class="krea2-edit-workbench">
+        <section class="krea2-edit-comparison" aria-label="Comparer les images">
+          <div class="krea2-edit-compare-controls">
+            <label>Avant<select id="krea2-edit-compare-before"></select></label>
+            <label>Après<select id="krea2-edit-compare-after"></select></label>
+          </div>
+          <div id="krea2-edit-compare-view" class="krea2-edit-compare-view" style="--split:50%">
+            <img id="krea2-edit-compare-before-image" alt="Avant">
+            <img id="krea2-edit-compare-after-image" class="krea2-edit-compare-overlay" alt="Après">
+            <span class="krea2-edit-compare-divider" aria-hidden="true"></span>
+            <span class="krea2-edit-compare-tag before">Avant</span><span class="krea2-edit-compare-tag after">Après</span>
+          </div>
+          <label class="sr-only" for="krea2-edit-compare-slider">Séparation avant / après</label>
+          <input id="krea2-edit-compare-slider" type="range" min="0" max="100" value="50" aria-valuetext="50 % avant, 50 % après">
+          <div class="krea2-edit-compare-controls">
+            <label><input id="krea2-edit-compare-hover" type="checkbox"> Suivre la souris</label>
+            <button id="krea2-edit-compare-zoom-before" type="button">Agrandir avant</button>
+            <button id="krea2-edit-compare-zoom-after" type="button">Agrandir après</button>
+          </div>
+          <small id="krea2-edit-compare-note" class="muted"></small>
+        </section>
         <section class="krea2-edit-prompt-panel">
+          <section class="krea2-edit-exchange" aria-label="Conversation de cette étape">
+            <div class="section-title"><b>Conversation de l’étape</b><small id="krea2-edit-revision-count">Aucun échange</small></div>
+            <p id="krea2-edit-revisions-empty" class="muted">Décris la modification souhaitée. Les échanges restent visibles ici.</p>
+            <div id="krea2-edit-revisions" role="log" aria-live="polite"></div>
+          </section>
           <label class="field-label"><b>Instruction de modification</b>
             <textarea id="krea2-edit-instruction" rows="3" placeholder="Ex. cadre le gorille en pied, frappant sa poitrine…"></textarea>
           </label>
@@ -569,7 +636,7 @@
               </select>
             </label>
             <label class="reasoning-toggle"><input id="krea2-edit-show-reasoning" type="checkbox"> Trace modèle</label>
-            <button id="krea2-edit-build-prompt" type="button">Préparer le prompt</button>
+            <button id="krea2-edit-build-prompt" type="button">Envoyer</button>
           </div>
           <details id="krea2-edit-reasoning" class="reasoning-trace" hidden open>
             <summary><b>Trace modèle</b><small id="krea2-edit-reasoning-label">Reconstruction</small></summary>
@@ -581,15 +648,11 @@
             <label class="sr-only" for="krea2-edit-prompt">Prompt KREA2 éditable</label>
             <textarea id="krea2-edit-prompt" rows="4" placeholder="Le prompt récupéré ou reconstruit apparaîtra ici."></textarea>
           </details>
-          <details class="krea2-edit-exchange">
-            <summary><b>Échange de modification</b><small id="krea2-edit-revision-count">Aucune révision</small></summary>
-            <p id="krea2-edit-revisions-empty" class="muted">Les prochaines instructions et leurs prompts seront conservés ici.</p>
-            <div id="krea2-edit-revisions"></div>
-          </details>
         </section>
+        </div>
 
-        <section class="krea2-edit-settings">
-          <h2>Paramètres du rendu</h2>
+        <details class="krea2-edit-settings">
+          <summary><b>Paramètres du rendu</b><small>Modèle, LoRA et réglages avancés</small></summary>
           <div class="krea2-edit-settings-grid">
             <label>Checkpoint<select id="krea2-edit-model"></select></label>
             <label>Ratio<select id="krea2-edit-ratio"></select></label>
@@ -605,7 +668,7 @@
             <summary><b>Organiser le catalogue KREA2</b><small>Précision, favoris et classement des LoRA</small></summary>
             <div id="krea2-edit-catalog-manager"></div>
           </details>
-        </section>
+        </details>
 
         <p id="krea2-edit-message" class="message" aria-live="polite"></p>
         <div class="actions">
@@ -615,6 +678,7 @@
           <button id="krea2-edit-hide" type="button">Retirer du backlog</button>
         </div>
 
+        <details class="krea2-edit-separate-images"><summary>Voir les images séparément</summary>
         <div id="krea2-edit-image-toolbar" class="krea2-edit-image-toolbar" hidden>
           <label><input id="krea2-edit-show-original" type="checkbox"> Afficher l’image initiale</label>
         </div>
@@ -623,6 +687,7 @@
           <figure><figcaption>Source immuable de l’étape</figcaption><div class="krea2-edit-stage"><img id="krea2-edit-source-image" alt="Image source"></div></figure>
           <figure><figcaption id="krea2-edit-result-caption">Résultat utilisé comme feedback LLM</figcaption><div class="krea2-edit-stage"><p id="krea2-edit-result-empty" class="muted">Aucun rendu.</p><p id="krea2-edit-result-loading" class="loading" hidden><i></i>Rendu ComfyUI…</p><img id="krea2-edit-result-image" alt="Résultat KREA2 Edit" hidden></div></figure>
         </div>
+        </details>
       </section>
 
       <section class="history krea2-edit-attempts">
@@ -737,7 +802,7 @@
         <p id="i2vd-setup-message" class="error" role="alert" hidden></p>
         <label class="quick-mode-option">
           <input id="i2vd-quick-mode" type="checkbox">
-          <span><b>Mode rapide</b><small>Générer et valider automatiquement Brief, Plan et Prompt.</small></span>
+          <span><b>Mode rapide</b><small>Générer et valider automatiquement les étapes de la recette choisie.</small></span>
         </label>
         <label class="debug-reasoning-option">
           <input id="i2vd-show-reasoning" type="checkbox">
@@ -995,7 +1060,7 @@
         <label id="ref2vd-execution-mode-control" class="field-label generation-mode-control" for="ref2vd-execution-mode">Orchestration
           <select id="ref2vd-execution-mode">
             <option value="supervised" selected>Supervisé</option>
-            <option value="quick">Rapide · 3 appels LLM</option>
+            <option value="quick">Rapide · toutes les étapes</option>
           </select>
           <small id="ref2vd-execution-mode-hint">Étapes manuelles et arbitrages humains.</small>
         </label>

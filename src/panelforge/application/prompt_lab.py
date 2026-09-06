@@ -152,6 +152,7 @@ class CompletionResult:
     completion_tokens: int | None = None
     finish_reason: str | None = None
     call_id: str | None = None
+    reasoning_text: str = ""
 
 
 class StreamEventKind(StrEnum):
@@ -229,6 +230,7 @@ class LlmCallRecord:
     application_outcome: LlmCallApplicationOutcome | None = None
     application_error_type: str | None = None
     application_error_message: str | None = None
+    reasoning_text: str = ""
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -252,6 +254,7 @@ class LlmCallRecord:
             (self.system_prompt, "system_prompt"),
             (self.user_prompt, "user_prompt"),
             (self.response_text, "response_text"),
+            (self.reasoning_text, "reasoning_text"),
         ):
             if not isinstance(value, str):
                 raise TypeError(f"{name} must be a string")
@@ -1414,13 +1417,15 @@ def _brief_prompts(
 
 
 def _normalize_brief_document(content: str) -> str:
-    """Canonicalize cosmetic heading bullets, then enforce the full Brief contract."""
+    """Canonicalize cosmetic heading bullets/bold, then enforce the full contract."""
     value = strip_markdown_fence(content).replace("\r\n", "\n")
     lines: list[str] = []
     for line in value.split("\n"):
         candidate = line.strip()
         if candidate.startswith("-"):
             candidate = candidate[1:].strip()
+        if candidate.startswith("**") and candidate.endswith("**"):
+            candidate = candidate[2:-2].strip()
         lines.append(f"- {candidate}" if candidate in _BRIEF_HEADINGS else line)
     return _BRIEF_CONTRACT.extract("\n".join(lines))
 

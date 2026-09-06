@@ -18,6 +18,7 @@
 - Keep diffs small and reviewable.
 - Add dependencies only for an implemented need.
 - Update `.agent/CONTINUITY.md` at the end of each task.
+- Tests are run by the user unless explicitly requested otherwise. Do not launch LLM calls or image/video generations for verification; the user may be generating concurrently. Do not restart running services during implementation without an explicit request.
 
 ## Commands
 

@@ -5,7 +5,28 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
-from .prompt_lab import RevisionOrigin
+from .prompt_lab import CreativeFreedomAxes, RevisionOrigin
+
+
+@dataclass(frozen=True, slots=True)
+class PreparationIntent:
+    """User input for a recipe which has no generated Brief stage."""
+
+    source_text: str
+    creative_freedom: int = 35
+    creative_axes: CreativeFreedomAxes | None = None
+    creative_audacity: int = 0
+
+    def __post_init__(self) -> None:
+        _require_text(self.source_text, "source_text")
+        for value, maximum, name in (
+            (self.creative_freedom, 100, "creative_freedom"),
+            (self.creative_audacity, 3, "creative_audacity"),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= maximum:
+                raise ValueError(f"{name} must be between 0 and {maximum}")
+        if self.creative_axes is not None and not isinstance(self.creative_axes, CreativeFreedomAxes):
+            raise TypeError("creative_axes must be CreativeFreedomAxes or None")
 
 
 class CompositionStage(StrEnum):
@@ -162,6 +183,7 @@ class PromptComposition:
     reference_plan: StageDocument = StageDocument(CompositionStage.REFERENCE_PLAN)
     beat_sheet: StageDocument = StageDocument(CompositionStage.BEAT_SHEET)
     final_prompt: StageDocument = StageDocument(CompositionStage.FINAL_PROMPT)
+    preparation_intent: PreparationIntent | None = None
 
     def document(self, stage: CompositionStage) -> StageDocument:
         if stage is CompositionStage.REFERENCE_PLAN:
@@ -190,6 +212,8 @@ class PromptComposition:
 
     def __post_init__(self) -> None:
         _require_text(self.source_session_id, "source_session_id")
+        if self.preparation_intent is not None and not isinstance(self.preparation_intent, PreparationIntent):
+            raise TypeError("preparation_intent must be PreparationIntent or None")
         if not isinstance(self.cookbook, CookbookRef):
             raise TypeError("cookbook must be a CookbookRef")
         if not isinstance(self.bindings, tuple) or not self.bindings:

@@ -1,0 +1,13 @@
+Tu révises un Brief H3 Ref2V produit par Direction créative Ref2V 0.2.0. Conserve les neuf sections, deux phrases courtes maximum par section, les rôles et exclusions de chaque <Image N>, le comportement explicite du mouvement à la dernière frame et toutes les citations application-owned mot pour mot.
+
+Applique précisément la modification demandée tout en conservant ou en réorientant de façon cohérente la progression créative choisie. Le niveau d'audace reste un objectif : à 0, aucune idée-signature ; à 1, un enrichissement discret facultatif ; à 2, exactement une idée-signature mémorable ; à 3, une idée-signature forte et au plus un effet de soutien cohérent. Les axes restent des limites strictes.
+
+L'idée-signature ne peut exploiter que les canaux autorisés par les usages de chaque référence. Elle ne peut ni inventer un transfert de sujet, décor, composition, style ou motion, ni réinterpréter une simple référence comme first_frame, last_frame ou keyframe.
+
+Le Brief révisé garde un mouvement principal clair, des enrichissements subordonnés, une montée visuelle réalisable dans la durée et une seule prise continue. N'ajoute aucune parole, voix, narration, musique ou contenu sonore non demandé.
+
+Une dernière frame ne permet jamais d'inférer un arrêt ou une convergence anticipée. Pour un suivi sur-place, conserve une preuve de mouvement du monde plutôt que d'inventer un rapprochement du sujet. La liste verbatim ne compte pas dans la limite de phrases.
+
+Un plan sans coupe peut enchaîner des actions finies. Préserve cet ordre causal : seul le mouvement de la phase finale doit rester actif si la fin est en mouvement. Ne maintiens pas un contact après son relâchement. Rédige une phrase utile par section, deux si nécessaire, sans limiter les citations exactes.
+
+Caméra réalisable : choisis un mouvement principal, ou un cadre fixe si cela suffit. Le Plan représente un seul mouvement de caméra à la fois. Si la demande combine des mouvements simultanés, conserve celui qui sert le mieux l'action et les références ; retiens une succession seulement si un changement de phase la justifie, sans chevauchement. Indique brièvement cette adaptation dans la section caméra lorsqu'elle simplifie une demande explicite. Respecte les axes de liberté, les cadrages imposés et les suivis continus demandés ; n'ajoute pas un second mouvement pour remplir la durée. Exemple : pour un dolly-in avec micro-tilt simultané, retiens le dolly-in si le tilt n'apporte aucun changement utile. Choisis une solution une seule fois, puis rédige directement le Brief complet ; ne développe ni alternatives ni brouillons successifs.

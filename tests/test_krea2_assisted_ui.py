@@ -16,7 +16,10 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260903.2', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260906.1', self.page)
+        self.assertIn('id="krea2-assisted-new-preset"', self.page)
+        self.assertIn('id="krea2-assisted-preset-dialog"', self.page)
+        self.assertIn('id="krea2-assisted-preset-note"', self.page)
         self.assertIn('"krea2-assisted-lab"', (STATIC / "lab-core.js").read_text(encoding="utf-8"))
 
     def test_initial_visible_assisted_view_loads_its_catalog_automatically(self):
@@ -86,6 +89,16 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertNotIn("/api/image-lab/krea2-edit", self.script)
         self.assertIn(".krea2-assisted-gallery", self.css)
         self.assertIn("max-height: 72vh", self.css)
+
+    def test_render_queue_has_atomic_enqueue_and_individual_actions(self):
+        self.assertIn('id="krea2-assisted-queue-summary"', self.page)
+        self.assertIn('id="krea2-assisted-queue-open"', self.page)
+        render = self.script[self.script.index("async function renderAttempt") : self.script.index("async function startPreparedAttempt")]
+        self.assertIn("/attempts?enqueue=true", render)
+        self.assertNotIn("/start", render)
+        self.assertIn("Ajouter cet essai à la file", self.script)
+        self.assertIn("cancelAttempt(attempt.attempt_id)", self.script)
+        self.assertIn("position ${item.position}", self.script)
 
     def test_render_primary_button_keeps_a_contrasted_background_inside_actions(self):
         self.assertIn('id="krea2-assisted-render" class="primary"', self.page)
@@ -161,7 +174,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn('id="krea2-assisted-guidance-dock"', self.page)
         self.assertIn('id="krea2-assisted-guidance-dock-image"', self.page)
         self.assertIn(
-            'elements.conversationLayout.classList.toggle("has-guidance", Boolean(conversationPreview))',
+            'elements.conversationLayout.classList.toggle("has-guidance", Boolean(conversationPreview || feedback))',
             self.script,
         )
         self.assertIn(
@@ -177,6 +190,22 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn('kind: "FEEDBACK VISUEL"', self.script)
         self.assertIn("const conversationPreview = currentConversationPreview();", self.script)
         self.assertIn('id="krea2-assisted-guidance-dock-kind"', self.page)
+
+    def test_feedback_and_inspiration_have_independent_cards(self):
+        self.assertIn('id="krea2-assisted-feedback-card"', self.page)
+        self.assertIn('id="krea2-assisted-inspiration-card"', self.page)
+        self.assertIn('elements.feedbackCard.hidden = !feedback', self.script)
+        self.assertIn('elements.inspirationCard.hidden = !conversationPreview', self.script)
+        self.assertIn('!conversationPreview && !feedback', self.script)
+
+    def test_branch_actions_are_optional_and_old_attempts_are_explicit(self):
+        self.assertIn('id="krea2-assisted-branches"', self.page)
+        self.assertIn('id="krea2-assisted-branch-tree"', self.page)
+        self.assertIn('"Repartir d’ici" : "Nouvelle piste · image + prompt"', self.script)
+        self.assertIn('expected_branch_id: state.project.active_branch_id', self.script)
+        self.assertIn('image_prompt_only: !attempt.can_restore_conversation', self.script)
+        self.assertIn('button.setAttribute("aria-current", String(active))', self.script)
+        self.assertIn('serial !== state.navigationSerial', self.script)
 
 
 if __name__ == "__main__":

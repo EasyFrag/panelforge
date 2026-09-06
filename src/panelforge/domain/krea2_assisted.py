@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 import re
 
 from .krea2_batch import Krea2BatchSettings, Krea2PromptLanguage
+from .krea2_style_presets import Krea2StylePreset, validate_preset_selection
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -25,6 +26,7 @@ class Krea2AssistedTurnRole(StrEnum):
 class Krea2AssistedAttemptStatus(StrEnum):
     CREATED = "created"
     QUEUED = "queued"
+    SUBMITTING = "submitting"
     RUNNING = "running"
     CANCEL_PENDING = "cancel_pending"
     SUCCEEDED = "succeeded"
@@ -44,8 +46,12 @@ class Krea2AssistedTurn:
     prompt: str | None = None
     recommendations: tuple[str, ...] = ()
     model_id: str | None = None
+    assistance_recipe_version: str = "1.0.0"
+    style_preset: Krea2StylePreset | None = None
 
     def __post_init__(self) -> None:
+        validate_preset_selection(self.style_preset, False)
+        _text(self.assistance_recipe_version, "assistance_recipe_version")
         _text(self.turn_id, "turn_id")
         if not isinstance(self.mode, Krea2AssistedTurnMode):
             raise TypeError("mode must be a Krea2AssistedTurnMode")
@@ -83,8 +89,29 @@ class Krea2AssistedAttempt:
     output_asset_id: str | None = None
     error: str | None = None
     accepted: bool = False
+    # None means a legacy attempt with no recoverable conversation checkpoint.
+    conversation_branch_id: str | None = None
+    conversation_turn_id: str | None = None
+    conversation_prompt_language: Krea2PromptLanguage = Krea2PromptLanguage.ENGLISH
+    conversation_model_id: str | None = None
+    style_preset: Krea2StylePreset | None = None
+    preset_pending: bool = False
+    queue_order: int | None = None
 
     def __post_init__(self) -> None:
+        validate_preset_selection(self.style_preset, self.preset_pending)
+        if self.queue_order is not None and (
+            isinstance(self.queue_order, bool) or not isinstance(self.queue_order, int) or self.queue_order < 1
+        ):
+            raise ValueError("queue_order must be a positive integer")
+        if self.conversation_branch_id is not None:
+            _text(self.conversation_branch_id, "conversation_branch_id")
+        if self.conversation_turn_id is not None:
+            _text(self.conversation_turn_id, "conversation_turn_id")
+            if self.conversation_branch_id is None:
+                raise ValueError("conversation_turn_id requires a branch")
+        if not isinstance(self.conversation_prompt_language, Krea2PromptLanguage):
+            raise TypeError("conversation_prompt_language must be Krea2PromptLanguage")
         _text(self.attempt_id, "attempt_id")
         if isinstance(self.index, bool) or not isinstance(self.index, int) or self.index < 1:
             raise ValueError("attempt index must be positive")
@@ -107,13 +134,18 @@ class Krea2AssistedAttempt:
             raise TypeError("accepted must be a boolean")
         self._validate_state()
 
-    def queue(self) -> Krea2AssistedAttempt:
+    def queue(self, order: int | None = None) -> Krea2AssistedAttempt:
         if self.status is not Krea2AssistedAttemptStatus.CREATED:
             raise ValueError("only a created attempt can be queued")
-        return replace(self, status=Krea2AssistedAttemptStatus.QUEUED)
+        return replace(self, status=Krea2AssistedAttemptStatus.QUEUED, queue_order=order)
+
+    def submitting(self, digest: str) -> Krea2AssistedAttempt:
+        if self.status is not Krea2AssistedAttemptStatus.QUEUED:
+            raise ValueError("only a queued attempt can be submitted")
+        return replace(self, status=Krea2AssistedAttemptStatus.SUBMITTING, compiled_workflow_sha256=_digest(digest))
 
     def start(self, execution_id: str, digest: str) -> Krea2AssistedAttempt:
-        if self.status is not Krea2AssistedAttemptStatus.QUEUED:
+        if self.status not in {Krea2AssistedAttemptStatus.QUEUED, Krea2AssistedAttemptStatus.SUBMITTING}:
             raise ValueError("only a queued attempt can start")
         return replace(
             self,
@@ -139,6 +171,7 @@ class Krea2AssistedAttempt:
         if self.status not in {
             Krea2AssistedAttemptStatus.CREATED,
             Krea2AssistedAttemptStatus.QUEUED,
+            Krea2AssistedAttemptStatus.SUBMITTING,
             Krea2AssistedAttemptStatus.RUNNING,
             Krea2AssistedAttemptStatus.CANCEL_PENDING,
         }:
@@ -154,6 +187,7 @@ class Krea2AssistedAttempt:
         if self.status not in {
             Krea2AssistedAttemptStatus.QUEUED,
             Krea2AssistedAttemptStatus.RUNNING,
+            Krea2AssistedAttemptStatus.CANCEL_PENDING,
         }:
             raise ValueError("only a queued or running attempt can await cancellation")
         return replace(
@@ -166,6 +200,7 @@ class Krea2AssistedAttempt:
         if self.status not in {
             Krea2AssistedAttemptStatus.CREATED,
             Krea2AssistedAttemptStatus.QUEUED,
+            Krea2AssistedAttemptStatus.SUBMITTING,
             Krea2AssistedAttemptStatus.RUNNING,
             Krea2AssistedAttemptStatus.CANCEL_PENDING,
         }:
@@ -189,6 +224,9 @@ class Krea2AssistedAttempt:
         elif self.status is Krea2AssistedAttemptStatus.QUEUED:
             if any((self.execution_id, self.compiled_workflow_sha256, self.output_asset_id, self.error)):
                 raise ValueError("queued attempt contains execution fields")
+        elif self.status is Krea2AssistedAttemptStatus.SUBMITTING:
+            if self.execution_id is not None or self.output_asset_id is not None or self.compiled_workflow_sha256 is None:
+                raise ValueError("submitting attempt requires only a compiled workflow")
         elif self.status in {Krea2AssistedAttemptStatus.RUNNING, Krea2AssistedAttemptStatus.CANCEL_PENDING}:
             if self.execution_id is None or self.compiled_workflow_sha256 is None:
                 raise ValueError("active attempt requires execution fields")
@@ -237,6 +275,44 @@ class Krea2AssistedRecipeDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class Krea2AssistedBranch:
+    """A saved conversation path. Turns shared by two paths retain their IDs."""
+
+    branch_id: str
+    name: str
+    parent_branch_id: str | None = None
+    source_attempt_id: str | None = None
+    turns: tuple[Krea2AssistedTurn, ...] = ()
+    current_prompt: str | None = None
+    prompt_language: Krea2PromptLanguage = Krea2PromptLanguage.ENGLISH
+    revision_model_id: str | None = None
+    feedback_attempt_id: str | None = None
+    recipe_draft: Krea2AssistedRecipeDraft | None = None
+    render_settings: Krea2BatchSettings | None = None
+    render_seed: int | None = None
+    style_preset: Krea2StylePreset | None = None
+    preset_pending: bool = False
+
+    def __post_init__(self) -> None:
+        validate_preset_selection(self.style_preset, self.preset_pending)
+        _text(self.branch_id, "branch_id")
+        _text(self.name, "branch name")
+        if not isinstance(self.turns, tuple) or any(not isinstance(t, Krea2AssistedTurn) for t in self.turns):
+            raise TypeError("branch turns must contain Krea2AssistedTurn values")
+        if len({t.turn_id for t in self.turns}) != len(self.turns):
+            raise ValueError("branch turn IDs must be unique")
+        if not isinstance(self.prompt_language, Krea2PromptLanguage):
+            raise TypeError("branch prompt_language must be Krea2PromptLanguage")
+        if self.render_settings is not None and not isinstance(self.render_settings, Krea2BatchSettings):
+            raise TypeError("branch render_settings must be Krea2BatchSettings")
+        if self.render_seed is not None and (
+            isinstance(self.render_seed, bool) or not isinstance(self.render_seed, int)
+            or not 0 <= self.render_seed <= 2**50
+        ):
+            raise ValueError("branch render_seed is invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class Krea2AssistedProject:
     project_id: str
     name: str
@@ -257,8 +333,21 @@ class Krea2AssistedProject:
     export_path: str | None = None
     export_error: str | None = None
     warnings: tuple[str, ...] = ()
+    assistance_recipe_version: str = "1.0.0"
+    active_branch_id: str = "main"
+    branches: tuple[Krea2AssistedBranch, ...] = field(
+        default_factory=lambda: (
+            Krea2AssistedBranch(branch_id="main", name="Exploration initiale"),
+        ),
+    )
+    render_settings: Krea2BatchSettings | None = None
+    render_seed: int | None = None
+    style_preset: Krea2StylePreset | None = None
+    preset_pending: bool = False
 
     def __post_init__(self) -> None:
+        validate_preset_selection(self.style_preset, self.preset_pending)
+        _text(self.assistance_recipe_version, "assistance_recipe_version")
         for value, label in (
             (self.project_id, "project_id"),
             (self.name, "name"),
@@ -294,6 +383,101 @@ class Krea2AssistedProject:
         if self.export_error is not None:
             _text(self.export_error, "export_error")
         _strings(self.warnings, "warnings", maximum=64)
+        if not isinstance(self.branches, tuple) or any(not isinstance(b, Krea2AssistedBranch) for b in self.branches):
+            raise TypeError("branches must contain Krea2AssistedBranch values")
+        known_branches: set[str] = set()
+        known_turns: dict[str, Krea2AssistedTurn] = {}
+        for branch in self.branches:
+            if branch.branch_id in known_branches:
+                raise ValueError("branch IDs must be unique")
+            if branch.parent_branch_id is not None and branch.parent_branch_id not in known_branches:
+                raise ValueError("a branch parent must precede its child")
+            known_branches.add(branch.branch_id)
+            if branch.source_attempt_id is not None and branch.source_attempt_id not in attempt_ids:
+                raise ValueError("branch source attempt does not exist")
+            if branch.feedback_attempt_id is not None and branch.feedback_attempt_id not in attempt_ids:
+                raise ValueError("branch feedback attempt does not exist")
+            for turn in branch.turns:
+                if turn.turn_id in known_turns and known_turns[turn.turn_id] != turn:
+                    raise ValueError("shared conversation turns must be immutable")
+                known_turns[turn.turn_id] = turn
+        if self.active_branch_id not in known_branches:
+            raise ValueError("active branch does not exist")
+        for turn in self.turns:
+            if turn.turn_id in known_turns and known_turns[turn.turn_id] != turn:
+                raise ValueError("shared conversation turns must be immutable")
+        # Validate current render state with the same contract as saved branches.
+        object.__setattr__(self, "branches", self.conversation_branches())
+
+    @property
+    def initial_reference_pending(self) -> bool:
+        """Send the source until the project's first accepted assistant reply.
+
+        Failed/cancelled calls leave only user turns and can retry with the
+        source. Branch navigation must not silently attach it again, including
+        a restart with an empty conversation from an old image.
+        """
+        return self.reference_asset_id is not None and not any(
+            turn.role is Krea2AssistedTurnRole.ASSISTANT
+            for branch in self.branches
+            for turn in branch.turns
+        )
+
+    def conversation_branches(self) -> tuple[Krea2AssistedBranch, ...]:
+        """Overlay the live state; inactive paths never receive later exchanges."""
+        return tuple(
+            replace(branch, turns=self.turns, current_prompt=self.current_prompt,
+                    prompt_language=self.prompt_language, revision_model_id=self.revision_model_id,
+                    feedback_attempt_id=self.feedback_attempt_id, recipe_draft=self.recipe_draft,
+                    render_settings=self.render_settings, render_seed=self.render_seed,
+                    style_preset=self.style_preset, preset_pending=self.preset_pending)
+            if branch.branch_id == self.active_branch_id else branch
+            for branch in self.branches
+        )
+
+    def switch_branch(self, branch_id: str) -> Krea2AssistedProject:
+        branches = self.conversation_branches()
+        branch = next((b for b in branches if b.branch_id == branch_id), None)
+        if branch is None:
+            raise KeyError(branch_id)
+        return replace(
+            self, branches=branches, active_branch_id=branch.branch_id, turns=branch.turns,
+            current_prompt=branch.current_prompt, prompt_language=branch.prompt_language,
+            revision_model_id=branch.revision_model_id, feedback_attempt_id=branch.feedback_attempt_id,
+            recipe_draft=branch.recipe_draft, render_settings=branch.render_settings,
+            render_seed=branch.render_seed,
+            style_preset=branch.style_preset, preset_pending=branch.preset_pending,
+        )
+
+    def branch_from_attempt(
+        self, attempt_id: str, branch_id: str, *, image_prompt_only: bool = False,
+    ) -> Krea2AssistedProject:
+        attempt = self.attempt(attempt_id)
+        if attempt.status is not Krea2AssistedAttemptStatus.SUCCEEDED:
+            raise ValueError("a conversation branch requires a succeeded image")
+        if attempt.conversation_branch_id is None and not image_prompt_only:
+            raise ValueError("Cet ancien essai ne possède pas de point de conversation. Utilisez la reprise image + prompt.")
+        branches = self.conversation_branches()
+        turns: tuple[Krea2AssistedTurn, ...] = ()
+        parent_id = attempt.conversation_branch_id or "main"
+        if not image_prompt_only:
+            source = next((b for b in branches if b.branch_id == parent_id), None)
+            if source is None:
+                raise ValueError("conversation checkpoint branch does not exist")
+            if attempt.conversation_turn_id is not None:
+                index = next((i for i, t in enumerate(source.turns) if t.turn_id == attempt.conversation_turn_id), None)
+                if index is None:
+                    raise ValueError("conversation checkpoint turn does not exist")
+                turns = source.turns[:index + 1]
+        branch = Krea2AssistedBranch(
+            branch_id=branch_id, name=f"Piste {len(branches)} · essai {attempt.index}",
+            parent_branch_id=parent_id, source_attempt_id=attempt_id, turns=turns,
+            current_prompt=attempt.prompt, prompt_language=attempt.conversation_prompt_language,
+            revision_model_id=attempt.conversation_model_id or self.model_id,
+            feedback_attempt_id=attempt_id, render_settings=attempt.settings, render_seed=attempt.seed,
+            style_preset=attempt.style_preset, preset_pending=attempt.preset_pending,
+        )
+        return replace(self, branches=(*branches, branch)).switch_branch(branch_id)
 
     def add_turns(
         self,

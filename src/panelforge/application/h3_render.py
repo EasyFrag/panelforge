@@ -1290,13 +1290,7 @@ def canonicalize_h3_revision(
         if not candidate_body.strip():
             candidate_body = current_body
         result = f"{header}\n\n{candidate_body.strip()}"
-        expected_camera = Counter(camera_clauses)
-        for clause, expected_count in expected_camera.items():
-            if result.count(clause) != expected_count:
-                raise ValueError(
-                    "compiled camera clause must remain present exactly "
-                    f"{expected_count} time(s): {clause}"
-                )
+        _validate_revision_camera_clauses(result, camera_clauses)
         errors = lint_direct_ref2v_prompt(result)
         if errors:
             raise ValueError(" ".join(dict.fromkeys(errors)))
@@ -1312,13 +1306,7 @@ def canonicalize_h3_revision(
     names = [match.group(1).lower() for match in matches]
     if names != ["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]:
         raise ValueError("H3 prompt must contain the three canonical fields exactly once and in order")
-    expected_camera = Counter(camera_clauses)
-    for clause, expected_count in expected_camera.items():
-        if result.count(clause) != expected_count:
-            raise ValueError(
-                "compiled camera clause must remain present exactly "
-                f"{expected_count} time(s): {clause}"
-            )
+    _validate_revision_camera_clauses(result, camera_clauses)
     errors = tuple(
         issue.message
         for issue in lint_h3_prompt(H3ProtocolMode(input_mode.value), result)
@@ -1327,6 +1315,23 @@ def canonicalize_h3_revision(
     if errors:
         raise ValueError(" ".join(dict.fromkeys(errors)))
     return result
+
+
+def _validate_revision_camera_clauses(prompt: str, camera_clauses: tuple[str, ...]) -> None:
+    if not camera_clauses:
+        return  # Legacy revisions do not supply a compiler-owned camera contract.
+    # A timed static clause contains the untimed static sentence as a suffix.
+    # Count whole parsed directives, not occurrences of that substring.
+    actual = Counter(extract_compiled_camera_clauses(prompt))
+    expected = Counter(camera_clauses)
+    for clause, count in expected.items():
+        if actual[clause] != count:
+            raise ValueError(
+                "compiled camera clause must remain present exactly "
+                f"{count} time(s): {clause}"
+            )
+    if actual - expected:
+        raise ValueError("unexpected compiled camera clause; keep only the camera tokens in the editable prompt")
 
 
 def protect_h3_revision_camera(
@@ -1380,6 +1385,13 @@ def compile_h3_revision_camera(
         token = f"[[camera:camera_{index}]]"
         if value.count(token) != 1:
             raise ValueError(f"{token} must appear exactly once in the revised prompt")
+        # Some repair answers copy both the token and its literal expansion.
+        # Remove only an exact adjacent copy belonging to this same token.
+        copies = sorted({previous_clauses[index - 1], clause}, key=len, reverse=True)
+        redundant = re.compile(
+            re.escape(token) + r"\s*(?:" + "|".join(re.escape(copy) for copy in copies) + r")(?=\s|$)"
+        )
+        value = redundant.sub(lambda _match: token, value, count=1)
         value = value.replace(token, clause, 1)
     return value
 

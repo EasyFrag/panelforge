@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
 from threading import Lock
 from typing import Annotated, Any, Callable
+from panelforge.domain.prompt_composition import PreparationIntent
 
 from fastapi import (
     BackgroundTasks,
@@ -392,6 +394,7 @@ class CompositionConfigureBody(BaseModel):
     cookbook_id: str
     cookbook_version: str
     bindings: dict[str, list[str]]
+    preparation_intent: BriefStructureBody | None = None
 
 
 class PlanArbitrationBody(BaseModel):
@@ -490,6 +493,7 @@ class Krea2EditPromptBody(BaseModel):
     base_prompt: str | None = None
     feedback_attempt_id: str | None = None
     prompt_language: str | None = None
+    assistance_version: str = "1.0.0"
 
 
 class Krea2EditAttemptBody(BaseModel):
@@ -514,12 +518,14 @@ class Krea2EditPromotionBody(BaseModel):
 
 class Krea2AssistedChatBody(BaseModel):
     message: str
+    current_prompt: str | None = None
     mode: str = "creation"
     model_id: str | None = None
     feedback_attempt_id: str | None = None
     prompt_language: str | None = None
     guidance_asset_id: str | None = None
     guidance_filename: str | None = None
+    expected_branch_id: str | None = None
 
 
 class Krea2AssistedAttemptBody(BaseModel):
@@ -529,6 +535,31 @@ class Krea2AssistedAttemptBody(BaseModel):
     megapixels: float
     seed: str | int | None = None
     loras: list[Krea2BatchLoraBody] | None = None
+    expected_branch_id: str | None = None
+
+
+class Krea2AssistedBranchBody(BaseModel):
+    expected_branch_id: str
+    branch_id: str | None = None
+    attempt_id: str | None = None
+    image_prompt_only: bool = False
+    draft: Krea2AssistedAttemptBody | None = None
+    prompt_language: str | None = None
+    model_id: str | None = None
+
+
+class Krea2StylePresetSaveBody(BaseModel):
+    project_id: str
+    attempt_id: str
+    name: str = Field(min_length=1, max_length=120)
+    preset_id: str | None = None
+    expected_revision: int | None = None
+
+
+class Krea2StylePresetApplyBody(BaseModel):
+    preset_id: str | None = None
+    expected_branch_id: str
+    draft: Krea2AssistedAttemptBody
 
 
 class Krea2AssistedFeedbackBody(BaseModel):
@@ -723,7 +754,17 @@ def create_app(
     if not index_path.is_file():
         raise FileNotFoundError(index_path)
 
-    app = FastAPI(title="PanelForge Lab", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_app):
+        if krea2_assisted is not None:
+            krea2_assisted.start_render_worker()
+        try:
+            yield
+        finally:
+            if krea2_assisted is not None:
+                await asyncio.to_thread(krea2_assisted.stop_render_worker)
+
+    app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
     krea2_models = (
         _Krea2ModelDiscovery(krea2_lab)
         if krea2_lab is not None
@@ -2305,6 +2346,7 @@ def create_app(
         models = service.resources.list_models()
         loras = service.resources.list_loras()
         return {
+            "assistance_recipes": service.list_assistance_recipes(),
             "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
             "render_models": [serialize_krea2_resource(resource) for resource in models],
             "loras": [serialize_krea2_resource(resource) for resource in loras],
@@ -2339,9 +2381,11 @@ def create_app(
     )
     async def create_krea2_assisted_project(
         name: Annotated[str, Form()],
-        intention: Annotated[str, Form()],
         model_id: Annotated[str, Form()],
+        intention: Annotated[str, Form()] = "",
         reference: Annotated[UploadFile | None, File()] = None,
+        assistance_recipe_version: Annotated[str, Form()] = "1.0.0",
+        style_preset_id: Annotated[str | None, Form()] = None,
     ) -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
         asset_id = None
@@ -2353,6 +2397,8 @@ def create_app(
                 media_type = detect_image_media_type(content)
                 asset_id = runner.assets.create(content, media_type=media_type).asset_id
             project = service.create_project(
+                assistance_recipe_version=assistance_recipe_version,
+                style_preset_id=style_preset_id,
                 name=name,
                 intention=intention,
                 model_id=model_id,
@@ -2360,11 +2406,49 @@ def create_app(
                 reference_filename=(reference.filename if reference is not None else None),
             )
             return {"project": serialize_krea2_assisted_project(project)}
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Preset introuvable.") from error
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         finally:
             if reference is not None:
                 await reference.close()
+
+    @app.get("/api/image-lab/krea2-assisted/style-presets")
+    def list_krea2_style_presets() -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        return {"presets": [_serialize_krea2_style_preset(p) for p in service.list_style_presets()]}
+
+    @app.post("/api/image-lab/krea2-assisted/style-presets")
+    def save_krea2_style_preset(body: Krea2StylePresetSaveBody) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            preset = service.save_style_preset(body.project_id, body.attempt_id, body.name,
+                                              preset_id=body.preset_id, expected_revision=body.expected_revision)
+            return {"preset": _serialize_krea2_style_preset(preset)}
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Essai ou preset introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/style-preset")
+    def apply_krea2_style_preset(project_id: str, body: Krea2StylePresetApplyBody) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        draft = body.draft
+        try:
+            project = service.apply_style_preset(
+                project_id, body.preset_id, expected_branch_id=body.expected_branch_id,
+                current_prompt=draft.prompt, seed=_parse_json_seed(draft.seed) if draft.seed not in (None, "") else None,
+                settings=Krea2BatchSettings(
+                    model_name=draft.model_id, aspect_ratio=Krea2AspectRatio(draft.aspect_ratio), megapixels=draft.megapixels,
+                    loras=tuple(Krea2LoraSelection(name=l.name, strength=l.strength) for l in (draft.loras or [])),
+                ),
+            )
+            return {"project": serialize_krea2_assisted_project(project)}
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Projet ou preset introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/image-lab/krea2-assisted/projects")
     def list_krea2_assisted_projects(limit: int = 30) -> dict[str, object]:
@@ -2445,14 +2529,20 @@ def create_app(
         return _krea2_assisted_stream_response(service.stream_chat(
             project_id,
             body.message,
+            expected_branch_id=body.expected_branch_id,
             mode=mode,
             model_id=body.model_id,
             feedback_attempt_id=body.feedback_attempt_id,
             prompt_language=prompt_language,
             guidance_asset_id=body.guidance_asset_id,
             guidance_filename=body.guidance_filename,
+            current_prompt=body.current_prompt,
             include_reasoning=include_reasoning,
         ))
+
+    @app.get("/api/image-lab/krea2-assisted/render-queue")
+    def krea2_assisted_render_queue() -> dict[str, object]:
+        return _require_krea2_assisted(krea2_assisted).render_queue()
 
     @app.post(
         "/api/image-lab/krea2-assisted/projects/{project_id}/attempts",
@@ -2461,12 +2551,14 @@ def create_app(
     def prepare_krea2_assisted_attempt(
         project_id: str,
         body: Krea2AssistedAttemptBody,
+        enqueue: bool = False,
     ) -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
         try:
             seed = None if body.seed is None or str(body.seed).strip() == "" else _parse_json_seed(body.seed)
             project = service.prepare_attempt(
                 project_id,
+                expected_branch_id=body.expected_branch_id,
                 prompt=body.prompt,
                 settings=Krea2BatchSettings(
                     model_name=body.model_id,
@@ -2478,7 +2570,10 @@ def create_app(
                     ),
                 ),
                 seed=seed,
+                enqueue=enqueue,
             )
+            if enqueue:
+                service.start_render_worker()
             return {"project": serialize_krea2_assisted_project(project)}
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="KREA2 assisted project not found") from error
@@ -2492,7 +2587,6 @@ def create_app(
     def start_krea2_assisted_attempt(
         project_id: str,
         attempt_id: str,
-        background_tasks: BackgroundTasks,
     ) -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
         try:
@@ -2501,7 +2595,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="KREA2 assisted project or attempt not found") from error
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        background_tasks.add_task(service.execute_attempt, project_id, attempt_id)
+        service.start_render_worker()
         return {"project": serialize_krea2_assisted_project(project)}
 
     @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/cancel")
@@ -2515,6 +2609,31 @@ def create_app(
             }
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="KREA2 assisted project or attempt not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/branches")
+    def change_krea2_assisted_branch(project_id: str, body: Krea2AssistedBranchBody) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            draft = body.draft
+            project = service.change_branch(
+                project_id, expected_branch_id=body.expected_branch_id,
+                branch_id=body.branch_id, attempt_id=body.attempt_id,
+                image_prompt_only=body.image_prompt_only,
+                current_prompt=draft.prompt if draft else None,
+                settings=Krea2BatchSettings(
+                    model_name=draft.model_id, aspect_ratio=Krea2AspectRatio(draft.aspect_ratio),
+                    megapixels=draft.megapixels,
+                    loras=tuple(Krea2LoraSelection(name=item.name, strength=item.strength) for item in (draft.loras or [])),
+                ) if draft else None,
+                seed=_parse_json_seed(draft.seed) if draft and draft.seed is not None and str(draft.seed).strip() else None,
+                prompt_language=Krea2PromptLanguage(body.prompt_language) if body.prompt_language else None,
+                model_id=body.model_id,
+            )
+            return {"project": serialize_krea2_assisted_project(project)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="KREA2 project, branch or attempt not found") from error
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -2732,6 +2851,7 @@ def create_app(
                 feedback_attempt_id=body.feedback_attempt_id,
                 prompt_language=prompt_language,
                 include_reasoning=include_reasoning,
+                assistance_version=body.assistance_version,
             )
         )
 
@@ -3700,6 +3820,11 @@ def create_app(
                     ),
                     "writer_projection": cookbook.writer_projection,
                     "stages": list(cookbook.stages),
+                    "preparation_steps": getattr(cookbook, "preparation_steps", 3),
+                    "profile": (
+                        {"id": cookbook.profile_id, "version": cookbook.profile_version}
+                        if getattr(cookbook, "profile_id", None) else None
+                    ),
                     "supports_plan_reconciliation": bool(
                         cookbook.beat_sheet_reconcile_system_prompt
                         and cookbook.beat_sheet_reconcile_user_prompt
@@ -3765,6 +3890,14 @@ def create_app(
                         reference_ids=tuple(reference_ids),
                     )
                     for slot_id, reference_ids in body.bindings.items()
+                ),
+                preparation_intent=(
+                    PreparationIntent(
+                        source_text=body.preparation_intent.source_text.strip(),
+                        creative_freedom=body.preparation_intent.creative_freedom,
+                        creative_axes=(body.preparation_intent.creative_axes.domain_value() if body.preparation_intent.creative_axes else None),
+                        creative_audacity=body.preparation_intent.creative_audacity,
+                    ) if body.preparation_intent is not None else None
                 ),
             ),
         )
@@ -4257,6 +4390,7 @@ def _llm_activity_label(operation_id: str) -> str:
         "prompt.",
         "ref2v.",
         "h3.",
+        "minimax.h3.",
     )):
         return "H3_plan"
     return "LLM"
@@ -4562,14 +4696,46 @@ def serialize_social_project(project: SocialProject) -> dict[str, object]:
     }
 
 
+def _serialize_krea2_style_preset(preset) -> dict[str, object] | None:
+    if preset is None:
+        return None
+    return {
+        "preset_id": preset.preset_id, "revision": preset.revision, "name": preset.name,
+        "prompt": preset.prompt, "image_url": f"/api/assets/{preset.image_asset_id}/content",
+        "settings": _serialize_krea2_assisted_settings(preset.settings),
+        "source_project_id": preset.source_project_id, "source_attempt_id": preset.source_attempt_id,
+        "source_seed": str(preset.source_seed), "prompt_language": preset.prompt_language.value,
+    }
+
+
 def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str, object]:
     draft = project.recipe_draft
+    branches = []
+    for branch in project.conversation_branches():
+        preview = next((a for a in reversed(project.attempts)
+                        if a.output_asset_id and (a.conversation_branch_id == branch.branch_id
+                            or (branch.branch_id == "main" and a.conversation_branch_id is None))), None)
+        if preview is None and branch.source_attempt_id:
+            preview = project.attempt(branch.source_attempt_id)
+        branches.append({
+            "branch_id": branch.branch_id, "name": branch.name,
+            "parent_branch_id": branch.parent_branch_id, "source_attempt_id": branch.source_attempt_id,
+            "turn_count": len(branch.turns),
+            "preview_url": f"/api/assets/{preview.output_asset_id}/content" if preview and preview.output_asset_id else None,
+        })
     return {
         "id": project.project_id,
+        "active_branch_id": project.active_branch_id,
+        "branches": branches,
+        "render_settings": _serialize_krea2_assisted_settings(project.render_settings),
+        "style_preset": _serialize_krea2_style_preset(project.style_preset),
+        "preset_pending": project.preset_pending,
+        "render_seed": str(project.render_seed) if project.render_seed is not None else None,
         "project_id": project.project_id,
         "name": project.name,
         "intention": project.intention,
         "model_id": project.model_id,
+        "assistance_recipe_version": project.assistance_recipe_version,
         "revision_model_id": project.revision_model_id,
         "prompt_language": project.prompt_language.value,
         "reference_asset_id": project.reference_asset_id,
@@ -4596,6 +4762,8 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
                 "prompt": turn.prompt,
                 "recommendations": list(turn.recommendations),
                 "model_id": turn.model_id,
+                "assistance_recipe_version": turn.assistance_recipe_version,
+                "style_preset": _serialize_krea2_style_preset(turn.style_preset),
             }
             for turn in project.turns
         ],
@@ -4603,6 +4771,9 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
         "attempts": [
             {
                 "id": attempt.attempt_id,
+                "conversation_branch_id": attempt.conversation_branch_id,
+                "conversation_turn_id": attempt.conversation_turn_id,
+                "can_restore_conversation": attempt.conversation_branch_id is not None,
                 "attempt_id": attempt.attempt_id,
                 "index": attempt.index,
                 "prompt": attempt.prompt,
@@ -4673,6 +4844,16 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
     }
 
 
+def _serialize_krea2_assisted_settings(settings: Krea2BatchSettings | None) -> dict[str, object] | None:
+    if settings is None:
+        return None
+    return {
+        "model_id": settings.model_name, "aspect_ratio": settings.aspect_ratio.value,
+        "megapixels": settings.megapixels,
+        "loras": [{"name": value.name, "strength": value.strength} for value in settings.loras],
+    }
+
+
 def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
     metadata = source.metadata
     return {
@@ -4720,6 +4901,8 @@ def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
             ],
             "origin": metadata.origin,
             "warnings": list(metadata.warnings),
+            "ref_boost": metadata.ref_boost,
+            "steps": metadata.steps,
         },
         "prompt_status": source.prompt_status.value,
         "instruction": source.instruction,
@@ -4736,6 +4919,8 @@ def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
                 "model_id": revision.model_id,
                 "prompt_language": revision.prompt_language.value,
                 "feedback_attempt_id": revision.feedback_attempt_id,
+                "assistant_message": revision.assistant_message,
+                "assistance_version": revision.assistance_version,
             }
             for revision in source.revisions
         ],
@@ -5761,6 +5946,17 @@ def serialize_prompt_composition(
         }
     return {
         "source_session_id": composition.source_session_id,
+        "preparation_intent": (
+            {
+                "source_text": composition.preparation_intent.source_text,
+                "creative_freedom": composition.preparation_intent.creative_freedom,
+                "creative_audacity": composition.preparation_intent.creative_audacity,
+                "creative_axes": (
+                    {name: getattr(composition.preparation_intent.creative_axes, name) for name in ("scene_life", "camera", "extra_motion")}
+                    if composition.preparation_intent.creative_axes else None
+                ),
+            } if composition.preparation_intent is not None else None
+        ),
         "cookbook": {
             "id": composition.cookbook.cookbook_id,
             "version": composition.cookbook.version,

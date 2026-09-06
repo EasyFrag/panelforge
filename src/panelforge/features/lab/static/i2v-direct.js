@@ -6,6 +6,7 @@
   if (!core || !quickPipeline) return;
   const $ = (selector) => document.querySelector(selector);
   const monoProfile = { id: "minimax.h3.fl2va.direct", version: "0.3.3" };
+  const experimentalMonoProfile = { id: "minimax.h3.fl2va.direct", version: "0.4.0" };
   const multishotProfile = { id: "minimax.h3.fl2va.direct.multishot", version: "0.1.0" };
   const animalInterviewProfile = { id: "minimax.h3.base.animal-interview", version: "0.1.0" };
   const legacyProfileId = "minimax.h3.i2v.direct";
@@ -13,7 +14,7 @@
   const multishotCookbookId = "minimax.h3.fl2va.direct.multishot";
   const animalInterviewCookbookId = "minimax.h3.base.animal-interview";
   const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
-  const preferredCookbookKey = `${monoCookbookId}@${monoProfile.version}`;
+  const preferredCookbookKey = `${monoCookbookId}@${experimentalMonoProfile.version}`;
 
   const state = {
     spec: null,
@@ -193,22 +194,52 @@
   }
 
   function profileReference(cookbook = state.cookbook) {
+    if (cookbook?.profile) return cookbook.profile;
+    if (cookbook && cookbook.id === monoCookbookId && cookbook.version === experimentalMonoProfile.version) return experimentalMonoProfile;
     if (cookbook && cookbook.id === multishotCookbookId) return multishotProfile;
     if (cookbook && cookbook.id === animalInterviewCookbookId) return animalInterviewProfile;
     return monoProfile;
   }
 
   function selectedProfile(cookbook = state.cookbook) {
-    const reference = profileReference(cookbook);
+    const reference = state.session?.profile || profileReference(cookbook);
     return state.spec && (state.spec.profiles || []).find(
       (item) => item.id === reference.id && item.version === reference.version,
     );
   }
 
+  function preparationSteps() {
+    return (activeCookbookSpec() || state.cookbook)?.preparation_steps ?? 3;
+  }
+
+  function preparationInput() {
+    return state.composition?.preparation_intent || state.session?.active_brief || null;
+  }
+
+  function renderPreparationCopy(cookbook) {
+    const copy = elements.emptyCopy || elements.empty;
+    const nodes = [copy.querySelector("b"), copy.querySelector("p"),
+      elements.steps.plan.querySelector(".cookbook-step-copy small"),
+      elements.steps.prompt.querySelector(".cookbook-step-copy small")];
+    nodes.forEach((node) => { if (!("preparationDefault" in node.dataset)) node.dataset.preparationDefault = node.textContent; });
+    if (!cookbook?.profile) {
+      nodes.forEach((node) => { node.textContent = node.dataset.preparationDefault; });
+      return;
+    }
+    copy.querySelector("b").textContent = cookbook.display_name;
+    copy.querySelector("p").textContent = cookbook.description;
+    elements.steps.plan.querySelector(".cookbook-step-copy small").textContent = preparationSteps() === 2
+      ? "Interpréter l’intention et organiser les actions, contacts et risques."
+      : "Vérifier les actions, contacts, durée et risques du Brief.";
+    elements.steps.prompt.querySelector(".cookbook-step-copy small").textContent = preparationSteps() === 1
+      ? "Préparer le prompt depuis l’intention et les images. Un mouvement caméra principal ; 8 s si aucune durée n’est demandée."
+      : "Rédiger depuis le Plan validé, puis compiler le prompt H3.";
+  }
+
   function creativeBriefAvailable(cookbook = state.cookbook) {
     const profile = selectedProfile(cookbook);
     return Boolean(
-      cookbook && cookbook.id === monoCookbookId
+      cookbook && (cookbook.id === monoCookbookId || (cookbook.profile && cookbook.preparation_steps === 3))
       && profile && (profile.brief_variants || []).some(
         (value) => value.id === creativeBriefVariant.id
           && value.version === creativeBriefVariant.version,
@@ -227,7 +258,7 @@
 
   function directCookbooks() {
     return state.cookbooks.filter(
-      (item) => [monoCookbookId, multishotCookbookId, animalInterviewCookbookId].includes(item.id)
+      (item) => (item.profile || [monoCookbookId, multishotCookbookId, animalInterviewCookbookId].includes(item.id))
         && item.target_mode === "fl2va_direct",
     );
   }
@@ -240,17 +271,22 @@
       .forEach((cookbook) => {
         const option = document.createElement("option");
         option.value = cookbookKey(cookbook);
-        option.textContent = cookbook.id === multishotCookbookId
+        option.textContent = cookbook.profile ? `${cookbook.display_name} (${cookbook.version})` : cookbook.id === multishotCookbookId
           ? `Multi-plan structuré · 2 à 4 plans (${cookbook.version})`
           : cookbook.id === animalInterviewCookbookId
             ? `Mono-plan · interview d’animal (${cookbook.version})`
-            : `Mono-plan · standard (${cookbook.version})`;
+            : cookbook.version === experimentalMonoProfile.version
+              ? `Mono-plan · compact · expérimental (${cookbook.version})`
+            : cookbook.id === monoCookbookId && cookbook.version === monoProfile.version
+              ? `Mono-plan · standard (${cookbook.version})`
+              : `Mono-plan · historique (${cookbook.version})`;
         elements.cookbook.append(option);
       });
     state.cookbook = available.find(
       (item) => cookbookKey(item) === preferredCookbookKey,
     ) || available.at(-1) || null;
     elements.cookbook.value = cookbookKey(state.cookbook);
+    core.refreshRecipeVisibility(elements.cookbook);
   }
 
   function activeCookbookSpec() {
@@ -274,7 +310,8 @@
       ? multishotCookbookId
       : profileId === animalInterviewProfile.id
         ? animalInterviewCookbookId : monoCookbookId;
-    return directCookbooks().find((item) => item.id === expectedId)
+    return directCookbooks().find((item) => item.id === expectedId && item.version === session?.profile?.version)
+      || directCookbooks().find((item) => item.id === expectedId)
       || null;
   }
 
@@ -338,7 +375,7 @@
       const title = document.createElement("b");
       title.textContent = sessionInputModeLabel(session);
       const detail = document.createElement("small");
-      detail.textContent = session.brief_complete ? "Brief validé" : "Brief à préparer";
+      detail.textContent = session.brief_complete ? "Brief validé" : "Préparation vidéo";
       button.append(title, detail);
       core.decorateSessionLink(button, session.references);
       button.addEventListener("click", () => openSession(session));
@@ -508,13 +545,14 @@
       showReferencePreview("first", referenceForRole(session, "first_frame"), "Première frame de ce parcours");
       showReferencePreview("last", referenceForRole(session, "last_frame"), "Dernière frame de ce parcours");
       resetAnimalInterviewInputs();
-      if (session.active_brief) {
-        hydrateSourceInputs(session.active_brief.source_text || "");
+      const input = preparationInput();
+      if (input) {
+        hydrateSourceInputs(input.source_text || "");
         setCreativeAxes(
-          session.active_brief.creative_axes,
-          session.active_brief.creative_freedom ?? 35,
+          input.creative_axes,
+          input.creative_freedom ?? 35,
         );
-        setCreativeAudacity(session.active_brief.creative_audacity ?? 0);
+        setCreativeAudacity(input.creative_audacity ?? 0);
       } else {
         elements.intention.value = "";
         setCreativeAxes(null, 0);
@@ -537,6 +575,7 @@
   function prepareFork() {
     if (!state.session || state.openingSessionId || interactionLocked()) return;
     const source = state.session;
+    const input = preparationInput();
     const sourceCookbook = state.composition && state.composition.cookbook;
     const matchingCookbook = sourceCookbook
       ? directCookbooks().find(
@@ -552,7 +591,7 @@
     selectModel(source.model_id);
     showReferencePreview("first", referenceForRole(source, "first_frame"), "Première frame réutilisée");
     showReferencePreview("last", referenceForRole(source, "last_frame"), "Dernière frame réutilisée");
-    const brief = source.active_brief;
+    const brief = input;
     resetAnimalInterviewInputs();
     hydrateSourceInputs(brief ? brief.source_text || "" : "");
     setCreativeAxes(brief && brief.creative_axes, brief ? brief.creative_freedom ?? 35 : 0);
@@ -569,15 +608,18 @@
   }
 
   function selectFile(slot) {
+    const input = slot === "first" ? elements.imageInput : elements.lastImageInput;
+    const file = input.files && input.files[0];
+    if (file) setSelectedFile(slot, file);
+  }
+
+  function setSelectedFile(slot, file) {
     const first = slot === "first";
-    const input = first ? elements.imageInput : elements.lastImageInput;
     const preview = first ? elements.uploadPreview : elements.lastUploadPreview;
     const title = first ? elements.uploadTitle : elements.lastUploadTitle;
     const caption = first ? elements.uploadCaption : elements.lastUploadCaption;
     const urlKey = first ? "firstPreviewUrl" : "lastPreviewUrl";
     const fileKey = first ? "firstFile" : "lastFile";
-    const file = input.files && input.files[0];
-    if (!file) return;
     if (state[urlKey]) URL.revokeObjectURL(state[urlKey]);
     state[fileKey] = file;
     state[urlKey] = URL.createObjectURL(file);
@@ -657,7 +699,10 @@
     let created = false;
     setBusy(true);
     try {
-      if (forkSource) {
+      if (state.session) {
+        if (!state.cookbook?.profile || state.composition) throw new Error("Ce run est d\u00e9j\u00e0 configur\u00e9.");
+        // Retry only recipe persistence after a failed configuration request.
+      } else if (forkSource) {
         const profile = selectedProfile();
         state.session = await core.request(
           `/api/prompt-lab/sessions/${forkSource.id}/fork`,
@@ -700,10 +745,11 @@
       state.forkSource = null;
       state.composition = null;
       state.quickRecord = null;
+      if (state.cookbook?.profile) await ensureComposition();
       created = true;
       render();
       await loadSessions();
-      elements.brief.message.textContent = "Parcours créé. Lancez le Brief quand vous êtes prêt.";
+      elements[preparationSteps() === 1 ? "prompt" : preparationSteps() === 2 ? "plan" : "brief"].message.textContent = "Parcours créé. Lancez la première étape quand vous êtes prêt.";
     } catch (creationError) {
       showSetupMessage(creationError.message);
     } finally {
@@ -769,7 +815,7 @@
   function creativeAudacityMatch(brief) {
     if (!brief) return false;
     return Number(brief.creative_audacity ?? 0) === Number(
-      elements.creativeDirection.checked ? elements.creativeAudacity.value : 0,
+      (preparationSteps() < 3 || elements.creativeDirection.checked) ? elements.creativeAudacity.value : 0,
     );
   }
 
@@ -778,7 +824,7 @@
     return {
       creative_freedom: creativeAggregate(creative_axes),
       creative_axes,
-      creative_audacity: elements.creativeDirection.checked
+      creative_audacity: (preparationSteps() < 3 || elements.creativeDirection.checked)
         ? Number(elements.creativeAudacity.value)
         : 0,
     };
@@ -790,7 +836,7 @@
   }
 
   function currentBriefInputs() {
-    const brief = state.session && state.session.active_brief;
+    const brief = preparationInput();
     return Boolean(brief
       && (brief.source_text || "").trim() === currentSourceText()
       && creativeAxesMatch(brief)
@@ -809,9 +855,10 @@
     const prompt = documents.final_prompt || null;
     const briefGenerated = currentBriefInputs();
     const briefApproved = Boolean(briefGenerated && state.session.brief_complete);
-    const planGenerated = Boolean(briefApproved && generatedDocument(plan));
+    const inputReady = preparationSteps() < 3 ? currentBriefInputs() : briefApproved;
+    const planGenerated = Boolean(inputReady && generatedDocument(plan));
     const planApproved = Boolean(planGenerated && plan.complete);
-    const promptGenerated = Boolean(planApproved && generatedDocument(prompt));
+    const promptGenerated = Boolean((preparationSteps() === 1 ? inputReady : planApproved) && generatedDocument(prompt));
     return {
       briefGenerated,
       briefApproved,
@@ -856,6 +903,7 @@
       await quickPipeline.runDirect({
         sessionId,
         snapshot: quickSnapshot,
+        stages: core.preparationStages(activeCookbookSpec() || state.cookbook),
         isCurrent: () => Boolean(state.session && state.session.id === sessionId),
         actions: {
           generateBrief: () => streamBrief(false),
@@ -883,15 +931,20 @@
       ? state.composition.cookbook : null;
     const activeCookbook = activeCookbookSpec();
     elements.cookbook.value = cookbookKey(compositionReference || state.cookbook);
+    core.refreshRecipeVisibility(elements.cookbook);
     const locked = interactionLocked();
     const creativeBriefVisible = creativeBriefAvailable(activeCookbook || state.cookbook);
     if (!creativeBriefVisible && !session) elements.creativeDirection.checked = false;
     elements.creativeDirectionOption.hidden = !creativeBriefVisible;
-    elements.creativeAudacityControl.hidden = !creativeBriefVisible;
+    const shortRoute = preparationSteps() < 3;
+    const intentLocked = Boolean(shortRoute && state.composition?.preparation_intent);
+    elements.creativeAudacityControl.hidden = !creativeBriefVisible && !shortRoute;
     elements.creativeDirection.disabled = locked || !creativeBriefVisible
       || Boolean(session && session.active_brief);
-    elements.creativeAudacity.disabled = locked || !creativeBriefVisible
-      || !elements.creativeDirection.checked || Boolean(session && session.active_brief);
+    elements.creativeAudacity.disabled = locked || intentLocked || (!shortRoute && (!creativeBriefVisible
+      || !elements.creativeDirection.checked || Boolean(session && session.active_brief)));
+    core.renderPreparationStages(elements, core.preparationStages(activeCookbook));
+    renderPreparationCopy(activeCookbook);
     renderQuickStatus();
     elements.cookbook.disabled = locked || Boolean(compositionReference);
     elements.activeCookbook.textContent = activeCookbook
@@ -899,12 +952,15 @@
         ? `${activeCookbook.display_name} · ${activeCookbook.id}@${activeCookbook.version} verrouillée`
         : `${activeCookbook.display_name} · verrouillée à la création du Plan`
       : "Cookbook indisponible";
+    if (activeCookbook?.profile) elements.activeCookbook.textContent = `${activeCookbook.display_name} (${activeCookbook.version})`
+      + (compositionReference ? " \u00b7 Pour changer de parcours ou d\u2019intention, utilisez Repartir de ce run." : " \u00b7 Recette fix\u00e9e \u00e0 la cr\u00e9ation du run.");
     elements.empty.hidden = Boolean(session);
     elements.editor.hidden = !session;
     renderSetupPreview();
-    elements.start.textContent = state.forkSource ? "Créer le nouveau parcours" : "Créer le parcours";
+    const needsConfiguration = Boolean(session && state.cookbook?.profile && !state.composition);
+    elements.start.textContent = needsConfiguration ? "Reprendre la pr\u00e9paration du run" : state.forkSource ? "Cr\u00e9er le nouveau parcours" : "Cr\u00e9er le parcours";
     elements.start.disabled = locked || Boolean(state.openingSessionId)
-      || Boolean(session) || Boolean(setupValidationError());
+      || (Boolean(session) && !needsConfiguration) || Boolean(setupValidationError());
     elements.imageInput.disabled = locked || Boolean(session) || Boolean(state.forkSource);
     elements.lastImageInput.disabled = locked || Boolean(session) || Boolean(state.forkSource);
     elements.removeFirstImage.hidden = !state.firstFile || Boolean(session) || Boolean(state.forkSource);
@@ -924,12 +980,12 @@
     elements.standardIntention.hidden = animalRecipe;
     elements.animalFields.hidden = !animalRecipe;
     renderAnimalInterviewDurationGuide(animalRecipe);
-    elements.intention.disabled = locked || animalRecipe;
+    elements.intention.disabled = locked || animalRecipe || intentLocked;
     for (const control of [elements.animal, elements.environment, elements.dialogueLanguage, elements.duration, elements.partialScript, elements.postAction]) {
       control.disabled = locked || !animalRecipe;
     }
     for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
-      control.disabled = locked;
+      control.disabled = locked || intentLocked;
     }
     elements.showReasoning.disabled = locked;
     elements.newSession.hidden = !session && !state.forkSource;
@@ -943,7 +999,7 @@
     }
 
     renderDock();
-    const brief = session.active_brief;
+    const brief = preparationInput();
     const briefInputsCurrent = !brief || (
       (brief.source_text || "").trim() === currentSourceText()
       && creativeAxesMatch(brief)
@@ -952,7 +1008,7 @@
     const documents = state.composition ? state.composition.documents || {} : {};
     const plan = documents.beat_sheet || null;
     const prompt = documents.final_prompt || null;
-    const briefState = renderBrief(
+    const briefState = shortRoute ? { ready: currentBriefInputs(), draft: false } : renderBrief(
       brief,
       Boolean(session.brief_complete && briefInputsCurrent),
       briefInputsCurrent,
@@ -963,11 +1019,11 @@
       briefState.ready,
       briefState.draft ? "Brief modifié" : "Brief requis",
     );
-    renderArbitrations(plan, planState, briefState.ready);
+    if (preparationSteps() > 1) renderArbitrations(plan, planState, briefState.ready);
     const promptState = renderDocument(
       elements.prompt,
       prompt,
-      planState.ready,
+      preparationSteps() === 1 ? briefState.ready : planState.ready,
       planState.draft ? "Plan modifié" : "Plan requis",
     );
     elements.sessionTitle.textContent = sessionInputModeLabel(session);
@@ -977,16 +1033,16 @@
     const audacityLabel = brief
       ? brief.creative_audacity ?? 0
       : Number(elements.creativeAudacity.value);
-    const briefLabel = session.brief_variant
+    const briefLabel = shortRoute ? `Intention directe · audace ${audacityLabel}/3` : session.brief_variant
       ? `Brief : direction créative ${session.brief_variant.version} · audace ${audacityLabel}/3`
       : `Brief : standard ${session.profile.version}`;
-    elements.sessionConfig.textContent = `Modèle : ${session.model_id} · ${briefLabel} · Plan/Writer : ${recipeLabel}`;
-    elements.progress.textContent = !briefState.ready ? "Brief requis"
-      : !planState.ready ? "Plan requis" : !promptState.ready ? "Prompt requis" : "Parcours validé";
+    elements.sessionConfig.textContent = `Modèle : ${session.model_id} · ${briefLabel} · Recette : ${recipeLabel}`;
+    elements.progress.textContent = !briefState.ready ? (shortRoute ? "Intention requise" : "Brief requis")
+      : preparationSteps() > 1 && !planState.ready ? "Plan requis" : !promptState.ready ? "Prompt requis" : "Parcours validé";
     elements.progress.className = `run-status ${promptState.ready ? "success" : "active"}`;
     setChip(elements.chips.brief, briefState.ready, !briefState.ready);
     setChip(elements.chips.plan, planState.ready, briefState.ready && !planState.ready);
-    setChip(elements.chips.prompt, promptState.ready, planState.ready && !promptState.ready);
+    setChip(elements.chips.prompt, promptState.ready, (preparationSteps() === 1 ? briefState.ready : planState.ready) && !promptState.ready);
     elements.copyPrompt.disabled = locked || !promptState.ready;
     renderPromptReferences(prompt);
     emitH3RenderContext(
@@ -1372,6 +1428,7 @@
         body: JSON.stringify({
           cookbook_id: state.cookbook.id,
           cookbook_version: state.cookbook.version,
+          preparation_intent: preparationSteps() < 3 ? { source_text: currentSourceText(), ...creativePayload() } : null,
           bindings: {
             first_frame: first ? [first.id] : [],
             last_frame: last ? [last.id] : [],
@@ -1621,6 +1678,37 @@
     render();
   }
 
+  async function prefillFirstFrame({ assetId, label }) {
+    if (!state.spec || !state.cookbook) throw new Error("H3 Base est encore en cours de chargement.");
+    if (interactionLocked()) throw new Error("Une préparation H3 Base est en cours. Réessayez après sa fin.");
+    if (typeof assetId !== "string" || !assetId) throw new Error("La frame de fin est indisponible.");
+    const requestId = state.openRequestId;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}/content`);
+      if (!response.ok) throw new Error("Impossible de charger la frame de fin.");
+      const blob = await response.blob();
+      if (!blob.size || !blob.type.startsWith("image/")) throw new Error("La frame de fin n'est pas une image utilisable.");
+      if (requestId !== state.openRequestId) throw new Error("Le parcours H3 Base a changé pendant le chargement. Réessayez.");
+      const extension = blob.type === "image/jpeg" ? "jpg" : blob.type === "image/webp" ? "webp" : "png";
+      const file = new File([blob], `${label || "Dernière frame"}.${extension}`, { type: blob.type });
+      // Only replace the setup after the saved image has loaded successfully.
+      resetSession();
+      if (state.cookbook?.id !== monoCookbookId && !state.cookbook?.profile) {
+        state.cookbook = directCookbooks().find((item) => cookbookKey(item) === preferredCookbookKey);
+      }
+      setSelectedFile("first", file);
+      showSetupMessage("Dernière frame sélectionnée comme première image. Décrivez la suite pour créer le nouveau parcours.");
+      window.PanelForgeLabNavigation?.switchView("i2v-direct");
+      elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
+    } finally {
+      setBusy(false);
+    }
+    elements.intention.focus({ preventScroll: true });
+  }
+
+  window.PanelForgeH3Base = Object.freeze({ prefillFirstFrame });
+
   elements.imageInput.addEventListener("change", () => selectFile("first"));
   elements.lastImageInput.addEventListener("change", () => selectFile("last"));
   elements.removeFirstImage.addEventListener("click", () => removeSelectedFile("first"));
@@ -1632,9 +1720,16 @@
   });
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupMessage(error.message)));
   elements.cookbook.addEventListener("change", () => {
-    state.cookbook = directCookbooks().find(
+    const next = directCookbooks().find(
       (item) => cookbookKey(item) === elements.cookbook.value,
     ) || null;
+    const expected = profileReference(next);
+    if (state.session && (expected.version === experimentalMonoProfile.version || state.session.profile?.version === experimentalMonoProfile.version)
+      && (state.session.profile?.id !== expected.id || state.session.profile?.version !== expected.version)) {
+      showSetupMessage("Pour changer de recette expérimentale, utilisez Repartir de ce run : le Brief et le Plan doivent garder la même version.");
+      return render();
+    }
+    state.cookbook = next;
     render();
   });
   elements.intention.addEventListener("input", render);
@@ -1658,7 +1753,7 @@
       );
       elements.brief.message.textContent = elements.creativeDirection.checked
         ? "Direction créative 0.2.0 activée pour le Brief."
-        : "Brief standard 0.3.3 activé.";
+        : `Brief standard ${state.session.profile.version} activé.`;
       await loadSessions();
     } catch (error) {
       elements.creativeDirection.checked = Boolean(state.session.brief_variant);

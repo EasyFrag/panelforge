@@ -51,6 +51,9 @@ class PromptCookbook:
     final_prompt_user_prompt: str
     revision_system_prompt: str
     revision_user_prompt: str
+    preparation_steps: int = 3
+    profile_id: str | None = None
+    profile_version: str | None = None
 
 
 class LocalPromptCookbookCatalog:
@@ -93,7 +96,7 @@ class LocalPromptCookbookCatalog:
         if not isinstance(manifest, dict):
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
         schema_version = manifest.get("schema_version")
-        if schema_version not in {2, 3, 4, 5, 6, 7}:
+        if schema_version not in {2, 3, 4, 5, 6, 7, 8}:
             raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         expected = {
             "schema_version",
@@ -117,8 +120,19 @@ class LocalPromptCookbookCatalog:
             expected.add("writer_projection")
         if schema_version >= 6:
             expected |= {"visibility", "execution_mode"}
+        if schema_version >= 8:
+            expected |= {"preparation_steps", "profile"}
         if set(manifest) != expected:
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
+        preparation_steps = manifest.get("preparation_steps", 3)
+        profile = manifest.get("profile")
+        if schema_version >= 8:
+            if type(preparation_steps) is not int or preparation_steps not in {1, 2, 3}:
+                raise ValueError("preparation_steps must be 1, 2 or 3")
+            if not isinstance(profile, dict) or set(profile) != {"id", "version"}:
+                raise ValueError("a preparation recipe must pin its profile")
+            _text(profile["id"], "profile id")
+            _pinned_version(profile["version"])
         engine = manifest["engine_contract"]
         if not isinstance(engine, dict) or set(engine) != {"id", "version"}:
             raise ValueError(f"invalid engine contract: {manifest_path}")
@@ -200,6 +214,14 @@ class LocalPromptCookbookCatalog:
             ("reference_plan", "beat_sheet", "final_prompt"),
         }:
             raise ValueError(f"unsupported cookbook stage pipeline: {manifest_path}")
+        if schema_version >= 8 and stages != (
+            ("final_prompt",) if preparation_steps == 1 else ("beat_sheet", "final_prompt")
+        ):
+            raise ValueError("preparation_steps does not match cookbook stages")
+        if schema_version >= 8 and (preparation_steps == 1) != (
+            manifest["output_contract"] == "minimax.h3.mono.prompt_direct_v1"
+        ):
+            raise ValueError("preparation_steps does not match the output contract")
         template_keys = {
             "final_prompt_system",
             "final_prompt_user",
@@ -246,6 +268,7 @@ class LocalPromptCookbookCatalog:
             "compact_dialogue_v2",
             "compact_motion_v3",
             "camera_clean_v4",
+            "camera_clean_compact_v5",
             "compact_multishot_dialogue_v1",
             "compact_multishot_v1",
             "compact_multishot_v2_camera_owned",
@@ -274,12 +297,7 @@ class LocalPromptCookbookCatalog:
             raise ValueError("super-fast cookbooks must be internal")
 
         def load_template(key: str) -> str:
-            filename = _text(templates[key], f"template {key}")
-            path = (directory / filename).resolve()
-            if directory.resolve() not in path.parents or not path.is_file():
-                raise ValueError(f"invalid cookbook template path: {filename}")
-            content = path.read_text(encoding="utf-8").strip()
-            return _text(content, f"template {key}")
+            return self._template(directory, key, templates[key], schema_version, ())
 
         def optional_template(key: str) -> str | None:
             return load_template(key) if key in templates else None
@@ -325,7 +343,55 @@ class LocalPromptCookbookCatalog:
             final_prompt_user_prompt=load_template("final_prompt_user"),
             revision_system_prompt=load_template("revision_system"),
             revision_user_prompt=load_template("revision_user"),
+            preparation_steps=preparation_steps,
+            profile_id=profile["id"] if profile else None,
+            profile_version=profile["version"] if profile else None,
         )
+
+    def _template(self, directory: Path, key: str, value: object, schema: int, stack: tuple) -> str:
+        identity = (str(directory.resolve()), key)
+        if identity in stack:
+            raise ValueError("cyclic cookbook template dependency")
+        stack = (*stack, identity)
+        if isinstance(value, str):
+            path = (directory / value).resolve()
+            if directory.resolve() not in path.parents or not path.is_file():
+                raise ValueError(f"invalid cookbook template path: {value}")
+            return _text(path.read_text(encoding="utf-8").strip(), f"template {key}")
+        if schema < 8 or not isinstance(value, list) or not value:
+            raise ValueError("assembled templates require cookbook schema 8")
+        parts = []
+        for part in value:
+            if not isinstance(part, dict):
+                raise ValueError("invalid template dependency")
+            if set(part) == {"cookbook_id", "version", "template"}:
+                version = _pinned_version(part["version"])
+                target = (self._root / _text(part["cookbook_id"], "cookbook id") / version).resolve()
+                if self._root not in target.parents:
+                    raise ValueError("template dependency outside cookbook root")
+                manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
+                if manifest["cookbook_id"] != part["cookbook_id"] or manifest["version"] != version:
+                    raise ValueError("template dependency identity mismatch")
+                template = _text(part["template"], "template")
+                parts.append(self._template(target, template, manifest["templates"][template], manifest["schema_version"], stack))
+            elif set(part) == {"block", "version", "file"}:
+                version = _pinned_version(part["version"])
+                block = _text(part["block"], "block")
+                if not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", block):
+                    raise ValueError("invalid prompt block id")
+                target = self._root / "_blocks" / block / version
+                parts.append(self._template(target, key, _text(part["file"], "block file"), 8, stack))
+            elif set(part) == {"file"}:
+                parts.append(self._template(directory, key + ":file", part["file"], 8, stack))
+            else:
+                raise ValueError("invalid template dependency fields")
+        return "\n\n".join(parts)
+
+
+def _pinned_version(value: object) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"\d+\.\d+\.\d+", value) is None:
+        raise ValueError("prompt dependencies require an exact numeric version")
+    return value
 
 
 def _text(value: object, name: str) -> str:

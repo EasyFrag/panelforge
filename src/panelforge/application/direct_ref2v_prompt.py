@@ -145,18 +145,24 @@ def lint_direct_ref2v_prompt(content: str) -> tuple[str, ...]:
         errors.append(
             "Le prompt Ref2V direct doit utiliser uniquement ses labels <Picture N>."
         )
+    # Each picture is declared once in the first paragraph. The action prose
+    # may cite that picture again (including the compiler's final snapshot).
+    mapping_header = value.partition("\n\n")[0]
     picture_numbers = sorted(
-        {int(number) for number in re.findall(r"<Picture\s+(\d+)>", value)}
+        {int(number) for number in re.findall(r"<Picture\s+(\d+)>", mapping_header)}
     )
     if not picture_numbers or picture_numbers != list(
         range(1, len(picture_numbers) + 1)
     ) or len(picture_numbers) > 9:
         errors.append("Les labels Picture doivent être contigus entre 1 et 9.")
     for number in picture_numbers:
-        if value.count(f"<Picture {number}>") != 1:
+        if mapping_header.count(f"<Picture {number}>") != 1:
             errors.append(
                 f"<Picture {number}> doit apparaître exactement une fois dans le mapping."
             )
+    used_numbers = {int(number) for number in re.findall(r"<Picture\s+(\d+)>", value)}
+    for number in sorted(used_numbers - set(picture_numbers)):
+        errors.append(f"<Picture {number}> est utilisé sans être déclaré dans le mapping.")
     header_and_scene = value[: positions[0]].strip()
     if not header_and_scene:
         errors.append("Le mapping et la mise en place de scène ne doivent pas être vides.")
@@ -224,7 +230,9 @@ def apply_direct_ref2v_timing_v2(content: str, plan_content: str) -> str:
     return value
 
 
-def apply_direct_ref2v_timing_v4(content: str, plan_content: str) -> str:
+def apply_direct_ref2v_timing_v4(
+    content: str, plan_content: str, *, ending_phase_only: bool = False,
+) -> str:
     """Compile Ref2V duration, main-motion continuity and the final instant."""
 
     plan = parse_direct_ref2v_action_plan_v4(plan_content)
@@ -250,7 +258,7 @@ def apply_direct_ref2v_timing_v4(content: str, plan_content: str) -> str:
     shot = _inline_field_body(value, "Shot 1", "overall_soundscape").strip()
     if not shot:
         raise ValueError("direct Ref2V V4 requires a non-empty Shot 1")
-    if plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE:
+    if not ending_phase_only and plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE:
         motion = _sentence_continuation(primary_motion).rstrip(".!?")
         continuity = (
             f"Throughout the entire shot, {motion}; this primary motion continues "
@@ -350,8 +358,10 @@ def validate_direct_ref2v_labels(
     mapping: PictureMapping,
     stage: CompositionStage,
     content: str,
+    *,
+    expected_header: str | None = None,
 ) -> None:
-    """Validate labels against the actual bindings and lock the compiled header."""
+    """Lock bindings and the recipe's compiled header (legacy Brief by default)."""
 
     expected_numbers = tuple(range(1, len(mapping) + 1))
     if not 1 <= len(mapping) <= 9 or tuple(
@@ -375,7 +385,8 @@ def validate_direct_ref2v_labels(
     if missing:
         labels = ", ".join(f"<Picture {number}>" for number in missing)
         raise ValueError(f"required direct picture label(s) missing: {labels}")
-    expected_header = direct_reference_header(session, mapping)
+    if expected_header is None:
+        expected_header = direct_reference_header(session, mapping)
     normalized = _strip_fence(content).replace("\r\n", "\n")
     if not normalized.startswith(expected_header + "\n\n"):
         raise ValueError(

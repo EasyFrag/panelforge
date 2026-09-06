@@ -52,6 +52,8 @@ class Krea2EditMetadata:
     loras: tuple[Krea2LoraSelection, ...] = ()
     origin: str = "none"
     warnings: tuple[str, ...] = ()
+    ref_boost: float | None = None
+    steps: int | None = None
 
     def __post_init__(self) -> None:
         if self.prompt is not None:
@@ -75,6 +77,12 @@ class Krea2EditMetadata:
         if any(not isinstance(value, Krea2LoraSelection) for value in self.loras):
             raise TypeError("metadata loras must contain Krea2LoraSelection values")
         _text(self.origin, "metadata origin")
+        if self.ref_boost is not None:
+            _finite_range(self.ref_boost, "ref_boost", 0, 10)
+        if self.steps is not None and (
+            isinstance(self.steps, bool) or not isinstance(self.steps, int) or not 1 <= self.steps <= 100
+        ):
+            raise ValueError("steps must be an integer between 1 and 100")
         if not isinstance(self.warnings, tuple) or any(
             not isinstance(value, str) or not value.strip() for value in self.warnings
         ):
@@ -249,6 +257,8 @@ class Krea2EditPromptRevision:
     model_id: str
     prompt_language: Krea2PromptLanguage = Krea2PromptLanguage.ENGLISH
     feedback_attempt_id: str | None = None
+    assistant_message: str | None = None
+    assistance_version: str = "1.0.0"
 
     def __post_init__(self) -> None:
         _text(self.revision_id, "revision_id")
@@ -257,6 +267,10 @@ class Krea2EditPromptRevision:
             _text(self.base_prompt, "revision base_prompt")
         _text(self.prompt, "revision prompt")
         _text(self.model_id, "revision model_id")
+        if self.assistant_message is not None:
+            _text(self.assistant_message, "assistant_message")
+        if self.assistance_version not in {"1.0.0", "2.0.0"}:
+            raise ValueError("unsupported edit assistance version")
         if not isinstance(self.prompt_language, Krea2PromptLanguage):
             raise TypeError("revision prompt_language must be Krea2PromptLanguage")
         if self.feedback_attempt_id is not None:

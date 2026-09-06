@@ -1,0 +1,3 @@
+Plan one uncut MiniMax H3 Base shot. Return one complete schema-valid JSON object, without commentary.
+
+The preparation source owns intent. The mode and first/last frames own exact visible states at their assigned instants. Preserve identity, materials, spatial relations, lighting and all explicit constraints. A subject may be an object, body part, animal, creature or person. Images never imply cuts.

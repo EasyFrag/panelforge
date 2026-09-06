@@ -114,14 +114,18 @@ class LoggedMultimodalGateway:
         started_at = self._clock()
         started_timer = self._timer()
         parts: list[str] = []
+        reasoning_parts: list[str] = []
         result: CompletionResult | None = None
         status = LlmCallStatus.FAILED
         error: BaseException | None = None
         self._start_call(call_id, request)
         try:
-            for event in self._delegate.stream(request):
-                # Reasoning events are deliberately pass-through only. The
-                # journal stores the model's final answer, never its trace.
+            # Capture provider-exposed reasoning independently of UI visibility.
+            for event in self._delegate.stream(replace(request, include_reasoning=True)):
+                if event.kind is StreamEventKind.REASONING:
+                    reasoning_parts.append(event.text)
+                    if not request.include_reasoning:
+                        continue
                 if event.kind is StreamEventKind.DELTA:
                     parts.append(event.text)
                 if event.kind in {
@@ -167,6 +171,7 @@ class LoggedMultimodalGateway:
                         response_text=(
                             result.content if result is not None else "".join(parts)
                         ),
+                        reasoning_text="".join(reasoning_parts),
                         error=error,
                     )
                 )
@@ -195,6 +200,7 @@ class LoggedMultimodalGateway:
         status: LlmCallStatus,
         result: CompletionResult | None = None,
         response_text: str | None = None,
+        reasoning_text: str = "",
         error: BaseException | None = None,
     ) -> LlmCallRecord:
         with self._outcome_lock:
@@ -219,6 +225,7 @@ class LoggedMultimodalGateway:
                 for image in request.images
             ),
             temperature=request.temperature,
+            reasoning_text=reasoning_text or (result.reasoning_text if result is not None else ""),
             max_tokens=request.max_tokens,
             response_text=(
                 response_text

@@ -51,8 +51,8 @@
     return record;
   }
 
-  async function runDirect({ sessionId, snapshot, actions, isCurrent, onState, onAttemptOutcome }) {
-    for (const step of directSteps) {
+  async function runDirect({ sessionId, snapshot, actions, isCurrent, onState, onAttemptOutcome, stages = ["brief", "plan", "prompt"] }) {
+    for (const step of directSteps.filter((item) => stages.includes(item.id.split("-")[0]))) {
       if (!isCurrent()) {
         return publish(sessionId, "stopped", step, "La session active a changé.", onState);
       }

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "variant_id": "creative-direction",
+  "version": "0.1.0",
+  "display_name": "Direction créative — expérimental",
+  "prompts": {
+    "brief_system": "brief_system.txt",
+    "brief_user": "brief_user.txt",
+    "brief_revision_system": "brief_revision_system.txt",
+    "brief_revision_user": "brief_revision_user.txt"
+  }
+}

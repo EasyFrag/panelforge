@@ -1,0 +1,19 @@
+REFERENCE OWNERSHIP
+{{REFERENCES}}
+
+USER INTENTION
+{{BRIEF}}
+
+EXACT DIALOGUE LEDGER
+{{DIALOGUE_LEDGER}}
+
+LIBERTY {{CREATIVE_FREEDOM}}/100
+{{CREATIVE_POLICY}}
+
+JSON SCHEMA
+{{ACTION_PLAN_SCHEMA}}
+
+Return the complete concise plan. Preserve causal order and reference ownership. In a sequence, primary_motion names only the final phase's action, not actions already completed.
+
+AUDACITY WITHIN THE PERMITTED AXES
+{{AUDACITY_POLICY}}

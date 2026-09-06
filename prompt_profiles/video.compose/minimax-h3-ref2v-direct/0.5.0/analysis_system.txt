@@ -1,0 +1,1 @@
+Ce profil lit les images nativement pendant le Brief et ne crée pas d’observation visuelle séparée.

@@ -143,11 +143,30 @@ class Krea2EditWebTest(unittest.TestCase):
             source_id_factory=lambda: next(source_ids),
             attempt_id_factory=lambda: "edit-attempt",
         )
+        self.edit = edit
         self.client = TestClient(create_app(change_runner, krea2_edit=edit))
 
     def tearDown(self) -> None:
         self.client.close()
         self.temporary.cleanup()
+
+    def test_conversation_version_is_forwarded_and_french_reply_is_exposed(self):
+        from tests.test_krea2_edit import FakeGateway
+        from tests.test_krea2_edit_workshop import PROMPT
+
+        self.edit.gateway = FakeGateway(json.dumps({"message": "Je propose un trou plus petit.", "prompt": PROMPT}))
+        uploaded = self.client.post("/api/image-lab/krea2-edit/sources", files={"source_image": ("wall.png", PNG, "image/png")})
+        self.assertEqual(uploaded.status_code, 201, uploaded.text)
+        source_id = uploaded.json()["source"]["source_id"]
+        response = self.client.post(f"/api/image-lab/krea2-edit/sources/{source_id}/prompt/stream", json={
+            "instruction": "Un petit trou", "model_id": "fake", "assistance_version": "2.0.0",
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        source = next(e["source"] for e in reversed(decode_sse(response.text)) if "source" in e)
+        self.assertEqual(source["generated_prompt"], PROMPT)
+        self.assertEqual(source["revisions"][0]["assistant_message"], "Je propose un trou plus petit.")
+        self.assertEqual(self.edit.gateway.requests[0].operation_id, "krea2.edit.conversation@2.0.0")
+        self.assertEqual(self.comfy.submitted, [])
 
     def test_upload_prompt_once_render_iteratively_and_archive(self):
         graph = {
@@ -282,7 +301,14 @@ class Krea2EditWebTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('id="krea2-edit-lab-workspace"', html)
-        self.assertIn('/static/krea2-edit-lab.js?v=20260903.2', html)
+        self.assertIn('/static/krea2-edit-lab.js?v=20260905.1', html)
+        self.assertIn('id="krea2-edit-compare-slider"', html)
+        self.assertIn('type="range"', html)
+        self.assertIn('aria-label="Conversation de cette étape"', html)
+        self.assertIn('assistance_version: "2.0.0"', script)
+        self.assertIn('makeZoomable(image, image.alt)', script)
+        self.assertIn('setPointerCapture', script)
+        self.assertIn('assistant_message', script)
         self.assertIn('id="krea2-edit-prompt-language"', html)
         self.assertIn('id="krea2-edit-show-reasoning"', html)
         self.assertIn('id="krea2-edit-backlog"', html)

@@ -548,47 +548,62 @@ _FINAL_STATE_ANCHOR_BOOKKEEPING_RE = re.compile(
 )
 
 
-def continuing_motion_final_anchor_errors(content: str) -> tuple[str, ...]:
-    """Reject destination-like last-frame prose for the strict FL2VA recipe.
+_FINAL_POSE_HOLD_RE = re.compile(
+    r"(?i)\b(?:hold(?:s|ing)?|held|freez(?:e[sd]?|ing)|remain(?:s|ing)?\s+still|"
+    r"stay(?:s|ing)?\s+still|stop(?:s|ped|ping)?)\b"
+)
 
-    Attribute transformations may complete before the cut.  This guard only
-    targets prose that turns the frame composition itself into an early
-    destination while the declared primary motion must continue.
-    """
 
+def _continuing_motion_anchor_issues(content: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Use field timing; lexical ambiguity alone is not a validation failure."""
     plan = parse_direct_ref2v_action_plan_v4(content)
     if plan.motion_contract.end_behavior is not DirectMotionEndBehavior.CONTINUE:
-        return ()
-    timeline_fragments = [
-        fragment
-        for beat in plan.beats
-        for fragment in (
-            beat.primary_action,
-            beat.observable_end_state,
-            *(value for step in beat.steps for value in (step.action, step.continuity_after)),
-        )
-    ]
-    timeline_fragments.extend(
-        directive.visible_change for directive in plan.camera_directives
+        return (), ()
+    cut_ms = max(beat.end_ms for beat in plan.beats)
+    fragments = []
+    for beat in plan.beats:
+        fragments.extend([
+            (beat.primary_action, beat.end_ms, False, beat.beat_id + ".primary_action"),
+            (beat.observable_end_state, beat.end_ms, True, beat.beat_id + ".observable_end_state"),
+        ])
+        for step in beat.steps:
+            fragments.extend([
+                (step.action, step.end_ms, False, step.step_id + ".action"),
+                (step.continuity_after, step.end_ms, True, step.step_id + ".continuity_after"),
+            ])
+    fragments.extend(
+        (directive.visible_change, directive.end_ms, False, directive.directive_id + ".visible_change")
+        for directive in plan.camera_directives
     )
-    errors: list[str] = []
-    if any(
-        _CONTINUING_FINAL_ANCHOR_CONVERGENCE_RE.search(fragment)
-        and not _FINAL_ANCHOR_PASS_THROUGH_RE.search(fragment)
-        and not _FINAL_ANCHOR_NEGATED_CONVERGENCE_RE.search(fragment)
-        for fragment in timeline_fragments
-    ):
-        errors.append(
-            "continue_motion must not settle into, lock, reach, match or end on "
-            "the final-frame composition before an explicit instantaneous "
-            "pass-through"
-        )
-    if _FINAL_STATE_ANCHOR_BOOKKEEPING_RE.search(plan.final_state.description):
-        errors.append(
-            "continue_motion final_state must describe only visible content; "
-            "frame matching remains application-owned"
-        )
-    return tuple(errors)
+    fragments.append((plan.final_state.description, cut_ms, True, "final_state.description"))
+    errors, warnings = [], []
+    for fragment, end_ms, terminal_state, location in fragments:
+        # Evaluate sentences separately: a valid pass-through elsewhere must
+        # not conceal a contradictory hold in another sentence.
+        for sentence in re.split(r"[.!?\n]+", fragment):
+            convergence = _CONTINUING_FINAL_ANCHOR_CONVERGENCE_RE.search(sentence)
+            final_reference = re.search(r"(?i)\b(?:final|last|locked)[ -](?:frame|pose)\b", sentence)
+            hold = final_reference and _FINAL_POSE_HOLD_RE.search(sentence)
+            if _FINAL_ANCHOR_NEGATED_CONVERGENCE_RE.search(sentence):
+                continue
+            if hold and not re.search(r"(?i)\b(?:no|never|without|not)\s+(?:a\s+)?(?:hold|holding|freeze|stop|stopping)\b", sentence):
+                errors.append(f"{location}: continue_motion must not hold or stop in the final pose over an interval")
+            elif convergence and not _FINAL_ANCHOR_PASS_THROUGH_RE.search(sentence):
+                if end_ms < cut_ms:
+                    errors.append(
+                        f"{location}: continue_motion must not settle into the final-frame composition "
+                        f"at {end_ms} ms before the cut at {cut_ms} ms without an instantaneous pass-through"
+                    )
+                elif not terminal_state:
+                    warnings.append(
+                        f"Fin a verifier ({location}) : convergence decrite sur un intervalle ; "
+                        "confirmer que le mouvement se poursuit jusqu'a la coupure."
+                    )
+    return tuple(dict.fromkeys(errors)), tuple(dict.fromkeys(warnings))
+
+
+def continuing_motion_final_anchor_errors(content: str) -> tuple[str, ...]:
+    return _continuing_motion_anchor_issues(content)[0]
 
 
 def canonical_direct_ref2v_action_plan_v4_late_anchor(
@@ -837,6 +852,7 @@ def direct_ref2v_action_plan_warnings_v4(content: str) -> tuple[str, ...]:
     warnings = [
         warning for warning in warnings if "continuing_motion_" not in warning
     ]
+    warnings.extend(_continuing_motion_anchor_issues(content)[1])
     if plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE:
         warnings = [
             warning
@@ -1209,6 +1225,40 @@ def direct_ref2v_writer_plan_v4_camera_clean(content: str) -> str:
         or "N/A",
     }
     return json.dumps(writer_value, ensure_ascii=False, indent=2)
+
+
+def direct_ref2v_writer_plan_v5_compact(content: str) -> str:
+    """Compact only the writer's input, leaving the approved V4 plan intact.
+
+    Remove exact duplicate statements, never paraphrase or infer equivalence.
+    Dialogue prose and the terminal snapshot stay with the existing compiler.
+    All distinct scene facts, actions, timings and camera landmarks survive.
+    """
+
+    value = json.loads(direct_ref2v_writer_plan_v4_camera_clean(content))
+    value["continuity_invariants"] = list(dict.fromkeys(value["continuity_invariants"]))
+    for beat in value["beats"]:
+        if (len(beat["steps"]) == 1
+                and beat["steps"][0]["start_ms"] == beat["start_ms"]
+                and beat["steps"][0]["end_ms"] == beat["end_ms"]
+                and beat["primary_action"] == beat["steps"][0]["action"]):
+            del beat["primary_action"]
+        end_state = beat.get("observable_end_state")
+        for step in beat["steps"]:
+            continuity = step.get("continuity_after")
+            # An identical state reached earlier has a different time meaning.
+            if continuity and step["end_ms"] == beat["end_ms"] and continuity == end_state:
+                del step["continuity_after"]
+    # Keep speaker identity and positions for visible speech actions; the
+    # compiler owns the verbatim clause, delivery and language.
+    value["dialogue_cues"] = [
+        {"cue_id": cue["cue_id"], "start_ms": cue["start_ms"],
+         "speaker_id": cue["speaker_id"], "speaker": cue["speaker"]}
+        for cue in value["dialogue_cues"]
+    ]
+    value.pop("final_state_snapshot", None)
+    value["derived_timing"].pop("final_state_start_ms", None)
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def direct_ref2v_animal_interview_writer_plan(content: str) -> str:

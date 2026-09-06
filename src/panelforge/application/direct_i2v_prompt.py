@@ -44,6 +44,7 @@ def apply_direct_i2v_timing(
     dialogue_aware: bool = False,
     motion_aware: bool = False,
     camera_clean: bool = False,
+    ending_phase_only: bool = False,
     insert_missing_final_landmark: bool = False,
 ) -> str:
     """Compile the derived duration and validate plan-owned landmarks.
@@ -88,6 +89,7 @@ def apply_direct_i2v_timing(
 
     if (
         motion_aware
+        and not ending_phase_only
         and plan.motion_contract.end_behavior is DirectMotionEndBehavior.CONTINUE
     ):
         integrated = _insert_continuing_motion_contract(

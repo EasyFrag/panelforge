@@ -10,6 +10,11 @@ import logging
 import re
 from typing import Protocol
 from uuid import uuid4
+from panelforge.domain.prompt_composition import PreparationIntent
+from .video_preparation import (
+    DIRECT_PROMPT_CONTRACT, compile_direct_prompt, direct_prompt_context,
+    direct_prompt_errors, preparation_source,
+)
 
 from panelforge.domain import (
     CompositionRevision,
@@ -35,6 +40,7 @@ from .prompt_lab import (
     StreamEventKind,
     StreamPhase,
     creative_freedom_policy,
+    creative_audacity_policy,
     project_reference_evidence,
     truncated_response_message,
 )
@@ -106,6 +112,7 @@ from .direct_ref2v_plan import (
     direct_ref2v_camera_directives_v3,
     direct_ref2v_camera_directives_v4,
     direct_ref2v_writer_plan,
+    direct_ref2v_writer_plan_v5_compact,
     direct_ref2v_writer_plan_v2,
     direct_ref2v_writer_plan_v2_compact,
     direct_ref2v_writer_plan_v2_camera_owned,
@@ -401,6 +408,7 @@ _REF2V_SUPERVISED_CONTRACTS = {
     _REF2V_SUPERVISED_CANONICAL_CONTRACT,
 }
 _H3_PROTOCOL_CONTRACTS = {
+    DIRECT_PROMPT_CONTRACT,
     _SUPER_FAST_REF2V_DIRECT_CONTRACT,
     _I2VA_CANONICAL_CONTRACT,
     *_I2VA_DIRECT_CONTRACTS,
@@ -512,6 +520,9 @@ class PromptCookbookPort(Protocol):
     writer_projection: str
     visibility: str
     execution_mode: str
+    preparation_steps: int
+    profile_id: str | None
+    profile_version: str | None
     sources: tuple[str, ...]
     slots: tuple[CookbookSlotPort, ...]
     reference_plan_system_prompt: str | None
@@ -623,10 +634,17 @@ class PromptCompositionService:
         cookbook_id: str,
         cookbook_version: str,
         bindings: tuple[CookbookBinding, ...],
+        preparation_intent: PreparationIntent | None = None,
     ) -> PromptComposition:
         session = self.sessions.get(source_session_id)
-        _approved_brief(session)
         cookbook = self.cookbooks.get(cookbook_id, cookbook_version)
+        if getattr(cookbook, "preparation_steps", 3) == 3:
+            if not getattr(cookbook, "profile_id", None):
+                _approved_brief(session=session)
+            if preparation_intent is not None:
+                raise ValueError("this recipe uses a generated Brief, not a direct intention")
+        elif preparation_intent is None:
+            raise ValueError("this recipe requires a preparation intention")
         _validate_bindings(session, cookbook, bindings)
         by_slot = {binding.slot_id: binding for binding in bindings}
         bindings = tuple(by_slot[slot.slot_id] for slot in cookbook.slots)
@@ -638,12 +656,15 @@ class PromptCompositionService:
                     source_session_id=source_session_id,
                     cookbook=cookbook.reference,
                     bindings=bindings,
+                    preparation_intent=preparation_intent,
                 )
             )
         if existing.cookbook != cookbook.reference:
             raise ValueError(
                 "this session already uses another cookbook; create a new session to preserve its history"
             )
+        if existing.preparation_intent != preparation_intent:
+            raise ValueError("the preparation intention is locked; fork this run to change it")
         return self.compositions.save_if_current(
             existing,
             existing.with_bindings(bindings),
@@ -737,10 +758,10 @@ class PromptCompositionService:
             stage,
             prefix,
             result.content,
-            source_text=_approved_brief(session).source_text,
+            source_text=preparation_source(session, composition).source_text,
             dialogue_source_text=_dialogue_source(
                 cookbook,
-                _approved_brief(session),
+                preparation_source(session, composition),
             ),
         )
         return self._persist_if_current(
@@ -1045,7 +1066,7 @@ class PromptCompositionService:
             composition,
             CompositionStage.FINAL_PROMPT,
         )
-        brief = _approved_brief(session)
+        brief = preparation_source(session, composition)
         request = CompletionRequest(
             model_id=session.model_id,
             system_prompt=_required_prompt(
@@ -1058,10 +1079,7 @@ class PromptCompositionService:
                     "final_prompt_user",
                 ),
                 BRIEF=brief.content,
-                REFERENCES=direct_reference_mapping(
-                    session,
-                    composition_picture_mapping(composition),
-                ),
+                REFERENCES=_preparation_reference_mapping(session, composition),
                 CREATIVE_FREEDOM=str(brief.creative_freedom),
                 CREATIVE_POLICY=creative_freedom_policy(
                     brief.creative_freedom,
@@ -1162,7 +1180,7 @@ class PromptCompositionService:
             "",
             result_content,
         )
-        brief = _approved_brief(initial_session)
+        brief = preparation_source(initial_session, initial_composition)
         plan_content = auto_resolve_direct_ref2v_multishot_risks_v2(
             plan_content,
             brief.creative_freedom,
@@ -1354,7 +1372,7 @@ class PromptCompositionService:
             validate_expected_dialogues(
                 content,
                 extract_explicit_dialogues(
-                    _dialogue_source(cookbook, _approved_brief(session))
+                    _dialogue_source(cookbook, preparation_source(session, composition))
                 ),
             )
         if (
@@ -1363,7 +1381,7 @@ class PromptCompositionService:
         ):
             validate_direct_fl2va_multishot_dialogues(
                 content,
-                extract_explicit_dialogues(_approved_brief(session).source_text),
+                extract_explicit_dialogues(preparation_source(session, composition).source_text),
             )
         active = composition.document(stage).active_revision
         return self._append_revision(
@@ -1388,7 +1406,7 @@ class PromptCompositionService:
         )
         result = self.gateway.complete(request)
         revised = result.content
-        if cookbook.output_contract != _SUPER_FAST_REF2V_DIRECT_CONTRACT:
+        if cookbook.output_contract not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT}:
             revised = _revision_document_contract(
                 cookbook,
                 stage,
@@ -1399,10 +1417,10 @@ class PromptCompositionService:
             stage,
             prefix,
             revised,
-            source_text=_approved_brief(session).source_text,
+            source_text=preparation_source(session, composition).source_text,
             dialogue_source_text=_dialogue_source(
                 cookbook,
-                _approved_brief(session),
+                preparation_source(session, composition),
             ),
         )
         return self._persist_if_current(
@@ -1519,7 +1537,7 @@ class PromptCompositionService:
             system_prompt=system_template,
             user_prompt=_render(
                 user_template,
-                BRIEF=_approved_brief(session).content,
+                BRIEF=preparation_source(session, composition).content,
                 CURRENT_PLAN=current.content,
                 DECISIONS=decisions_json,
                 GLOBAL_INSTRUCTION=normalized_instruction or "N/A",
@@ -1657,14 +1675,14 @@ class PromptCompositionService:
                 cookbook.beat_sheet_reconcile_user_prompt,
                 BRIEF=(
                     _compact_h3_base_brief(
-                        _approved_brief(session).content,
+                        preparation_source(session, composition).content,
                         session,
                     )
                     if cookbook.output_contract in {
                         *_FL2VA_BASE_CONTRACTS,
                         _REF2V_DIRECT_V4_CONTRACT,
                     }
-                    else _approved_brief(session).content
+                    else preparation_source(session, composition).content
                 ),
                 REFERENCES=(
                     direct_h3_base_reference_mapping(
@@ -1672,10 +1690,7 @@ class PromptCompositionService:
                         composition_picture_mapping(composition),
                     )
                     if cookbook.output_contract in _FL2VA_BASE_CONTRACTS
-                    else direct_reference_mapping(
-                        session,
-                        composition_picture_mapping(composition),
-                    )
+                    else _preparation_reference_mapping(session, composition)
                 ),
                 CURRENT_PLAN=(
                     _remove_h3_base_source_filenames(current.content, session)
@@ -1698,7 +1713,7 @@ class PromptCompositionService:
                     else _direct_action_plan_schema(cookbook)
                 ),
                 DIALOGUE_LEDGER=explicit_dialogue_ledger(
-                    _dialogue_source(cookbook, _approved_brief(session))
+                    _dialogue_source(cookbook, preparation_source(session, composition))
                 ),
             ),
             images=self._direct_reference_images(
@@ -1842,10 +1857,7 @@ class PromptCompositionService:
                 cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT
                 and stage is CompositionStage.FINAL_PROMPT
             ):
-                prefix = direct_reference_header(
-                    session,
-                    composition_picture_mapping(composition),
-                )
+                prefix = _preparation_reference_header(session, composition)
                 expected_prefix = prefix + "\n\n"
                 if not editable_current.startswith(expected_prefix):
                     raise ValueError("the direct super-fast prompt has the wrong header")
@@ -2020,10 +2032,7 @@ class PromptCompositionService:
                             composition_picture_mapping(composition),
                         )
                         if cookbook.output_contract in _FL2VA_BASE_CONTRACTS
-                        else direct_reference_mapping(
-                            session,
-                            composition_picture_mapping(composition),
-                        )
+                        else _preparation_reference_mapping(session, composition)
                     )
             user_prompt = _render(
                 cookbook.revision_user_prompt,
@@ -2102,6 +2111,8 @@ class PromptCompositionService:
             and stage is CompositionStage.BEAT_SHEET
             else stage.value
         )
+        if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
+            prefix = _mono_direct_context(session, composition, cookbook)
         request = CompletionRequest(
             model_id=session.model_id,
             system_prompt=system_prompt,
@@ -2114,6 +2125,7 @@ class PromptCompositionService:
                         cookbook.output_contract not in {
                             *_FL2VA_BASE_CONTRACTS,
                             _REF2V_DIRECT_V4_CONTRACT,
+                            DIRECT_PROMPT_CONTRACT,
                         }
                     ),
                 )
@@ -2122,7 +2134,7 @@ class PromptCompositionService:
                     and stage is CompositionStage.BEAT_SHEET
                 )
                 or (
-                    cookbook.output_contract == _SUPER_FAST_REF2V_DIRECT_CONTRACT
+                    cookbook.output_contract in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT}
                     and stage is CompositionStage.FINAL_PROMPT
                 )
                 else ()
@@ -2133,7 +2145,10 @@ class PromptCompositionService:
                 CompositionStage.FINAL_PROMPT: 0.2,
             }[stage],
             max_tokens=262_144,
-            operation_id=f"{operation_stage}.{origin_operation}",
+            operation_id=(
+                f"{cookbook.reference.cookbook_id}@{cookbook.reference.version}.{operation_stage}.{origin_operation}"
+                if getattr(cookbook, "profile_id", None) else f"{operation_stage}.{origin_operation}"
+            ),
             include_reasoning=include_reasoning,
         )
         return session, composition, cookbook, expected, request, prefix
@@ -2175,7 +2190,21 @@ class PromptCompositionService:
         cookbook: PromptCookbookPort,
         stage: CompositionStage,
     ) -> tuple[str, str]:
-        brief = _approved_brief(session)
+        brief = preparation_source(session, composition)
+        if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
+            mapping = composition_picture_mapping(composition)
+            return cookbook.final_prompt_system_prompt, _render(
+                cookbook.final_prompt_user_prompt,
+                INTENTION=brief.source_text,
+                REFERENCES=(
+                    direct_h3_base_reference_mapping(session, mapping)
+                    if cookbook.target_mode == "fl2va_direct" else _preparation_reference_mapping(session, composition)
+                ),
+                DURATION_MS=str(json.loads(_mono_direct_context(session, composition, cookbook))["duration_ms"]),
+                CREATIVE_POLICY=creative_freedom_policy(brief.creative_freedom, brief.creative_axes),
+                AUDACITY_POLICY=creative_audacity_policy(brief.creative_audacity),
+                DIALOGUE_LEDGER=explicit_dialogue_ledger(brief.source_text),
+            )
         if cookbook.output_contract in _DIRECT_MULTIMODAL_CONTRACTS:
             if stage is CompositionStage.BEAT_SHEET:
                 compact_base = cookbook.output_contract in _FL2VA_BASE_CONTRACTS
@@ -2195,7 +2224,7 @@ class PromptCompositionService:
                         ),
                         BRIEF=(
                             _compact_h3_base_brief(brief.content, session)
-                            if compact_plan
+                            if compact_plan and composition.preparation_intent is None
                             else brief.content
                         ),
                         REFERENCES=(
@@ -2204,10 +2233,7 @@ class PromptCompositionService:
                                 composition_picture_mapping(composition),
                             )
                             if compact_base
-                            else direct_reference_mapping(
-                                session,
-                                composition_picture_mapping(composition),
-                            )
+                            else _preparation_reference_mapping(session, composition)
                         ),
                         ACTION_PLAN_SCHEMA=(
                             _compact_json_schema(
@@ -2227,6 +2253,7 @@ class PromptCompositionService:
                             _dialogue_source(cookbook, brief)
                         ),
                         CREATIVE_FREEDOM=str(brief.creative_freedom),
+                        AUDACITY_POLICY=creative_audacity_policy(brief.creative_audacity),
                         CREATIVE_POLICY=creative_freedom_policy(
                             brief.creative_freedom,
                             brief.creative_axes,
@@ -2269,10 +2296,7 @@ class PromptCompositionService:
                             composition_picture_mapping(composition),
                         )
                         if cookbook.output_contract in _FL2VA_BASE_CONTRACTS
-                        else direct_reference_mapping(
-                            session,
-                            composition_picture_mapping(composition),
-                        )
+                        else _preparation_reference_mapping(session, composition)
                     ),
                 ),
             )
@@ -2420,7 +2444,7 @@ class PromptCompositionService:
         composition: PromptComposition,
         stage: CompositionStage,
     ) -> tuple[str, ...]:
-        brief = _approved_brief(session)
+        brief = preparation_source(session, composition)
         cookbook = self.cookbooks.get(
             composition.cookbook.cookbook_id,
             composition.cookbook.version,
@@ -2430,7 +2454,7 @@ class PromptCompositionService:
         if cookbook.output_contract in _PLANNED_CONTRACTS:
             action_plan_sources = (
                 f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-                f"brief:{brief.revision_id}",
+                brief.source_id,
                 *_binding_source_snapshots(session, composition),
             )
             if stage is CompositionStage.BEAT_SHEET:
@@ -2441,20 +2465,20 @@ class PromptCompositionService:
                 action_plan_sources,
             )
             return (
-                f"brief:{brief.revision_id}",
+                brief.source_id,
                 f"action_plan:{action_plan.revision_id}",
             )
         if cookbook.stages == (CompositionStage.FINAL_PROMPT.value,):
             values = [
                 f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-                f"brief:{brief.revision_id}",
+                brief.source_id,
             ]
             values.extend(_binding_source_snapshots(session, composition))
             return tuple(values)
         if stage is CompositionStage.REFERENCE_PLAN:
             values = [
                 f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-                f"brief:{brief.revision_id}",
+                brief.source_id,
             ]
             values.extend(_binding_source_snapshots(session, composition))
             return tuple(values)
@@ -2470,11 +2494,11 @@ class PromptCompositionService:
         )
         if stage is CompositionStage.BEAT_SHEET:
             return (
-                f"brief:{brief.revision_id}",
+                brief.source_id,
                 f"reference_plan:{reference_plan.revision_id}",
             )
         beat_sources = (
-            f"brief:{brief.revision_id}",
+            brief.source_id,
             f"reference_plan:{reference_plan.revision_id}",
         )
         beat_sheet = _approved_stage(
@@ -2537,6 +2561,8 @@ class PromptCompositionService:
         )
         if cookbook.reference != composition.cookbook:
             raise ValueError("the cookbook engine contract changed")
+        if (getattr(cookbook, "preparation_steps", 3) < 3) != (composition.preparation_intent is not None):
+            raise ValueError("preparation input does not match the recipe")
         if cookbook.output_contract in _H3_PROTOCOL_CONTRACTS and (
             cookbook.reference.engine_contract_id,
             cookbook.reference.engine_contract_version,
@@ -2562,13 +2588,19 @@ class PromptCompositionService:
             composition.cookbook.cookbook_id,
             composition.cookbook.version,
         )
+        if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
+            session = self.sessions.get(composition.source_session_id)
+            compiler_context = _mono_direct_context(session, composition, cookbook)
+            errors = direct_prompt_errors(content, context=json.loads(compiler_context))
+            if errors:
+                raise ValueError(" ".join(errors))
         if (
             cookbook.output_contract == _FL2VA_DIRECT_MULTISHOT_CONTRACT
             and stage is CompositionStage.BEAT_SHEET
         ):
             session = self.sessions.get(composition.source_session_id)
             requested_duration_ms = requested_h3_base_duration_ms(
-                _approved_brief(session).source_text
+                preparation_source(session, composition).source_text
             )
             if requested_duration_ms is not None:
                 content = align_direct_fl2va_multishot_duration(
@@ -2584,7 +2616,7 @@ class PromptCompositionService:
         ):
             session = self.sessions.get(composition.source_session_id)
             requested_duration_ms = requested_h3_base_duration_ms(
-                _approved_brief(session).source_text
+                preparation_source(session, composition).source_text
             )
             if requested_duration_ms is not None:
                 content = align_direct_ref2v_action_plan_v2_duration(
@@ -2633,8 +2665,9 @@ class PromptCompositionService:
                         cookbook.output_contract in _FL2VA_MOTION_CONTRACTS
                     ),
                     camera_clean=(
-                        cookbook.writer_projection == "camera_clean_v4"
+                        cookbook.writer_projection in {"camera_clean_v4", "camera_clean_compact_v5"}
                     ),
+                    ending_phase_only=(cookbook.writer_projection == "camera_clean_compact_v5"),
                     insert_missing_final_landmark=(
                         cookbook.output_contract in _DIRECT_DIALOGUE_CONTRACTS
                     ),
@@ -2644,7 +2677,10 @@ class PromptCompositionService:
                     *_FL2VA_DIRECT_CONTRACTS,
                 }
                 else (
-                    apply_direct_ref2v_timing_v4(content, action_plan.content)
+                    apply_direct_ref2v_timing_v4(
+                        content, action_plan.content,
+                        ending_phase_only=(cookbook.writer_projection == "camera_clean_compact_v5"),
+                    )
                     if cookbook.output_contract == _REF2V_DIRECT_V4_CONTRACT
                     else apply_direct_ref2v_timing_v2(content, action_plan.content)
                 )
@@ -2776,6 +2812,9 @@ class PromptCompositionService:
                 context = decode_direct_fl2va_context(compiler_context)
                 directives = tuple(item.directive for item in context.placements)
                 mode = context.protocol_mode
+                # Timing compilation can inject Plan prose after the Writer's
+                # labels were normalized (notably the final-state snapshot).
+                content = normalize_h3_base_model_labels(content, context.mode)
                 rehydrate_direct_fl2va_document(content, context)
                 errors = lint_direct_fl2va_prompt(content, context)
                 if errors:
@@ -2827,11 +2866,13 @@ class PromptCompositionService:
             _SUPER_FAST_REF2V_DIRECT_CONTRACT,
             *_REF2V_ALL_DIRECT_CONTRACTS,
         }:
+            session = self.sessions.get(composition.source_session_id)
             validate_direct_ref2v_labels(
-                self.sessions.get(composition.source_session_id),
+                session,
                 composition_picture_mapping(composition),
                 stage,
                 content,
+                expected_header=_preparation_reference_header(session, composition),
             )
         elif cookbook.output_contract in _REF2VA_CONTRACTS:
             _raise_cookbook_labels(
@@ -2867,8 +2908,10 @@ class PromptCompositionService:
             _I2VA_CANONICAL_CONTRACT,
         }:
             _raise_i2v_labels(composition, stage, content)
-        else:
+        elif cookbook.output_contract != DIRECT_PROMPT_CONTRACT:
             raise ValueError(f"unsupported output contract: {cookbook.output_contract}")
+        # The one-step contract was validated above against its saved reference,
+        # duration and dialogue context; it has no legacy label dispatcher.
         document = composition.document(stage)
         revision = CompositionRevision(
             revision_id=f"{stage.value}-{uuid4().hex}",
@@ -2901,7 +2944,7 @@ class PromptCompositionService:
         document_stage: CompositionStage | None = None,
     ) -> Iterator[CompositionStreamEvent]:
         terminal = False
-        if prefix and not _is_hidden_compiler_context(prefix):
+        if prefix and cookbook.output_contract != DIRECT_PROMPT_CONTRACT and not _is_hidden_compiler_context(prefix):
             yield CompositionStreamEvent(
                 kind=StreamEventKind.DELTA,
                 phase=StreamPhase.GENERATING,
@@ -2917,7 +2960,7 @@ class PromptCompositionService:
                         origin is RevisionOrigin.REWRITE
                         and extract_revision
                         and cookbook.output_contract
-                        != _SUPER_FAST_REF2V_DIRECT_CONTRACT
+                        not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT}
                     ):
                         result_content = _revision_document_contract(
                             cookbook,
@@ -2929,10 +2972,10 @@ class PromptCompositionService:
                         stage,
                         prefix,
                         result_content,
-                        source_text=_approved_brief(initial_session).source_text,
+                        source_text=preparation_source(initial_session, initial_composition).source_text,
                         dialogue_source_text=_dialogue_source(
                             cookbook,
-                            _approved_brief(initial_session),
+                            preparation_source(initial_session, initial_composition),
                         ),
                     )
                     if validate_content is not None:
@@ -3081,6 +3124,10 @@ def lint_cookbook_document(
     stage: CompositionStage,
     content: str,
 ) -> tuple[str, ...]:
+    if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
+        if stage is not CompositionStage.FINAL_PROMPT:
+            return (f"Stage {stage.value} does not belong to this cookbook.",)
+        return direct_prompt_errors(content, ref2v=cookbook.target_mode == "ref2v_direct")
     if cookbook.output_contract == _FL2VA_DIRECT_MULTISHOT_CONTRACT:
         if stage is CompositionStage.BEAT_SHEET:
             return lint_direct_fl2va_multishot_plan(content)
@@ -4099,6 +4146,20 @@ def _validate_bindings(
     cookbook: PromptCookbookPort,
     bindings: tuple[CookbookBinding, ...],
 ) -> None:
+    experimental_pairs = {
+        ("minimax.h3.fl2va.direct", "0.4.0"),
+        ("minimax.h3.ref2v.direct", "0.5.0"),
+    }
+    profile_pair = (session.profile_id, session.profile_version)
+    cookbook_pair = (cookbook.reference.cookbook_id, cookbook.reference.version)
+    pinned_profile = getattr(cookbook, "profile_id", None)
+    if pinned_profile and profile_pair != (pinned_profile, cookbook.profile_version):
+        raise ValueError("this preparation recipe requires its pinned profile; fork the session")
+    if not pinned_profile and (profile_pair in experimental_pairs or cookbook_pair in experimental_pairs) and profile_pair != cookbook_pair:
+        raise ValueError(
+            "experimental mono-plan recipes require the matching Brief profile version; "
+            "fork the session with that profile before generating a new Brief"
+        )
     if not isinstance(bindings, tuple):
         raise TypeError("bindings must be a tuple")
     direct_session = session.session_mode in {
@@ -4355,7 +4416,7 @@ def _direct_ref2v_compiler_context(
         CompositionStage.BEAT_SHEET,
         (
             f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-            f"brief:{_approved_brief(session).revision_id}",
+            preparation_source(session, composition).source_id,
             *_binding_source_snapshots(session, composition),
         ),
     )
@@ -4366,10 +4427,7 @@ def _direct_ref2v_compiler_context(
         return encode_timed_camera_context(
             TimedCameraContext(
                 mode="ref2v",
-                header=direct_reference_header(
-                    session,
-                    composition_picture_mapping(composition),
-                ),
+                header=_preparation_reference_header(session, composition),
                 placements=_direct_timed_camera_placements(
                     plan.content,
                     dialogue_aware=(
@@ -4387,10 +4445,7 @@ def _direct_ref2v_compiler_context(
         else direct_ref2v_camera_directives(plan.content)
     )
     return encode_direct_ref2v_context(
-        direct_reference_header(
-            session,
-            composition_picture_mapping(composition),
-        ),
+        _preparation_reference_header(session, composition),
         directives,
     )
 
@@ -4405,7 +4460,7 @@ def _direct_i2v_compiler_context(
         CompositionStage.BEAT_SHEET,
         (
             f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-            f"brief:{_approved_brief(session).revision_id}",
+            preparation_source(session, composition).source_id,
             *_binding_source_snapshots(session, composition),
         ),
     )
@@ -4431,7 +4486,7 @@ def _direct_fl2va_compiler_context(
         CompositionStage.BEAT_SHEET,
         (
             f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-            f"brief:{_approved_brief(session).revision_id}",
+            preparation_source(session, composition).source_id,
             *_binding_source_snapshots(session, composition),
         ),
     )
@@ -4473,7 +4528,7 @@ def _direct_fl2va_multishot_compiler_context(
         CompositionStage.BEAT_SHEET,
         (
             f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-            f"brief:{_approved_brief(session).revision_id}",
+            preparation_source(session, composition).source_id,
             *_binding_source_snapshots(session, composition),
         ),
     )
@@ -4546,17 +4601,14 @@ def _direct_ref2v_multishot_compiler_context(
         CompositionStage.BEAT_SHEET,
         (
             f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-            f"brief:{_approved_brief(session).revision_id}",
+            preparation_source(session, composition).source_id,
             *_binding_source_snapshots(session, composition),
         ),
     )
     plan = parse_direct_ref2v_multishot_plan(plan_revision.content)
     directives = direct_ref2v_multishot_camera_directives(plan_revision.content)
     return encode_direct_ref2v_multishot_context(
-        direct_reference_header(
-            session,
-            composition_picture_mapping(composition),
-        ),
+        _preparation_reference_header(session, composition),
         directives,
         {directive.directive_id: int(directive.directive_id.rsplit("_", 1)[1])
          for directive in directives},
@@ -4580,7 +4632,7 @@ def _direct_ref2v_multishot_compiler_context_for(
         CompositionStage.BEAT_SHEET,
         (
             f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
-            f"brief:{_approved_brief(session).revision_id}",
+            preparation_source(session, composition).source_id,
             *_binding_source_snapshots(session, composition),
         ),
     )
@@ -4592,10 +4644,7 @@ def _direct_ref2v_multishot_compiler_context_for(
         for shot_number in range(1, len(plan.shots) + 1)
     )
     return encode_direct_ref2v_multishot_context_v2(
-        direct_reference_header(
-            session,
-            composition_picture_mapping(composition),
-        ),
+        _preparation_reference_header(session, composition),
         plan.shot_starts_ms,
         plan.hard_cut_times_ms,
         shot_cameras,
@@ -5036,6 +5085,27 @@ def _normalize_arbitration_decisions(
     return normalized
 
 
+def _preparation_reference_header(session, composition) -> str:
+    header = direct_reference_header(session, composition_picture_mapping(composition))
+    return header.replace("approved Brief", "user intention") if composition.preparation_intent else header
+
+
+def _preparation_reference_mapping(session, composition) -> str:
+    mapping = direct_reference_mapping(session, composition_picture_mapping(composition))
+    if composition.preparation_intent:
+        mapping = "\n".join(line for line in mapping.splitlines() if not line.startswith("label:"))
+        mapping = mapping.replace("approved Brief", "user intention")
+    return mapping
+
+
+def _mono_direct_context(session, composition, cookbook) -> str:
+    mapping = composition_picture_mapping(composition)
+    return direct_prompt_context(
+        session, mapping, preparation_source(session, composition).source_text,
+        reference_header=(_preparation_reference_header(session, composition) if cookbook.target_mode == "ref2v_direct" else None),
+    )
+
+
 def _compile_content_with_context(
     cookbook: PromptCookbookPort,
     stage: CompositionStage,
@@ -5045,6 +5115,10 @@ def _compile_content_with_context(
     source_text: str | None = None,
     dialogue_source_text: str | None = None,
 ) -> tuple[str, str | None]:
+    if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
+        if stage is not CompositionStage.FINAL_PROMPT:
+            raise ValueError("the direct recipe has only a final prompt stage")
+        return compile_direct_prompt(result, prefix), prefix
     content = _compile_content(
         cookbook,
         stage,
@@ -5152,10 +5226,7 @@ def _compile_super_fast_ref2v_prompt(
 ) -> str:
     if cookbook.output_contract != _SUPER_FAST_REF2V_DIRECT_CONTRACT:
         raise ValueError("the cookbook does not use the direct super-fast contract")
-    header = direct_reference_header(
-        session,
-        composition_picture_mapping(composition),
-    )
+    header = _preparation_reference_header(session, composition)
     body = normalize_dialogue_language_tags(
         _normalize_super_fast_ref2v_body(result)
     )
@@ -5503,6 +5574,8 @@ def _writer_action_plan(cookbook: PromptCookbookPort, content: str) -> str:
     if cookbook.output_contract in _FL2VA_ANIMAL_INTERVIEW_CONTRACTS:
         return direct_ref2v_animal_interview_writer_plan(content)
     if cookbook.output_contract in _FL2VA_MOTION_CONTRACTS:
+        if cookbook.writer_projection == "camera_clean_compact_v5":
+            return direct_ref2v_writer_plan_v5_compact(content)
         return (
             direct_ref2v_writer_plan_v4_camera_clean(content)
             if cookbook.writer_projection == "camera_clean_v4"
@@ -5729,6 +5802,8 @@ def _stage_contract(
     *,
     compiler_context: str | None = None,
 ) -> str:
+    if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
+        return "Return the complete direct-prompt JSON object with camera_motion and the three video text fields."
     if (
         cookbook.output_contract == _FL2VA_DIRECT_MULTISHOT_CONTRACT
         and stage is CompositionStage.FINAL_PROMPT

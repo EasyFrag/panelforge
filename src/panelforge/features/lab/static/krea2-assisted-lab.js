@@ -3,14 +3,38 @@
 
   const $ = (id) => document.getElementById(id);
   const terminalStatuses = new Set(["succeeded", "failed", "cancelled"]);
-  const activeStatuses = new Set(["queued", "running", "cancel_pending"]);
+  const activeStatuses = new Set(["queued", "submitting", "running", "cancel_pending"]);
   const elements = {
+    branches: $("krea2-assisted-branches"),
+    branchTree: $("krea2-assisted-branch-tree"),
+    activeBranch: $("krea2-assisted-active-branch"),
+    feedbackCard: $("krea2-assisted-feedback-card"),
+    feedbackImage: $("krea2-assisted-feedback-image"),
+    feedbackName: $("krea2-assisted-feedback-name"),
+    feedbackOpen: $("krea2-assisted-feedback-open"),
+    inspirationCard: $("krea2-assisted-inspiration-card"),
     workspace: $("krea2-assisted-lab-workspace"),
     newForm: $("krea2-assisted-new-form"),
     name: $("krea2-assisted-name"),
     intention: $("krea2-assisted-intention"),
     reference: $("krea2-assisted-reference"),
     llm: $("krea2-assisted-llm"),
+    assistanceRecipe: $("krea2-assisted-assistance-recipe"),
+    activeRecipe: $("krea2-assisted-active-recipe"),
+    newPreset: $("krea2-assisted-new-preset"),
+    newPresetNote: $("krea2-assisted-new-preset-note"),
+    preset: $("krea2-assisted-preset"),
+    presetNote: $("krea2-assisted-preset-note"),
+    presetImage: $("krea2-assisted-preset-image"),
+    presetReapply: $("krea2-assisted-reapply-preset"),
+    presetRemove: $("krea2-assisted-remove-preset"),
+    presetDialog: $("krea2-assisted-preset-dialog"),
+    presetForm: $("krea2-assisted-preset-form"),
+    presetName: $("krea2-assisted-preset-name"),
+    presetTarget: $("krea2-assisted-preset-target"),
+    presetSource: $("krea2-assisted-preset-source"),
+    presetError: $("krea2-assisted-preset-error"),
+    presetSave: $("krea2-assisted-preset-save"),
     revisionLlm: $("krea2-assisted-revision-llm"),
     create: $("krea2-assisted-create"),
     newMessage: $("krea2-assisted-new-message"),
@@ -53,6 +77,8 @@
     catalogManager: $("krea2-assisted-catalog-manager"),
     render: $("krea2-assisted-render"),
     cancel: $("krea2-assisted-cancel"),
+    queueSummary: $("krea2-assisted-queue-summary"),
+    queueOpen: $("krea2-assisted-queue-open"),
     messageState: $("krea2-assisted-message-state"),
     recipePanel: $("krea2-assisted-recipe-panel"),
     recipeDraft: $("krea2-assisted-recipe-draft"),
@@ -82,6 +108,10 @@
     guidanceFile: null,
     guidanceAsset: null,
     guidanceObjectUrl: null,
+    navigationSerial: 0,
+    presets: [],
+    presetSource: null,
+    renderQueue: { items: [], error: null },
   };
   const reasoningTrace = core && typeof core.createReasoningTrace === "function"
     ? core.createReasoningTrace({
@@ -117,7 +147,16 @@
     elements.render.disabled = value || !state.project;
     elements.saveDraft.disabled = value || !state.project;
     elements.publishRecipe.disabled = value || !state.project;
+    elements.branchTree.querySelectorAll("button").forEach((button) => { button.disabled = value; });
+    elements.newPreset.disabled = value;
+    elements.preset.disabled = value || !state.project;
+    elements.presetReapply.disabled = value || !state.project?.style_preset;
+    elements.presetRemove.disabled = value || !state.project?.style_preset;
+    elements.presetSave.disabled = value;
+    elements.gallery.querySelectorAll("button").forEach((button) => { button.disabled = value; });
     renderStatus();
+    if (!value && state.project && ((state.renderQueue.items || []).length
+      || (state.project.attempts || []).some((attempt) => activeStatuses.has(attempt.status)))) schedulePoll();
   }
 
   function setNewMessage(message = "", error = true) {
@@ -268,7 +307,7 @@
     resourceUi.syncModelPicker(elements.model);
     elements.ratio.value = attempt.settings.aspect_ratio;
     elements.megapixels.value = String(attempt.settings.megapixels);
-    elements.seed.value = attempt.seed || "";
+    elements.seed.value = attempt.seed ?? "";
     state.loraSlots = (attempt.settings.loras || []).slice(0, 10).map((value) => ({
       name: value.name,
       strength: value.strength,
@@ -283,8 +322,33 @@
   function renderStatus() {
     const project = state.project;
     const active = project && (project.attempts || []).find((attempt) => activeStatuses.has(attempt.status));
-    elements.status.textContent = state.busy ? "● Traitement…" : active ? `● ${active.status}` : "● Prêt";
+    elements.status.textContent = state.busy ? "● Traitement…" : active ? `● ${attemptStatus(active)}` : "● Prêt";
     elements.cancel.disabled = !active || state.busy;
+    const items = state.renderQueue.items || [];
+    const queued = items.filter((item) => item.status === "queued").length;
+    const running = items.find((item) => item.status !== "queued");
+    elements.render.textContent = items.length ? "Ajouter un rendu à la file" : "Lancer un rendu";
+    elements.cancel.textContent = active ? `Annuler l’essai ${active.index}` : "Annuler";
+    const error = state.renderQueue.error || running?.error;
+    elements.queueSummary.textContent = error ? `${running ? `${running.project_name}, essai ${running.index} · ` : ""}${error}` : (items.length
+      ? `File Assisted · ${queued} en attente${running ? ` · ${running.project_name}, essai ${running.index} : ${attemptStatus(running)}` : ""}`
+      : "Chaque clic conserve ses réglages. Les rendus passent l’un après l’autre.");
+    elements.queueSummary.classList.toggle("error", Boolean(error));
+    elements.queueOpen.hidden = !running || running.project_id === project?.project_id;
+    elements.queueOpen.disabled = state.busy;
+  }
+
+  function attemptStatus(attempt) {
+    const labels = { created: "Préparé · non lancé", queued: "En attente", submitting: "Envoi à ComfyUI",
+      running: "En cours", cancel_pending: "Annulation en attente", succeeded: "Terminé", failed: "Échec", cancelled: "Annulé" };
+    const item = (state.renderQueue.items || []).find((value) =>
+      value.project_id === state.project?.project_id && value.attempt_id === attempt.attempt_id);
+    return attempt.status === "queued" && item
+      ? `En attente · position ${item.position}` : labels[attempt.status] || attempt.status;
+  }
+
+  async function loadRenderQueue() {
+    state.renderQueue = await request("/api/image-lab/krea2-assisted/render-queue");
   }
 
   function clearGuidance() {
@@ -318,11 +382,11 @@
       return {
         source,
         name: state.guidanceFile?.name || guidance?.filename || "Image d’appoint",
-        kind: "IMAGE D’APPOINT",
+        kind: "Image d’inspiration",
         note: "Prochain échange",
       };
     }
-    return selectedFeedbackPreview();
+    return null;
   }
 
   function renderGuidanceCompose() {
@@ -330,9 +394,19 @@
     const source = state.guidanceObjectUrl || (guidance && guidance.url);
     const name = state.guidanceFile?.name || guidance?.filename || "";
     const conversationPreview = currentConversationPreview();
+    const feedback = selectedFeedbackPreview();
     elements.guidancePreview.hidden = !source;
-    elements.guidanceDock.hidden = !conversationPreview;
-    elements.conversationLayout.classList.toggle("has-guidance", Boolean(conversationPreview));
+    elements.guidanceDock.hidden = !conversationPreview && !feedback;
+    elements.inspirationCard.hidden = !conversationPreview;
+    elements.feedbackCard.hidden = !feedback;
+    elements.conversationLayout.classList.toggle("has-guidance", Boolean(conversationPreview || feedback));
+    if (feedback) {
+      elements.feedbackImage.src = feedback.source;
+      elements.feedbackName.textContent = feedback.name;
+    } else {
+      elements.feedbackImage.removeAttribute("src");
+      elements.feedbackName.textContent = "";
+    }
     if (source) {
       elements.guidanceImage.src = source;
       elements.guidanceName.textContent = name;
@@ -415,6 +489,11 @@
       const content = document.createElement("p");
       content.textContent = turn.content;
       article.append(label, content);
+      if (turn.style_preset) {
+        const presetNote = document.createElement("small");
+        presetNote.textContent = `Exemple de style transmis : ${turn.style_preset.name}`;
+        article.append(presetNote);
+      }
       if (turn.guidance_url) {
         const guidance = document.createElement("div");
         guidance.className = "krea2-assisted-turn-guidance";
@@ -491,7 +570,7 @@
       } else {
         const pending = document.createElement("div");
         pending.className = "krea2-assisted-attempt-placeholder";
-        pending.textContent = activeStatuses.has(attempt.status) ? "Rendu ComfyUI…" : attempt.error || attempt.status;
+        pending.textContent = `Essai ${attempt.index} · ${attemptStatus(attempt)}`;
         card.append(pending);
       }
       const settings = attempt.settings || {};
@@ -512,8 +591,19 @@
         ? loras.map((lora) => `${lora.name} ×${strengthLabel(lora.strength)}`).join("\n")
         : "Aucune LoRA utilisée";
       const runMeta = document.createElement("small");
-      runMeta.textContent = `${attempt.status} · ${settings.aspect_ratio.split(" ")[0]} · seed ${attempt.seed}`;
+      runMeta.textContent = `${attemptStatus(attempt)} · ${settings.aspect_ratio.split(" ")[0]} · seed ${attempt.seed}`;
       card.append(renderMeta, loraMeta, runMeta);
+      if (attempt.error) {
+        const error = document.createElement("small");
+        error.className = "error";
+        error.textContent = attempt.error;
+        card.append(error);
+      }
+      if ((project.branches || []).length > 1) {
+        const origin = document.createElement("small");
+        origin.textContent = project.branches.find((b) => b.branch_id === (attempt.conversation_branch_id || "main"))?.name || "Ancien essai";
+        card.append(origin);
+      }
       const actions = document.createElement("div");
       actions.className = "actions";
       const reuse = document.createElement("button");
@@ -522,6 +612,20 @@
       reuse.title = "Reprendre le prompt et les réglages de cet essai";
       reuse.addEventListener("click", () => loadAttemptSettings(attempt));
       actions.append(reuse);
+      if (attempt.status === "created") {
+        const start = document.createElement("button");
+        start.type = "button";
+        start.textContent = "Ajouter cet essai à la file";
+        start.addEventListener("click", () => startPreparedAttempt(attempt.attempt_id));
+        actions.append(start);
+      }
+      if (activeStatuses.has(attempt.status) || attempt.status === "created") {
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.textContent = attempt.status === "submitting" ? "Retirer de la file" : "Annuler cet essai";
+        cancel.addEventListener("click", () => cancelAttempt(attempt.attempt_id));
+        actions.append(cancel);
+      }
       if (attempt.status === "succeeded") {
         const feedbackSelected = project.feedback_attempt_id === attempt.attempt_id;
         const feedback = document.createElement("button");
@@ -536,7 +640,24 @@
         save.title = attempt.accepted ? "Image déjà enregistrée" : "Enregistrer cette image";
         save.addEventListener("click", () => saveImage(attempt.attempt_id));
         actions.append(feedback, save);
+        const preset = document.createElement("button");
+        preset.type = "button";
+        preset.textContent = "Créer un preset";
+        preset.addEventListener("click", () => openPresetDialog(attempt));
+        actions.append(preset);
+        const restart = document.createElement("button");
+        restart.type = "button";
+        restart.className = "krea2-assisted-restart";
+        restart.textContent = attempt.can_restore_conversation ? "Repartir d’ici" : "Nouvelle piste · image + prompt";
+        restart.title = attempt.can_restore_conversation
+          ? "Créer une branche avec la conversation, le prompt et les réglages au moment de cet essai"
+          : "Ancien essai : point de conversation inconnu. Ouvrir une piste sans les anciens échanges, avec cette image et son prompt.";
+        restart.addEventListener("click", () => changeBranch({
+          attempt_id: attempt.attempt_id, image_prompt_only: !attempt.can_restore_conversation,
+        }));
+        actions.append(restart);
       }
+      actions.querySelectorAll("button").forEach((button) => { button.disabled = state.busy; });
       card.append(actions);
       elements.gallery.append(card);
     });
@@ -546,29 +667,41 @@
   }
 
   function renderProject(project, { preservePrompt = false } = {}) {
-    const changed = state.project?.project_id !== project.project_id;
+    const changed = state.project?.project_id !== project.project_id
+      || state.project?.active_branch_id !== project.active_branch_id;
     state.project = project;
     elements.editor.hidden = false;
     elements.title.textContent = project.name;
+    const recipeVersion = project.assistance_recipe_version || "1.0.0";
+    const recipe = (state.spec?.assistance_recipes || []).find((item) => item.version === recipeVersion);
+    elements.activeRecipe.textContent = `Assistance : ${recipe?.label || recipeVersion} · liée au projet`;
+    elements.activeRecipe.title = `Recette d’assistance ${recipeVersion}`;
     elements.promptLanguage.value = project.prompt_language || "en";
     if (changed) {
+      clearGuidance();
+      elements.message.value = "";
+      reasoningTrace.reset();
       window.PanelForgeModelPicker.select(
         elements.revisionLlm,
         project.revision_model_id || project.model_id,
         "modèle historique indisponible",
       );
     }
-    if (!preservePrompt || !elements.prompt.value.trim()) elements.prompt.value = project.current_prompt || "";
+    if (changed) restoreRenderState(project);
+    if (changed || !preservePrompt || !elements.prompt.value.trim()) elements.prompt.value = project.current_prompt || "";
     elements.warnings.replaceChildren();
     (project.warnings || []).forEach((warning) => { const item = document.createElement("p"); item.textContent = warning; elements.warnings.append(item); });
     elements.warnings.hidden = !(project.warnings || []).length;
     renderConversation();
+    renderBranches();
+    renderPresetSelection();
     const serialized = draftText(project.recipe_draft);
-    if (!elements.recipeDraft.value.trim() || elements.recipeDraft.value === state.draftSnapshot || serialized !== state.draftSnapshot) {
+    if (changed || !elements.recipeDraft.value.trim() || elements.recipeDraft.value === state.draftSnapshot || serialized !== state.draftSnapshot) {
       elements.recipeDraft.value = serialized;
       state.draftSnapshot = serialized;
     }
     if (project.recipe_draft) elements.recipePanel.open = true;
+    else if (changed) elements.recipePanel.open = false;
     if (project.published_recipe) {
       elements.recipeMessage.textContent = `Recette publiée : ${project.published_recipe.recipe_id}@${project.published_recipe.version}`;
     } else if (project.export && project.export.error) {
@@ -577,6 +710,95 @@
     renderGallery();
     renderGuidanceCompose();
     renderStatus();
+  }
+
+  function restoreRenderState(project) {
+    if (project.render_settings) {
+      loadAttemptSettings({ prompt: project.current_prompt || "", settings: project.render_settings, seed: project.render_seed });
+      return;
+    }
+    const last = [...(project.attempts || [])].reverse().find(
+      (a) => (a.conversation_branch_id || "main") === (project.active_branch_id || "main"),
+    );
+    if (last) loadAttemptSettings(last);
+    // A newer conversational prompt can exist after the last render.
+    elements.prompt.value = project.current_prompt || last?.prompt || "";
+  }
+
+  function renderBranches() {
+    elements.branchTree.replaceChildren();
+    const project = state.project;
+    const branches = project?.branches || [];
+    elements.activeBranch.textContent = branches.find((b) => b.branch_id === project.active_branch_id)?.name || "Exploration initiale";
+    const lists = new Map();
+    branches.forEach((branch) => {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "krea2-assisted-branch-button";
+      const active = branch.branch_id === project.active_branch_id;
+      button.setAttribute("aria-current", String(active));
+      button.disabled = state.busy;
+      if (branch.preview_url) {
+        const image = document.createElement("img");
+        image.src = branch.preview_url;
+        image.alt = "";
+        image.loading = "lazy";
+        button.append(image);
+      }
+      const copy = document.createElement("span");
+      const name = document.createElement("b");
+      name.textContent = `${branch.name}${active ? " · active" : ""}`;
+      const note = document.createElement("small");
+      note.textContent = `${branch.turn_count} message(s)`;
+      const source = (project.attempts || []).find((a) => a.attempt_id === branch.source_attempt_id);
+      if (source) note.textContent += source.can_restore_conversation
+        ? ` · reprise au moment de l’essai ${source.index}` : " · départ image + prompt, sans anciens échanges";
+      copy.append(name, note);
+      button.append(copy);
+      button.addEventListener("click", () => { if (!active) changeBranch({ branch_id: branch.branch_id }); });
+      const children = document.createElement("ul");
+      children.hidden = !branches.some((b) => b.parent_branch_id === branch.branch_id);
+      item.append(button, children);
+      (lists.get(branch.parent_branch_id) || elements.branchTree).append(item);
+      lists.set(branch.branch_id, children);
+    });
+  }
+
+  async function changeBranch(target) {
+    if (state.busy || !state.project) return;
+    const projectId = state.project.project_id;
+    const draft = elements.prompt.value.trim() ? {
+      prompt: elements.prompt.value.trim(), model_id: elements.model.value,
+      aspect_ratio: elements.ratio.value, megapixels: Number(elements.megapixels.value),
+      seed: elements.seed.value.trim() || null, loras: selectedLoras(),
+    } : null;
+    stopPolling();
+    state.navigationSerial += 1;
+    setBusy(true);
+    try {
+      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}/branches`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...target, expected_branch_id: state.project.active_branch_id,
+          draft, prompt_language: elements.promptLanguage.value,
+          model_id: elements.revisionLlm.value || state.project.model_id }),
+      });
+      clearGuidance();
+      elements.message.value = "";
+      reasoningTrace.reset();
+      renderProject(payload.project);
+      elements.branches.open = true;
+      elements.conversation.scrollIntoView({ behavior: "smooth", block: "center" });
+      setMessage(target.image_prompt_only
+        ? "Nouvelle piste créée avec l’image et son prompt. Les anciens échanges ne sont pas repris."
+        : target.attempt_id ? "Nouvelle branche créée au point de conversation de cet essai."
+          : "Branche retrouvée avec sa conversation et ses réglages.");
+      await loadHistory();
+    } catch (error) { setMessage(error.message, true); }
+    finally {
+      setBusy(false);
+      if ((state.project?.attempts || []).some((a) => activeStatuses.has(a.status))) schedulePoll();
+    }
   }
 
   function renderHistory() {
@@ -605,6 +827,15 @@
     const previousRevisionLlm = preserve ? elements.revisionLlm.value : "";
     const previousSlots = state.loraSlots.map((slot) => ({ ...slot }));
     state.spec = await request("/api/image-lab/krea2-assisted/spec");
+    const previousRecipe = elements.assistanceRecipe.value || "2.0.0";
+    elements.assistanceRecipe.replaceChildren();
+    for (const recipe of state.spec.assistance_recipes || []) {
+      const option = document.createElement("option");
+      option.value = recipe.version;
+      option.textContent = recipe.label;
+      elements.assistanceRecipe.append(option);
+    }
+    if ([...elements.assistanceRecipe.options].some((item) => item.value === previousRecipe)) elements.assistanceRecipe.value = previousRecipe;
     fillOptions();
     if (preserve) {
       ensureMissingOption(elements.model, previousModel);
@@ -630,16 +861,17 @@
   async function openProject(projectId) {
     if (state.busy) return;
     stopPolling();
+    state.navigationSerial += 1;
     clearGuidance();
     setBusy(true);
     setMessage();
     try {
-      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}`);
+      const [payload] = await Promise.all([
+        request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}`), loadRenderQueue(),
+      ]);
       renderProject(payload.project);
-      const last = [...(payload.project.attempts || [])].reverse()[0];
-      if (last) loadAttemptSettings(last);
-      else if (payload.project.current_prompt) elements.prompt.value = payload.project.current_prompt;
-      if ((payload.project.attempts || []).some((attempt) => activeStatuses.has(attempt.status))) schedulePoll();
+      restoreRenderState(payload.project);
+      if ((state.renderQueue.items || []).length) schedulePoll();
     } catch (error) {
       setMessage(error.message, true);
     } finally {
@@ -650,6 +882,10 @@
   async function createProject(event) {
     event.preventDefault();
     if (state.busy) return;
+    if (!elements.intention.value.trim() && !elements.reference.files[0]) {
+      setNewMessage("Ajoute une image de référence ou décris ton intention.");
+      return;
+    }
     setBusy(true);
     setNewMessage();
     try {
@@ -657,6 +893,8 @@
       data.set("name", elements.name.value.trim());
       data.set("intention", elements.intention.value.trim());
       data.set("model_id", elements.llm.value);
+      data.set("assistance_recipe_version", elements.assistanceRecipe.value);
+      if (elements.newPreset.value) data.set("style_preset_id", elements.newPreset.value);
       if (elements.reference.files[0]) data.set("reference", elements.reference.files[0]);
       const payload = await request("/api/image-lab/krea2-assisted/projects", { method: "POST", body: data });
       clearGuidance();
@@ -686,6 +924,8 @@
           headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
           body: JSON.stringify({
             message,
+            current_prompt: elements.prompt.value,
+            expected_branch_id: state.project.active_branch_id,
             mode,
             model_id: elements.revisionLlm.value || state.project.revision_model_id || state.project.model_id,
             feedback_attempt_id: state.project.feedback_attempt_id,
@@ -716,12 +956,14 @@
     const prompt = elements.prompt.value.trim();
     if (!prompt) { setMessage("Préparez ou écrivez d’abord un prompt.", true); return; }
     setBusy(true);
+    const projectId = state.project.project_id;
     try {
-      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/attempts`, {
+      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}/attempts?enqueue=true`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
+          expected_branch_id: state.project.active_branch_id,
           model_id: elements.model.value,
           aspect_ratio: elements.ratio.value,
           megapixels: Number(elements.megapixels.value),
@@ -731,9 +973,25 @@
       });
       const attempt = payload.project.attempts.at(-1);
       renderProject(payload.project, { preservePrompt: true });
-      const started = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/attempts/${encodeURIComponent(attempt.attempt_id)}/start`, { method: "POST" });
-      renderProject(started.project, { preservePrompt: true });
-      setMessage("Rendu KREA2 lancé.");
+      if (attempt.status === "created") throw new Error("L’essai est préparé. Redémarrez le serveur pour activer la file de rendus.");
+      await loadRenderQueue();
+      renderStatus();
+      renderGallery();
+      setMessage(`Essai ${attempt.index} ajouté à la file. Vous pouvez préparer le suivant.`);
+      schedulePoll();
+    } catch (error) { setMessage(error.message, true); }
+    finally { setBusy(false); }
+  }
+
+  async function startPreparedAttempt(attemptId) {
+    if (!state.project || state.busy) return;
+    const projectId = state.project.project_id;
+    setBusy(true);
+    try {
+      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}/attempts/${encodeURIComponent(attemptId)}/start`, { method: "POST" });
+      await loadRenderQueue();
+      renderProject(payload.project, { preservePrompt: true });
+      setMessage("Essai ajouté à la file avec ses réglages enregistrés.");
       schedulePoll();
     } catch (error) { setMessage(error.message, true); }
     finally { setBusy(false); }
@@ -751,33 +1009,49 @@
 
   async function poll() {
     if (!state.project) return;
+    if (state.busy) { schedulePoll(); return; }
+    const serial = state.navigationSerial;
+    const projectId = state.project.project_id;
     try {
-      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}`);
+      const [payload] = await Promise.all([
+        request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}`), loadRenderQueue(),
+      ]);
+      if (serial !== state.navigationSerial || projectId !== state.project?.project_id) return;
+      if (state.busy) { schedulePoll(); return; }
       renderProject(payload.project, { preservePrompt: true });
-      if ((payload.project.attempts || []).some((attempt) => activeStatuses.has(attempt.status))) {
+      if ((state.renderQueue.items || []).length || (payload.project.attempts || []).some((attempt) => activeStatuses.has(attempt.status))) {
         schedulePoll();
       } else {
         stopPolling();
         const last = (payload.project.attempts || []).at(-1);
-        setMessage(last && last.status === "succeeded" ? "Rendu terminé. Vous pouvez le sélectionner comme feedback ou l’enregistrer." : (last && last.error) || "Rendu terminé.", last && last.status === "failed");
+        setMessage(last?.status === "created" ? "La file est terminée. Les essais préparés restent à lancer."
+          : last?.status === "succeeded" ? "Rendus terminés. Vous pouvez sélectionner un feedback ou enregistrer une image."
+            : last?.error || "File terminée.", last?.status === "failed");
         await loadHistory();
       }
-    } catch (error) { setMessage(error.message, true); schedulePoll(); }
+    } catch (error) {
+      if (serial === state.navigationSerial) { setMessage(error.message, true); schedulePoll(); }
+    }
   }
 
-  async function cancelAttempt() {
-    const active = state.project && (state.project.attempts || []).find((attempt) => activeStatuses.has(attempt.status));
+  async function cancelAttempt(attemptId = null) {
+    const active = state.project && (state.project.attempts || []).find((attempt) =>
+      attemptId ? attempt.attempt_id === attemptId : activeStatuses.has(attempt.status));
     if (!active || state.busy) return;
     setBusy(true);
     try {
       const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/attempts/${encodeURIComponent(active.attempt_id)}/cancel`, { method: "POST" });
+      await loadRenderQueue();
       renderProject(payload.project, { preservePrompt: true });
-      if (terminalStatuses.has(payload.project.attempts.find((value) => value.attempt_id === active.attempt_id).status)) stopPolling();
+      if ((state.renderQueue.items || []).length) schedulePoll();
+      else stopPolling();
     } catch (error) { setMessage(error.message, true); }
     finally { setBusy(false); }
   }
 
   async function selectFeedback(attemptId) {
+    if (state.busy || !state.project) return;
+    setBusy(true);
     try {
       const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/feedback`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attempt_id: attemptId }),
@@ -787,15 +1061,19 @@
         ? "Feedback visuel retiré."
         : "Ce rendu sera montré au LLM lors du prochain échange.");
     } catch (error) { setMessage(error.message, true); }
+    finally { setBusy(false); }
   }
 
   async function saveImage(attemptId) {
+    if (state.busy || !state.project) return;
+    setBusy(true);
     try {
       const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/attempts/${encodeURIComponent(attemptId)}/save`, { method: "POST" });
       renderProject(payload.project, { preservePrompt: true });
       setMessage(payload.project.export.error ? `Image validée, export en échec : ${payload.project.export.error}` : `Image enregistrée dans ${payload.project.export.path || "le projet"}.`, Boolean(payload.project.export.error));
       await loadHistory();
     } catch (error) { setMessage(error.message, true); }
+    finally { setBusy(false); }
   }
 
   function parsedDraft() {
@@ -807,6 +1085,8 @@
   }
 
   async function saveDraft() {
+    if (state.busy || !state.project) return;
+    setBusy(true);
     try {
       const draft = parsedDraft();
       const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/recipe-draft`, {
@@ -817,9 +1097,12 @@
       renderProject(payload.project, { preservePrompt: true });
       elements.recipeMessage.textContent = "Brouillon enregistré dans le projet.";
     } catch (error) { elements.recipeMessage.textContent = error.message; elements.recipeMessage.classList.add("error"); }
+    finally { setBusy(false); }
   }
 
   async function publishRecipe() {
+    if (state.busy || !state.project) return;
+    setBusy(true);
     try {
       const draft = parsedDraft();
       const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/recipe/publish`, {
@@ -829,6 +1112,85 @@
       elements.recipeMessage.textContent = `Recette ${payload.recipe.display_name} publiée en ${payload.recipe.version}.`;
       elements.recipeMessage.classList.remove("error");
     } catch (error) { elements.recipeMessage.textContent = error.message; elements.recipeMessage.classList.add("error"); }
+    finally { setBusy(false); }
+  }
+
+  async function loadPresets() {
+    const payload = await request("/api/image-lab/krea2-assisted/style-presets");
+    state.presets = payload.presets || [];
+    for (const select of [elements.newPreset, elements.preset]) {
+      const selected = select.value;
+      select.replaceChildren(new Option("Sans preset", ""), ...state.presets.map((p) => new Option(p.name, p.preset_id)));
+      if (state.presets.some((p) => p.preset_id === selected)) select.value = selected;
+    }
+    renderPresetSelection();
+  }
+
+  function renderPresetSelection() {
+    const project = state.project;
+    const preset = project?.style_preset;
+    elements.presetImage.hidden = !preset;
+    if (preset) elements.presetImage.src = preset.image_url;
+    elements.preset.value = preset?.preset_id || "";
+    const current = state.presets.find((p) => p.preset_id === preset?.preset_id);
+    const update = current && current.revision !== preset.revision ? " Une mise à jour est disponible via Réappliquer." : "";
+    elements.presetNote.textContent = preset
+      ? `${preset.name} · ${project.preset_pending ? "inspiration au prochain échange" : "exemple déjà transmis"}.${update}`
+      : "La sélection applique le modèle et les LoRA ; le prompt reste inchangé jusqu’au prochain échange.";
+    elements.presetReapply.disabled = state.busy || !preset;
+    elements.presetRemove.disabled = state.busy || !preset;
+  }
+
+  async function applyPreset(presetId) {
+    if (!state.project || state.busy) return;
+    setBusy(true);
+    try {
+      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/style-preset`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preset_id: presetId, expected_branch_id: state.project.active_branch_id,
+          draft: { prompt: elements.prompt.value, model_id: elements.model.value,
+            aspect_ratio: elements.ratio.value, megapixels: Number(elements.megapixels.value),
+            seed: elements.seed.value.trim() || null, loras: selectedLoras() } }),
+      });
+      renderProject(payload.project, { preservePrompt: true });
+      restoreRenderState(payload.project);
+      setMessage(presetId ? "Modèle et LoRA appliqués. Le prompt d’exemple sera transmis au prochain échange."
+        : "Preset retiré. Les réglages et le prompt courant restent disponibles.");
+    } catch (error) {
+      renderPresetSelection();
+      setMessage(error.message, true);
+    } finally { setBusy(false); }
+  }
+
+  function openPresetDialog(attempt) {
+    if (state.busy || !state.project) return;
+    state.presetSource = { project_id: state.project.project_id, attempt_id: attempt.attempt_id };
+    elements.presetSource.textContent = `Essai ${attempt.index} · ${attempt.settings.model_id} · ${attempt.settings.loras.length} LoRA`;
+    elements.presetTarget.replaceChildren(new Option("Nouveau preset", ""), ...state.presets.map((p) => new Option(`Mettre à jour : ${p.name}`, p.preset_id)));
+    elements.presetName.value = state.project.name;
+    elements.presetError.textContent = "";
+    elements.presetSave.textContent = "Enregistrer un nouveau preset";
+    elements.presetDialog.showModal();
+    elements.presetName.focus();
+  }
+
+  async function savePreset(event) {
+    event.preventDefault();
+    if (state.busy || !state.presetSource) return;
+    setBusy(true);
+    elements.presetError.textContent = "";
+    try {
+      const target = state.presets.find((p) => p.preset_id === elements.presetTarget.value);
+      const payload = await request("/api/image-lab/krea2-assisted/style-presets", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...state.presetSource, name: elements.presetName.value.trim(),
+          preset_id: target?.preset_id || null, expected_revision: target?.revision || null }),
+      });
+      await loadPresets();
+      elements.presetDialog.close();
+      setMessage(`Preset « ${payload.preset.name} » enregistré. Les projets existants conservent leur version.`);
+    } catch (error) { elements.presetError.textContent = error.message; }
+    finally { setBusy(false); }
   }
 
   async function initialize() {
@@ -837,7 +1199,7 @@
     state.initializing = (async () => {
       setBusy(true);
       try {
-        await Promise.all([loadSpec(), loadHistory()]);
+        await Promise.all([loadSpec(), loadHistory(), loadPresets(), loadRenderQueue()]);
         state.initialized = true;
       } catch (error) { setNewMessage(`Création assistée indisponible : ${error.message}`); }
       finally { state.initializing = null; setBusy(false); }
@@ -846,6 +1208,25 @@
   }
 
   elements.newForm.addEventListener("submit", createProject);
+  elements.newPreset.addEventListener("change", () => {
+    const preset = state.presets.find((p) => p.preset_id === elements.newPreset.value);
+    elements.newPresetNote.textContent = preset
+      ? `${preset.settings.model_id} · ${preset.settings.loras.length} LoRA · exemple au premier échange.` : "";
+  });
+  elements.preset.addEventListener("change", () => applyPreset(elements.preset.value || null));
+  elements.presetReapply.addEventListener("click", () => applyPreset(state.project?.style_preset?.preset_id));
+  elements.presetRemove.addEventListener("click", () => applyPreset(null));
+  elements.presetImage.addEventListener("click", () => {
+    const preset = state.project?.style_preset;
+    if (preset) openLightbox(preset.image_url, preset.name);
+  });
+  elements.presetTarget.addEventListener("change", () => {
+    const preset = state.presets.find((p) => p.preset_id === elements.presetTarget.value);
+    if (preset) elements.presetName.value = preset.name;
+    elements.presetSave.textContent = preset ? "Mettre à jour ce preset" : "Enregistrer un nouveau preset";
+  });
+  elements.presetForm.addEventListener("submit", savePreset);
+  $("krea2-assisted-preset-close").addEventListener("click", () => elements.presetDialog.close());
   elements.refresh.addEventListener("click", loadHistory);
   elements.chat.addEventListener("click", () => sendChat("creation"));
   elements.recipeChat.addEventListener("click", () => sendChat("recipe"));
@@ -853,8 +1234,16 @@
   elements.guidanceRemove.addEventListener("click", clearGuidance);
   elements.guidanceImage.addEventListener("click", openCurrentGuidance);
   elements.guidanceDockOpen.addEventListener("click", openCurrentGuidance);
+  elements.feedbackOpen.addEventListener("click", () => {
+    const preview = selectedFeedbackPreview();
+    if (preview) openLightbox(preview.source, preview.name);
+  });
   elements.render.addEventListener("click", renderAttempt);
-  elements.cancel.addEventListener("click", cancelAttempt);
+  elements.cancel.addEventListener("click", () => cancelAttempt());
+  elements.queueOpen.addEventListener("click", () => {
+    const running = (state.renderQueue.items || []).find((item) => item.status !== "queued");
+    if (running) openProject(running.project_id);
+  });
   elements.copyPrompt.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(elements.prompt.value); setMessage("Prompt copié."); }
     catch (_) { elements.prompt.select(); document.execCommand("copy"); }

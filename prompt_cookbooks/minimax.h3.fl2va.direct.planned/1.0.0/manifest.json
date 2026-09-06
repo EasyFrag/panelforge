@@ -1,0 +1,147 @@
+{
+  "schema_version": 8,
+  "cookbook_id": "minimax.h3.fl2va.direct.planned",
+  "version": "1.0.0",
+  "display_name": "H3 Base · Intention directe · 2 étapes",
+  "description": "Intention et images vers Plan, puis prompt H3. Le Plan prend aussi les décisions créatives.",
+  "target_mode": "fl2va_direct",
+  "output_contract": "minimax.h3.fl2va.direct_compact_h3_v4",
+  "preset": "h3-base-fl2va-motion-dialogue-camera-owned-v5",
+  "stages": [
+    "beat_sheet",
+    "final_prompt"
+  ],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "drop_with_warning",
+  "writer_projection": "camera_clean_compact_v5",
+  "visibility": "public",
+  "execution_mode": "supervised",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/base-en.txt"
+  ],
+  "engine_contract": {
+    "id": "minimax.h3.protocol",
+    "version": "0.1.0"
+  },
+  "slots": [
+    {
+      "id": "first_frame",
+      "label": "Première frame",
+      "description": "Frame exacte facultative à 0,00 seconde.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": [
+        "first_frame"
+      ],
+      "required_uses": [
+        "first_frame"
+      ],
+      "required_shots": [],
+      "minimum_references": 0,
+      "maximum_references": 1
+    },
+    {
+      "id": "last_frame",
+      "label": "Dernière frame",
+      "description": "Frame exacte facultative à l'instant final.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": [
+        "last_frame"
+      ],
+      "required_uses": [
+        "last_frame"
+      ],
+      "required_shots": [],
+      "minimum_references": 0,
+      "maximum_references": 1
+    }
+  ],
+  "templates": {
+    "beat_sheet_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "fl2va-plan-mode.system.txt"
+      },
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "plan.system.txt"
+      },
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "planned.system.txt"
+      }
+    ],
+    "beat_sheet_user": [
+      {
+        "file": "plan.user.txt"
+      }
+    ],
+    "beat_sheet_reconcile_system": [
+      {
+        "cookbook_id": "minimax.h3.fl2va.direct",
+        "version": "0.4.0",
+        "template": "beat_sheet_reconcile_system"
+      },
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "planned.system.txt"
+      }
+    ],
+    "beat_sheet_reconcile_user": [
+      {
+        "cookbook_id": "minimax.h3.fl2va.direct",
+        "version": "0.4.0",
+        "template": "beat_sheet_reconcile_user"
+      }
+    ],
+    "final_prompt_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "cookbook_id": "minimax.h3.fl2va.direct",
+        "version": "0.4.0",
+        "template": "final_prompt_system"
+      }
+    ],
+    "final_prompt_user": [
+      {
+        "cookbook_id": "minimax.h3.fl2va.direct",
+        "version": "0.4.0",
+        "template": "final_prompt_user"
+      }
+    ],
+    "revision_system": [
+      {
+        "cookbook_id": "minimax.h3.fl2va.direct",
+        "version": "0.4.0",
+        "template": "revision_system"
+      }
+    ],
+    "revision_user": [
+      {
+        "cookbook_id": "minimax.h3.fl2va.direct",
+        "version": "0.4.0",
+        "template": "revision_user"
+      }
+    ]
+  },
+  "preparation_steps": 2,
+  "profile": {
+    "id": "minimax.h3.fl2va.direct",
+    "version": "0.4.0"
+  }
+}

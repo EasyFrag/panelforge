@@ -151,7 +151,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
                 / "composition.json"
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 2)
+            self.assertEqual(raw["schema_version"], 3)
             self.assertEqual(raw["created_at"], "2026-08-08T10:00:00Z")
             self.assertEqual(raw["updated_at"], "2026-08-08T10:01:00Z")
             self.assertEqual(raw["bindings"][0]["slot_id"], "fighter_a")
@@ -180,6 +180,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 1
+            raw.pop("preparation_intent")
             for document_name in (
                 "reference_plan",
                 "beat_sheet",
@@ -199,7 +200,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
 
             store.save(loaded)
             migrated = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(migrated["schema_version"], 2)
+            self.assertEqual(migrated["schema_version"], 3)
             self.assertIsNone(
                 migrated["final_prompt"]["revisions"][0]["compiler_context"]
             )
@@ -241,6 +242,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
             with self.subTest("schema v1 containing compiler context"):
                 raw = json.loads(json.dumps(original))
                 raw["schema_version"] = 1
+                raw.pop("preparation_intent")
                 path.write_text(json.dumps(raw), encoding="utf-8")
                 with self.assertRaisesRegex(StorageCorruptionError, "metadata"):
                     store.get(composition.source_session_id)

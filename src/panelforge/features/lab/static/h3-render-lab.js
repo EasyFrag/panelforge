@@ -437,6 +437,38 @@
         feedback.textContent = attempt.attempt_id === state.project.feedback_attempt_id ? "Retirer le feedback" : "Utiliser comme feedback";
         feedback.addEventListener("click", () => selectFeedback(attempt));
         actions.append(resume, feedback); card.append(actions);
+        const continuation = document.createElement("button");
+        continuation.type = "button";
+        continuation.className = "h3-render-continue";
+        continuation.textContent = "Repartir de la dernière frame";
+        const timestamps = attempt.keyframe_timestamps_ms || [];
+        const finalTimestamp = timestamps.length ? Math.max(...timestamps) : null;
+        const lastFrame = finalTimestamp === null ? null : (attempt.keyframes || []).find(
+          (frame) => frame.timestamp_ms === finalTimestamp && frame.asset_id,
+        );
+        continuation.disabled = !lastFrame || !window.PanelForgeH3Base;
+        continuation.title = lastFrame
+          ? "Préparer la suite dans H3 Base avec cette image en première frame"
+          : "La frame de fin n'a pas été importée pour cet essai";
+        const continuationError = document.createElement("p");
+        continuationError.className = "error-text";
+        continuationError.hidden = true;
+        continuation.addEventListener("click", async () => {
+          continuation.disabled = true;
+          continuationError.hidden = true;
+          try {
+            await window.PanelForgeH3Base.prefillFirstFrame({
+              assetId: lastFrame.asset_id,
+              label: `Suite essai ${attempt.index} - dernière frame`,
+            });
+          } catch (error) {
+            continuationError.textContent = error.message;
+            continuationError.hidden = false;
+          } finally {
+            continuation.disabled = false;
+          }
+        });
+        card.append(continuation, continuationError);
       }
       elements.attempts.append(card);
     });

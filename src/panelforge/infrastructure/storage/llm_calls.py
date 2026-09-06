@@ -22,7 +22,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _RECORD_KEYS_V1 = {
     "call_id",
     "operation_id",
@@ -50,6 +50,7 @@ _RECORD_KEYS_V2 = {
     "application_error_message",
 }
 _IMAGE_KEYS = {"label", "media_type", "byte_size", "sha256"}
+_RECORD_KEYS_V3 = {*_RECORD_KEYS_V2, "reasoning_text"}
 
 
 class LocalLlmCallStore:
@@ -100,7 +101,7 @@ class LocalLlmCallStore:
         if set(raw) != {"schema_version", "calls"}:
             raise StorageCorruptionError("invalid LLM call journal keys")
         schema_version = raw["schema_version"]
-        if schema_version not in {1, _SCHEMA_VERSION}:
+        if schema_version not in {1, 2, _SCHEMA_VERSION}:
             raise StorageCorruptionError("unsupported LLM call journal schema")
         calls = raw["calls"]
         if not isinstance(calls, list):
@@ -136,6 +137,7 @@ def _record_to_dict(record: LlmCallRecord) -> dict[str, object]:
         "temperature": record.temperature,
         "max_tokens": record.max_tokens,
         "response_text": record.response_text,
+        "reasoning_text": record.reasoning_text,
         "finish_reason": record.finish_reason,
         "prompt_tokens": record.prompt_tokens,
         "completion_tokens": record.completion_tokens,
@@ -156,7 +158,7 @@ def _record_from_dict(
     *,
     schema_version: int,
 ) -> LlmCallRecord:
-    expected_keys = _RECORD_KEYS_V1 if schema_version == 1 else _RECORD_KEYS_V2
+    expected_keys = {1: _RECORD_KEYS_V1, 2: _RECORD_KEYS_V2, 3: _RECORD_KEYS_V3}[schema_version]
     if not isinstance(value, dict) or set(value) != expected_keys:
         raise StorageCorruptionError("invalid LLM call record")
     raw_images = value["images"]
@@ -189,6 +191,7 @@ def _record_from_dict(
             temperature=value["temperature"],
             max_tokens=value["max_tokens"],
             response_text=value["response_text"],
+            reasoning_text=value["reasoning_text"] if schema_version >= 3 else "",
             finish_reason=value["finish_reason"],
             prompt_tokens=value["prompt_tokens"],
             completion_tokens=value["completion_tokens"],

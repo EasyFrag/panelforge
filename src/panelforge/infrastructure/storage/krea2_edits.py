@@ -113,7 +113,7 @@ class LocalKrea2EditStore:
 
 def _to_dict(source: Krea2EditSource) -> dict[str, object]:
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "source_id": source.source_id,
         "recipe": {
@@ -151,7 +151,7 @@ def _to_dict(source: Krea2EditSource) -> dict[str, object]:
 
 def _from_dict(value: dict[str, Any]) -> Krea2EditSource:
     schema_version = value.get("schema_version")
-    if schema_version not in {1, 2, 3}:
+    if schema_version not in {1, 2, 3, 4}:
         raise ValueError("unsupported KREA2 edit source schema")
     recipe = value["recipe"]
     return Krea2EditSource(
@@ -202,6 +202,8 @@ def _revision_dict(value: Krea2EditPromptRevision) -> dict[str, object]:
         "model_id": value.model_id,
         "prompt_language": value.prompt_language.value,
         "feedback_attempt_id": value.feedback_attempt_id,
+        "assistant_message": value.assistant_message,
+        "assistance_version": value.assistance_version,
     }
 
 
@@ -214,6 +216,8 @@ def _revision_from_dict(value: dict[str, Any]) -> Krea2EditPromptRevision:
         model_id=value["model_id"],
         prompt_language=Krea2PromptLanguage(value.get("prompt_language", "en")),
         feedback_attempt_id=value.get("feedback_attempt_id"),
+        assistant_message=value.get("assistant_message"),
+        assistance_version=value.get("assistance_version", "1.0.0"),
     )
 
 
@@ -227,6 +231,8 @@ def _metadata_dict(value: Krea2EditMetadata) -> dict[str, object]:
         "loras": [_lora_dict(lora) for lora in value.loras],
         "origin": value.origin,
         "warnings": list(value.warnings),
+        "ref_boost": value.ref_boost,
+        "steps": value.steps,
     }
 
 
@@ -240,6 +246,8 @@ def _metadata_from_dict(value: dict[str, Any]) -> Krea2EditMetadata:
         loras=tuple(Krea2LoraSelection(**raw) for raw in value["loras"]),
         origin=value["origin"],
         warnings=tuple(value["warnings"]),
+        ref_boost=value.get("ref_boost"),
+        steps=value.get("steps"),
     )
 
 

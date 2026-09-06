@@ -1,0 +1,18 @@
+LIBERTÉ : {creative_freedom}/100 — {creative_policy}
+
+IMAGES NATIVES, RÔLES ET USAGES
+{reference_context}
+
+DIALOGUES EXPLICITES — VERBATIM
+{dialogue_ledger}
+
+INTENTION D'ORIGINE
+{source_text}
+
+BRIEF ACTUEL
+{current_brief}
+
+MODIFICATION DEMANDÉE
+{instruction}
+
+Relis les images, applique seulement la modification demandée et retourne le Brief compact complet.

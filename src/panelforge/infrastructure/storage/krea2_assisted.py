@@ -15,6 +15,7 @@ from typing import Any
 from panelforge.domain.krea2_assisted import (
     Krea2AssistedAttempt,
     Krea2AssistedAttemptStatus,
+    Krea2AssistedBranch,
     Krea2AssistedProject,
     Krea2AssistedRecipeDraft,
     Krea2AssistedTurn,
@@ -27,6 +28,7 @@ from panelforge.domain.krea2_batch import (
     Krea2PromptLanguage,
 )
 from panelforge.domain.krea2_lab import Krea2AspectRatio
+from .krea2_style_presets import preset_dict, load_preset
 
 
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
@@ -104,33 +106,43 @@ class LocalKrea2AssistedProjectStore:
 
 
 def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
+    branches = project.conversation_branches()
+    turns = {turn.turn_id: turn for branch in branches for turn in branch.turns}
     return {
-        "schema_version": 2,
+        "schema_version": 6,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "name": project.name,
         "intention": project.intention,
         "model_id": project.model_id,
+        "assistance_recipe_version": project.assistance_recipe_version,
         "revision_model_id": project.revision_model_id,
         "prompt_language": project.prompt_language.value,
         "reference_asset_id": project.reference_asset_id,
         "reference_filename": project.reference_filename,
-        "turns": [
+        "turns": [_turn(turn) for turn in project.turns],
+        "active_branch_id": project.active_branch_id,
+        "conversation_turns": [_turn(turn) for turn in turns.values()],
+        "branches": [
             {
-                "turn_id": turn.turn_id,
-                "mode": turn.mode.value,
-                "role": turn.role.value,
-                "content": turn.content,
-                "guidance_asset_id": turn.guidance_asset_id,
-                "guidance_filename": turn.guidance_filename,
-                "questions": list(turn.questions),
-                "prompt": turn.prompt,
-                "recommendations": list(turn.recommendations),
-                "model_id": turn.model_id,
-            }
-            for turn in project.turns
+                "branch_id": branch.branch_id, "name": branch.name,
+                "parent_branch_id": branch.parent_branch_id,
+                "source_attempt_id": branch.source_attempt_id,
+                "turn_ids": [turn.turn_id for turn in branch.turns],
+                "current_prompt": branch.current_prompt,
+                "prompt_language": branch.prompt_language.value,
+                "revision_model_id": branch.revision_model_id,
+                "feedback_attempt_id": branch.feedback_attempt_id,
+                "recipe_draft": _draft(branch.recipe_draft),
+                "render_settings": _settings(branch.render_settings) if branch.render_settings else None,
+                "render_seed": str(branch.render_seed) if branch.render_seed is not None else None,
+                "style_preset": preset_dict(branch.style_preset), "preset_pending": branch.preset_pending,
+            } for branch in branches
         ],
+        "render_settings": _settings(project.render_settings) if project.render_settings else None,
+        "render_seed": str(project.render_seed) if project.render_seed is not None else None,
         "current_prompt": project.current_prompt,
+        "style_preset": preset_dict(project.style_preset), "preset_pending": project.preset_pending,
         "attempts": [
             {
                 "attempt_id": attempt.attempt_id,
@@ -139,11 +151,17 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
                 "settings": _settings(attempt.settings),
                 "seed": str(attempt.seed),
                 "status": attempt.status.value,
+                "queue_order": str(attempt.queue_order) if attempt.queue_order is not None else None,
                 "execution_id": attempt.execution_id,
                 "compiled_workflow_sha256": attempt.compiled_workflow_sha256,
                 "output_asset_id": attempt.output_asset_id,
                 "error": attempt.error,
                 "accepted": attempt.accepted,
+                "conversation_branch_id": attempt.conversation_branch_id,
+                "conversation_turn_id": attempt.conversation_turn_id,
+                "conversation_prompt_language": attempt.conversation_prompt_language.value,
+                "conversation_model_id": attempt.conversation_model_id,
+                "style_preset": preset_dict(attempt.style_preset), "preset_pending": attempt.preset_pending,
             }
             for attempt in project.attempts
         ],
@@ -159,33 +177,41 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
-    if value.get("schema_version") not in {1, 2}:
+    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6}:
         raise ValueError("unsupported KREA2 assisted project schema")
+    branch_fields: dict[str, Any] = {}
+    if value["schema_version"] >= 4:
+        turn_pool = {item["turn_id"]: _load_turn(item, 4) for item in value["conversation_turns"]}
+        branch_fields = {
+            "active_branch_id": value["active_branch_id"],
+            "branches": tuple(Krea2AssistedBranch(
+                branch_id=item["branch_id"], name=item["name"],
+                parent_branch_id=item["parent_branch_id"], source_attempt_id=item["source_attempt_id"],
+                turns=tuple(turn_pool[turn_id] for turn_id in item["turn_ids"]),
+                current_prompt=item["current_prompt"], prompt_language=Krea2PromptLanguage(item["prompt_language"]),
+                revision_model_id=item["revision_model_id"], feedback_attempt_id=item["feedback_attempt_id"],
+                recipe_draft=_load_draft(item["recipe_draft"]),
+                render_settings=_load_settings(item["render_settings"]) if item["render_settings"] else None,
+                render_seed=int(item["render_seed"]) if item["render_seed"] is not None else None,
+                style_preset=load_preset(item.get("style_preset")), preset_pending=item.get("preset_pending", False),
+            ) for item in value["branches"]),
+            "render_settings": _load_settings(value["render_settings"]) if value["render_settings"] else None,
+            "render_seed": int(value["render_seed"]) if value["render_seed"] is not None else None,
+        }
     return Krea2AssistedProject(
+        **branch_fields,
         project_id=value["project_id"],
         name=value["name"],
         intention=value["intention"],
         model_id=value["model_id"],
+        assistance_recipe_version=value["assistance_recipe_version"] if value["schema_version"] >= 3 else "1.0.0",
         revision_model_id=value.get("revision_model_id"),
         prompt_language=Krea2PromptLanguage(value.get("prompt_language", "en")),
         reference_asset_id=value.get("reference_asset_id"),
         reference_filename=value.get("reference_filename"),
-        turns=tuple(
-            Krea2AssistedTurn(
-                turn_id=item["turn_id"],
-                mode=Krea2AssistedTurnMode(item["mode"]),
-                role=Krea2AssistedTurnRole(item["role"]),
-                content=item["content"],
-                guidance_asset_id=item.get("guidance_asset_id"),
-                guidance_filename=item.get("guidance_filename"),
-                questions=tuple(item.get("questions", [])),
-                prompt=item.get("prompt"),
-                recommendations=tuple(item.get("recommendations", [])),
-                model_id=item.get("model_id"),
-            )
-            for item in value.get("turns", [])
-        ),
+        turns=tuple(_load_turn(item, value["schema_version"]) for item in value.get("turns", [])),
         current_prompt=value.get("current_prompt"),
+        style_preset=load_preset(value.get("style_preset")), preset_pending=value.get("preset_pending", False),
         attempts=tuple(
             Krea2AssistedAttempt(
                 attempt_id=item["attempt_id"],
@@ -194,11 +220,17 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
                 settings=_load_settings(item["settings"]),
                 seed=int(item["seed"]),
                 status=Krea2AssistedAttemptStatus(item["status"]),
+                queue_order=int(item["queue_order"]) if item.get("queue_order") is not None else None,
                 execution_id=item.get("execution_id"),
                 compiled_workflow_sha256=item.get("compiled_workflow_sha256"),
                 output_asset_id=item.get("output_asset_id"),
                 error=item.get("error"),
                 accepted=item.get("accepted", False),
+                conversation_branch_id=item.get("conversation_branch_id"),
+                conversation_turn_id=item.get("conversation_turn_id"),
+                conversation_prompt_language=Krea2PromptLanguage(item.get("conversation_prompt_language", "en")),
+                conversation_model_id=item.get("conversation_model_id"),
+                style_preset=load_preset(item.get("style_preset")), preset_pending=item.get("preset_pending", False),
             )
             for item in value.get("attempts", [])
         ),
@@ -295,3 +327,37 @@ def _atomic_write(path: Path, content: bytes) -> None:
         os.replace(temporary_path, path)
     finally:
         temporary_path.unlink(missing_ok=True)
+
+
+def _turn(turn: Krea2AssistedTurn) -> dict[str, object]:
+    return {
+        "turn_id": turn.turn_id,
+        "mode": turn.mode.value,
+        "role": turn.role.value,
+        "content": turn.content,
+        "guidance_asset_id": turn.guidance_asset_id,
+        "guidance_filename": turn.guidance_filename,
+        "questions": list(turn.questions),
+        "prompt": turn.prompt,
+        "recommendations": list(turn.recommendations),
+        "model_id": turn.model_id,
+        "assistance_recipe_version": turn.assistance_recipe_version,
+        "style_preset": preset_dict(turn.style_preset),
+    }
+
+
+def _load_turn(item: dict[str, Any], schema_version: int) -> Krea2AssistedTurn:
+    return Krea2AssistedTurn(
+        turn_id=item["turn_id"],
+        mode=Krea2AssistedTurnMode(item["mode"]),
+        role=Krea2AssistedTurnRole(item["role"]),
+        content=item["content"],
+        guidance_asset_id=item.get("guidance_asset_id"),
+        guidance_filename=item.get("guidance_filename"),
+        questions=tuple(item.get("questions", [])),
+        prompt=item.get("prompt"),
+        recommendations=tuple(item.get("recommendations", [])),
+        model_id=item.get("model_id"),
+        assistance_recipe_version=item["assistance_recipe_version"] if schema_version >= 3 else "1.0.0",
+        style_preset=load_preset(item.get("style_preset")),
+    )

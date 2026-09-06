@@ -25,6 +25,14 @@
     title: $("krea2-edit-title"),
     status: $("krea2-edit-status"),
     timeline: $("krea2-edit-timeline"),
+    compareBefore: $("krea2-edit-compare-before"),
+    compareAfter: $("krea2-edit-compare-after"),
+    compareBeforeImage: $("krea2-edit-compare-before-image"),
+    compareAfterImage: $("krea2-edit-compare-after-image"),
+    compareView: $("krea2-edit-compare-view"),
+    compareSlider: $("krea2-edit-compare-slider"),
+    compareHover: $("krea2-edit-compare-hover"),
+    compareNote: $("krea2-edit-compare-note"),
     imageToolbar: $("krea2-edit-image-toolbar"),
     images: $("krea2-edit-images"),
     showOriginal: $("krea2-edit-show-original"),
@@ -88,6 +96,10 @@
     feedbackAttemptId: null,
     loraSlots: [],
     pollTimer: null,
+    drafts: new Map(),
+    comparisonKey: "",
+    revisionsKey: "",
+    pendingInstruction: "",
   };
   const core = window.PanelForgeLabCore;
   const showOriginalPreferenceKey = "panelforge.krea2Edit.showOriginal";
@@ -208,6 +220,15 @@
       strength: value.strength,
     }));
     renderLoras();
+  }
+
+  function renderSettings() {
+    return {
+      model_id: elements.model.value, aspect_ratio: elements.ratio.value,
+      megapixels: Number(elements.megapixels.value), seed: elements.seed.value,
+      ref_boost: Number(elements.refBoost.value), steps: Number(elements.steps.value),
+      loras: state.loraSlots.filter((slot) => slot.name).map((slot) => ({ name: slot.name, strength: Number(slot.strength) })),
+    };
   }
 
   function applyDefaultRenderSettings() {
@@ -337,6 +358,13 @@
 
   function openSource(source, { hydrate = false, force = false } = {}) {
     if (!source || (state.busy && !force)) return;
+    if (state.source && state.source.source_id !== source.source_id) {
+      state.drafts.set(state.source.source_id, {
+        prompt: elements.prompt.value, instruction: elements.instruction.value,
+        settings: renderSettings(), feedback: state.feedbackAttemptId,
+      });
+      state.pendingInstruction = "";
+    }
     state.source = source;
     if (hydrate) {
       const metadata = source.metadata || {};
@@ -344,22 +372,34 @@
       elements.instruction.value = "";
       elements.prompt.value = source.generated_prompt || metadata.prompt || "";
       elements.promptLanguage.value = source.prompt_language || "en";
+      if (source.prompt_model_id) {
+        window.PanelForgeModelPicker.select(elements.llm, source.prompt_model_id, "modèle historique indisponible");
+      }
       const root = projectStages(source.project_id)[0] || source;
       elements.projectName.value = source.project_name || root.project_name || defaultProjectName(root.filename);
       elements.stepName.value = defaultStepName(source);
       delete elements.stepName.dataset.edited;
       const defaults = state.spec.defaults;
+      const parent = state.sources.find((s) => s.source_id === source.parent_source_id);
+      const inherited = parent?.attempts?.find((a) => a.attempt_id === source.parent_attempt_id)?.settings;
       applyRenderSettings({
         model_id: previous?.settings.model_id || metadata.model_id || defaults.model_id,
         aspect_ratio: previous?.settings.aspect_ratio || metadata.aspect_ratio || defaults.aspect_ratio,
         megapixels: previous?.settings.megapixels ?? metadata.megapixels ?? defaults.megapixels,
-        ref_boost: previous?.settings.ref_boost ?? defaults.ref_boost,
-        steps: previous?.settings.steps ?? defaults.steps,
-        seed: previous?.settings.seed || metadata.seed || randomSeed(),
+        ref_boost: previous?.settings.ref_boost ?? metadata.ref_boost ?? inherited?.ref_boost ?? defaults.ref_boost,
+        steps: previous?.settings.steps ?? metadata.steps ?? inherited?.steps ?? defaults.steps,
+        seed: previous?.settings.seed ?? metadata.seed ?? randomSeed(),
         loras: previous?.settings.loras || metadata.loras || [],
       });
       const latestSuccess = [...(source.attempts || [])].reverse().find((attempt) => attempt.status === "succeeded");
       state.feedbackAttemptId = latestSuccess?.attempt_id || null;
+      const draft = state.drafts.get(source.source_id);
+      if (draft) {
+        elements.prompt.value = draft.prompt;
+        elements.instruction.value = draft.instruction;
+        applyRenderSettings(draft.settings);
+        state.feedbackAttemptId = draft.feedback;
+      }
     }
     render();
   }
@@ -460,48 +500,115 @@
 
   function renderTimeline() {
     elements.timeline.replaceChildren();
-    projectStages().forEach((stage) => {
+    const stages = projectStages();
+    const entries = stages.length ? [{ stage: stages[0], original: true }, ...stages.map((stage) => ({ stage, original: false }))] : [];
+    entries.forEach(({ stage, original }) => {
+      const card = document.createElement("div");
+      card.className = `krea2-edit-stage-link${!original && stage.source_id === state.source?.source_id ? " active" : ""}`;
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `krea2-edit-stage-link${stage.source_id === state.source?.source_id ? " active" : ""}`;
+      button.disabled = state.busy;
       const image = document.createElement("img");
-      image.src = stage.source_url;
-      image.alt = "";
+      const accepted = stage.attempts?.find((a) => a.attempt_id === stage.accepted_attempt_id);
+      image.src = original ? stage.source_url : accepted?.output_url || stage.source_url;
+      image.alt = original ? "Image initiale" : accepted ? `Résultat validé de l’étape ${stage.stage_index}` : `Source de l’étape ${stage.stage_index}`;
       image.loading = "lazy";
+      makeZoomable(image, image.alt);
       const copy = document.createElement("span");
       const title = document.createElement("b");
-      title.textContent = `Étape ${stage.stage_index}`;
+      title.textContent = original ? "Base" : `Étape ${stage.stage_index}`;
       const meta = document.createElement("small");
-      meta.textContent = stage.state === "advanced"
+      meta.textContent = original ? "Image initiale" : stage.state === "advanced"
         ? stage.accepted_label || "Validée"
         : "En cours";
       copy.append(title, meta);
-      button.append(image, copy);
+      button.append(copy);
+      card.append(image, button);
       button.addEventListener("click", () => openSource(stage, { hydrate: true }));
-      elements.timeline.append(button);
+      elements.timeline.append(card);
     });
   }
 
   function renderRevisions() {
     const revisions = state.source?.revisions || [];
+    const key = JSON.stringify([state.source?.source_id, revisions.map((r) => r.revision_id), state.pendingInstruction]);
+    if (key === state.revisionsKey) return;
+    state.revisionsKey = key;
     elements.revisions.replaceChildren();
     elements.revisionsEmpty.hidden = revisions.length > 0;
     elements.revisionCount.textContent = revisions.length
       ? `${revisions.length} révision${revisions.length > 1 ? "s" : ""}`
       : "Aucune révision";
-    [...revisions].reverse().forEach((revision, reverseIndex) => {
+    revisions.forEach((revision, index) => {
+      const exchange = document.createElement("article");
+      exchange.className = "krea2-edit-chat-turn";
+      const user = document.createElement("p");
+      user.className = "krea2-edit-chat-user";
+      user.textContent = revision.instruction;
+      const assistant = document.createElement("p");
+      assistant.textContent = revision.assistant_message || "Prompt proposé — ancien échange sans réponse conversationnelle.";
       const details = document.createElement("details");
       details.className = "krea2-edit-revision";
       const summary = document.createElement("summary");
-      summary.textContent = `Modification ${revisions.length - reverseIndex} · ${revision.instruction}`;
+      summary.textContent = `Voir le prompt ${index + 1}`;
       const meta = document.createElement("small");
       const language = revision.prompt_language === "zh" ? "中文" : "EN";
       meta.textContent = `${revision.model_id} · ${language}${revision.feedback_attempt_id ? " · avec feedback visuel" : " · source seule"}`;
       const prompt = document.createElement("pre");
       prompt.textContent = revision.prompt;
       details.append(summary, meta, prompt);
-      elements.revisions.append(details);
+      exchange.append(user, assistant, details);
+      elements.revisions.append(exchange);
     });
+    if (state.pendingInstruction) {
+      const pending = document.createElement("p");
+      pending.className = "krea2-edit-chat-user";
+      pending.textContent = `${state.pendingInstruction}\nEn cours…`;
+      elements.revisions.append(pending);
+      elements.revisionsEmpty.hidden = true;
+    }
+    elements.revisions.scrollTop = elements.revisions.scrollHeight;
+  }
+
+  function renderComparison() {
+    const source = state.source;
+    if (!source) return;
+    const attempts = (source.attempts || []).filter((a) => a.status === "succeeded" && a.output_url);
+    const choices = [{ id: "source", label: "Source de l’étape", url: source.source_url },
+      ...attempts.map((a) => ({ id: a.attempt_id, label: `Essai ${(source.attempts || []).indexOf(a) + 1}`, url: a.output_url }))];
+    const key = JSON.stringify([source.source_id, choices, state.feedbackAttemptId]);
+    if (key === state.comparisonKey) return;
+    const previousSource = elements.compareView.dataset.sourceId;
+    const before = previousSource === source.source_id ? elements.compareBefore.value : "source";
+    const after = state.feedbackAttemptId || attempts.at(-1)?.attempt_id || "source";
+    for (const select of [elements.compareBefore, elements.compareAfter]) {
+      select.replaceChildren(...choices.map((c) => new Option(c.label, c.id)));
+    }
+    elements.compareBefore.value = choices.some((c) => c.id === before) ? before : "source";
+    elements.compareAfter.value = after;
+    elements.compareView.dataset.sourceId = source.source_id;
+    state.comparisonKey = key;
+    updateComparisonImages();
+  }
+
+  function updateComparisonImages() {
+    const source = state.source;
+    if (!source) return;
+    for (const [select, image] of [[elements.compareBefore, elements.compareBeforeImage], [elements.compareAfter, elements.compareAfterImage]]) {
+      const url = select.value === "source" ? source.source_url
+        : source.attempts.find((a) => a.attempt_id === select.value)?.output_url;
+      if (url && image.getAttribute("src") !== url) image.src = url;
+    }
+    elements.compareNote.textContent = elements.compareBefore.value === elements.compareAfter.value
+      ? "Même image des deux côtés. Choisis un essai pour le comparer à sa source."
+      : "Glisse sur l’image ou utilise le curseur. Les proportions restent intactes.";
+  }
+
+  function setComparisonPosition(value) {
+    const position = Math.max(0, Math.min(100, Number(value)));
+    elements.compareSlider.value = String(position);
+    elements.compareView.style.setProperty("--split", `${position}%`);
+    elements.compareSlider.setAttribute("aria-valuetext", `${Math.round(position)} % avant, ${Math.round(100 - position)} % après`);
   }
 
   function render() {
@@ -569,6 +676,7 @@
     elements.hide.disabled = state.busy || Boolean(active);
     renderTimeline();
     renderRevisions();
+    renderComparison();
     renderAttempts();
     renderBacklog();
   }
@@ -681,7 +789,7 @@
     let completed = false;
     const outcomeTone = core.createLlmOutcomeTone();
     state.busy = true;
-    elements.prompt.value = "";
+    state.pendingInstruction = instruction;
     reasoningTrace.begin("Reconstruction / réécriture", elements.prompt.closest("section"));
     setMessage("Le modèle reconstruit et réécrit le prompt…");
     render();
@@ -698,13 +806,15 @@
             base_prompt: basePrompt || null,
             feedback_attempt_id: state.feedbackAttemptId,
             prompt_language: elements.promptLanguage.value,
+            assistance_version: "2.0.0",
           }),
         },
         (event) => {
           reasoningTrace.handle(event);
-          if (event.kind === "delta") elements.prompt.value += event.text || "";
+          // The conversational response is JSON; only an accepted prompt belongs in the editor.
           if (event.source) {
             state.source = event.source;
+            state.pendingInstruction = "";
             if (event.source.prompt_status === "ready" && event.source.generated_prompt) {
               completed = true;
               elements.prompt.value = event.source.generated_prompt;
@@ -727,6 +837,7 @@
       outcomeTone.failure();
       setMessage(error.message, true);
     } finally {
+      state.pendingInstruction = "";
       state.busy = false;
       await refreshCurrent();
       if (!completed) elements.prompt.value = basePrompt;
@@ -771,9 +882,11 @@
 
   function startPolling() {
     if (state.pollTimer) clearTimeout(state.pollTimer);
+    const watchedSourceId = state.source?.source_id;
     const poll = async () => {
       try {
         await refreshCurrent();
+        if (watchedSourceId !== state.source?.source_id) { state.pollTimer = null; return; }
         const active = activeAttempt();
         if (active) {
           render();
@@ -797,11 +910,13 @@
 
   async function refreshCurrent() {
     if (!state.source) return;
-    const payload = await request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(state.source.source_id)}`);
-    state.source = sourceOf(payload);
-    const index = state.sources.findIndex((source) => source.source_id === state.source.source_id);
-    if (index >= 0) state.sources[index] = state.source;
-    else state.sources.push(state.source);
+    const requestedSource = state.source;
+    const payload = await request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(requestedSource.source_id)}`);
+    const refreshed = sourceOf(payload);
+    if (state.source === requestedSource) state.source = refreshed;
+    const index = state.sources.findIndex((source) => source.source_id === refreshed.source_id);
+    if (index >= 0) state.sources[index] = refreshed;
+    else state.sources.push(refreshed);
   }
 
   async function updateState(value) {
@@ -872,6 +987,32 @@
   });
 
   elements.refresh.addEventListener("click", () => loadSources().catch((error) => setMessage(error.message, true)));
+  elements.compareBefore.addEventListener("change", updateComparisonImages);
+  elements.compareAfter.addEventListener("change", () => {
+    if (elements.compareAfter.value !== "source") {
+      state.feedbackAttemptId = elements.compareAfter.value;
+      render();
+    }
+    updateComparisonImages();
+  });
+  elements.compareSlider.addEventListener("input", () => setComparisonPosition(elements.compareSlider.value));
+  const moveComparison = (event) => {
+    const bounds = elements.compareView.getBoundingClientRect();
+    if (bounds.width) setComparisonPosition(100 * (event.clientX - bounds.left) / bounds.width);
+  };
+  elements.compareView.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    elements.compareView.setPointerCapture(event.pointerId);
+    moveComparison(event);
+  });
+  elements.compareView.addEventListener("pointermove", (event) => {
+    if (elements.compareView.hasPointerCapture(event.pointerId) || (elements.compareHover.checked && event.pointerType === "mouse")) moveComparison(event);
+  });
+  elements.compareView.addEventListener("pointerup", (event) => {
+    if (elements.compareView.hasPointerCapture(event.pointerId)) elements.compareView.releasePointerCapture(event.pointerId);
+  });
+  $("krea2-edit-compare-zoom-before").addEventListener("click", () => openImageViewer(elements.compareBeforeImage, "Avant"));
+  $("krea2-edit-compare-zoom-after").addEventListener("click", () => openImageViewer(elements.compareAfterImage, "Après"));
   elements.buildPrompt.addEventListener("click", buildPrompt);
   elements.render.addEventListener("click", renderAttempt);
   elements.cancel.addEventListener("click", async () => {

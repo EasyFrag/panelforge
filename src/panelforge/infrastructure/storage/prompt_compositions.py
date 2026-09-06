@@ -16,6 +16,8 @@ from panelforge.domain import (
     RevisionOrigin,
     StageDocument,
 )
+from panelforge.domain.prompt_composition import PreparationIntent
+from panelforge.domain.prompt_lab import CreativeFreedomAxes
 
 from .local import (
     StorageCorruptionError,
@@ -30,7 +32,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _COMPOSITION_KEYS = {
     "schema_version",
     "created_at",
@@ -171,7 +173,8 @@ class LocalPromptCompositionStore:
     ) -> tuple[PromptComposition, str, str]:
         _require_regular_file(path)
         data = _read_json_object(path)
-        if set(data) != _COMPOSITION_KEYS:
+        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") == 3 else set())
+        if set(data) != expected_keys:
             raise StorageCorruptionError(
                 "invalid prompt composition fields for "
                 f"{expected_source_session_id!r}"
@@ -179,7 +182,7 @@ class LocalPromptCompositionStore:
         schema_version = data.get("schema_version")
         if (
             isinstance(schema_version, bool)
-            or schema_version not in {1, _SCHEMA_VERSION}
+            or schema_version not in {1, 2, _SCHEMA_VERSION}
         ):
             raise StorageCorruptionError(
                 "unsupported prompt composition schema for "
@@ -227,6 +230,7 @@ def _composition_to_dict(
         "created_at": created_at,
         "updated_at": updated_at,
         "source_session_id": composition.source_session_id,
+        "preparation_intent": intent_to_dict(composition.preparation_intent),
         "cookbook": {
             "cookbook_id": composition.cookbook.cookbook_id,
             "version": composition.cookbook.version,
@@ -292,6 +296,7 @@ def _composition_from_dict(
 
     return PromptComposition(
         source_session_id=data["source_session_id"],
+        preparation_intent=intent_from_dict(data.get("preparation_intent")),
         cookbook=CookbookRef(
             cookbook_id=raw_cookbook["cookbook_id"],
             version=raw_cookbook["version"],
@@ -314,6 +319,35 @@ def _composition_from_dict(
             CompositionStage.FINAL_PROMPT,
             schema_version=schema_version,
         ),
+    )
+
+
+def intent_to_dict(intent: PreparationIntent | None) -> dict[str, object] | None:
+    if intent is None:
+        return None
+    return {
+        "source_text": intent.source_text,
+        "creative_freedom": intent.creative_freedom,
+        "creative_audacity": intent.creative_audacity,
+        "creative_axes": (
+            {name: getattr(intent.creative_axes, name) for name in ("scene_life", "camera", "extra_motion")}
+            if intent.creative_axes is not None else None
+        ),
+    }
+
+
+def intent_from_dict(value: object) -> PreparationIntent | None:
+    if value is None:
+        return None
+    data = _require_object(value, "preparation_intent")
+    if set(data) != {"source_text", "creative_freedom", "creative_audacity", "creative_axes"}:
+        raise ValueError("invalid preparation_intent fields")
+    axes = data["creative_axes"]
+    return PreparationIntent(
+        source_text=data["source_text"],
+        creative_freedom=data["creative_freedom"],
+        creative_audacity=data["creative_audacity"],
+        creative_axes=CreativeFreedomAxes(**_require_object(axes, "creative_axes")) if axes is not None else None,
     )
 
 

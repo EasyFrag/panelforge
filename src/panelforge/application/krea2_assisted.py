@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 import json
 import secrets
-from threading import RLock
+from threading import Event, Lock, RLock, Thread
 import time
 from typing import Any, Protocol
 from uuid import uuid4
@@ -27,8 +27,11 @@ from panelforge.domain.krea2_batch import (
     Krea2PromptLanguage,
 )
 from panelforge.domain.krea2_lab import normalize_krea2_model_name
+from panelforge.domain.krea2_style_presets import Krea2StylePreset
+from panelforge.domain.krea2_lab import Krea2AspectRatio
 from panelforge.infrastructure.krea2_batch_recipes import Krea2VisualRecipe
 
+from . import krea2_assisted_v1, krea2_assisted_v2
 from .prompt_lab import (
     CompletionRequest,
     ImageInput,
@@ -42,23 +45,31 @@ from .prompt_lab import (
 )
 
 
-_CREATION_SYSTEM = """You are a collaborative art director and KREA2 text-to-image prompt writer.
-Return raw JSON only, with exactly these fields:
-{"message":"concise helpful reply in French","questions":["up to three useful questions"],"prompt":"complete standalone KREA2 prompt in the TARGET PROMPT LANGUAGE","recommendations":["optional concise setting or iteration advice"]}
+_RENDER_PENDING = {
+    Krea2AssistedAttemptStatus.QUEUED,
+    Krea2AssistedAttemptStatus.SUBMITTING,
+    Krea2AssistedAttemptStatus.RUNNING,
+    Krea2AssistedAttemptStatus.CANCEL_PENDING,
+}
+_AMBIGUOUS_SUBMISSION = (
+    "Envoi à ComfyUI interrompu avant confirmation. La file attend : vérifiez la file ComfyUI "
+    "avant de retirer cet essai. Le retirer ici n’annule pas un éventuel rendu distant."
+)
 
-The prompt is always required, even when questions remain: it must be usable immediately. Treat any REFERENCE IMAGE only as visual evidence to describe or reverse-engineer. It will NOT be sent to the renderer, so never write edit instructions such as keep, change, replace, preserve from the image, or references to "this image". Produce a self-contained text-to-image description instead.
 
-Use the conversation, the current prompt and the user's newest message as one evolving design brief. When GENERATED RESULT is supplied, compare it with the requested goal using the exact render prompt and settings, identify only relevant visible discrepancies, then rewrite the complete target prompt. Do not append contradictions. Cover concrete subject, framing/composition, pose/action, materials, environment, lighting, palette and finish when relevant. Ask only questions that materially change the result. Do not invent a second workflow or recommend KREA Edit.
+class _RenderTrackingStopped(Exception):
+    pass
 
-Explicit sexual content may be described only when every depicted person is unambiguously an adult and the user requests it. Never infer adulthood from an ambiguous image, introduce youth-related traits, or add an unrequested sexual act or participant. Never output Markdown or commentary outside the JSON."""
 
-_RECIPE_SYSTEM = """You help turn a proven KREA2 text-to-image result into an immutable reusable Batch recipe.
-Return raw JSON only with exactly these fields:
-{"message":"concise recipe-design reply in French","questions":["up to three material questions"],"recipe":null}
-or:
-{"message":"concise recipe-design reply in French","questions":["up to three material questions"],"recipe":{"recipe_id":"lowercase_slug","display_name":"human name","description":"short purpose","identity":"visual family identity","invariants":["fixed rules"],"variables":["safe variation axes"],"risks":["failure modes"],"canonical_prompt":"complete standalone KREA2 prompt in the TARGET PROMPT LANGUAGE"}}
+class _RenderFailed(Exception):
+    pass
 
-The selected result's exact checkpoint, ratio, megapixels and ordered LoRA stack are controlled by PanelForge and must not be repeated as invented technical settings. Separate what defines the family from what may vary across a Batch. Keep the selected proven prompt architecture as the canonical prompt, generalizing only the variable subject details needed by the requested family. Ask questions when identity, invariants or allowed variation axes remain ambiguous. You may still provide a draft while questions remain. Never publish anything and never output Markdown."""
+
+def assistance_recipe(version):
+    for recipe in (krea2_assisted_v1, krea2_assisted_v2):
+        if version == recipe.VERSION:
+            return recipe
+    raise ValueError(f"unsupported KREA2 assistance recipe: {version}")
 
 
 class Krea2AssistedAssets(Protocol):
@@ -110,6 +121,12 @@ class Krea2AssistedRecipes(Protocol):
     def publish_new(self, draft: Krea2AssistedRecipeDraft, settings: Krea2BatchSettings) -> Krea2VisualRecipe: ...
 
 
+class Krea2StylePresetStore(Protocol):
+    def list(self) -> tuple[Krea2StylePreset, ...]: ...
+    def get(self, preset_id: str) -> Krea2StylePreset: ...
+    def save(self, preset: Krea2StylePreset) -> Krea2StylePreset: ...
+
+
 class Krea2CreationExporter(Protocol):
     root: object
 
@@ -143,6 +160,7 @@ class Krea2AssistedService:
         projects: Krea2AssistedStore,
         resources: Krea2AssistedResources,
         exporter: Krea2CreationExporter | None = None,
+        presets: Krea2StylePresetStore | None = None,
         application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
         run_timeout: float = 3600.0,
         poll_interval: float = 1.0,
@@ -163,6 +181,7 @@ class Krea2AssistedService:
         self.projects = projects
         self.resources = resources
         self.exporter = exporter
+        self.presets = presets
         self.application_outcomes = application_outcomes
         self.run_timeout = run_timeout
         self.poll_interval = poll_interval
@@ -176,6 +195,12 @@ class Krea2AssistedService:
         self._sleep = sleep
         self._lock = RLock()
         self._claimed: set[tuple[str, str]] = set()
+        self._chatting: set[str] = set()
+        self._render_lock = Lock()
+        self._render_wake = Event()
+        self._render_stop = Event()
+        self._render_worker: Thread | None = None
+        self._render_queue_error: str | None = None
 
     @property
     def export_root(self) -> str | None:
@@ -192,8 +217,18 @@ class Krea2AssistedService:
         model_id: str,
         reference_asset_id: str | None = None,
         reference_filename: str | None = None,
+        assistance_recipe_version: str = "1.0.0",
+        style_preset_id: str | None = None,
     ) -> Krea2AssistedProject:
+        assistance_recipe(assistance_recipe_version)
+        preset = self._preset(style_preset_id) if style_preset_id else None
         name = _bounded_text(name, "name", 120)
+        if isinstance(intention, str) and not intention.strip() and reference_asset_id is not None:
+            intention = (
+                "À partir de l’image de référence, propose un prompt KREA2 autonome "
+                "qui reproduit fidèlement le sujet, la composition, les matières "
+                "et l’ambiance visibles."
+            )
         intention = _bounded_text(intention, "intention", 12_000)
         model_id = _bounded_text(model_id, "model_id", 300)
         if reference_asset_id is not None:
@@ -203,6 +238,7 @@ class Krea2AssistedService:
         return self.projects.create(Krea2AssistedProject(
             project_id=self._project_id_factory(),
             name=name,
+            assistance_recipe_version=assistance_recipe_version,
             intention=intention,
             model_id=model_id,
             reference_asset_id=reference_asset_id,
@@ -212,11 +248,68 @@ class Krea2AssistedService:
                 else None
             ),
             warnings=self._inventory_warnings(),
+            style_preset=preset, preset_pending=preset is not None,
+            render_settings=(Krea2BatchSettings(
+                model_name=preset.settings.model_name, loras=preset.settings.loras,
+                aspect_ratio=Krea2AspectRatio.PORTRAIT_WIDESCREEN, megapixels=2.1,
+            ) if preset else None),
         ))
+
+    def _preset(self, preset_id: str) -> Krea2StylePreset:
+        if self.presets is None:
+            raise ValueError("Le catalogue de presets n’est pas configuré.")
+        return self.presets.get(preset_id)
+
+    def list_style_presets(self) -> tuple[Krea2StylePreset, ...]:
+        return self.presets.list() if self.presets else ()
+
+    def save_style_preset(self, project_id: str, attempt_id: str, name: str,
+                          *, preset_id: str | None = None, expected_revision: int | None = None) -> Krea2StylePreset:
+        with self._lock:
+            if self.presets is None:
+                raise ValueError("Le catalogue de presets n’est pas configuré.")
+            project = self.projects.get(project_id)
+            attempt = project.attempt(attempt_id)
+            if attempt.status is not Krea2AssistedAttemptStatus.SUCCEEDED or attempt.output_asset_id is None:
+                raise ValueError("Un preset doit provenir d’un essai réussi.")
+            previous = self._preset(preset_id) if preset_id else None
+            if previous is not None and previous.revision != expected_revision:
+                raise ValueError("Le preset a changé. Recharge la liste avant de le mettre à jour.")
+            return self.presets.save(Krea2StylePreset(
+                preset_id=previous.preset_id if previous else f"style-{uuid4().hex}",
+                revision=previous.revision + 1 if previous else 1,
+                name=_bounded_text(name, "preset name", 120), prompt=attempt.prompt,
+                image_asset_id=attempt.output_asset_id, settings=attempt.settings,
+                source_project_id=project_id, source_attempt_id=attempt_id, source_seed=attempt.seed,
+                prompt_language=attempt.conversation_prompt_language,
+            ))
+
+    def apply_style_preset(self, project_id: str, preset_id: str | None, *, expected_branch_id: str,
+                           current_prompt: str | None, settings: Krea2BatchSettings,
+                           seed: int | None) -> Krea2AssistedProject:
+        with self._lock:
+            project = self.projects.get(project_id)
+            self._check_conversation_change(project, expected_branch_id)
+            preset = self._preset(preset_id) if preset_id else None
+            if preset:
+                settings = replace(settings, model_name=preset.settings.model_name, loras=preset.settings.loras)
+            prompt = project.current_prompt
+            if current_prompt is not None:
+                prompt = _bounded_text(current_prompt, "prompt", 40_000) if current_prompt.strip() else None
+            return self.projects.save(replace(
+                project, style_preset=preset, preset_pending=preset is not None,
+                current_prompt=prompt,
+                render_settings=settings, render_seed=seed,
+            ))
 
     def get(self, project_id: str) -> Krea2AssistedProject:
         with self._lock:
             return self._refresh_detached(self.projects.get(project_id))
+
+    @staticmethod
+    def list_assistance_recipes() -> list[dict[str, str]]:
+        return [{"version": recipe.VERSION, "label": recipe.LABEL}
+                for recipe in (krea2_assisted_v1, krea2_assisted_v2)]
 
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]:
         with self._lock:
@@ -234,6 +327,8 @@ class Krea2AssistedService:
         guidance_filename: str | None = None,
         model_id: str | None = None,
         include_reasoning: bool = False,
+        expected_branch_id: str | None = None,
+        current_prompt: str | None = None,
     ) -> Iterator[Krea2AssistedStreamEvent]:
         message = _bounded_text(message, "message", 12_000)
         if model_id is not None:
@@ -255,6 +350,11 @@ class Krea2AssistedService:
             raise ValueError("guidance_filename requires guidance_asset_id")
         with self._lock:
             project = self.projects.get(project_id)
+            self._check_conversation_change(project, expected_branch_id)
+            if current_prompt is not None:
+                prompt = _bounded_text(current_prompt, "prompt", 40_000) if current_prompt.strip() else None
+                project = replace(project, current_prompt=prompt)
+            assistance_recipe(project.assistance_recipe_version)
             project = project.select_revision_model(
                 model_id or project.revision_model_id or project.model_id
             )
@@ -264,16 +364,19 @@ class Krea2AssistedService:
                 project = project.use_feedback(feedback_attempt_id)
             user_turn = Krea2AssistedTurn(
                 turn_id=self._turn_id_factory(),
+                assistance_recipe_version=project.assistance_recipe_version,
                 mode=mode,
                 role=Krea2AssistedTurnRole.USER,
                 content=message,
                 guidance_asset_id=guidance_asset_id,
                 guidance_filename=guidance_filename,
+                style_preset=project.style_preset if project.preset_pending else None,
             )
             project = self.projects.save(replace(project, turns=(*project.turns, user_turn)))
-        request = self._completion_request(project, message, mode, include_reasoning)
+            self._chatting.add(project_id)
         parts: list[str] = []
         try:
+            request = self._completion_request(project, message, mode, include_reasoning)
             for event in self.gateway.stream(request):
                 if event.kind is StreamEventKind.DELTA:
                     parts.append(event.text)
@@ -331,6 +434,9 @@ class Krea2AssistedService:
                 self.projects.get(project_id),
                 _error(error),
             )
+        finally:
+            with self._lock:
+                self._chatting.discard(project_id)
 
     def prepare_attempt(
         self,
@@ -339,68 +445,219 @@ class Krea2AssistedService:
         prompt: str,
         settings: Krea2BatchSettings,
         seed: int | None = None,
+        expected_branch_id: str | None = None,
+        enqueue: bool = False,
     ) -> Krea2AssistedProject:
         prompt = _bounded_text(prompt, "prompt", 40_000)
         if not isinstance(settings, Krea2BatchSettings):
             raise TypeError("settings must be Krea2BatchSettings")
+        if enqueue:
+            self._validate_render_settings(settings)
         chosen_seed = self._seed_factory() if seed is None else seed
         with self._lock:
             project = self.projects.get(project_id)
+            if expected_branch_id is not None and project.active_branch_id != expected_branch_id:
+                raise ValueError("La branche active a changé. Rechargez le projet.")
             attempt = Krea2AssistedAttempt(
                 attempt_id=self._attempt_id_factory(),
                 index=len(project.attempts) + 1,
                 prompt=prompt,
                 settings=settings,
                 seed=chosen_seed,
+                conversation_branch_id=project.active_branch_id,
+                conversation_turn_id=project.turns[-1].turn_id if project.turns else None,
+                conversation_prompt_language=project.prompt_language,
+                conversation_model_id=project.revision_model_id or project.model_id,
+                style_preset=project.style_preset, preset_pending=project.preset_pending,
             )
-            return self.projects.save(project.add_attempt(attempt))
+            if enqueue:
+                attempt = attempt.queue(self._next_queue_order())
+            saved = self.projects.save(replace(
+                project.add_attempt(attempt), current_prompt=prompt,
+                render_settings=settings, render_seed=chosen_seed,
+            ))
+            if enqueue:
+                self._render_wake.set()
+            return saved
 
-    def queue_attempt(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
-        active = {
-            Krea2AssistedAttemptStatus.QUEUED,
-            Krea2AssistedAttemptStatus.RUNNING,
-            Krea2AssistedAttemptStatus.CANCEL_PENDING,
-        }
+    def _check_conversation_change(self, project: Krea2AssistedProject, expected_branch_id: str | None) -> None:
+        if project.project_id in self._chatting:
+            raise ValueError("Attendez la fin de l’échange avant de changer de conversation.")
+        if expected_branch_id is not None and project.active_branch_id != expected_branch_id:
+            raise ValueError("La branche active a changé. Rechargez le projet.")
+
+    def change_branch(
+        self, project_id: str, *, expected_branch_id: str,
+        branch_id: str | None = None, attempt_id: str | None = None,
+        image_prompt_only: bool = False, current_prompt: str | None = None,
+        settings: Krea2BatchSettings | None = None, seed: int | None = None,
+        prompt_language: Krea2PromptLanguage | None = None, model_id: str | None = None,
+    ) -> Krea2AssistedProject:
+        if (branch_id is None) == (attempt_id is None):
+            raise ValueError("Choose either a branch or an attempt")
         with self._lock:
             project = self.projects.get(project_id)
-            if not self._model_available(project.attempt(attempt_id).settings.model_name):
-                raise ValueError("Le checkpoint sélectionné n’est pas disponible dans le catalogue KREA2.")
-            for candidate in self.projects.list(10_000):
-                candidate = self._refresh_detached(candidate)
-                if any(value.status in active for value in candidate.attempts):
-                    raise ValueError("another assisted KREA2 render is already active")
-            return self.projects.save(project.replace_attempt(project.attempt(attempt_id).queue()))
+            self._check_conversation_change(project, expected_branch_id)
+            # Preserve unsent prompt/settings edits on the departing path.
+            if settings is not None:
+                project = replace(
+                    project, current_prompt=_bounded_text(current_prompt, "prompt", 40_000),
+                    render_settings=settings, render_seed=seed,
+                )
+            if prompt_language is not None:
+                project = project.with_prompt_language(prompt_language)
+            if model_id is not None:
+                project = project.select_revision_model(model_id)
+            if attempt_id is not None:
+                project = project.branch_from_attempt(
+                    attempt_id, f"branch-{uuid4().hex}", image_prompt_only=image_prompt_only,
+                )
+            else:
+                project = project.switch_branch(branch_id)
+            return self.projects.save(project)
+
+    def queue_attempt(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
+        with self._lock:
+            project = self.projects.get(project_id)
+            attempt = project.attempt(attempt_id)
+            if attempt.status in _RENDER_PENDING:
+                return project  # A repeated /start never duplicates a submission.
+            self._validate_render_settings(attempt.settings)
+            saved = self.projects.save(project.replace_attempt(attempt.queue(self._next_queue_order())))
+            self._render_wake.set()
+            return saved
+
+    def _next_queue_order(self) -> int:
+        # A durable global order, independent of project edits and branch navigation.
+        latest = max((attempt.queue_order or 0 for project in self.projects.list(2**31 - 1)
+                      for attempt in project.attempts), default=0)
+        return max(time.time_ns(), latest + 1)
+
+    def _pending_renders(self) -> list[tuple[Krea2AssistedProject, Krea2AssistedAttempt]]:
+        entries = [(project, attempt) for project in self.projects.list(2**31 - 1)
+                   for attempt in project.attempts if attempt.status in _RENDER_PENDING]
+        entries.sort(key=lambda pair: (
+            pair[1].status is Krea2AssistedAttemptStatus.QUEUED,
+            pair[1].queue_order or 0, pair[0].project_id, pair[1].index,
+        ))
+        return entries
+
+    def render_queue(self) -> dict[str, object]:
+        with self._lock:
+            entries = self._pending_renders()
+            return {
+                "worker_running": bool(self._render_worker and self._render_worker.is_alive()),
+                "error": self._render_queue_error,
+                "items": [{
+                    "project_id": project.project_id, "project_name": project.name,
+                    "attempt_id": attempt.attempt_id, "index": attempt.index,
+                    "status": attempt.status.value, "position": index + 1,
+                    "error": attempt.error or (
+                        _AMBIGUOUS_SUBMISSION if attempt.status is Krea2AssistedAttemptStatus.SUBMITTING
+                        and (project.project_id, attempt.attempt_id) not in self._claimed else None
+                    ),
+                } for index, (project, attempt) in enumerate(entries)],
+            }
+
+    def start_render_worker(self) -> None:
+        with self._lock:
+            if self._render_worker is None or not self._render_worker.is_alive():
+                self._render_stop.clear()
+                self._render_worker = Thread(target=self._render_loop, name="krea2-assisted-render-queue", daemon=True)
+                self._render_worker.start()
+            self._render_wake.set()
+
+    def stop_render_worker(self) -> None:
+        # Leave submitted jobs and queued records intact for the next server process.
+        self._render_stop.set()
+        self._render_wake.set()
+        worker = self._render_worker
+        if worker is not None:
+            worker.join(timeout=2)
+
+    def _render_loop(self) -> None:
+        while not self._render_stop.is_set():
+            self._render_wake.clear()
+            try:
+                progressed = self.process_next_render()
+                self._render_queue_error = None
+            except Exception as error:
+                self._render_queue_error = f"File en attente : {_error(error)}"
+                progressed = False
+            if not progressed:
+                self._render_wake.wait(timeout=5)
+
+    def process_next_render(self, *, until: tuple[str, str] | None = None) -> bool:
+        """Advance one FIFO entry; the lock also serializes synchronous callers."""
+        if not self._render_lock.acquire(blocking=False):
+            return False
+        try:
+            if self._render_stop.is_set():
+                return False
+            with self._lock:
+                if until is not None and self.projects.get(until[0]).attempt(until[1]).status not in _RENDER_PENDING:
+                    return False
+                entries = self._pending_renders()
+                if not entries:
+                    return False
+                project, attempt = entries[0]
+                if attempt.status is Krea2AssistedAttemptStatus.SUBMITTING:
+                    # A process died between POST /prompt and recording its ID.
+                    # Do not guess whether it was accepted, or submit a duplicate.
+                    if attempt.error != _AMBIGUOUS_SUBMISSION:
+                        self.projects.save(project.replace_attempt(replace(attempt, error=_AMBIGUOUS_SUBMISSION)))
+                    return False
+            result = self._execute_render(project.project_id, attempt.attempt_id)
+            return result.attempt(attempt.attempt_id).status not in _RENDER_PENDING
+        finally:
+            self._render_lock.release()
 
     def execute_attempt(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
+        """Compatibility entry point for Production: respect FIFO, then return its result."""
+        while self.projects.get(project_id).attempt(attempt_id).status in _RENDER_PENDING:
+            if self._render_stop.is_set():
+                break
+            if not self.process_next_render(until=(project_id, attempt_id)):
+                self._sleep(max(self.poll_interval, 0.1))
+        return self.projects.get(project_id)
+
+    def _execute_render(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
         key = (project_id, attempt_id)
         with self._lock:
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
-            if attempt.status is not Krea2AssistedAttemptStatus.QUEUED:
+            if attempt.status not in {
+                Krea2AssistedAttemptStatus.QUEUED, Krea2AssistedAttemptStatus.RUNNING,
+                Krea2AssistedAttemptStatus.CANCEL_PENDING,
+            }:
                 return project
             if key in self._claimed:
                 raise ValueError("attempt is already executing")
             self._claimed.add(key)
-        execution_id: str | None = None
+        execution_id = attempt.execution_id
+        history_received = False
         output_prefix = f"image/krea2-assisted/{project_id}/{attempt_id}"
         try:
-            render_settings = self._available_settings(attempt.settings)
-            workflow = self.workflow.build(
-                prompt=attempt.prompt,
-                settings=render_settings,
-                seed=attempt.seed,
-                output_prefix=output_prefix,
-                sidecar_text=_sidecar(project, attempt, render_settings, output_prefix, self.workflow.reference),
-            )
-            digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
-            with self._lock:
-                current = self.projects.get(project_id)
-                current_attempt = current.attempt(attempt_id)
-                if current_attempt.status is not Krea2AssistedAttemptStatus.QUEUED:
-                    return current
+            if execution_id is None:
+                self._validate_render_settings(attempt.settings)
+                workflow = self.workflow.build(
+                    prompt=attempt.prompt, settings=attempt.settings, seed=attempt.seed,
+                    output_prefix=output_prefix,
+                    sidecar_text=_sidecar(project, attempt, attempt.settings, output_prefix, self.workflow.reference),
+                )
+                digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
+                with self._lock:
+                    current = self.projects.get(project_id)
+                    current_attempt = current.attempt(attempt_id)
+                    if current_attempt.status is not Krea2AssistedAttemptStatus.QUEUED or self._render_stop.is_set():
+                        return current
+                    self.projects.save(current.replace_attempt(current_attempt.submitting(digest)))
                 execution_id = self.comfy.submit_workflow(workflow)
-                current = self.projects.save(current.replace_attempt(current_attempt.start(execution_id, digest)))
+                with self._lock:
+                    current = self.projects.get(project_id)
+                    self.projects.save(current.replace_attempt(current.attempt(attempt_id).start(execution_id, digest)))
             history = self._wait_history(project_id, attempt_id, execution_id)
+            history_received = True
             output = _extract_output_or_prefix(
                 history,
                 execution_id,
@@ -428,11 +685,21 @@ class Krea2AssistedService:
                 }:
                     current = self.projects.save(current.replace_attempt(current_attempt.succeed(asset.asset_id)))
                 return current
+        except _RenderTrackingStopped:
+            return self.projects.get(project_id)
         except Exception as error:
             with self._lock:
                 current = self.projects.get(project_id)
                 current_attempt = current.attempt(attempt_id)
-                if current_attempt.status in {
+                if current_attempt.status is Krea2AssistedAttemptStatus.SUBMITTING:
+                    current = self.projects.save(current.replace_attempt(replace(current_attempt, error=_AMBIGUOUS_SUBMISSION)))
+                elif current_attempt.status in {Krea2AssistedAttemptStatus.RUNNING, Krea2AssistedAttemptStatus.CANCEL_PENDING} and not history_received and not isinstance(error, _RenderFailed):
+                    # A lost connection/timeout is not proof the GPU job stopped.
+                    # Keep its ID, block later submissions and retry tracking it.
+                    current = self.projects.save(current.replace_attempt(replace(
+                        current_attempt, error=f"Suivi ComfyUI en attente : {_error(error)}",
+                    )))
+                elif current_attempt.status in {
                     Krea2AssistedAttemptStatus.CREATED,
                     Krea2AssistedAttemptStatus.QUEUED,
                     Krea2AssistedAttemptStatus.RUNNING,
@@ -448,11 +715,20 @@ class Krea2AssistedService:
         with self._lock:
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
+            if attempt.status is Krea2AssistedAttemptStatus.SUBMITTING:
+                if (project_id, attempt_id) in self._claimed:
+                    raise ValueError("Envoi à ComfyUI en cours. Attendez sa confirmation avant d’annuler.")
+                # Explicitly release an ambiguous dispatch; no unknown remote ID is interrupted.
+                saved = self.projects.save(project.replace_attempt(attempt.cancel()))
+                self._render_wake.set()
+                return saved
             if attempt.status in {
                 Krea2AssistedAttemptStatus.CREATED,
                 Krea2AssistedAttemptStatus.QUEUED,
             }:
-                return self.projects.save(project.replace_attempt(attempt.cancel()))
+                saved = self.projects.save(project.replace_attempt(attempt.cancel()))
+                self._render_wake.set()
+                return saved
             if attempt.status not in {
                 Krea2AssistedAttemptStatus.RUNNING,
                 Krea2AssistedAttemptStatus.CANCEL_PENDING,
@@ -538,7 +814,8 @@ class Krea2AssistedService:
         include_reasoning: bool,
     ) -> CompletionRequest:
         images: list[ImageInput] = []
-        if project.reference_asset_id is not None:
+        if project.initial_reference_pending:
+            assert project.reference_asset_id is not None
             asset = self.assets.get(project.reference_asset_id)
             images.append(ImageInput(asset.media_type, self.assets.read_bytes(asset.asset_id), "REFERENCE IMAGE"))
         feedback = None
@@ -555,55 +832,53 @@ class Krea2AssistedService:
                 self.assets.read_bytes(asset.asset_id),
                 "TURN GUIDANCE IMAGE",
             ))
-        conversation = "\n".join(
-            f"{turn.mode.value.upper()} {turn.role.value.upper()}: {turn.content}"
-            + (
-                f"\nTURN GUIDANCE IMAGE USED: {turn.guidance_filename or 'guidance-image'}"
-                if turn.guidance_asset_id is not None
-                else ""
-            )
-            + (f"\nPROMPT: {turn.prompt}" if turn.prompt else "")
-            for turn in project.turns[-14:-1]
-        ) or "No earlier exchange."
-        selected = "No generated result selected."
-        if feedback is not None:
-            selected = _attempt_context(feedback)
-        memory = _recipe_memory(self.recipes.current())
-        resources = _resource_memory(
-            self.resources.list_models(),
-            self.resources.list_loras(),
+        recipe = assistance_recipe(project.assistance_recipe_version)
+        if recipe is krea2_assisted_v2:
+            # Do not inject unrelated recipes or fetch a resource catalogue for
+            # a purely visual correction. Publication still receives its memory.
+            memory = (_recipe_memory(self.recipes.current())
+                      if mode is Krea2AssistedTurnMode.RECIPE or recipe.needs_recipes(message)
+                      else "Not included for image creation; use the current design and feedback.")
+            resources = (recipe.resource_memory(
+                self.resources.list_models(), self.resources.list_loras(), message,
+            ) if recipe.needs_resources(message)
+                else "Not requested. Do not invent technical recommendations.")
+        else:
+            memory = _recipe_memory(self.recipes.current())
+            resources = _resource_memory(self.resources.list_models(), self.resources.list_loras())
+        user = recipe.user_prompt(
+            project, message,
+            selected=_attempt_context(feedback) if feedback else "No generated result selected.",
+            memory=memory,
+            resources=resources,
+            language_instruction=_prompt_language_instruction(project.prompt_language),
         )
-        user = "\n\n".join((
-            f"PROJECT: {project.name}",
-            f"TARGET PROMPT LANGUAGE (authoritative):\n{_prompt_language_instruction(project.prompt_language)}",
-            f"ORIGINAL INTENTION:\n{project.intention}",
-            f"REFERENCE STATUS:\n{'A descriptive reference image is attached.' if project.reference_asset_id else 'No reference image.'}",
-            (
-                "TURN GUIDANCE STATUS:\nA TURN GUIDANCE IMAGE is attached only for the NEW USER MESSAGE. "
-                "Use it as visual evidence or inspiration requested by that message. It does not replace "
-                "REFERENCE IMAGE or GENERATED RESULT, and it does not become persistent project identity "
-                "unless the user explicitly requests that."
-                if current_turn.guidance_asset_id is not None
-                else "TURN GUIDANCE STATUS:\nNo turn-specific guidance image."
-            ),
-            f"CURRENT TARGET PROMPT:\n{project.current_prompt or 'None yet.'}",
-            f"RECENT PROJECT CONVERSATION:\n{conversation}",
-            f"SELECTED GENERATED RESULT AND EXACT SETTINGS:\n{selected}",
-            f"PUBLISHED RECIPE MEMORY (validated global knowledge only):\n{memory}",
-            f"AVAILABLE KREA2 RENDER RESOURCES (advice only; never invent missing files):\n{resources}",
-            f"NEW USER MESSAGE (authoritative):\n{message}",
-        ))
+        if project.preset_pending and project.style_preset is not None:
+            preset = project.style_preset
+            asset = self.assets.get(preset.image_asset_id)
+            images.append(ImageInput(asset.media_type, self.assets.read_bytes(asset.asset_id), "STYLE PRESET EXAMPLE"))
+            user += (
+                "\n\nNEW STYLE PRESET EXAMPLE (apply to this exchange):\n"
+                + json.dumps({"name": preset.name, "revision": preset.revision, "example_prompt": preset.prompt,
+                              "checkpoint": preset.settings.model_name,
+                              "loras": [{"name": l.name, "strength": l.strength} for l in preset.settings.loras]}, ensure_ascii=False)
+                + "\nUse this prompt and STYLE PRESET EXAMPLE image as a style example only. "
+                "Apply its relevant materials, light and photographic treatment to the user's subject. "
+                "Do not copy its subject, background or composition unless requested. "
+                "The newest user message has priority; the current exploration remains the baseline. "
+                "These settings are already selected; do not invent other settings."
+            )
         return CompletionRequest(
             model_id=project.revision_model_id or project.model_id,
-            system_prompt=_CREATION_SYSTEM if mode is Krea2AssistedTurnMode.CREATION else _RECIPE_SYSTEM,
+            system_prompt=recipe.system_prompt(mode.value),
             user_prompt=user,
             images=tuple(images),
             temperature=0.35 if mode is Krea2AssistedTurnMode.CREATION else 0.2,
-            max_tokens=131_072,
+            max_tokens=recipe.MAX_TOKENS,
             operation_id=(
-                "krea2.assisted.creation_chat@0.3.0"
+                recipe.CREATION_OPERATION
                 if mode is Krea2AssistedTurnMode.CREATION
-                else "krea2.assisted.recipe_chat@0.3.0"
+                else recipe.RECIPE_OPERATION
             ),
             include_reasoning=include_reasoning,
         )
@@ -638,6 +913,7 @@ class Krea2AssistedService:
                 )
                 assistant = Krea2AssistedTurn(
                     turn_id=self._turn_id_factory(),
+                    assistance_recipe_version=project.assistance_recipe_version,
                     mode=mode,
                     role=Krea2AssistedTurnRole.ASSISTANT,
                     content=message,
@@ -650,19 +926,21 @@ class Krea2AssistedService:
                     project,
                     turns=(*project.turns, assistant),
                     current_prompt=prompt,
+                    preset_pending=False,
                 ))
             if set(value) != {"message", "questions", "recipe"}:
                 raise ValueError("recipe response has invalid fields")
             draft = _parse_draft(value.get("recipe"), project.prompt_language)
             assistant = Krea2AssistedTurn(
                 turn_id=self._turn_id_factory(),
+                assistance_recipe_version=project.assistance_recipe_version,
                 mode=mode,
                 role=Krea2AssistedTurnRole.ASSISTANT,
                 content=message,
                 questions=questions,
                 model_id=_bounded_text(model_id, "model_id", 300),
             )
-            project = replace(project, turns=(*project.turns, assistant))
+            project = replace(project, turns=(*project.turns, assistant), preset_pending=False)
             if draft is not None:
                 project = project.with_recipe_draft(draft)
             return self.projects.save(project)
@@ -670,6 +948,8 @@ class Krea2AssistedService:
     def _wait_history(self, project_id: str, attempt_id: str, execution_id: str) -> dict[str, Any]:
         deadline = self._monotonic() + self.run_timeout
         while True:
+            if self._render_stop.is_set():
+                raise _RenderTrackingStopped()
             attempt = self.projects.get(project_id).attempt(attempt_id)
             if attempt.status is Krea2AssistedAttemptStatus.CANCELLED:
                 raise RuntimeError("KREA2 assisted attempt cancelled")
@@ -681,7 +961,7 @@ class Krea2AssistedService:
                 if terminal == "success":
                     return history
                 if terminal is not None:
-                    raise RuntimeError(f"ComfyUI execution failed: {status}")
+                    raise _RenderFailed(f"ComfyUI execution failed: {status}")
             remaining = deadline - self._monotonic()
             if remaining <= 0:
                 raise TimeoutError("ComfyUI assisted render timed out")
@@ -749,19 +1029,16 @@ class Krea2AssistedService:
             return project
         return self.projects.save(project.replace_attempt(updated))
 
-    def _available_settings(self, settings: Krea2BatchSettings) -> Krea2BatchSettings:
+    def _validate_render_settings(self, settings: Krea2BatchSettings) -> None:
+        if not self._model_available(settings.model_name):
+            raise ValueError("Le checkpoint sélectionné n’est pas disponible dans le catalogue KREA2.")
         available = {
             normalize_krea2_model_name(getattr(value, "comfy_name", ""))
             for value in self.resources.list_loras()
         }
-        return replace(
-            settings,
-            loras=tuple(
-                value
-                for value in settings.loras
-                if normalize_krea2_model_name(value.name) in available
-            ),
-        )
+        missing = [value.name for value in settings.loras if normalize_krea2_model_name(value.name) not in available]
+        if missing:
+            raise ValueError("LoRA indisponible pour cet essai : " + ", ".join(missing))
 
     def _model_available(self, name: str) -> bool:
         target = normalize_krea2_model_name(name)
@@ -809,7 +1086,7 @@ def _recipe_memory(recipes: tuple[Krea2VisualRecipe, ...]) -> str:
     if not recipes:
         return "No published recipe yet."
     lines = []
-    for recipe in recipes[:20]:
+    for recipe in recipes[:krea2_assisted_v1.RECIPE_LIMIT]:
         loras = ", ".join(f"{value.name}@{value.strength:g}" for value in recipe.settings.loras) or "none"
         lines.append(
             f"- {recipe.recipe_id}@{recipe.version}: {recipe.identity[:260]} | "
@@ -821,12 +1098,12 @@ def _recipe_memory(recipes: tuple[Krea2VisualRecipe, ...]) -> str:
 def _resource_memory(models: tuple[object, ...], loras: tuple[object, ...]) -> str:
     model_names = [
         getattr(value, "comfy_name", "")
-        for value in models[:40]
+        for value in models[:krea2_assisted_v1.MODEL_LIMIT]
         if getattr(value, "comfy_name", "")
     ]
     lora_names = [
         getattr(value, "comfy_name", "")
-        for value in loras[:80]
+        for value in loras[:krea2_assisted_v1.LORA_LIMIT]
         if getattr(value, "comfy_name", "")
         and getattr(value, "selectable", True)
     ]
@@ -940,7 +1217,9 @@ def _sidecar(
             "project_name": project.name,
             "intention": project.intention,
             "attempt_id": attempt.attempt_id,
-            "llm_model_id": project.model_id,
+            "llm_model_id": attempt.conversation_model_id or project.model_id,
+            "conversation_branch_id": attempt.conversation_branch_id,
+            "conversation_turn_id": attempt.conversation_turn_id,
             "reference_filename": project.reference_filename,
         },
         "render": {

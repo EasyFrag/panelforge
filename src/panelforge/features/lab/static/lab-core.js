@@ -391,7 +391,78 @@
     button.append(copy, thumbnails);
   }
 
+  // Presentation policy only: manifests and saved recipe references remain immutable.
+  function recipeTier(value) {
+    if (/^minimax\.h3\.(fl2va|ref2v)\.direct\.(guided|planned|prompt)@1\.0\.0$/.test(value)) return "standard";
+    if (["minimax.h3.fl2va.direct@0.4.0", "minimax.h3.ref2v.direct@0.5.0"].includes(value)) return "standard";
+    if ([
+      "minimax.h3.fl2va.direct.multishot@0.1.0",
+      "minimax.h3.base.animal-interview@0.2.0",
+      "minimax.h3.ref2v.direct.multishot@0.2.0",
+      "minimax.h3.ref2v.direct.multishot.superfast@0.2.0",
+    ].includes(value)) return "advanced";
+    return "historical";
+  }
+
+  function refreshRecipeVisibility(select) {
+    if (!select) return;
+    let disclosure = document.getElementById(`${select.id}-more`);
+    if (!disclosure) {
+      disclosure = document.createElement("details");
+      disclosure.id = `${select.id}-more`;
+      const summary = document.createElement("summary");
+      summary.textContent = "Autres recettes";
+      disclosure.append(summary);
+      for (const [tier, title] of [["advanced", "Avancées et spécialisées"], ["historical", "Versions historiques"]]) {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.dataset.recipeTier = tier;
+        input.addEventListener("change", () => refreshRecipeVisibility(select));
+        label.append(input, document.createTextNode(title));
+        disclosure.append(label);
+      }
+      select.closest("label").after(disclosure);
+      select.addEventListener("change", () => refreshRecipeVisibility(select));
+    }
+    const enabled = new Set(["standard", "experimental"]);
+    disclosure.querySelectorAll("input:checked").forEach((input) => enabled.add(input.dataset.recipeTier));
+    for (const option of select.options) {
+      const tier = recipeTier(option.value);
+      // A saved or explicitly chosen version always remains visible, including locked runs.
+      option.hidden = !enabled.has(tier) && option.value !== select.value;
+    }
+  }
+
+  function preparationStages(cookbook) {
+    const steps = cookbook?.preparation_steps ?? 3;
+    return steps === 1 ? ["prompt"] : steps === 2 ? ["plan", "prompt"] : ["brief", "plan", "prompt"];
+  }
+
+  function renderPreparationStages(elements, stages) {
+    for (const name of ["brief", "plan", "prompt"]) {
+      const index = stages.indexOf(name);
+      const visible = index >= 0;
+      const step = elements.steps[name];
+      const chip = elements.chips[name];
+      const wasHidden = step.hidden;
+      step.hidden = chip.hidden = !visible;
+      if (visible) {
+        step.querySelector(".cookbook-step-index").textContent = String(index + 1);
+        chip.querySelector("b").textContent = String(index + 1);
+        if (wasHidden) step.open = true;
+      }
+      if (chip.nextElementSibling?.tagName === "I") {
+        chip.nextElementSibling.hidden = !visible || index === stages.length - 1;
+      }
+    }
+  }
+
   window.PanelForgeLabCore = Object.freeze({
+    preparationStages,
+    renderPreparationStages,
+    recipeTier,
+    refreshRecipeVisibility,
     request,
     streamRequest,
     truncationMessage,
