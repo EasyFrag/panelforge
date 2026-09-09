@@ -1,5 +1,6 @@
 """Offline regression cases for the experimental assistance context."""
 
+from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 
@@ -72,10 +73,16 @@ class Krea2AssistedV2Test(unittest.TestCase):
                 raise AssertionError(f"unexpected catalogue access: {name}")
 
         service = SimpleNamespace(resources=UnusedCatalogue(), recipes=UnusedCatalogue())
-        request = Krea2AssistedService._completion_request(
-            service, self.project(), "Make the shoe transparent.",
-            Krea2AssistedTurnMode.CREATION, False,
-        )
-        self.assertEqual(request.operation_id, "krea2.assisted.creation_chat@2.0.0")
-        self.assertEqual(request.images, ())
-        self.assertIn("Not requested", request.user_prompt)
+        for version in ("2.0.0", "3.0.0"):
+            with self.subTest(version=version):
+                request = Krea2AssistedService._completion_request(
+                    service, replace(self.project(), assistance_recipe_version=version),
+                    "Remove the shoe; the floor is empty.",
+                    Krea2AssistedTurnMode.CREATION, False,
+                )
+                self.assertEqual(request.operation_id, f"krea2.assisted.creation_chat@{version}")
+                self.assertEqual(request.images, ())
+                self.assertIn("Not requested", request.user_prompt)
+                self.assertIn("Keep the red glass.", request.user_prompt)
+                self.assertIn("Remove the shoe; the floor is empty.", request.user_prompt)
+                self.assertNotIn("OBSOLETE_PROMPT", request.user_prompt)

@@ -52,6 +52,20 @@ from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
 from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
 from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter
+from panelforge.infrastructure.krea2_retouch import PillowRetouchCompositor
+from panelforge.infrastructure.krea2_upscale import PillowUpscaleImages
+from panelforge.application.dlss import DlssService
+from panelforge.application.dlss_candidates import DlssCandidates
+from panelforge.infrastructure.dlss_runtime import LocalDlssRuntime
+from panelforge.infrastructure.dlss_media import DlssMedia
+from panelforge.infrastructure.dlss_outputs import DlssOutputs
+from panelforge.infrastructure.dlss_progress import ComfyDlssProgress
+from panelforge.infrastructure.dlss_video_exports import DlssVideoExporter
+from panelforge.infrastructure.storage.dlss_jobs import LocalDlssJobs
+from panelforge.infrastructure.presets.dlss import DlssWorkflow
+from panelforge.infrastructure.presets.image_upscale import load_image_upscale_workflow
+from panelforge.infrastructure.presets.firered_edit import load_firered_edit_workflow
+from panelforge.infrastructure.edit_images import PillowEditImages
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
 from panelforge.infrastructure.local_gpu import NvidiaSmiMonitor
@@ -105,17 +119,18 @@ H3_RENDER_WORKFLOW_DIRECTORY = (
     / "workflows"
     / "video.generate.h3-base"
     / "minimax-h3-latent-speed"
-    / "0.1.2"
+    / "0.1.3"
 )
 KREA2_BATCH_WORKFLOW_DIRECTORY = (
     PROJECT_ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"
 )
 KREA2_BATCH_RECIPE_DIRECTORY = PROJECT_ROOT / "krea2_batch_recipes"
 KREA2_EDIT_WORKFLOW_DIRECTORY = (
-    PROJECT_ROOT / "workflows" / "image.edit" / "krea2-identity" / "0.1.0"
+    PROJECT_ROOT / "workflows" / "image.edit" / "krea2-identity" / "0.2.0"
 )
+KREA2_EDIT_HISTORICAL_WORKFLOW_DIRECTORY = KREA2_EDIT_WORKFLOW_DIRECTORY.parent / "0.1.0"
 DEFAULT_KREA2_MODELS_ROOT = Path(
-    r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion\_models\Krea2"
+    r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion_models\Krea2"
 )
 DEFAULT_KREA2_LORAS_ROOT = Path(
     r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\loras\krea2"
@@ -210,6 +225,10 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=PROJECT_ROOT / "workspace",
     )
+    parser.add_argument("--dlss-root", type=Path, default=Path(r"D:\AI\ComfyUI_windows_portable"))
+    parser.add_argument("--dlss-base-url", default="http://127.0.0.1:8188")
+    parser.add_argument("--dlss-output-root", type=Path, default=Path(r"D:\AI\PanelForge\LocalOutput"))
+    parser.add_argument("--dlss-video-export-root", type=Path, default=Path(r"X:\data\ComfyUI\output\video\Upscale"))
     return parser.parse_args()
 
 
@@ -227,7 +246,10 @@ def build_app(args: argparse.Namespace):
     )
     krea2_batch_workflow = load_krea2_batch_workflow(KREA2_BATCH_WORKFLOW_DIRECTORY)
     krea2_edit_workflow = load_krea2_edit_workflow(KREA2_EDIT_WORKFLOW_DIRECTORY)
-    assets = LocalAssetStore(args.workspace)
+    dlss_root = Path(getattr(args, "dlss_root", r"D:\AI\ComfyUI_windows_portable"))
+    dlss_output_root = Path(getattr(args, "dlss_output_root", r"D:\AI\PanelForge\LocalOutput"))
+    dlss_fallback_roots = (dlss_root / "ComfyUI/output",)
+    assets = LocalAssetStore(args.workspace, external_roots=(dlss_output_root, *dlss_fallback_roots))
     runs = LocalRunStore(args.workspace)
     video_runs = LocalVideoRunStore(args.workspace)
     h3_render_projects = LocalH3RenderProjectStore(args.workspace)
@@ -386,8 +408,15 @@ def build_app(args: argparse.Namespace):
         poll_interval=args.poll_interval,
     )
     krea2_edit = Krea2EditService(
+        retouch_compositor=PillowRetouchCompositor(),
+        upscale_images=PillowUpscaleImages(),
+        edit_images=PillowEditImages(),
+        upscale_workflow=load_image_upscale_workflow(PROJECT_ROOT / "workflows/image.upscale/esrgan/0.1.0"),
         gateway=gateway,
         workflow=krea2_edit_workflow,
+        historical_workflows=(load_krea2_edit_workflow(KREA2_EDIT_HISTORICAL_WORKFLOW_DIRECTORY),
+                              load_krea2_edit_workflow(KREA2_EDIT_WORKFLOW_DIRECTORY.parent / "0.3.0"),
+                              load_firered_edit_workflow(PROJECT_ROOT / "workflows/image.edit/firered/0.1.0")),
         comfy=krea2_edit_comfy,
         assets=assets,
         sources=krea2_edits,
@@ -489,8 +518,26 @@ def build_app(args: argparse.Namespace):
         lora_resources=krea2_resources,
         lora_memory=production_lora_memory,
     )
+    dlss_url = getattr(args, "dlss_base_url", "http://127.0.0.1:8188")
+    dlss_jobs = LocalDlssJobs(args.workspace)
+    dlss_comfy = ComfyHttpClient(dlss_url, client_id="panelforge-dlss", timeout=30)
+    dlss = DlssService(
+        jobs=dlss_jobs, comfy=dlss_comfy, assets=assets,
+        progress=ComfyDlssProgress(dlss_comfy.websocket_url),
+        video_exporter=DlssVideoExporter(getattr(args, "dlss_video_export_root", r"X:\data\ComfyUI\output\video\Upscale")),
+        outputs=DlssOutputs(dlss_output_root, assets, fallback_roots=dlss_fallback_roots),
+        runtime=LocalDlssRuntime(root=dlss_root, base_url=dlss_url, journal=dlss_jobs, comfy=dlss_comfy, output_root=dlss_output_root),
+        media=DlssMedia(ffmpeg=dlss_root / "tools/ffmpeg.exe", ffprobe=dlss_root / "tools/ffprobe.exe"),
+        candidates=DlssCandidates(edit=krea2_edit, assisted=krea2_assisted, h3=h3_render),
+        workflows={
+            "image": DlssWorkflow(PROJECT_ROOT / "workflows/image.upscale/dlss/0.1.0"),
+            "video": DlssWorkflow(PROJECT_ROOT / "workflows/video.upscale/dlss/0.1.0"),
+            "video-smooth": DlssWorkflow(PROJECT_ROOT / "workflows/video.upscale/dlss-smooth/0.1.0"),
+        },
+    )
     return create_app(
         runner,
+        dlss=dlss,
         prompt_lab=prompt_lab,
         prompt_composition=prompt_composition,
         video_lab=video_lab,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 import json
 import struct
 import zlib
@@ -10,6 +11,7 @@ import zlib
 from panelforge.domain.krea2_batch import Krea2LoraSelection
 from panelforge.domain.krea2_edit import Krea2EditMetadata
 from panelforge.domain.krea2_lab import Krea2AspectRatio
+from panelforge.domain.firered_edit import FireRedEditSettings
 
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -49,16 +51,7 @@ def recover_krea2_metadata(
             origin="none",
             warnings=(*warnings, f"Métadonnées ComfyUI illisibles : {error}"),
         )
-    return Krea2EditMetadata(
-        prompt=metadata.prompt,
-        model_name=metadata.model_name,
-        aspect_ratio=metadata.aspect_ratio,
-        megapixels=metadata.megapixels,
-        seed=metadata.seed,
-        loras=metadata.loras,
-        origin=metadata.origin,
-        warnings=(*warnings, *metadata.warnings),
-    )
+    return replace(metadata, warnings=(*warnings, *metadata.warnings))
 
 
 def png_text_chunks(content: bytes) -> dict[str, str]:
@@ -127,6 +120,13 @@ def _bounded_decompress(value: bytes) -> bytes:
 def _from_sidecar(value: object) -> Krea2EditMetadata:
     payload = _mapping(value, "sidecar")
     render = _mapping(payload.get("render"), "sidecar.render")
+    if render.get("engine") == "firered":
+        settings = FireRedEditSettings(model_name=render.get("model_name"),
+            megapixels=render.get("megapixels"), seed=_optional_seed(render.get("seed")),
+            mode=render.get("mode"), steps=render.get("steps"), cfg=render.get("cfg"))
+        return Krea2EditMetadata(prompt=_optional_text(payload.get("prompt")),
+            model_name=settings.model_name, megapixels=settings.megapixels, seed=settings.seed,
+            steps=settings.steps, firered_settings=settings, origin="sidecar")
     return Krea2EditMetadata(
         prompt=_optional_text(payload.get("prompt")),
         model_name=_optional_text(render.get("model_name")),
@@ -140,6 +140,9 @@ def _from_sidecar(value: object) -> Krea2EditMetadata:
 
 def _from_comfy_graph(value: object) -> Krea2EditMetadata:
     graph = _mapping(value, "ComfyUI prompt")
+    fire = _firered_metadata(graph)
+    if fire is not None:
+        return fire
     prompts: list[str] = []
     model: str | None = None
     ratio: Krea2AspectRatio | None = None
@@ -196,6 +199,62 @@ def _from_comfy_graph(value: object) -> Krea2EditMetadata:
         origin="png",
         warnings=tuple(warnings),
     )
+
+
+def _firered_metadata(graph: Mapping) -> Krea2EditMetadata | None:
+    """Read the known import's primitives/switches only; never evaluate nodes."""
+    nodes = [n for n in graph.values() if isinstance(n, Mapping) and isinstance(n.get("inputs"), Mapping)]
+    models = [n["inputs"].get("unet_name") for n in nodes if n.get("class_type") == "UNETLoader"]
+    model = next((v for v in models if isinstance(v, str) and "firered-image-edit" in v.casefold()), None)
+    if model is None:
+        return None
+
+    def linked(value):
+        if not isinstance(value, list) or len(value) != 2 or value[1] != 0 or not isinstance(value[0], str):
+            raise ValueError("unsupported FireRed metadata link")
+        node = graph.get(value[0])
+        if not isinstance(node, Mapping) or not isinstance(node.get("inputs"), Mapping):
+            raise ValueError("missing FireRed metadata node")
+        return node
+
+    def scalar(value, depth=0):
+        if depth > 12:
+            raise ValueError("FireRed metadata links are too deep")
+        if not isinstance(value, list):
+            return value
+        node = linked(value)
+        inputs = node["inputs"]
+        if node.get("class_type") in {"PrimitiveInt", "PrimitiveFloat", "PrimitiveBoolean"}:
+            return scalar(inputs.get("value"), depth + 1)
+        if node.get("class_type") == "ComfySwitchNode":
+            enabled = scalar(inputs.get("switch"), depth + 1)
+            if type(enabled) is not bool:
+                raise ValueError("invalid FireRed metadata switch")
+            return scalar(inputs.get("on_true" if enabled else "on_false"), depth + 1)
+        raise ValueError("unsupported FireRed metadata scalar")
+
+    try:
+        sampler = next(n["inputs"] for n in nodes if n.get("class_type") == "KSampler")
+        resize = next(n["inputs"] for n in nodes if n.get("class_type") == "ResizeImageMaskNode")
+        switches = [n for n in nodes if n.get("class_type") == "ComfySwitchNode"
+                    and linked(n["inputs"].get("on_true")).get("class_type") == "LoraLoaderModelOnly"]
+        if len(switches) != 1:
+            raise ValueError("ambiguous FireRed model branch")
+        lightning = scalar(switches[0]["inputs"].get("switch"))
+        if type(lightning) is not bool:
+            raise ValueError("invalid FireRed model branch")
+        positive = linked(sampler.get("positive"))
+        if positive.get("class_type") != "TextEncodeQwenImageEditPlus":
+            raise ValueError("unsupported FireRed positive conditioning")
+        settings = FireRedEditSettings(model_name=model, megapixels=scalar(resize.get("resize_type.megapixels")),
+            seed=_optional_seed(scalar(sampler.get("seed"))), mode="lightning" if lightning else "standard",
+            steps=scalar(sampler.get("steps")), cfg=scalar(sampler.get("cfg")))
+        return Krea2EditMetadata(prompt=_optional_text(positive["inputs"].get("prompt")), model_name=model,
+            megapixels=settings.megapixels, seed=settings.seed, steps=settings.steps,
+            firered_settings=settings, origin="png")
+    except (KeyError, StopIteration, TypeError, ValueError):
+        # Do not suggest a FireRed checkpoint in the KREA2 model selector.
+        return Krea2EditMetadata(origin="png", warnings=("Réglages FireRed incomplets : sélectionnez le moteur et ses réglages dans l’atelier.",))
 
 
 def _loras_from_power_loader(inputs: Mapping[str, object]) -> tuple[Krea2LoraSelection, ...]:

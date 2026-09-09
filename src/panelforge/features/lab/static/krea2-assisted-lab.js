@@ -123,6 +123,14 @@
     })
     : Object.freeze({ begin: () => {}, handle: () => {}, finish: () => {}, reset: () => {}, streamUrl: (url) => url });
 
+  const restagingEditor = window.PanelForgeAssistedRestaging.create({
+    request, getProject: () => state.project,
+    getInstruction: () => state.spec?.restaging?.default_instruction || "",
+    onPrepared: async source => {
+      await window.PanelForgeKrea2Edit.openSourceId(source.source_id);
+    },
+  });
+
   async function request(url, options = {}) {
     const response = await fetch(url, options);
     let payload = null;
@@ -369,7 +377,7 @@
     if (!attempt) return null;
     return {
       source: attempt.output_url,
-      name: `Essai ${attempt.index}`,
+      name: attempt.label || `Essai ${attempt.index}`,
       kind: "FEEDBACK VISUEL",
       note: "Prochain échange",
     };
@@ -555,6 +563,16 @@
     return figure;
   }
 
+  window.addEventListener("panelforge:dlss-complete", async event => {
+    const job = event.detail, project = state.project;
+    if (job.snapshot.owner !== "assisted" || project?.project_id !== job.snapshot.owner_id) return;
+    if (state.busy) { setTimeout(() => window.dispatchEvent(new CustomEvent("panelforge:dlss-complete", { detail: job })), 1000); return; }
+    try {
+      const data = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(project.project_id)}`);
+      if (state.project === project) renderProject(data.project, { preservePrompt: true });
+    } catch (error) { setMessage(error.message, true); }
+  });
+
   function renderGallery() {
     elements.gallery.replaceChildren();
     const project = state.project;
@@ -562,11 +580,16 @@
     if (project.reference_url) {
       elements.gallery.append(imageFigure(`${project.reference_url}?v=${encodeURIComponent(project.reference_asset_id)}`, "Référence LLM · non envoyée à ComfyUI", "reference"));
     }
-    [...(project.attempts || [])].reverse().forEach((attempt) => {
+    const groups = window.PanelForgeDlss?.groups(project.attempts || [], `assisted:${project.project_id}`, project.feedback_attempt_id)
+      || (project.attempts || []).map(attempt => ({ attempt }));
+    [...groups].reverse().forEach(group => {
+      const attempt = group.attempt;
       const card = document.createElement("article");
+      card.dataset.attemptId = attempt.attempt_id;
+      if (group.variants) card.append(window.PanelForgeDlss.picker(group, renderGallery));
       card.className = `krea2-assisted-attempt ${attempt.accepted ? "accepted" : ""} ${project.feedback_attempt_id === attempt.attempt_id ? "feedback" : ""}`;
       if (attempt.output_url) {
-        card.append(imageFigure(`${attempt.output_url}?v=${encodeURIComponent(attempt.output_asset_id)}`, `Essai ${attempt.index}`));
+        card.append(imageFigure(`${attempt.output_url}?v=${encodeURIComponent(attempt.output_asset_id)}`, attempt.label || `Essai ${attempt.index}`));
       } else {
         const pending = document.createElement("div");
         pending.className = "krea2-assisted-attempt-placeholder";
@@ -579,19 +602,21 @@
         ? `${resolution.width}×${resolution.height}`
         : settings.aspect_ratio.split(" ")[0];
       const renderMeta = document.createElement("small");
-      renderMeta.textContent = `Modèle · ${compactResourceName(settings.model_id)} · ${resolutionLabel} · ${settings.megapixels} MP`;
-      renderMeta.title = `Checkpoint : ${settings.model_id}\nRésolution : ${resolutionLabel} · ${settings.aspect_ratio} · ${settings.megapixels} MP`;
+      renderMeta.textContent = attempt.dlss ? `DLSS · ${attempt.dlss.width}×${attempt.dlss.height} · réglages de génération hérités` : attempt.composition
+        ? `Composition locale · ${attempt.output_dimensions.width}×${attempt.output_dimensions.height} · taille de la base`
+        : `Modèle · ${compactResourceName(settings.model_id)} · ${resolutionLabel} · ${settings.megapixels} MP`;
+      renderMeta.title = `${attempt.composition ? "Génération d’origine\n" : ""}Checkpoint : ${settings.model_id}\nRésolution : ${resolutionLabel} · ${settings.aspect_ratio} · ${settings.megapixels} MP`;
       const loras = settings.loras || [];
       const loraSummary = loras.length
         ? loras.map((lora) => `${compactResourceName(lora.name, 22)} ×${strengthLabel(lora.strength)}`).join(" · ")
         : "aucune";
       const loraMeta = document.createElement("small");
-      loraMeta.textContent = `LoRA · ${loraSummary}`;
+      loraMeta.textContent = `${attempt.composition ? "LoRA de la génération d’origine" : "LoRA"} · ${loraSummary}`;
       loraMeta.title = loras.length
         ? loras.map((lora) => `${lora.name} ×${strengthLabel(lora.strength)}`).join("\n")
         : "Aucune LoRA utilisée";
       const runMeta = document.createElement("small");
-      runMeta.textContent = `${attemptStatus(attempt)} · ${settings.aspect_ratio.split(" ")[0]} · seed ${attempt.seed}`;
+      runMeta.textContent = `${attemptStatus(attempt)} · ${settings.aspect_ratio.split(" ")[0]} · ${attempt.composition ? "seed d’origine" : "seed"} ${attempt.seed}`;
       card.append(renderMeta, loraMeta, runMeta);
       if (attempt.error) {
         const error = document.createElement("small");
@@ -640,6 +665,14 @@
         save.title = attempt.accepted ? "Image déjà enregistrée" : "Enregistrer cette image";
         save.addEventListener("click", () => saveImage(attempt.attempt_id));
         actions.append(feedback, save);
+        if (window.PanelForgeDlss) actions.append(window.PanelForgeDlss.button({ owner: "assisted", ownerId: project.project_id, attempt }));
+        if (state.spec?.restaging?.enabled) {
+          const compose = document.createElement("button");
+          compose.type = "button";
+          compose.textContent = "Replacer dans un décor";
+          compose.addEventListener("click", () => restagingEditor.open(state.project, attempt));
+          actions.append(compose);
+        }
         const preset = document.createElement("button");
         preset.type = "button";
         preset.textContent = "Créer un preset";
@@ -667,8 +700,10 @@
   }
 
   function renderProject(project, { preservePrompt = false } = {}) {
+    window.PanelForgeLabCore?.observeRenderAttempts?.((project.attempts || []).filter(a => a.kind !== "composition"), `assisted:${project.project_id}`);
     const changed = state.project?.project_id !== project.project_id
       || state.project?.active_branch_id !== project.active_branch_id;
+    if (changed) restagingEditor.close();
     state.project = project;
     elements.editor.hidden = false;
     elements.title.textContent = project.name;
@@ -766,7 +801,7 @@
   }
 
   async function changeBranch(target) {
-    if (state.busy || !state.project) return;
+    if (state.busy || !state.project || restagingEditor.saving) return;
     const projectId = state.project.project_id;
     const draft = elements.prompt.value.trim() ? {
       prompt: elements.prompt.value.trim(), model_id: elements.model.value,
@@ -827,7 +862,7 @@
     const previousRevisionLlm = preserve ? elements.revisionLlm.value : "";
     const previousSlots = state.loraSlots.map((slot) => ({ ...slot }));
     state.spec = await request("/api/image-lab/krea2-assisted/spec");
-    const previousRecipe = elements.assistanceRecipe.value || "2.0.0";
+    const previousRecipe = elements.assistanceRecipe.value || "3.0.0";
     elements.assistanceRecipe.replaceChildren();
     for (const recipe of state.spec.assistance_recipes || []) {
       const option = document.createElement("option");
@@ -859,7 +894,7 @@
   }
 
   async function openProject(projectId) {
-    if (state.busy) return;
+    if (state.busy || restagingEditor.saving) return;
     stopPolling();
     state.navigationSerial += 1;
     clearGuidance();
@@ -881,7 +916,7 @@
 
   async function createProject(event) {
     event.preventDefault();
-    if (state.busy) return;
+    if (state.busy || restagingEditor.saving) return;
     if (!elements.intention.value.trim() && !elements.reference.files[0]) {
       setNewMessage("Ajoute une image de référence ou décris ton intention.");
       return;
@@ -1165,7 +1200,7 @@
   function openPresetDialog(attempt) {
     if (state.busy || !state.project) return;
     state.presetSource = { project_id: state.project.project_id, attempt_id: attempt.attempt_id };
-    elements.presetSource.textContent = `Essai ${attempt.index} · ${attempt.settings.model_id} · ${attempt.settings.loras.length} LoRA`;
+    elements.presetSource.textContent = `${attempt.label || `Essai ${attempt.index}`} · ${attempt.settings.model_id} · ${attempt.settings.loras.length} LoRA${attempt.composition ? " · réglages de la génération d’origine" : ""}`;
     elements.presetTarget.replaceChildren(new Option("Nouveau preset", ""), ...state.presets.map((p) => new Option(`Mettre à jour : ${p.name}`, p.preset_id)));
     elements.presetName.value = state.project.name;
     elements.presetError.textContent = "";

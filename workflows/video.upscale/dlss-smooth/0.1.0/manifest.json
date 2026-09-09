@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "operation": "video.upscale",
+  "recipe_id": "video.upscale.dlss-smooth",
+  "version": "0.1.0",
+  "workflow": {
+    "file": "workflow_api.json",
+    "sha256": "808975afa2933c9ff6d5de650f7c48a687d3e963b7c06ca929a45b9af254fbbb"
+  },
+  "bindings": {
+    "source": {
+      "node": "2",
+      "input": "file"
+    },
+    "prefix": {
+      "node": "6",
+      "input": "filename_prefix"
+    },
+    "size": [
+      {
+        "node": "1",
+        "input": "upscale_mode"
+      }
+    ],
+    "intensity": [
+      {
+        "node": "1",
+        "input": "nr_intensity"
+      }
+    ],
+    "tone": [
+      {
+        "node": "1",
+        "input": "local_tone_strength"
+      }
+    ],
+    "structure": [
+      {
+        "node": "1",
+        "input": "local_structure_strength"
+      }
+    ],
+    "skin": [
+      {
+        "node": "1",
+        "input": "skin_structure_strength"
+      }
+    ],
+    "style": [
+      {
+        "node": "1",
+        "input": "nr_style"
+      }
+    ],
+    "detail": [
+      {
+        "node": "1",
+        "input": "output_detail_strength"
+      }
+    ],
+    "strict_neural": [
+      {
+        "node": "1",
+        "input": "require_neural_upscaling"
+      }
+    ],
+    "hdr": [
+      {
+        "node": "1",
+        "input": "hdr_mode"
+      },
+      {
+        "node": "4",
+        "input": "hdr_mode"
+      }
+    ],
+    "codec": [
+      {
+        "node": "1",
+        "input": "video_codec"
+      },
+      {
+        "node": "4",
+        "input": "video_codec"
+      }
+    ]
+  },
+  "output_node": "6",
+  "report_nodes": [
+    "5",
+    "7"
+  ],
+  "required_nodes": [
+    "LoadVideo",
+    "NvidiaDLSSFrameInterpolation",
+    "NvidiaDLSSVideoUpscale",
+    "PreviewAny",
+    "SaveVideo"
+  ],
+  "progress_stages": [
+    {
+      "node": "1",
+      "key": "upscale",
+      "label": "Upscale"
+    },
+    {
+      "node": "4",
+      "key": "interpolation",
+      "label": "Fluidification 60 FPS"
+    },
+    {
+      "node": "6",
+      "key": "saving",
+      "label": "Enregistrement"
+    }
+  ]
+}

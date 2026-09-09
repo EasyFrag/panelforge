@@ -607,6 +607,7 @@ async function pollRun() {
 }
 
 function renderRun(run) {
+  window.PanelForgeLabCore?.observeRenderOutcome?.(`change-view-run:${run.run_id}`, run.status);
   state.runId = run.run_id;
   ui["compiled-prompt"].value = run.compiled_prompt;
   const active = run.status === "created" || run.status === "submitted";

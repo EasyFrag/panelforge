@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from panelforge.domain.h3_render import validate_h3_initial_megapixels
+
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
@@ -74,8 +76,8 @@ Return raw JSON only, with exactly these fields:
 
 The complete prompt is always required and immediately runnable after application compilation. Rewrite the CURRENT H3 PROMPT directly; never return a Brief, JSON action plan, patch, diff or commentary inside the prompt. Preserve the exact input-mode reference-alignment header, canonical Picture labels, the three sections integrated_multimodal_description, overall_soundscape and non_diegetic_music, and every explicit quoted dialogue unless the user explicitly asks to change it. Preserve the shot count and cut timestamps unless the user explicitly requests a structural change.
 
-Camera tokens such as [[camera:camera_1]] are application-owned. Copy every supplied token exactly once at the same chronological position and write no other camera, lens, framing, zoom, pan, tilt, tracking, orbit, dolly or crane prose. When the user does not explicitly request a camera change, camera_directives must be null. When the user explicitly requests a camera change, return one object per supplied token in the same order with exactly id, start_ms, motion, amplitude, speed and target_clause. Use only the motion enum shown in the CAMERA CONTRACT; use null for absent amplitude, speed or target_clause. Never add or remove a camera token.
-camera_directives must always be a JSON array when it is not null, including when there is exactly one camera token. Follow the target_clause prefix and forbidden-term rules from the CAMERA CONTRACT exactly.
+Camera tokens such as [[camera:camera_1]] are application-owned. Copy every supplied token exactly once at the same chronological position and write no additional camera-control or lens instructions outside these tokens. Scene composition is allowed in the action prose: say which subjects and surroundings remain visible together at the relevant moment, without adding a camera movement. If a visibility-only correction leaves the compiled movement unchanged, camera_directives may remain null; do not replace a requested slight shake with static_shot merely to keep the scene visible. When the user does not explicitly request a camera change, camera_directives must be null. When changing a directive, return one object per supplied token in the same order with exactly id, start_ms, motion, amplitude, speed and target_clause. Use only the motion enum shown in the CAMERA CONTRACT. Never add or remove a camera token.
+camera_directives must always be a JSON array when it is not null, including when there is exactly one camera token. Apply the motion-specific null requirements from the CAMERA CONTRACT before considering a target_clause; its prefix rules only apply when that motion accepts a target.
 
 GENERATED KEYFRAMES are visual evidence sampled away from expected cut boundaries. Compare them with the user's goal and the exact render settings. They reveal composition, continuity and visible motion states, but not voice quality, music, sound, fine lip sync or everything occurring between samples. Never claim to have heard the video. Treat the newest user message as authoritative for audiovisual problems that keyframes cannot prove.
 
@@ -95,8 +97,8 @@ Return raw JSON only, with exactly these fields:
 
 The complete prompt is always required and immediately runnable after application compilation. Rewrite the CURRENT H3 PROMPT directly; never return a Brief, action plan, patch or diff. Preserve the application-owned opening <Picture N> reference rules exactly, followed by the scene setup, Shot 1, overall_soundscape and non_diegetic_music. Preserve every explicit quoted dialogue unless the user explicitly asks to change it. Never invent, remove, renumber or reinterpret a reference.
 
-Camera tokens such as [[camera:camera_1]] are application-owned. Copy every supplied token exactly once at the same chronological position and write no other camera, lens, framing, zoom, pan, tilt, tracking, orbit, dolly or crane prose. When the user does not explicitly request a camera change, camera_directives must be null. When the user explicitly requests a camera change, return one object per supplied token in the same order with exactly id, start_ms, motion, amplitude, speed and target_clause. Use only the motion enum shown in the CAMERA CONTRACT; use null for absent amplitude, speed or target_clause. Never add or remove a camera token.
-camera_directives must always be a JSON array when it is not null, including when there is exactly one camera token. Follow the target_clause prefix and forbidden-term rules from the CAMERA CONTRACT exactly.
+Camera tokens such as [[camera:camera_1]] are application-owned. Copy every supplied token exactly once at the same chronological position and write no additional camera-control or lens instructions outside these tokens. Scene composition is allowed in the action prose: say which subjects and surroundings remain visible together at the relevant moment, without adding a camera movement. If a visibility-only correction leaves the compiled movement unchanged, camera_directives may remain null; do not replace a requested slight shake with static_shot merely to keep the scene visible. When the user does not explicitly request a camera change, camera_directives must be null. When changing a directive, return one object per supplied token in the same order with exactly id, start_ms, motion, amplitude, speed and target_clause. Use only the motion enum shown in the CAMERA CONTRACT. Never add or remove a camera token.
+camera_directives must always be a JSON array when it is not null, including when there is exactly one camera token. Apply the motion-specific null requirements from the CAMERA CONTRACT before considering a target_clause; its prefix rules only apply when that motion accepts a target.
 
 GENERATED KEYFRAMES are visual samples, not audio evidence. Use them to compare composition, continuity and visible motion with the user's goal and exact render settings. Never claim to have heard the video. Keep the Ref2V shot chronological, physically achievable and concise; each timed event appears once and ongoing motion remains visible through the cut when requested. Do not output Markdown or text outside the JSON."""
 
@@ -172,6 +174,8 @@ class H3RenderRecipe(Protocol):
     def maximum_keyframes(self) -> int: ...
     @property
     def supports_video_lora(self) -> bool: ...
+    @property
+    def supports_initial_megapixels(self) -> bool: ...
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]: ...
     def build_workflow(
         self,
@@ -185,6 +189,7 @@ class H3RenderRecipe(Protocol):
         keyframe_indices: tuple[int, ...],
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
+        initial_megapixels: float = 0.2,
     ) -> dict[str, Any]: ...
 
 
@@ -549,7 +554,9 @@ class H3RenderService:
         music_enabled: bool = False,
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
+        initial_megapixels: float = 0.2,
     ) -> H3RenderProject:
+        validate_h3_initial_megapixels(initial_megapixels)
         prompt = _bounded_text(prompt, "prompt", 60_000)
         if not isinstance(settings, VideoLabSettings):
             raise TypeError("settings must be VideoLabSettings")
@@ -562,6 +569,8 @@ class H3RenderService:
         with self._lock:
             project = self.projects.get(project_id)
             recipe = self._recipe_for(project)
+            if initial_megapixels != 0.2 and not getattr(recipe, "supports_initial_megapixels", False):
+                raise ValueError("Ce workflow fixe la génération initiale à 0,2 MP.")
             if video_lora is not None:
                 if not recipe.supports_video_lora:
                     raise ValueError("H3 video LoRA is not available for this workflow")
@@ -588,7 +597,7 @@ class H3RenderService:
             )
             attempt = H3RenderAttempt(
                 attempt_id=self._attempt_id_factory(),
-                index=len(project.attempts) + 1,
+                index=max((a.index for a in project.attempts if a.dlss is None), default=0) + 1,
                 prompt=prompt,
                 effective_prompt=effective_prompt,
                 settings=settings,
@@ -596,6 +605,7 @@ class H3RenderService:
                 keyframe_timestamps_ms=timestamps,
                 spectrum_enabled=spectrum_enabled,
                 video_lora=video_lora,
+                initial_megapixels=initial_megapixels,
                 warnings=(duration_warning,) if duration_warning else (),
             )
             project = replace(project, current_prompt=prompt)
@@ -662,6 +672,8 @@ class H3RenderService:
                     keyframe_indices=keyframe_indices,
                     spectrum_enabled=attempt.spectrum_enabled,
                     video_lora=attempt.video_lora,
+                    **({"initial_megapixels": attempt.initial_megapixels}
+                       if getattr(recipe, "supports_initial_megapixels", False) else {}),
                 )
             workflow_digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
             with self._lock:
@@ -1434,6 +1446,7 @@ def _attempt_context(attempt: H3RenderAttempt | None) -> str:
     return json.dumps({
         "attempt_id": attempt.attempt_id,
         "prompt_used": attempt.effective_prompt,
+        "initial_megapixels": attempt.initial_megapixels,
         "aspect_ratio": attempt.settings.aspect_ratio.value,
         "megapixels": attempt.settings.megapixels,
         "duration_seconds": attempt.settings.duration_seconds,
@@ -1515,7 +1528,16 @@ def _camera_contract_prompt(camera_clauses: tuple[str, ...]) -> str:
         "one object per token, even when there is only one token. Each object has exactly "
         "id, start_ms, motion, amplitude, speed, target_clause. "
         f"Allowed motion values: {motions}. Amplitude: small, large or null. "
-        "Speed: slow, fast or null. target_clause must be null/empty or begin with exactly one "
+        "Speed: slow, fast or null.\n"
+        "Motion-specific requirements: for shake.slightly, shake.strongly and pov, "
+        "amplitude, speed and target_clause must all be null. Their dynamics are already built in. "
+        "For static_shot, amplitude and speed must be null; a target_clause is allowed. "
+        "For the other motions, modifiers and target_clause are optional.\n"
+        "Keep visibility constraints in the scene/action prose when a motion cannot accept a target: "
+        "for example, 'Both people and the doorway remain visible together.' This is permitted scene "
+        "composition, not a second camera instruction. If the compiled movement remains unchanged, "
+        "camera_directives may be null.\n"
+        "For motions that accept a target, target_clause must be null/empty or begin with exactly one "
         "of these spatial or visual continuations: to, toward, onto, into, from, behind, beside, "
         "above, below, away from, around, along, across, past, through, following, keeping, "
         "maintaining, revealing, showing, centered on, focused on, ending on, framing, holding, "
@@ -1524,7 +1546,10 @@ def _camera_contract_prompt(camera_clauses: tuple[str, ...]) -> str:
         "track, shake, POV, point-of-view, roll, dolly, orbit, crane, handheld.\n"
         "Valid one-token JSON shape: "
         '[{"id":"camera_1","start_ms":0,"motion":"push.in","amplitude":"small",'
-        '"speed":"slow","target_clause":"toward the rider as she passes"}]'
+        '"speed":"slow","target_clause":"toward the rider as she passes"}]\n'
+        "Valid slight-shake directive: "
+        '[{"id":"camera_1","start_ms":0,"motion":"shake.slightly","amplitude":null,'
+        '"speed":null,"target_clause":null}]'
     )
 
 
@@ -1577,7 +1602,12 @@ def _revision_camera_clauses(
                 target_clause=(item.get("target_clause") or ""),
             )
         except (TypeError, ValueError) as error:
-            raise ValueError(f"invalid camera directive {expected_id}: {error}") from error
+            hint = ""
+            if "does not accept a target clause" in str(error):
+                hint = ". Set target_clause to null and preserve the visibility constraint in the scene/action prose."
+            elif "does not accept amplitude or speed modifiers" in str(error):
+                hint = ". Set amplitude and speed to null; this motion already defines its dynamics."
+            raise ValueError(f"invalid camera directive {expected_id}: {error}{hint}") from error
         clause = compile_camera_motion(directive)
         if start_ms:
             minutes, remainder = divmod(start_ms, 60_000)

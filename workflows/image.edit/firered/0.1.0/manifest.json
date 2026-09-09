@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "operation_id": "image.edit",
+  "recipe_id": "firered.image_edit",
+  "version": "0.1.0",
+  "engine": "firered",
+  "model_version": "1.1",
+  "status": "experimental",
+  "display_name": "FireRed 1.1",
+  "workflow_file": "workflow_api.json",
+  "workflow_sha256": "dd1e6ea1668edb64de057e1dc900dfe3fd2951685e2f91dd2d7cbc5fd6456660",
+  "inputs": {
+    "source_image": {
+      "node_id": "143",
+      "input": "image"
+    },
+    "prompt": {
+      "node_id": "192:187",
+      "input": "prompt"
+    },
+    "megapixels": {
+      "node_id": "192:191",
+      "input": "resize_type.megapixels"
+    },
+    "seed": {
+      "node_id": "192:189",
+      "input": "seed"
+    },
+    "lightning": {
+      "node_id": "192:186",
+      "input": "value"
+    },
+    "steps_lightning": {
+      "node_id": "192:177",
+      "input": "value"
+    },
+    "steps_standard": {
+      "node_id": "192:174",
+      "input": "value"
+    },
+    "cfg_lightning": {
+      "node_id": "192:179",
+      "input": "value"
+    },
+    "cfg_standard": {
+      "node_id": "192:178",
+      "input": "value"
+    },
+    "output_prefix": {
+      "node_id": "9",
+      "input": "filename_prefix"
+    }
+  },
+  "components": {
+    "model": {
+      "node_id": "192:184",
+      "input": "unet_name"
+    },
+    "clip": {
+      "node_id": "192:182",
+      "input": "clip_name"
+    },
+    "vae": {
+      "node_id": "192:181",
+      "input": "vae_name"
+    },
+    "lightning_lora": {
+      "node_id": "192:183",
+      "input": "lora_name"
+    }
+  },
+  "output": {
+    "node_id": "9",
+    "history_field": "images",
+    "media_type": "image/png"
+  }
+}

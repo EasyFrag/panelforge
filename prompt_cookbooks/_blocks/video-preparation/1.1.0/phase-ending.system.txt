@@ -1,0 +1,2 @@
+PHASES AND ENDING
+A completed part may match its last-frame appearance early while the worker or environment keeps moving. That local result is not the final state of the whole scene. continue_motion concerns only the action still active at the cut; name it in motion_contract.primary_motion when present. Preserve requested stops, but do not freeze the scene to display a finished object. Local completion requires no special pass-through wording.

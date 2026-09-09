@@ -1,8 +1,10 @@
 """Durable local store for conversational H3 Base render projects."""
 
 from __future__ import annotations
+from panelforge.domain.dlss import DlssResult
 
 from datetime import UTC, datetime
+from dataclasses import asdict
 import hashlib
 import json
 import os
@@ -115,7 +117,7 @@ class LocalH3RenderProjectStore:
 
 def _serialize(project: H3RenderProject) -> dict[str, object]:
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "source_session_id": project.source_session_id,
@@ -165,6 +167,7 @@ def _serialize(project: H3RenderProject) -> dict[str, object]:
 def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
     return {
         "attempt_id": attempt.attempt_id,
+        "dlss": asdict(attempt.dlss) if attempt.dlss else None,
         "index": attempt.index,
         "prompt": attempt.prompt,
         "effective_prompt": attempt.effective_prompt,
@@ -177,6 +180,7 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
             "seed_locked": attempt.settings.seed_locked,
         },
         "music_enabled": attempt.music_enabled,
+        "initial_megapixels": attempt.initial_megapixels,
         "spectrum_enabled": attempt.spectrum_enabled,
         "video_lora": (
             {
@@ -207,7 +211,7 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> H3RenderProject:
-    if value.get("schema_version") not in {1, 2, 3}:
+    if value.get("schema_version") not in {1, 2, 3, 4}:
         raise ValueError("unsupported H3 render project schema")
     return H3RenderProject(
         project_id=value["project_id"],
@@ -262,6 +266,7 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
     video_lora = value.get("video_lora")
     return H3RenderAttempt(
         attempt_id=value["attempt_id"],
+        dlss=DlssResult(**value["dlss"]) if value.get("dlss") else None,
         index=value["index"],
         prompt=value["prompt"],
         effective_prompt=value["effective_prompt"],
@@ -274,6 +279,7 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
             seed_locked=settings.get("seed_locked", False),
         ),
         music_enabled=value["music_enabled"],
+        initial_megapixels=value.get("initial_megapixels", 0.2),
         spectrum_enabled=value.get("spectrum_enabled", False),
         video_lora=(
             H3VideoLoraSelection(

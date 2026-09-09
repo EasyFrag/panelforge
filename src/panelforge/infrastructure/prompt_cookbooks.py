@@ -219,7 +219,7 @@ class LocalPromptCookbookCatalog:
         ):
             raise ValueError("preparation_steps does not match cookbook stages")
         if schema_version >= 8 and (preparation_steps == 1) != (
-            manifest["output_contract"] == "minimax.h3.mono.prompt_direct_v1"
+            manifest["output_contract"] in {"minimax.h3.mono.prompt_direct_v1", "minimax.h3.multishot.prompt_direct_v1"}
         ):
             raise ValueError("preparation_steps does not match the output contract")
         template_keys = {

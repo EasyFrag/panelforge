@@ -1,0 +1,50 @@
+{
+  "load": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example.png"
+    }
+  },
+  "model": {
+    "class_type": "UpscaleModelLoader",
+    "inputs": {
+      "model_name": "4x-ClearRealityV1.pth"
+    }
+  },
+  "upscale": {
+    "class_type": "ImageUpscaleWithModel",
+    "inputs": {
+      "image": [
+        "load",
+        0
+      ],
+      "upscale_model": [
+        "model",
+        0
+      ]
+    }
+  },
+  "size": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "upscale",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": 1024,
+      "height": 1024,
+      "crop": "disabled"
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "size",
+        0
+      ],
+      "filename_prefix": "image/upscale"
+    }
+  }
+}

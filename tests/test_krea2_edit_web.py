@@ -1,9 +1,12 @@
 import json
+from dataclasses import replace
+import os
 from pathlib import Path
 import struct
 import tempfile
 import unittest
 import zlib
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -149,6 +152,97 @@ class Krea2EditWebTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.client.close()
         self.temporary.cleanup()
+
+    def test_recent_backlog_loads_three_projects_and_keeps_the_open_older_project(self):
+        uploaded = self.client.post("/api/image-lab/krea2-edit/sources",
+                                    files={"source_image": ("wall.png", PNG, "image/png")})
+        original = self.edit.sources.get(uploaded.json()["source"]["source_id"])
+        for index in range(5):
+            source = replace(original, source_id=f"workshop-{index}", project_id=f"workshop-{index}")
+            self.edit.sources.create(source)
+            path = Path(self.temporary.name) / "krea2_edits" / source.source_id / "source.json"
+            os.utime(path, (2_000_000_000 + index, 2_000_000_000 + index))
+        with patch.object(self.edit.sources, "list", wraps=self.edit.sources.list) as scan:
+            response = self.client.get("/api/image-lab/krea2-edit/sources?project_limit=3")
+            self.assertEqual(response.status_code, 200, response.text)
+            scan.assert_called_once()
+        recent = response.json()
+        self.assertEqual(recent["backlog_project_ids"], ["workshop-4", "workshop-3", "workshop-2"])
+        self.assertEqual(recent["project_count"], 6)
+        self.assertEqual(len(recent["sources"]), 3)
+        pinned = self.client.get("/api/image-lab/krea2-edit/sources", params={
+            "project_limit": 3, "project_id": original.project_id,
+        }).json()
+        self.assertEqual(pinned["backlog_project_ids"], recent["backlog_project_ids"])
+        self.assertEqual(len(pinned["sources"]), 4)
+        self.assertIn(original.source_id, [s["source_id"] for s in pinned["sources"]])
+        expanded = self.client.get("/api/image-lab/krea2-edit/sources?project_limit=2147483647").json()
+        self.assertEqual(len(expanded["backlog_project_ids"]), 6)
+        legacy = self.client.get("/api/image-lab/krea2-edit/sources?limit=100").json()
+        self.assertEqual(len(legacy["sources"]), 6)
+        self.assertEqual(self.client.get("/api/image-lab/krea2-edit/sources?project_limit=-1").status_code, 422)
+        self.assertEqual(self.edit.sources.get(original.source_id), original)
+        self.assertEqual(self.comfy.submitted, [])
+        self.assertEqual(self.gateway.requests, [])
+
+    def test_imported_workflow_defaults_and_selection_are_exposed_without_rendering(self):
+        uploaded = self.client.post("/api/image-lab/krea2-edit/sources", files={"source_image": ("wall.png", PNG, "image/png")})
+        source_id = uploaded.json()["source"]["source_id"]
+        old = self.edit.workflow
+        self.edit.workflow = load_krea2_edit_workflow(EDIT_WORKFLOW.parent / "0.2.0")
+        self.edit.workflows = (self.edit.workflow, old)
+        spec = self.client.get("/api/image-lab/krea2-edit/spec").json()
+        self.assertEqual(spec["recipe"]["version"], "0.2.0")
+        self.assertEqual(spec["defaults"]["ref_boost"], 4)
+        self.assertEqual(spec["limits"]["ref_boost"]["maximum"], 1000)
+        self.assertEqual(spec["defaults"]["model_id"], "Krea2/krea2_turbo_bf16.safetensors")
+        self.assertEqual([w["version"] for w in spec["workflows"]], ["0.2.0", "0.1.0"])
+        body = {"prompt":"Replace paint with soil.", "model_id":spec["defaults"]["model_id"],
+                "aspect_ratio":"9:16 (Portrait Widescreen)", "megapixels":2.1, "seed":"42", "ref_boost":25.5}
+        attempt_ids = iter(f"edit-attempt-{index}" for index in range(4))
+        self.edit._attempt_id_factory = lambda: next(attempt_ids)
+        for selection, expected_version in (
+            ({"workflow_version": "0.2.0"}, "0.2.0"),
+            ({"workflow_version": "0.1.0"}, "0.1.0"),
+            ({}, "0.2.0"),
+            ({"workflow_version": None}, "0.2.0"),
+        ):
+            with self.subTest(selection=selection):
+                response = self.client.post(
+                    f"/api/image-lab/krea2-edit/sources/{source_id}/attempts",
+                    json={**body, **selection},
+                )
+                self.assertEqual(response.status_code, 201, response.text)
+                source = response.json()["source"]
+                self.assertEqual(source["recipe"]["version"], "0.1.0")
+                self.assertEqual(source["attempts"][-1]["workflow_version"], expected_version)
+                self.assertEqual(self.edit.sources.get(source_id).attempts[-1].recipe.version, expected_version)
+                self.assertEqual(self.edit.sources.get(source_id).attempts[-1].settings.ref_boost, 25.5)
+                self.assertEqual(source["attempts"][-1]["settings"]["ref_boost"], 25.5)
+                self.assertEqual(source["attempts"][-1]["status"], "created")
+        bad = self.client.post(f"/api/image-lab/krea2-edit/sources/{source_id}/attempts", json={**body,"workflow_version":"99.0.0"})
+        self.assertEqual(bad.status_code, 422, bad.text)
+        self.assertEqual(len(self.edit.sources.get(source_id).attempts), 4)
+        self.assertEqual(self.comfy.submitted, [])
+        self.assertEqual(self.gateway.requests, [])
+
+    def test_v3_routes_short_edit_instructions_and_restores_version_over_http(self):
+        from tests.test_krea2_edit import FakeGateway
+
+        prompt = "Replace the paint with brown soil."
+        self.edit.gateway = FakeGateway(json.dumps({"message": "Je propose de la terre.", "prompt": prompt}))
+        uploaded = self.client.post("/api/image-lab/krea2-edit/sources", files={"source_image": ("wall.png", PNG, "image/png")})
+        source_id = uploaded.json()["source"]["source_id"]
+        response = self.client.post(f"/api/image-lab/krea2-edit/sources/{source_id}/prompt/stream", json={
+            "instruction": "Remplace la peinture par de la terre", "model_id": "fake", "assistance_version": "3.0.0",
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        source = next(e["source"] for e in reversed(decode_sse(response.text)) if "source" in e)
+        self.assertEqual(source["generated_prompt"], prompt)
+        self.assertEqual(source["revisions"][-1]["assistance_version"], "3.0.0")
+        self.assertEqual(self.edit.gateway.requests[-1].operation_id, "krea2.edit.conversation@3.0.0")
+        self.assertEqual(self.edit.sources.get(source_id).revisions[-1].assistance_version, "3.0.0")
+        self.assertEqual(self.comfy.submitted, [])
 
     def test_conversation_version_is_forwarded_and_french_reply_is_exposed(self):
         from tests.test_krea2_edit import FakeGateway
@@ -301,11 +395,16 @@ class Krea2EditWebTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('id="krea2-edit-lab-workspace"', html)
-        self.assertIn('/static/krea2-edit-lab.js?v=20260905.1', html)
+        self.assertIn('/static/krea2-edit-lab.js?v=20260909.1', html)
+        self.assertIn('id="krea2-edit-workflow"', html)
+        self.assertIn('id="krea2-edit-workflow-defaults"', html)
         self.assertIn('id="krea2-edit-compare-slider"', html)
         self.assertIn('type="range"', html)
         self.assertIn('aria-label="Conversation de cette étape"', html)
-        self.assertIn('assistance_version: "2.0.0"', script)
+        self.assertIn('assistance_version: elements.assistanceVersion.value', script)
+        self.assertIn('id="krea2-edit-assistance-version"', html)
+        self.assertIn('V3 — Modifications ciblées', html)
+        self.assertIn('V2 — Description complète', html)
         self.assertIn('makeZoomable(image, image.alt)', script)
         self.assertIn('setPointerCapture', script)
         self.assertIn('assistant_message', script)

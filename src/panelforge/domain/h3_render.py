@@ -1,6 +1,7 @@
 """Pure state for conversational H3 Base video rendering projects."""
 
 from __future__ import annotations
+from .dlss import DlssResult, validate_dlss_attempt, validate_dlss_lineage
 
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -13,6 +14,14 @@ from .video_lab import VideoAspectRatio, VideoLabSettings
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 H3_VIDEO_LORA_PREFIX = "minmax_nsfw/"
 H3_VIDEO_LORA_OVERLAY_VERSION = "0.1.0"
+
+
+def validate_h3_initial_megapixels(value: float) -> None:
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or not 0.1 <= value <= 16.0):
+        raise ValueError("Les MP avant upscale doivent être compris entre 0,1 et 16.")
+    if not math.isclose(value * 10, round(value * 10)):
+        raise ValueError("Les MP avant upscale doivent utiliser un pas de 0,1.")
 
 
 class H3RenderInputMode(StrEnum):
@@ -153,9 +162,12 @@ class H3RenderAttempt:
     keyframes: tuple[H3RenderKeyframe, ...] = ()
     error: str | None = None
     warnings: tuple[str, ...] = ()
+    initial_megapixels: float = 0.2
+    dlss: DlssResult | None = None
 
     def __post_init__(self) -> None:
         _text(self.attempt_id, "attempt_id")
+        validate_h3_initial_megapixels(self.initial_megapixels)
         if isinstance(self.index, bool) or not isinstance(self.index, int) or self.index < 1:
             raise ValueError("attempt index must be positive")
         _text(self.prompt, "prompt")
@@ -274,6 +286,9 @@ class H3RenderAttempt:
         )
 
     def _validate_state(self) -> None:
+        if self.dlss is not None:
+            validate_dlss_attempt(self)
+            return
         if self.status in {H3RenderAttemptStatus.CREATED, H3RenderAttemptStatus.QUEUED}:
             if any((self.execution_id, self.compiled_workflow_sha256, self.output_asset_id, self.error)) or self.keyframes:
                 raise ValueError("created or queued attempt contains execution fields")
@@ -377,6 +392,7 @@ class H3RenderProject:
             raise ValueError("turn IDs must be unique")
         if len({value.attempt_id for value in self.attempts}) != len(self.attempts):
             raise ValueError("attempt IDs must be unique")
+        validate_dlss_lineage(self.attempts)
         if self.feedback_attempt_id is not None:
             attempt = self.attempt(self.feedback_attempt_id)
             if attempt.status is not H3RenderAttemptStatus.SUCCEEDED:

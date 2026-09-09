@@ -21,9 +21,9 @@ class RecipePickerBrowserTest(unittest.TestCase):
           const select = document.querySelector('select');
           const core = window.PanelForgeLabCore;
           const keys = [
-            'minimax.h3.fl2va.direct.guided@1.0.0',
-            'minimax.h3.fl2va.direct.planned@1.0.0',
-            'minimax.h3.fl2va.direct.prompt@1.0.0',
+            'minimax.h3.fl2va.direct.guided@1.1.0',
+            'minimax.h3.fl2va.direct.planned@1.1.0',
+            'minimax.h3.fl2va.direct.prompt@1.1.0',
             'minimax.h3.ref2v.direct.guided@1.0.0',
             'minimax.h3.ref2v.direct.planned@1.0.0',
             'minimax.h3.ref2v.direct.prompt@1.0.0',
@@ -37,33 +37,59 @@ class RecipePickerBrowserTest(unittest.TestCase):
             'minimax.h3.ref2v.direct.multishot.superfast@0.2.0',
             'minimax.h3.fl2va.direct@0.4.0',
             'minimax.h3.ref2v.direct@0.5.0',
+            'minimax.h3.fl2va.direct.guided@1.0.0',
+            'minimax.h3.fl2va.direct.planned@1.0.0',
+            'minimax.h3.fl2va.direct.prompt@1.0.0',
           ];
           keys.forEach(key => { const option = new Option(key, key); select.add(option); });
           const visible = () => [...select.options].filter(option => !option.hidden).map(option => option.value);
           const check = (condition, message) => { if (!condition) throw new Error(message); };
           core.refreshRecipeVisibility(select);
-          check(visible().length === 8, 'three routes and experimental recipes across both families');
+          check(visible().length === 7, 'three routes per family and Ref2V experimental');
+          check(core.recipeTier(keys[14]) === 'historical' && !visible().includes(keys[14]), 'H3 compact recipe archived');
+          check(keys.slice(16).every(key => core.recipeTier(key) === 'historical' && !visible().includes(key)), 'H3 1.0 routes archived');
           const advanced = document.querySelector('[data-recipe-tier="advanced"]');
           advanced.checked = true;
           advanced.dispatchEvent(new Event('change'));
-          check(visible().length === 12, 'advanced recipes revealed');
+          check(visible().length === 10, 'advanced recipes revealed; old H3 multi-shot is historical');
           const historical = document.querySelector('[data-recipe-tier="historical"]');
           historical.checked = true;
           historical.dispatchEvent(new Event('change'));
-          check(visible().length === 16, 'history revealed');
-          select.value = keys[7];
+          check(visible().length === 19, 'history revealed');
+          select.value = keys[16];
           historical.checked = false;
           advanced.checked = false;
           core.refreshRecipeVisibility(select);
-          check(select.value === keys[7] && visible().includes(keys[7]), 'saved historical version retained');
+          check(select.value === keys[16] && visible().includes(keys[16]), 'saved 1.0 guided version retained');
           select.disabled = true;
           core.refreshRecipeVisibility(select);
-          check(select.disabled && select.value === keys[7], 'locked run unchanged');
+          check(select.disabled && select.value === keys[16], 'locked run unchanged');
           select.disabled = false;
           select.value = keys[0];
           select.dispatchEvent(new Event('change'));
-          check(visible().length === 8, 'old version hidden after returning to standard');
+          check(visible().length === 7, 'old version hidden after returning to standard');
           check(document.querySelectorAll('details').length === 1, 'no duplicate disclosures');
+          const familySelect = document.createElement('select');
+          familySelect.id = 'h3-family';
+          const familyLabel = document.createElement('label');
+          familyLabel.append(familySelect); document.body.append(familyLabel);
+          for (const family of ['mono', 'multi']) {
+            for (const route of ['guided', 'planned', 'prompt']) {
+              const key = family === 'mono' ? `minimax.h3.fl2va.direct.${route}@1.1.0`
+                : `minimax.h3.fl2va.direct.multishot.${route}@1.0.0`;
+              const option = new Option(key, key); option.dataset.recipeFamily = family; familySelect.add(option);
+            }
+          }
+          const familyVisible = () => [...familySelect.options].filter(o => !o.hidden);
+          familySelect.dataset.recipeFamily = 'mono'; core.refreshRecipeVisibility(familySelect);
+          check(familyVisible().length === 3 && familyVisible().every(o => o.dataset.recipeFamily === 'mono'), 'three mono routes only');
+          familySelect.value = 'minimax.h3.fl2va.direct.multishot.planned@1.0.0';
+          familySelect.dataset.recipeFamily = 'multi'; core.refreshRecipeVisibility(familySelect);
+          check(familyVisible().length === 3 && familyVisible().every(o => o.dataset.recipeFamily === 'multi'), 'three multi routes only');
+          const oldMulti = new Option('old multi', 'minimax.h3.fl2va.direct.multishot@0.1.0');
+          oldMulti.dataset.recipeFamily = 'multi'; familySelect.add(oldMulti); familySelect.value = oldMulti.value;
+          core.refreshRecipeVisibility(familySelect);
+          check(!oldMulti.hidden && core.recipeTier(oldMulti.value) === 'historical', 'saved old multi remains selectable');
           const elements = { steps: {}, chips: {} };
           for (const name of ['brief', 'plan', 'prompt']) {
             const chip = document.createElement('div');

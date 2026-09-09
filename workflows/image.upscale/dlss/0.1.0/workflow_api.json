@@ -1,0 +1,56 @@
+{
+  "1": {
+    "inputs": {
+      "upscale_mode": "2× (Performance)",
+      "require_neural_upscaling": false,
+      "nr_preset": "Default",
+      "nr_style": "Default",
+      "nr_intensity": 2,
+      "local_tone_strength": 2,
+      "local_structure_strength": 2,
+      "skin_structure_strength": 2,
+      "automatic_mask": false,
+      "dlss_model_preset": "Default",
+      "output_detail_strength": 1,
+      "image": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "NvidiaDLSSImageUpscale",
+    "_meta": {
+      "title": "NVIDIA DLSS Image Upscale"
+    }
+  },
+  "2": {
+    "inputs": {
+      "image": "example.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "3": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "1",
+        0
+      ],
+      "filename_prefix": "dlss/image"
+    }
+  },
+  "5": {
+    "inputs": {
+      "source": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview as Text"
+    }
+  }
+}

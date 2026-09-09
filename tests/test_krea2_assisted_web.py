@@ -233,10 +233,16 @@ class Krea2AssistedWebTest(unittest.TestCase):
         self.assertEqual(self.gateway.requests, [])
 
     def test_v2_chat_pins_recipe_on_project_and_turns(self):
+        self._assert_chat_pins_recipe("2.0.0")
+
+    def test_v3_chat_pins_recipe_on_project_and_turns(self):
+        self._assert_chat_pins_recipe("3.0.0")
+
+    def _assert_chat_pins_recipe(self, version):
         created = self.client.post(
             "/api/image-lab/krea2-assisted/projects",
             data={"name": "Shoe", "intention": "A glass shoe", "model_id": "fake",
-                  "assistance_recipe_version": "2.0.0"},
+                  "assistance_recipe_version": version},
         )
         self.assertEqual(created.status_code, 201)
         project_id = created.json()["project"]["project_id"]
@@ -245,16 +251,22 @@ class Krea2AssistedWebTest(unittest.TestCase):
             json={"message": "Keep the red glass and change the pose", "mode": "creation"},
         )
         terminal = decode_sse(streamed.text)[-1]
-        self.assertEqual(terminal["project"]["assistance_recipe_version"], "2.0.0")
+        self.assertEqual(terminal["project"]["assistance_recipe_version"], version)
         self.assertEqual(len(terminal["project"]["turns"]), 2)
-        self.assertTrue(all(turn["assistance_recipe_version"] == "2.0.0" for turn in terminal["project"]["turns"]))
-        restored = self.client.get(f"/api/image-lab/krea2-assisted/projects/{project_id}").json()["project"]
-        self.assertEqual(restored["assistance_recipe_version"], "2.0.0")
+        self.assertTrue(all(turn["assistance_recipe_version"] == version
+                            for turn in terminal["project"]["turns"]))
+        self.assertEqual(self.gateway.requests[-1].operation_id,
+                         f"krea2.assisted.creation_chat@{version}")
+        restored = self.client.get(
+            f"/api/image-lab/krea2-assisted/projects/{project_id}"
+        ).json()["project"]
+        self.assertEqual(restored["assistance_recipe_version"], version)
+        self.assertEqual(self.service.comfy.workflows, [])
 
     def test_project_chat_and_single_t2i_render(self):
         spec = self.client.get("/api/image-lab/krea2-assisted/spec")
         self.assertEqual(spec.status_code, 200)
-        self.assertEqual([item["version"] for item in spec.json()["assistance_recipes"]], ["1.0.0", "2.0.0"])
+        self.assertEqual([item["version"] for item in spec.json()["assistance_recipes"]], ["1.0.0", "2.0.0", "3.0.0"])
         self.assertEqual(spec.json()["limits"]["lora_count"], 10)
         model = spec.json()["render_models"][0]["comfy_name"]
         lora = spec.json()["loras"][0]["comfy_name"]

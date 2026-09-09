@@ -1,8 +1,10 @@
 """Durable local store for conversational KREA2 creation projects."""
 
 from __future__ import annotations
+from panelforge.domain.dlss import DlssResult
 
 from datetime import UTC, datetime
+from dataclasses import asdict
 import hashlib
 import json
 import os
@@ -11,6 +13,7 @@ import re
 import tempfile
 from threading import RLock
 from typing import Any
+from panelforge.domain.assisted_composition import AssistedComposition
 
 from panelforge.domain.krea2_assisted import (
     Krea2AssistedAttempt,
@@ -109,7 +112,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
     branches = project.conversation_branches()
     turns = {turn.turn_id: turn for branch in branches for turn in branch.turns}
     return {
-        "schema_version": 6,
+        "schema_version": 8,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "name": project.name,
@@ -120,6 +123,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
         "prompt_language": project.prompt_language.value,
         "reference_asset_id": project.reference_asset_id,
         "reference_filename": project.reference_filename,
+        "composition_base_asset_id": project.composition_base_asset_id,
         "turns": [_turn(turn) for turn in project.turns],
         "active_branch_id": project.active_branch_id,
         "conversation_turns": [_turn(turn) for turn in turns.values()],
@@ -147,6 +151,9 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
             {
                 "attempt_id": attempt.attempt_id,
                 "index": attempt.index,
+                "kind": attempt.kind,
+                "dlss": asdict(attempt.dlss) if attempt.dlss else None,
+                "composition": asdict(attempt.composition) if attempt.composition else None,
                 "prompt": attempt.prompt,
                 "settings": _settings(attempt.settings),
                 "seed": str(attempt.seed),
@@ -177,7 +184,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
-    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6}:
+    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8}:
         raise ValueError("unsupported KREA2 assisted project schema")
     branch_fields: dict[str, Any] = {}
     if value["schema_version"] >= 4:
@@ -209,6 +216,7 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
         prompt_language=Krea2PromptLanguage(value.get("prompt_language", "en")),
         reference_asset_id=value.get("reference_asset_id"),
         reference_filename=value.get("reference_filename"),
+        composition_base_asset_id=value.get("composition_base_asset_id"),
         turns=tuple(_load_turn(item, value["schema_version"]) for item in value.get("turns", [])),
         current_prompt=value.get("current_prompt"),
         style_preset=load_preset(value.get("style_preset")), preset_pending=value.get("preset_pending", False),
@@ -216,6 +224,9 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
             Krea2AssistedAttempt(
                 attempt_id=item["attempt_id"],
                 index=item["index"],
+                kind=item.get("kind", "generation"),
+                dlss=DlssResult(**item["dlss"]) if item.get("dlss") else None,
+                composition=AssistedComposition(**item["composition"]) if item.get("composition") else None,
                 prompt=item["prompt"],
                 settings=_load_settings(item["settings"]),
                 seed=int(item["seed"]),

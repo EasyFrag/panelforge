@@ -1,0 +1,12 @@
+LIBERTÉ : {creative_freedom}/100 — {creative_policy}
+
+FRAMES NATIVES ET RÔLES
+{reference_context}
+
+DIALOGUES EXPLICITES — VERBATIM
+{dialogue_ledger}
+
+INTENTION
+{source_text}
+
+Relis les frames présentes et retourne uniquement le Brief compact aux neuf sections exactes.

@@ -221,7 +221,7 @@ class Krea2EditTest(unittest.TestCase):
             aspect_ratio=Krea2AspectRatio.PORTRAIT_PHOTO,
             megapixels=2.1,
             seed=9,
-            ref_boost=3.2,
+            ref_boost=1000,
             steps=14,
             loras=(Krea2LoraSelection("krea2/style.safetensors", 0.6),),
         )
@@ -233,7 +233,7 @@ class Krea2EditTest(unittest.TestCase):
             sidecar_text="{}",
         )
         self.assertEqual(compiled["72"]["inputs"]["image"], "panelforge/source.png")
-        self.assertEqual(compiled["79"]["inputs"]["ref_boost"], 3.2)
+        self.assertEqual(compiled["79"]["inputs"]["ref_boost"], 1000)
         self.assertEqual(compiled["53"]["inputs"]["steps"], 14)
         self.assertEqual(compiled["53"]["inputs"]["sampler_name"], "euler")
         self.assertEqual(compiled["71"]["inputs"]["lora_name"], "krea2/krea2_identity_edit_v1_2.safetensors")

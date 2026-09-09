@@ -4,7 +4,7 @@ from dataclasses import replace
 import hashlib
 import unittest
 
-from panelforge.application import krea2_assisted_v1 as v1
+from panelforge.application import krea2_assisted_v1 as v1, krea2_assisted_v2 as v2, krea2_assisted_v3 as v3
 from panelforge.application.krea2_assisted import assistance_recipe
 from panelforge.domain.krea2_assisted import (
     Krea2AssistedProject, Krea2AssistedTurn, Krea2AssistedTurnMode,
@@ -35,7 +35,7 @@ class AssistanceVersionTest(unittest.TestCase):
                 self.assertEqual(loaded.assistance_recipe_version, "1.0.0")
                 self.assertEqual(loaded.turns[0].assistance_recipe_version, "1.0.0")
                 saved = _serialize(loaded)
-                self.assertEqual(saved["schema_version"], 6)
+                self.assertEqual(saved["schema_version"], 7)
                 self.assertEqual(_deserialize(saved), loaded)
 
     def test_versioned_records_do_not_silently_default_missing_reference(self):
@@ -69,3 +69,14 @@ class AssistanceVersionTest(unittest.TestCase):
         self.assertIn("NEW USER MESSAGE (authoritative):\nNEW", text)
         self.assertIn("SELECTED GENERATED RESULT AND EXACT SETTINGS:\nRESULT", text)
         self.assertIn("No turn-specific guidance image.", text)
+
+    def test_v3_changes_creation_without_rewriting_v2_or_publication(self):
+        # V2 prompt inspected before adding V3, preserving the comparison baseline.
+        self.assertEqual(
+            hashlib.sha256(v2.system_prompt("creation").encode()).hexdigest(),
+            "5255b494ea0908345c472b60ad8efb2b62a6fa2c0b780b19ad06ba1f100d504a",
+        )
+        self.assertIs(assistance_recipe("3.0.0"), v3)
+        self.assertNotEqual(v3.system_prompt("creation"), v2.system_prompt("creation"))
+        self.assertEqual(v3.system_prompt("recipe"), v2.system_prompt("recipe"))
+        self.assertEqual(v3.MAX_TOKENS, v2.MAX_TOKENS)

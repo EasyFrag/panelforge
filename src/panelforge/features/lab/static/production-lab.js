@@ -342,6 +342,7 @@
 
   function renderJob() {
     const job = state.job; if (!job) return;
+    core.observeRenderAttempts?.([...(job.image_attempts || []), ...(job.previews || []), job.final_attempt], `production:${job.job_id}`);
     elements.empty.hidden = true; elements.job.hidden = false; elements.title.textContent = job.name;
     elements.stage.textContent = stageLabels[job.stage] || job.stage; elements.status.textContent = `● ${job.status}`;
     elements.status.className = `run-status ${job.status}`; elements.progress.style.width = `${Math.max(2, (stages.indexOf(job.stage) + 1) / stages.length * 100)}%`;
@@ -353,7 +354,7 @@
     syncRenderProgress(job);
     if (["succeeded", "failed", "cancelled"].includes(job.status) && state.lastTerminal !== `${job.job_id}:${job.status}`) {
       state.lastTerminal = `${job.job_id}:${job.status}`;
-      if (job.status === "succeeded") core.playCompletionTone(); else core.playFailureTone();
+      if (job.status !== "succeeded") core.playFailureTone();
     }
   }
 

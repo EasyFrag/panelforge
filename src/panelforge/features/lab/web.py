@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from dataclasses import asdict
 import hashlib
 import json
 from pathlib import Path
 from threading import Lock
-from typing import Annotated, Any, Callable
+from typing import Annotated, Any, Callable, Literal
 from panelforge.domain.prompt_composition import PreparationIntent
+from panelforge.domain.krea2_edit import KREA2_EDIT_REF_BOOST_MAX
+from panelforge.domain.firered_edit import FireRedEditSettings
+from panelforge.application.krea2_restage import DEFAULT_INSTRUCTION as RESTAGING_INSTRUCTION, RestagingConflictError
+from panelforge.domain.edit_settings import edit_engine, edit_settings_record, edit_render_dimensions, edit_output_dimensions
 
 from fastapi import (
     BackgroundTasks,
@@ -26,8 +32,10 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from panelforge.application.krea2_edit import RetouchConflictError
 
 from panelforge.application import (
     ChangeViewRunRequest,
@@ -494,26 +502,51 @@ class Krea2EditPromptBody(BaseModel):
     feedback_attempt_id: str | None = None
     prompt_language: str | None = None
     assistance_version: str = "1.0.0"
+    render_engine: Literal["krea2", "firered"] = "krea2"
 
 
 class Krea2EditAttemptBody(BaseModel):
     prompt: str
     model_id: str
-    aspect_ratio: str
+    aspect_ratio: str | None = None
     megapixels: float
     seed: str | int
-    ref_boost: float = 2.5
-    steps: int = 10
+    ref_boost: float | None = None
+    steps: int | None = None
     loras: list[Krea2BatchLoraBody] | None = None
+    workflow_version: str | None = None
+    workflow_id: str | None = None
+    engine: Literal["krea2", "firered"] = "krea2"
+    mode: Literal["lightning", "standard"] | None = None
+    cfg: float | None = None
 
 
 class Krea2EditSourceStateBody(BaseModel):
     state: str
 
 
+class Krea2EditUpscaleBody(BaseModel):
+    model_name: str = Field(min_length=1, max_length=512)
+    request_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$", strict=True)
+
+
+class Krea2EditResumeBody(BaseModel):
+    request_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$", strict=True)
+
+
+class Krea2EditRestartBody(BaseModel):
+    expected_restart_count: int = Field(ge=0, strict=True)
+
+
 class Krea2EditPromotionBody(BaseModel):
     project_name: str | None = None
     step_name: str | None = None
+
+
+class Krea2RestageBody(BaseModel):
+    scene_asset_id: str = Field(min_length=1)
+    instruction: str = Field(min_length=1, max_length=12_000)
+    request_id: str = Field(min_length=1, max_length=80)
 
 
 class Krea2AssistedChatBody(BaseModel):
@@ -607,6 +640,7 @@ class H3RenderAttemptBody(BaseModel):
     music_enabled: bool = False
     spectrum_enabled: bool = False
     video_lora: H3VideoLoraBody | None = None
+    initial_megapixels: float = Field(default=0.2, ge=0.1, le=16, allow_inf_nan=False, strict=True)
 
 
 class H3RenderFeedbackBody(BaseModel):
@@ -737,6 +771,7 @@ def create_app(
     krea2_batch: Krea2BatchService | None = None,
     krea2_edit: Krea2EditService | None = None,
     krea2_assisted: Krea2AssistedService | None = None,
+    dlss=None,
     social_lab: SocialLabService | None = None,
     production: ProductionService | None = None,
     production_v2: ProductionV2Service | None = None,
@@ -778,6 +813,8 @@ def create_app(
             response.headers["Cache-Control"] = "no-store"
         return response
 
+    from .dlss_web import register_dlss_routes
+    register_dlss_routes(app, dlss)
     app.mount("/static", StaticFiles(directory=static_root), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -2346,6 +2383,8 @@ def create_app(
         models = service.resources.list_models()
         loras = service.resources.list_loras()
         return {
+            "restaging": {"enabled": krea2_edit is not None and any(getattr(w, "requires_subject_reference", False) for w in krea2_edit.workflows),
+                          "default_instruction": RESTAGING_INSTRUCTION},
             "assistance_recipes": service.list_assistance_recipes(),
             "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
             "render_models": [serialize_krea2_resource(resource) for resource in models],
@@ -2736,25 +2775,27 @@ def create_app(
         return {
             "recipe": {
                 "id": service.workflow.reference.recipe_id,
+                "engine": service.workflow.engine,
                 "version": service.workflow.reference.version,
                 "workflow_sha256": service.workflow.reference.workflow_sha256,
                 "status": service.workflow.status,
             },
             "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
+            "engines": [{"id": name, "name": "FireRed 1.1" if name == "firered" else "KREA2"}
+                        for name in dict.fromkeys(item.engine for item in service.workflows)],
+            "workflows": [{"id": item.reference.recipe_id, "engine": item.engine,
+                           "requires_subject_reference": bool(getattr(item, "requires_subject_reference", False)),
+                           "version": item.reference.version, "name": item.display_name,
+                           "workflow_sha256": item.reference.workflow_sha256, "defaults": item.defaults}
+                          for item in service.workflows],
             "render_models": render_models,
             "loras": loras,
             "resource_warnings": resource_warnings,
             "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
-            "defaults": {
-                "model_id": "Krea2/kroma-v0.2-turbo.safetensors",
-                "aspect_ratio": Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
-                "megapixels": 1.0,
-                "ref_boost": 2.5,
-                "steps": 10,
-            },
+            "defaults": service.workflow.defaults,
             "limits": {
                 "megapixels": {"minimum": 0.5, "maximum": 4.0, "step": 0.1},
-                "ref_boost": {"minimum": 0.0, "maximum": 10.0, "step": 0.1},
+                "ref_boost": {"minimum": 0.0, "maximum": KREA2_EDIT_REF_BOOST_MAX, "step": 0.1},
                 "steps": {"minimum": 1, "maximum": 100},
                 "lora_count": 10,
             },
@@ -2766,11 +2807,44 @@ def create_app(
                 "scheduler": "simple",
                 "grounding_px": 768,
             },
+            "retouch": {"enabled": service.retouch_compositor is not None,
+                        "version": "1.0.0", "max_pixels": 16_000_000},
+            "upscale": {"enabled": service.upscale_workflow is not None and service.upscale_images is not None},
             "project_exports": {
                 "enabled": service.project_export_root is not None,
                 "root": service.project_export_root,
             },
         }
+
+    @app.get("/api/image-lab/krea2-edit/upscalers")
+    def list_krea2_edit_upscalers() -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        if service.upscale_workflow is None:
+            raise HTTPException(status_code=503, detail="L’amélioration des détails n’est pas configurée.")
+        try:
+            models = service.comfy.list_upscale_models()
+        except Exception as error:
+            raise HTTPException(status_code=503, detail="Impossible de lire les upscalers de ComfyUI. Réessaie.") from error
+        preferred = service.upscale_workflow.preferred_model
+        return {"models": list(models), "default": preferred if preferred in models else next(iter(models), None)}
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/upscale", status_code=202)
+    def upscale_krea2_edit_attempt(source_id: str, attempt_id: str, body: Krea2EditUpscaleBody,
+                                  background_tasks: BackgroundTasks) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            source, candidate, should_start = service.queue_upscale(source_id, attempt_id,
+                model_name=body.model_name, request_id=body.request_id)
+            # A retried POST must never resubmit a queued, running or finished job.
+            if should_start:
+                background_tasks.add_task(service.execute_attempt, source_id, candidate.attempt_id)
+            return {"source": serialize_krea2_edit_source(source), "attempt_id": candidate.attempt_id}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Image ou essai introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except Exception as error:
+            raise HTTPException(status_code=503, detail="L’amélioration n’a pas pu être lancée. Réessaie sans changer de sélection.") from error
 
     @app.post("/api/image-lab/krea2-edit/sources", status_code=status.HTTP_201_CREATED)
     async def create_krea2_edit_source(
@@ -2807,14 +2881,25 @@ def create_app(
     def list_krea2_edit_sources(
         limit: int = 100,
         include_hidden: bool = False,
+        project_limit: int | None = None,
+        project_id: str | None = None,
     ) -> dict[str, object]:
         service = _require_krea2_edit(krea2_edit)
         try:
+            if project_limit is not None:
+                backlog = service.backlog(project_limit, project_id=project_id)
+                return {
+                    "sources": [serialize_krea2_edit_source(source) for source in backlog.sources],
+                    "versions": backlog.versions,
+                    "backlog_project_ids": list(backlog.project_ids),
+                    "project_count": backlog.project_count,
+                }
             return {
                 "sources": [
                     serialize_krea2_edit_source(source)
                     for source in service.list(limit, include_hidden=include_hidden)
-                ]
+                ],
+                "versions": service.project_versions(),
             }
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -2823,9 +2908,49 @@ def create_app(
     def get_krea2_edit_source(source_id: str) -> dict[str, object]:
         service = _require_krea2_edit(krea2_edit)
         try:
-            return {"source": serialize_krea2_edit_source(service.get(source_id))}
+            return {"source": serialize_krea2_edit_source(service.get(source_id)),
+                    "versions": service.project_versions()}
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="KREA2 edit source not found") from error
+
+    @app.get("/api/image-lab/krea2-edit/projects/{project_id}")
+    def get_krea2_edit_project(project_id: str) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            return {"sources": [serialize_krea2_edit_source(s) for s in service.project_stages(project_id)],
+                    "versions": service.project_versions()}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Version introuvable.") from error
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/resume")
+    def resume_krea2_edit_stage(source_id: str, body: Krea2EditResumeBody) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            source = service.resume_stage(source_id, request_id=body.request_id)
+            return {"source": serialize_krea2_edit_source(source), "versions": service.project_versions()}
+        except RetouchConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Étape ou image introuvable.") from error
+        except OSError as error:
+            raise HTTPException(status_code=500, detail="Impossible d’enregistrer la reprise. L’ancienne version est conservée ; réessaie.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/restart")
+    def restart_krea2_edit_stage(source_id: str, body: Krea2EditRestartBody) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            source = service.restart_stage(source_id, expected_restart_count=body.expected_restart_count)
+            return {"source": serialize_krea2_edit_source(source)}
+        except RetouchConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Étape introuvable.") from error
+        except OSError as error:
+            raise HTTPException(status_code=500, detail="Impossible d’enregistrer la reprise. L’étape est conservée ; réessaie.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post("/api/image-lab/krea2-edit/sources/{source_id}/prompt/stream")
     def stream_krea2_edit_prompt(
@@ -2852,6 +2977,7 @@ def create_app(
                 prompt_language=prompt_language,
                 include_reasoning=include_reasoning,
                 assistance_version=body.assistance_version,
+                render_engine=body.render_engine,
             )
         )
 
@@ -2865,22 +2991,26 @@ def create_app(
     ) -> dict[str, object]:
         service = _require_krea2_edit(krea2_edit)
         try:
+            if body.engine == "firered":
+                if body.ref_boost is not None or body.loras or body.aspect_ratio not in {None, "source"}:
+                    raise ValueError("FireRed conserve le ratio source et n’utilise pas Ref boost ni les LoRA KREA2.")
+                settings = FireRedEditSettings(model_name=body.model_id, megapixels=body.megapixels,
+                    seed=_parse_json_seed(body.seed), mode=body.mode or "lightning", steps=body.steps, cfg=body.cfg)
+            else:
+                if body.mode is not None or body.cfg is not None:
+                    raise ValueError("Mode FireRed et CFG ne s’appliquent pas au workflow KREA2.")
+                settings = Krea2EditSettings(model_name=body.model_id,
+                    aspect_ratio=Krea2AspectRatio(body.aspect_ratio), megapixels=body.megapixels,
+                    seed=_parse_json_seed(body.seed), ref_boost=body.ref_boost if body.ref_boost is not None else 2.5,
+                    steps=body.steps if body.steps is not None else 10,
+                    loras=tuple(Krea2LoraSelection(name=value.name, strength=value.strength) for value in (body.loras or [])))
             source = service.prepare_attempt(
                 source_id,
                 Krea2EditAttemptRequest(
                     prompt=body.prompt,
-                    settings=Krea2EditSettings(
-                        model_name=body.model_id,
-                        aspect_ratio=Krea2AspectRatio(body.aspect_ratio),
-                        megapixels=body.megapixels,
-                        seed=_parse_json_seed(body.seed),
-                        ref_boost=body.ref_boost,
-                        steps=body.steps,
-                        loras=tuple(
-                            Krea2LoraSelection(name=value.name, strength=value.strength)
-                            for value in (body.loras or [])
-                        ),
-                    ),
+                    workflow_version=body.workflow_version,
+                    workflow_id=body.workflow_id,
+                    settings=settings,
                 ),
             )
             return {"source": serialize_krea2_edit_source(source)}
@@ -2950,6 +3080,88 @@ def create_app(
             ) from error
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/scene-images", status_code=201)
+    async def upload_assisted_scene(project_id: str, image: Annotated[UploadFile, File()]):
+        assisted = _require_krea2_assisted(krea2_assisted)
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            assisted.projects.get(project_id)
+            if service.edit_images is None:
+                raise ValueError("Image decoding is not configured.")
+            content = await image.read(MAX_IMAGE_BYTES + 1)
+            media_type = detect_image_media_type(content)
+            await run_in_threadpool(service.edit_images.dimensions, content)
+            asset = service.assets.create(content, media_type=media_type, source_run_id=project_id)
+            return {"image": {"asset_id": asset.asset_id, "filename": image.filename or "Decor",
+                              "url": f"/api/assets/{asset.asset_id}/content"}}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Image or project not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        finally:
+            await image.close()
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/restage", status_code=201)
+    def restage_assisted_image(project_id: str, attempt_id: str, body: Krea2RestageBody):
+        assisted = _require_krea2_assisted(krea2_assisted)
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            project = assisted.projects.get(project_id)
+            source = service.restage_assisted(project, attempt_id, scene_asset_id=body.scene_asset_id,
+                instruction=body.instruction, request_id=body.request_id)
+            return {"source": serialize_krea2_edit_source(source)}
+        except RestagingConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Image or project not found") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/retouch")
+    def prepare_krea2_edit_retouch(source_id: str, attempt_id: str) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            result = service.prepare_retouch(source_id, attempt_id)
+            for name in ("source", "generated", "harmonized", "mask"):
+                content = result.pop(f"{name}_png")
+                result[f"{name}_url"] = (
+                    "data:image/png;base64," + base64.b64encode(content).decode("ascii")
+                    if content is not None else None
+                )
+            return result
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Image de retouche introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/retouch",
+              status_code=status.HTTP_201_CREATED)
+    async def save_krea2_edit_retouch(
+        source_id: str, attempt_id: str,
+        mask: Annotated[UploadFile, File()],
+        request_id: Annotated[str, Form(min_length=1, max_length=80)],
+        harmonize: Annotated[bool, Form()] = False,
+        harmonize_strength: Annotated[int, Form(ge=0, le=100)] = 100,
+    ) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            content = await mask.read(MAX_IMAGE_BYTES + 1)
+            if len(content) > MAX_IMAGE_BYTES:
+                raise ValueError("Le masque dépasse 25 Mio.")
+            source, candidate = await run_in_threadpool(
+                service.save_retouch, source_id, attempt_id, content, request_id=request_id,
+                harmonize=harmonize, harmonize_strength=harmonize_strength,
+            )
+            return {"source": serialize_krea2_edit_source(source), "attempt_id": candidate.attempt_id}
+        except RetouchConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Image de retouche introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        finally:
+            await mask.close()
 
     @app.post("/api/image-lab/krea2-edit/sources/{source_id}/export")
     def retry_krea2_edit_project_export(source_id: str) -> dict[str, object]:
@@ -3026,7 +3238,7 @@ def create_app(
             "presets": presets,
             "defaults": {"preset_id": presets[0]["id"]},
             "aspect_ratios": [ratio.value for ratio in VideoAspectRatio],
-            "megapixels": [0.3, 0.6, 1.0, 1.2],
+            "megapixels": ([0.3, 0.6, 1.0, 1.2] if input_mode is H3RenderInputMode.REF2VA else [0.2, 0.3, 0.6, 1.0, 1.2]),
             "fps": 24,
             "limits": {
                 "reference_images": {"minimum": 1, "maximum": 3},
@@ -3277,6 +3489,12 @@ def create_app(
             "steps": {"minimum": 1, "maximum": 100},
             "keyframes": {"maximum": recipe.maximum_keyframes},
         }
+        if getattr(recipe, "supports_initial_megapixels", False):
+            limits["initial_megapixels"] = {"minimum": 0.1, "maximum": 16.0, "step": 0.1}
+            for item, preset in zip(presets, recipe.presets.values()):
+                item["initial_megapixels"] = preset.initial_megapixels
+        for item in presets:
+            item["seed_locked"] = input_mode is not H3RenderInputMode.REF2VA
         if hasattr(recipe, "maximum_reference_images"):
             limits["reference_images"] = {
                 "minimum": recipe.minimum_reference_images,
@@ -3406,6 +3624,7 @@ def create_app(
                 ),
                 music_enabled=body.music_enabled,
                 spectrum_enabled=body.spectrum_enabled,
+                initial_megapixels=body.initial_megapixels,
                 **(
                     {"video_lora": video_lora}
                     if video_lora is not None
@@ -4242,6 +4461,7 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
             "id": attempt.attempt_id,
             "attempt_id": attempt.attempt_id,
             "index": attempt.index,
+            "dlss": asdict(attempt.dlss) if attempt.dlss else None,
             "status": attempt.status.value,
             "prompt": attempt.prompt,
             "effective_prompt": attempt.effective_prompt,
@@ -4726,6 +4946,7 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
     return {
         "id": project.project_id,
         "active_branch_id": project.active_branch_id,
+        "composition_base_asset_id": project.composition_base_asset_id,
         "branches": branches,
         "render_settings": _serialize_krea2_assisted_settings(project.render_settings),
         "style_preset": _serialize_krea2_style_preset(project.style_preset),
@@ -4776,6 +4997,12 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
                 "can_restore_conversation": attempt.conversation_branch_id is not None,
                 "attempt_id": attempt.attempt_id,
                 "index": attempt.index,
+                "label": project.attempt_label(attempt.attempt_id),
+                "kind": attempt.kind,
+                "composition": asdict(attempt.composition) if attempt.composition else None,
+                "dlss": asdict(attempt.dlss) if attempt.dlss else None,
+                "output_dimensions": ({"width": attempt.composition.width, "height": attempt.composition.height}
+                                      if attempt.composition else {"width": attempt.dlss.width, "height": attempt.dlss.height} if attempt.dlss else None),
                 "prompt": attempt.prompt,
                 "seed": str(attempt.seed),
                 "status": attempt.status.value,
@@ -4854,13 +5081,38 @@ def _serialize_krea2_assisted_settings(settings: Krea2BatchSettings | None) -> d
     }
 
 
+def _serialize_edit_settings(settings, dimensions=None) -> dict[str, object]:
+    record = edit_settings_record(settings)
+    record["model_id"] = record.pop("model_name")
+    if dimensions is None and isinstance(settings, Krea2EditSettings):
+        dimensions = settings.resolution
+    record["resolution"] = {"width": dimensions[0], "height": dimensions[1]} if dimensions else None
+    return record
+
+
+def _serialize_edit_dimensions(dimensions):
+    return {"width": dimensions[0], "height": dimensions[1]} if dimensions else None
+
+
 def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
     metadata = source.metadata
     return {
         "id": source.source_id,
         "source_id": source.source_id,
+        "restart_count": source.restart_count,
+        "revision": asdict(source.revision) if source.revision else None,
+        "copied_from_source_id": source.copied_from_source_id,
+        "revision_activation": source.revision_activation,
+        "resume_attempt_id": (source.revision.attempt_id if source.revision
+                              and source.accepted_attempt_id is None
+                              and source.copied_from_source_id == source.revision.source_id
+                              and len(source.attempts) == source.revision.attempt_count
+                              and not source.restart_count else None),
         "source_asset_id": source.source_asset_id,
         "source_url": f"/api/assets/{source.source_asset_id}/content",
+        "subject_reference": ({**asdict(source.subject_reference),
+                               "url": f"/api/assets/{source.subject_reference.asset_id}/content"}
+                              if source.subject_reference else None),
         "filename": source.filename,
         "project_id": source.project_id,
         "stage_index": source.stage_index,
@@ -4886,10 +5138,13 @@ def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
         "state": source.state.value,
         "recipe": {
             "id": source.recipe.recipe_id,
+            "engine": "firered" if source.recipe.recipe_id == "firered.image_edit" else "krea2",
             "version": source.recipe.version,
             "workflow_sha256": source.recipe.workflow_sha256,
         },
         "metadata": {
+            "engine": "firered" if metadata.firered_settings else "krea2",
+            "firered_settings": _serialize_edit_settings(metadata.firered_settings) if metadata.firered_settings else None,
             "prompt": metadata.prompt,
             "model_id": metadata.model_name,
             "aspect_ratio": metadata.aspect_ratio.value if metadata.aspect_ratio else None,
@@ -4921,6 +5176,7 @@ def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
                 "feedback_attempt_id": revision.feedback_attempt_id,
                 "assistant_message": revision.assistant_message,
                 "assistance_version": revision.assistance_version,
+                "render_engine": revision.render_engine,
             }
             for revision in source.revisions
         ],
@@ -4928,6 +5184,16 @@ def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
             {
                 "id": attempt.attempt_id,
                 "attempt_id": attempt.attempt_id,
+                "kind": attempt.kind,
+                "label": source.attempt_label(attempt.attempt_id),
+                "workflow_version": (attempt.recipe or source.recipe).version,
+                "workflow_id": (attempt.recipe or source.recipe).recipe_id,
+                "engine": edit_engine(attempt.settings),
+                "output_dimensions": _serialize_edit_dimensions(edit_output_dimensions(attempt)),
+                "workflow_sha256": (attempt.recipe or source.recipe).workflow_sha256,
+                "retouch": asdict(attempt.retouch) if attempt.retouch else None,
+                "upscale": asdict(attempt.upscale) if attempt.upscale else None,
+                "dlss": asdict(attempt.dlss) if attempt.dlss else None,
                 "prompt": attempt.prompt,
                 "status": attempt.status.value,
                 "execution_id": attempt.execution_id,
@@ -4939,22 +5205,7 @@ def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
                 ),
                 "error": attempt.error,
                 "accepted": attempt.attempt_id == source.accepted_attempt_id,
-                "settings": {
-                    "model_id": attempt.settings.model_name,
-                    "aspect_ratio": attempt.settings.aspect_ratio.value,
-                    "megapixels": attempt.settings.megapixels,
-                    "seed": str(attempt.settings.seed),
-                    "ref_boost": attempt.settings.ref_boost,
-                    "steps": attempt.settings.steps,
-                    "resolution": {
-                        "width": attempt.settings.resolution[0],
-                        "height": attempt.settings.resolution[1],
-                    },
-                    "loras": [
-                        {"name": value.name, "strength": value.strength}
-                        for value in attempt.settings.loras
-                    ],
-                },
+                "settings": _serialize_edit_settings(attempt.settings, edit_render_dimensions(source, attempt)),
             }
             for attempt in source.attempts
         ],
@@ -5627,6 +5878,7 @@ def _serialize_production_video_attempt(
         "warnings": list(attempt.warnings),
         "selected": selected,
         "music_enabled": attempt.music_enabled,
+        "initial_megapixels": attempt.initial_megapixels,
         "spectrum_enabled": attempt.spectrum_enabled,
         "video_lora": ({
             "name": attempt.video_lora.name,

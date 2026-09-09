@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "operation": "video.upscale",
+  "recipe_id": "video.upscale.dlss",
+  "version": "0.1.0",
+  "workflow": {
+    "file": "workflow_api.json",
+    "sha256": "d64d9e842d01a2aff5ae435fb7ce19797f8010a05dea10bd6ab1a9cd3bc801b9"
+  },
+  "bindings": {
+    "source": {
+      "node": "2",
+      "input": "file"
+    },
+    "prefix": {
+      "node": "6",
+      "input": "filename_prefix"
+    },
+    "size": [
+      {
+        "node": "1",
+        "input": "upscale_mode"
+      }
+    ],
+    "intensity": [
+      {
+        "node": "1",
+        "input": "nr_intensity"
+      }
+    ],
+    "tone": [
+      {
+        "node": "1",
+        "input": "local_tone_strength"
+      }
+    ],
+    "structure": [
+      {
+        "node": "1",
+        "input": "local_structure_strength"
+      }
+    ],
+    "skin": [
+      {
+        "node": "1",
+        "input": "skin_structure_strength"
+      }
+    ],
+    "style": [
+      {
+        "node": "1",
+        "input": "nr_style"
+      }
+    ],
+    "detail": [
+      {
+        "node": "1",
+        "input": "output_detail_strength"
+      }
+    ],
+    "strict_neural": [
+      {
+        "node": "1",
+        "input": "require_neural_upscaling"
+      }
+    ],
+    "hdr": [
+      {
+        "node": "1",
+        "input": "hdr_mode"
+      }
+    ],
+    "codec": [
+      {
+        "node": "1",
+        "input": "video_codec"
+      }
+    ]
+  },
+  "output_node": "6",
+  "report_nodes": [
+    "5"
+  ],
+  "required_nodes": [
+    "LoadVideo",
+    "NvidiaDLSSVideoUpscale",
+    "PreviewAny",
+    "SaveVideo"
+  ],
+  "progress_stages": [
+    {
+      "node": "1",
+      "key": "upscale",
+      "label": "Upscale"
+    },
+    {
+      "node": "6",
+      "key": "saving",
+      "label": "Enregistrement"
+    }
+  ]
+}

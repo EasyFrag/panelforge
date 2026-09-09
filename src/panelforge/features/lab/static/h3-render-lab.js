@@ -9,6 +9,7 @@
   const elements = {
     lab: $(`${prefix}-lab`), status: $(`${prefix}-status`), warnings: $(`${prefix}-warnings`),
     prompt: $(`${prefix}-prompt`), ratio: $(`${prefix}-ratio`), megapixels: $(`${prefix}-megapixels`),
+    initialMegapixels: $(`${prefix}-initial-megapixels`),
     duration: $(`${prefix}-duration`), steps: $(`${prefix}-steps`), seed: $(`${prefix}-seed`),
     seedLock: $(`${prefix}-seed-lock`), music: $(`${prefix}-music`), spectrum: $(`${prefix}-spectrum`), render: $(`${prefix}-render`),
     cancel: $(`${prefix}-cancel`), mode: $(`${prefix}-mode`), live: $(`${prefix}-live-preview`),
@@ -74,7 +75,7 @@
   }
 
   function projectId() { return state.project?.project_id; }
-  function latestAttempt() { return state.project?.attempts?.at(-1) || null; }
+  function latestAttempt() { return [...(state.project?.attempts || [])].reverse().find(a => !a.dlss) || null; }
   function activeAttempt() {
     return [...(state.project?.attempts || [])].reverse().find((item) => activeStatuses.has(item.status)) || null;
   }
@@ -142,10 +143,14 @@
     }));
     elements.ratio.value = defaults.aspect_ratio;
     elements.megapixels.value = String(defaults.megapixels);
+    if (elements.initialMegapixels) {
+      elements.initialMegapixels.value = String(defaults.initial_megapixels ?? 0.2);
+      elements.initialMegapixels.closest("label").hidden = !state.spec.limits?.initial_megapixels;
+    }
     elements.duration.value = String(inferredDuration(state.project?.current_prompt, defaults.duration_seconds));
     elements.steps.value = String(defaults.steps);
     elements.seed.value = randomSeed();
-    elements.seedLock.checked = false;
+    elements.seedLock.checked = defaults.seed_locked ?? specMode === "h3-base";
     elements.music.value = "off";
     elements.spectrum.checked = false;
     if (elements.videoLoraProfile) {
@@ -195,6 +200,7 @@
     const settings = attempt.settings;
     elements.ratio.value = settings.aspect_ratio;
     elements.megapixels.value = String(settings.megapixels);
+    if (elements.initialMegapixels) elements.initialMegapixels.value = String(attempt.initial_megapixels ?? 0.2);
     elements.duration.value = String(settings.duration_seconds);
     elements.steps.value = String(settings.steps);
     elements.seed.value = String(settings.seed);
@@ -398,26 +404,46 @@
     const lora = attempt.video_lora
       ? ` · LoRA ${attempt.video_lora.name} × ${Number(attempt.video_lora.strength).toFixed(2)}${attempt.video_lora.clip_last_layer === -2 ? " · CLIP -2" : ""}`
       : " · Standard";
-    return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"} · Spectrum ${attempt.spectrum_enabled ? "ON" : "OFF"}${lora}`;
+    const initial = specMode === "h3-base" ? ` · ${attempt.initial_megapixels ?? 0.2} MP avant upscale` : "";
+    return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP sortie${initial} · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"} · Spectrum ${attempt.spectrum_enabled ? "ON" : "OFF"}${lora}`;
   }
+
+  window.addEventListener("panelforge:dlss-complete", async event => {
+    const job = event.detail, project = state.project;
+    if (job.snapshot.owner !== (specMode === "ref2va" ? "ref2v" : "h3") || project?.project_id !== job.snapshot.owner_id) return;
+    if (!job.select_result) return;
+    if (state.busy) { setTimeout(() => window.dispatchEvent(new CustomEvent("panelforge:dlss-complete", { detail: job })), 1000); return; }
+    try {
+      const data = await request(`/api/h3-render/projects/${encodeURIComponent(project.project_id)}`);
+      if (state.project === project && !state.busy) {
+        state.project = { ...state.project, attempts: data.project.attempts };
+        renderAttempts();
+      }
+    } catch (error) { setStatus(error.message, "error"); }
+  });
 
   function renderAttempts() {
     elements.attempts.replaceChildren();
-    const attempts = [...(state.project?.attempts || [])].reverse();
+    const scope = `${specMode === "ref2va" ? "ref2v" : "h3"}:${projectId()}`;
+    const attempts = [...(window.PanelForgeDlss?.groups(state.project?.attempts || [], scope, state.project?.feedback_attempt_id)
+      || (state.project?.attempts || []).map(attempt => ({ attempt })))].reverse();
     if (!attempts.length) {
       const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "Aucun essai."; elements.attempts.append(empty); return;
     }
-    attempts.forEach((attempt) => {
+    attempts.forEach(group => {
+      const attempt = group.attempt;
       const card = document.createElement("article");
       card.className = `h3-render-attempt ${attempt.attempt_id === state.project.feedback_attempt_id ? "feedback" : ""}`;
       const header = document.createElement("div"); header.className = "h3-render-attempt-head";
-      const title = document.createElement("b"); title.textContent = `Essai ${attempt.index}`;
+      const title = document.createElement("b"); title.textContent = `Essai ${attempt.index}${attempt.dlss ? " · DLSS" : ""}`;
       const status = document.createElement("span"); status.textContent = attempt.status;
       header.append(title, status); card.append(header);
+      if (group.variants) card.append(window.PanelForgeDlss.picker(group, renderAttempts));
       if (attempt.output_url) {
         const video = document.createElement("video"); video.controls = true; video.playsInline = true; video.src = attempt.output_url; card.append(video);
       }
-      const summary = document.createElement("small"); summary.textContent = settingsSummary(attempt); card.append(summary);
+      const summary = document.createElement("small"); summary.textContent = attempt.dlss
+        ? `DLSS · ${attempt.dlss.width} × ${attempt.dlss.height} · ${Number(attempt.dlss.fps).toFixed(2)} FPS · ${Number(attempt.dlss.duration_seconds).toFixed(2)} s` : settingsSummary(attempt); card.append(summary);
       if (attempt.error) { const error = document.createElement("p"); error.className = "error-text"; error.textContent = attempt.error; card.append(error); }
       if (attempt.warnings?.length) { const warning = document.createElement("p"); warning.className = "warning-text"; warning.textContent = attempt.warnings.join(" · "); card.append(warning); }
       if (attempt.keyframes?.length) {
@@ -436,7 +462,13 @@
         const feedback = document.createElement("button"); feedback.type = "button";
         feedback.textContent = attempt.attempt_id === state.project.feedback_attempt_id ? "Retirer le feedback" : "Utiliser comme feedback";
         feedback.addEventListener("click", () => selectFeedback(attempt));
-        actions.append(resume, feedback); card.append(actions);
+        actions.append(resume, feedback);
+        if (window.PanelForgeDlss) {
+          const target = { owner: specMode === "ref2va" ? "ref2v" : "h3", ownerId: projectId(), attempt };
+          actions.append(window.PanelForgeDlss.button(target), window.PanelForgeDlss.button(target, { advanced: true }));
+        }
+        const download = document.createElement("a"); download.href = attempt.output_url; download.download = `${attempt.attempt_id}.mp4`; download.textContent = "Télécharger"; actions.append(download);
+        card.append(actions);
         const continuation = document.createElement("button");
         continuation.type = "button";
         continuation.className = "h3-render-continue";
@@ -460,6 +492,7 @@
             await window.PanelForgeH3Base.prefillFirstFrame({
               assetId: lastFrame.asset_id,
               label: `Suite essai ${attempt.index} - dernière frame`,
+              sourceSessionId: state.project.source_session_id,
             });
           } catch (error) {
             continuationError.textContent = error.message;
@@ -470,12 +503,15 @@
         });
         card.append(continuation, continuationError);
       }
+      if (window.PanelForgeDlss && attempt.status === "succeeded") {
+        card.append(window.PanelForgeDlss.inlineStatus({ owner: specMode === "ref2va" ? "ref2v" : "h3", ownerId: projectId(), attempt }));
+      }
       elements.attempts.append(card);
     });
   }
 
   function renderOutput() {
-    const latest = [...(state.project?.attempts || [])].reverse().find((item) => item.output_url);
+    const latest = [...(state.project?.attempts || [])].reverse().find((item) => item.output_url && !item.dlss);
     if (!latest) return;
     const canonical = new URL(latest.output_url, window.location.href).href;
     if (state.finalUrl !== canonical) {
@@ -487,6 +523,7 @@
   }
 
   function renderProject(project, { preservePrompt = false } = {}) {
+    window.PanelForgeLabCore?.observeRenderAttempts?.(project.attempts || [], `h3:${project.project_id}`);
     const changed = state.project?.project_id !== project.project_id;
     if (changed) {
       stopRenderProgressClock();
@@ -497,7 +534,7 @@
     }
     state.project = project;
     elements.lab.hidden = false;
-    if (changed || !preservePrompt || document.activeElement !== elements.prompt) elements.prompt.value = project.current_prompt;
+    if (changed || !preservePrompt) elements.prompt.value = project.current_prompt;
     if (elements.revisionVersion && changed) {
       state.selectedRevisionVersion = project.revision_version || state.spec?.default_revision_version || "0.2.0";
       elements.revisionVersion.value = state.selectedRevisionVersion;
@@ -533,6 +570,7 @@
       elements.revisionRetry.disabled = disabled || !state.project?.revision_error || !elements.revisionModel?.value;
     }
     for (const field of [elements.prompt, elements.ratio, elements.megapixels, elements.duration, elements.steps, elements.seed, elements.seedLock, elements.music, elements.spectrum]) field.disabled = disabled;
+    if (elements.initialMegapixels) elements.initialMegapixels.disabled = disabled || !state.spec?.limits?.initial_megapixels;
     for (const field of [elements.videoLoraProfile, elements.videoLoraModel, elements.videoLoraStrength, elements.videoLoraClip]) {
       if (field) field.disabled = disabled || (field !== elements.videoLoraProfile && elements.videoLoraProfile.value !== "lora");
     }
@@ -578,6 +616,8 @@
         body: JSON.stringify({
           prompt: elements.prompt.value.trim(), aspect_ratio: elements.ratio.value,
           megapixels: Number(elements.megapixels.value), duration_seconds: Number(elements.duration.value),
+          ...(elements.initialMegapixels && state.spec?.limits?.initial_megapixels
+            ? { initial_megapixels: Number(elements.initialMegapixels.value) } : {}),
           steps: Number(elements.steps.value), seed: elements.seedLock.checked ? elements.seed.value.trim() : null,
           seed_locked: elements.seedLock.checked, music_enabled: elements.music.value === "on",
           spectrum_enabled: elements.spectrum.checked,

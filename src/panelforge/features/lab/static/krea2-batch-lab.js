@@ -556,6 +556,8 @@
 
   function renderBatch(batch) {
     if (!batch) return;
+    window.PanelForgeLabCore?.observeRenderCollection?.(`batch:${batch.batch_id}`,
+      (batch.items || []).map((item) => ({ id: `batch-item:${item.item_id}`, status: item.status })));
     state.activeBatch = batch;
     if (batch.recipe_workshop) state.workshopRoot = batch;
     elements.title.textContent = `${batch.recipe_id} · ${batch.image_count} images${batch.workshop_source_batch_id ? " · test recette" : ""}`;
@@ -604,10 +606,6 @@
         const batch = await refreshActive(batchId);
         if (!terminalStatuses.has(batch.status)) schedulePoll(batchId);
         else {
-          if (batch.status === "completed") {
-            const api = window.PanelForgeLabCore;
-            if (api && typeof api.playCompletionTone === "function") api.playCompletionTone();
-          }
           setMessage(batch.status === "completed" ? "Batch terminé. Vous pouvez noter les images ou arrêter ici." : batch.error || statusLabel(batch.status), batch.status === "failed");
           await loadHistory();
         }

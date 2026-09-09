@@ -4,22 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260905.3">
-  <script src="/static/lab.js?v=20260831.1" defer></script>
-  <script src="/static/lab-core.js?v=20260905.4" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260909.2">
+  <script src="/static/lab.js?v=20260907.8" defer></script>
+  <script src="/static/lab-core.js?v=20260909.1" defer></script>
+  <script src="/static/dlss-lab.js?v=20260909.3" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260905.5" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260905.1" defer></script>
-  <script src="/static/video-lab.js?v=20260831.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260908.1" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260909.2" defer></script>
+  <script src="/static/video-lab.js?v=20260907.8" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
   <script src="/static/ref2v-direct.js?v=20260905.4" defer></script>
-  <script src="/static/krea2-image-lab.js?v=20260903.1" defer></script>
+  <script src="/static/krea2-image-lab.js?v=20260907.8" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260904.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260906.1" defer></script>
-  <script src="/static/krea2-batch-lab.js?v=20260903.2" defer></script>
-  <script src="/static/krea2-edit-lab.js?v=20260905.1" defer></script>
-  <script src="/static/production-lab.js?v=20260903.2" defer></script>
-  <script src="/static/production-v2-lab.js?v=20260903.3" defer></script>
+  <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
+  <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260909.1" defer></script>
+  <script src="/static/krea2-batch-lab.js?v=20260907.8" defer></script>
+  <script src="/static/krea2-edit-lab.js?v=20260909.1" defer></script>
+  <script src="/static/production-lab.js?v=20260907.8" defer></script>
+  <script src="/static/production-v2-lab.js?v=20260907.8" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -271,7 +274,7 @@
           <label>Preset de style<select id="krea2-assisted-new-preset"><option value="">Sans preset</option></select></label>
           <small id="krea2-assisted-new-preset-note" class="muted"></small>
           <small class="muted">Avec une image seule, le LLM propose un prompt pour en reproduire le sujet, la composition et l’ambiance.</small>
-          <label>Recette d’assistance<select id="krea2-assisted-assistance-recipe" required><option value="1.0.0">V1 · classique</option><option value="2.0.0" selected>V2 · sujet et contexte compact · expérimental</option></select></label>
+          <label>Recette d’assistance<select id="krea2-assisted-assistance-recipe" required><option value="1.0.0">V1 · classique</option><option value="2.0.0">V2 · sujet et contexte compact · expérimental</option><option value="3.0.0" selected>V3 · corrections visuelles · expérimental</option></select></label>
           <label>Modèle LLM<select id="krea2-assisted-llm" required><option value="">Chargement…</option></select></label>
           <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm"> Local · Unsloth</label>
           <button id="krea2-assisted-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
@@ -409,6 +412,19 @@
       </section>
     </div>
   </main>
+
+  <dialog id="krea2-assisted-restaging-dialog" class="krea2-restaging-dialog" aria-labelledby="krea2-restaging-title">
+    <h2 id="krea2-restaging-title">Replacer dans un décor</h2>
+    <div class="krea2-reference-pair">
+      <figure><figcaption>Image 1 · décor à conserver</figcaption><img data-restage="scene-preview" alt="Décor choisi" hidden></figure>
+      <figure><figcaption>Image 2 · sujet et action</figcaption><img data-restage="subject-preview" alt="Image Assisted sélectionnée"><small data-restage="subject-label"></small></figure>
+    </div>
+    <label>Décor<select data-restage="scene"></select></label>
+    <label>Ou importer le décor<input data-restage="file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+    <label>Instruction pour Identity Edit<textarea data-restage="instruction" rows="5" maxlength="12000"></textarea></label>
+    <p data-restage="note" class="muted" role="status" aria-live="polite"></p>
+    <div class="actions"><button data-restage="start" class="primary" type="button">Ouvrir dans l’atelier Edit</button><button data-restage="cancel" type="button">Fermer</button></div>
+  </dialog>
 
   <dialog id="krea2-assisted-preset-dialog" class="krea2-preset-dialog" aria-labelledby="krea2-assisted-preset-dialog-title">
     <form id="krea2-assisted-preset-form">
@@ -563,7 +579,7 @@
     </nav>
 
     <aside class="controls krea2-edit-controls">
-      <div class="title-row"><div><small>KREA2 · EDIT</small><h1>Backlog à modifier</h1></div><span class="experimental">● V1</span></div>
+      <div class="title-row"><div><small>IMAGE · EDIT</small><h1>Backlog à modifier</h1></div><span class="experimental">● V1</span></div>
       <p class="muted">Les sorties de batch arrivent ici automatiquement. Vous pouvez aussi importer un PNG et son fichier texte facultatif.</p>
       <form id="krea2-edit-upload-form" class="krea2-edit-upload">
         <label>Nouvelle image<input id="krea2-edit-upload-image" type="file" accept="image/png,image/jpeg,image/webp" required></label>
@@ -573,6 +589,7 @@
       <div class="section-title"><h2>Images à traiter</h2><button id="krea2-edit-refresh" class="text-button" type="button">Actualiser</button></div>
       <p id="krea2-edit-backlog-empty" class="muted">Aucune image en attente.</p>
       <ul id="krea2-edit-backlog" class="krea2-edit-backlog"></ul>
+      <button id="krea2-edit-backlog-more" class="text-button" type="button" aria-controls="krea2-edit-backlog" aria-expanded="false" hidden>Afficher les autres ateliers</button>
       <p id="krea2-edit-upload-message" class="error" hidden></p>
     </aside>
 
@@ -580,11 +597,25 @@
       <section id="krea2-edit-editor" class="results krea2-edit-editor" hidden>
         <div class="result-head">
           <div><small>ÉDITION ITÉRATIVE</small><h2 id="krea2-edit-title">Image source</h2></div>
+          <button id="krea2-edit-restart" type="button">Recommencer cette étape</button>
+          <button id="krea2-edit-resume" type="button" hidden>Reprendre depuis cette étape</button>
           <span id="krea2-edit-status" class="run-status">● Prêt</span>
+        </div>
+        <div class="krea2-edit-versions">
+          <label hidden>Version du parcours<select id="krea2-edit-version"></select></label>
+          <small id="krea2-edit-version-note" role="status"></small>
         </div>
         <div id="krea2-edit-timeline" class="krea2-edit-timeline" aria-label="Étapes du projet"></div>
         <div id="krea2-edit-metadata" class="render-metadata"></div>
         <div id="krea2-edit-warnings" class="krea2-batch-warnings" hidden></div>
+        <details id="krea2-edit-reference-pair" class="krea2-edit-reference-pair" open hidden>
+          <summary>Décor + sujet · deux références fixes pour cette étape</summary>
+          <div class="krea2-reference-pair">
+            <figure><figcaption>Image 1 · décor</figcaption><img id="krea2-edit-scene-reference" alt="Décor envoyé à Identity Edit"></figure>
+            <figure><figcaption>Image 2 · sujet et action Assisted</figcaption><img id="krea2-edit-subject-reference" alt="Sujet envoyé à Identity Edit"></figure>
+          </div>
+          <small>Chaque essai repart de ces deux images. Pour une autre scène, reviens dans Assisted et utilise le même décor.</small>
+        </details>
         <section class="krea2-edit-project-naming">
           <div class="krea2-edit-project-fields">
             <label>Nom du projet<input id="krea2-edit-project-name" type="text" maxlength="120" placeholder="Ex. Gorille bijoux"></label>
@@ -614,8 +645,29 @@
             <label><input id="krea2-edit-compare-hover" type="checkbox"> Suivre la souris</label>
             <button id="krea2-edit-compare-zoom-before" type="button">Agrandir avant</button>
             <button id="krea2-edit-compare-zoom-after" type="button">Agrandir après</button>
+            <button id="krea2-edit-retouch-after" type="button" disabled>Retoucher l’image Après</button>
+            <button id="krea2-edit-upscale-after" type="button" aria-controls="krea2-edit-upscale-panel" aria-expanded="false" disabled>Upscale DLSS</button>
+            <button id="krea2-edit-promote-after" class="primary" type="button" disabled>Valider l’image Après et continuer</button>
           </div>
           <small id="krea2-edit-compare-note" class="muted"></small>
+          <div id="krea2-edit-upscale-progress" role="status" aria-live="polite" hidden>
+            <progress aria-label="Amélioration des détails en cours"></progress>
+            <small id="krea2-edit-upscale-progress-label"></small>
+          </div>
+          <details class="dlss-legacy"><summary>Upscaler historique</summary><button id="krea2-edit-upscale-legacy" type="button">ESRGAN / ClearReality</button></details>
+          <div id="krea2-edit-upscale-panel" class="krea2-edit-upscale-panel" hidden>
+            <b id="krea2-edit-upscale-target"></b>
+            <p class="muted">Un nouvel essai aux dimensions de la source. L’image d’origine et le masque enregistré sont conservés.</p>
+            <details>
+              <summary>Modèle d’amélioration</summary>
+              <label>Upscaler<select id="krea2-edit-upscale-model" aria-label="Modèle d’upscale"></select></label>
+            </details>
+            <small id="krea2-edit-upscale-note" role="status" aria-live="polite"></small>
+            <div class="krea2-edit-compare-controls">
+              <button id="krea2-edit-upscale-start" class="primary" type="button" disabled>Lancer</button>
+              <button id="krea2-edit-upscale-close" type="button">Fermer</button>
+            </div>
+          </div>
         </section>
         <section class="krea2-edit-prompt-panel">
           <section class="krea2-edit-exchange" aria-label="Conversation de cette étape">
@@ -626,6 +678,14 @@
           <label class="field-label"><b>Instruction de modification</b>
             <textarea id="krea2-edit-instruction" rows="3" placeholder="Ex. cadre le gorille en pied, frappant sa poitrine…"></textarea>
           </label>
+          <label class="field-label">Version du prompting
+            <select id="krea2-edit-assistance-version" aria-describedby="krea2-edit-assistance-note">
+              <option value="3.0.0">V3 — Modifications ciblées</option>
+              <option value="2.0.0">V2 — Description complète</option>
+              <option value="1.0.0" hidden>V1 — Réécriture historique</option>
+            </select>
+          </label>
+          <p id="krea2-edit-assistance-note" class="muted">La version choisie s’applique au prochain échange. Le prompt actuel reste éditable.</p>
           <div class="krea2-edit-prompt-actions">
             <label>Modèle LLM<select id="krea2-edit-llm"><option value="">Chargement…</option></select></label>
             <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-edit-llm"> Local · Unsloth</label>
@@ -644,27 +704,61 @@
             <pre id="krea2-edit-reasoning-content"></pre>
           </details>
           <details class="krea2-edit-prompt-details">
-            <summary><b>Prompt KREA2 éditable</b><small>Afficher et modifier</small></summary>
-            <label class="sr-only" for="krea2-edit-prompt">Prompt KREA2 éditable</label>
+            <summary><b>Prompt de modification</b><small>Afficher et modifier</small></summary>
+            <label class="sr-only" for="krea2-edit-prompt">Prompt de modification</label>
             <textarea id="krea2-edit-prompt" rows="4" placeholder="Le prompt récupéré ou reconstruit apparaîtra ici."></textarea>
           </details>
         </section>
         </div>
 
+        <section id="krea2-edit-retouch" class="krea2-retouch" aria-label="Retoucher avec un masque" hidden>
+          <div class="krea2-retouch-heading"><b data-role="title">Retoucher</b><button data-action="close" type="button">Revenir à Comparer</button></div>
+          <div class="krea2-retouch-tools" role="toolbar" aria-label="Outils de retouche">
+            <button data-action="paint" type="button" aria-pressed="true">Pinceau</button>
+            <button data-action="erase" type="button" aria-pressed="false">Gomme</button>
+            <button data-action="pan" type="button" aria-pressed="false">Déplacer</button>
+            <label>Taille <input data-role="size" type="range" min="2" max="600" value="80"><output data-role="size-value">80 px</output></label>
+            <label>Douceur <input data-role="softness" type="range" min="0" max="100" value="35"><output data-role="softness-value">35 %</output></label>
+            <button data-action="undo" type="button">Annuler</button><button data-action="redo" type="button">Rétablir</button>
+            <button data-action="zoom-out" type="button" aria-label="Dézoomer">−</button><output data-role="zoom">100 %</output><button data-action="zoom-in" type="button" aria-label="Zoomer">+</button>
+            <button data-action="fit" type="button">Ajuster à l’écran</button>
+          </div>
+          <div class="krea2-retouch-color-tools">
+            <label><input data-role="harmonize" type="checkbox"> Harmoniser avec la source</label>
+            <label data-role="strength-control" hidden>Intensité <input data-role="strength" type="range" min="0" max="100" value="100"><output data-role="strength-value">100 %</output></label>
+            <label><input data-role="show-mask" type="checkbox" checked> Afficher le masque rouge</label>
+            <label>Image à gauche <select data-role="left-image"><option value="generated">Image 2 · génération</option><option value="source">Source de l’étape</option></select></label>
+          </div>
+          <p class="muted">À gauche, peins les zones où conserver l’image 2 ; gomme pour retrouver la source. Change l’image affichée sans perdre ton masque. À droite : le résultat en direct. Molette pour zoomer ; Déplacer ou bouton central pour naviguer.</p>
+          <p data-role="message" class="message" role="status" aria-live="polite"></p>
+          <div class="krea2-retouch-pair">
+            <figure><figcaption data-role="left-label">Image 2 · génération</figcaption><div data-role="before-view" class="krea2-retouch-viewport"><canvas data-role="before" aria-label="Dessiner le masque sur l’image générée" tabindex="0"></canvas><span data-role="cursor" class="krea2-retouch-cursor" hidden></span></div></figure>
+            <figure><figcaption>Résultat composé</figcaption><div data-role="after-view" class="krea2-retouch-viewport"><canvas data-role="after" aria-label="Résultat composé en direct"></canvas></div></figure>
+          </div>
+          <div class="krea2-retouch-footer"><small data-role="draft-state"></small><button data-action="save" class="primary" type="button">Enregistrer comme essai</button></div>
+        </section>
+
         <details class="krea2-edit-settings">
-          <summary><b>Paramètres du rendu</b><small>Modèle, LoRA et réglages avancés</small></summary>
+          <summary><b>Paramètres du rendu</b><small>Moteur, modèle et réglages avancés</small></summary>
           <div class="krea2-edit-settings-grid">
-            <label>Checkpoint<select id="krea2-edit-model"></select></label>
-            <label>Ratio<select id="krea2-edit-ratio"></select></label>
+            <label>Moteur<select id="krea2-edit-engine"><option value="krea2">KREA2</option></select></label>
+            <label data-edit-engine="krea2">Workflow<select id="krea2-edit-workflow"></select></label>
+            <label data-edit-engine="krea2">Checkpoint<select id="krea2-edit-model"></select></label>
+            <label data-edit-engine="krea2">Ratio<select id="krea2-edit-ratio"></select></label>
+            <label data-edit-engine="firered" hidden>Mode FireRed<select id="krea2-edit-firered-mode"><option value="lightning">Lightning</option><option value="standard">Standard</option></select></label>
             <label>Mégapixels<input id="krea2-edit-megapixels" type="number" min="0.5" max="4" step="0.1"></label>
-            <label>Ref boost<input id="krea2-edit-ref-boost" type="number" min="0" max="10" step="0.1"></label>
+            <label data-edit-engine="krea2"><span id="krea2-edit-ref-boost-label">Ref boost</span><input id="krea2-edit-ref-boost" type="number" min="0" max="1000" step="0.1"></label>
             <label>Steps<input id="krea2-edit-steps" type="number" min="1" max="100" step="1"></label>
+            <label data-edit-engine="firered" hidden>CFG<input id="krea2-edit-firered-cfg" type="number" min="0" max="100" step="0.1"></label>
             <label>Seed<input id="krea2-edit-seed" type="text" inputmode="numeric" pattern="[0-9]+"></label>
           </div>
-          <div class="section-title"><h3>LoRA généraux</h3><small>0 à 10 · la LoRA technique KREA Edit reste fixe</small></div>
-          <div id="krea2-edit-loras" class="krea2-lora-stack"></div>
+          <button id="krea2-edit-workflow-defaults" data-edit-engine="krea2" type="button" title="Reprend le checkpoint, Ref boost et steps du workflow, sans LoRA ajouté. Conserve le prompt, le ratio, les mégapixels et la seed.">Reprendre les réglages de base</button>
+          <div data-edit-engine="krea2">
+            <div class="section-title"><h3>LoRA généraux</h3><small>0 à 10 · la LoRA technique KREA Edit reste fixe</small></div>
+            <div id="krea2-edit-loras" class="krea2-lora-stack"></div>
+          </div>
           <small id="krea2-edit-fixed-note" class="muted"></small>
-          <details class="krea2-catalog-manager">
+          <details class="krea2-catalog-manager" data-edit-engine="krea2">
             <summary><b>Organiser le catalogue KREA2</b><small>Précision, favoris et classement des LoRA</small></summary>
             <div id="krea2-edit-catalog-manager"></div>
           </details>
@@ -721,7 +815,13 @@
             <select id="i2vd-model" required><option value="">Chargement…</option></select>
           </label>
           <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-model"> Local · Unsloth</label>
-          <label class="field-label">Recette versionnée
+          <label class="field-label">Type de séquence
+            <select id="i2vd-sequence-kind">
+              <option value="mono">Mono-plan</option>
+              <option value="multi">Multi-plan · 2 à 4 plans</option>
+            </select>
+          </label>
+          <label class="field-label">Préparation
             <select id="i2vd-cookbook" required><option value="">Chargement…</option></select>
           </label>
           <p class="muted" id="i2vd-active-cookbook">La version sera verrouillée à la création du Plan.</p>
@@ -918,10 +1018,11 @@
               </details>
               <div class="h3-render-settings">
                 <label>Ratio<select id="h3r-ratio"></select></label>
-                <label>Mégapixels<input id="h3r-megapixels" type="number" min="0.1" max="16" step="0.1"></label>
+                <label>MP avant upscale<input id="h3r-initial-megapixels" type="number" min="0.1" max="16" step="0.1" value="0.2" title="Résolution de la génération initiale, avant upscale et finition."></label>
+                <label>MP sortie<input id="h3r-megapixels" type="number" min="0.1" max="16" step="0.1" value="0.2" title="Résolution cible de la vidéo finale."></label>
                 <label>Durée<input id="h3r-duration" type="number" min="5" max="15" step="0.1"></label>
                 <label>Steps<input id="h3r-steps" type="number" min="1" max="100" step="1"></label>
-                <label class="h3-render-seed">Seed<input id="h3r-seed" type="text" inputmode="numeric"><span><input id="h3r-seed-lock" type="checkbox"> Réutiliser</span></label>
+                <label class="h3-render-seed">Seed<input id="h3r-seed" type="text" inputmode="numeric"><span><input id="h3r-seed-lock" type="checkbox" checked> Réutiliser</span></label>
                 <label class="h3-render-music"><span>Musique</span><select id="h3r-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
                 <label class="h3-render-feature-toggle"><span>Spectrum</span><span><input id="h3r-spectrum" type="checkbox"> Activer</span></label>
               </div>

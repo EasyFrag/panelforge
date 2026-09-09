@@ -7,6 +7,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from scripts import run_lab
+from panelforge.infrastructure.storage.local import LocalAssetStore
 
 
 DEFAULT_MODEL = (
@@ -69,13 +70,15 @@ class RunLabBuildTest(unittest.TestCase):
 
         self.assertEqual(
             args.krea2_models_root,
-            Path(r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion\_models\Krea2"),
+            Path(r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion_models\Krea2"),
         )
         self.assertEqual(
             args.krea2_loras_root,
             Path(r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\loras\krea2"),
         )
         self.assertEqual(args.local_llm_base_url, "http://127.0.0.1:8888/v1")
+        self.assertEqual(args.dlss_video_export_root, Path(r"X:\data\ComfyUI\output\video\Upscale"))
+        self.assertEqual(args.dlss_output_root, Path(r"D:\AI\PanelForge\LocalOutput"))
         self.assertEqual(args.local_llm_api_key, "")
         self.assertFalse(hasattr(args, "vllm_base_url"))
         self.assertFalse(hasattr(args, "vllm_api_key"))
@@ -122,6 +125,8 @@ class RunLabBuildTest(unittest.TestCase):
                 llm_timeout=300.0,
                 local_llm_base_url="http://local.test:8888/v1",
                 local_llm_api_key="local-unsloth-test",
+                dlss_video_export_root=Path(workspace) / "unmounted-server" / "video" / "Upscale",
+                dlss_output_root=Path(workspace) / "LocalOutput",
                 workspace=workspace,
             )
             BuildComfyClient.instances = []
@@ -145,9 +150,24 @@ class RunLabBuildTest(unittest.TestCase):
                     spec = client.get("/api/image-lab/krea2/spec")
                     h3_render_spec = client.get("/api/h3-render/spec")
                     ref2v_render_spec = client.get("/api/h3-render/spec?mode=ref2va")
+                    edit_spec = client.get("/api/image-lab/krea2-edit/spec")
                     history = client.get("/api/image-lab/krea2/runs?limit=1")
+                    args.dlss_output_root.mkdir()
+                    media = args.dlss_output_root / "reference.mp4"
+                    media.write_bytes(b"sample-video-content")
+                    catalogue = LocalAssetStore(workspace, external_roots=(args.dlss_output_root,))
+                    referenced = catalogue.register_file(media, "video/mp4")
+                    playback = client.get(f"/api/assets/{referenced.asset_id}/content", headers={"Range": "bytes=0-5"})
 
+            self.assertEqual(playback.status_code, 206)
+            self.assertEqual(playback.content, b"sample")
+            self.assertEqual(playback.headers["content-type"], "video/mp4")
+            self.assertFalse((Path(workspace) / "assets" / referenced.asset_id / "content.bin").exists())
             self.assertEqual(spec.status_code, 200)
+            self.assertEqual(edit_spec.status_code, 200)
+            self.assertEqual(edit_spec.json()["recipe"]["version"], "0.2.0")
+            self.assertEqual([(w["engine"], w["version"]) for w in edit_spec.json()["workflows"]],
+                             [("krea2", "0.2.0"), ("krea2", "0.1.0"), ("krea2", "0.3.0"), ("firered", "0.1.0")])
             self.assertEqual(spec.json()["defaults"]["model_id"], DEFAULT_MODEL)
             self.assertEqual(h3_render_spec.status_code, 200)
             self.assertEqual(ref2v_render_spec.status_code, 200)
@@ -195,10 +215,15 @@ class RunLabBuildTest(unittest.TestCase):
             self.assertEqual(ref2v_render_spec.json()["recipe"]["version"], "0.2.0")
             self.assertEqual(ref2v_render_spec.json()["defaults"]["megapixels"], 1.2)
             self.assertEqual(ref2v_render_spec.json()["defaults"]["duration_seconds"], 10.0)
-            self.assertEqual(h3_render_spec.json()["recipe"]["version"], "0.1.2")
+            self.assertEqual(h3_render_spec.json()["recipe"]["version"], "0.1.3")
+            self.assertEqual(h3_render_spec.json()["defaults"]["megapixels"], 0.2)
+            self.assertEqual(h3_render_spec.json()["defaults"]["initial_megapixels"], 0.2)
+            self.assertTrue(h3_render_spec.json()["defaults"]["seed_locked"])
+            self.assertIn("initial_megapixels", h3_render_spec.json()["limits"])
+            self.assertNotIn("initial_megapixels", ref2v_render_spec.json()["limits"])
             self.assertEqual(
                 h3_render_spec.json()["recipe"]["workflow_sha256"],
-                "5a7e6e2283ee91764b785e520aa7c7b3f0002de98ba1c48e703c807e5e39c78a",
+                "3b4566a209275c2c77fdeab7beacd54f144d23569c85c16ace397f951c0ffab5",
             )
             self.assertNotIn("preview_ws_url", spec.json())
             self.assertEqual(len(BuildProjectExporter.instances), 1)
@@ -214,8 +239,10 @@ class RunLabBuildTest(unittest.TestCase):
                 BuildCreationExporter.instances[0].root,
                 Path(r"D:\AI\PanelForge\KREA2 Creations").resolve(),
             )
-            self.assertEqual(len(BuildComfyClient.instances), 9)
+            self.assertEqual(len(BuildComfyClient.instances), 10)
             clients = {client.client_id: client for client in BuildComfyClient.instances}
+            self.assertEqual(clients["panelforge-dlss"].base_url, "http://127.0.0.1:8188")
+            self.assertFalse((Path(workspace) / "unmounted-server").exists(), "startup must not access or create the export share")
             h3_render_ids = [
                 client_id
                 for client_id in clients

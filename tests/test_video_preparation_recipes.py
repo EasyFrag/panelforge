@@ -50,7 +50,7 @@ class ScriptedGateway:
         yield CompletionStreamEvent(StreamEventKind.COMPLETED, StreamPhase.COMPLETED, result=result)
 
 
-def preparation_service(directory, family, route, responses, *, roles=None, source_text="A dragon emerges from an egg in 12 seconds."):
+def preparation_service(directory, family, route, responses, *, roles=None, source_text="A dragon emerges from an egg in 12 seconds.", version="1.0.0", multishot=False):
     h3 = family == "fl2va"
     roles = roles if roles is not None else ("first_frame",) if h3 else ("subject_reference",)
     assets = LocalAssetStore(directory)
@@ -60,9 +60,11 @@ def preparation_service(directory, family, route, responses, *, roles=None, sour
         refs.append(PromptReference(f"ref-{index}", asset.asset_id, role, f"private-{index}.png",
                                     uses=(ReferenceUse(role.removesuffix("_reference")),)))
     base = f"minimax.h3.{family}.direct"
+    if multishot:
+        base += ".multishot"
     session = PromptLabSession(
         session_id="preparation-session", model_id="fixture-model", profile_id=base,
-        profile_version="0.4.0" if h3 else "0.5.0", references=tuple(refs),
+        profile_version="0.2.0" if multishot else ("0.5.0" if version == "1.1.0" else "0.4.0") if h3 else "0.5.0", references=tuple(refs),
         session_mode=PromptSessionMode.H3_BASE if h3 else PromptSessionMode.DIRECT_MULTIMODAL,
     )
     sessions = LocalPromptSessionStore(directory)
@@ -77,7 +79,7 @@ def preparation_service(directory, family, route, responses, *, roles=None, sour
                          CookbookBinding("references", tuple(ref.reference_id for ref in refs)),
                      )
     intent = PreparationIntent(source_text, 35, CreativeFreedomAxes(1, 0, 1), 2)
-    composition = service.configure(session.session_id, f"{base}.{route}", "1.0.0", bindings,
+    composition = service.configure(session.session_id, f"{base}.{route}", version, bindings,
                                     preparation_intent=None if route == "guided" else intent)
     return service, gateway, session, composition
 

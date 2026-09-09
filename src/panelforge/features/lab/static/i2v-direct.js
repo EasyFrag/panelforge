@@ -14,7 +14,7 @@
   const multishotCookbookId = "minimax.h3.fl2va.direct.multishot";
   const animalInterviewCookbookId = "minimax.h3.base.animal-interview";
   const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
-  const preferredCookbookKey = `${monoCookbookId}@${experimentalMonoProfile.version}`;
+  const preferredCookbookKey = "minimax.h3.fl2va.direct.guided@1.1.0";
 
   const state = {
     spec: null,
@@ -43,6 +43,7 @@
     model: $("#i2vd-model"),
     refreshModels: $("#i2vd-refresh-models"),
     cookbook: $("#i2vd-cookbook"),
+    sequenceKind: $("#i2vd-sequence-kind"),
     activeCookbook: $("#i2vd-active-cookbook"),
     imageInput: $("#i2vd-image-input"),
     uploadPreview: $("#i2vd-upload-preview"),
@@ -232,8 +233,14 @@
       ? "Interpréter l’intention et organiser les actions, contacts et risques."
       : "Vérifier les actions, contacts, durée et risques du Brief.";
     elements.steps.prompt.querySelector(".cookbook-step-copy small").textContent = preparationSteps() === 1
-      ? "Préparer le prompt depuis l’intention et les images. Un mouvement caméra principal ; 8 s si aucune durée n’est demandée."
+      ? sequenceKind(cookbook) === "multi"
+        ? "Choisir 2 à 4 plans et rédiger en un appel. Une caméra par plan ; 8 s si aucune durée n’est demandée."
+        : "Préparer le prompt depuis l’intention et les images. Un mouvement caméra principal ; 8 s si aucune durée n’est demandée."
       : "Rédiger depuis le Plan validé, puis compiler le prompt H3.";
+    if (sequenceKind(cookbook) === "multi") {
+      elements.steps.plan.querySelector(".cookbook-step-copy small").textContent =
+        "Organiser les états successifs, les actions, les coupes et la continuité de 2 à 4 plans.";
+    }
   }
 
   function creativeBriefAvailable(cookbook = state.cookbook) {
@@ -242,16 +249,26 @@
       cookbook && (cookbook.id === monoCookbookId || (cookbook.profile && cookbook.preparation_steps === 3))
       && profile && (profile.brief_variants || []).some(
         (value) => value.id === creativeBriefVariant.id
-          && value.version === creativeBriefVariant.version,
+          && value.version === selectedCreativeBriefVariant(cookbook).version,
       ),
     );
   }
 
+  function selectedCreativeBriefVariant(cookbook = state.cookbook) {
+    // Pinned per profile: reopening an old run keeps its former Brief recipe.
+    const profile = selectedProfile(cookbook);
+    return (profile?.id === monoCookbookId && profile.version === "0.5.0")
+      || (profile?.id === multishotCookbookId && profile.version === "0.2.0")
+      ? { id: creativeBriefVariant.id, version: "0.3.0" }
+      : creativeBriefVariant;
+  }
+
   function creativeBriefPayload() {
+    const variant = selectedCreativeBriefVariant();
     return elements.creativeDirection.checked
       ? {
-        brief_variant_id: creativeBriefVariant.id,
-        brief_variant_version: creativeBriefVariant.version,
+        brief_variant_id: variant.id,
+        brief_variant_version: variant.version,
       }
       : { brief_variant_id: null, brief_variant_version: null };
   }
@@ -263,6 +280,21 @@
     );
   }
 
+  function sequenceKind(cookbook) {
+    return cookbook?.id === multishotCookbookId || cookbook?.id?.startsWith(`${multishotCookbookId}.`)
+      ? "multi" : "mono";
+  }
+
+  function changeSequenceKind() {
+    if (state.session || interactionLocked()) return render();
+    const family = elements.sequenceKind.value;
+    const choices = directCookbooks().filter((item) => sequenceKind(item) === family
+      && core.recipeTier(cookbookKey(item)) === "standard");
+    const next = choices.find((item) => item.preparation_steps === preparationSteps()) || choices[0];
+    if (next) state.cookbook = next;
+    render();
+  }
+
   function populateCookbooks() {
     const available = directCookbooks();
     elements.cookbook.replaceChildren();
@@ -271,12 +303,13 @@
       .forEach((cookbook) => {
         const option = document.createElement("option");
         option.value = cookbookKey(cookbook);
+        option.dataset.recipeFamily = sequenceKind(cookbook);
         option.textContent = cookbook.profile ? `${cookbook.display_name} (${cookbook.version})` : cookbook.id === multishotCookbookId
           ? `Multi-plan structuré · 2 à 4 plans (${cookbook.version})`
           : cookbook.id === animalInterviewCookbookId
             ? `Mono-plan · interview d’animal (${cookbook.version})`
             : cookbook.version === experimentalMonoProfile.version
-              ? `Mono-plan · compact · expérimental (${cookbook.version})`
+              ? `Mono-plan · compact · historique (${cookbook.version})`
             : cookbook.id === monoCookbookId && cookbook.version === monoProfile.version
               ? `Mono-plan · standard (${cookbook.version})`
               : `Mono-plan · historique (${cookbook.version})`;
@@ -306,6 +339,9 @@
       ) || null;
     }
     const profileId = session && session.profile && session.profile.id;
+    const pinned = directCookbooks().find((item) => item.profile?.id === profileId
+      && item.profile?.version === session?.profile?.version && item.preparation_steps === 3);
+    if (pinned) return pinned;
     const expectedId = profileId === multishotProfile.id
       ? multishotCookbookId
       : profileId === animalInterviewProfile.id
@@ -737,8 +773,9 @@
         body.append("profile_id", profile.id);
         body.append("profile_version", profile.version);
         if (elements.creativeDirection.checked) {
-          body.append("brief_variant_id", creativeBriefVariant.id);
-          body.append("brief_variant_version", creativeBriefVariant.version);
+          const variant = selectedCreativeBriefVariant();
+          body.append("brief_variant_id", variant.id);
+          body.append("brief_variant_version", variant.version);
         }
         state.session = await core.request("/api/prompt-lab/sessions", { method: "POST", body });
       }
@@ -931,6 +968,8 @@
       ? state.composition.cookbook : null;
     const activeCookbook = activeCookbookSpec();
     elements.cookbook.value = cookbookKey(compositionReference || state.cookbook);
+    elements.sequenceKind.value = sequenceKind(activeCookbook || state.cookbook);
+    elements.cookbook.dataset.recipeFamily = elements.sequenceKind.value;
     core.refreshRecipeVisibility(elements.cookbook);
     const locked = interactionLocked();
     const creativeBriefVisible = creativeBriefAvailable(activeCookbook || state.cookbook);
@@ -947,6 +986,7 @@
     renderPreparationCopy(activeCookbook);
     renderQuickStatus();
     elements.cookbook.disabled = locked || Boolean(compositionReference);
+    elements.sequenceKind.disabled = locked || Boolean(session);
     elements.activeCookbook.textContent = activeCookbook
       ? compositionReference
         ? `${activeCookbook.display_name} · ${activeCookbook.id}@${activeCookbook.version} verrouillée`
@@ -1678,13 +1718,22 @@
     render();
   }
 
-  async function prefillFirstFrame({ assetId, label }) {
+  async function prefillFirstFrame({ assetId, label, sourceSessionId = null }) {
     if (!state.spec || !state.cookbook) throw new Error("H3 Base est encore en cours de chargement.");
     if (interactionLocked()) throw new Error("Une préparation H3 Base est en cours. Réessayez après sa fin.");
     if (typeof assetId !== "string" || !assetId) throw new Error("La frame de fin est indisponible.");
     const requestId = state.openRequestId;
     setBusy(true);
     try {
+      let sourceCookbook = null;
+      if (sourceSessionId) {
+        const payload = await core.request(`/api/prompt-lab/sessions/${encodeURIComponent(sourceSessionId)}/composition`);
+        const reference = payload.composition?.cookbook;
+        sourceCookbook = directCookbooks().find((item) => cookbookKey(item) === cookbookKey(reference)) || null;
+        if (reference?.id?.startsWith(multishotCookbookId) && !sourceCookbook) {
+          throw new Error("La recette multi-plan de ce rendu est indisponible. Le parcours courant est conservé.");
+        }
+      }
       const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}/content`);
       if (!response.ok) throw new Error("Impossible de charger la frame de fin.");
       const blob = await response.blob();
@@ -1694,7 +1743,9 @@
       const file = new File([blob], `${label || "Dernière frame"}.${extension}`, { type: blob.type });
       // Only replace the setup after the saved image has loaded successfully.
       resetSession();
-      if (state.cookbook?.id !== monoCookbookId && !state.cookbook?.profile) {
+      if (sourceCookbook) {
+        state.cookbook = sourceCookbook;
+      } else if (state.cookbook?.id !== monoCookbookId && !state.cookbook?.profile) {
         state.cookbook = directCookbooks().find((item) => cookbookKey(item) === preferredCookbookKey);
       }
       setSelectedFile("first", file);
@@ -1719,12 +1770,13 @@
     button.addEventListener("click", refreshModels);
   });
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupMessage(error.message)));
+  elements.sequenceKind.addEventListener("change", changeSequenceKind);
   elements.cookbook.addEventListener("change", () => {
     const next = directCookbooks().find(
       (item) => cookbookKey(item) === elements.cookbook.value,
     ) || null;
     const expected = profileReference(next);
-    if (state.session && (expected.version === experimentalMonoProfile.version || state.session.profile?.version === experimentalMonoProfile.version)
+    if (state.session && (next?.profile || state.cookbook?.profile || expected.version === experimentalMonoProfile.version || state.session.profile?.version === experimentalMonoProfile.version)
       && (state.session.profile?.id !== expected.id || state.session.profile?.version !== expected.version)) {
       showSetupMessage("Pour changer de recette expérimentale, utilisez Repartir de ce run : le Brief et le Plan doivent garder la même version.");
       return render();
@@ -1752,7 +1804,7 @@
         },
       );
       elements.brief.message.textContent = elements.creativeDirection.checked
-        ? "Direction créative 0.2.0 activée pour le Brief."
+        ? `Direction créative ${state.session.brief_variant.version} activée pour le Brief.`
         : `Brief standard ${state.session.profile.version} activé.`;
       await loadSessions();
     } catch (error) {

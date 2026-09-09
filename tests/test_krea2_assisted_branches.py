@@ -170,7 +170,7 @@ class Krea2AssistedBranchServiceTest(unittest.TestCase):
         self.assertEqual(self.gateway.requests, [])
 
     def test_request_excludes_sibling_future_and_keeps_both_visual_inputs(self):
-        for version in ("1.0.0", "2.0.0"):
+        for version in ("1.0.0", "2.0.0", "3.0.0"):
             with self.subTest(version=version):
                 project = self.store.get("branch-test").switch_branch("main")
                 project = replace(project, assistance_recipe_version=version)
@@ -198,8 +198,8 @@ class Krea2AssistedBranchServiceTest(unittest.TestCase):
         self.assertIsNone(returned.render_seed)
         self.assertEqual(self.gateway.requests, [])
 
-    def test_initial_reference_retries_then_requires_explicit_guidance_in_both_versions(self):
-        for version in ("1.0.0", "2.0.0"):
+    def test_initial_reference_retries_then_requires_explicit_guidance_in_all_versions(self):
+        for version in ("1.0.0", "2.0.0", "3.0.0"):
             with self.subTest(version=version):
                 project = Krea2AssistedProject(
                     project_id="source-once", name="Source", intention="Describe this image", model_id="local",

@@ -1,0 +1,64 @@
+{
+  "1": {
+    "inputs": {
+      "upscale_mode": "1.5× (Quality)",
+      "require_neural_upscaling": false,
+      "nr_preset": "Default",
+      "nr_style": "Default",
+      "nr_intensity": 1,
+      "local_tone_strength": 1,
+      "local_structure_strength": 1,
+      "skin_structure_strength": -1,
+      "automatic_mask": false,
+      "dlss_model_preset": "Default",
+      "encoding_quality": "Max",
+      "video_codec": "H.264 (NVIDIA NVENC)",
+      "container": "MP4",
+      "rename": "Auto",
+      "custom_suffix": "_DLSS5",
+      "hdr_mode": false,
+      "output_detail_strength": 1,
+      "video": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "NvidiaDLSSVideoUpscale",
+    "_meta": {
+      "title": "NVIDIA DLSS Video Upscale"
+    }
+  },
+  "2": {
+    "inputs": {
+      "file": "lever viole.mp4"
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "Load Video"
+    }
+  },
+  "6": {
+    "inputs": {
+      "video": [
+        "1",
+        0
+      ],
+      "filename_prefix": "dlss/video",
+      "format": "mp4",
+      "format.codec": "auto"
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video"
+    }
+  },
+  "5": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": [
+        "1",
+        1
+      ]
+    }
+  }
+}

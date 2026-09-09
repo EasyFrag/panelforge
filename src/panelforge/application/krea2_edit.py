@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+import hashlib
 import json
 import re
 import secrets
@@ -13,6 +14,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from panelforge.domain.assets import Asset
+from panelforge.domain.krea2_edit_versions import Krea2EditRevision, edit_project_versions
 from panelforge.domain.krea2_batch import (
     Krea2BatchItemStatus,
     Krea2LoraSelection,
@@ -24,11 +26,14 @@ from panelforge.domain.krea2_edit import (
     Krea2EditMetadata,
     Krea2EditPromptRevision,
     Krea2EditPromptStatus,
+    Krea2EditRetouch,
     Krea2EditSettings,
     Krea2EditSource,
     Krea2EditSourceState,
 )
-from panelforge.infrastructure.presets.krea2_edit import ValidatedKrea2EditWorkflow
+from panelforge.domain.firered_edit import FireRedEditSettings
+from panelforge.domain.edit_settings import EditSettings, edit_engine, edit_settings_record, edit_output_dimensions
+from .image_edit import EditWorkflow, EditImages
 
 from .prompt_lab import (
     CompletionRequest,
@@ -41,7 +46,16 @@ from .prompt_lab import (
     StreamPhase,
     truncated_response_message,
 )
-from . import krea2_edit_assistance
+from . import krea2_edit_assistance, krea2_edit_assistance_v3
+from . import firered_edit_assistance
+from . import krea2_restage
+from .krea2_retouch import RetouchCompositor
+from . import krea2_edit_upscale as enhancement
+from panelforge.domain.krea2_edit import validate_retouch_harmonization
+
+
+class RetouchConflictError(ValueError):
+    """The stage or an idempotent save request no longer matches the editor."""
 
 
 _PROMPT_SYSTEM = """You write one production-ready KREA2 image-edit prompt in the explicitly requested target language.
@@ -88,7 +102,9 @@ class Krea2EditAssets(Protocol):
 
 class Krea2EditStore(Protocol):
     def create(self, source: Krea2EditSource) -> Krea2EditSource: ...
+    def create_revision(self, stages: tuple[Krea2EditSource, ...]) -> Krea2EditSource: ...
     def save(self, source: Krea2EditSource) -> Krea2EditSource: ...
+    def save_restart(self, previous: Krea2EditSource, restarted: Krea2EditSource) -> Krea2EditSource: ...
     def get(self, source_id: str) -> Krea2EditSource: ...
     def list(self, limit: int = 100, *, include_hidden: bool = False) -> list[Krea2EditSource]: ...
     def find_batch_source(self, batch_id: str, item_id: str) -> Krea2EditSource | None: ...
@@ -105,6 +121,14 @@ class Krea2EditComfy(Protocol):
 
 class Krea2BatchReader(Protocol):
     def list(self, limit: int = 20) -> list[object]: ...
+
+
+@dataclass(frozen=True)
+class Krea2EditBacklog:
+    sources: tuple[Krea2EditSource, ...]
+    versions: list[dict[str, object]]
+    project_ids: tuple[str, ...]
+    project_count: int
 
 
 class Krea2ProjectExporter(Protocol):
@@ -129,12 +153,14 @@ class Krea2EditStreamEvent:
 @dataclass(frozen=True, slots=True)
 class Krea2EditAttemptRequest:
     prompt: str
-    settings: Krea2EditSettings
+    settings: EditSettings
+    workflow_version: str | None = None
+    workflow_id: str | None = None
 
     def __post_init__(self) -> None:
         _text(self.prompt, "prompt")
-        if not isinstance(self.settings, Krea2EditSettings):
-            raise TypeError("settings must be Krea2EditSettings")
+        if not isinstance(self.settings, (Krea2EditSettings, FireRedEditSettings)):
+            raise TypeError("settings must belong to a supported image-edit engine")
 
 
 class Krea2EditService:
@@ -142,12 +168,17 @@ class Krea2EditService:
         self,
         *,
         gateway: MultimodalGateway,
-        workflow: ValidatedKrea2EditWorkflow,
+        workflow: EditWorkflow,
+        historical_workflows: tuple[EditWorkflow, ...] = (),
         comfy: Krea2EditComfy,
         assets: Krea2EditAssets,
         sources: Krea2EditStore,
         batches: Krea2BatchReader | None = None,
         project_exporter: Krea2ProjectExporter | None = None,
+        retouch_compositor: RetouchCompositor | None = None,
+        upscale_workflow: enhancement.UpscaleWorkflow | None = None,
+        upscale_images: enhancement.UpscaleImages | None = None,
+        edit_images: EditImages | None = None,
         application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
         run_timeout: float = 3600.0,
         poll_interval: float = 1.0,
@@ -162,11 +193,22 @@ class Krea2EditService:
             raise ValueError("timeouts must be positive")
         self.gateway = gateway
         self.workflow = workflow
+        self.workflows = (workflow, *historical_workflows)
+        if len({(item.reference.recipe_id, item.reference.version) for item in self.workflows}) != len(self.workflows):
+            raise ValueError("duplicate image-edit recipe and version")
         self.comfy = comfy
         self.assets = assets
         self.sources = sources
         self.batches = batches
         self.project_exporter = project_exporter
+        self.retouch_compositor = retouch_compositor
+        self.upscale_workflow = upscale_workflow
+        self.upscale_images = upscale_images
+        self.edit_images = edit_images
+        if any(item.engine == "firered" for item in self.workflows) and edit_images is None:
+            raise ValueError("FireRed requires image decoding for orientation and output dimensions")
+        if any(getattr(item, "requires_subject_reference", False) for item in self.workflows) and edit_images is None:
+            raise ValueError("Two-reference editing requires image decoding for both inputs")
         self.application_outcomes = application_outcomes
         self.run_timeout = run_timeout
         self.poll_interval = poll_interval
@@ -183,6 +225,17 @@ class Krea2EditService:
 
     def list_models(self) -> tuple[ModelDescriptor, ...]:
         return self.gateway.list_models()
+
+    def workflow_for_attempt(self, source: Krea2EditSource, attempt: Krea2EditAttempt) -> EditWorkflow | enhancement.UpscaleWorkflow:
+        if attempt.upscale:
+            if self.upscale_workflow is None or self.upscale_workflow.reference != attempt.upscale.workflow:
+                raise ValueError("Le workflow d’amélioration de cet essai est indisponible.")
+            return self.upscale_workflow
+        reference = attempt.recipe or source.recipe
+        for workflow in self.workflows:
+            if workflow.reference == reference:
+                return workflow
+        raise ValueError(f"KREA2 edit workflow {reference.version} is not loaded")
 
     @property
     def project_export_root(self) -> str | None:
@@ -212,6 +265,10 @@ class Krea2EditService:
             source_batch_item_id=source_batch_item_id,
         )
         return self.sources.create(source)
+
+    def restage_assisted(self, project, attempt_id: str, *, scene_asset_id: str, instruction: str, request_id: str):
+        return krea2_restage.create(self, project, attempt_id, scene_asset_id=scene_asset_id,
+                                   instruction=instruction, request_id=request_id)
 
     def sync_batch_sources(self, limit: int = 100) -> int:
         if self.batches is None:
@@ -246,14 +303,156 @@ class Krea2EditService:
 
     def get(self, source_id: str) -> Krea2EditSource:
         with self._lock:
-            return self._refresh_detached_attempts(self.sources.get(source_id))
+            source = self.sources.get(source_id)
+            return source if self._is_historical(source) else self._refresh_detached_attempts(source)
+
+    def project_versions(self) -> list[dict[str, object]]:
+        with self._lock:
+            return edit_project_versions(self.sources.list(2**31 - 1, include_hidden=True))
+
+    def project_stages(self, project_id: str) -> tuple[Krea2EditSource, ...]:
+        with self._lock:
+            stages = self._project_stages(project_id)
+            if not stages:
+                raise KeyError(project_id)
+            return stages
+
+    def _is_historical(self, source: Krea2EditSource) -> bool:
+        return any(version["project_id"] == source.project_id and version["status"] == "historical"
+                   for version in self.project_versions())
+
+    def _require_editable(self, source: Krea2EditSource) -> None:
+        if source.state is not Krea2EditSourceState.PENDING or self._is_historical(source):
+            raise RetouchConflictError("Cette étape est en lecture seule. Utilise « Reprendre depuis cette étape » sur une image validée.")
+
+    @staticmethod
+    def _stage_busy(source: Krea2EditSource) -> bool:
+        return source.prompt_status is Krea2EditPromptStatus.GENERATING or any(
+            a.status in {Krea2EditAttemptStatus.QUEUED, Krea2EditAttemptStatus.RUNNING,
+                         Krea2EditAttemptStatus.CANCEL_PENDING} for a in source.attempts)
+
+    def resume_stage(self, source_id: str, *, request_id: str) -> Krea2EditSource:
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", request_id):
+            raise ValueError("Identifiant de reprise invalide.")
+        with self._lock:
+            source = self.sources.get(source_id)
+            project_id = "krea2-edit-revision-" + hashlib.sha256(
+                f"{source_id}:{request_id}".encode()).hexdigest()[:32]
+            try:
+                root = self.sources.get(project_id)
+            except (KeyError, FileNotFoundError):
+                root = None
+            if root is not None:
+                if not root.revision or root.revision.request_id != request_id or root.revision.source_id != source_id:
+                    raise RetouchConflictError("Cette reprise correspond déjà à une autre étape.")
+                return next(stage for stage in self._project_stages(project_id)
+                            if stage.stage_index == root.revision.stage_index)
+            if source.accepted_attempt_id is None:
+                raise ValueError("Choisis une étape déjà validée pour reprendre son travail.")
+            stages = tuple(stage for stage in self._project_stages(source.project_id)
+                           if stage.stage_index <= source.stage_index)
+            if any(self._stage_busy(stage) for stage in stages):
+                raise RetouchConflictError("Attends la fin de l’échange ou du rendu avant de reprendre cette étape.")
+            if [s.stage_index for s in stages] != list(range(1, source.stage_index + 1)):
+                raise ValueError("La chaîne d’origine est incomplète.")
+            for parent, child in zip(stages, stages[1:]):
+                if (child.parent_source_id != parent.source_id
+                        or child.parent_attempt_id != parent.accepted_attempt_id
+                        or _attempt(parent, parent.accepted_attempt_id).output_asset_id != child.source_asset_id):
+                    raise ValueError("La chaîne d’origine est incohérente.")
+            accepted = _attempt(source, source.accepted_attempt_id)
+            family_id = source.revision.family_id if source.revision else source.project_id
+            versions = [v for v in self.project_versions() if v["family_id"] == family_id]
+            revision = Krea2EditRevision(
+                family_id=family_id, number=max(v["number"] for v in versions) + 1,
+                source_project_id=source.project_id, source_id=source_id,
+                stage_index=source.stage_index, attempt_id=accepted.attempt_id,
+                attempt_count=len(source.attempts), request_id=request_id,
+            )
+            ids = {s.source_id: project_id if s.stage_index == 1 else f"{project_id}-s{s.stage_index}"
+                   for s in stages}
+            copies = []
+            for stage in stages:
+                self.assets.get(stage.source_asset_id)
+                for attempt in stage.attempts:
+                    if attempt.output_asset_id:
+                        self.assets.get(attempt.output_asset_id)
+                    if attempt.retouch:
+                        self.assets.get(attempt.retouch.mask_asset_id)
+                    if attempt.upscale:
+                        for asset_id in (attempt.upscale.input_asset_id, attempt.upscale.enhanced_asset_id, attempt.upscale.mask_asset_id):
+                            if asset_id:
+                                self.assets.get(asset_id)
+                resumed = stage.source_id == source_id
+                copies.append(replace(
+                    stage, source_id=ids[stage.source_id], project_id=project_id,
+                    parent_source_id=ids.get(stage.parent_source_id),
+                    revision=revision, copied_from_source_id=stage.source_id, revision_activation=0,
+                    source_batch_id=None, source_batch_item_id=None,
+                    state=Krea2EditSourceState.PENDING if resumed else Krea2EditSourceState.ADVANCED,
+                    accepted_attempt_id=None if resumed else stage.accepted_attempt_id,
+                    generated_prompt=accepted.prompt if resumed else stage.generated_prompt,
+                    prompt_status=Krea2EditPromptStatus.READY if resumed else stage.prompt_status,
+                    prompt_error=None, raw_prompt_response=None, export_path=None, export_error=None,
+                    restart_count=0,
+                ))
+            return self.sources.create_revision(tuple(copies))
+
+    def backlog(self, project_limit: int = 3, *, project_id: str | None = None) -> Krea2EditBacklog:
+        """Recent workshop families, keeping every stage of the open project.
+
+        The store returns sources by modification time. Read it once for both
+        family selection and versions; only selected projects are serialized.
+        """
+        if type(project_limit) is not int or project_limit < 0:
+            raise ValueError("project_limit must be a non-negative integer")
+        self.sync_batch_sources()
+        with self._lock:
+            sources = self.sources.list(2**31 - 1, include_hidden=True)
+            versions = edit_project_versions(sources)
+            by_id = {v["project_id"]: v for v in versions}
+            groups: dict[str, list[Krea2EditSource]] = {}
+            for source in sources:
+                if (source.state in {Krea2EditSourceState.PENDING, Krea2EditSourceState.ADVANCED}
+                        and by_id[source.project_id]["status"] != "historical"):
+                    groups.setdefault(source.project_id, []).append(source)
+            families: dict[str, str] = {}
+            for candidate, stages in groups.items():
+                if not any(s.state is Krea2EditSourceState.PENDING for s in stages):
+                    continue
+                version = by_id[candidate]
+                previous = families.get(version["family_id"])
+                if previous is None or version["number"] > by_id[previous]["number"]:
+                    families[version["family_id"]] = candidate
+            candidates = set(families.values())
+            recent = [candidate for candidate in groups if candidate in candidates]
+            visible = tuple(recent[:project_limit])
+            selected = set(visible)
+            if project_id is not None:
+                selected.add(project_id)
+            # Keep complete chains, including the pinned historical version.
+            # Detached jobs outside the visible/open projects are not polled.
+            stages = tuple(
+                source if by_id[source.project_id]["status"] == "historical"
+                else self._refresh_detached_attempts(source)
+                for source in sources if source.project_id in selected
+            )
+            return Krea2EditBacklog(stages, versions, visible, len(recent))
 
     def list(self, limit: int = 100, *, include_hidden: bool = False) -> list[Krea2EditSource]:
         self.sync_batch_sources(limit=max(limit, 100))
         with self._lock:
+            selected = self.sources.list(limit, include_hidden=include_hidden)
+            project_ids = {source.project_id for source in selected}
+            versions = self.project_versions()
+            families = {v["family_id"] for v in versions if v["project_id"] in project_ids}
+            project_ids.update(v["project_id"] for v in versions
+                               if v["family_id"] in families and v["status"] != "historical")
+            historical = {v["project_id"] for v in versions if v["status"] == "historical"}
             return [
-                self._refresh_detached_attempts(source)
-                for source in self.sources.list(limit, include_hidden=include_hidden)
+                source if source.project_id in historical else self._refresh_detached_attempts(source)
+                for source in self.sources.list(2**31 - 1, include_hidden=include_hidden)
+                if source.project_id in project_ids
             ]
 
     def set_state(self, source_id: str, state: Krea2EditSourceState) -> Krea2EditSource:
@@ -264,6 +463,8 @@ class Krea2EditService:
             raise ValueError("a KREA2 edit project can only be processed or hidden")
         with self._lock:
             source = self.sources.get(source_id)
+            if self._is_historical(source):
+                raise RetouchConflictError("Cette version historique reste consultable en lecture seule.")
             project = [
                 candidate
                 for candidate in self.sources.list(2**31 - 1, include_hidden=True)
@@ -288,6 +489,23 @@ class Krea2EditService:
             assert updated is not None
             return updated
 
+    def restart_stage(self, source_id: str, *, expected_restart_count: int) -> Krea2EditSource:
+        if type(expected_restart_count) is not int or expected_restart_count < 0:
+            raise ValueError("Compteur de reprise invalide.")
+        with self._lock:
+            source = self.sources.get(source_id)
+            # A retry must never erase work begun after the acknowledged restart.
+            if source.restart_count > expected_restart_count:
+                return source
+            if source.restart_count != expected_restart_count:
+                raise RetouchConflictError("L’état de l’étape a changé. Recharge l’atelier.")
+            self._require_editable(source)
+            try:
+                restarted = source.restart()
+            except ValueError as error:
+                raise RetouchConflictError(str(error)) from error
+            return self.sources.save_restart(source, restarted)
+
     def stream_prepare_prompt(
         self,
         source_id: str,
@@ -299,10 +517,18 @@ class Krea2EditService:
         prompt_language: Krea2PromptLanguage | None = None,
         include_reasoning: bool = False,
         assistance_version: str = "1.0.0",
+        render_engine: str = "krea2",
     ) -> Iterator[Krea2EditStreamEvent]:
-        if assistance_version not in {"1.0.0", krea2_edit_assistance.VERSION}:
+        writers = {writer.VERSION: writer for writer in (krea2_edit_assistance, krea2_edit_assistance_v3)}
+        if assistance_version not in {"1.0.0", *writers}:
             raise ValueError("unsupported edit assistance version")
-        conversational = assistance_version == krea2_edit_assistance.VERSION
+        writer = writers.get(assistance_version)
+        if render_engine not in {"krea2", "firered"}:
+            raise ValueError("unsupported edit prompt engine")
+        if render_engine == "firered":
+            if assistance_version != "3.0.0" or not any(w.engine == "firered" for w in self.workflows):
+                raise ValueError("FireRed prompting requires the configured engine and targeted instructions V3")
+            writer = firered_edit_assistance
         if not isinstance(include_reasoning, bool):
             raise TypeError("include_reasoning must be a boolean")
         normalized_base = (
@@ -314,6 +540,9 @@ class Krea2EditService:
             source = self.sources.get(source_id)
             if source.state is not Krea2EditSourceState.PENDING:
                 raise ValueError("only the active KREA2 edit stage can prepare a prompt")
+            if source.subject_reference and render_engine != "krea2":
+                raise ValueError("Cet atelier décor + sujet utilise Identity Edit.")
+            self._require_editable(source)
             feedback = None
             if feedback_attempt_id is not None:
                 feedback = _attempt(source, feedback_attempt_id)
@@ -329,6 +558,10 @@ class Krea2EditService:
         image = self.assets.read_bytes(source.source_asset_id)
         base = normalized_base or source.generated_prompt or source.metadata.prompt
         images = [ImageInput(image_asset.media_type, image, "STAGE SOURCE")]
+        if source.subject_reference:
+            subject_asset = self.assets.get(source.subject_reference.asset_id)
+            images = [ImageInput("image/png", self.edit_images.normalize_source(image), "STAGE SOURCE"),
+                      ImageInput("image/png", self.edit_images.normalize_source(self.assets.read_bytes(subject_asset.asset_id)), "SUBJECT REFERENCE")]
         feedback_note = ""
         if feedback is not None:
             assert feedback.output_asset_id is not None
@@ -358,16 +591,23 @@ class Krea2EditService:
             )
             + feedback_note
         )
-        if conversational:
+        if writer in (krea2_edit_assistance_v3, firered_edit_assistance):
+            user = writer.user_prompt(
+                source, language_instruction=_prompt_language_instruction(source.prompt_language),
+                base_prompt=normalized_base, feedback_note=feedback_note,
+            )
+        elif writer:
             user += krea2_edit_assistance.context(source)
+        if source.subject_reference:
+            user += krea2_restage.PROMPT_CONTEXT
         request = CompletionRequest(
             model_id=model_id,
-            system_prompt=krea2_edit_assistance.SYSTEM if conversational else _PROMPT_SYSTEM,
+            system_prompt=(writer.SYSTEM if writer else _PROMPT_SYSTEM) + (krea2_restage.PROMPT_CONTEXT if source.subject_reference else ""),
             user_prompt=user,
             images=tuple(images),
             temperature=0.2,
             max_tokens=131_072,
-            operation_id=(krea2_edit_assistance.OPERATION if conversational
+            operation_id=(writer.OPERATION if writer
                           else "krea2.edit.prompt.rewrite_or_reconstruct@0.3.0"),
             include_reasoning=include_reasoning,
         )
@@ -393,11 +633,12 @@ class Krea2EditService:
                     raw = event.result.content
                     try:
                         assistant_message, candidate = (
-                            krea2_edit_assistance.decode(raw) if conversational else (None, raw)
+                            writer.decode(raw) if writer else (None, raw)
                         )
                         prompt = normalize_krea2_edit_prompt(
                             candidate,
                             source.prompt_language,
+                            allow_short_edit=writer in (krea2_edit_assistance_v3, firered_edit_assistance),
                         )
                         terminal = self._finish_prompt_success(
                             source,
@@ -409,6 +650,7 @@ class Krea2EditService:
                             ),
                             assistant_message=assistant_message,
                             assistance_version=assistance_version,
+                            render_engine=render_engine,
                         )
                     except Exception as error:
                         terminal = self._finish_prompt_failure(
@@ -433,16 +675,137 @@ class Krea2EditService:
     def prepare_attempt(self, source_id: str, request: Krea2EditAttemptRequest) -> Krea2EditSource:
         with self._lock:
             source = self.sources.get(source_id)
-            if source.recipe != self.workflow.reference:
-                raise ValueError("the source workflow version is not loaded")
-            if source.state is not Krea2EditSourceState.PENDING:
-                raise ValueError("only the active KREA2 edit stage can render")
+            choices = [item for item in self.workflows if item.engine == edit_engine(request.settings)]
+            choices = [item for item in choices if bool(getattr(item, "requires_subject_reference", False)) == bool(source.subject_reference)]
+            workflow = next((item for item in choices
+                             if (request.workflow_id is None or item.reference.recipe_id == request.workflow_id)
+                             and (request.workflow_version is None or item.reference.version == request.workflow_version)), None)
+            if workflow is None:
+                raise ValueError("the requested image-edit recipe/version is not loaded for this engine")
+            self._require_editable(source)
+            if isinstance(request.settings, FireRedEditSettings):
+                if request.settings.model_name != workflow.defaults["model_id"]:
+                    raise ValueError("Le modèle ne correspond pas à cette recette FireRed.")
+                self.edit_images.dimensions(self.assets.read_bytes(source.source_asset_id))
             attempt = Krea2EditAttempt(
                 attempt_id=self._attempt_id_factory(),
                 prompt=request.prompt.strip(),
                 settings=request.settings,
+                recipe=workflow.reference,
             )
             return self.sources.save(source.add_attempt(attempt))
+
+    def prepare_upscale(self, source_id: str, attempt_id: str, *, model_name: str, request_id: str):
+        return enhancement.prepare_upscale(self, source_id, attempt_id, model_name=model_name, request_id=request_id)
+
+    def queue_upscale(self, source_id: str, attempt_id: str, *, model_name: str, request_id: str):
+        source, candidate = self.prepare_upscale(source_id, attempt_id, model_name=model_name, request_id=request_id)
+        with self._lock:
+            source = self.sources.get(source_id)
+            candidate = _attempt(source, candidate.attempt_id)
+            should_start = candidate.status is Krea2EditAttemptStatus.CREATED
+            if should_start:
+                source = self.queue_attempt(source_id, candidate.attempt_id)
+            return source, _attempt(source, candidate.attempt_id), should_start
+
+    def _retouch_inputs(self, source: Krea2EditSource, attempt_id: str) -> tuple[Krea2EditAttempt, Krea2EditAttempt]:
+        selected = _attempt(source, attempt_id)
+        if selected.status is not Krea2EditAttemptStatus.SUCCEEDED:
+            raise ValueError("Choisis un essai réussi pour le retoucher.")
+        original = _attempt(source, selected.retouch.original_attempt_id) if selected.retouch else selected
+        if original.output_asset_id is None:
+            raise ValueError("Le rendu d’origine est indisponible.")
+        return selected, original
+
+    def prepare_retouch(self, source_id: str, attempt_id: str) -> dict[str, object]:
+        if self.retouch_compositor is None:
+            raise ValueError("La retouche n’est pas configurée.")
+        with self._lock:
+            source = self.sources.get(source_id)
+            selected, original = self._retouch_inputs(source, attempt_id)
+        prepared = self.retouch_compositor.prepare(
+            self.assets.read_bytes(source.source_asset_id),
+            self.assets.read_bytes(enhancement.generation_asset(original)),
+        )
+        mask = enhancement.mask_settings(selected)
+        return {
+            "source_id": source_id, "attempt_id": attempt_id,
+            "original_attempt_id": original.attempt_id,
+            "label": source.attempt_label(attempt_id),
+            "editable": source.state is Krea2EditSourceState.PENDING and not self._is_historical(source),
+            "width": prepared.width, "height": prepared.height,
+            "source_png": prepared.source_png, "generated_png": prepared.generated_png,
+            "harmonized_png": prepared.harmonized_png,
+            "harmonize": mask.harmonize if mask else False,
+            "harmonize_strength": mask.harmonize_strength if mask else 100,
+            "color_method": "reinhard_lab_rgb@1.0.0",
+            "mask_png": self.assets.read_bytes(mask.mask_asset_id) if mask and mask.mask_asset_id else None,
+        }
+
+    def save_retouch(self, source_id: str, attempt_id: str, mask: bytes,
+                     *, request_id: str, harmonize: bool = False,
+                     harmonize_strength: int = 100) -> tuple[Krea2EditSource, Krea2EditAttempt]:
+        validate_retouch_harmonization(harmonize, harmonize_strength)
+        if self.retouch_compositor is None:
+            raise ValueError("La retouche n’est pas configurée.")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", request_id):
+            raise ValueError("Identifiant d’enregistrement invalide.")
+        if not isinstance(mask, bytes) or not mask or len(mask) > 25 * 1024 * 1024:
+            raise ValueError("Masque vide ou supérieur à 25 Mio.")
+        digest = hashlib.sha256(mask).hexdigest()
+
+        def existing(current: Krea2EditSource) -> Krea2EditAttempt | None:
+            for candidate in current.attempts:
+                if candidate.retouch and candidate.retouch.request_id == request_id:
+                    if (candidate.retouch.parent_attempt_id != attempt_id
+                            or candidate.retouch.submitted_mask_sha256 != digest
+                            or candidate.retouch.harmonize != harmonize
+                            or candidate.retouch.harmonize_strength != harmonize_strength):
+                        raise RetouchConflictError("Cet enregistrement correspond déjà à une autre retouche.")
+                    return candidate
+            return None
+
+        with self._lock:
+            source = self.sources.get(source_id)
+            found = existing(source)
+            if found is not None:
+                return source, found
+            if source.state is not Krea2EditSourceState.PENDING:
+                raise RetouchConflictError("Cette étape est déjà validée ou archivée. Le brouillon reste disponible.")
+            self._require_editable(source)
+            _, original = self._retouch_inputs(source, attempt_id)
+        composed = self.retouch_compositor.compose(
+            self.assets.read_bytes(source.source_asset_id),
+            self.assets.read_bytes(enhancement.generation_asset(original)), mask,
+            harmonize=harmonize, harmonize_strength=harmonize_strength,
+        )
+        with self._lock:
+            current = self.sources.get(source_id)
+            found = existing(current)
+            if found is not None:
+                return current, found
+            if current.restart_count != source.restart_count:
+                raise RetouchConflictError("Cette étape a été recommencée pendant la retouche. Recharge l’atelier.")
+            if current.state is not Krea2EditSourceState.PENDING:
+                raise RetouchConflictError("Cette étape a été validée pendant la retouche. Le brouillon reste disponible.")
+            self._require_editable(current)
+            mask_asset = self.assets.create(composed.mask_png, media_type="image/png", source_run_id=source_id)
+            output = self.assets.create(composed.output_png, media_type="image/png", source_run_id=source_id)
+            candidate = Krea2EditAttempt(
+                attempt_id=self._attempt_id_factory(), prompt=original.prompt, settings=original.settings,
+                recipe=original.recipe or current.recipe,
+                status=Krea2EditAttemptStatus.SUCCEEDED, kind="retouch", output_asset_id=output.asset_id,
+                retouch=Krea2EditRetouch(
+                    original_attempt_id=original.attempt_id, parent_attempt_id=attempt_id,
+                    source_asset_id=current.source_asset_id, generated_asset_id=enhancement.generation_asset(original),
+                    mask_asset_id=mask_asset.asset_id, width=composed.width, height=composed.height,
+                    request_id=request_id, submitted_mask_sha256=digest,
+                    harmonize=harmonize, harmonize_strength=harmonize_strength,
+                ),
+            )
+            # A local composition does not change an in-flight conversation or prompt.
+            saved = self.sources.save(replace(current, attempts=(*current.attempts, candidate)))
+            return saved, candidate
 
     def promote_attempt(
         self,
@@ -462,6 +825,9 @@ class Krea2EditService:
                     and candidate.parent_attempt_id == attempt_id
                 ):
                     return candidate
+            self._require_editable(source)
+            if self._stage_busy(source):
+                raise RetouchConflictError("Attends la fin de l’échange ou du rendu avant de valider.")
             if any(
                 value.status
                 in {
@@ -498,19 +864,20 @@ class Krea2EditService:
             )
             child = Krea2EditSource(
                 source_id=self._source_id_factory(),
-                recipe=source.recipe,
+                recipe=self.workflow.reference if source.subject_reference else attempt.recipe or source.recipe,
                 source_asset_id=attempt.output_asset_id,
                 filename=source.filename,
                 metadata=Krea2EditMetadata(
-                    prompt=attempt.prompt,
+                    prompt=None if source.subject_reference else attempt.prompt,
                     model_name=attempt.settings.model_name,
-                    aspect_ratio=attempt.settings.aspect_ratio,
+                    aspect_ratio=attempt.settings.aspect_ratio if isinstance(attempt.settings, Krea2EditSettings) else None,
                     megapixels=attempt.settings.megapixels,
                     seed=attempt.settings.seed,
-                    loras=attempt.settings.loras,
-                    origin="edit",
-                    ref_boost=attempt.settings.ref_boost,
+                    loras=attempt.settings.loras if isinstance(attempt.settings, Krea2EditSettings) else (),
+                    origin="upscale" if attempt.upscale else "retouch" if attempt.retouch else "edit",
+                    ref_boost=attempt.settings.ref_boost if isinstance(attempt.settings, Krea2EditSettings) else None,
                     steps=attempt.settings.steps,
+                    firered_settings=attempt.settings if isinstance(attempt.settings, FireRedEditSettings) else None,
                 ),
                 prompt_language=source.prompt_language,
                 project_id=source.project_id,
@@ -518,8 +885,9 @@ class Krea2EditService:
                 parent_source_id=source.source_id,
                 parent_attempt_id=attempt.attempt_id,
                 project_name=requested_name,
-                prompt_status=Krea2EditPromptStatus.READY,
-                generated_prompt=attempt.prompt,
+                revision=source.revision,
+                prompt_status=Krea2EditPromptStatus.IDLE if source.subject_reference else Krea2EditPromptStatus.READY,
+                generated_prompt=None if source.subject_reference else attempt.prompt,
                 prompt_model_id=source.prompt_model_id,
             )
             advanced = source.advance(
@@ -527,6 +895,12 @@ class Krea2EditService:
                 project_name=requested_name,
                 accepted_label=accepted_label,
             )
+            if source.revision and source.stage_index == source.revision.stage_index:
+                versions = [v for v in self.project_versions() if v["family_id"] == source.revision.family_id]
+                active_ids = {v["project_id"] for v in versions if v["status"] == "active"}
+                if any(s.project_id in active_ids and self._stage_busy(s) for s in all_sources):
+                    raise RetouchConflictError("Un échange ou un rendu est encore actif dans l’ancienne version. Attends sa fin avant de valider la nouvelle.")
+                advanced = replace(advanced, revision_activation=max(v["activation"] for v in versions) + 1)
             self.sources.save(advanced)
             try:
                 created = self.sources.create(child)
@@ -590,6 +964,9 @@ class Krea2EditService:
     def queue_attempt(self, source_id: str, attempt_id: str) -> Krea2EditSource:
         with self._lock:
             source = self.sources.get(source_id)
+            self._require_editable(source)
+            if _attempt(source, attempt_id).kind == "retouch":
+                raise ValueError("Une retouche locale ne peut pas être envoyée à ComfyUI.")
             active = {
                 Krea2EditAttemptStatus.QUEUED,
                 Krea2EditAttemptStatus.RUNNING,
@@ -609,28 +986,57 @@ class Krea2EditService:
             attempt = _attempt(source, attempt_id)
             if attempt.status is not Krea2EditAttemptStatus.QUEUED:
                 return source
+            self._require_editable(source)
             if key in self._claimed:
                 raise ValueError("attempt is already executing")
             self._claimed.add(key)
         execution_id: str | None = None
         try:
-            asset = self.assets.get(source.source_asset_id)
-            content = self.assets.read_bytes(source.source_asset_id)
+            render_workflow = self.workflow_for_attempt(source, attempt)
+            input_id = attempt.upscale.input_asset_id if attempt.upscale else source.source_asset_id
+            asset = self.assets.get(input_id)
+            content = self.assets.read_bytes(input_id)
+            fire_source = isinstance(attempt.settings, FireRedEditSettings) and not attempt.upscale
+            two_inputs = source.subject_reference is not None and not attempt.upscale
+            if two_inputs and not getattr(render_workflow, "requires_subject_reference", False):
+                raise ValueError("Le workflow de cet essai ne prend pas les deux références.")
+            if fire_source or two_inputs:
+                content = self.edit_images.normalize_source(content)
+            if attempt.upscale:
+                if attempt.upscale.model_name not in self.comfy.list_upscale_models():
+                    raise ValueError("L’upscaler sélectionné est indisponible.")
+                prepared = self.upscale_images.prepare(self.assets.read_bytes(source.source_asset_id), content)
+                if (prepared.width, prepared.height) != (attempt.upscale.width, attempt.upscale.height):
+                    raise ValueError("Les dimensions de la source ont changé.")
+                content = prepared.image_png
             uploaded = self.comfy.upload_image(
                 content,
-                filename=f"{source.source_id}{_image_extension(asset.media_type)}",
+                filename=f"{attempt.attempt_id if attempt.upscale else source.source_id}{'.png' if attempt.upscale or fire_source or two_inputs else _image_extension(asset.media_type)}",
                 subfolder="panelforge/krea2-edit",
             )
             source_image = getattr(uploaded, "workflow_value", None)
             if not isinstance(source_image, str) or not source_image:
                 raise ValueError("ComfyUI upload did not return an image path")
+            reference_inputs = {}
+            if two_inputs:
+                subject_content = self.edit_images.normalize_source(self.assets.read_bytes(source.subject_reference.asset_id))
+                uploaded_subject = self.comfy.upload_image(subject_content,
+                    filename=f"{source.source_id}-subject.png", subfolder="panelforge/krea2-edit")
+                subject_image = getattr(uploaded_subject, "workflow_value", None)
+                if not isinstance(subject_image, str) or not subject_image:
+                    raise ValueError("ComfyUI upload did not return the subject image path")
+                reference_inputs["subject_image"] = subject_image
             output_prefix = f"image/krea2-edit/{source.source_id}/{attempt.attempt_id}"
-            workflow = self.workflow.build(
+            workflow = render_workflow.build(
+                source_image=source_image, model_name=attempt.upscale.model_name,
+                width=attempt.upscale.width, height=attempt.upscale.height, output_prefix=output_prefix,
+            ) if attempt.upscale else render_workflow.build(
                 source_image=source_image,
                 prompt=attempt.prompt,
                 settings=attempt.settings,
                 output_prefix=output_prefix,
                 sidecar_text=_sidecar(source, attempt, output_prefix),
+                **reference_inputs,
             )
             digest = self.sources.save_compiled_workflow(source_id, attempt_id, workflow)
             with self._lock:
@@ -645,8 +1051,8 @@ class Krea2EditService:
             output = _extract_output_or_prefix(
                 history,
                 execution_id,
-                self.workflow.output_node_id,
-                self.workflow.output_history_field,
+                render_workflow.output_node_id,
+                render_workflow.output_history_field,
                 output_prefix,
             )
             output_content = self.comfy.download_output(
@@ -656,16 +1062,12 @@ class Krea2EditService:
             )
             if not output_content.startswith(b"\x89PNG\r\n\x1a\n"):
                 raise ValueError("KREA2 edit output is not a PNG")
-            output_asset = self.assets.create(
-                output_content,
-                media_type=self.workflow.output_media_type,
-                source_run_id=source_id,
-            )
             with self._lock:
                 current = self.sources.get(source_id)
                 current_attempt = _attempt(current, attempt_id)
                 if current_attempt.status in {Krea2EditAttemptStatus.RUNNING, Krea2EditAttemptStatus.CANCEL_PENDING}:
-                    current = self.sources.save(current.replace_attempt(current_attempt.succeed(output_asset.asset_id)))
+                    completed = self._finish_render_output(current, current_attempt, output_content)
+                    current = self.sources.save(current.replace_attempt(completed))
                 return current
         except Exception as error:
             with self._lock:
@@ -700,6 +1102,8 @@ class Krea2EditService:
     def cancel_attempt(self, source_id: str, attempt_id: str) -> Krea2EditSource:
         with self._lock:
             source = self.sources.get(source_id)
+            if self._is_historical(source):
+                raise RetouchConflictError("Cette version historique reste consultable en lecture seule.")
             attempt = _attempt(source, attempt_id)
             if (
                 attempt.status
@@ -774,11 +1178,13 @@ class Krea2EditService:
         feedback_attempt_id: str | None,
         assistant_message: str | None = None,
         assistance_version: str = "1.0.0",
+        render_engine: str = "krea2",
     ) -> Krea2EditSource:
         with self._lock:
             current = self.sources.get(expected.source_id)
             if (
                 current.prompt_status is not Krea2EditPromptStatus.GENERATING
+                or current.restart_count != expected.restart_count
                 or current.instruction != expected.instruction
                 or current.prompt_model_id != expected.prompt_model_id
             ):
@@ -793,6 +1199,7 @@ class Krea2EditService:
                 feedback_attempt_id=feedback_attempt_id,
                 assistant_message=assistant_message,
                 assistance_version=assistance_version,
+                render_engine=render_engine,
             )
             return self.sources.save(current.finish_prompt(raw, prompt, revision))
 
@@ -808,6 +1215,7 @@ class Krea2EditService:
             current = self.sources.get(expected.source_id)
             if (
                 current.prompt_status is Krea2EditPromptStatus.GENERATING
+                and current.restart_count == expected.restart_count
                 and current.instruction == expected.instruction
                 and current.prompt_model_id == expected.prompt_model_id
             ):
@@ -856,14 +1264,15 @@ class Krea2EditService:
             if terminal is None:
                 return source
             if terminal == "success":
+                render_workflow = self.workflow_for_attempt(source, attempt)
                 prefix = (
                     f"image/krea2-edit/{source.source_id}/{attempt.attempt_id}"
                 )
                 output = _extract_output_or_prefix(
                     history,
                     attempt.execution_id,
-                    self.workflow.output_node_id,
-                    self.workflow.output_history_field,
+                    render_workflow.output_node_id,
+                    render_workflow.output_history_field,
                     prefix,
                 )
                 content = self.comfy.download_output(
@@ -873,12 +1282,7 @@ class Krea2EditService:
                 )
                 if not content.startswith(b"\x89PNG\r\n\x1a\n"):
                     raise ValueError("KREA2 edit output is not a PNG")
-                asset = self.assets.create(
-                    content,
-                    media_type=self.workflow.output_media_type,
-                    source_run_id=source.source_id,
-                )
-                updated = attempt.succeed(asset.asset_id)
+                updated = self._finish_render_output(source, attempt, content)
             elif terminal == "interrupted":
                 updated = attempt.cancel()
             else:
@@ -886,6 +1290,14 @@ class Krea2EditService:
         except Exception:
             return source
         return self.sources.save(source.replace_attempt(updated))
+
+    def _finish_render_output(self, source, attempt, content):
+        if attempt.upscale:
+            return enhancement.finish_upscale(self, source, attempt, content)
+        dimensions = (self.edit_images.dimensions(content)
+                      if isinstance(attempt.settings, FireRedEditSettings) or source.subject_reference else None)
+        asset = self.assets.create(content, media_type="image/png", source_run_id=source.source_id)
+        return attempt.succeed(asset.asset_id, dimensions=dimensions)
 
     def _report(self, call_id: str | None, outcome: LlmCallApplicationOutcome, error: Exception | None = None) -> None:
         if self.application_outcomes is None or call_id is None:
@@ -901,6 +1313,8 @@ class Krea2EditService:
 def normalize_krea2_edit_prompt(
     raw: str,
     prompt_language: Krea2PromptLanguage = Krea2PromptLanguage.ENGLISH,
+    *,
+    allow_short_edit: bool = False,
 ) -> str:
     if not isinstance(prompt_language, Krea2PromptLanguage):
         raise TypeError("prompt_language must be Krea2PromptLanguage")
@@ -924,13 +1338,14 @@ def normalize_krea2_edit_prompt(
         if prompt_language is Krea2PromptLanguage.CHINESE_SIMPLIFIED
         else 80
     )
-    if len(prompt) < minimum_length:
+    if not prompt or (not allow_short_edit and len(prompt) < minimum_length):
         raise ValueError("Le prompt reconstruit est trop court pour être exploitable.")
     return prompt
 
 
 def _sidecar(source: Krea2EditSource, attempt: Krea2EditAttempt, output_prefix: str) -> str:
-    width, height = attempt.settings.resolution
+    width, height = edit_output_dimensions(attempt) or (None, None)
+    recipe = attempt.recipe or source.recipe
     return json.dumps({
         "schema_version": 1,
         "prompt": attempt.prompt,
@@ -941,26 +1356,21 @@ def _sidecar(source: Krea2EditSource, attempt: Krea2EditAttempt, output_prefix: 
             "parent_source_id": source.parent_source_id,
             "parent_attempt_id": source.parent_attempt_id,
             "source_asset_id": source.source_asset_id,
+            **({"subject_reference": asdict(source.subject_reference)} if source.subject_reference else {}),
             "instruction": source.instruction,
             "prompt_language": source.prompt_language.value,
         },
         "render": {
-            "model_name": attempt.settings.model_name,
-            "aspect_ratio": attempt.settings.aspect_ratio.value,
-            "megapixels": attempt.settings.megapixels,
+            **edit_settings_record(attempt.settings, string_seed=False),
             "base_width": width,
             "base_height": height,
-            "seed": attempt.settings.seed,
-            "ref_boost": attempt.settings.ref_boost,
-            "steps": attempt.settings.steps,
-            "loras": [{"name": value.name, "strength": value.strength} for value in attempt.settings.loras],
             "output_prefix": output_prefix,
         },
         "workflow": {
-            "operation_id": source.recipe.operation_id,
-            "recipe_id": source.recipe.recipe_id,
-            "version": source.recipe.version,
-            "sha256": source.recipe.workflow_sha256,
+            "operation_id": recipe.operation_id,
+            "recipe_id": recipe.recipe_id,
+            "version": recipe.version,
+            "sha256": recipe.workflow_sha256,
         },
     }, ensure_ascii=False, indent=2) + "\n"
 

@@ -1,6 +1,6 @@
 # Recettes expérimentales — 5 septembre 2026
 
-Mise à jour : les [parcours 3 / 2 / 1 étapes](video-preparation-recipes.md) sont proposés à côté des recettes compactes. Les sélecteurs démarrent maintenant sur KREA2 V2 et les recettes compactes expérimentales H3 `0.4.0` / Ref2V `0.5.0`, à la demande de l'utilisateur. Les témoins vidéo restent dans « Autres recettes ».
+Mise à jour du 7 septembre : les [parcours 3 / 2 / 1 étapes](video-preparation-recipes.md) sont disponibles. H3 Base démarre désormais sur **Exploration guidée · 3 étapes (1.0.0)** ; sa recette compacte `0.4.0` rejoint **Autres recettes → Versions historiques**. KREA2 Assisted démarre sur [V3 · corrections visuelles](assistance-recipe-versions.md), qui conserve le contexte V2 et reformule les demandes de suppression. Ref2V compact expérimental `0.5.0` conserve son statut de défaut. Les comparaisons ci-dessous décrivent le patch expérimental d'origine.
 
 ## Options disponibles
 

@@ -64,7 +64,7 @@ class StorageCorruptionError(ValueError):
 
 
 class LocalAssetStore:
-    """Store asset bytes below ``<workspace_root>/assets``.
+    """Store bytes or verified file references below ``<workspace_root>/assets``.
 
     ``id_factory`` is injected so tests and later application policies can own
     identifier generation without putting filesystem concepts in the domain.
@@ -75,11 +75,13 @@ class LocalAssetStore:
         workspace_root: str | Path,
         *,
         id_factory: Callable[[], str] | None = None,
+        external_roots: tuple[Path, ...] = (),
     ) -> None:
         self._workspace_root = Path(workspace_root).resolve()
         self._assets_root = self._workspace_root / "assets"
         self._assets_root.mkdir(parents=True, exist_ok=True)
         self._id_factory = id_factory or _new_asset_id
+        self._external_roots = tuple(Path(root).resolve() for root in external_roots)
 
     def create(
         self,
@@ -120,6 +122,37 @@ class LocalAssetStore:
             raise
         return asset
 
+    def register_file(
+        self, path: str | Path, media_type: str, source_run_id: str | None = None,
+        *, expected_sha256: str | None = None,
+    ) -> Asset:
+        """Reference an existing immutable file in a configured root, without copying it."""
+        path = self._external_path(path)
+        content = path.read_bytes()
+        digest = _sha256(content)
+        if expected_sha256 is not None and digest != expected_sha256:
+            raise StorageCorruptionError("Le fichier externe ne correspond pas au résultat reçu.")
+        asset_id = self._id_factory()
+        _require_safe_id(asset_id, "asset_id")
+        asset = Asset(asset_id=asset_id, media_type=media_type, content_sha256=digest,
+                      size_bytes=len(content), storage_key=f"external/{asset_id}", source_run_id=source_run_id)
+        asset_dir = self._entry_dir(self._assets_root, asset_id)
+        asset_dir.mkdir(exist_ok=False)
+        try:
+            _atomic_write(asset_dir / "asset.json", dict(_asset_to_dict(asset), schema_version=2, external_path=str(path)))
+        except BaseException:
+            (asset_dir / "asset.json").unlink(missing_ok=True)
+            asset_dir.rmdir()
+            raise
+        return asset
+
+    def _external_path(self, value: str | Path) -> Path:
+        path = Path(value)
+        if not path.is_absolute() or not any(path.resolve().is_relative_to(root) for root in self._external_roots):
+            raise StorageCorruptionError("Le média externe est hors des dossiers de résultats autorisés.")
+        _require_regular_file(path)
+        return path.resolve()
+
     def get(self, asset_id: str) -> Asset:
         """Load metadata and verify the stored content's size and digest."""
         asset, _ = self._read_verified(asset_id)
@@ -135,14 +168,14 @@ class LocalAssetStore:
         metadata_path = asset_dir / "asset.json"
         content_path = asset_dir / "content.bin"
         _require_regular_file(metadata_path)
-        _require_regular_file(content_path)
 
         data = _read_json_object(metadata_path)
-        if set(data) != _ASSET_KEYS:
+        external = data.get("schema_version") == 2
+        if set(data) != (_ASSET_KEYS | {"external_path"} if external else _ASSET_KEYS):
             raise StorageCorruptionError(
                 f"invalid asset metadata fields for {asset_id!r}"
             )
-        if data.get("schema_version") != _SCHEMA_VERSION:
+        if type(data.get("schema_version")) is not int or data["schema_version"] not in (_SCHEMA_VERSION, 2):
             raise StorageCorruptionError(
                 f"unsupported asset schema for {asset_id!r}"
             )
@@ -160,11 +193,17 @@ class LocalAssetStore:
                 f"invalid asset metadata for {asset_id!r}"
             ) from error
 
-        expected_storage_key = f"assets/{asset_id}/content.bin"
+        expected_storage_key = f"external/{asset_id}" if external else f"assets/{asset_id}/content.bin"
         if asset.asset_id != asset_id or asset.storage_key != expected_storage_key:
             raise StorageCorruptionError(
                 f"asset identity mismatch for {asset_id!r}"
             )
+        if external:
+            if not isinstance(data["external_path"], str):
+                raise StorageCorruptionError("Chemin externe invalide.")
+            content_path = self._external_path(data["external_path"])
+        else:
+            _require_regular_file(content_path)
         content = content_path.read_bytes()
         if len(content) != asset.size_bytes or _sha256(content) != asset.content_sha256:
             raise StorageCorruptionError(

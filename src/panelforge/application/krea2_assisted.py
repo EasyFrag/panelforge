@@ -31,7 +31,7 @@ from panelforge.domain.krea2_style_presets import Krea2StylePreset
 from panelforge.domain.krea2_lab import Krea2AspectRatio
 from panelforge.infrastructure.krea2_batch_recipes import Krea2VisualRecipe
 
-from . import krea2_assisted_v1, krea2_assisted_v2
+from . import krea2_assisted_v1, krea2_assisted_v2, krea2_assisted_v3
 from .prompt_lab import (
     CompletionRequest,
     ImageInput,
@@ -66,7 +66,7 @@ class _RenderFailed(Exception):
 
 
 def assistance_recipe(version):
-    for recipe in (krea2_assisted_v1, krea2_assisted_v2):
+    for recipe in (krea2_assisted_v1, krea2_assisted_v2, krea2_assisted_v3):
         if version == recipe.VERSION:
             return recipe
     raise ValueError(f"unsupported KREA2 assistance recipe: {version}")
@@ -309,7 +309,7 @@ class Krea2AssistedService:
     @staticmethod
     def list_assistance_recipes() -> list[dict[str, str]]:
         return [{"version": recipe.VERSION, "label": recipe.LABEL}
-                for recipe in (krea2_assisted_v1, krea2_assisted_v2)]
+                for recipe in (krea2_assisted_v1, krea2_assisted_v2, krea2_assisted_v3)]
 
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]:
         with self._lock:
@@ -460,7 +460,7 @@ class Krea2AssistedService:
                 raise ValueError("La branche active a changé. Rechargez le projet.")
             attempt = Krea2AssistedAttempt(
                 attempt_id=self._attempt_id_factory(),
-                index=len(project.attempts) + 1,
+                index=max((a.index for a in project.attempts if a.kind == "generation"), default=0) + 1,
                 prompt=prompt,
                 settings=settings,
                 seed=chosen_seed,
@@ -520,6 +520,8 @@ class Krea2AssistedService:
         with self._lock:
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
+            if attempt.kind == "composition":
+                raise ValueError("Une composition locale ne peut pas être envoyée à ComfyUI.")
             if attempt.status in _RENDER_PENDING:
                 return project  # A repeated /start never duplicates a submission.
             self._validate_render_settings(attempt.settings)
@@ -833,7 +835,7 @@ class Krea2AssistedService:
                 "TURN GUIDANCE IMAGE",
             ))
         recipe = assistance_recipe(project.assistance_recipe_version)
-        if recipe is krea2_assisted_v2:
+        if recipe in (krea2_assisted_v2, krea2_assisted_v3):
             # Do not inject unrelated recipes or fetch a resource catalogue for
             # a purely visual correction. Publication still receives its memory.
             memory = (_recipe_memory(self.recipes.current())
@@ -1070,6 +1072,9 @@ class Krea2AssistedService:
 def _attempt_context(attempt: Krea2AssistedAttempt) -> str:
     return json.dumps({
         "attempt_id": attempt.attempt_id,
+        **({"image_kind": "composition", "render_settings_are_inherited": True,
+            "local_composition": "Selected image combines a fixed base with masked areas of the original generation; the prompt below describes that generation only."}
+           if attempt.composition else {}),
         "prompt": attempt.prompt,
         "model_name": attempt.settings.model_name,
         "aspect_ratio": attempt.settings.aspect_ratio.value,

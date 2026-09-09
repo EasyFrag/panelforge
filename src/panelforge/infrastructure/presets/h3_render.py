@@ -14,6 +14,7 @@ from panelforge.domain.h3_render import (
     H3_VIDEO_LORA_OVERLAY_VERSION,
     H3RenderInputMode,
     H3VideoLoraSelection,
+    validate_h3_initial_megapixels,
 )
 from panelforge.domain.recipes import RecipeRef
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
@@ -91,6 +92,7 @@ class H3RenderPreset:
     preview_fps: int
     preview_jpeg_quality: int
     preview_max_resolution: int
+    initial_megapixels: float = 0.2
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +169,10 @@ class H3RenderPresetRecipe:
     def supports_video_lora(self) -> bool:
         return self.preset.video_lora_overlay is not None
 
+    @property
+    def supports_initial_megapixels(self) -> bool:
+        return "initial_megapixels" in self.preset.scalar_inputs
+
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]:
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise ValueError("keyframe count must be a non-negative integer")
@@ -189,6 +195,7 @@ class H3RenderPresetRecipe:
         keyframe_indices: tuple[int, ...],
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
+        initial_megapixels: float = 0.2,
     ) -> dict[str, Any]:
         return build_h3_render_workflow(
             self.preset,
@@ -201,6 +208,7 @@ class H3RenderPresetRecipe:
             keyframe_indices=keyframe_indices,
             spectrum_enabled=spectrum_enabled,
             video_lora=video_lora,
+            initial_megapixels=initial_megapixels,
         )
 
 
@@ -249,6 +257,8 @@ def validate_h3_render_workflow(
         "seed",
         "output_filename_prefix",
     }
+    if "initial_megapixels" in bindings:
+        scalar_names.add("initial_megapixels")
     scalar_inputs = {
         name: _input_binding(bindings.get(name), nodes, f"bindings.{name}")
         for name in scalar_names
@@ -335,7 +345,11 @@ def build_h3_render_workflow(
     keyframe_indices: tuple[int, ...],
     spectrum_enabled: bool = False,
     video_lora: H3VideoLoraSelection | None = None,
+    initial_megapixels: float = 0.2,
 ) -> dict[str, Any]:
+    validate_h3_initial_megapixels(initial_megapixels)
+    if "initial_megapixels" not in preset.scalar_inputs and initial_megapixels != 0.2:
+        raise ValueError("Ce workflow historique fixe la génération initiale à 0,2 MP.")
     if not isinstance(input_mode, H3RenderInputMode):
         raise TypeError("input_mode must be an H3RenderInputMode")
     expected = {
@@ -376,6 +390,9 @@ def build_h3_render_workflow(
     for name, value in scalar_values.items():
         binding = preset.scalar_inputs[name]
         workflow[binding.node_id]["inputs"][binding.input_name] = value
+    initial_binding = preset.scalar_inputs.get("initial_megapixels")
+    if initial_binding is not None:
+        workflow[initial_binding.node_id]["inputs"][initial_binding.input_name] = initial_megapixels
     for binding in preset.multi_inputs["aspect_ratio"]:
         workflow[binding.node_id]["inputs"][binding.input_name] = settings.aspect_ratio.value
     for binding in preset.multi_inputs["steps"]:
@@ -619,6 +636,8 @@ def _validate_presets(value: Any) -> dict[str, H3RenderPreset]:
         config = _object(raw, label)
         preview = _object(config.get("preview"), f"{label}.preview")
         preset_id = _text(config.get("id"), f"{label}.id")
+        initial_megapixels = config.get("initial_megapixels", 0.2)
+        validate_h3_initial_megapixels(initial_megapixels)
         settings = VideoLabSettings(
             aspect_ratio=VideoAspectRatio(config.get("aspect_ratio")),
             megapixels=config.get("megapixels"),
@@ -631,6 +650,7 @@ def _validate_presets(value: Any) -> dict[str, H3RenderPreset]:
             label=_text(config.get("label"), f"{label}.label"),
             aspect_ratio=settings.aspect_ratio,
             megapixels=settings.megapixels,
+            initial_megapixels=initial_megapixels,
             duration_seconds=settings.duration_seconds,
             steps=settings.steps,
             preview_frames=_positive_integer(preview.get("frames"), f"{label}.preview.frames"),

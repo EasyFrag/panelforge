@@ -499,6 +499,7 @@
       return;
     }
     const status = String(run.status || "prepared").toLowerCase();
+    window.PanelForgeLabCore?.observeRenderOutcome?.(`video-run:${runId(run)}`, status);
     elements.status.textContent = `● ${statusLabel(status)}`;
     elements.status.className = `run-status ${terminalStatuses.has(status) ? (status === "failed" ? "failed" : status.startsWith("cancel") ? "" : "success") : "active"}`;
     if (terminalStatuses.has(status)) {

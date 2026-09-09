@@ -32,6 +32,20 @@ class ValidatedKrea2EditWorkflow:
     output_history_field: str
     output_media_type: str
     _workflow: Mapping[str, Any]
+    display_name: str = ""
+    optional_loras: Mapping[str, Any] | None = None
+    engine: str = "krea2"
+
+    @property
+    def requires_subject_reference(self) -> bool:
+        return "subject_image" in self.inputs
+
+    @property
+    def defaults(self) -> dict[str, object]:
+        names = {"model": "model_id", "aspect_ratio": "aspect_ratio", "megapixels": "megapixels",
+                 "ref_boost": "ref_boost", "steps": "steps"}
+        return {label: self._workflow[self.inputs[name].node_id]["inputs"][self.inputs[name].input_name]
+                for name, label in names.items()}
 
     @property
     def workflow(self) -> dict[str, Any]:
@@ -45,6 +59,7 @@ class ValidatedKrea2EditWorkflow:
         settings: Krea2EditSettings,
         output_prefix: str,
         sidecar_text: str,
+        subject_image: str | None = None,
     ) -> dict[str, Any]:
         for value, label in (
             (source_image, "source_image"),
@@ -56,8 +71,14 @@ class ValidatedKrea2EditWorkflow:
                 raise ValueError(f"{label} must not be empty")
         if not isinstance(settings, Krea2EditSettings):
             raise TypeError("settings must be Krea2EditSettings")
+        if self.requires_subject_reference:
+            if not isinstance(subject_image, str) or not subject_image.strip():
+                raise ValueError("Ce workflow exige une image de décor et une image de sujet.")
+        elif subject_image is not None:
+            raise ValueError("Ce workflow ne prend pas de seconde référence.")
         workflow = self.workflow
         values: Mapping[str, object] = {
+            **({"subject_image": subject_image} if self.requires_subject_reference else {}),
             "source_image": source_image,
             "prompt": prompt,
             "model": settings.model_name,
@@ -70,8 +91,18 @@ class ValidatedKrea2EditWorkflow:
             "sidecar_text": sidecar_text,
         }
         for name, value in values.items():
+            if name == "sidecar_text" and name not in self.inputs:
+                continue  # Native SaveImage; provenance remains in the local project/export.
             binding = self.inputs[name]
             workflow[binding.node_id]["inputs"][binding.input_name] = value
+        if self.optional_loras is not None:
+            if not settings.loras:
+                return workflow
+            workflow[self.lora_node_id] = deepcopy(self.optional_loras["node"])
+            for connection in self.optional_loras["connections"]:
+                workflow[connection["node_id"]]["inputs"][connection["input"]] = [
+                    self.lora_node_id, connection["output_slot"],
+                ]
         lora_inputs = workflow[self.lora_node_id]["inputs"]
         for index, input_name in enumerate(self.lora_inputs):
             if index < len(settings.loras):
@@ -102,7 +133,8 @@ class ValidatedKrea2EditWorkflow:
 def load_krea2_edit_workflow(directory: str | Path) -> ValidatedKrea2EditWorkflow:
     root = Path(directory)
     manifest = _mapping(json.loads((root / "manifest.json").read_text(encoding="utf-8")), "manifest")
-    if manifest.get("schema_version") != 1:
+    schema = manifest.get("schema_version")
+    if schema not in {1, 2}:
         raise ValueError("unsupported KREA2 edit workflow manifest")
     workflow_path = root / _text(manifest.get("workflow_file"), "workflow_file")
     raw = workflow_path.read_bytes()
@@ -118,10 +150,33 @@ def load_krea2_edit_workflow(directory: str | Path) -> ValidatedKrea2EditWorkflo
         "source_image", "prompt", "model", "aspect_ratio", "megapixels",
         "seed", "steps", "ref_boost", "output_prefix", "sidecar_text",
     }
+    if schema == 2:
+        required.remove("sidecar_text")
+    if manifest.get("reference_mode") == "scene_subject":
+        required.add("subject_image")
     if set(inputs) != required:
         raise ValueError("KREA2 edit workflow has invalid input bindings")
     lora_node_id = _text(manifest.get("lora_node_id"), "lora_node_id")
-    lora_node = _mapping(workflow.get(lora_node_id), "LoRA node")
+    optional_loras = None
+    if schema == 2:
+        optional_loras = _mapping(manifest.get("optional_loras"), "optional_loras")
+        if lora_node_id in workflow:
+            raise ValueError("optional LoRA node must not replace a base workflow node")
+        lora_node = _mapping(optional_loras.get("node"), "optional LoRA node")
+        connections = optional_loras.get("connections")
+        if not isinstance(connections, list) or not connections:
+            raise ValueError("optional LoRA connections must not be empty")
+        for connection in connections:
+            _binding(connection, workflow, "optional LoRA connection")
+            if connection.get("output_slot") not in {0, 1}:
+                raise ValueError("invalid optional LoRA output slot")
+        extended = deepcopy(dict(workflow))
+        extended[lora_node_id] = deepcopy(dict(lora_node))
+        for connection in connections:
+            extended[connection["node_id"]]["inputs"][connection["input"]] = [lora_node_id, connection["output_slot"]]
+        _validate_no_orphans(extended, _text(_mapping(manifest.get("output"), "output").get("node_id"), "output.node_id"))
+    else:
+        lora_node = _mapping(workflow.get(lora_node_id), "LoRA node")
     lora_node_inputs = _mapping(lora_node.get("inputs"), "LoRA inputs")
     lora_inputs_raw = manifest.get("lora_inputs")
     if not isinstance(lora_inputs_raw, list) or len(lora_inputs_raw) != 4:
@@ -157,6 +212,8 @@ def load_krea2_edit_workflow(directory: str | Path) -> ValidatedKrea2EditWorkflo
         output_history_field=_text(output.get("history_field"), "output.history_field"),
         output_media_type=_text(output.get("media_type"), "output.media_type"),
         _workflow=MappingProxyType(dict(workflow)),
+        display_name=manifest.get("display_name") or "Historique",
+        optional_loras=deepcopy(dict(optional_loras)) if optional_loras is not None else None,
     )
 
 

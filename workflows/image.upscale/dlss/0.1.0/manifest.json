@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "operation": "image.upscale",
+  "recipe_id": "image.upscale.dlss",
+  "version": "0.1.0",
+  "workflow": {
+    "file": "workflow_api.json",
+    "sha256": "48612bdf32957b347e2085d41ce5ceb14b006fca4c907f19453ccac5b0d95ae5"
+  },
+  "bindings": {
+    "source": {
+      "node": "2",
+      "input": "image"
+    },
+    "prefix": {
+      "node": "3",
+      "input": "filename_prefix"
+    },
+    "size": [
+      {
+        "node": "1",
+        "input": "upscale_mode"
+      }
+    ],
+    "intensity": [
+      {
+        "node": "1",
+        "input": "nr_intensity"
+      }
+    ],
+    "tone": [
+      {
+        "node": "1",
+        "input": "local_tone_strength"
+      }
+    ],
+    "structure": [
+      {
+        "node": "1",
+        "input": "local_structure_strength"
+      }
+    ],
+    "skin": [
+      {
+        "node": "1",
+        "input": "skin_structure_strength"
+      }
+    ],
+    "style": [
+      {
+        "node": "1",
+        "input": "nr_style"
+      }
+    ],
+    "detail": [
+      {
+        "node": "1",
+        "input": "output_detail_strength"
+      }
+    ],
+    "strict_neural": [
+      {
+        "node": "1",
+        "input": "require_neural_upscaling"
+      }
+    ]
+  },
+  "output_node": "3",
+  "report_nodes": [
+    "5"
+  ],
+  "required_nodes": [
+    "LoadImage",
+    "NvidiaDLSSImageUpscale",
+    "PreviewAny",
+    "SaveImage"
+  ],
+  "progress_stages": [
+    {
+      "node": "1",
+      "key": "upscale",
+      "label": "Upscale"
+    },
+    {
+      "node": "3",
+      "key": "saving",
+      "label": "Enregistrement"
+    }
+  ]
+}

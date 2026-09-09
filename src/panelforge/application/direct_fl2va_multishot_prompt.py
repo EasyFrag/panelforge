@@ -50,6 +50,8 @@ class DirectFL2VAMultiShotCompilerContext:
     final_state_start_ms: int
     duration_ms: int
     dialogue_cues: tuple[DirectDialogueCue, ...]
+    # V1 stays byte-compatible. V2 cuts do not prescribe a different viewpoint.
+    cut_policy: str = "new_view"
 
     @property
     def shot_count(self) -> int:
@@ -126,7 +128,7 @@ def encode_direct_fl2va_multishot_context(
 ) -> str:
     context = _validated_context(context)
     payload = {
-        "version": 1,
+        "version": 1 if context.cut_policy == "new_view" else 2,
         "mode": context.mode.value,
         "shot_starts_ms": list(context.shot_starts_ms),
         "shot_cameras": [
@@ -139,6 +141,8 @@ def encode_direct_fl2va_multishot_context(
         "duration_ms": context.duration_ms,
         "dialogue_cues": [cue.model_dump(mode="json") for cue in context.dialogue_cues],
     }
+    if context.cut_policy != "new_view":
+        payload["cut_policy"] = context.cut_policy
     return FL2VA_MULTISHOT_CONTEXT_MARKER + json.dumps(
         payload, ensure_ascii=True, separators=(",", ":")
     )
@@ -164,8 +168,12 @@ def decode_direct_fl2va_multishot_context(
         "duration_ms",
         "dialogue_cues",
     }
-    if not isinstance(payload, dict) or set(payload) != expected or payload["version"] != 1:
+    if isinstance(payload, dict) and payload.get("version") == 2:
+        expected.add("cut_policy")
+    if not isinstance(payload, dict) or set(payload) != expected or payload["version"] not in {1, 2}:
         raise ValueError("H3 Base multi-shot compiler context has invalid fields")
+    if payload["version"] == 2 and payload["cut_policy"] != "neutral":
+        raise ValueError("H3 Base multi-shot V2 requires neutral cuts")
     cameras = tuple(
         None if item is None else parse_camera_directives([item])[0]
         for item in payload["shot_cameras"]
@@ -185,6 +193,7 @@ def decode_direct_fl2va_multishot_context(
             final_state_start_ms=payload["final_state_start_ms"],
             duration_ms=payload["duration_ms"],
             dialogue_cues=cues,
+            cut_policy=payload.get("cut_policy", "new_view"),
         )
     )
 
@@ -208,7 +217,7 @@ def compile_direct_fl2va_multishot_document(
         )
         owned: list[str] = []
         if shot_number > 1:
-            owned.append("the camera cuts to a new view.")
+            owned.append(_cut_clause(context))
         owned.append(_as_sentence(context.opening_compositions[shot_number - 1]))
         camera = context.shot_cameras[shot_number - 1]
         if camera is not None:
@@ -254,7 +263,7 @@ def rehydrate_direct_fl2va_multishot_document(
         value = parts[f"shot_{shot_number}"]
         owned: list[str] = []
         if shot_number > 1:
-            owned.append("the camera cuts to a new view.")
+            owned.append(_cut_clause(context))
         owned.append(_as_sentence(context.opening_compositions[shot_number - 1]))
         camera = context.shot_cameras[shot_number - 1]
         if camera is not None:
@@ -383,6 +392,8 @@ def _validated_context(
 ) -> DirectFL2VAMultiShotCompilerContext:
     if not isinstance(context, DirectFL2VAMultiShotCompilerContext):
         raise TypeError("invalid H3 Base multi-shot compiler context")
+    if context.cut_policy not in {"new_view", "neutral"}:
+        raise ValueError("invalid H3 Base multi-shot cut policy")
     _validate_shot_count(context.shot_count)
     starts = context.shot_starts_ms
     if starts[0] != 0 or any(left >= right for left, right in zip(starts, starts[1:])):
@@ -421,6 +432,10 @@ def _validated_context(
             raise ValueError("H3 Base multi-shot dialogue cannot cross a cut")
     compile_h3_base_multishot_header(context.mode, context.duration_ms, context.shot_count)
     return context
+
+
+def _cut_clause(context: DirectFL2VAMultiShotCompilerContext) -> str:
+    return "the camera cuts." if context.cut_policy == "neutral" else "the camera cuts to a new view."
 
 
 def _context(

@@ -2,15 +2,29 @@
 
 ## KREA2 Assisted
 
-La recette d'assistance est indépendante du checkpoint KREA2, du workflow ComfyUI et des recettes Batch publiées. `1.0.0`, affichée « V1 · classique », conserve les prompts et la construction du contexte du snapshot `b63197f`. Son implémentation est dans `application/krea2_assisted_v1.py` ; ajouter une implémentation distincte pour V2, sans réécrire V1.
+La recette d'assistance est indépendante du checkpoint KREA2, du workflow ComfyUI et des recettes Batch publiées. `1.0.0`, affichée « V1 · classique », conserve les prompts et la construction du contexte du snapshot `b63197f`. Les versions sont définies dans des modules distincts `application/krea2_assisted_v1.py`, `krea2_assisted_v2.py` et `krea2_assisted_v3.py` ; V1/V2 restent inchangées.
 
 Le choix se fait à la création du projet. `assistance_recipe_version` est enregistré sur le projet et chaque tour utilisateur/assistant, puis exposé par l'API. La recette reste liée au projet ; il n'existe pas encore de changement de recette en cours de conversation. Les schémas de stockage 1 et 2 sont lus comme V1, sans réécriture globale des historiques. Le schéma 3 exige la référence explicite ; une version non implémentée est refusée avant un nouvel échange. L'opération technique V1 reste `creation_chat@0.3.0` ou `recipe_chat@0.3.0` afin de préserver son identité historique dans le journal.
 
-V1 et V2 expérimentale `2.0.0` sont disponibles dans le catalogue du service. V2 est sélectionnée par défaut dans le formulaire de création ; un choix explicite V1 est conservé lors du rafraîchissement du catalogue. Les clients API sans version explicite gardent le défaut historique V1. Les évolutions sont décrites dans `experimental-prompts-2026-09-05.md`. La validation mentionnée plus bas concerne uniquement le premier patch de rangement/versionnement, antérieur à V2.
+V1, V2 `2.0.0` et V3 `3.0.0` sont disponibles dans le catalogue du service. **V3 · corrections visuelles · expérimental** est sélectionnée par défaut dans le formulaire de création ; un choix explicite V1/V2 est conservé lors du rafraîchissement du catalogue. Les clients API sans version explicite gardent le défaut historique V1. Les évolutions V2 sont décrites dans `experimental-prompts-2026-09-05.md`. La validation mentionnée plus bas concerne uniquement le premier patch de rangement/versionnement, antérieur à V2.
+
+### V3 : demandes de suppression (7 septembre 2026)
+
+V3 remplace la règle V2 qui autorisait une exclusion courte par une consigne de description du résultat visible : préciser ce qui occupe la zone concernée, retirer l'élément refusé et les formulations qui continuent à le suggérer (structure, action ou traitement visuel), préserver les autres choix de l'utilisateur. L'explication de l'exclusion reste dans la réponse française ; le prompt image décrit la scène souhaitée. Après des échecs répétés, reformuler cette scène plutôt qu'allonger les négations ou les synonymes. Aucun filtrage automatique des mots ni validation lexicale du prompt.
+
+Exemple à évaluer manuellement : après « pas de planches » dans un arbre creux, décrire une cavité au cœur d'un unique tronc, avec des surfaces continues de bois rugueux, plutôt que conserver « architectural interior » et ajouter « no planks, boards, beams ». Les essais observés ne permettent pas d'attribuer l'échec à la seule négation ; aucun gain de qualité n'est encore mesuré.
+
+Le contexte compact et le writer de publication restent ceux de V2. Toujours un seul appel par échange, mêmes limites de sortie, mémoire/branches et presets ; référence initiale analysée au départ seulement, puis renvoyée uniquement sur demande via l'inspiration. Les opérations journalisées sont `krea2.assisted.creation_chat@3.0.0` et `krea2.assisted.recipe_chat@3.0.0`. Aucun workflow, checkpoint, réglage de rendu ou schéma de stockage changé. Un ancien atelier reste en V1/V2 : créer un nouvel atelier V3 pour comparer.
+
+Cache Assisted JS `20260907.1`. Tests préparés dans `test_krea2_assistance_versions.py`, `test_krea2_assisted_v2.py`, `test_krea2_assisted_branches.py`, `test_krea2_assisted_web.py` et `test_krea2_assisted_ui.py` : versions persistées, empreinte V2, contexte compact, référence non répétée, feedback/branches, catalogue et défaut UI. **Non exécutés ; l'utilisateur les lance.** Aucun appel LLM ni génération lancé pour ce patch.
+
+## KREA2 Edit
+
+Depuis le 8 septembre 2026, **Modifier avec KREA2** propose un sélecteur par étape : V3 « Modifications ciblées », défaut d'un nouvel atelier, et V2 « Description complète », conservée pour comparaison. Un échange enregistré garde sa version ; la réouverture restaure la dernière utilisée. Le choix s'applique au prochain échange sans changer le prompt ou les réglages existants. Ce versionnement est indépendant de Création assistée. [Utilisation, contrats et tests](krea2-edit-prompting.md).
 
 ## Vidéo
 
-Les sélecteurs montrent les options expérimentales H3 Base `0.4.0` et Ref2V `0.5.0`, sélectionnées par défaut, et les nouveaux parcours `1.0.0` à trois, deux ou une étape. Le volet « Autres recettes » permet d'afficher :
+Les sélecteurs montrent les parcours `1.0.0` à trois, deux ou une étape. H3 Base sélectionne **Exploration guidée · 3 étapes** par défaut ; son ancienne compacte `0.4.0` est désormais historique. Ref2V garde sa compacte expérimentale `0.5.0` visible et sélectionnée par défaut. Le volet « Autres recettes » permet d'afficher :
 
 - « Avancées et spécialisées » : H3 multi-plan `0.1.0`, interview d'animal `0.2.0`, Ref2V multi-plan structuré `0.2.0` et multi-plan direct `0.2.0`.
 - « Versions historiques » : autres versions déjà présentes dans ces sélecteurs.

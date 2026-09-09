@@ -150,6 +150,78 @@
     ]);
   }
 
+  function playRenderCompletionTone() {
+    playTone([
+      { frequency: 523.25, offset: 0, duration: 0.16 },
+      { frequency: 659.25, offset: 0.13, duration: 0.16 },
+      { frequency: 783.99, offset: 0.26, duration: 0.30 },
+    ]);
+  }
+
+  function createRenderOutcomeNotifier({ play = playRenderCompletionTone, schedule = (callback) => window.setTimeout(callback, 120) } = {}) {
+    const pending = new Set();
+    const finished = new Set();
+    const collections = new Map();
+    const active = new Set(["created", "prepared", "pending", "prompting", "queued", "submitted", "running", "rendering", "cancel_pending"]);
+    let scheduled = false;
+    const notifier = Object.freeze({
+      observe(id, status) {
+        if (!id || !status || finished.has(id)) return;
+        status = String(status).toLowerCase();
+        if (active.has(status)) { pending.add(id); return; }
+        if (["succeeded", "completed"].includes(status)) {
+          const wasPending = pending.delete(id);
+          finished.add(id);
+          // First observation of a historical success is silent. A stale
+          // running response cannot re-arm an already completed render.
+          if (!wasPending || scheduled) return;
+          scheduled = true;
+          schedule(() => {
+            scheduled = false;
+            try { play(); } catch (_) { /* Audio must never interrupt the atelier. */ }
+          });
+        } else if (["failed", "cancelled", "canceled"].includes(status)) {
+          pending.delete(id);
+        }
+      },
+      observeCollection(scope, items) {
+        const previous = collections.get(scope);
+        const known = previous || new Set();
+        for (const item of items) {
+          if (!item.id) continue;
+          // A fast render can first appear already finished between two polls.
+          // Only newly added items in a previously loaded collection are armed.
+          if (previous && !known.has(item.id)) notifier.observe(item.id, "created");
+          notifier.observe(item.id, item.status);
+          known.add(item.id);
+        }
+        collections.set(scope, known);
+      },
+    });
+    return notifier;
+  }
+
+  const renderOutcomeNotifier = createRenderOutcomeNotifier();
+
+  function observeRenderOutcome(id, status) {
+    renderOutcomeNotifier.observe(id, status);
+  }
+
+  function observeRenderCollection(scope, items) {
+    renderOutcomeNotifier.observeCollection(scope, items);
+  }
+
+  function observeRenderAttempts(attempts = [], scope = null) {
+    const items = [];
+    for (const attempt of attempts) {
+      // Local mask compositions and imported results are not generations.
+      if (!attempt || attempt.dlss || attempt.kind === "retouch" || attempt.type === "retouch" || !attempt.attempt_id) continue;
+      items.push({ id: `attempt:${attempt.attempt_id}`, status: attempt.status });
+    }
+    if (scope) observeRenderCollection(scope, items);
+    else items.forEach((item) => observeRenderOutcome(item.id, item.status));
+  }
+
   function createLlmOutcomeTone() {
     let started = false;
     let settled = false;
@@ -393,10 +465,11 @@
 
   // Presentation policy only: manifests and saved recipe references remain immutable.
   function recipeTier(value) {
-    if (/^minimax\.h3\.(fl2va|ref2v)\.direct\.(guided|planned|prompt)@1\.0\.0$/.test(value)) return "standard";
-    if (["minimax.h3.fl2va.direct@0.4.0", "minimax.h3.ref2v.direct@0.5.0"].includes(value)) return "standard";
+    if (/^minimax\.h3\.fl2va\.direct\.multishot\.(guided|planned|prompt)@1\.0\.0$/.test(value)) return "standard";
+    if (/^minimax\.h3\.fl2va\.direct\.(guided|planned|prompt)@1\.1\.0$/.test(value)) return "standard";
+    if (/^minimax\.h3\.ref2v\.direct\.(guided|planned|prompt)@1\.0\.0$/.test(value)) return "standard";
+    if (value === "minimax.h3.ref2v.direct@0.5.0") return "standard";
     if ([
-      "minimax.h3.fl2va.direct.multishot@0.1.0",
       "minimax.h3.base.animal-interview@0.2.0",
       "minimax.h3.ref2v.direct.multishot@0.2.0",
       "minimax.h3.ref2v.direct.multishot.superfast@0.2.0",
@@ -430,7 +503,9 @@
     for (const option of select.options) {
       const tier = recipeTier(option.value);
       // A saved or explicitly chosen version always remains visible, including locked runs.
-      option.hidden = !enabled.has(tier) && option.value !== select.value;
+      const otherFamily = select.dataset.recipeFamily && option.dataset.recipeFamily
+        && select.dataset.recipeFamily !== option.dataset.recipeFamily;
+      option.hidden = (!enabled.has(tier) || otherFamily) && option.value !== select.value;
     }
   }
 
@@ -472,6 +547,10 @@
     playCompletionTone,
     playFailureTone,
     createLlmOutcomeTone,
+    createRenderOutcomeNotifier,
+    observeRenderOutcome,
+    observeRenderCollection,
+    observeRenderAttempts,
     decorateSessionLink,
   });
 })();

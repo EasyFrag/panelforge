@@ -272,6 +272,7 @@
   }
 
   function renderRun(run) {
+    if (run) window.PanelForgeLabCore?.observeRenderOutcome?.(`krea-run:${runId(run)}`, runStatus(run));
     state.activeRun = run || null;
     const status = runStatus(run);
     elements.status.textContent = `● ${statusLabel(status)}`;

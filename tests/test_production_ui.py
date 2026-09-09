@@ -89,7 +89,7 @@ class ProductionUiTest(unittest.TestCase):
         self.assertIn('state.finalRenderKey === key', script)
         self.assertIn('renderRevisionSuggestion(job)', script)
         self.assertIn('decision.revision_instruction', script)
-        self.assertIn('core.playCompletionTone()', script)
+        self.assertIn('core.observeRenderAttempts', script)
         self.assertIn('core.playFailureTone()', script)
 
 

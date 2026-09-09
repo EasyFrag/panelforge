@@ -61,12 +61,12 @@ class EditWorkshopTest(unittest.TestCase):
     def test_promotion_inherits_render_settings_and_begins_a_new_conversation(self):
         accepted = self.chat("OPENING_HISTORY")
         settings = Krea2EditSettings(model_name="model.safetensors", aspect_ratio=Krea2AspectRatio.PORTRAIT_WIDESCREEN,
-                                     megapixels=1.4, seed=0, ref_boost=4.2, steps=17)
+                                     megapixels=1.4, seed=0, ref_boost=25.5, steps=17)
         prepared = self.service.prepare_attempt(accepted.source_id, Krea2EditAttemptRequest(PROMPT, settings))
         attempt = prepared.attempts[-1].queue().start("fake-execution", "a" * 64).succeed(self.asset.asset_id)
         self.store.save(prepared.replace_attempt(attempt))  # Fixture only: no renderer is invoked.
         child = self.service.promote_attempt(accepted.source_id, attempt.attempt_id, project_name="Wall", step_name="Opening")
-        self.assertEqual(child.metadata.ref_boost, 4.2)
+        self.assertEqual(child.metadata.ref_boost, 25.5)
         self.assertEqual(child.metadata.steps, 17)
         self.assertEqual(child.metadata.seed, 0)
         self.assertEqual(child.prompt_model_id, "fake")
@@ -74,4 +74,4 @@ class EditWorkshopTest(unittest.TestCase):
         self.assertEqual(child.source_asset_id, attempt.output_asset_id)
         self.assertEqual(self.store.get(child.source_id), child)
         self.assertNotIn("OPENING_HISTORY", krea2_edit_assistance.context(child))
-        self.assertEqual(serialize_krea2_edit_source(child)["metadata"]["ref_boost"], 4.2)
+        self.assertEqual(serialize_krea2_edit_source(child)["metadata"]["ref_boost"], 25.5)

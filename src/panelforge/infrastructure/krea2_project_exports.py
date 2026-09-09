@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from dataclasses import asdict
+from panelforge.domain.edit_settings import edit_engine, edit_settings_record, edit_output_dimensions, edit_render_dimensions
 import hashlib
 import json
 import os
@@ -47,6 +49,13 @@ class LocalKrea2ProjectExporter:
         project_id = ordered[0].project_id
         if any(value.project_id != project_id for value in ordered):
             raise ValueError("KREA2 project export cannot mix projects")
+        if [stage.stage_index for stage in ordered] != list(range(1, len(ordered) + 1)):
+            raise ValueError("KREA2 project export requires a single complete chain")
+        for parent, child in zip(ordered, ordered[1:]):
+            if (child.parent_source_id != parent.source_id
+                    or child.parent_attempt_id != parent.accepted_attempt_id
+                    or _accepted_attempt(parent).output_asset_id != child.source_asset_id):
+                raise ValueError("KREA2 project export cannot mix image lineages")
         project_name = next(
             (value.project_name for value in ordered if value.project_name),
             Path(ordered[0].filename).stem,
@@ -87,6 +96,7 @@ class LocalKrea2ProjectExporter:
                 "prompt": root.metadata.prompt,
                 "prompt_language": root.prompt_language.value,
                 "metadata": _metadata(root),
+                **({"subject_reference": asdict(root.subject_reference)} if root.subject_reference else {}),
             },
         )
 
@@ -108,7 +118,42 @@ class LocalKrea2ProjectExporter:
             image_path = stage_directory / f"{image_stem}{_extension(output_asset.media_type)}"
             sidecar_path = stage_directory / f"{image_stem}.txt"
             _atomic_write(image_path, assets.read_bytes(attempt.output_asset_id))
-            sidecar = _accepted_sidecar(project_name, stage, attempt)
+            retouch_files = None
+            if attempt.retouch:
+                source_asset = assets.get(attempt.retouch.source_asset_id)
+                generated = assets.get(attempt.retouch.generated_asset_id)
+                retouch_files = {"source_file": "source" + _extension(source_asset.media_type),
+                                 "generated_file": "generation" + _extension(generated.media_type),
+                                 "mask_file": "mask.png"}
+                for key, asset_id in (("source_file", source_asset.asset_id),
+                                      ("generated_file", generated.asset_id),
+                                      ("mask_file", attempt.retouch.mask_asset_id)):
+                    _atomic_write(stage_directory / retouch_files[key], assets.read_bytes(asset_id))
+            upscale_files = None
+            dlss = _dlss_provenance(stage, attempt)
+            if dlss:
+                _atomic_write(stage_directory / "dlss-report.json", assets.read_bytes(dlss.report_asset_id))
+            upscale = _upscale_provenance(stage, attempt)
+            if upscale:
+                upscale_files = {"input_file": "upscale-input.png", "enhanced_file": "upscale-enhanced.png"}
+                for key, asset_id in (("input_file", upscale.input_asset_id), ("enhanced_file", upscale.enhanced_asset_id)):
+                    asset = assets.get(asset_id)
+                    upscale_files[key] = Path(upscale_files[key]).stem + _extension(asset.media_type)
+                    _atomic_write(stage_directory / upscale_files[key], assets.read_bytes(asset_id))
+                if upscale.mask_asset_id:
+                    upscale_files["mask_file"] = "upscale-mask.png"
+                    _atomic_write(stage_directory / upscale_files["mask_file"], assets.read_bytes(upscale.mask_asset_id))
+                    asset = assets.get(stage.source_asset_id)
+                    upscale_files["source_file"] = "upscale-source" + _extension(asset.media_type)
+                    _atomic_write(stage_directory / upscale_files["source_file"], assets.read_bytes(stage.source_asset_id))
+            sidecar = _accepted_sidecar(project_name, stage, attempt, retouch_files=retouch_files,
+                                       upscale_files=upscale_files)
+            if stage.subject_reference:
+                reference_asset = assets.get(stage.subject_reference.asset_id)
+                subject_filename = "subject-reference" + _extension(reference_asset.media_type)
+                _atomic_write(stage_directory / subject_filename, assets.read_bytes(reference_asset.asset_id))
+                sidecar["subject_reference"] = {**asdict(stage.subject_reference), "file": subject_filename,
+                                               "content_sha256": reference_asset.content_sha256}
             _atomic_json(sidecar_path, sidecar)
             accepted_entries.append(
                 {
@@ -117,6 +162,18 @@ class LocalKrea2ProjectExporter:
                     "source_id": stage.source_id,
                     "attempt_id": attempt.attempt_id,
                     "output_asset_id": attempt.output_asset_id,
+                    **({"subject_reference": {**asdict(stage.subject_reference),
+                          "file": (stage_directory / subject_filename).relative_to(project_directory).as_posix()}}
+                       if stage.subject_reference else {}),
+                    "kind": attempt.kind,
+                    "dlss": asdict(dlss) if dlss else None,
+                    "dlss_report_file": "dlss-report.json" if dlss else None,
+                    "engine": edit_engine(attempt.settings),
+                    "output_dimensions": edit_output_dimensions(attempt),
+                    "upscale": asdict(upscale) if upscale else None,
+                    "retouch": asdict(attempt.retouch) if attempt.retouch else None,
+                    "retouch_files": ({key: (stage_directory / name).relative_to(project_directory).as_posix()
+                                       for key, name in retouch_files.items()} if retouch_files else None),
                     "image": image_path.relative_to(project_directory).as_posix(),
                     "sidecar": sidecar_path.relative_to(project_directory).as_posix(),
                     "content_sha256": output_asset.content_sha256,
@@ -129,6 +186,8 @@ class LocalKrea2ProjectExporter:
             "project_id": project_id,
             "project_name": project_name,
             "prompt_language": ordered[-1].prompt_language.value,
+            "revision": asdict(root.revision) if root.revision else None,
+            "version_number": root.revision.number if root.revision else 1,
             "original": {
                 "source_id": root.source_id,
                 "asset_id": root.source_asset_id,
@@ -173,19 +232,55 @@ def _metadata(source: Krea2EditSource) -> dict[str, object]:
             for lora in value.loras
         ],
         "warnings": list(value.warnings),
+        "firered_settings": edit_settings_record(value.firered_settings) if value.firered_settings else None,
     }
+
+
+def _upscale_provenance(source, attempt):
+    if attempt.upscale:
+        return attempt.upscale
+    if attempt.retouch:
+        return next(a.upscale for a in source.attempts if a.attempt_id == attempt.retouch.original_attempt_id)
+
+
+def _dlss_provenance(source, attempt):
+    if attempt.dlss:
+        return attempt.dlss
+    if attempt.retouch:
+        return next(a.dlss for a in source.attempts if a.attempt_id == attempt.retouch.original_attempt_id)
+    return None
 
 
 def _accepted_sidecar(
     project_name: str,
     source: Krea2EditSource,
     attempt: Krea2EditAttempt,
+    *,
+    retouch_files: dict[str, str] | None = None,
+    upscale_files: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    width, height = attempt.settings.resolution
+    width, height = edit_render_dimensions(source, attempt) or (None, None)
+    output_dimensions = edit_output_dimensions(attempt)
+    upscale = _upscale_provenance(source, attempt)
     return {
         "schema_version": 1,
-        "kind": "accepted_edit",
+        "kind": "accepted_upscale" if attempt.upscale else "accepted_retouch" if attempt.retouch else "accepted_edit",
+        "upscale": asdict(upscale) if upscale else None,
+        "dlss": asdict(_dlss_provenance(source, attempt)) if _dlss_provenance(source, attempt) else None,
+        "upscale_files": upscale_files,
+        "output_dimensions": ({"width": output_dimensions[0], "height": output_dimensions[1]} if output_dimensions else None),
+        "render_settings_are_inherited": bool(upscale or attempt.retouch),
+        "retouch": asdict(attempt.retouch) if attempt.retouch else None,
+        "operation": "image.upscale" if attempt.upscale else "image.compose.mask@1.0.0" if attempt.retouch else "image.edit",
+        "composition": ({"width": attempt.retouch.width, "height": attempt.retouch.height,
+                         "harmonize": attempt.retouch.harmonize,
+                         "harmonize_strength": attempt.retouch.harmonize_strength,
+                         "color_method": attempt.retouch.color_method,
+                         **(retouch_files or {}), "render_settings_are_inherited": True}
+                        if attempt.retouch else None),
         "project_id": source.project_id,
+        "revision": asdict(source.revision) if source.revision else None,
+        "copied_from_source_id": source.copied_from_source_id,
         "project_name": project_name,
         "stage_index": source.stage_index,
         "label": source.accepted_label,
@@ -198,24 +293,15 @@ def _accepted_sidecar(
             "instruction": source.instruction,
         },
         "render": {
-            "model_name": attempt.settings.model_name,
-            "aspect_ratio": attempt.settings.aspect_ratio.value,
-            "megapixels": attempt.settings.megapixels,
+            **edit_settings_record(attempt.settings),
             "base_width": width,
             "base_height": height,
-            "seed": str(attempt.settings.seed),
-            "ref_boost": attempt.settings.ref_boost,
-            "steps": attempt.settings.steps,
-            "loras": [
-                {"name": lora.name, "strength": lora.strength}
-                for lora in attempt.settings.loras
-            ],
         },
         "workflow": {
-            "operation_id": source.recipe.operation_id,
-            "recipe_id": source.recipe.recipe_id,
-            "version": source.recipe.version,
-            "sha256": source.recipe.workflow_sha256,
+            "operation_id": (attempt.recipe or source.recipe).operation_id,
+            "recipe_id": (attempt.recipe or source.recipe).recipe_id,
+            "version": (attempt.recipe or source.recipe).version,
+            "sha256": (attempt.recipe or source.recipe).workflow_sha256,
         },
     }
 

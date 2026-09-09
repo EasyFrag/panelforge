@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 import os
 from pathlib import Path
 import re
@@ -27,14 +28,39 @@ class LocalKrea2CreationExporter:
         directory = self.root / f"{_slug(project.name, 54)}__{suffix}"
         directory.mkdir(parents=True, exist_ok=True)
         stem = f"creation_{attempt.index:03d}"
+        if attempt.composition:
+            stem += f"_composition_{project.composition_number(attempt.attempt_id):03d}"
+        if attempt.dlss:
+            stem += "_" + attempt.dlss.job_id
+            _atomic_write(directory / f"{stem}_dlss.json", assets.read_bytes(attempt.dlss.report_asset_id))
         _atomic_write(directory / f"{stem}.png", content)
         width, height = attempt.settings.resolution
+        composition_files = None
+        if attempt.composition:
+            composition_files = {}
+            for name, asset_id in (("base", attempt.composition.source_asset_id),
+                                   ("generation", attempt.composition.generated_asset_id),
+                                   ("mask", attempt.composition.mask_asset_id)):
+                original = assets.get(asset_id)
+                extension = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}[original.media_type]
+                filename = f"{stem}_{name}{extension}"
+                _atomic_write(directory / filename, assets.read_bytes(asset_id))
+                composition_files[name] = filename
         sidecar = {
             "schema_version": 1,
             "project_id": project.project_id,
             "project_name": project.name,
             "intention": project.intention,
             "attempt_id": attempt.attempt_id,
+            "kind": attempt.kind,
+            "operation": "image.upscale.dlss" if attempt.dlss else "image.compose.mask@1.0.0" if attempt.composition else "image.generate",
+            "dlss": asdict(attempt.dlss) if attempt.dlss else None,
+            "dlss_report_file": f"{stem}_dlss.json" if attempt.dlss else None,
+            "composition": asdict(attempt.composition) if attempt.composition else None,
+            "composition_files": composition_files,
+            "render_settings_are_inherited": bool(attempt.composition or attempt.dlss),
+            "output_dimensions": ({"width": attempt.dlss.width, "height": attempt.dlss.height} if attempt.dlss else
+                                  {"width": attempt.composition.width, "height": attempt.composition.height} if attempt.composition else {"width": width, "height": height}),
             "prompt": attempt.prompt,
             "prompt_language": project.prompt_language.value,
             "llm_model_id": project.model_id,

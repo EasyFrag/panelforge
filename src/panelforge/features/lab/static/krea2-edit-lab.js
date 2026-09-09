@@ -21,6 +21,7 @@
     refresh: $("krea2-edit-refresh"),
     backlog: $("krea2-edit-backlog"),
     backlogEmpty: $("krea2-edit-backlog-empty"),
+    backlogMore: $("krea2-edit-backlog-more"),
     editor: $("krea2-edit-editor"),
     title: $("krea2-edit-title"),
     status: $("krea2-edit-status"),
@@ -33,6 +34,18 @@
     compareSlider: $("krea2-edit-compare-slider"),
     compareHover: $("krea2-edit-compare-hover"),
     compareNote: $("krea2-edit-compare-note"),
+    retouchAfter: $("krea2-edit-retouch-after"),
+    upscaleAfter: $("krea2-edit-upscale-after"),
+    upscalePanel: $("krea2-edit-upscale-panel"),
+    upscaleTarget: $("krea2-edit-upscale-target"),
+    upscaleModel: $("krea2-edit-upscale-model"),
+    upscaleStart: $("krea2-edit-upscale-start"),
+    upscaleClose: $("krea2-edit-upscale-close"),
+    upscaleNote: $("krea2-edit-upscale-note"),
+    upscaleProgress: $("krea2-edit-upscale-progress"),
+    upscaleProgressLabel: $("krea2-edit-upscale-progress-label"),
+    promoteAfter: $("krea2-edit-promote-after"),
+    retouch: $("krea2-edit-retouch"),
     imageToolbar: $("krea2-edit-image-toolbar"),
     images: $("krea2-edit-images"),
     showOriginal: $("krea2-edit-show-original"),
@@ -57,6 +70,7 @@
     instruction: $("krea2-edit-instruction"),
     llm: $("krea2-edit-llm"),
     promptLanguage: $("krea2-edit-prompt-language"),
+    assistanceVersion: $("krea2-edit-assistance-version"),
     showReasoning: $("krea2-edit-show-reasoning"),
     buildPrompt: $("krea2-edit-build-prompt"),
     reasoning: $("krea2-edit-reasoning"),
@@ -68,6 +82,11 @@
     revisionsEmpty: $("krea2-edit-revisions-empty"),
     revisions: $("krea2-edit-revisions"),
     model: $("krea2-edit-model"),
+    workflow: $("krea2-edit-workflow"),
+    engine: $("krea2-edit-engine"),
+    fireRedMode: $("krea2-edit-firered-mode"),
+    fireRedCfg: $("krea2-edit-firered-cfg"),
+    workflowDefaults: $("krea2-edit-workflow-defaults"),
     ratio: $("krea2-edit-ratio"),
     megapixels: $("krea2-edit-megapixels"),
     refBoost: $("krea2-edit-ref-boost"),
@@ -80,6 +99,10 @@
     render: $("krea2-edit-render"),
     cancel: $("krea2-edit-cancel"),
     processed: $("krea2-edit-processed"),
+    restart: $("krea2-edit-restart"),
+    resume: $("krea2-edit-resume"),
+    version: $("krea2-edit-version"),
+    versionNote: $("krea2-edit-version-note"),
     hide: $("krea2-edit-hide"),
     attempts: $("krea2-edit-attempts"),
     attemptsEmpty: $("krea2-edit-attempts-empty"),
@@ -92,14 +115,29 @@
     busy: false,
     spec: null,
     sources: [],
+    versions: [],
+    backlogProjectIds: [],
+    backlogTotal: 0,
+    backlogExpanded: false,
+    backlogLoading: false,
+    sourceListEpoch: 0,
+    resumeRequests: new Map(),
     source: null,
     feedbackAttemptId: null,
     loraSlots: [],
     pollTimer: null,
     drafts: new Map(),
+    assistanceChoices: new Map(),
+    renderEngine: "krea2",
+    engineDrafts: new Map(),
+    fireRedRecipe: null,
+    upscaleRequests: new Map(),
+    upscaleSelection: null,
+    upscaleCatalogEpoch: 0,
     comparisonKey: "",
     revisionsKey: "",
     pendingInstruction: "",
+    contextEpoch: 0,
   };
   const core = window.PanelForgeLabCore;
   const showOriginalPreferenceKey = "panelforge.krea2Edit.showOriginal";
@@ -115,6 +153,39 @@
       empty: elements.reasoningEmpty,
     })
     : Object.freeze({ begin: () => {}, handle: () => {}, finish: () => {}, streamUrl: (url) => url });
+
+  const retouchEditor = window.PanelForgeKrea2Retouch.create({
+    root: elements.retouch,
+    load: (sourceId, attemptId) => request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(sourceId)}/attempts/${encodeURIComponent(attemptId)}/retouch`),
+    save: (sourceId, attemptId, saving, signal) => {
+      const body = new FormData();
+      body.append("mask", saving.mask, "mask.png");
+      body.append("request_id", saving.id);
+      body.append("harmonize", String(saving.harmonize));
+      body.append("harmonize_strength", String(saving.strength));
+      return request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(sourceId)}/attempts/${encodeURIComponent(attemptId)}/retouch`, { method: "POST", body, signal });
+    },
+    onOpenChange: (open) => elements.workspace.classList.toggle("retouching", open),
+    onSaved: async (payload, sourceId) => {
+      const updated = sourceOf(payload);
+      const index = state.sources.findIndex((value) => value.source_id === sourceId);
+      if (index >= 0) state.sources[index] = updated;
+      if (state.source?.source_id === sourceId) {
+        state.source = updated;
+        state.feedbackAttemptId = payload.attempt_id;
+        state.comparisonKey = "";
+        render();
+        const attempt = updated.attempts.find((value) => value.attempt_id === payload.attempt_id);
+        setMessage(`${attempt.label} enregistrée et sélectionnée dans Après.`);
+        elements.compareView.closest("section").scrollIntoView({ block: "start" });
+      }
+    },
+  });
+
+  function openRetouch(attemptId) {
+    if (!state.source || state.busy || retouchEditor.saving || !state.spec?.retouch?.enabled) return;
+    retouchEditor.open(state.source.source_id, attemptId);
+  }
 
   async function request(url, options = {}) {
     const response = await fetch(url, options);
@@ -204,7 +275,97 @@
     select.prepend(option);
   }
 
+  function isFireRed() {
+    return state.renderEngine === "firered";
+  }
+
+  function fireRedWorkflow(settings = {}) {
+    return state.spec?.workflows?.find((value) => value.engine === "firered"
+      && (!settings.workflow_id || value.id === settings.workflow_id)
+      && (!settings.workflow_version || value.version === settings.workflow_version));
+  }
+
+  function rememberRenderSettings() {
+    if (state.source) state.engineDrafts.set(`${state.source.source_id}:${state.renderEngine}`, renderSettings());
+  }
+
+  function switchEngine() {
+    if (state.source?.subject_reference) { elements.engine.value = "krea2"; return; }
+    if (state.busy || retouchEditor.saving || !isEditable()) {
+      elements.engine.value = state.renderEngine;
+      return;
+    }
+    const engine = elements.engine.value;
+    if (engine === state.renderEngine) return;
+    if (!isFireRed()) state.assistanceChoices.set(state.source.source_id, elements.assistanceVersion.value);
+    rememberRenderSettings();
+    const saved = state.engineDrafts.get(`${state.source.source_id}:${engine}`);
+    const workflow = engine === "firered" ? fireRedWorkflow() : state.spec.recipe;
+    if (!workflow) { elements.engine.value = state.renderEngine; return; }
+    const defaults = engine === "firered" ? workflow.defaults : state.spec.defaults;
+    applyRenderSettings(saved || { ...defaults, engine, workflow_id: workflow.id,
+      workflow_version: workflow.version, seed: elements.seed.value || randomSeed(), loras: [] });
+    render();
+    setMessage(`${engine === "firered" ? "FireRed" : "KREA2"} sélectionné pour le prochain essai et le prochain échange. Le prompt actuel est conservé.`);
+  }
+
+  function changeFireRedMode() {
+    if (!isFireRed() || state.busy || !isEditable()) return;
+    const defaults = fireRedWorkflow(state.fireRedRecipe || {})?.defaults.modes[elements.fireRedMode.value];
+    if (!defaults) return;
+    elements.steps.value = String(defaults.steps);
+    elements.fireRedCfg.value = String(defaults.cfg);
+    render();
+    setMessage(`Mode ${elements.fireRedMode.value === "lightning" ? "Lightning" : "Standard"} : ${defaults.steps} steps, CFG ${defaults.cfg}.`);
+  }
+
+  function renderEngineControls() {
+    elements.workspace.querySelectorAll("[data-edit-engine]").forEach((node) => {
+      node.hidden = node.dataset.editEngine !== state.renderEngine;
+    });
+    elements.engine.value = state.renderEngine;
+    elements.engine.disabled = state.busy || retouchEditor.saving || !isEditable() || Boolean(state.source?.subject_reference);
+    const twoInputs = Boolean(state.source?.subject_reference);
+    for (const option of elements.workflow.options) {
+      const workflow = state.spec.workflows?.find(w => w.engine === "krea2" && w.version === option.value);
+      option.hidden = option.disabled = Boolean(workflow?.requires_subject_reference) !== twoInputs;
+    }
+    $("krea2-edit-ref-boost-label").textContent = twoInputs ? "Ref boost · sujet" : "Ref boost";
+    elements.fireRedMode.disabled = state.busy || !isEditable();
+    elements.fireRedCfg.disabled = state.busy || !isEditable();
+    elements.megapixels.min = isFireRed() ? "0.1" : "0.5";
+    elements.megapixels.max = isFireRed() ? "16" : "4";
+    elements.assistanceVersion.closest("label").hidden = isFireRed();
+    $("krea2-edit-assistance-note").hidden = isFireRed();
+    elements.fixedNote.textContent = isFireRed()
+      ? "FireRed 1.1 · format de l’image source conservé · Lightning ou Standard."
+      : `Fixe : ${state.spec.fixed.identity_lora} × ${state.spec.fixed.identity_lora_strength} · Euler / Simple · CFG ${state.spec.fixed.cfg}.`;
+    if (twoInputs) elements.fixedNote.textContent += " Décor en image 1 (force 1), sujet en image 2 (Ref boost).";
+  }
+
   function applyRenderSettings(settings) {
+    state.renderEngine = settings.engine || "krea2";
+    elements.engine.value = state.renderEngine;
+    if (isFireRed()) {
+      const workflow = fireRedWorkflow(settings);
+      const defaults = workflow?.defaults || {};
+      state.fireRedRecipe = { workflow_id: settings.workflow_id || workflow?.id,
+        workflow_version: settings.workflow_version || workflow?.version,
+        model_id: settings.model_id || defaults.model_id };
+      elements.fireRedMode.value = settings.mode || defaults.mode || "lightning";
+      const modeDefaults = defaults.modes?.[elements.fireRedMode.value] || {};
+      elements.megapixels.value = String(settings.megapixels ?? defaults.megapixels ?? 1);
+      elements.steps.value = String(settings.steps ?? modeDefaults.steps ?? "");
+      elements.fireRedCfg.value = String(settings.cfg ?? modeDefaults.cfg ?? "");
+      elements.seed.value = String(settings.seed ?? randomSeed());
+      elements.assistanceVersion.value = "3.0.0";
+      return;
+    }
+    if (state.source) elements.assistanceVersion.value = assistanceVersionFor(state.source);
+    if (settings.workflow_version) {
+      ensureOption(elements.workflow, settings.workflow_version, `Workflow ${settings.workflow_version} indisponible`);
+      elements.workflow.value = settings.workflow_version;
+    }
     const model = settings.model_id || "";
     ensureOption(elements.model, model, model);
     elements.model.value = model;
@@ -223,7 +384,15 @@
   }
 
   function renderSettings() {
+    if (isFireRed()) return {
+      ...state.fireRedRecipe, engine: "firered", mode: elements.fireRedMode.value,
+      megapixels: Number(elements.megapixels.value), seed: elements.seed.value,
+      steps: Number(elements.steps.value), cfg: Number(elements.fireRedCfg.value), aspect_ratio: "source",
+    };
     return {
+      engine: "krea2",
+      workflow_id: state.spec?.workflows?.find((w) => (w.engine || "krea2") === "krea2" && w.version === elements.workflow.value)?.id || state.spec.recipe.id,
+      workflow_version: elements.workflow.value,
       model_id: elements.model.value, aspect_ratio: elements.ratio.value,
       megapixels: Number(elements.megapixels.value), seed: elements.seed.value,
       ref_boost: Number(elements.refBoost.value), steps: Number(elements.steps.value),
@@ -233,10 +402,23 @@
 
   function applyDefaultRenderSettings() {
     const defaults = state.spec?.defaults || {};
-    applyRenderSettings({ ...defaults, seed: randomSeed(), loras: [] });
+    applyRenderSettings({ ...defaults, engine: "krea2", workflow_version: state.spec?.recipe?.version, seed: randomSeed(), loras: [] });
+  }
+
+  function applyWorkflowDefaults() {
+    if (state.busy || !isEditable() || isFireRed()) return;
+    const workflow = state.spec?.workflows?.find((value) => (value.engine || "krea2") === "krea2" && value.version === elements.workflow.value);
+    if (!workflow) return;
+    const defaults = workflow.defaults;
+    applyRenderSettings({ ...renderSettings(), model_id: defaults.model_id,
+      ref_boost: defaults.ref_boost, steps: defaults.steps, loras: [] });
+    render();
+    setMessage("Réglages de base repris : checkpoint, Ref boost et steps, sans LoRA ajouté. Prompt, ratio, MP et seed conservés.");
   }
 
   function renderSettingsComplete() {
+    if (isFireRed()) return Boolean(fireRedWorkflow(state.fireRedRecipe || {})
+      && elements.megapixels.value && elements.steps.value && elements.fireRedCfg.value && elements.seed.value);
     return Boolean(
       elements.model.value
       && elements.ratio.value
@@ -265,6 +447,9 @@
             refreshResource,
           });
           options(elements.ratio, state.spec.aspect_ratios || [], (value) => value, (value) => value);
+          options(elements.engine, state.spec.engines || [{ id: "krea2", name: "KREA2" }], (value) => value.id, (value) => value.name);
+          options(elements.workflow, (state.spec.workflows || [state.spec.recipe]).filter((value) => (value.engine || "krea2") === "krea2"), (value) => value.version,
+            (value) => `${value.name || "Workflow"} (${value.version})`);
           applyDefaultRenderSettings();
           elements.fixedNote.textContent = `Fixe : ${state.spec.fixed.identity_lora} × ${state.spec.fixed.identity_lora_strength} · Euler / Simple · CFG ${state.spec.fixed.cfg}.`;
           renderResourceManager();
@@ -287,19 +472,47 @@
     return state.initializing;
   }
 
-  async function loadSources({ preserve = true } = {}) {
-    const payload = await request("/api/image-lab/krea2-edit/sources?limit=100");
-    state.sources = payload.sources || [];
-    if (preserve && state.source) {
-      state.source = state.sources.find((source) => source.source_id === state.source.source_id) || state.source;
-    }
-    if (!state.source) {
-      const active = state.sources
-        .filter((source) => source.state === "pending")
-        .sort((left, right) => right.stage_index - left.stage_index)[0];
-      if (active) openSource(active, { hydrate: true });
-    }
+  async function loadSources({ preserve = true, expanded = state.backlogExpanded, projectId = state.source?.project_id } = {}) {
+    const epoch = state.contextEpoch;
+    const requestEpoch = ++state.sourceListEpoch;
+    const query = new URLSearchParams({ project_limit: expanded ? "2147483647" : "3" });
+    if (projectId) query.set("project_id", projectId);
+    state.backlogLoading = true;
     renderBacklog();
+    try {
+      const payload = await request(`/api/image-lab/krea2-edit/sources?${query}`);
+      if (epoch !== state.contextEpoch || requestEpoch !== state.sourceListEpoch) return;
+      state.sources = payload.sources || [];
+      state.versions = payload.versions || [];
+      state.backlogProjectIds = payload.backlog_project_ids || [];
+      state.backlogTotal = payload.project_count || 0;
+      state.backlogExpanded = Boolean(expanded);
+      if (preserve && state.source) {
+        state.source = state.sources.find((source) => source.source_id === state.source.source_id) || state.source;
+      }
+      if (!state.source) {
+        const stages = projectStages(state.backlogProjectIds[0]);
+        const active = [...stages].reverse().find((source) => isEditable(source));
+        if (active) openSource(active, { hydrate: true, force: true });
+      }
+    } finally {
+      if (requestEpoch === state.sourceListEpoch) state.backlogLoading = false;
+      renderBacklog();
+    }
+  }
+
+  async function toggleBacklog() {
+    if (state.backlogLoading || state.busy || retouchEditor.saving) return;
+    if (state.backlogExpanded) {
+      state.backlogExpanded = false;
+      renderBacklog();
+      return;
+    }
+    try {
+      await loadSources({ expanded: true });
+    } catch (error) {
+      setMessage(error.message, true);
+    }
   }
 
   function setMessage(message = "", error = false) {
@@ -313,24 +526,73 @@
       .sort((left, right) => left.stage_index - right.stage_index);
   }
 
+  function projectVersion(source = state.source) {
+    return (state.versions || []).find((v) => v.project_id === source?.project_id)
+      || { family_id: source?.project_id, number: 1, status: "active" };
+  }
+
+  function isEditable(source = state.source) {
+    return source?.state === "pending" && projectVersion(source).status !== "historical";
+  }
+
+  function renderVersions() {
+    const version = projectVersion();
+    const versions = (state.versions || []).filter((v) => v.family_id === version.family_id)
+      .sort((a, b) => b.number - a.number);
+    const key = JSON.stringify(versions);
+    if (elements.version.dataset.key !== key) {
+      elements.version.replaceChildren();
+      versions.forEach((v) => {
+        const option = document.createElement("option");
+        option.value = v.project_id;
+        option.textContent = `Version ${v.number} · ${v.status === "draft" ? "brouillon" : v.status === "active" ? "active" : "historique"}`;
+        elements.version.append(option);
+      });
+      elements.version.dataset.key = key;
+    }
+    elements.version.value = state.source.project_id;
+    elements.version.disabled = state.busy || retouchEditor.saving;
+    elements.version.closest("label").hidden = versions.length < 2;
+    elements.versionNote.textContent = version.status === "draft"
+      ? `Reprise de l’étape ${version.resumed_stage_index}. L’ancienne version reste active jusqu’à la validation de cette image ; sa suite sera conservée dans l’historique.`
+      : version.status === "historical" ? "Version historique en lecture seule. Une étape validée peut servir de départ à une nouvelle version."
+      : versions.length > 1 ? `Version ${version.number} active. Les anciennes versions restent consultables.` : "";
+  }
+
   function activeProjects() {
     const groups = new Map();
     state.sources
-      .filter((source) => source.state === "pending" || source.state === "advanced")
+      .filter((source) => (source.state === "pending" || source.state === "advanced")
+        && projectVersion(source).status !== "historical")
       .forEach((source) => {
         const values = groups.get(source.project_id) || [];
         values.push(source);
         groups.set(source.project_id, values);
       });
-    return [...groups.values()]
+    const candidates = [...groups.values()]
       .map((stages) => stages.sort((left, right) => left.stage_index - right.stage_index))
       .filter((stages) => stages.some((source) => source.state === "pending"));
+    const families = new Map();
+    candidates.forEach((stages) => {
+      const version = projectVersion(stages[0]);
+      const previous = families.get(version.family_id);
+      if (!previous || version.number > projectVersion(previous[0]).number) families.set(version.family_id, stages);
+    });
+    return [...families.values()];
   }
 
   function renderBacklog() {
     elements.backlog.replaceChildren();
-    const projects = activeProjects();
+    const groups = new Map(activeProjects().map((stages) => [stages[0].project_id, stages]));
+    const ids = state.backlogExpanded ? state.backlogProjectIds : state.backlogProjectIds.slice(0, 3);
+    const projects = ids.map((id) => groups.get(id)).filter(Boolean);
     elements.backlogEmpty.hidden = projects.length > 0;
+    elements.backlogMore.hidden = state.backlogTotal <= 3;
+    elements.backlogMore.disabled = state.backlogLoading || state.busy || retouchEditor.saving;
+    elements.backlogMore.setAttribute("aria-expanded", String(state.backlogExpanded));
+    elements.backlogMore.textContent = state.backlogLoading ? "Chargement…"
+      : state.backlogExpanded ? "Afficher seulement les 3 récents"
+      : `Afficher les autres ateliers (${state.backlogTotal - 3})`;
     projects.forEach((stages) => {
       const root = stages[0];
       const source = [...stages].reverse().find((value) => value.state === "pending") || stages.at(-1);
@@ -338,7 +600,7 @@
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.type = "button";
-      button.className = source.project_id === state.source?.project_id ? "active" : "";
+      button.className = projectVersion(source).family_id === projectVersion().family_id ? "active" : "";
       const image = document.createElement("img");
       image.src = source.source_url;
       image.alt = "";
@@ -347,7 +609,8 @@
       const title = document.createElement("b");
       title.textContent = root.project_name || root.filename;
       const meta = document.createElement("small");
-      meta.textContent = `Étape ${source.stage_index} · ${attemptCount} essai${attemptCount > 1 ? "s" : ""}`;
+      const version = projectVersion(source);
+      meta.textContent = `V${version.number}${version.status === "draft" ? " · brouillon" : ""} · Étape ${source.stage_index} · ${attemptCount} essai${attemptCount > 1 ? "s" : ""}`;
       copy.append(title, meta);
       button.append(image, copy);
       button.addEventListener("click", () => openSource(source, { hydrate: true }));
@@ -356,8 +619,29 @@
     });
   }
 
+  function assistanceVersionFor(source) {
+    const chosen = state.assistanceChoices.get(source.source_id);
+    if (chosen) return chosen;
+    const last = source.revisions?.filter((r) => (r.render_engine || "krea2") === "krea2").at(-1);
+    if (last) return last.assistance_version || "1.0.0";
+    const parent = state.sources.find((s) => s.source_id === source.parent_source_id);
+    return parent?.revisions?.filter((r) => (r.render_engine || "krea2") === "krea2").at(-1)?.assistance_version || "3.0.0";
+  }
+
+  function changeAssistanceVersion() {
+    if (!state.source || state.busy || !isEditable()) return;
+    state.assistanceChoices.set(state.source.source_id, elements.assistanceVersion.value);
+    setMessage("Version choisie pour le prochain échange. Le prompt et les réglages actuels sont conservés.");
+  }
+
   function openSource(source, { hydrate = false, force = false } = {}) {
-    if (!source || (state.busy && !force)) return;
+    if (!source || retouchEditor.saving || (state.busy && !force)) return;
+    if (source.source_id !== state.source?.source_id) {
+      rememberRenderSettings();
+      state.contextEpoch += 1;
+      retouchEditor.close();
+      closeUpscale();
+    }
     if (state.source && state.source.source_id !== source.source_id) {
       state.drafts.set(state.source.source_id, {
         prompt: elements.prompt.value, instruction: elements.instruction.value,
@@ -368,10 +652,13 @@
     state.source = source;
     if (hydrate) {
       const metadata = source.metadata || {};
-      const previous = latestAttempt(source);
+      const resumed = source.attempts?.find((a) => a.attempt_id === (source.resume_attempt_id || source.accepted_attempt_id));
+      const previous = resumed || latestAttempt(source);
       elements.instruction.value = "";
-      elements.prompt.value = source.generated_prompt || metadata.prompt || "";
+      elements.prompt.value = resumed?.prompt || source.generated_prompt || metadata.prompt || "";
       elements.promptLanguage.value = source.prompt_language || "en";
+      elements.assistanceVersion.value = assistanceVersionFor(source);
+      elements.assistanceVersion.querySelector('[value="1.0.0"]').hidden = elements.assistanceVersion.value !== "1.0.0";
       if (source.prompt_model_id) {
         window.PanelForgeModelPicker.select(elements.llm, source.prompt_model_id, "modèle historique indisponible");
       }
@@ -382,7 +669,14 @@
       const defaults = state.spec.defaults;
       const parent = state.sources.find((s) => s.source_id === source.parent_source_id);
       const inherited = parent?.attempts?.find((a) => a.attempt_id === source.parent_attempt_id)?.settings;
-      applyRenderSettings({
+      const fireSettings = previous?.settings?.engine === "firered" ? previous.settings
+        : !previous && (metadata.firered_settings || (inherited?.engine === "firered" ? inherited : null));
+      applyRenderSettings(fireSettings ? {
+        ...fireSettings, engine: "firered",
+        workflow_id: previous?.workflow_id || (source.recipe?.engine === "firered" ? source.recipe.id : undefined),
+        workflow_version: previous?.workflow_version || (source.recipe?.engine === "firered" ? source.recipe.version : undefined),
+      } : {
+        workflow_version: resumed?.workflow_version || (source.subject_reference || !isEditable(source) ? source.recipe?.version : state.spec.recipe?.version),
         model_id: previous?.settings.model_id || metadata.model_id || defaults.model_id,
         aspect_ratio: previous?.settings.aspect_ratio || metadata.aspect_ratio || defaults.aspect_ratio,
         megapixels: previous?.settings.megapixels ?? metadata.megapixels ?? defaults.megapixels,
@@ -392,7 +686,7 @@
         loras: previous?.settings.loras || metadata.loras || [],
       });
       const latestSuccess = [...(source.attempts || [])].reverse().find((attempt) => attempt.status === "succeeded");
-      state.feedbackAttemptId = latestSuccess?.attempt_id || null;
+      state.feedbackAttemptId = resumed?.attempt_id || source.accepted_attempt_id || latestSuccess?.attempt_id || null;
       const draft = state.drafts.get(source.source_id);
       if (draft) {
         elements.prompt.value = draft.prompt;
@@ -402,6 +696,7 @@
       }
     }
     render();
+    if (activeAttempt()) startPolling();
   }
 
   function renderLoras() {
@@ -550,7 +845,8 @@
       const details = document.createElement("details");
       details.className = "krea2-edit-revision";
       const summary = document.createElement("summary");
-      summary.textContent = `Voir le prompt ${index + 1}`;
+      summary.textContent = revision.render_engine === "firered" ? `Voir le prompt ${index + 1} · FireRed`
+        : `Voir le prompt ${index + 1} · V${(revision.assistance_version || "1.0.0").split(".")[0]}`;
       const meta = document.createElement("small");
       const language = revision.prompt_language === "zh" ? "中文" : "EN";
       meta.textContent = `${revision.model_id} · ${language}${revision.feedback_attempt_id ? " · avec feedback visuel" : " · source seule"}`;
@@ -575,7 +871,7 @@
     if (!source) return;
     const attempts = (source.attempts || []).filter((a) => a.status === "succeeded" && a.output_url);
     const choices = [{ id: "source", label: "Source de l’étape", url: source.source_url },
-      ...attempts.map((a) => ({ id: a.attempt_id, label: `Essai ${(source.attempts || []).indexOf(a) + 1}`, url: a.output_url }))];
+      ...attempts.map((a) => ({ id: a.attempt_id, label: a.label || `Essai ${(source.attempts || []).indexOf(a) + 1}`, url: a.output_url }))];
     const key = JSON.stringify([source.source_id, choices, state.feedbackAttemptId]);
     if (key === state.comparisonKey) return;
     const previousSource = elements.compareView.dataset.sourceId;
@@ -602,6 +898,115 @@
     elements.compareNote.textContent = elements.compareBefore.value === elements.compareAfter.value
       ? "Même image des deux côtés. Choisis un essai pour le comparer à sa source."
       : "Glisse sur l’image ou utilise le curseur. Les proportions restent intactes.";
+    updateComparisonActions();
+  }
+
+  function canPromote(attempt) {
+    return Boolean(isEditable() && !state.busy && !retouchEditor.saving && state.source.prompt_status !== "generating"
+      && !activeAttempt() && attempt?.status === "succeeded" && attempt.output_url
+      && elements.projectName.value.trim() && elements.stepName.value.trim());
+  }
+
+  function updateComparisonActions() {
+    const source = state.source;
+    const candidate = source?.attempts.find((a) => a.attempt_id === elements.compareAfter.value);
+    elements.retouchAfter.disabled = state.busy || !state.spec?.retouch?.enabled || !candidate
+      || (!isEditable(source) && !candidate.retouch && !candidate.upscale?.mask_asset_id);
+    elements.retouchAfter.textContent = isEditable(source) ? "Retoucher l’image Après" : "Voir le masque Après";
+    elements.promoteAfter.hidden = !isEditable(source);
+    elements.promoteAfter.disabled = !canPromote(candidate);
+    elements.promoteAfter.title = !candidate ? "Choisis un essai réussi dans Après."
+      : !elements.projectName.value.trim() || !elements.stepName.value.trim()
+      ? "Renseigne le nom du projet et de l’étape pour continuer." : "";
+    elements.upscaleAfter.hidden = !(window.PanelForgeDlss || state.spec?.upscale?.enabled) || !isEditable(source);
+    elements.upscaleAfter.disabled = window.PanelForgeDlss ? !canDlss(candidate) : !canUpscale(candidate);
+    const selected = source?.attempts.find((a) => a.attempt_id === state.upscaleSelection?.attemptId);
+    elements.upscaleStart.disabled = !canUpscale(selected) || !elements.upscaleModel.value;
+    elements.upscaleModel.disabled = state.busy || Boolean(activeAttempt());
+    const active = activeAttempt();
+    elements.upscaleProgress.hidden = active?.kind !== "upscale";
+    if (active?.kind === "upscale") elements.upscaleProgressLabel.textContent = active.status === "queued"
+      ? "Amélioration en attente dans ComfyUI…" : active.status === "cancel_pending"
+      ? "Annulation de l’amélioration en cours…" : "Amélioration des détails en cours…";
+  }
+
+  function canDlss(attempt) {
+    return Boolean(window.PanelForgeDlss && isEditable() && !state.busy && !retouchEditor.saving
+      && attempt?.status === "succeeded" && attempt.output_url);
+  }
+
+  function canUpscale(attempt) {
+    return Boolean(isEditable() && !state.busy && !retouchEditor.saving && !activeAttempt()
+      && state.spec?.upscale?.enabled && attempt?.status === "succeeded" && attempt.output_url);
+  }
+
+  function closeUpscale() {
+    state.upscaleCatalogEpoch += 1;
+    state.upscaleSelection = null;
+    elements.upscalePanel.hidden = true;
+    elements.upscaleAfter.setAttribute("aria-expanded", "false");
+  }
+
+  async function openUpscale(attemptId = elements.compareAfter.value) {
+    const candidate = state.source?.attempts.find((a) => a.attempt_id === attemptId);
+    if (!canUpscale(candidate)) return;
+    const epoch = ++state.upscaleCatalogEpoch;
+    state.upscaleSelection = { sourceId: state.source.source_id, attemptId };
+    elements.upscalePanel.hidden = false;
+    elements.upscaleAfter.setAttribute("aria-expanded", "true");
+    elements.upscaleTarget.textContent = `Améliorer ${candidate.label}`;
+    elements.upscaleNote.textContent = "Chargement des modèles…";
+    const previousModel = elements.upscaleModel.value;
+    elements.upscaleModel.replaceChildren();
+    updateComparisonActions();
+    try {
+      const catalog = await request("/api/image-lab/krea2-edit/upscalers");
+      if (epoch !== state.upscaleCatalogEpoch) return;
+      elements.upscaleModel.replaceChildren(...catalog.models.map((name) => new Option(name, name)));
+      elements.upscaleModel.value = catalog.models.includes(previousModel) ? previousModel : catalog.default || "";
+      elements.upscaleNote.textContent = catalog.models.length
+        ? `Modèle : ${elements.upscaleModel.value}` : "Aucun upscaler disponible dans ComfyUI.";
+    } catch (error) {
+      if (epoch !== state.upscaleCatalogEpoch) return;
+      elements.upscaleNote.textContent = error.message;
+    }
+    updateComparisonActions();
+  }
+
+  async function startUpscale() {
+    const selection = state.upscaleSelection;
+    const candidate = state.source?.attempts.find((a) => a.attempt_id === selection?.attemptId);
+    if (!canUpscale(candidate) || !elements.upscaleModel.value || selection.sourceId !== state.source.source_id) return;
+    const model = elements.upscaleModel.value;
+    const key = JSON.stringify([selection.sourceId, selection.attemptId, model]);
+    let requestId = state.upscaleRequests.get(key);
+    if (!requestId) {
+      requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      state.upscaleRequests.set(key, requestId);
+    }
+    const epoch = state.contextEpoch;
+    state.busy = true;
+    elements.upscaleNote.textContent = "Préparation de l’amélioration…";
+    render();
+    try {
+      const payload = await request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(selection.sourceId)}/attempts/${encodeURIComponent(selection.attemptId)}/upscale`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_name: model, request_id: requestId }),
+      });
+      if (epoch !== state.contextEpoch) return;
+      state.source = sourceOf(payload);
+      state.upscaleRequests.delete(key);
+      closeUpscale();
+      setMessage("Amélioration des détails lancée. Tu peux continuer à consulter tes images.");
+      startPolling();
+    } catch (error) {
+      if (epoch !== state.contextEpoch) return;
+      elements.upscaleNote.textContent = error.message;
+      setMessage(error.message, true);
+    } finally {
+      state.busy = false;
+      render();
+    }
   }
 
   function setComparisonPosition(value) {
@@ -613,6 +1018,7 @@
 
   function render() {
     const source = state.source;
+    if (source) window.PanelForgeLabCore?.observeRenderAttempts?.(source.attempts || [], `edit:${source.source_id}`);
     elements.editor.hidden = !source;
     if (!source) {
       elements.attemptsEmpty.textContent = "Sélectionnez une image.";
@@ -626,6 +1032,8 @@
       return;
     }
     elements.title.textContent = `${source.filename} · Étape ${source.stage_index}`;
+    renderVersions();
+    renderEngineControls();
     const rootSource = projectStages()[0];
     const canShowOriginal = source.stage_index > 1 && Boolean(rootSource?.source_url);
     const showOriginal = canShowOriginal && elements.showOriginal.checked;
@@ -634,6 +1042,11 @@
     elements.images.classList.toggle("show-original", showOriginal);
     if (canShowOriginal) elements.originalImage.src = rootSource.source_url;
     elements.sourceImage.src = source.source_url;
+    $("krea2-edit-reference-pair").hidden = !source.subject_reference;
+    if (source.subject_reference) {
+      $("krea2-edit-scene-reference").src = source.source_url;
+      $("krea2-edit-subject-reference").src = source.subject_reference.url;
+    }
     const latest = latestAttempt(source);
     const active = activeAttempt();
     const feedback = feedbackAttempt();
@@ -645,7 +1058,7 @@
       : "Résultat de feedback LLM";
     if (feedback) elements.resultImage.src = feedback.output_url;
     elements.status.textContent = active ? `● ${active.status}` : latest?.status === "failed" ? "● Échec" : "● Prêt";
-    elements.metadata.textContent = `Projet ${source.project_id} · étape ${source.stage_index} · source ${source.metadata.origin} · ${source.metadata.model_id || "modèle inconnu"} · ${source.metadata.aspect_ratio || "ratio inconnu"} · ${source.metadata.megapixels ?? "?"} MP`;
+    elements.metadata.textContent = `Projet ${source.project_id} · étape ${source.stage_index} · source ${source.metadata.origin} · ${source.metadata.model_id || "modèle inconnu"} · ${source.metadata.engine === "firered" ? "format source" : source.metadata.aspect_ratio || "ratio inconnu"} · ${source.metadata.megapixels ?? "?"} MP`;
     const exportState = source.export || {};
     const exportRoot = state.spec?.project_exports?.root;
     elements.exportState.classList.toggle("error", exportState.status === "failed");
@@ -661,24 +1074,36 @@
       ...(state.spec?.resource_warnings || []),
       ...(source.metadata.warnings || []),
     ];
-    if (elements.model.selectedOptions[0]?.dataset.missing) warningValues.push("Le checkpoint historique est indisponible : choisissez un modèle installé avant le rendu.");
-    state.loraSlots.filter((slot) => slot.name && !(state.spec.loras || []).some((value) => value.comfy_name === slot.name)).forEach((slot) => warningValues.push(`LoRA indisponible : ${slot.name}`));
+    if (!isFireRed() && elements.model.selectedOptions[0]?.dataset.missing) warningValues.push("Le checkpoint historique est indisponible : choisissez un modèle installé avant le rendu.");
+    if (!isFireRed()) state.loraSlots.filter((slot) => slot.name && !(state.spec.loras || []).some((value) => value.comfy_name === slot.name)).forEach((slot) => warningValues.push(`LoRA indisponible : ${slot.name}`));
+    if (isFireRed() && !fireRedWorkflow(state.fireRedRecipe || {})) warningValues.push("La recette FireRed de cet essai est indisponible.");
     elements.warnings.hidden = !warningValues.length;
     elements.warnings.textContent = warningValues.join(" · ");
-    const editable = source.state === "pending";
+    const editable = isEditable(source);
+    elements.resume.hidden = !source.accepted_attempt_id;
+    elements.resume.disabled = state.busy || retouchEditor.saving || Boolean(active)
+      || source.prompt_status === "generating";
+    elements.restart.hidden = !editable;
+    elements.restart.disabled = !canRestart();
+    elements.restart.title = "Repartir de la source de cette étape avec une conversation et des essais vides.";
     elements.projectName.disabled = !editable || Boolean(source.project_name);
     elements.stepName.disabled = !editable;
     elements.buildPrompt.disabled = state.busy || !editable || !elements.instruction.value.trim() || !elements.llm.value;
     elements.promptLanguage.disabled = state.busy || !editable;
-    elements.render.disabled = state.busy || !editable || Boolean(active) || !elements.prompt.value.trim() || !elements.model.value;
+    elements.assistanceVersion.disabled = state.busy || !editable;
+    elements.workflow.disabled = state.busy || !editable;
+    elements.workflowDefaults.disabled = state.busy || !editable;
+    elements.render.disabled = state.busy || !editable || Boolean(active) || !elements.prompt.value.trim()
+      || (isFireRed() ? !fireRedWorkflow(state.fireRedRecipe || {}) : !elements.model.value);
     elements.cancel.disabled = !active;
-    elements.processed.disabled = state.busy || Boolean(active);
-    elements.hide.disabled = state.busy || Boolean(active);
+    elements.processed.disabled = state.busy || Boolean(active) || projectVersion().status === "historical";
+    elements.hide.disabled = state.busy || Boolean(active) || projectVersion().status === "historical";
     renderTimeline();
     renderRevisions();
     renderComparison();
     renderAttempts();
     renderBacklog();
+    updateComparisonActions();
   }
 
   function renderAttempts() {
@@ -686,24 +1111,38 @@
     const attempts = state.source?.attempts || [];
     elements.attemptsEmpty.hidden = attempts.length > 0;
     if (!attempts.length) elements.attemptsEmpty.textContent = "Aucun essai pour cette étape.";
-    [...attempts].reverse().forEach((attempt) => {
+    const groups = window.PanelForgeDlss?.groups(attempts, `edit:${state.source.source_id}`, elements.compareAfter.value) || attempts.map(attempt => ({ attempt }));
+    [...groups].reverse().forEach(group => {
+      const attempt = group.attempt;
       const card = document.createElement("article");
       card.className = `krea2-edit-attempt-card${attempt.accepted ? " accepted" : ""}`;
+      if (group.variants) card.append(window.PanelForgeDlss.picker(group, value => { elements.compareAfter.value = value; renderComparison(); renderAttempts(); updateComparisonActions(); }));
       if (attempt.output_url) {
         const image = document.createElement("img");
         image.src = attempt.output_url;
-        image.alt = `Essai ${attempt.attempt_id}`;
+        image.alt = attempt.label || `Essai ${attempt.attempt_id}`;
         image.loading = "lazy";
-        makeZoomable(image, `Essai · Ref boost ${attempt.settings.ref_boost}`);
+        makeZoomable(image, attempt.label || `Essai · Ref boost ${attempt.settings.ref_boost}`);
         card.append(image);
       }
       const copy = document.createElement("div");
       const title = document.createElement("b");
-      title.textContent = `${attempt.status} · Ref boost ${attempt.settings.ref_boost}`;
+      title.textContent = attempt.kind === "retouch"
+        ? `${attempt.label} · composition locale`
+        : attempt.upscale ? `${attempt.label} · ${attempt.status}`
+        : attempt.engine === "firered" ? `${attempt.label} · ${attempt.status} · FireRed ${attempt.settings.mode === "lightning" ? "Lightning" : "Standard"}`
+        : `${attempt.label || "Essai"} · ${attempt.status} · Ref boost ${attempt.settings.ref_boost}`;
       const meta = document.createElement("small");
       meta.textContent = attempt.accepted
         ? `Validé · ${attempt.settings.megapixels} MP · ${attempt.settings.steps} steps`
         : attempt.error || `${attempt.settings.megapixels} MP · ${attempt.settings.steps} steps`;
+      if (attempt.retouch) meta.textContent = `${attempt.accepted ? "Validée · " : ""}${attempt.retouch.width} × ${attempt.retouch.height} · taille de la source`;
+      if (attempt.upscale) meta.textContent = attempt.error || `${attempt.upscale.model_name} · ${attempt.upscale.width} × ${attempt.upscale.height} · ${attempt.upscale.preserve_source_size === false ? "finition agrandie" : "taille de la source"}`;
+      else meta.textContent += ` · workflow ${attempt.workflow_version || state.source.recipe?.version || "historique"}`;
+      if (attempt.engine === "firered" && attempt.kind === "generation") {
+        meta.textContent += ` · CFG ${attempt.settings.cfg}`;
+        if (attempt.output_dimensions) meta.textContent += ` · ${attempt.output_dimensions.width} × ${attempt.output_dimensions.height}`;
+      }
       const actions = document.createElement("span");
       actions.className = "krea2-edit-attempt-actions";
       const reuse = document.createElement("button");
@@ -712,6 +1151,19 @@
       reuse.addEventListener("click", () => reuseAttempt(attempt));
       actions.append(reuse);
       if (attempt.status === "succeeded") {
+        if (window.PanelForgeDlss && isEditable()) {
+          const upscale = window.PanelForgeDlss.button({ owner: "edit", ownerId: state.source.source_id, attempt });
+          upscale.disabled = !canDlss(attempt);
+          actions.append(upscale);
+        }
+        if (state.spec?.retouch?.enabled && (isEditable() || attempt.retouch || attempt.upscale?.mask_asset_id)) {
+          const retouch = document.createElement("button");
+          retouch.type = "button";
+          retouch.textContent = state.source.state !== "pending" ? "Voir le masque" : (attempt.retouch || attempt.upscale?.mask_asset_id) ? "Reprendre le masque" : "Retoucher";
+          retouch.disabled = state.busy;
+          retouch.addEventListener("click", () => openRetouch(attempt.attempt_id));
+          actions.append(retouch);
+        }
         const feedback = document.createElement("button");
         feedback.type = "button";
         feedback.textContent = attempt.attempt_id === state.feedbackAttemptId ? "Feedback sélectionné" : "Utiliser comme feedback";
@@ -721,15 +1173,12 @@
           render();
         });
         actions.append(feedback);
-        if (state.source.state === "pending") {
+        if (isEditable()) {
           const promote = document.createElement("button");
           promote.type = "button";
           promote.className = "promote";
           promote.textContent = "Valider et continuer";
-          promote.disabled = state.busy
-            || Boolean(activeAttempt())
-            || !elements.projectName.value.trim()
-            || !elements.stepName.value.trim();
+          promote.disabled = !canPromote(attempt);
           promote.addEventListener("click", () => promoteAttempt(attempt));
           actions.append(promote);
         }
@@ -742,14 +1191,17 @@
 
   function reuseAttempt(attempt) {
     if (state.busy) return;
+    rememberRenderSettings();
     elements.prompt.value = attempt.prompt;
-    applyRenderSettings(attempt.settings);
+    applyRenderSettings({ ...attempt.settings, workflow_id: attempt.workflow_id || state.source.recipe?.id,
+      workflow_version: attempt.workflow_version || state.source.recipe?.version });
     if (attempt.status === "succeeded") state.feedbackAttemptId = attempt.attempt_id;
     render();
   }
 
   async function promoteAttempt(attempt) {
-    if (!state.source || state.busy || attempt.status !== "succeeded") return;
+    if (!canPromote(attempt)) return;
+    retouchEditor.close();
     state.busy = true;
     setMessage("Validation du résultat et création de l’étape suivante…");
     render();
@@ -765,6 +1217,7 @@
           }),
         },
       );
+      state.contextEpoch += 1;
       state.source = sourceOf(payload);
       state.feedbackAttemptId = null;
       await loadSources();
@@ -790,8 +1243,8 @@
     const outcomeTone = core.createLlmOutcomeTone();
     state.busy = true;
     state.pendingInstruction = instruction;
-    reasoningTrace.begin("Reconstruction / réécriture", elements.prompt.closest("section"));
-    setMessage("Le modèle reconstruit et réécrit le prompt…");
+    reasoningTrace.begin("Préparation de la modification", elements.prompt.closest("section"));
+    setMessage("Le modèle prépare le prompt de modification…");
     render();
     try {
       outcomeTone.start();
@@ -806,7 +1259,8 @@
             base_prompt: basePrompt || null,
             feedback_attempt_id: state.feedbackAttemptId,
             prompt_language: elements.promptLanguage.value,
-            assistance_version: "2.0.0",
+            assistance_version: elements.assistanceVersion.value,
+            render_engine: state.renderEngine,
           }),
         },
         (event) => {
@@ -851,19 +1305,12 @@
     setMessage("Préparation du rendu…");
     render();
     try {
-      const loras = state.loraSlots.filter((slot) => slot.name).map((slot) => ({ name: slot.name, strength: Number(slot.strength) }));
       const payload = await request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(state.source.source_id)}/attempts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: elements.prompt.value.trim(),
-          model_id: elements.model.value,
-          aspect_ratio: elements.ratio.value,
-          megapixels: Number(elements.megapixels.value),
-          seed: elements.seed.value,
-          ref_boost: Number(elements.refBoost.value),
-          steps: Number(elements.steps.value),
-          loras,
+          ...renderSettings(),
         }),
       });
       state.source = sourceOf(payload);
@@ -883,9 +1330,12 @@
   function startPolling() {
     if (state.pollTimer) clearTimeout(state.pollTimer);
     const watchedSourceId = state.source?.source_id;
+    const epoch = state.contextEpoch;
     const poll = async () => {
+      if (epoch !== state.contextEpoch) return;
       try {
         await refreshCurrent();
+        if (epoch !== state.contextEpoch) return;
         if (watchedSourceId !== state.source?.source_id) { state.pollTimer = null; return; }
         const active = activeAttempt();
         if (active) {
@@ -896,11 +1346,13 @@
           state.pollTimer = null;
           const latestSuccess = [...(state.source?.attempts || [])].reverse().find((attempt) => attempt.status === "succeeded");
           if (latestSuccess) state.feedbackAttemptId = latestSuccess.attempt_id;
+          if (latestSuccess?.upscale && latestSuccess === latestAttempt()) elements.compareBefore.value = latestSuccess.upscale.parent_attempt_id;
           setMessage(latestAttempt()?.status === "succeeded" ? "Rendu terminé." : latestAttempt()?.error || "Rendu terminé.", latestAttempt()?.status === "failed");
           await loadSources();
           render();
         }
       } catch (error) {
+        if (epoch !== state.contextEpoch) return;
         setMessage(error.message, true);
         state.pollTimer = setTimeout(poll, 2500);
       }
@@ -910,13 +1362,113 @@
 
   async function refreshCurrent() {
     if (!state.source) return;
+    const epoch = state.contextEpoch;
     const requestedSource = state.source;
     const payload = await request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(requestedSource.source_id)}`);
+    if (epoch !== state.contextEpoch) return;
+    if (payload.versions) state.versions = payload.versions;
     const refreshed = sourceOf(payload);
+    if ((refreshed.restart_count || 0) < (state.sources.find((source) => source.source_id === refreshed.source_id)?.restart_count || 0)) return;
     if (state.source === requestedSource) state.source = refreshed;
     const index = state.sources.findIndex((source) => source.source_id === refreshed.source_id);
     if (index >= 0) state.sources[index] = refreshed;
     else state.sources.push(refreshed);
+  }
+
+  function canRestart() {
+    return Boolean(isEditable() && !state.busy && !retouchEditor.saving
+      && state.source.prompt_status !== "generating" && !activeAttempt());
+  }
+
+  async function openVersion(projectId) {
+    if (!projectId || state.busy || retouchEditor.saving) return;
+    state.busy = true;
+    state.contextEpoch += 1;
+    render();
+    try {
+      const payload = await request(`/api/image-lab/krea2-edit/projects/${encodeURIComponent(projectId)}`);
+      const stages = payload.sources || [];
+      if (!stages.length) throw new Error("Version introuvable.");
+      const merged = new Map(state.sources.map((s) => [s.source_id, s]));
+      stages.forEach((s) => merged.set(s.source_id, s));
+      state.sources = [...merged.values()];
+      state.versions = payload.versions || state.versions;
+      state.busy = false;
+      openSource([...stages].reverse().find((s) => s.state === "pending") || stages.at(-1), { hydrate: true });
+      setMessage("");
+    } catch (error) {
+      setMessage(error.message, true);
+    } finally {
+      state.busy = false;
+      render();
+    }
+  }
+
+  async function resumeStage() {
+    const source = state.source;
+    if (!source?.accepted_attempt_id || state.busy || retouchEditor.saving || activeAttempt()) return;
+    let requestId = state.resumeRequests.get(source.source_id);
+    if (!requestId) {
+      requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      state.resumeRequests.set(source.source_id, requestId);
+    }
+    state.busy = true;
+    state.contextEpoch += 1;
+    retouchEditor.close();
+    setMessage("Préparation d’une version de travail ; l’ancienne chaîne est conservée…");
+    render();
+    try {
+      const payload = await request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(source.source_id)}/resume`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request_id: requestId }),
+      });
+      const resumed = sourceOf(payload);
+      await loadSources({ projectId: resumed.project_id });
+      state.busy = false;
+      openSource(resumed, { hydrate: true });
+      state.resumeRequests.delete(source.source_id);
+      setMessage("Version de travail ouverte avec la source, la conversation et les réglages de l’essai validé. La nouvelle suite commencera à sa validation.");
+    } catch (error) {
+      // Keep the same request ID if the server saved but the response was lost.
+      setMessage(error.message, true);
+    } finally {
+      state.busy = false;
+      render();
+    }
+  }
+
+  async function restartStage() {
+    if (!canRestart()) return;
+    if (!window.confirm("Recommencer cette étape depuis son image source ? Les échanges, prompts, essais et brouillons de retouche de cette étape seront retirés de l’atelier. Les réglages de rendu reviendront à ceux de départ. Les étapes validées sont conservées.")) return;
+    const source = state.source;
+    state.busy = true;
+    retouchEditor.close();
+    setMessage("Reprise de l’étape depuis sa source…"); render();
+    try {
+      const payload = await request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(source.source_id)}/restart`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_restart_count: source.restart_count || 0 }),
+      });
+      const restarted = sourceOf(payload);
+      state.contextEpoch++;
+      if (state.pollTimer) clearTimeout(state.pollTimer);
+      state.pollTimer = null;
+      retouchEditor.discardSource(source.source_id);
+      state.drafts.delete(source.source_id);
+      for (const engine of ["krea2", "firered"]) state.engineDrafts.delete(`${source.source_id}:${engine}`);
+      state.pendingInstruction = ""; state.feedbackAttemptId = null;
+      state.comparisonKey = ""; state.revisionsKey = "";
+      elements.reasoning.hidden = true; elements.reasoningContent.textContent = "";
+      const index = state.sources.findIndex((value) => value.source_id === restarted.source_id);
+      if (index >= 0) state.sources[index] = restarted; else state.sources.push(restarted);
+      state.busy = false;
+      openSource(restarted, { hydrate: true });
+      elements.instruction.focus();
+      setMessage(restarted.attempts.length || restarted.revisions.length
+        ? "Étape rechargée : la reprise avait déjà été enregistrée."
+        : "Étape recommencée. Décris à nouveau la modification souhaitée depuis sa source.");
+    } catch (error) { setMessage(error.message, true); }
+    finally { state.busy = false; render(); }
   }
 
   async function updateState(value) {
@@ -961,6 +1513,37 @@
     }
   }
 
+  elements.retouchAfter.addEventListener("click", () => openRetouch(elements.compareAfter.value));
+  elements.upscaleAfter.addEventListener("click", () => {
+    const attempt = state.source?.attempts.find(a => a.attempt_id === elements.compareAfter.value);
+    if (window.PanelForgeDlss && attempt) window.PanelForgeDlss.open({ owner: "edit", ownerId: state.source.source_id, attempt });
+    else openUpscale();
+  });
+  document.getElementById("krea2-edit-upscale-legacy")?.addEventListener("click", () => openUpscale());
+  window.addEventListener("panelforge:dlss-complete", async event => {
+    const job = event.detail, source = state.source;
+    if (job.snapshot.owner !== "edit" || source?.source_id !== job.snapshot.owner_id) return;
+    if (state.busy || retouchEditor.saving) { setTimeout(() => window.dispatchEvent(new CustomEvent("panelforge:dlss-complete", { detail: job })), 1000); return; }
+    try {
+      await refreshCurrent();
+      if (state.source?.source_id !== source.source_id) return;
+      render();
+      elements.compareAfter.value = job.candidate_id;
+      elements.compareBefore.value = job.snapshot.parent_attempt_id;
+      renderComparison(); updateComparisonActions();
+    } catch (error) { setMessage(error.message, true); }
+  });
+  elements.upscaleClose.addEventListener("click", closeUpscale);
+  elements.upscaleStart.addEventListener("click", startUpscale);
+  elements.upscaleModel.addEventListener("change", () => {
+    elements.upscaleNote.textContent = `Modèle : ${elements.upscaleModel.value}`;
+    updateComparisonActions();
+  });
+  elements.promoteAfter.addEventListener("click", () => {
+    const candidate = state.source?.attempts.find((a) => a.attempt_id === elements.compareAfter.value);
+    if (candidate) promoteAttempt(candidate);
+  });
+
   elements.uploadForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (state.busy || !elements.uploadImage.files[0]) return;
@@ -987,12 +1570,14 @@
   });
 
   elements.refresh.addEventListener("click", () => loadSources().catch((error) => setMessage(error.message, true)));
+  elements.backlogMore.addEventListener("click", toggleBacklog);
   elements.compareBefore.addEventListener("change", updateComparisonImages);
   elements.compareAfter.addEventListener("change", () => {
     if (elements.compareAfter.value !== "source") {
       state.feedbackAttemptId = elements.compareAfter.value;
       render();
     }
+    if (elements.compareAfter.value === "source") elements.retouchAfter.disabled = true;
     updateComparisonImages();
   });
   elements.compareSlider.addEventListener("input", () => setComparisonPosition(elements.compareSlider.value));
@@ -1014,6 +1599,7 @@
   $("krea2-edit-compare-zoom-before").addEventListener("click", () => openImageViewer(elements.compareBeforeImage, "Avant"));
   $("krea2-edit-compare-zoom-after").addEventListener("click", () => openImageViewer(elements.compareAfterImage, "Après"));
   elements.buildPrompt.addEventListener("click", buildPrompt);
+  elements.assistanceVersion.addEventListener("change", changeAssistanceVersion);
   elements.render.addEventListener("click", renderAttempt);
   elements.cancel.addEventListener("click", async () => {
     const attempt = activeAttempt();
@@ -1025,10 +1611,20 @@
     } catch (error) { setMessage(error.message, true); }
   });
   elements.processed.addEventListener("click", () => updateState("processed"));
+  elements.restart.addEventListener("click", restartStage);
+  elements.resume.addEventListener("click", resumeStage);
+  elements.version.addEventListener("change", () => openVersion(elements.version.value));
   elements.hide.addEventListener("click", () => updateState("hidden"));
   elements.instruction.addEventListener("input", render);
   elements.prompt.addEventListener("input", render);
   elements.model.addEventListener("change", render);
+  elements.workflow.addEventListener("change", () => {
+    render();
+    setMessage("Workflow choisi pour le prochain rendu. Le prompt et les réglages affichés sont conservés.");
+  });
+  elements.workflowDefaults.addEventListener("click", applyWorkflowDefaults);
+  elements.engine.addEventListener("change", switchEngine);
+  elements.fireRedMode.addEventListener("change", changeFireRedMode);
   elements.projectName.addEventListener("input", render);
   elements.stepName.addEventListener("input", () => {
     elements.stepName.dataset.edited = "true";
@@ -1041,11 +1637,27 @@
   });
   makeZoomable(elements.originalImage, "Image initiale du projet");
   makeZoomable(elements.sourceImage, "Source immuable de l’étape");
+  makeZoomable($("krea2-edit-scene-reference"), "Image 1 · décor");
+  makeZoomable($("krea2-edit-subject-reference"), "Image 2 · sujet et action");
   makeZoomable(elements.resultImage, () => elements.resultCaption.textContent);
   elements.lightboxClose.addEventListener("click", () => elements.lightbox.close());
   elements.lightbox.addEventListener("click", (event) => {
     if (event.target === elements.lightbox) elements.lightbox.close();
   });
+
+  window.PanelForgeKrea2Edit = {
+    async openSourceId(sourceId) {
+      if (state.busy || retouchEditor.saving) throw new Error("Attends la fin de l’opération en cours dans Edit, puis réessaie.");
+      if (!state.initialized) await initialize();
+      if (!state.initialized) throw new Error("L’atelier Edit n’a pas pu être chargé. Tu peux réessayer.");
+      const payload = await request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(sourceId)}`);
+      if (state.busy || retouchEditor.saving) throw new Error("L’atelier Edit est occupé. Réessaie après l’opération en cours.");
+      window.PanelForgeLabNavigation?.switchView("krea2-edit-lab");
+      openSource(sourceOf(payload), {hydrate: true});
+      await loadSources({projectId: state.source.project_id});
+      setMessage("Décor et sujet prêts. Ajuste l’instruction ou le prompt, puis lance un rendu quand tu le souhaites.");
+    },
+  };
 
   document.querySelectorAll('[data-image-lab-mode="krea2-edit-lab"]').forEach((button) => {
     button.addEventListener("click", () => {

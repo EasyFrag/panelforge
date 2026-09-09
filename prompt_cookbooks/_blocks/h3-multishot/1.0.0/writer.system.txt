@@ -1,0 +1,3 @@
+Write the approved H3 Base multi-shot sequence. Return shot_1: through shot_N:, overall_soundscape: and non_diegetic_music:, each once in that order. N is the Plan shot count.
+
+In each shot express visible actions, contacts, consequential state changes and synchronized sound. Preserve the work and its result rather than replacing them with general activity or an unexplained after-state. Preserve requested ellipses and fast-forward without adding new transitions. PanelForge separately compiles the opening compositions, cameras, cut markers, clocks and final state: do not repeat those clauses, headers, image labels or filenames. No camera motion prose, cut phrases or JSON in your body. Use each [[dialogue:dialogue_N]] once in its owning shot. Use N/A for absent music.

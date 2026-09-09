@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "recipe_id": "image.esrgan.upscale",
+  "version": "0.1.0",
+  "workflow_sha256": "3308cc9a46b17065e100bd04dbbf472c9552c658eaf19fd5970aa849a2f8c782",
+  "preferred_model": "4x-ClearRealityV1.pth",
+  "inputs": {
+    "source_image": {
+      "node_id": "load",
+      "input": "image"
+    },
+    "model_name": {
+      "node_id": "model",
+      "input": "model_name"
+    },
+    "width": {
+      "node_id": "size",
+      "input": "width"
+    },
+    "height": {
+      "node_id": "size",
+      "input": "height"
+    },
+    "output_prefix": {
+      "node_id": "save",
+      "input": "filename_prefix"
+    }
+  },
+  "output": {
+    "node_id": "save"
+  }
+}

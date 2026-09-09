@@ -756,10 +756,11 @@
     if (!state.project) return;
     try {
       const previousStatus = state.project.status;
+      const renderOperation = ["krea2_candidates", "krea2_resolution_clone", "h3_compile_preview", "h3_preview", "h3_final"].includes(state.project.active_operation);
       const payload = await core.request(`/api/production-v2/projects/${state.project.project_id}`);
       state.project = payload.project;
       render();
-      if (previousStatus === "busy" && state.project.status === "ready") core.playCompletionTone();
+      if (previousStatus === "busy" && state.project.status === "ready" && !renderOperation) core.playCompletionTone();
       if (previousStatus === "busy" && ["failed", "cancelled"].includes(state.project.status)) core.playFailureTone();
     } catch (_) { /* a later poll can recover */ }
     schedulePoll();
@@ -767,6 +768,11 @@
 
   function render() {
     const project = state.project;
+    if (project) {
+      core.observeRenderCollection?.(`production-v2-images:${project.project_id}`,
+        (project.candidates || []).map((candidate) => ({ id: `candidate:${candidate.candidate_id}`, status: candidate.status })));
+      core.observeRenderAttempts?.([...(project.previews || []), project.final_attempt], `production-v2-video:${project.project_id}`);
+    }
     elements.createForm.hidden = Boolean(project);
     elements.sidebar.hidden = !project;
     elements.empty.hidden = Boolean(project);

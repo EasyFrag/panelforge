@@ -149,14 +149,13 @@ class ComfyHttpClient:
         self._owned_prompt_ids: set[str] = set()
         self._ownership_lock = Lock()
 
-    def submit_workflow(self, workflow: Mapping[str, Any]) -> str:
+    def submit_workflow(self, workflow: Mapping[str, Any], *, prompt_id: str | None = None) -> str:
         """Queue a workflow and return the ComfyUI prompt identifier."""
-        body = json.dumps(
-            {
-                "prompt": dict(workflow),
-                "client_id": self.client_id,
-            }
-        ).encode("utf-8")
+        payload = {"prompt": dict(workflow), "client_id": self.client_id}
+        if prompt_id is not None:
+            _validate_prompt_id(prompt_id)
+            payload["prompt_id"] = prompt_id
+        body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
             f"{self.base_url}/prompt",
             data=body,
@@ -279,6 +278,16 @@ class ComfyHttpClient:
             method="GET",
         )
         return _parse_model_list(self._read_json(request))
+
+    def list_upscale_models(self) -> tuple[str, ...]:
+        request = urllib.request.Request(
+            f"{self.base_url}/object_info/UpscaleModelLoader",
+            headers={"Accept": "application/json"}, method="GET",
+        )
+        description = self._read_json(request)
+        field = description["UpscaleModelLoader"]["input"]["required"]["model_name"]
+        options = field[1].get("options") if field[0] == "COMBO" and len(field) > 1 else field[0]
+        return _parse_model_list(options)
 
     def get_cached_model_info(
         self,

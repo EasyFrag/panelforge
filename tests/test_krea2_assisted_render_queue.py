@@ -258,7 +258,7 @@ class AssistedRenderQueueTest(unittest.TestCase):
         attempt = self.prepare()
         path = self.root / "krea2_assisted" / self.project.project_id / "project.json"
         data = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(data["schema_version"], 6)
+        self.assertEqual(data["schema_version"], 8)
         self.assertEqual(data["attempts"][0]["queue_order"], str(attempt.queue_order))
         data["schema_version"] = 5
         data["attempts"][0].pop("queue_order")

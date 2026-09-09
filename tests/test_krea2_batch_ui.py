@@ -18,7 +18,7 @@ class Krea2BatchUiTest(unittest.TestCase):
         self.assertIn('id="krea2-batch-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-batch-lab"', self.page)
         self.assertIn('/static/krea2-resource-ui.js?v=20260904.1', self.page)
-        self.assertIn('/static/krea2-batch-lab.js?v=20260903.2', self.page)
+        self.assertIn('/static/krea2-batch-lab.js?v=20260907.8', self.page)
         self.assertIn('"krea2-batch-lab"', self.navigation)
 
     def test_ui_supports_modern_models_ten_reorderable_loras_and_feedback(self):
@@ -54,7 +54,7 @@ class Krea2BatchUiTest(unittest.TestCase):
         self.assertIn('id="krea2-batch-recipe-language"', self.page)
         self.assertIn('id="krea2-batch-revision-language"', self.page)
         self.assertIn("prompt_language: elements.revisionLanguage.value", self.script)
-        self.assertIn("playCompletionTone", self.script)
+        self.assertIn("observeRenderCollection", self.script)
         self.assertIn("completionTone: false", self.script)
         self.assertGreaterEqual(self.script.count("core.createLlmOutcomeTone()"), 3)
         self.assertGreaterEqual(self.script.count("outcomeTone.success()"), 3)

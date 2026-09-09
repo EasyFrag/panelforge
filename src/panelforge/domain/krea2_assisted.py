@@ -8,6 +8,8 @@ import re
 
 from .krea2_batch import Krea2BatchSettings, Krea2PromptLanguage
 from .krea2_style_presets import Krea2StylePreset, validate_preset_selection
+from .assisted_composition import AssistedComposition
+from .dlss import DlssResult, validate_dlss_attempt, validate_dlss_lineage
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -97,6 +99,9 @@ class Krea2AssistedAttempt:
     style_preset: Krea2StylePreset | None = None
     preset_pending: bool = False
     queue_order: int | None = None
+    kind: str = "generation"
+    composition: AssistedComposition | None = None
+    dlss: DlssResult | None = None
 
     def __post_init__(self) -> None:
         validate_preset_selection(self.style_preset, self.preset_pending)
@@ -218,6 +223,20 @@ class Krea2AssistedAttempt:
         return replace(self, accepted=True)
 
     def _validate_state(self) -> None:
+        if self.dlss is not None:
+            validate_dlss_attempt(self)
+            if self.kind != "dlss" or self.composition is not None:
+                raise ValueError("invalid DLSS image provenance")
+            return
+        if self.kind == "composition":
+            if (not isinstance(self.composition, AssistedComposition)
+                    or self.status is not Krea2AssistedAttemptStatus.SUCCEEDED
+                    or self.output_asset_id is None
+                    or any(v is not None for v in (self.execution_id, self.compiled_workflow_sha256, self.queue_order, self.error))):
+                raise ValueError("a local composition must be succeeded without execution fields")
+            return
+        if self.kind != "generation" or self.composition is not None:
+            raise ValueError("invalid assisted attempt kind")
         if self.status is Krea2AssistedAttemptStatus.CREATED:
             if any((self.execution_id, self.compiled_workflow_sha256, self.output_asset_id, self.error)):
                 raise ValueError("created attempt contains execution fields")
@@ -344,6 +363,7 @@ class Krea2AssistedProject:
     render_seed: int | None = None
     style_preset: Krea2StylePreset | None = None
     preset_pending: bool = False
+    composition_base_asset_id: str | None = None
 
     def __post_init__(self) -> None:
         validate_preset_selection(self.style_preset, self.preset_pending)
@@ -357,6 +377,8 @@ class Krea2AssistedProject:
             _text(value, label)
         if self.reference_asset_id is not None:
             _text(self.reference_asset_id, "reference_asset_id")
+        if self.composition_base_asset_id is not None:
+            _text(self.composition_base_asset_id, "composition_base_asset_id")
         if self.revision_model_id is not None:
             _text(self.revision_model_id, "revision_model_id")
         if not isinstance(self.prompt_language, Krea2PromptLanguage):
@@ -371,6 +393,25 @@ class Krea2AssistedProject:
             raise ValueError("turn IDs must be unique")
         if len({value.attempt_id for value in self.attempts}) != len(self.attempts):
             raise ValueError("attempt IDs must be unique")
+        previous: dict[str, Krea2AssistedAttempt] = {}
+        validate_dlss_lineage(self.attempts)
+        requests: set[str] = set()
+        for attempt in self.attempts:
+            c = attempt.composition
+            if c:
+                original, parent = previous.get(c.original_attempt_id), previous.get(c.parent_attempt_id)
+                if (original is None or original.kind != "generation" or parent is None
+                        or original.status is not Krea2AssistedAttemptStatus.SUCCEEDED
+                        or parent.status is not Krea2AssistedAttemptStatus.SUCCEEDED
+                        or c.generated_asset_id != original.output_asset_id
+                        or attempt.settings != original.settings or attempt.seed != original.seed
+                        or attempt.prompt != original.prompt or attempt.index != original.index
+                        or (parent.composition.original_attempt_id if parent.composition else parent.attempt_id) != original.attempt_id):
+                    raise ValueError("invalid composition image lineage")
+                if c.request_id in requests:
+                    raise ValueError("composition request IDs must be unique")
+                requests.add(c.request_id)
+            previous[attempt.attempt_id] = attempt
         if self.current_prompt is not None:
             _text(self.current_prompt, "current_prompt")
         attempt_ids = {value.attempt_id for value in self.attempts}
@@ -470,7 +511,7 @@ class Krea2AssistedProject:
                     raise ValueError("conversation checkpoint turn does not exist")
                 turns = source.turns[:index + 1]
         branch = Krea2AssistedBranch(
-            branch_id=branch_id, name=f"Piste {len(branches)} · essai {attempt.index}",
+            branch_id=branch_id, name=f"Piste {len(branches)} · {self.attempt_label(attempt_id)}",
             parent_branch_id=parent_id, source_attempt_id=attempt_id, turns=turns,
             current_prompt=attempt.prompt, prompt_language=attempt.conversation_prompt_language,
             revision_model_id=attempt.conversation_model_id or self.model_id,
@@ -558,6 +599,22 @@ class Krea2AssistedProject:
             if value.attempt_id == attempt_id:
                 return value
         raise KeyError(attempt_id)
+
+    def composition_number(self, attempt_id: str) -> int:
+        attempt = self.attempt(attempt_id)
+        if attempt.composition is None:
+            return 0
+        siblings = [a.attempt_id for a in self.attempts if a.composition
+                    and a.composition.original_attempt_id == attempt.composition.original_attempt_id]
+        return siblings.index(attempt_id) + 1
+
+    def attempt_label(self, attempt_id: str) -> str:
+        attempt = self.attempt(attempt_id)
+        suffix = f" — Composition {self.composition_number(attempt_id)}" if attempt.composition else ""
+        if attempt.dlss:
+            siblings = [a.attempt_id for a in self.attempts if a.dlss and a.dlss.root_attempt_id == attempt.dlss.root_attempt_id]
+            suffix = f" — DLSS {siblings.index(attempt_id) + 1}"
+        return f"Essai {attempt.index}{suffix}"
 
 
 def _text(value: object, label: str) -> str:

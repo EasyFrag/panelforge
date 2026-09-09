@@ -5,6 +5,40 @@ l’utilisateur. Aucun appel LLM, rendu ou redémarrage effectué pendant le pat
 
 ## Modifier avec KREA2
 
+### Ateliers récents — 8 septembre 2026
+
+La colonne de gauche affiche les **trois ateliers les plus récemment modifiés**.
+**Afficher les autres ateliers (N)** charge les anciens ateliers à la demande ;
+**Afficher seulement les 3 récents** replie la liste sans changer l’atelier ouvert.
+Sa frise complète, ses essais, sa conversation et ses brouillons restent disponibles,
+y compris lorsqu’il ne fait plus partie des trois récents. Les versions d’une même
+famille comptent comme un atelier ; le brouillon le plus récent garde la priorité.
+
+Le chargement utilise `GET /api/image-lab/krea2-edit/sources?project_limit=3` :
+la limite porte sur les ateliers, jamais sur leurs étapes. `project_id` conserve
+en plus la chaîne complète actuellement ouverte, même historique. Le serveur
+effectue une lecture globale pour sélectionner les familles et leurs versions,
+puis sérialise seulement les projets retenus. Le stockage reste inchangé ; les
+requêtes historiques sans `project_limit` gardent leur contrat. Cache Edit JS
+`20260908.5`. Le catalogue des modèles au premier chargement reste indépendant
+de cette optimisation ; le gain de durée n’a pas été mesuré en session réelle.
+
+Tests préparés, **non exécutés**, à lancer par l’utilisateur :
+
+```powershell
+python -m unittest tests.test_krea2_edit_web tests.test_krea2_edit_versions tests.test_krea2_edit_versions_browser tests.test_krea2_edit_backlog_browser
+```
+
+### Conversation et édition
+
+Le **Ref boost** accepte désormais **0 à 1000**, par pas de 0,1 dans l’interface.
+Cette borne correspond au contrat annoncé par le nœud `Krea2EditModelPatch`
+installé sur ComfyUI, vérifié en lecture seule le 8 septembre 2026. La valeur
+choisie est conservée dans l’essai et transmise à la prochaine étape ; les
+workflows 0.1.0 et 0.2.0 transmettent le même réglage.
+
+Mise à jour du 8 septembre : [V3 à instructions ciblées et sélecteur V2/V3](krea2-edit-prompting.md). La description ci-dessous retrace le patch initial V2 ; le workflow de rendu reste inchangé.
+
 - Conversation visible par étape : instruction utilisateur, réponse française,
   prompt complet repliable. Les six derniers échanges acceptés de cette étape
   accompagnent le prompt courant, sans recopier tous leurs anciens prompts.
