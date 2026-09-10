@@ -1,0 +1,149 @@
+{
+  "schema_version": 10,
+  "cookbook_id": "minimax.h3.ref2v.combat.planned",
+  "version": "1.3.0",
+  "display_name": "Ref2V · Combat · Intention directe · 2 étapes",
+  "description": "Combat 1.3 : direction cinématographique, pouvoirs et phases caméra continues. Deux appels : Plan puis rédaction.",
+  "target_mode": "ref2v_direct",
+  "output_contract": "minimax.h3.combat.cinematic_planned_v1",
+  "preset": "combat-cinematic-1.3",
+  "stages": [
+    "beat_sheet",
+    "final_prompt"
+  ],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "reject",
+  "writer_projection": "full",
+  "visibility": "public",
+  "execution_mode": "supervised",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/ref-en.txt"
+  ],
+  "engine_contract": {
+    "id": "minimax.h3.protocol",
+    "version": "0.1.0"
+  },
+  "slots": [
+    {
+      "id": "references",
+      "label": "Références directes",
+      "description": "Une à neuf images ordonnées ; chaque rôle borne précisément l'influence de son <Picture N>.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": [
+        "subject",
+        "first_frame",
+        "keyframe",
+        "last_frame",
+        "composition",
+        "environment",
+        "style",
+        "motion"
+      ],
+      "required_uses": [],
+      "required_shots": [],
+      "minimum_references": 1,
+      "maximum_references": 9
+    }
+  ],
+  "templates": {
+    "final_prompt_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.3.0",
+        "file": "choreography.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.1",
+        "file": "identity.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.3.0",
+        "file": "sequence-writer.system.txt"
+      }
+    ],
+    "final_prompt_user": [
+      {
+        "block": "h3-combat",
+        "version": "1.1.0",
+        "file": "request.user.txt"
+      }
+    ],
+    "revision_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.3.0",
+        "file": "choreography.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.1",
+        "file": "identity.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.3.0",
+        "file": "sequence-writer.system.txt"
+      }
+    ],
+    "revision_user": [
+      {
+        "block": "h3-combat",
+        "version": "1.1.0",
+        "file": "revision.user.txt"
+      }
+    ],
+    "beat_sheet_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.3.0",
+        "file": "choreography.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.1",
+        "file": "identity.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.3.0",
+        "file": "sequence-plan.system.txt"
+      }
+    ],
+    "beat_sheet_user": [
+      {
+        "block": "h3-combat",
+        "version": "1.1.0",
+        "file": "request.user.txt"
+      }
+    ]
+  },
+  "preparation_steps": 2,
+  "profile": {
+    "id": "minimax.h3.ref2v.combat",
+    "version": "1.3.0"
+  },
+  "vocal_policy_version": "1.0.0",
+  "preparation": {
+    "family": "combat",
+    "version": "1.3.0"
+  }
+}

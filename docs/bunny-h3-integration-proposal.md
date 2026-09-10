@@ -1,6 +1,6 @@
 # BUNNY H3 : proposition d’intégration — 2026-09-09
 
-Statut : discussion et préparation seulement. L’utilisateur installe et teste d’abord le workflow **sur Bucket**, comme les générations H3 actuelles. Aucune intégration applicative ni modification de ComfyUI effectuée pour cette proposition.
+Statut : **implémentation autorisée puis réalisée le 2026-09-09**, après publication du snapshot pré-BUNNY. Le [guide du patch](bunny-h3-render.md) décrit le comportement livré et les tests préparés, non exécutés. Les sections ci-dessous conservent l’alignement et les audits préalables ; les mentions de discussion décrivent cet historique. La génération reste sur **Bucket**, comme confirmé par l’utilisateur.
 
 ## Nouveau graphe et alignement demandé — fichier (3)
 

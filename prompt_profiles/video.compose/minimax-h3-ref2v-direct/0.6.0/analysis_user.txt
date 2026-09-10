@@ -1,0 +1,1 @@
+Lis la référence « {label} » selon son rôle {role} et ses usages {uses}.

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from panelforge.domain.video_preparation import VideoPreparationRef
+from .combat_preparation import CombatRevisionPolicy
 from panelforge.domain.h3_render import validate_h3_initial_megapixels
+from panelforge.domain.h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
 
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, replace
+from panelforge.application.h3_checkpoints import H3CheckpointInventory
+from panelforge.domain.h3_render import H3VideoLoraStack, validate_video_lora_stack
+
+from dataclasses import asdict, dataclass, replace
 import json
 import re
 import secrets
@@ -27,6 +33,7 @@ from panelforge.domain.h3_render import (
     H3RenderTurnRole,
     H3VideoLoraSelection,
     canonical_h3_video_lora_name,
+    derive_h3_render_input_mode,
 )
 from panelforge.domain.prompt_composition import CompositionStage, PromptComposition
 from panelforge.domain.prompt_lab import PromptLabSession
@@ -46,6 +53,7 @@ from .minimax_h3_protocol import (
     lint_h3_prompt,
 )
 from .direct_ref2v_prompt import lint_direct_ref2v_prompt
+from .vocal_policy import vocal_policy, validate_vocal_level, validate_revision_speech
 from .prompt_lab import (
     CompletionRequest,
     ImageInput,
@@ -122,11 +130,17 @@ class UploadedImage(Protocol):
     def workflow_value(self) -> str: ...
 
 
+class H3RenderQueue(Protocol):
+    def find(self, prompt_id: str) -> object | None: ...
+
+
 class H3RenderComfy(Protocol):
+    def describe_node(self, class_type: str) -> dict[str, Any]: ...
     def list_lora_models(self) -> tuple[str, ...]: ...
     def upload_image(self, content: bytes, *, filename: str, subfolder: str = "") -> UploadedImage: ...
     def submit_workflow(self, workflow: Mapping[str, Any]) -> str: ...
     def get_history(self, prompt_id: str) -> dict[str, Any]: ...
+    def get_queue(self) -> H3RenderQueue: ...
     def download_output(self, *, filename: str, subfolder: str = "", folder_type: str = "output") -> bytes: ...
     def cancel_execution(self, prompt_id: str) -> object | None: ...
 
@@ -214,6 +228,8 @@ class Ref2VRenderRecipe(Protocol):
     def maximum_reference_images(self) -> int: ...
     @property
     def supports_video_lora(self) -> bool: ...
+    @property
+    def supports_initial_megapixels(self) -> bool: ...
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]: ...
     def build_workflow(
         self,
@@ -225,6 +241,7 @@ class Ref2VRenderRecipe(Protocol):
         keyframe_indices: tuple[int, ...],
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
+        initial_megapixels: float = 0.2,
     ) -> dict[str, Any]: ...
 
 
@@ -245,11 +262,17 @@ class H3RenderService:
         gateway: MultimodalGateway,
         workflow: H3RenderRecipe,
         ref2v_workflow: Ref2VRenderRecipe | None = None,
+        additional_workflows: tuple[H3RenderRecipe, ...] = (),
+        historical_ref2v_workflows: tuple[Ref2VRenderRecipe, ...] = (),
+        historical_h3_workflows: tuple[H3RenderRecipe, ...] = (),
+        checkpoints: H3CheckpointInventory | None = None,
+        list_video_loras: Callable[[], tuple[str, ...]] | None = None,
         comfy: H3RenderComfy,
         assets: H3RenderAssets,
         projects: H3RenderProjects,
         sessions: H3RenderSessions,
         compositions: H3RenderCompositions,
+        combat_revision_policies: tuple[CombatRevisionPolicy, ...] = (),
         application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
         run_timeout: float = 3600.0,
         poll_interval: float = 1.0,
@@ -262,9 +285,14 @@ class H3RenderService:
     ) -> None:
         if run_timeout <= 0 or poll_interval <= 0:
             raise ValueError("timeouts must be positive")
+        self.combat_revision_policies = {policy.preparation: policy for policy in combat_revision_policies}
         self.gateway = gateway
         self.workflow = workflow
         self.ref2v_workflow = ref2v_workflow
+        self.additional_workflows = additional_workflows
+        self.historical_ref2v_workflows = historical_ref2v_workflows
+        self.historical_h3_workflows = historical_h3_workflows
+        self.checkpoints = checkpoints
         self.comfy = comfy
         self.assets = assets
         self.projects = projects
@@ -281,12 +309,30 @@ class H3RenderService:
         self._sleep = sleep
         self._lock = RLock()
         self._claimed: set[tuple[str, str]] = set()
+        self._list_video_loras = list_video_loras or (lambda: self.comfy.list_lora_models())
+        self._lora_inventory_lock = RLock()
+        self._lora_inventory_expires = 0.0
+        self._lora_inventory = None
 
     @staticmethod
     def revision_versions_for_mode(
         input_mode: H3RenderInputMode,
+        preparation: VideoPreparationRef = VideoPreparationRef(),
     ) -> tuple[H3RenderRevisionVersion, ...]:
+        if preparation.is_combat:
+            if preparation.version == "1.3.0":
+                return (H3RenderRevisionVersion.COMBAT_1_3,)
+            if preparation.version == "1.2.0":
+                return (H3RenderRevisionVersion.COMBAT_1_2,)
+            if preparation.version == "1.1.1":
+                return (H3RenderRevisionVersion.COMBAT_1_1_1,)
+            if preparation.version == "1.1.0":
+                return (H3RenderRevisionVersion.COMBAT_1_1,)
+            if preparation.version != "1.0.0":
+                raise ValueError("unavailable Combat revision policy version")
+            return (H3RenderRevisionVersion.COMBAT,)
         return (
+            H3RenderRevisionVersion.VOCAL,
             H3RenderRevisionVersion.CAMERA_LOCKED,
             H3RenderRevisionVersion.LEGACY,
         )
@@ -295,8 +341,9 @@ class H3RenderService:
     def default_revision_version(
         cls,
         input_mode: H3RenderInputMode,
+        preparation: VideoPreparationRef = VideoPreparationRef(),
     ) -> H3RenderRevisionVersion:
-        return cls.revision_versions_for_mode(input_mode)[0]
+        return cls.revision_versions_for_mode(input_mode, preparation)[0]
 
     def get_or_create_from_session(self, session_id: str) -> H3RenderProject:
         session = self.sessions.get(session_id)
@@ -309,7 +356,7 @@ class H3RenderService:
             if existing is not None:
                 return self._refresh_detached(existing)
             is_ref2v = (
-                session.profile_id == "minimax.h3.ref2v.direct"
+                session.profile_id in {"minimax.h3.ref2v.direct", "minimax.h3.ref2v.combat"}
                 and session.session_mode.value == "direct_multimodal"
             )
             if is_ref2v and self.ref2v_workflow is None:
@@ -359,8 +406,13 @@ class H3RenderService:
                 reference_asset_ids=tuple(value.asset_id for value in references),
                 reference_labels=tuple(value.label for value in references),
                 warnings=tuple(warnings),
-                revision_version=self.default_revision_version(mode),
+                revision_version=self.default_revision_version(mode, session.preparation),
+                preparation=session.preparation,
+                combat_settings=session.combat_settings,
                 camera_clauses=extract_compiled_camera_clauses(final.content),
+                dialogue_level=getattr(
+                    composition.preparation_intent.creative_axes if composition.preparation_intent
+                    else getattr(session.active_brief_revision, "creative_axes", None), "dialogue", 0),
             )
             return self.projects.create(project)
 
@@ -375,12 +427,37 @@ class H3RenderService:
     def workflow_for_mode(
         self,
         input_mode: H3RenderInputMode,
+        recipe_id: str | None = None,
+        recipe_version: str | None = None,
     ) -> H3RenderRecipe | Ref2VRenderRecipe:
+        if recipe_id is not None:
+            for recipe in self.recipes_for_mode(input_mode):
+                if recipe.reference.recipe_id == recipe_id and recipe.reference.version == recipe_version:
+                    return recipe
+            raise ValueError("Recette de rendu ou version indisponible pour ce mode.")
+        if recipe_version is not None:
+            raise ValueError("Une version doit être accompagnée de son identifiant de recette.")
         if input_mode is H3RenderInputMode.REF2VA:
             if self.ref2v_workflow is None:
                 raise ValueError("the integrated Ref2V workflow is not configured")
             return self.ref2v_workflow
         return self.workflow
+
+    def recipes_for_mode(self, input_mode):
+        historical = self.historical_ref2v_workflows if input_mode is H3RenderInputMode.REF2VA else self.historical_h3_workflows
+        return (self.workflow_for_mode(input_mode), *self.additional_workflows, *historical)
+
+    def recipe_for_attempt(self, project, attempt):
+        if attempt.recipe is None:
+            return self.workflow_for_mode(project.input_mode)
+        recipe = self.workflow_for_mode(project.input_mode, attempt.recipe.recipe_id, attempt.recipe.version)
+        if recipe.reference != attempt.recipe:
+            raise ValueError("La recette enregistrée de cet essai ne correspond plus au workflow disponible.")
+        return recipe
+
+    def progress_for_attempt(self, project, attempt):
+        recipe = self.recipe_for_attempt(project, attempt)
+        return recipe.progress_for(attempt.bunny) if attempt.bunny else recipe.progress_profile
 
     def _recipe_for(
         self,
@@ -403,10 +480,13 @@ class H3RenderService:
         revision_version: str | H3RenderRevisionVersion | None = None,
         model_id: str | None = None,
         creative_audacity: int | None = None,
+        dialogue_level: int | None = None,
         include_reasoning: bool = False,
         repair_rejected: bool = False,
     ) -> Iterator[H3RenderStreamEvent]:
         message = _bounded_text(message, "message", 12_000)
+        if dialogue_level is not None:
+            validate_vocal_level(dialogue_level)
         if creative_audacity is not None:
             creative_audacity = _revision_audacity(creative_audacity)
             if creative_audacity == 0:
@@ -422,6 +502,8 @@ class H3RenderService:
                     raise ValueError("there is no rejected H3 revision to repair")
                 repair_error = project.revision_error
                 repair_draft = project.revision_draft
+            if project.adaptation is not None and project.adaptation.status != "ready":
+                raise ValueError("Terminez l’adaptation REF2V avant de modifier ou générer son prompt.")
             if not project.camera_clauses:
                 current_prompt, camera_clauses = _migrate_legacy_camera_contract(
                     project.current_prompt
@@ -438,13 +520,17 @@ class H3RenderService:
                     else revision_version
                 )
                 or project.revision_version
-                or self.default_revision_version(project.input_mode)
+                or self.default_revision_version(project.input_mode, project.preparation)
             )
-            if version not in self.revision_versions_for_mode(project.input_mode):
+            if version not in self.revision_versions_for_mode(project.input_mode, project.preparation):
                 raise ValueError(
                     f"revision {version.value} is not available for {project.input_mode.value}"
                 )
             project = project.select_revision_version(version)
+            if dialogue_level is not None:
+                if dialogue_level and version not in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}:
+                    raise ValueError("Choisissez la révision 0.3.0 pour la liberté de dialogue.")
+                project = replace(project, dialogue_level=dialogue_level)
             project = project.select_revision_model(
                 model_id or project.revision_model_id or project.model_id
             )
@@ -530,20 +616,61 @@ class H3RenderService:
                 _error(error),
             )
 
-    def video_lora_inventory(self) -> tuple[tuple[str, ...], str | None]:
-        """Return safe MiniMax video LoRAs without making standard renders depend on discovery."""
-        try:
-            raw_models = self.comfy.list_lora_models()
-        except Exception as error:
-            return (), f"Inventaire LoRA vid\u00e9o indisponible : {_error(error)}"
-        models: dict[str, str] = {}
-        for raw in raw_models:
+    def video_lora_inventory(self, *, refresh=False) -> tuple[tuple[str, ...], str | None]:
+        """Shared short-lived inventory; never queried from render polling."""
+        with self._lora_inventory_lock:
+            if not refresh and self._lora_inventory is not None and self._monotonic() < self._lora_inventory_expires:
+                return self._lora_inventory
             try:
-                name = canonical_h3_video_lora_name(raw)
-            except (TypeError, ValueError):
-                continue
-            models.setdefault(name.casefold(), name)
-        return tuple(sorted(models.values(), key=str.casefold)), None
+                raw_models = self._list_video_loras()
+                if not isinstance(raw_models, (tuple, list)):
+                    raise ValueError("Invalid LoRA inventory")
+                models = {}
+                for raw in raw_models:
+                    try:
+                        name = canonical_h3_video_lora_name(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    models.setdefault(name.casefold(), name)
+                self._lora_inventory = (tuple(sorted(models.values(), key=str.casefold)), None)
+            except Exception as error:
+                self._lora_inventory = ((), f"Inventaire LoRA vid\u00e9o indisponible : {_error(error)}")
+            self._lora_inventory_expires = self._monotonic() + (5 if self._lora_inventory[1] else 60)
+            return self._lora_inventory
+
+    def validate_video_loras(self, recipe, video_lora=None, video_loras=None):
+        per_pass = recipe.reference.recipe_id == BUNNY_RECIPE_ID
+        validate_video_lora_stack(video_loras, video_lora, per_pass)
+        if video_lora is not None and not isinstance(video_lora, H3VideoLoraSelection):
+            raise TypeError("video_lora must be H3VideoLoraSelection")
+        if video_loras is not None and not getattr(recipe, "supports_video_lora_stack", False):
+            raise ValueError("Choisissez une recette actuelle pour utiliser plusieurs LoRA.")
+        names = ([entry.name for entry in video_loras.active_entries] if video_loras is not None
+                 else [video_lora.name] if video_lora is not None else [])
+        if not names:
+            return
+        if not recipe.supports_video_lora:
+            raise ValueError("H3 video LoRA is not available for this workflow")
+        models, warning = self.video_lora_inventory()
+        if warning:
+            raise ValueError(warning)
+        if video_lora is not None:
+            if video_lora.name.casefold() not in {name.casefold() for name in models}:
+                raise ValueError("selected H3 video LoRA is not available in ComfyUI")
+            return
+        available = set(models)
+        for name in names:
+            if name not in available:
+                raise ValueError(f"LoRA vid\u00e9o absent de ComfyUI : {name}. Actualisez la liste ou d\u00e9sactivez ce LoRA.")
+
+    def resolve_model_loading(self, recipe, mode, checkpoint=None):
+        if checkpoint is not None:
+            if not getattr(recipe, "supports_checkpoint_selection", False):
+                raise ValueError("Cette recette historique ne permet pas de changer le checkpoint. Choisissez la recette actuelle.")
+            if self.checkpoints is None:
+                raise ValueError("Le catalogue des checkpoints est indisponible.")
+            self.checkpoints.validate(checkpoint, mode)
+        return recipe.model_loading(mode, checkpoint) if getattr(recipe, "supports_checkpoint_selection", False) else None
 
     def prepare_attempt(
         self,
@@ -555,7 +682,18 @@ class H3RenderService:
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
+        recipe_id: str | None = None,
+        recipe_version: str | None = None,
+        bunny: H3BunnySettings | None = None,
+        checkpoint: str | None = None,
+        video_loras: H3VideoLoraStack | None = None,
     ) -> H3RenderProject:
+        if checkpoint is not None or video_lora is not None or video_loras is not None:
+            candidate_project = self.projects.get(project_id)
+            selected_recipe = self.workflow_for_mode(candidate_project.input_mode, recipe_id, recipe_version)
+            if checkpoint is not None:
+                self.resolve_model_loading(selected_recipe, candidate_project.input_mode, checkpoint)
+            self.validate_video_loras(selected_recipe, video_lora, video_loras)
         validate_h3_initial_megapixels(initial_megapixels)
         prompt = _bounded_text(prompt, "prompt", 60_000)
         if not isinstance(settings, VideoLabSettings):
@@ -568,20 +706,23 @@ class H3RenderService:
             raise TypeError("video_lora must be an H3VideoLoraSelection or None")
         with self._lock:
             project = self.projects.get(project_id)
-            recipe = self._recipe_for(project)
+            recipe = self.workflow_for_mode(project.input_mode, recipe_id, recipe_version)
+            model_loading = recipe.model_loading(project.input_mode, checkpoint) if getattr(recipe, "supports_checkpoint_selection", False) else None
+            if project.adaptation is not None and project.adaptation.status != "ready":
+                raise ValueError("Terminez l’adaptation REF2V avant de lancer un rendu.")
+            if recipe.reference.recipe_id == BUNNY_RECIPE_ID:
+                bunny = bunny or H3BunnySettings()
+                if not isinstance(bunny, H3BunnySettings):
+                    raise TypeError("Réglages BUNNY invalides.")
+                settings = replace(settings, steps=bunny.coarse_steps + bunny.refine_steps)
+                bunny_geometry(settings, initial_megapixels)
+                if spectrum_enabled or (video_lora and video_lora.clip_last_layer is not None):
+                    raise ValueError("BUNNY ne prend pas en charge Spectrum ou CLIP Last Layer.")
+            elif bunny is not None:
+                raise ValueError("Les réglages BUNNY ne s’appliquent pas à la recette actuelle.")
             if initial_megapixels != 0.2 and not getattr(recipe, "supports_initial_megapixels", False):
                 raise ValueError("Ce workflow fixe la génération initiale à 0,2 MP.")
-            if video_lora is not None:
-                if not recipe.supports_video_lora:
-                    raise ValueError("H3 video LoRA is not available for this workflow")
-                models, warning = self.video_lora_inventory()
-                if warning is not None:
-                    raise ValueError(warning)
-                if video_lora.name.casefold() not in {
-                    value.casefold() for value in models
-                }:
-                    raise ValueError("selected H3 video LoRA is not available in ComfyUI")
-            prompt = canonicalize_h3_revision(project.current_prompt, prompt, project.input_mode)
+            prompt = canonicalize_h3_revision(project.current_prompt, prompt, project.input_mode, combat_sequence=project.combat_settings is not None, combat_version=project.preparation.version)
             duration_ms = round(settings.effective_duration_seconds * 1000)
             cuts = extract_prompt_cut_times_ms(prompt) or project.planned_cut_times_ms
             timestamps = plan_keyframe_timestamps_ms(
@@ -605,7 +746,12 @@ class H3RenderService:
                 keyframe_timestamps_ms=timestamps,
                 spectrum_enabled=spectrum_enabled,
                 video_lora=video_lora,
+                video_loras=video_loras,
                 initial_megapixels=initial_megapixels,
+                recipe=recipe.reference,
+                bunny=bunny,
+                checkpoint=checkpoint,
+                model_loading=model_loading,
                 warnings=(duration_warning,) if duration_warning else (),
             )
             project = replace(project, current_prompt=prompt)
@@ -621,8 +767,15 @@ class H3RenderService:
             project = self.projects.get(project_id)
             for candidate in self.projects.list(2**31 - 1):
                 candidate = self._refresh_detached(candidate)
-                if any(value.status in active for value in candidate.attempts):
-                    raise ValueError("another H3 Base render is already active")
+                for value in candidate.attempts:
+                    if value.status in active:
+                        raise ValueError(
+                            f"Un rendu H3/REF2V est déjà actif : essai {value.index} "
+                            f"dans l’atelier {candidate.project_id} ({value.status.value})."
+                        )
+            # Refresh may have recovered an earlier attempt in this same project.
+            # Do not overwrite that terminal state with the pre-refresh snapshot.
+            project = self.projects.get(project_id)
             return self.projects.save(project.replace_attempt(project.attempt(attempt_id).queue()))
 
     def execute_attempt(self, project_id: str, attempt_id: str) -> H3RenderProject:
@@ -640,7 +793,20 @@ class H3RenderService:
         family = "PanelForge_H3_Ref2V" if project.input_mode is H3RenderInputMode.REF2VA else "PanelForge_H3_Base"
         output_prefix = f"video/{family}/{project_id}/{attempt_id}"
         try:
-            recipe = self._recipe_for(project)
+            recipe = self.recipe_for_attempt(project, attempt)
+            extra = {"bunny": attempt.bunny, "initial_megapixels": attempt.initial_megapixels} if attempt.bunny else {}
+            if getattr(recipe, "supports_initial_megapixels", False):
+                extra["initial_megapixels"] = attempt.initial_megapixels
+            if getattr(recipe, "supports_checkpoint_selection", False):
+                loading = self.resolve_model_loading(recipe, project.input_mode, attempt.checkpoint)
+                if attempt.model_loading is not None and loading != attempt.model_loading:
+                    raise ValueError("Le chargement du checkpoint ne correspond plus aux réglages enregistrés.")
+                extra["checkpoint"] = attempt.checkpoint
+            elif attempt.checkpoint is not None:
+                raise ValueError("Checkpoint non pris en charge par cette recette historique.")
+            if attempt.video_loras is not None:
+                self.validate_video_loras(recipe, attempt.video_lora, attempt.video_loras)
+                extra["video_loras"] = attempt.video_loras
             keyframe_indices = tuple(
                 min(attempt.settings.frame_count - 1, round(value * VIDEO_FPS / 1000))
                 for value in attempt.keyframe_timestamps_ms
@@ -658,6 +824,7 @@ class H3RenderService:
                     keyframe_indices=keyframe_indices,
                     spectrum_enabled=attempt.spectrum_enabled,
                     video_lora=attempt.video_lora,
+                    **extra,
                 )
             else:
                 first_value = self._upload_frame(project.first_frame_asset_id, "first")
@@ -672,9 +839,10 @@ class H3RenderService:
                     keyframe_indices=keyframe_indices,
                     spectrum_enabled=attempt.spectrum_enabled,
                     video_lora=attempt.video_lora,
-                    **({"initial_megapixels": attempt.initial_megapixels}
-                       if getattr(recipe, "supports_initial_megapixels", False) else {}),
+                    **extra,
                 )
+            if attempt.bunny:
+                recipe.validate_dependencies(self.comfy, workflow)
             workflow_digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
             with self._lock:
                 current = self.projects.get(project_id)
@@ -787,10 +955,13 @@ class H3RenderService:
         repair_error: str | None = None,
         repair_draft: str | None = None,
     ) -> CompletionRequest:
-        recipe = self._recipe_for(project)
         feedback = project.attempt(project.feedback_attempt_id) if project.feedback_attempt_id else None
-        version = project.revision_version or self.default_revision_version(project.input_mode)
-        camera_locked = version is H3RenderRevisionVersion.CAMERA_LOCKED
+        recipe = self.recipe_for_attempt(project, feedback) if feedback else self._recipe_for(project)
+        version = project.revision_version or self.default_revision_version(project.input_mode, project.preparation)
+        combat_policy = self.combat_revision_policies.get(project.preparation) if project.preparation.is_combat else None
+        if project.preparation.is_combat and combat_policy is None:
+            raise ValueError("the pinned Combat revision prompts are unavailable")
+        camera_locked = version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}
         images: list[ImageInput] = []
         if feedback is not None:
             for frame in feedback.keyframes:
@@ -841,7 +1012,7 @@ class H3RenderService:
             sections.append(
                 "REVISION CREATIVE AUDACITY (explicit user control):\n"
                 f"{creative_audacity}/3 — "
-                f"{video_revision_audacity_policy(creative_audacity)}"
+                f"{combat_policy.audacity_prompt if combat_policy else video_revision_audacity_policy(creative_audacity)}"
             )
         if repair_error is not None:
             sections.append(
@@ -853,27 +1024,30 @@ class H3RenderService:
                 f"{repair_draft or 'No prompt field could be recovered; rebuild it from CURRENT COMPLETE H3 PROMPT.'}"
             )
         sections.append(f"NEW USER MESSAGE (authoritative):\n{message}")
+        if version in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}:
+            sections.append(vocal_policy(project.dialogue_level))
+        ref_system = _REF2V_REVISION_SYSTEM_CAMERA_LOCKED if camera_locked else _REF2V_REVISION_SYSTEM
+        if "[Shot 2]" in project.current_prompt:
+            ref_system = ref_system.replace("scene setup, Shot 1,", "scene setup, all numbered shot headings with their exact cut timestamps,")
+            ref_system += "\nKeep every existing [Shot N] heading and cut time exactly; do not collapse the sequence into Shot 1."
         user_prompt = "\n\n".join(sections)
         return CompletionRequest(
             model_id=project.revision_model_id or project.model_id,
             system_prompt=(
-                (
-                    _REF2V_REVISION_SYSTEM_CAMERA_LOCKED
-                    if camera_locked
-                    else _REF2V_REVISION_SYSTEM
-                )
+                (combat_policy.system_prompt + _combat_action_policy(project)) if combat_policy else (ref_system
                 if project.input_mode is H3RenderInputMode.REF2VA
                 else (
                     _H3_REVISION_SYSTEM_CAMERA_LOCKED
                     if camera_locked
                     else _H3_REVISION_SYSTEM_LEGACY
-                )
+                ))
             ),
             user_prompt=user_prompt,
             images=tuple(images),
             temperature=0.25,
             max_tokens=131_072,
             operation_id=(
+                f"h3.{project.input_mode.value}.combat.render.revision@{project.preparation.version}" if combat_policy else
                 f"h3.ref2v.render.revision@{version.value}"
                 if project.input_mode is H3RenderInputMode.REF2VA
                 else f"h3.base.render.revision@{version.value}"
@@ -890,7 +1064,7 @@ class H3RenderService:
     ) -> H3RenderProject:
         value = _decode_json(raw)
         expected = {"message", "questions", "prompt", "recommendations"}
-        if version is H3RenderRevisionVersion.CAMERA_LOCKED:
+        if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}:
             expected.add("camera_directives")
         if set(value) != expected:
             raise ValueError("H3 render revision response has invalid fields")
@@ -901,10 +1075,11 @@ class H3RenderService:
             project = self.projects.get(project_id)
             candidate = _bounded_text(value.get("prompt"), "H3 prompt", 60_000)
             camera_clauses = project.camera_clauses
-            if version is H3RenderRevisionVersion.CAMERA_LOCKED:
+            if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}:
                 camera_clauses = _revision_camera_clauses(
                     value.get("camera_directives"),
                     project.camera_clauses,
+                    continuous_phases=project.preparation.version == "1.3.0",
                 )
                 candidate = compile_h3_revision_camera(
                     candidate,
@@ -915,8 +1090,16 @@ class H3RenderService:
                 project.current_prompt,
                 candidate,
                 project.input_mode,
-                camera_clauses=camera_clauses if version is H3RenderRevisionVersion.CAMERA_LOCKED else (),
+                combat_sequence=project.combat_settings is not None, combat_version=project.preparation.version,
+                camera_clauses=camera_clauses if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3} else (),
             )
+            if version in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}:
+                from .direct_fl2va_prompt import requested_h3_base_duration_ms
+                latest_message = next((turn.content for turn in reversed(project.turns)
+                                       if turn.role is H3RenderTurnRole.USER), "")
+                validate_revision_speech(project.current_prompt, prompt, latest_message,
+                    level=project.dialogue_level,
+                    duration_ms=requested_h3_base_duration_ms(project.current_prompt) or 8000)
             assistant = H3RenderTurn(
                 turn_id=self._turn_id_factory(),
                 role=H3RenderTurnRole.ASSISTANT,
@@ -994,7 +1177,7 @@ class H3RenderService:
         frames: list[H3RenderKeyframe] = []
         warnings: list[str] = []
         project = self.projects.get(project_id)
-        recipe = self._recipe_for(project)
+        recipe = self.recipe_for_attempt(project, attempt)
         cut_times = extract_prompt_cut_times_ms(attempt.prompt) or project.planned_cut_times_ms
         for timestamp, node_id in zip(
             attempt.keyframe_timestamps_ms,
@@ -1027,10 +1210,10 @@ class H3RenderService:
 
     def _refresh_detached(self, project: H3RenderProject) -> H3RenderProject:
         revision_version = project.revision_version or self.default_revision_version(
-            project.input_mode
+            project.input_mode, project.preparation
         )
-        if revision_version not in self.revision_versions_for_mode(project.input_mode):
-            revision_version = self.default_revision_version(project.input_mode)
+        if revision_version not in self.revision_versions_for_mode(project.input_mode, project.preparation):
+            revision_version = self.default_revision_version(project.input_mode, project.preparation)
         camera_clauses = project.camera_clauses
         if not camera_clauses:
             camera_clauses = extract_compiled_camera_clauses(project.current_prompt)
@@ -1051,18 +1234,35 @@ class H3RenderService:
 
     def _refresh_detached_attempt(self, project: H3RenderProject, attempt: H3RenderAttempt) -> H3RenderProject:
         assert attempt.execution_id is not None
-        recipe = self._recipe_for(project)
         try:
             history = self.comfy.get_history(attempt.execution_id)
+            if not isinstance(history, Mapping):
+                return project
+            if not history:
+                if self.comfy.get_queue().find(attempt.execution_id) is not None:
+                    return project
+                # A render can finish between the first history read and the queue
+                # snapshot. Re-read before declaring a persisted execution lost.
+                history = self.comfy.get_history(attempt.execution_id)
+                if not isinstance(history, Mapping):
+                    return project
+                if not history:
+                    updated = attempt.fail(
+                        "Exécution ComfyUI introuvable dans la file et l’historique "
+                        f"({attempt.execution_id}). Le suivi de cet essai est terminé ; "
+                        "son prompt et ses réglages sont conservés."
+                    )
+                    return self.projects.save(project.replace_attempt(updated))
             record = history.get(attempt.execution_id)
             status = record.get("status") if isinstance(record, Mapping) else None
             if not isinstance(status, Mapping):
                 return project
             completed = status.get("completed") is True
             name = status.get("status_str")
-            if not completed and name != "error":
+            if not completed and name not in {"error", "interrupted"}:
                 return project
             if completed and name == "success":
+                recipe = self.recipe_for_attempt(project, attempt)
                 output_ref = extract_bound_video(
                     record,
                     node_id=recipe.output_node_id,
@@ -1140,16 +1340,6 @@ class H3RenderService:
         else:
             submitted = submitted.fail(execution_error)
         return self.projects.save(project.replace_attempt(submitted))
-
-
-def derive_h3_render_input_mode(first_frame: bool, last_frame: bool) -> H3RenderInputMode:
-    if not first_frame and not last_frame:
-        return H3RenderInputMode.T2VA
-    if first_frame and not last_frame:
-        return H3RenderInputMode.I2VA
-    if not first_frame:
-        return H3RenderInputMode.L2VA
-    return H3RenderInputMode.FL2VA
 
 
 def extract_prompt_cut_times_ms(prompt: str) -> tuple[int, ...]:
@@ -1293,9 +1483,16 @@ def canonicalize_h3_revision(
     input_mode: H3RenderInputMode,
     *,
     camera_clauses: tuple[str, ...] = (),
+    combat_sequence: bool = False,
+    combat_version: str | None = None,
 ) -> str:
     current = _bounded_text(current_prompt, "current prompt", 60_000).replace("\r\n", "\n")
     value = _bounded_text(candidate, "candidate prompt", 60_000).replace("\r\n", "\n")
+    if combat_version == "1.3.0":
+        from .combat_cinematic import preserve_camera_layout
+        preserve_camera_layout(current, value)
+        if camera_clauses and extract_compiled_camera_clauses(value) != camera_clauses:
+            raise ValueError("Conservez l’ordre des phases caméra approuvées.")
     if input_mode is H3RenderInputMode.REF2VA:
         header, current_body = _split_ref2v_header(current)
         _, candidate_body = _split_ref2v_header(value, required=False)
@@ -1303,7 +1500,17 @@ def canonicalize_h3_revision(
             candidate_body = current_body
         result = f"{header}\n\n{candidate_body.strip()}"
         _validate_revision_camera_clauses(result, camera_clauses)
-        errors = lint_direct_ref2v_prompt(result)
+        if combat_sequence:
+            from .combat_sequence import prompt_errors
+            _preserve_combat_cuts(current, result)
+            errors = prompt_errors(result, input_mode.value, combat_version)
+        elif "[Shot 2]" in current:
+            from .direct_ref2v_multishot_prompt_v2 import lint_direct_ref2v_multishot_prompt_v2
+            if re.findall(r"(?m)^\[Shot \d+\](?: At [^\n,]+,)?", current) != re.findall(r"(?m)^\[Shot \d+\](?: At [^\n,]+,)?", result):
+                raise ValueError("La révision doit conserver les plans et leurs instants de coupe.")
+            errors = lint_direct_ref2v_multishot_prompt_v2(result, preserve_h3_landmarks=True)
+        else:
+            errors = lint_direct_ref2v_prompt(result)
         if errors:
             raise ValueError(" ".join(dict.fromkeys(errors)))
         return result
@@ -1319,6 +1526,12 @@ def canonicalize_h3_revision(
     if names != ["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]:
         raise ValueError("H3 prompt must contain the three canonical fields exactly once and in order")
     _validate_revision_camera_clauses(result, camera_clauses)
+    if combat_sequence:
+        from .combat_sequence import prompt_errors
+        _preserve_combat_cuts(current, result)
+        errors = prompt_errors(result, input_mode.value, combat_version)
+        if errors:
+            raise ValueError(" ".join(errors))
     errors = tuple(
         issue.message
         for issue in lint_h3_prompt(H3ProtocolMode(input_mode.value), result)
@@ -1327,6 +1540,20 @@ def canonicalize_h3_revision(
     if errors:
         raise ValueError(" ".join(dict.fromkeys(errors)))
     return result
+
+
+def _preserve_combat_cuts(current: str, candidate: str) -> None:
+    pattern = r"(?m)^(?:\[Shot \d+\]|Shot \d+:)(?: At [^\n,]+,)?"
+    if re.findall(pattern, current) != re.findall(pattern, candidate):
+        raise ValueError("Conservez le nombre de plans et les coupures de cet atelier Combat.")
+    duration = re.search(r"The target video lasts \d+(?:\.\d+)? seconds\.", current)
+    if duration and duration.group() not in candidate:
+        raise ValueError("Conservez la durée du prompt Combat courant.")
+
+
+def _combat_action_policy(project) -> str:
+    from .combat_sequence import action_policy
+    return action_policy(project.combat_settings, project.preparation.version)
 
 
 def _validate_revision_camera_clauses(prompt: str, camera_clauses: tuple[str, ...]) -> None:
@@ -1445,6 +1672,11 @@ def _attempt_context(attempt: H3RenderAttempt | None) -> str:
         return "No rendered attempt selected."
     return json.dumps({
         "attempt_id": attempt.attempt_id,
+        "render_recipe": (attempt.recipe.recipe_id + "@" + attempt.recipe.version) if attempt.recipe else "legacy",
+        "bunny": ({"turbo_enabled": attempt.bunny.turbo_enabled, "base_steps": attempt.bunny.base_steps,
+                   "coarse_steps": attempt.bunny.coarse_steps, "refine_steps": attempt.bunny.refine_steps,
+                   **({"lora_second_strength": attempt.bunny.lora_second_strength}
+                      if attempt.video_loras is None else {})} if attempt.bunny else None),
         "prompt_used": attempt.effective_prompt,
         "initial_megapixels": attempt.initial_megapixels,
         "aspect_ratio": attempt.settings.aspect_ratio.value,
@@ -1465,6 +1697,7 @@ def _attempt_context(attempt: H3RenderAttempt | None) -> str:
             if attempt.video_lora is not None
             else None
         ),
+        "video_loras": asdict(attempt.video_loras) if attempt.video_loras is not None else None,
         "keyframe_timestamps_ms": list(attempt.keyframe_timestamps_ms),
     }, ensure_ascii=False, indent=2)
 
@@ -1556,6 +1789,7 @@ def _camera_contract_prompt(camera_clauses: tuple[str, ...]) -> str:
 def _revision_camera_clauses(
     value: object,
     current: tuple[str, ...],
+    *, continuous_phases: bool = False,
 ) -> tuple[str, ...]:
     if value is None:
         return current
@@ -1584,7 +1818,12 @@ def _revision_camera_clauses(
         start_ms = item.get("start_ms")
         if isinstance(start_ms, bool) or not isinstance(start_ms, int) or start_ms < 0:
             raise ValueError("camera start_ms must be a non-negative integer")
-        if start_ms < previous_start:
+        if continuous_phases:
+            stamp = re.match(r"At (\d{2}):(\d{2})\.(\d{3}),", current[index - 1])
+            expected_start = (int(stamp[1]) * 60000 + int(stamp[2]) * 1000 + int(stamp[3])) if stamp else 0
+            if start_ms != expected_start:
+                raise ValueError("Preserve the existing cut timestamp or untimed continuous phase (start_ms 0).")
+        if not continuous_phases and start_ms < previous_start:
             raise ValueError("camera directives must remain chronological")
         previous_start = start_ms
         try:

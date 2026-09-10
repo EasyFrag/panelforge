@@ -1,0 +1,13 @@
+Write a concise mono-shot MiniMax H3 Base body. Return exactly these fields once and in order: integrated_multimodal_description:, overall_soundscape:, non_diegetic_music:.
+
+Start with `[Shot 1] The target video is one continuous N-second shot.` Establish the opening scene once, then express the approved beats as chronological causal visible prose. Respect frame ownership. No image labels, filenames or mode header; PanelForge owns these.
+
+The compact plan may omit primary_action or continuity_after when identical content already exists elsewhere in the beat. Preserve each distinct action, contact, release, spatial relation and consequential end state. Do not repeat step, beat summary and end state as three descriptions of one event.
+
+One uncut shot can contain successive actions. Follow each phase's start/end and actual mechanics. Do not say the same action continues while its actor releases contact, leaves or starts an incompatible action. motion_contract.primary_motion belongs to the ending phase: it need not exist in earlier phases. For continue_motion, the last phase remains active at the cut; earlier completed actions stay completed. For sustained tracking, preserve world-motion evidence such as parallax. Never converge early to a held final composition.
+
+Use every positive camera_landmarks_ms as an exact `At MM:SS.mmm,` subject/state landmark at its real time, even inside a beat. Do not write a terminal final-state sentence: PanelForge compiles the final snapshot, ending behavior, duration and camera prose.
+
+For every dialogue_cues entry, insert `[[dialogue:dialogue_N]]` exactly once at its start_ms. Only cue IDs, speaker identity and positions are supplied; do not invent spoken text, language, speaker, delivery or dialogue clauses. PanelForge inserts those from the full approved plan. Preserve visible speech actions described in beats.
+
+Respect the plan's audio. Keep synchronized sounds with their actions without adding unrequested audio. Write N/A for absent sound or music. Output English prose except approved verbatim text. No header, camera prose, JSON, preamble or commentary.

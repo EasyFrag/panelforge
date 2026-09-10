@@ -1,0 +1,130 @@
+{
+  "schema_version": 10,
+  "cookbook_id": "minimax.h3.fl2va.combat.prompt",
+  "version": "1.2.0",
+  "display_name": "H3 Base · Combat · Prompt direct · 1 étape",
+  "description": "Combat 1.2 : orientation Libre / mixte, Corps à corps ou Armes. Action, plans et nombre d’appels indépendants.",
+  "target_mode": "fl2va_direct",
+  "output_contract": "minimax.h3.combat.sequence_direct_v1",
+  "preset": "combat-sequence-1.1",
+  "stages": [
+    "final_prompt"
+  ],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "drop_with_warning",
+  "writer_projection": "full",
+  "visibility": "public",
+  "execution_mode": "supervised",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/base-en.txt"
+  ],
+  "engine_contract": {
+    "id": "minimax.h3.protocol",
+    "version": "0.1.0"
+  },
+  "slots": [
+    {
+      "id": "first_frame",
+      "label": "Première frame",
+      "description": "Frame exacte facultative à 0,00 seconde.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": [
+        "first_frame"
+      ],
+      "required_uses": [
+        "first_frame"
+      ],
+      "required_shots": [],
+      "minimum_references": 0,
+      "maximum_references": 1
+    },
+    {
+      "id": "last_frame",
+      "label": "Dernière frame",
+      "description": "Frame exacte facultative à l'instant final.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": [
+        "last_frame"
+      ],
+      "required_uses": [
+        "last_frame"
+      ],
+      "required_shots": [],
+      "minimum_references": 0,
+      "maximum_references": 1
+    }
+  ],
+  "templates": {
+    "final_prompt_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.0",
+        "file": "choreography.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.1",
+        "file": "identity.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.1",
+        "file": "sequence-direct.system.txt"
+      }
+    ],
+    "final_prompt_user": [
+      {
+        "block": "h3-combat",
+        "version": "1.1.0",
+        "file": "request.user.txt"
+      }
+    ],
+    "revision_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.0",
+        "file": "choreography.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.1",
+        "file": "identity.system.txt"
+      },
+      {
+        "block": "h3-combat",
+        "version": "1.1.1",
+        "file": "sequence-writer.system.txt"
+      }
+    ],
+    "revision_user": [
+      {
+        "block": "h3-combat",
+        "version": "1.1.0",
+        "file": "revision.user.txt"
+      }
+    ]
+  },
+  "preparation_steps": 1,
+  "profile": {
+    "id": "minimax.h3.fl2va.combat",
+    "version": "1.2.0"
+  },
+  "vocal_policy_version": "1.0.0",
+  "preparation": {
+    "family": "combat",
+    "version": "1.2.0"
+  }
+}

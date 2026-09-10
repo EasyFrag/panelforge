@@ -68,18 +68,15 @@ class LocalKrea2AssistedProjectStore:
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
             raise ValueError("limit must be a non-negative integer")
-        values: list[tuple[float, str, Krea2AssistedProject]] = []
+        values: list[tuple[int, str, Path]] = []
         with self._lock:
             for directory in self._root.iterdir():
                 path = directory / "project.json"
                 if directory.is_dir() and not directory.is_symlink() and path.is_file():
-                    values.append((
-                        path.stat().st_mtime,
-                        directory.name,
-                        _deserialize(json.loads(path.read_text(encoding="utf-8"))),
-                    ))
-        values.sort(key=lambda value: (value[0], value[1]), reverse=True)
-        return [project for _, _, project in values[:limit]]
+                    values.append((path.stat().st_mtime_ns, directory.name, path))
+            values.sort(reverse=True)
+            # Listing recent workshops must not deserialize every archived conversation.
+            return [_deserialize(json.loads(path.read_text(encoding="utf-8"))) for _, _, path in values[:limit]]
 
     def save_compiled_workflow(
         self,

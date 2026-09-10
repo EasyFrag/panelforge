@@ -573,23 +573,52 @@
     } catch (error) { setMessage(error.message, true); }
   });
 
+  const galleryCards = new Map();
+  let galleryProjectId = null;
+  let galleryReference = null;
+
   function renderGallery() {
-    elements.gallery.replaceChildren();
     const project = state.project;
+    if (galleryProjectId !== project?.project_id) {
+      elements.gallery.replaceChildren();
+      galleryCards.clear();
+      galleryReference = null;
+      galleryProjectId = project?.project_id;
+    }
     if (!project) return;
+    const visible = [];
+    const keys = new Set();
     if (project.reference_url) {
-      elements.gallery.append(imageFigure(`${project.reference_url}?v=${encodeURIComponent(project.reference_asset_id)}`, "Référence LLM · non envoyée à ComfyUI", "reference"));
+      const url = `${project.reference_url}?v=${encodeURIComponent(project.reference_asset_id)}`;
+      if (galleryReference?.url !== url) galleryReference = {
+        url, card: imageFigure(url, "Référence LLM · non envoyée à ComfyUI", "reference"),
+      };
+      visible.push(galleryReference.card);
     }
     const groups = window.PanelForgeDlss?.groups(project.attempts || [], `assisted:${project.project_id}`, project.feedback_attempt_id)
       || (project.attempts || []).map(attempt => ({ attempt }));
     [...groups].reverse().forEach(group => {
       const attempt = group.attempt;
+      const key = group.root?.attempt_id || attempt.attempt_id;
+      keys.add(key);
+      const originName = (project.branches || []).length > 1
+        ? project.branches.find(b => b.branch_id === (attempt.conversation_branch_id || "main"))?.name || "Ancien essai" : null;
+      const signature = JSON.stringify([attempt, project.feedback_attempt_id === attempt.attempt_id,
+        originName, attemptStatus(attempt), group.variants, Boolean(state.spec?.restaging?.enabled)]);
+      const previous = galleryCards.get(key);
+      if (previous?.signature === signature) {
+        visible.push(previous.card);
+        return;
+      }
       const card = document.createElement("article");
       card.dataset.attemptId = attempt.attempt_id;
       if (group.variants) card.append(window.PanelForgeDlss.picker(group, renderGallery));
       card.className = `krea2-assisted-attempt ${attempt.accepted ? "accepted" : ""} ${project.feedback_attempt_id === attempt.attempt_id ? "feedback" : ""}`;
       if (attempt.output_url) {
-        card.append(imageFigure(`${attempt.output_url}?v=${encodeURIComponent(attempt.output_asset_id)}`, attempt.label || `Essai ${attempt.index}`));
+        const url = `${attempt.output_url}?v=${encodeURIComponent(attempt.output_asset_id)}`;
+        const figure = previous?.card.querySelector("figure");
+        card.append(figure?.querySelector("img")?.getAttribute("src") === url
+          ? figure : imageFigure(url, attempt.label || `Essai ${attempt.index}`));
       } else {
         const pending = document.createElement("div");
         pending.className = "krea2-assisted-attempt-placeholder";
@@ -624,9 +653,9 @@
         error.textContent = attempt.error;
         card.append(error);
       }
-      if ((project.branches || []).length > 1) {
+      if (originName) {
         const origin = document.createElement("small");
-        origin.textContent = project.branches.find((b) => b.branch_id === (attempt.conversation_branch_id || "main"))?.name || "Ancien essai";
+        origin.textContent = originName;
         card.append(origin);
       }
       const actions = document.createElement("div");
@@ -692,15 +721,25 @@
       }
       actions.querySelectorAll("button").forEach((button) => { button.disabled = state.busy; });
       card.append(actions);
-      elements.gallery.append(card);
+      galleryCards.set(key, { signature, card });
+      visible.push(card);
     });
-    if (!elements.gallery.children.length) {
-      const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "Aucune image."; elements.gallery.append(empty);
+    for (const key of galleryCards.keys()) if (!keys.has(key)) galleryCards.delete(key);
+    if (!visible.length) {
+      const empty = elements.gallery.querySelector("p.muted") || document.createElement("p");
+      empty.className = "muted"; empty.textContent = "Aucune image."; visible.push(empty);
     }
+    const retained = new Set(visible);
+    for (const child of [...elements.gallery.children]) if (!retained.has(child)) child.remove();
+    visible.forEach((card, index) => {
+      // Leave existing images connected: reinserting lazy images causes blank frames while polling.
+      if (elements.gallery.children[index] !== card) elements.gallery.insertBefore(card, elements.gallery.children[index] || null);
+    });
   }
 
   function renderProject(project, { preservePrompt = false } = {}) {
     window.PanelForgeLabCore?.observeRenderAttempts?.((project.attempts || []).filter(a => a.kind !== "composition"), `assisted:${project.project_id}`);
+    const previous = state.project;
     const changed = state.project?.project_id !== project.project_id
       || state.project?.active_branch_id !== project.active_branch_id;
     if (changed) restagingEditor.close();
@@ -727,9 +766,10 @@
     elements.warnings.replaceChildren();
     (project.warnings || []).forEach((warning) => { const item = document.createElement("p"); item.textContent = warning; elements.warnings.append(item); });
     elements.warnings.hidden = !(project.warnings || []).length;
-    renderConversation();
-    renderBranches();
-    renderPresetSelection();
+    if (changed || JSON.stringify(previous?.turns) !== JSON.stringify(project.turns)) renderConversation();
+    if (changed || JSON.stringify(previous?.branches) !== JSON.stringify(project.branches)) renderBranches();
+    if (changed || previous?.preset_pending !== project.preset_pending
+      || JSON.stringify(previous?.style_preset) !== JSON.stringify(project.style_preset)) renderPresetSelection();
     const serialized = draftText(project.recipe_draft);
     if (changed || !elements.recipeDraft.value.trim() || elements.recipeDraft.value === state.draftSnapshot || serialized !== state.draftSnapshot) {
       elements.recipeDraft.value = serialized;
@@ -990,6 +1030,8 @@
     if (!state.project || state.busy) return;
     const prompt = elements.prompt.value.trim();
     if (!prompt) { setMessage("Préparez ou écrivez d’abord un prompt.", true); return; }
+    stopPolling();
+    state.navigationSerial += 1; // Discard an in-flight poll predating this new attempt.
     setBusy(true);
     const projectId = state.project.project_id;
     try {
@@ -1009,9 +1051,6 @@
       const attempt = payload.project.attempts.at(-1);
       renderProject(payload.project, { preservePrompt: true });
       if (attempt.status === "created") throw new Error("L’essai est préparé. Redémarrez le serveur pour activer la file de rendus.");
-      await loadRenderQueue();
-      renderStatus();
-      renderGallery();
       setMessage(`Essai ${attempt.index} ajouté à la file. Vous pouvez préparer le suivant.`);
       schedulePoll();
     } catch (error) { setMessage(error.message, true); }
@@ -1021,10 +1060,11 @@
   async function startPreparedAttempt(attemptId) {
     if (!state.project || state.busy) return;
     const projectId = state.project.project_id;
+    stopPolling();
+    state.navigationSerial += 1;
     setBusy(true);
     try {
       const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}/attempts/${encodeURIComponent(attemptId)}/start`, { method: "POST" });
-      await loadRenderQueue();
       renderProject(payload.project, { preservePrompt: true });
       setMessage("Essai ajouté à la file avec ses réglages enregistrés.");
       schedulePoll();

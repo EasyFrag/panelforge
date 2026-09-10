@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+from panelforge.domain.h3_render import H3VideoLoraStack
+
 import asyncio
 import base64
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from dataclasses import asdict
+from panelforge.domain.h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
+from panelforge.domain.h3_render import H3RenderSetup
+from panelforge.application.h3_ref2v_conversion import H3Ref2VConversionService
 import hashlib
 import json
 from pathlib import Path
 from threading import Lock
+from time import perf_counter
 from typing import Annotated, Any, Callable, Literal
 from panelforge.domain.prompt_composition import PreparationIntent
 from panelforge.domain.krea2_edit import KREA2_EDIT_REF_BOOST_MAX
@@ -368,12 +374,14 @@ class CreativeAxesBody(BaseModel):
     scene_life: int = Field(ge=0, le=3)
     camera: int = Field(ge=0, le=3)
     extra_motion: int = Field(ge=0, le=3)
+    dialogue: int = Field(default=0, ge=0, le=3, strict=True)
 
     def domain_value(self) -> CreativeFreedomAxes:
         return CreativeFreedomAxes(
             scene_life=self.scene_life,
             camera=self.camera,
             extra_motion=self.extra_motion,
+            dialogue=self.dialogue,
         )
 
 
@@ -391,6 +399,7 @@ class PromptSessionForkBody(BaseModel):
     brief_variant_id: str | None = None
     brief_variant_version: str | None = None
     inherit_brief_variant: bool = True
+    combat_settings: dict | None = None
 
 
 class BriefVariantBody(BaseModel):
@@ -616,6 +625,7 @@ class Krea2AssistedRecipePublishBody(BaseModel):
 
 class H3RenderChatBody(BaseModel):
     message: str
+    dialogue_level: int | None = Field(default=None, ge=0, le=3, strict=True)
     model_id: str | None = None
     feedback_attempt_id: str | None = None
     revision_version: str | None = None
@@ -629,6 +639,29 @@ class H3VideoLoraBody(BaseModel):
     clip_last_layer: int | None = -2
 
 
+class H3BunnyBody(BaseModel):
+    turbo_enabled: bool = Field(default=True, strict=True)
+    base_steps: int = Field(default=9, ge=2, le=100, strict=True)
+    coarse_steps: int = Field(default=4, ge=1, le=99, strict=True)
+    refine_steps: int = Field(default=5, ge=3, le=5, strict=True)
+    lora_second_strength: float = Field(default=0.2, ge=0, le=1, allow_inf_nan=False, strict=True)
+    preview_enabled: bool = Field(default=True, strict=True)
+
+
+class H3VideoLoraSlotBody(BaseModel):
+    name: str
+    strength: float = Field(default=0.5, ge=0, le=1, allow_inf_nan=False, strict=True)
+    second_strength: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False, strict=True)
+    enabled: bool = Field(default=True, strict=True)
+
+
+class H3VideoLoraStackBody(BaseModel):
+    entries: list[H3VideoLoraSlotBody] = Field(default_factory=list, max_length=2)
+    enabled: bool = Field(default=True, strict=True)
+    clip_last_layer: int | None = Field(default=-2, strict=True)
+    version: str = "0.1.0"
+
+
 class H3RenderAttemptBody(BaseModel):
     prompt: str
     aspect_ratio: str
@@ -636,15 +669,27 @@ class H3RenderAttemptBody(BaseModel):
     duration_seconds: float
     steps: int
     seed: str | int | None = None
-    seed_locked: bool = False
+    seed_locked: bool = True
     music_enabled: bool = False
     spectrum_enabled: bool = False
     video_lora: H3VideoLoraBody | None = None
     initial_megapixels: float = Field(default=0.2, ge=0.1, le=16, allow_inf_nan=False, strict=True)
+    recipe_id: str | None = None
+    recipe_version: str | None = None
+    bunny: H3BunnyBody | None = None
+    checkpoint: str | None = Field(default=None, max_length=512)
+    video_loras: H3VideoLoraStackBody | None = None
 
 
 class H3RenderFeedbackBody(BaseModel):
     attempt_id: str | None = None
+
+
+class H3Ref2VConversionBody(H3RenderAttemptBody):
+    request_id: str
+    model_id: str
+    extra_reference_asset_id: str | None = None
+    extra_reference_label: str = "Référence ajoutée"
 
 
 class SocialProfileBody(BaseModel):
@@ -800,6 +845,7 @@ def create_app(
                 await asyncio.to_thread(krea2_assisted.stop_render_worker)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
+    h3_conversion = H3Ref2VConversionService(h3_render) if h3_render is not None else None
     krea2_models = (
         _Krea2ModelDiscovery(krea2_lab)
         if krea2_lab is not None
@@ -2590,9 +2636,11 @@ def create_app(
     def prepare_krea2_assisted_attempt(
         project_id: str,
         body: Krea2AssistedAttemptBody,
+        response: Response,
         enqueue: bool = False,
     ) -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
+        started = perf_counter()
         try:
             seed = None if body.seed is None or str(body.seed).strip() == "" else _parse_json_seed(body.seed)
             project = service.prepare_attempt(
@@ -2611,9 +2659,17 @@ def create_app(
                 seed=seed,
                 enqueue=enqueue,
             )
+            prepared = perf_counter()
             if enqueue:
                 service.start_render_worker()
-            return {"project": serialize_krea2_assisted_project(project)}
+            worker_ready = perf_counter()
+            payload = {"project": serialize_krea2_assisted_project(project)}
+            response.headers["Server-Timing"] = (
+                f"prepare;dur={(prepared - started) * 1000:.1f}, "
+                f"worker;dur={(worker_ready - prepared) * 1000:.1f}, "
+                f"serialize;dur={(perf_counter() - worker_ready) * 1000:.1f}"
+            )
+            return payload
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="KREA2 assisted project not found") from error
         except (TypeError, ValueError) as error:
@@ -3461,17 +3517,35 @@ def create_app(
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.get("/api/h3-render/video-loras")
+    def h3_render_video_loras(refresh: bool = False) -> dict:
+        service = _require_h3_render(h3_render)
+        models, warning = service.video_lora_inventory(refresh=refresh)
+        return {"models": list(models), "warning": warning}
+
+    @app.get("/api/h3-render/checkpoints")
+    def h3_render_checkpoints(mode: str = "h3-base", refresh: bool = False) -> dict:
+        service = _require_h3_render(h3_render)
+        if mode not in {"h3-base", "ref2va"}:
+            raise HTTPException(422, "Mode vidéo inconnu.")
+        if service.checkpoints is None:
+            return {"models": [], "warning": "Le catalogue des checkpoints est indisponible."}
+        input_mode = H3RenderInputMode.REF2VA if mode == "ref2va" else H3RenderInputMode.T2VA
+        return service.checkpoints.inventory(input_mode, refresh=refresh)
+
     @app.get("/api/h3-render/spec")
-    def h3_render_spec(mode: str = "h3-base") -> dict[str, object]:
+    def h3_render_spec(mode: str = "h3-base", recipe_id: str | None = None,
+                       recipe_version: str | None = None) -> dict[str, object]:
         service = _require_h3_render(h3_render)
         input_mode = (
             H3RenderInputMode.REF2VA
             if mode == "ref2va"
             else H3RenderInputMode.T2VA
         )
-        recipe = service.workflow_for_mode(
-            input_mode
-        )
+        try:
+            recipe = service.workflow_for_mode(input_mode, recipe_id, recipe_version)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         presets = [
             {
                 "id": preset.preset_id,
@@ -3494,7 +3568,7 @@ def create_app(
             for item, preset in zip(presets, recipe.presets.values()):
                 item["initial_megapixels"] = preset.initial_megapixels
         for item in presets:
-            item["seed_locked"] = input_mode is not H3RenderInputMode.REF2VA
+            item["seed_locked"] = True
         if hasattr(recipe, "maximum_reference_images"):
             limits["reference_images"] = {
                 "minimum": recipe.minimum_reference_images,
@@ -3507,6 +3581,16 @@ def create_app(
             video_lora_models, video_lora_warning = service.video_lora_inventory()
         return {
             "operation_id": recipe.reference.operation_id,
+            "render_recipes": [
+                {"id": value.reference.recipe_id, "version": value.reference.version,
+                 "label": ("BUNNY · expérimental" if getattr(value, "supports_video_lora_stack", False) else "BUNNY · historique") if value.reference.recipe_id == BUNNY_RECIPE_ID
+                    else "Rendu actuel" if value.reference == service.workflow_for_mode(input_mode).reference
+                    else "Historique"}
+                for value in service.recipes_for_mode(input_mode)
+            ],
+            "video_lora_stack": recipe.video_lora_stack_spec() if getattr(recipe, "supports_video_lora_stack", False) else {"supported": False},
+            "checkpoint_selection": recipe.checkpoint_spec(input_mode) if getattr(recipe, "supports_checkpoint_selection", False) else {"supported": False},
+            "bunny": recipe.controls_spec(input_mode) if recipe.reference.recipe_id == BUNNY_RECIPE_ID else None,
             "llm_models": [
                 _serialize_llm_model(model) for model in service.list_models()
             ],
@@ -3526,7 +3610,8 @@ def create_app(
                 {
                     "version": version.value,
                     "label": (
-                        "Stable 0.2.0 · caméra compilée"
+                        "0.3.0 · dialogues et caméra compilée"
+                        if version.value == "0.3.0" else "Stable 0.2.0 · caméra compilée"
                         if version.value == "0.2.0"
                         else "Legacy 0.1.0"
                     ),
@@ -3571,6 +3656,74 @@ def create_app(
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.get("/api/h3-render/adaptations")
+    def list_h3_adaptations() -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        return {"projects": [serialize_h3_render_project(p) for p in service.projects.list(200)
+                             if p.adaptation is not None][:30]}
+
+    @app.post("/api/h3-render/projects/{project_id}/adaptation-reference")
+    async def upload_h3_adaptation_reference(project_id: str, image: Annotated[UploadFile, File()]) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            service.projects.get(project_id)
+            content = await image.read(MAX_IMAGE_BYTES + 1)
+            if len(content) > MAX_IMAGE_BYTES:
+                raise ValueError("Image trop volumineuse : 25 Mio maximum.")
+            media_type = detect_image_media_type(content)
+            asset = service.assets.create(content, media_type=media_type, source_run_id=project_id)
+            return {"asset_id": asset.asset_id, "label": image.filename or "Référence ajoutée"}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(404, "Atelier introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/h3-render/projects/{project_id}/adapt-ref2v", status_code=201)
+    def prepare_h3_adaptation(project_id: str, body: H3Ref2VConversionBody) -> dict[str, object]:
+        service = _require_h3_render(h3_render)
+        try:
+            source = service.projects.get(project_id)
+            selected = service.workflow_for_mode(source.input_mode, body.recipe_id, body.recipe_version)
+            bunny = H3BunnySettings(**body.bunny.model_dump()) if body.bunny else None
+            if selected.reference.recipe_id == BUNNY_RECIPE_ID:
+                destination = service.workflow_for_mode(H3RenderInputMode.REF2VA, BUNNY_RECIPE_ID, selected.reference.version)
+                bunny = bunny or H3BunnySettings()
+            else:
+                if bunny is not None:
+                    raise ValueError("Les paramètres BUNNY ne correspondent pas à la recette choisie.")
+                destination = service.workflow_for_mode(H3RenderInputMode.REF2VA)
+            seed = _parse_json_seed(body.seed)
+            if seed is None:
+                seed = int(hashlib.sha256(body.request_id.encode()).hexdigest()[:16], 16)
+            setup = H3RenderSetup(
+                settings=VideoLabSettings(VideoAspectRatio(body.aspect_ratio), body.megapixels, body.duration_seconds,
+                    bunny.coarse_steps + bunny.refine_steps if bunny else body.steps, seed, body.seed_locked),
+                initial_megapixels=body.initial_megapixels if getattr(destination, "supports_initial_megapixels", False) else 0.2,
+                music_enabled=body.music_enabled, spectrum_enabled=body.spectrum_enabled,
+                video_lora=H3VideoLoraSelection(**body.video_lora.model_dump()) if body.video_lora else None,
+                recipe=destination.reference, bunny=bunny, checkpoint=body.checkpoint,
+                video_loras=H3VideoLoraStack.from_dict(body.video_loras.model_dump()) if body.video_loras else None,
+                model_loading=service.resolve_model_loading(destination, H3RenderInputMode.REF2VA, body.checkpoint)
+                    if body.checkpoint is not None or getattr(destination, "supports_checkpoint_selection", False) else None)
+            assert h3_conversion is not None
+            project = h3_conversion.prepare(project_id, request_id=body.request_id, prompt=body.prompt,
+                model_id=body.model_id, setup=setup,
+                extra_reference=(body.extra_reference_asset_id, body.extra_reference_label) if body.extra_reference_asset_id else None)
+            warnings = []
+            if setup.initial_megapixels != body.initial_megapixels:
+                warnings.append("La recette REF2V actuelle fixe la première passe à 0,2 MP ; les autres réglages sont repris.")
+            return {"project": serialize_h3_render_project(project), "warnings": warnings}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(404, "Atelier ou référence introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/h3-render/projects/{project_id}/adapt-ref2v/stream")
+    def stream_h3_adaptation(project_id: str, include_reasoning: bool = False) -> StreamingResponse:
+        _require_h3_render(h3_render)
+        assert h3_conversion is not None
+        return _h3_render_stream_response(h3_conversion.stream(project_id, include_reasoning=include_reasoning))
+
     @app.post("/api/h3-render/projects/{project_id}/chat/stream")
     def stream_h3_render_chat(
         project_id: str,
@@ -3589,6 +3742,7 @@ def create_app(
             ),
             include_reasoning=include_reasoning,
             repair_rejected=body.repair_rejected,
+            dialogue_level=body.dialogue_level,
         ))
 
     @app.post(
@@ -3625,6 +3779,11 @@ def create_app(
                 music_enabled=body.music_enabled,
                 spectrum_enabled=body.spectrum_enabled,
                 initial_megapixels=body.initial_megapixels,
+                recipe_id=body.recipe_id,
+                recipe_version=body.recipe_version,
+                bunny=H3BunnySettings(**body.bunny.model_dump()) if body.bunny else None,
+                **({"checkpoint": body.checkpoint} if body.checkpoint is not None else {}),
+                **({"video_loras": H3VideoLoraStack.from_dict(body.video_loras.model_dump())} if body.video_loras is not None else {}),
                 **(
                     {"video_lora": video_lora}
                     if video_lora is not None
@@ -3715,9 +3874,7 @@ def create_app(
                 await _relay_video_preview(
                     websocket,
                     upstream,
-                    progress_profile=h3_render.workflow_for_mode(
-                        project.input_mode
-                    ).progress_profile,
+                    progress_profile=h3_render.progress_for_attempt(project, attempt),
                     execution_id=lambda: h3_render.get(project_id)
                     .attempt(attempt_id)
                     .execution_id,
@@ -3754,6 +3911,7 @@ def create_app(
                     "display_name": profile.display_name,
                     "target_model_family": profile.target_model_family,
                     "session_mode": profile.session_mode.value,
+                    "preparation": profile.preparation.as_dict(),
                     "supports_interpretation": (
                         profile.interpretation_system_prompt is not None
                     ),
@@ -3792,6 +3950,7 @@ def create_app(
         roles: Annotated[list[str] | None, Form()] = None,
         usages: Annotated[list[str] | None, Form()] = None,
         evidence_policies: Annotated[list[str] | None, Form()] = None,
+        combat_settings: Annotated[str | None, Form()] = None,
     ) -> dict[str, object]:
         service = _require_prompt_lab(prompt_lab)
         images = images or []
@@ -3878,6 +4037,7 @@ def create_app(
                 brief_variant_id=brief_variant_id,
                 brief_variant_version=brief_variant_version,
                 references=references,
+                combat_settings=_combat_settings_value(json.loads(combat_settings)) if combat_settings is not None else None,
             )
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="prompt profile not found") from error
@@ -3925,6 +4085,7 @@ def create_app(
                     brief_variant_id=body.brief_variant_id,
                     brief_variant_version=body.brief_variant_version,
                     inherit_brief_variant=body.inherit_brief_variant,
+                    combat_settings=_combat_settings_value(body.combat_settings),
                 )
             )
         except (KeyError, FileNotFoundError) as error:
@@ -4040,6 +4201,8 @@ def create_app(
                     "writer_projection": cookbook.writer_projection,
                     "stages": list(cookbook.stages),
                     "preparation_steps": getattr(cookbook, "preparation_steps", 3),
+                    "preparation": cookbook.preparation.as_dict(),
+                    "vocal_policy_version": getattr(cookbook, "vocal_policy_version", None),
                     "profile": (
                         {"id": cookbook.profile_id, "version": cookbook.profile_version}
                         if getattr(cookbook, "profile_id", None) else None
@@ -4431,6 +4594,9 @@ def serialize_video_lab_run(run: VideoLabRun) -> dict[str, object]:
 
 
 def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
+    adaptation = asdict(project.adaptation) if project.adaptation is not None else None
+    if adaptation is not None:
+        adaptation["render_setup"]["settings"]["seed"] = str(project.adaptation.render_setup.settings.seed)
     def reference(asset_id: str | None, label: str | None, role: str) -> dict[str, object] | None:
         if asset_id is None:
             return None
@@ -4443,6 +4609,7 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
 
     attempts = []
     for attempt in project.attempts:
+        geometry = bunny_geometry(attempt.settings, attempt.initial_megapixels) if attempt.bunny else None
         settings = {
             "aspect_ratio": attempt.settings.aspect_ratio.value,
             "megapixels": attempt.settings.megapixels,
@@ -4452,13 +4619,20 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
             "seed": str(attempt.settings.seed),
             "seed_locked": attempt.settings.seed_locked,
             "resolution": {
-                "width": attempt.settings.resolution[0],
-                "height": attempt.settings.resolution[1],
+                "width": geometry["width"] if geometry else attempt.settings.resolution[0],
+                "height": geometry["height"] if geometry else attempt.settings.resolution[1],
             },
             "frames": attempt.settings.frame_count,
         }
         attempts.append({
             "id": attempt.attempt_id,
+            "recipe": asdict(attempt.recipe) if attempt.recipe else None,
+            "bunny": asdict(attempt.bunny) if attempt.bunny else None,
+            "checkpoint": attempt.checkpoint,
+            "video_loras": asdict(attempt.video_loras) if attempt.video_loras is not None else None,
+            "model_loading": asdict(attempt.model_loading) if attempt.model_loading else None,
+            "initial_megapixels": attempt.initial_megapixels,
+            "bunny_geometry": geometry,
             "attempt_id": attempt.attempt_id,
             "index": attempt.index,
             "dlss": asdict(attempt.dlss) if attempt.dlss else None,
@@ -4510,6 +4684,15 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
         "model_id": project.model_id,
         "revision_model_id": project.revision_model_id,
         "input_mode": project.input_mode.value,
+        "preparation": project.preparation.as_dict(),
+        "combat_settings": project.combat_settings.as_dict() if project.combat_settings else None,
+        "combat_shot_count": len(project.planned_cut_times_ms) + 1 if project.combat_settings else None,
+        "revision_versions": [
+            {"version": version.value, "label": f"Combat {version.value} · chorégraphie, dialogues et caméra"}
+            for version in H3RenderService.revision_versions_for_mode(project.input_mode, project.preparation)
+        ] if project.preparation.is_combat else None,
+        "dialogue_level": project.dialogue_level,
+        "adaptation": adaptation,
         "current_prompt": project.current_prompt,
         "revision_version": (
             project.revision_version.value if project.revision_version else None
@@ -5897,6 +6080,7 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
             "scene_life": axes.scene_life,
             "camera": axes.camera,
             "extra_motion": axes.extra_motion,
+            "dialogue": axes.dialogue,
         }
 
     return {
@@ -5904,6 +6088,8 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
         "session_id": session.session_id,
         "model_id": session.model_id,
         "session_mode": session.session_mode.value,
+        "preparation": session.preparation.as_dict(),
+        "combat_settings": session.combat_settings.as_dict() if session.combat_settings else None,
         "profile": {
             "id": session.profile_id,
             "version": session.profile_version,
@@ -6198,13 +6384,14 @@ def serialize_prompt_composition(
         }
     return {
         "source_session_id": composition.source_session_id,
+        "combat_sequence": _combat_sequence_summary(composition),
         "preparation_intent": (
             {
                 "source_text": composition.preparation_intent.source_text,
                 "creative_freedom": composition.preparation_intent.creative_freedom,
                 "creative_audacity": composition.preparation_intent.creative_audacity,
                 "creative_axes": (
-                    {name: getattr(composition.preparation_intent.creative_axes, name) for name in ("scene_life", "camera", "extra_motion")}
+                    {name: getattr(composition.preparation_intent.creative_axes, name) for name in ("scene_life", "camera", "extra_motion", "dialogue")}
                     if composition.preparation_intent.creative_axes else None
                 ),
             } if composition.preparation_intent is not None else None
@@ -6683,3 +6870,17 @@ def _get_run_or_404(runner: ChangeViewRunner, run_id: str) -> RunRecord:
         return runner.runs.get(run_id)
     except (KeyError, FileNotFoundError) as error:
         raise HTTPException(status_code=404, detail="run not found") from error
+
+
+def _combat_settings_value(value):
+    from panelforge.domain.video_preparation import CombatSettings
+    return CombatSettings.from_dict(value) if value is not None else None
+
+
+def _combat_sequence_summary(composition):
+    from panelforge.application.combat_sequence import MARKER, decode_context
+    revision = composition.final_prompt.active_revision
+    if revision is None or not (revision.compiler_context or "").startswith(MARKER):
+        return None
+    context = decode_context(revision.compiler_context)
+    return {"shot_count": len(context["shot_starts_ms"]), "settings": context["settings"]}

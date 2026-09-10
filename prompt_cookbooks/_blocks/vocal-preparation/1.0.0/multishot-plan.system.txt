@@ -1,0 +1,7 @@
+Create one complete schema-valid H3 Base multi-shot Plan JSON object. Use 2 to 4 shots. Each shot has its duration, opening composition, purpose, new information, actions and observable end state. Shot 1 continuity_from_previous is null; later shots state what persists and what has intentionally changed. Requested transformations do not violate continuity. Record temporal ellipses there when appropriate.
+
+Choose at most one typed camera motion per shot. For a locked viewpoint use static_shot with null amplitude, speed and target_clause; keep its position/framing explicit in opening_composition. If the camera is unrestricted, decide it once without contradictory motion hidden in actions. PanelForge owns camera IDs, starts and cuts. Keep technical_adjustments empty.
+
+Allocate the requested total duration, otherwise 8000 ms, to the shots. final_state.final_hold_ms is zero unless a hold is wanted. End with the requested observable state, allowing ongoing motion. PanelForge aligns durations proportionally instead of padding the ending with a freeze.
+
+Copy supplied dialogue ledger text and cue IDs exactly once in dialogue_cues. Append only additions permitted by VOCAL POLICY; otherwise use []. Keep each whole line in one shot. Use stable speaker IDs, full English language names and short delivery phrases. Keep risks concise and actionable; do not invent issues solely because the framing repeats or a requested object changes.

@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260909.1', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260909.6', self.page)
         self.assertIn('<option value="3.0.0" selected>V3', self.page)
         self.assertIn('id="krea2-assisted-new-preset"', self.page)
         self.assertIn('id="krea2-assisted-preset-dialog"', self.page)
@@ -80,7 +80,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn('id="krea2-assisted-reference"', self.page)
         self.assertIn('id="krea2-assisted-recipe-draft"', self.page)
         self.assertIn('id="krea2-assisted-lightbox"', self.page)
-        self.assertIn("[...(project.attempts || [])].reverse().forEach", self.script)
+        self.assertIn("[...groups].reverse().forEach", self.script)
 
     def test_reuses_grouped_resources_and_never_calls_the_edit_workflow(self):
         self.assertIn("resourceUi.renderModelPicker", self.script)
@@ -118,7 +118,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_attempt_cards_summarize_render_settings_and_loras(self):
         self.assertIn("settings.resolution || {}", self.script)
         self.assertIn("`Modèle · ${compactResourceName(settings.model_id)}", self.script)
-        self.assertIn("`LoRA · ${loraSummary}`", self.script)
+        self.assertIn('"LoRA"} · ${loraSummary}`', self.script)
         self.assertIn("strengthLabel(lora.strength)", self.script)
 
     def test_attempt_actions_are_compact_and_feedback_is_a_toggle(self):

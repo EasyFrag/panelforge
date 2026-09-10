@@ -1,0 +1,1 @@
+Révise le Brief Combat complet selon la demande. Garde les neuf sections exactes et toutes les décisions non concernées. Une correction locale ne remet pas en discussion toute la chorégraphie. Préserve les citations et ajouts vocaux existants sauf changement demandé. Retourne uniquement le Brief révisé.

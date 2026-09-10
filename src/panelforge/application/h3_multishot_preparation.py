@@ -22,6 +22,7 @@ from .direct_fl2va_multishot_prompt import (
 )
 from .direct_ref2v_plan import DirectDialogueCue
 from .revised_documents import strip_markdown_fence
+from .vocal_policy import validate_speech
 
 
 MULTISHOT_PLAN_CONTRACT = "minimax.h3.fl2va.direct_multishot_compact_h3_v2"
@@ -55,7 +56,10 @@ def compile_compact_multishot(result: str, input_context: str) -> tuple[str, str
     source = json.loads(input_context)
     value = CompactMultiShot.model_validate_json(strip_markdown_fence(result))
     duration = source["duration_ms"]
-    if tuple(cue.text for cue in value.dialogue_cues) != tuple(source["dialogues"]):
+    if source.get("vocal_policy_version"):
+        validate_speech(tuple((cue.language, cue.text) for cue in value.dialogue_cues), source["dialogues"],
+            level=source.get("dialogue_level", 0), source_text=source.get("source_text", ""), duration_ms=duration)
+    elif tuple(cue.text for cue in value.dialogue_cues) != tuple(source["dialogues"]):
         raise ValueError("Les dialogues doivent reprendre exactement les paroles de l'intention, dans leur ordre.")
     # Durations are weights, aligned to the requested total without asking the
     # model to sum clocks. Cue timestamps are already in that requested timeline.
@@ -93,10 +97,13 @@ def validate_compact_multishot(content: str, encoded: str, input_context: str) -
     if (context.mode.value != source["mode"] or context.duration_ms != source["duration_ms"]
             or context.cut_policy != "neutral"):
         raise ValueError("Le découpage doit conserver le mode, les références et la durée du parcours.")
-    if tuple(cue.text for cue in context.dialogue_cues) != tuple(source["dialogues"]):
+    if source.get("vocal_policy_version"):
+        validate_speech(tuple((cue.language, cue.text) for cue in context.dialogue_cues), source["dialogues"],
+            level=source.get("dialogue_level", 0), source_text=source.get("source_text", ""), duration_ms=source["duration_ms"])
+    elif tuple(cue.text for cue in context.dialogue_cues) != tuple(source["dialogues"]):
         raise ValueError("Les dialogues du découpage ne correspondent pas à l'intention.")
     actual = Counter(re.findall(r"<d>\s*\[[^\]]+\]\s*(.*?)\s*</d>", content, flags=re.DOTALL))
-    if actual != Counter(source["dialogues"]):
+    if actual != Counter(cue.text for cue in context.dialogue_cues):
         raise ValueError("Le prompt multi-plan doit conserver exactement les paroles prévues, sans ajout.")
     errors = lint_direct_fl2va_multishot_prompt(content, context)
     if errors:

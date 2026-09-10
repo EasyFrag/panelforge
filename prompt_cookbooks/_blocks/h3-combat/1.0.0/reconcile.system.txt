@@ -1,0 +1,1 @@
+Reconcile the edited Plan with the requested change and supplied JSON schema. Return the complete schema-valid JSON, preserving all unaffected facts, reference roles, weapon identities, timing, dialogue cue text and IDs. Repair only consequences required by the edit. Do not silently replace the whole choreography. Use the same plan ownership rules as initial planning.

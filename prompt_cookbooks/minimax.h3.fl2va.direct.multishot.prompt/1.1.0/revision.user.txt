@@ -1,0 +1,10 @@
+FIXED SEQUENCE CONTEXT (not an approved Plan)
+{{SEQUENCE}}
+
+CURRENT EDITABLE BODY
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return the complete shot_1: through shot_N: body and the two sound fields, preserving the fixed sequence.

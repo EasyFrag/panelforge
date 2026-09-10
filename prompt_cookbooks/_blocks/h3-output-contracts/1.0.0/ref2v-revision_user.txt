@@ -1,0 +1,13 @@
+PLAN — READ ONLY
+{{PLAN}}
+
+REFERENCE OWNERSHIP — READ ONLY
+{{REFERENCE_MAPPING}}
+
+CURRENT BODY
+{{CURRENT}}
+
+REQUESTED CHANGE
+{{INSTRUCTION}}
+
+Return only the complete revised four-field body without reference header, image labels, JSON or commentary. Preserve every exact dialogue cue.

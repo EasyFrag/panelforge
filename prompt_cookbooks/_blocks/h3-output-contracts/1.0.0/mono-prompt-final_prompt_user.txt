@@ -1,0 +1,16 @@
+USER INTENTION
+{{INTENTION}}
+
+MODE AND REFERENCE OWNERSHIP
+{{REFERENCES}}
+
+CLIP DURATION: {{DURATION_MS}} ms
+
+PERMITTED CREATIVE FREEDOM
+{{CREATIVE_POLICY}}
+{{AUDACITY_POLICY}}
+
+EXACT DIALOGUE LEDGER
+{{DIALOGUE_LEDGER}}
+
+Return the complete direct-prompt JSON object. Make the decisions once and write the final prose.

@@ -400,6 +400,22 @@ class H3RenderWorkflowTest(unittest.TestCase):
 
 
 class H3RenderPromptAndKeyframeTest(unittest.TestCase):
+    def test_frame_mode_resolver_is_shared_with_bunny_and_keeps_public_import(self) -> None:
+        from panelforge.application import derive_h3_render_input_mode as public_resolver
+        from panelforge.domain.h3_render import derive_h3_render_input_mode
+        from panelforge.infrastructure.presets.h3_bunny import derive_h3_render_input_mode as bunny_resolver
+
+        self.assertIs(public_resolver, derive_h3_render_input_mode)
+        self.assertIs(bunny_resolver, derive_h3_render_input_mode)
+        for first, last, expected in (
+            (False, False, H3RenderInputMode.T2VA),
+            (True, False, H3RenderInputMode.I2VA),
+            (False, True, H3RenderInputMode.L2VA),
+            (True, True, H3RenderInputMode.FL2VA),
+        ):
+            with self.subTest(first=first, last=last):
+                self.assertIs(derive_h3_render_input_mode(first, last), expected)
+
     def test_duration_mismatch_is_a_warning_and_matching_duration_is_silent(self) -> None:
         prompt = (
             "How the reference pictures align with the target video — <Picture 1> "

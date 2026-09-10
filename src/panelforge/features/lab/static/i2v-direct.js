@@ -14,7 +14,7 @@
   const multishotCookbookId = "minimax.h3.fl2va.direct.multishot";
   const animalInterviewCookbookId = "minimax.h3.base.animal-interview";
   const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
-  const preferredCookbookKey = "minimax.h3.fl2va.direct.guided@1.1.0";
+  const preferredCookbookKey = "minimax.h3.fl2va.direct.guided@1.2.0";
 
   const state = {
     spec: null,
@@ -43,6 +43,7 @@
     model: $("#i2vd-model"),
     refreshModels: $("#i2vd-refresh-models"),
     cookbook: $("#i2vd-cookbook"),
+    preparationFamily: $("#i2vd-preparation-family"),
     sequenceKind: $("#i2vd-sequence-kind"),
     activeCookbook: $("#i2vd-active-cookbook"),
     imageInput: $("#i2vd-image-input"),
@@ -73,6 +74,8 @@
     creativeCameraValue: $("#i2vd-creative-camera-value"),
     creativeExtraMotion: $("#i2vd-creative-extra-motion"),
     creativeExtraMotionValue: $("#i2vd-creative-extra-motion-value"),
+    creativeDialogue: $("#i2vd-creative-dialogue"),
+    creativeDialogueValue: $("#i2vd-creative-dialogue-value"),
     creativeAudacityControl: $("#i2vd-creative-audacity-control"),
     creativeAudacity: $("#i2vd-creative-audacity"),
     creativeAudacityValue: $("#i2vd-creative-audacity-value"),
@@ -257,15 +260,35 @@
   function selectedCreativeBriefVariant(cookbook = state.cookbook) {
     // Pinned per profile: reopening an old run keeps its former Brief recipe.
     const profile = selectedProfile(cookbook);
-    return (profile?.id === monoCookbookId && profile.version === "0.5.0")
-      || (profile?.id === multishotCookbookId && profile.version === "0.2.0")
+    return (profile?.id === monoCookbookId && ["0.5.0", "0.6.0"].includes(profile.version))
+      || (profile?.id === multishotCookbookId && ["0.2.0", "0.3.0"].includes(profile.version))
       ? { id: creativeBriefVariant.id, version: "0.3.0" }
       : creativeBriefVariant;
   }
 
+  const combatControls = window.PanelForgeCombatControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
+
+  function preparationFamily(value = state.session || activeCookbookSpec() || state.cookbook) {
+    return value?.preparation?.family || "classic";
+  }
+
+  function changePreparationFamily() {
+    if (state.session || interactionLocked()) return render();
+    const family = elements.preparationFamily.value;
+    if (family === "combat") return combatControls.choose("combat", "1.3.0");
+    const choices = directCookbooks().filter((item) => preparationFamily(item) === family
+      && core.recipeTier(cookbookKey(item)) === "standard"
+      && sequenceKind(item) === elements.sequenceKind.value);
+    const next = choices.find((item) => item.preparation_steps === preparationSteps()) || choices[0];
+    if (!next) return render();
+    state.cookbook = next;
+    elements.creativeDirection.checked = false;
+    render();
+  }
+
   function creativeBriefPayload() {
     const variant = selectedCreativeBriefVariant();
-    return elements.creativeDirection.checked
+    return creativeBriefAvailable() && elements.creativeDirection.checked
       ? {
         brief_variant_id: variant.id,
         brief_variant_version: variant.version,
@@ -281,7 +304,8 @@
   }
 
   function sequenceKind(cookbook) {
-    return cookbook?.id === multishotCookbookId || cookbook?.id?.startsWith(`${multishotCookbookId}.`)
+    return cookbook?.profile?.id === "minimax.h3.fl2va.combat.multishot"
+      || cookbook?.id === multishotCookbookId || cookbook?.id?.startsWith(`${multishotCookbookId}.`)
       ? "multi" : "mono";
   }
 
@@ -289,6 +313,8 @@
     if (state.session || interactionLocked()) return render();
     const family = elements.sequenceKind.value;
     const choices = directCookbooks().filter((item) => sequenceKind(item) === family
+      && preparationFamily(item) === preparationFamily()
+      && (preparationFamily() !== "combat" || item.preparation.version === state.cookbook?.preparation?.version)
       && core.recipeTier(cookbookKey(item)) === "standard");
     const next = choices.find((item) => item.preparation_steps === preparationSteps()) || choices[0];
     if (next) state.cookbook = next;
@@ -303,6 +329,8 @@
       .forEach((cookbook) => {
         const option = document.createElement("option");
         option.value = cookbookKey(cookbook);
+        option.dataset.preparationFamily = preparationFamily(cookbook);
+        option.dataset.preparationVersion = cookbook.preparation?.version || "";
         option.dataset.recipeFamily = sequenceKind(cookbook);
         option.textContent = cookbook.profile ? `${cookbook.display_name} (${cookbook.version})` : cookbook.id === multishotCookbookId
           ? `Multi-plan structuré · 2 à 4 plans (${cookbook.version})`
@@ -392,7 +420,7 @@
     const sessions = (payload.sessions || []).filter(
       (item) => item.profile && (
         (item.session_mode === "h3_base"
-          && [monoProfile.id, multishotProfile.id, animalInterviewProfile.id].includes(item.profile.id))
+          && [monoProfile.id, multishotProfile.id, animalInterviewProfile.id, "minimax.h3.fl2va.combat", "minimax.h3.fl2va.combat.multishot"].includes(item.profile.id))
         || (item.session_mode === "direct_multimodal" && item.profile.id === legacyProfileId)
       ),
     );
@@ -409,7 +437,7 @@
       button.type = "button";
       button.className = "session-link";
       const title = document.createElement("b");
-      title.textContent = sessionInputModeLabel(session);
+      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : "") + sessionInputModeLabel(session);
       const detail = document.createElement("small");
       detail.textContent = session.brief_complete ? "Brief validé" : "Préparation vidéo";
       button.append(title, detail);
@@ -751,6 +779,7 @@
               profile_version: profile.version,
               inherit_brief_variant: false,
               ...creativeBriefPayload(),
+              combat_settings: combatControls.payload(),
             }),
           },
         );
@@ -772,6 +801,7 @@
         body.append("model_id", elements.model.value);
         body.append("profile_id", profile.id);
         body.append("profile_version", profile.version);
+        if (combatControls.payload()) body.append("combat_settings", JSON.stringify(combatControls.payload()));
         if (elements.creativeDirection.checked) {
           const variant = selectedCreativeBriefVariant();
           body.append("brief_variant_id", variant.id);
@@ -806,6 +836,7 @@
       scene_life: Number(elements.creativeSceneLife.value),
       camera: Number(elements.creativeCamera.value),
       extra_motion: Number(elements.creativeExtraMotion.value),
+      dialogue: state.cookbook?.vocal_policy_version ? Number(elements.creativeDialogue.value) : 0,
     };
   }
 
@@ -820,6 +851,7 @@
     elements.creativeSceneLife.value = String(resolved.scene_life ?? fallback);
     elements.creativeCamera.value = String(resolved.camera ?? fallback);
     elements.creativeExtraMotion.value = String(resolved.extra_motion ?? fallback);
+    elements.creativeDialogue.value = String(resolved.dialogue ?? 0);
     updateCreativeAxes();
   }
 
@@ -827,6 +859,8 @@
     elements.creativeSceneLifeValue.value = elements.creativeSceneLife.value;
     elements.creativeCameraValue.value = elements.creativeCamera.value;
     elements.creativeExtraMotionValue.value = elements.creativeExtraMotion.value;
+    elements.creativeDialogueValue.value = elements.creativeDialogue.value;
+    elements.creativeDialogue.closest("label").hidden = !state.cookbook?.vocal_policy_version;
   }
 
   function setCreativeAudacity(value = 2) {
@@ -846,13 +880,14 @@
     const current = currentCreativeAxes();
     return expected.scene_life === current.scene_life
       && expected.camera === current.camera
-      && expected.extra_motion === current.extra_motion;
+      && expected.extra_motion === current.extra_motion
+      && Number(expected.dialogue ?? 0) === current.dialogue;
   }
 
   function creativeAudacityMatch(brief) {
     if (!brief) return false;
     return Number(brief.creative_audacity ?? 0) === Number(
-      (preparationSteps() < 3 || elements.creativeDirection.checked) ? elements.creativeAudacity.value : 0,
+      (preparationFamily() === "combat" || preparationSteps() < 3 || elements.creativeDirection.checked) ? elements.creativeAudacity.value : 0,
     );
   }
 
@@ -861,7 +896,7 @@
     return {
       creative_freedom: creativeAggregate(creative_axes),
       creative_axes,
-      creative_audacity: (preparationSteps() < 3 || elements.creativeDirection.checked)
+      creative_audacity: (preparationFamily() === "combat" || preparationSteps() < 3 || elements.creativeDirection.checked)
         ? Number(elements.creativeAudacity.value)
         : 0,
     };
@@ -971,21 +1006,33 @@
     elements.sequenceKind.value = sequenceKind(activeCookbook || state.cookbook);
     elements.cookbook.dataset.recipeFamily = elements.sequenceKind.value;
     core.refreshRecipeVisibility(elements.cookbook);
+    const combat = preparationFamily() === "combat";
+    elements.preparationFamily.value = preparationFamily();
+    elements.preparationFamily.disabled = interactionLocked() || Boolean(session);
+    elements.cookbook.dataset.preparationFamily = preparationFamily();
+    core.refreshRecipeVisibility(elements.cookbook);
+    const audacityHint = elements.creativeAudacityControl?.querySelector("small");
+    if (audacityHint) {
+      if (!audacityHint.dataset.classicText) audacityHint.dataset.classicText = audacityHint.textContent;
+      audacityHint.textContent = combat ? "Initiative et richesse de la chor\u00e9graphie" : audacityHint.dataset.classicText;
+    }
+    combatControls.draw(activeCookbook || state.cookbook);
+    core.refreshRecipeVisibility(elements.cookbook);
     const locked = interactionLocked();
     const creativeBriefVisible = creativeBriefAvailable(activeCookbook || state.cookbook);
     if (!creativeBriefVisible && !session) elements.creativeDirection.checked = false;
     elements.creativeDirectionOption.hidden = !creativeBriefVisible;
     const shortRoute = preparationSteps() < 3;
     const intentLocked = Boolean(shortRoute && state.composition?.preparation_intent);
-    elements.creativeAudacityControl.hidden = !creativeBriefVisible && !shortRoute;
+    elements.creativeAudacityControl.hidden = !combat && !creativeBriefVisible && !shortRoute;
     elements.creativeDirection.disabled = locked || !creativeBriefVisible
       || Boolean(session && session.active_brief);
-    elements.creativeAudacity.disabled = locked || intentLocked || (!shortRoute && (!creativeBriefVisible
-      || !elements.creativeDirection.checked || Boolean(session && session.active_brief)));
+    elements.creativeAudacity.disabled = locked || intentLocked || (combat ? Boolean(session && session.active_brief)
+      : (!shortRoute && (!creativeBriefVisible || !elements.creativeDirection.checked || Boolean(session && session.active_brief))));
     core.renderPreparationStages(elements, core.preparationStages(activeCookbook));
     renderPreparationCopy(activeCookbook);
     renderQuickStatus();
-    elements.cookbook.disabled = locked || Boolean(compositionReference);
+    elements.cookbook.disabled = locked || Boolean(session);
     elements.sequenceKind.disabled = locked || Boolean(session);
     elements.activeCookbook.textContent = activeCookbook
       ? compositionReference
@@ -1024,7 +1071,7 @@
     for (const control of [elements.animal, elements.environment, elements.dialogueLanguage, elements.duration, elements.partialScript, elements.postAction]) {
       control.disabled = locked || !animalRecipe;
     }
-    for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
+    for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion, elements.creativeDialogue]) {
       control.disabled = locked || intentLocked;
     }
     elements.showReasoning.disabled = locked;
@@ -1073,7 +1120,8 @@
     const audacityLabel = brief
       ? brief.creative_audacity ?? 0
       : Number(elements.creativeAudacity.value);
-    const briefLabel = shortRoute ? `Intention directe · audace ${audacityLabel}/3` : session.brief_variant
+    const briefLabel = combat ? `${shortRoute ? "Intention" : "Brief"} Combat ${session.preparation.version} \u00b7 audace ${audacityLabel}/3`
+      : shortRoute ? `Intention directe · audace ${audacityLabel}/3` : session.brief_variant
       ? `Brief : direction créative ${session.brief_variant.version} · audace ${audacityLabel}/3`
       : `Brief : standard ${session.profile.version}`;
     elements.sessionConfig.textContent = `Modèle : ${session.model_id} · ${briefLabel} · Recette : ${recipeLabel}`;
@@ -1701,6 +1749,7 @@
     );
     if (selectedCookbook) state.cookbook = selectedCookbook;
     state.forkSource = null;
+    combatControls.restore(null);
     state.session = null;
     state.composition = null;
     state.quickRecord = null;
@@ -1718,7 +1767,7 @@
     render();
   }
 
-  async function prefillFirstFrame({ assetId, label, sourceSessionId = null }) {
+  async function prefillFirstFrame({ assetId, label, sourceSessionId = null, preparation = null, combatSettings = null }) {
     if (!state.spec || !state.cookbook) throw new Error("H3 Base est encore en cours de chargement.");
     if (interactionLocked()) throw new Error("Une préparation H3 Base est en cours. Réessayez après sa fin.");
     if (typeof assetId !== "string" || !assetId) throw new Error("La frame de fin est indisponible.");
@@ -1730,9 +1779,31 @@
         const payload = await core.request(`/api/prompt-lab/sessions/${encodeURIComponent(sourceSessionId)}/composition`);
         const reference = payload.composition?.cookbook;
         sourceCookbook = directCookbooks().find((item) => cookbookKey(item) === cookbookKey(reference)) || null;
+        const origin = state.cookbooks.find((item) => cookbookKey(item) === cookbookKey(reference));
+        const pinnedPreparation = preparation || origin?.preparation;
+        const fromRef2V = reference?.id?.startsWith("minimax.h3.ref2v.");
+        if (pinnedPreparation?.family === "combat" && !sourceCookbook && fromRef2V) {
+          sourceCookbook = directCookbooks().find((item) => item.preparation?.family === "combat"
+            && item.preparation.version === pinnedPreparation.version
+            && sequenceKind(item) === "mono" && item.preparation_steps === (origin?.preparation_steps ?? 3));
+          if (!sourceCookbook) throw new Error("La version Combat de ce rendu est indisponible. Le parcours courant est conservé.");
+        }
+        if (!sourceCookbook && fromRef2V && pinnedPreparation?.family !== "combat") {
+          sourceCookbook = directCookbooks().find((item) => preparationFamily(item) === "classic"
+            && sequenceKind(item) === "mono" && item.preparation_steps === (origin?.preparation_steps ?? 3)
+            && core.recipeTier(cookbookKey(item)) === "standard");
+          if (!sourceCookbook) throw new Error("La préparation Classique de destination est indisponible.");
+        }
+        if (!sourceCookbook && reference?.id?.startsWith("minimax.h3.fl2va.combat")) {
+          throw new Error("La recette Combat exacte de ce rendu est indisponible. Le parcours courant est conservé.");
+        }
         if (reference?.id?.startsWith(multishotCookbookId) && !sourceCookbook) {
           throw new Error("La recette multi-plan de ce rendu est indisponible. Le parcours courant est conservé.");
         }
+      }
+      if (preparation?.family === "combat" && (!sourceCookbook || sourceCookbook.preparation?.family !== "combat"
+        || sourceCookbook.preparation.version !== preparation.version)) {
+        throw new Error("La reprise doit conserver la version Combat du rendu.");
       }
       const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}/content`);
       if (!response.ok) throw new Error("Impossible de charger la frame de fin.");
@@ -1748,6 +1819,7 @@
       } else if (state.cookbook?.id !== monoCookbookId && !state.cookbook?.profile) {
         state.cookbook = directCookbooks().find((item) => cookbookKey(item) === preferredCookbookKey);
       }
+      if (["1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(preparation?.version)) combatControls.restore(combatSettings);
       setSelectedFile("first", file);
       showSetupMessage("Dernière frame sélectionnée comme première image. Décrivez la suite pour créer le nouveau parcours.");
       window.PanelForgeLabNavigation?.switchView("i2v-direct");
@@ -1769,6 +1841,7 @@
   document.querySelectorAll('[data-lab-view="i2v-direct"]').forEach((button) => {
     button.addEventListener("click", refreshModels);
   });
+  elements.preparationFamily.addEventListener("change", changePreparationFamily);
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupMessage(error.message)));
   elements.sequenceKind.addEventListener("change", changeSequenceKind);
   elements.cookbook.addEventListener("change", () => {
@@ -1814,7 +1887,7 @@
       setBusy(false);
     }
   });
-  for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
+  for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion, elements.creativeDialogue]) {
     control.addEventListener("input", () => { updateCreativeAxes(); render(); });
   }
   elements.creativeAudacity.addEventListener("input", () => {

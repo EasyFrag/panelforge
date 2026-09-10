@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .video_preparation import VideoPreparationRef, CombatSettings, validate_combat_settings
+
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
@@ -140,12 +142,14 @@ class CreativeFreedomAxes:
     scene_life: int
     camera: int
     extra_motion: int
+    dialogue: int = 0
 
     def __post_init__(self) -> None:
         for value, name in (
             (self.scene_life, "scene_life"),
             (self.camera, "camera"),
             (self.extra_motion, "extra_motion"),
+            (self.dialogue, "dialogue"),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3:
                 raise ValueError(f"{name} must be between 0 and 3")
@@ -163,6 +167,7 @@ class BriefRevision:
     instruction: str | None = None
     creative_axes: CreativeFreedomAxes | None = None
     creative_audacity: int = 0
+    vocal_dialogues: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -184,6 +189,10 @@ class BriefRevision:
             CreativeFreedomAxes,
         ):
             raise TypeError("creative_axes must be CreativeFreedomAxes or None")
+        if not isinstance(self.vocal_dialogues, tuple) or any(
+            not isinstance(line, str) or not line.strip() for line in self.vocal_dialogues
+        ):
+            raise ValueError("vocal_dialogues must contain non-empty speech lines")
         if (
             isinstance(self.creative_audacity, bool)
             or not isinstance(self.creative_audacity, int)
@@ -408,6 +417,13 @@ class PromptLabSession:
     brief_revisions: tuple[BriefRevision, ...] = ()
     active_brief_revision_id: str | None = None
     approved_brief_revision_id: str | None = None
+    preparation: VideoPreparationRef = VideoPreparationRef()
+    combat_settings: CombatSettings | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.preparation, VideoPreparationRef):
+            raise TypeError("preparation must be a VideoPreparationRef")
+        validate_combat_settings(self.preparation, self.combat_settings)
 
     @property
     def analysis_complete(self) -> bool:

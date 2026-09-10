@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
+from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings
 
 from panelforge.domain import (
     AnalysisRevision,
@@ -34,7 +35,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 13
 _SESSION_KEYS_V1_V2 = {
     "schema_version",
     "created_at",
@@ -89,6 +90,7 @@ _BRIEF_REVISION_KEYS = _REVISION_KEYS | {
 }
 _BRIEF_REVISION_KEYS_V6 = _BRIEF_REVISION_KEYS | {"creative_axes"}
 _BRIEF_REVISION_KEYS_V8 = _BRIEF_REVISION_KEYS_V6 | {"creative_audacity"}
+_BRIEF_REVISION_KEYS_V9 = _BRIEF_REVISION_KEYS_V8 | {"vocal_dialogues"}
 _BRIEF_REFERENCE_KEYS_V3 = {
     "reference_id",
     "analysis_revision_id",
@@ -191,12 +193,13 @@ class LocalPromptSessionStore:
         _require_regular_file(path)
         data = _read_json_object(path)
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2, 3, 4, 5, 6, 7, _SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, _SCHEMA_VERSION}:
             raise StorageCorruptionError(
                 f"unsupported prompt session schema for {expected_id!r}"
             )
         expected_keys = (
-            _SESSION_KEYS_V7
+            (_SESSION_KEYS_V7 | {"preparation", "combat_settings"}) if schema_version >= 11 else
+            (_SESSION_KEYS_V7 | {"preparation"}) if schema_version >= 10 else _SESSION_KEYS_V7
             if schema_version >= 7
             else _SESSION_KEYS_V5
             if schema_version >= 5
@@ -242,6 +245,8 @@ def _session_to_dict(
 ) -> dict[str, object]:
     return {
         "schema_version": _SCHEMA_VERSION,
+        "preparation": session.preparation.as_dict(),
+        "combat_settings": session.combat_settings.as_dict() if session.combat_settings else None,
         "created_at": created_at,
         "updated_at": updated_at,
         "session_id": session.session_id,
@@ -258,11 +263,13 @@ def _session_to_dict(
                 "content": revision.content,
                 "creative_freedom": revision.creative_freedom,
                 "creative_audacity": revision.creative_audacity,
+                "vocal_dialogues": list(revision.vocal_dialogues),
                 "creative_axes": (
                     {
                         "scene_life": revision.creative_axes.scene_life,
                         "camera": revision.creative_axes.camera,
                         "extra_motion": revision.creative_axes.extra_motion,
+                        "dialogue": revision.creative_axes.dialogue,
                     }
                     if revision.creative_axes is not None
                     else None
@@ -434,7 +441,9 @@ def _session_from_dict(
                 not isinstance(raw_revision, dict)
                 or set(raw_revision)
                 != (
-                    _BRIEF_REVISION_KEYS_V8
+                    _BRIEF_REVISION_KEYS_V9
+                    if schema_version >= 9
+                    else _BRIEF_REVISION_KEYS_V8
                     if schema_version >= 8
                     else _BRIEF_REVISION_KEYS_V6
                     if schema_version >= 6
@@ -494,6 +503,7 @@ def _session_from_dict(
                         and raw_revision["creative_axes"] is not None
                         else None
                     ),
+                    vocal_dialogues=_vocal_dialogues(raw_revision["vocal_dialogues"]) if schema_version >= 9 else (),
                     origin=RevisionOrigin(raw_revision["origin"]),
                     references=tuple(brief_references),
                     parent_revision_id=raw_revision["parent_revision_id"],
@@ -506,6 +516,8 @@ def _session_from_dict(
         profile_id=data["profile_id"],
         profile_version=data["profile_version"],
         brief_variant_id=(data["brief_variant_id"] if schema_version >= 7 else None),
+        preparation=VideoPreparationRef.from_dict(data["preparation"]) if schema_version >= 10 else VideoPreparationRef(),
+        combat_settings=CombatSettings.from_dict(data["combat_settings"]) if schema_version >= 11 and data["combat_settings"] is not None else None,
         brief_variant_version=(
             data["brief_variant_version"] if schema_version >= 7 else None
         ),
@@ -523,3 +535,9 @@ def _session_from_dict(
             data["approved_brief_revision_id"] if schema_version >= 3 else None
         ),
     )
+
+
+def _vocal_dialogues(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+        raise ValueError("vocal_dialogues must be a list of non-empty strings")
+    return tuple(value)

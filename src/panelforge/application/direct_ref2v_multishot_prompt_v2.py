@@ -298,6 +298,8 @@ def _render_sentences(values: tuple[str, ...]) -> str:
 def lint_direct_ref2v_multishot_prompt_v2(
     content: str,
     compiler_context: str | DirectRef2VMultiShotCompilerContextV2 | None = None,
+    *,
+    preserve_h3_landmarks: bool = False,
 ) -> tuple[str, ...]:
     """Validate flexible structure and, when known, exact compiler ownership."""
 
@@ -306,7 +308,7 @@ def lint_direct_ref2v_multishot_prompt_v2(
     except (TypeError, ValueError) as error:
         return (str(error),)
 
-    errors = list(_lint_compiled_structure(value))
+    errors = list(_lint_compiled_structure(value, preserve_h3_landmarks=preserve_h3_landmarks))
     if compiler_context is None:
         return tuple(errors)
     try:
@@ -525,13 +527,13 @@ def _validate_writer_fields(
             raise ValueError(f"camera-owned writer field {field}: {error}") from error
 
 
-def _lint_compiled_structure(content: str) -> tuple[str, ...]:
+def _lint_compiled_structure(content: str, *, preserve_h3_landmarks: bool = False) -> tuple[str, ...]:
     errors: list[str] = []
     if _LEGACY_LABEL.search(content):
         errors.append(
             "The compiled multi-shot V2 prompt must use only canonical <Picture N> labels."
         )
-    if "<scenetrans>" in content:
+    if "<scenetrans>" in content and not preserve_h3_landmarks:
         errors.append("Direct Ref2V multi-shot V2 prompts must not use <scenetrans>.")
     if "[[" in content or "]]" in content:
         errors.append("An unresolved or malformed compiler placeholder remains.")
@@ -570,8 +572,15 @@ def _lint_compiled_structure(content: str) -> tuple[str, ...]:
         left >= right for left, right in zip(later_times, later_times[1:])
     ):
         errors.append("Multi-shot V2 cut timestamps must increase strictly.")
-    if len(_ANY_TIMESTAMP.findall(content)) != shot_count - 1:
+    if not preserve_h3_landmarks and len(_ANY_TIMESTAMP.findall(content)) != shot_count - 1:
         errors.append("The compiled multi-shot V2 prompt contains unexpected timestamps.")
+    if preserve_h3_landmarks:
+        # H3 carries timed dialogue and the final-state landmark inside shots.
+        # Those are meaningful source decisions, distinct from cut headings.
+        times = [int(m) * 60000 + int(s) * 1000 + int(ms)
+                 for m, s, ms in re.findall(r"\bAt\s+(\d{2}):(\d{2})\.(\d{3})\b", content)]
+        if times != sorted(times):
+            errors.append("Adapted H3 action landmarks must remain chronological.")
 
     first_heading_start = raw_headings[0].start()
     opening = content[:first_heading_start].strip()
@@ -592,7 +601,8 @@ def _lint_compiled_structure(content: str) -> tuple[str, ...]:
         errors.append("Picture labels must be contiguous from 1 to at most 3.")
     for number in picture_numbers:
         label = f"<Picture {number}>"
-        if content.count(label) != 1 or label not in header:
+        owner = header if preserve_h3_landmarks else content
+        if owner.count(label) != 1 or label not in header:
             errors.append(f"{label} must appear exactly once in the compiled header.")
 
     audio = {

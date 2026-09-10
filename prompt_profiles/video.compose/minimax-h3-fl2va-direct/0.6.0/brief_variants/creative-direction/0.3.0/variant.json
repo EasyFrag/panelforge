@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "variant_id": "creative-direction",
+  "version": "0.3.0",
+  "display_name": "Direction cr\u00e9ative avec audace \u2014 exp\u00e9rimental",
+  "prompts": {
+    "brief_system": "brief_system.txt",
+    "brief_user": "brief_user.txt",
+    "brief_revision_system": "brief_revision_system.txt",
+    "brief_revision_user": "brief_revision_user.txt"
+  }
+}

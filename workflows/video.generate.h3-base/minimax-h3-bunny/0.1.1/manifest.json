@@ -1,0 +1,190 @@
+{
+  "operation_id": "video.generate.h3-base",
+  "recipe_id": "minimax-h3-bunny",
+  "version": "0.1.1",
+  "status": "experimental",
+  "workflow": {
+    "file": "workflow_api.json",
+    "sha256": "8c2f4419f0f121e8cf4aa0e92cac5fd86a6267ca6fba0ad9da3290edf503243b"
+  },
+  "nodes": {
+    "plain_model": "69",
+    "hybrid_model": "66",
+    "turbo": "5",
+    "attention": "67",
+    "conditionings": [
+      "7",
+      "14"
+    ],
+    "clock": "8",
+    "plan": "9",
+    "prompt": "49",
+    "resolution": "29",
+    "duration": "27",
+    "noise": "11",
+    "upscale": "13",
+    "scale": "54",
+    "loras": [
+      "45",
+      "46"
+    ],
+    "detail": "16",
+    "decode": "20",
+    "output": "53"
+  },
+  "templates": {
+    "first": {
+      "id": "100",
+      "class_type": "LoadImage",
+      "input": "image"
+    },
+    "last": {
+      "id": "101",
+      "class_type": "LoadImage",
+      "input": "image"
+    },
+    "references": {
+      "base": 110,
+      "class_type": "LoadImage",
+      "input": "image"
+    },
+    "preview": {
+      "ids": [
+        "120",
+        "121"
+      ],
+      "class_type": "ModelPreviewOverrideKJ",
+      "inputs": {
+        "max_resolution": 768,
+        "jpeg_quality": 75,
+        "suppress_default_preview": true,
+        "preview_frames": 8,
+        "preview_fps": 12,
+        "tiny_vae": "taeh3.safetensors"
+      }
+    },
+    "keyframes": {
+      "extract_base": 9200,
+      "save_base": 9300,
+      "extract_class": "ImageFromBatch",
+      "save_class": "SaveImage",
+      "maximum": 8,
+      "margin_ms": 500
+    }
+  },
+  "tasks": {
+    "t2va": "T2VA",
+    "i2va": "I2VA",
+    "l2va": "L2VA",
+    "fl2va": "FL2VA",
+    "ref2va": "Ref2VA"
+  },
+  "resources": {
+    "1": [
+      "vae_name"
+    ],
+    "2": [
+      "vae_name"
+    ],
+    "3": [
+      "clip_name"
+    ],
+    "5": [
+      "lora_name"
+    ],
+    "13": [
+      "model_name"
+    ],
+    "45": [
+      "lora_name"
+    ],
+    "46": [
+      "lora_name"
+    ],
+    "66": [
+      "base_model",
+      "overlay_model"
+    ],
+    "69": [
+      "unet_name"
+    ],
+    "120": [
+      "tiny_vae"
+    ],
+    "121": [
+      "tiny_vae"
+    ]
+  },
+  "progress": {
+    "initial": {
+      "id": "starting",
+      "label": "Preparation BUNNY"
+    },
+    "phases": [
+      {
+        "id": "coarse",
+        "label": "Premiere passe",
+        "node_ids": [
+          "12"
+        ],
+        "start_percent": 5,
+        "end_percent": 42,
+        "tracks_steps": true
+      },
+      {
+        "id": "upscale",
+        "label": "Upscale latent",
+        "node_ids": [
+          "13",
+          "14",
+          "15"
+        ],
+        "start_percent": 42,
+        "end_percent": 50
+      },
+      {
+        "id": "refine",
+        "label": "Seconde passe",
+        "node_ids": [
+          "19"
+        ],
+        "start_percent": 50,
+        "end_percent": 90,
+        "tracks_steps": true
+      },
+      {
+        "id": "decode",
+        "label": "Decodage et enregistrement",
+        "node_ids": [
+          "20",
+          "51",
+          "53"
+        ],
+        "start_percent": 90,
+        "end_percent": 99
+      }
+    ]
+  },
+  "checkpoint_selection": {
+    "schema_version": 1,
+    "sources": {
+      "h3-base": {
+        "node_id": "69",
+        "checkpoint_input": "unet_name"
+      },
+      "ref2va": {
+        "node_id": "66",
+        "checkpoint_input": "base_model",
+        "overlay_input": "overlay_model"
+      }
+    },
+    "direct_loader": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "",
+        "weight_dtype": "default"
+      }
+    },
+    "direct_checkpoint_input": "unet_name"
+  }
+}

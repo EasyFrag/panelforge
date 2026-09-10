@@ -1,0 +1,1 @@
+Revise the editable Combat document according to the user's change. {{STAGE_CONTRACT}} Return only the complete revised document in that contract, not a patch or discussion. Preserve reference ownership, dialogue placeholders and approved choreography outside the requested change. The application owns frame headers, cameras, cut times and final landmarks.

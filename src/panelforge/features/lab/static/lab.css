@@ -309,6 +309,12 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .creative-axes-control > label span small { color: var(--muted); font-size: .6rem; font-weight: 500; }
 .creative-axes-control input[type="range"] { width: 100%; min-width: 0; }
 .creative-axes-control output { color: var(--green); font-size: .72rem; font-weight: 850; text-align: right; }
+.combat-controls { display: grid; gap: .85rem; min-width: 0; margin-top: .8rem; padding: .75rem; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.combat-controls > label { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .45rem .6rem; min-width: 0; font-size: .75rem; }
+.combat-controls input[type="range"], .combat-controls select { grid-column: 1 / -1; width: 100%; min-width: 0; margin: 0; }
+.combat-controls input[type="range"] { accent-color: var(--green); }
+.combat-controls output { color: var(--green); font-weight: 850; text-align: right; white-space: nowrap; }
+.combat-controls small { grid-column: 1 / -1; color: var(--muted); font-size: .68rem; line-height: 1.5; }
 .creative-axes-control > label.creative-audacity-axis { margin-bottom: .2rem; padding-bottom: .55rem; border-bottom: 1px solid var(--line); }
 .creative-axes-control > label.creative-audacity-axis input:disabled { opacity: .45; }
 .creative-axes-summary { text-align: right; }
@@ -1322,10 +1328,12 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .h3-render-prompt { border: 1px solid var(--line); border-radius: 10px; padding: .55rem .7rem; }
 .h3-render-prompt summary { cursor: pointer; font-weight: 750; }
 .h3-render-prompt textarea { width: 100%; margin-top: .55rem; min-height: 8rem; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .76rem; }
-.h3-render-settings { display: grid; grid-template-columns: 1.5fr repeat(3, minmax(78px, .65fr)) 1.25fr 1fr 1fr; gap: .55rem; }
+.h3-render-settings { display: grid; grid-template-columns: 1.5fr repeat(4, minmax(78px, .65fr)) 1.25fr 1fr 1fr; gap: .55rem; align-items: start; }
 #h3r-lab .h3-render-settings { grid-template-columns: 1.5fr repeat(4, minmax(78px, .65fr)) 1.25fr 1fr 1fr; }
 .h3-render-settings > label, .h3-render-conversation > label { display: grid; gap: .28rem; font-size: .74rem; font-weight: 700; }
 .h3-render-settings input, .h3-render-settings select { min-width: 0; width: 100%; }
+.h3-render-settings [data-initial-note] { font-weight: 400; color: var(--muted); }
+.h3-render-settings [data-initial-note]:empty { display: none; }
 .h3-video-lora { display: grid; grid-template-columns: minmax(190px, .55fr) minmax(0, 1.45fr); gap: .65rem; align-items: end; padding: .7rem; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .42); }
 .h3-video-lora > label, .h3-video-lora-fields > label { display: grid; gap: .28rem; min-width: 0; font-size: .74rem; font-weight: 700; }
 .h3-video-lora select { min-width: 0; width: 100%; }
@@ -1333,6 +1341,19 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .h3-video-lora-fields output { float: right; font-variant-numeric: tabular-nums; }
 .h3-video-lora-clip { display: flex !important; grid-auto-flow: column; align-items: center; justify-content: start; white-space: nowrap; padding-bottom: .55rem; }
 .h3-video-lora > small { grid-column: 1 / -1; }
+.h3-lora-stack { grid-column: 1 / -1; min-width: 0; }
+.h3-lora-rows { display: grid; gap: .6rem; }
+.h3-lora-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
+.h3-lora-row > label { display: grid; gap: .25rem; font-size: .75rem; font-weight: 700; }
+.h3-lora-row .h3-lora-enabled { display: flex; align-items: center; gap: .3rem; align-self: center; }
+.h3-lora-model { flex: 1 1 260px; min-width: 0; }
+.h3-lora-model select { text-overflow: ellipsis; }
+.h3-lora-force { flex: 0 0 80px; }
+.h3-lora-force input { width: 100%; min-width: 0; }
+.h3-lora-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; margin: .55rem 0 .3rem; }
+.h3-lora-actions button { padding: .35rem .55rem; font-size: .75rem; }
+.h3-lora-clip { display: flex; gap: .3rem; align-items: center; font-size: .75rem; }
+.h3-lora-stack > small { display: block; overflow-wrap: anywhere; }
 .h3-render-seed span { display: flex; align-items: center; gap: .3rem; font-weight: 500; }
 .h3-render-seed span input { width: auto; }
 .h3-render-feature-toggle > span:last-child { display: flex; min-height: 38px; align-items: center; gap: .35rem; padding: 0 .55rem; border: 1px solid var(--line); border-radius: 8px; background: white; font-weight: 500; }
@@ -1585,3 +1606,19 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .dlss-background { position: fixed; bottom: 12px; right: 12px; z-index: 35; width: min(410px, calc(100vw - 24px)); padding: 10px 14px; background: #faf9f5; border: 1px solid #a2beb0; border-radius: 12px; box-shadow: 0 3px 14px #0002; }
 .dlss-background summary { cursor: pointer; font-size: .8rem; font-weight: 650; }
 .dlss-background > div { max-height: 45vh; overflow-y: auto; }
+.h3-recipe-picker { display: block; max-width: 30rem; margin: 0.8rem 0; }
+.h3-bunny-controls { padding: 0.8rem; border: 1px solid var(--line, #d9d2c6); border-radius: 10px; margin-bottom: 0.8rem; }
+.h3-bunny-controls > small { display: block; overflow-wrap: anywhere; }
+.h3-bunny-controls[hidden] { display: none; }
+
+.h3-adaptation-references { display: flex; flex-wrap: wrap; gap: 12px; }
+.h3-adaptation-references figure { margin: 8px 0; max-width: 180px; }
+.h3-adaptation-references img { max-width: 100%; max-height: 220px; object-fit: contain; }
+.h3-adaptation-entry { display: block; width: 100%; margin: 8px 0; overflow-wrap: anywhere; }
+
+.h3-checkpoint-panel { margin: 8px 0 16px; padding: 8px 12px; border: 1px solid var(--line, #d8d2c8); border-radius: 10px; }
+.h3-checkpoint-panel summary { cursor: pointer; overflow-wrap: anywhere; }
+.h3-checkpoint-picker { display: flex; align-items: end; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.h3-checkpoint-picker label { flex: 1 1 260px; min-width: 0; }
+.h3-checkpoint-picker select { width: 100%; }
+.h3-checkpoint-panel p { margin: 8px 0 0; overflow-wrap: anywhere; }

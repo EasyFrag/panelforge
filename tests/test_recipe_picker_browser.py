@@ -21,12 +21,12 @@ class RecipePickerBrowserTest(unittest.TestCase):
           const select = document.querySelector('select');
           const core = window.PanelForgeLabCore;
           const keys = [
-            'minimax.h3.fl2va.direct.guided@1.1.0',
-            'minimax.h3.fl2va.direct.planned@1.1.0',
-            'minimax.h3.fl2va.direct.prompt@1.1.0',
-            'minimax.h3.ref2v.direct.guided@1.0.0',
-            'minimax.h3.ref2v.direct.planned@1.0.0',
-            'minimax.h3.ref2v.direct.prompt@1.0.0',
+            'minimax.h3.fl2va.direct.guided@1.2.0',
+            'minimax.h3.fl2va.direct.planned@1.2.0',
+            'minimax.h3.fl2va.direct.prompt@1.2.0',
+            'minimax.h3.ref2v.direct.guided@1.1.0',
+            'minimax.h3.ref2v.direct.planned@1.1.0',
+            'minimax.h3.ref2v.direct.prompt@1.1.0',
             'minimax.h3.fl2va.direct@0.3.3',
             'minimax.h3.fl2va.direct@0.3.2',
             'minimax.h3.fl2va.direct.multishot@0.1.0',
@@ -75,21 +75,69 @@ class RecipePickerBrowserTest(unittest.TestCase):
           familyLabel.append(familySelect); document.body.append(familyLabel);
           for (const family of ['mono', 'multi']) {
             for (const route of ['guided', 'planned', 'prompt']) {
-              const key = family === 'mono' ? `minimax.h3.fl2va.direct.${route}@1.1.0`
-                : `minimax.h3.fl2va.direct.multishot.${route}@1.0.0`;
+              const key = family === 'mono' ? `minimax.h3.fl2va.direct.${route}@1.2.0`
+                : `minimax.h3.fl2va.direct.multishot.${route}@1.1.0`;
               const option = new Option(key, key); option.dataset.recipeFamily = family; familySelect.add(option);
             }
           }
           const familyVisible = () => [...familySelect.options].filter(o => !o.hidden);
           familySelect.dataset.recipeFamily = 'mono'; core.refreshRecipeVisibility(familySelect);
           check(familyVisible().length === 3 && familyVisible().every(o => o.dataset.recipeFamily === 'mono'), 'three mono routes only');
-          familySelect.value = 'minimax.h3.fl2va.direct.multishot.planned@1.0.0';
+          familySelect.value = 'minimax.h3.fl2va.direct.multishot.planned@1.1.0';
           familySelect.dataset.recipeFamily = 'multi'; core.refreshRecipeVisibility(familySelect);
           check(familyVisible().length === 3 && familyVisible().every(o => o.dataset.recipeFamily === 'multi'), 'three multi routes only');
           const oldMulti = new Option('old multi', 'minimax.h3.fl2va.direct.multishot@0.1.0');
           oldMulti.dataset.recipeFamily = 'multi'; familySelect.add(oldMulti); familySelect.value = oldMulti.value;
           core.refreshRecipeVisibility(familySelect);
           check(!oldMulti.hidden && core.recipeTier(oldMulti.value) === 'historical', 'saved old multi remains selectable');
+          for (const option of familySelect.options) option.dataset.preparationFamily='classic';
+          for (const sequence of ['mono','multi']) for (const route of ['guided','planned','prompt']) {
+            const key=`minimax.h3.fl2va.combat${sequence==='multi'?'.multishot':''}.${route}@1.0.0`;
+            const option=new Option(key,key); option.dataset.recipeFamily=sequence; option.dataset.preparationFamily='combat'; familySelect.add(option);
+          }
+          familySelect.value='minimax.h3.fl2va.combat.multishot.planned@1.0.0';
+          familySelect.dataset.preparationFamily='combat'; core.refreshRecipeVisibility(familySelect);
+          check(familyVisible().length===3 && familyVisible().every(o=>o.dataset.preparationFamily==='combat' && o.dataset.recipeFamily==='multi'), 'Combat shows only its three matching routes');
+          familySelect.dataset.preparationFamily='classic'; familySelect.value='minimax.h3.fl2va.direct.multishot.planned@1.1.0';
+          core.refreshRecipeVisibility(familySelect);
+          check(familyVisible().length===3 && familyVisible().every(o=>o.dataset.preparationFamily==='classic'), 'returning to Classic hides all Combat recipes');
+          for (const option of familySelect.options) if (option.dataset.preparationFamily==='combat') option.dataset.preparationVersion='1.0.0';
+          for (const route of ['guided','planned','prompt']) {
+            const key=`minimax.h3.fl2va.combat.${route}@1.1.0`, option=new Option(key,key);
+            Object.assign(option.dataset,{recipeFamily:'mono',preparationFamily:'combat',preparationVersion:'1.1.0'}); familySelect.add(option);
+          }
+          Object.assign(familySelect.dataset,{recipeFamily:'mono',preparationFamily:'combat',preparationVersion:'1.1.0'});
+          familySelect.value='minimax.h3.fl2va.combat.planned@1.1.0'; core.refreshRecipeVisibility(familySelect);
+          check(familyVisible().length===3 && familyVisible().every(o=>o.dataset.preparationVersion==='1.1.0'), 'only selected Combat version routes visible');
+          familySelect.dataset.preparationVersion='1.0.0'; familySelect.value='minimax.h3.fl2va.combat.planned@1.0.0';
+          core.refreshRecipeVisibility(familySelect);
+          check(familyVisible().length===3 && familyVisible().every(o=>o.dataset.preparationVersion==='1.0.0'), 'historical Combat version still selectable');
+          // Regression: 1.1.1 used to be classified as historical, leaving only
+          // the selected guided route visible unless the user enabled archives.
+          for (const mode of ['fl2va','ref2v']) {
+            const label=document.createElement('label'), picker=document.createElement('select');
+            picker.id='combat-routes-'+mode; label.append(picker); document.body.append(label);
+            picker.dataset.preparationFamily='combat';
+            for (const version of ['1.1.0','1.1.1','1.2.0']) for (const route of ['guided','planned','prompt']) {
+              const key=`minimax.h3.${mode}.combat.${route}@${version}`, option=new Option(key,key);
+              Object.assign(option.dataset,{preparationFamily:'combat',preparationVersion:version}); picker.add(option);
+            }
+            const cinematicKey=`minimax.h3.${mode}.combat.planned@1.3.0`, cinematic=new Option(cinematicKey,cinematicKey);
+            Object.assign(cinematic.dataset,{preparationFamily:'combat',preparationVersion:'1.3.0'}); picker.add(cinematic);
+            picker.dataset.preparationVersion='1.3.0'; picker.value=cinematicKey;
+            core.refreshRecipeVisibility(picker);
+            check([...picker.options].filter(o=>!o.hidden).length===1 && !cinematic.hidden,'only two-call cinematic recipe shown');
+            for (const version of ['1.1.0','1.1.1','1.2.0']) {
+              picker.dataset.preparationVersion=version;
+              for (const route of ['guided','planned','prompt']) {
+                picker.value=`minimax.h3.${mode}.combat.${route}@${version}`;
+                core.refreshRecipeVisibility(picker);
+                const available=[...picker.options].filter(o=>!o.hidden);
+                check(available.length===3 && available.every(o=>o.dataset.preparationVersion===version), 'all 1/2/3-call routes visible for '+mode+' '+version);
+              }
+              check(!document.getElementById(picker.id+'-more').querySelector('input:checked'),'no archive toggle required');
+            }
+          }
           const elements = { steps: {}, chips: {} };
           for (const name of ['brief', 'plan', 'prompt']) {
             const chip = document.createElement('div');

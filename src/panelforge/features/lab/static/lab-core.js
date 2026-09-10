@@ -465,9 +465,12 @@
 
   // Presentation policy only: manifests and saved recipe references remain immutable.
   function recipeTier(value) {
-    if (/^minimax\.h3\.fl2va\.direct\.multishot\.(guided|planned|prompt)@1\.0\.0$/.test(value)) return "standard";
-    if (/^minimax\.h3\.fl2va\.direct\.(guided|planned|prompt)@1\.1\.0$/.test(value)) return "standard";
-    if (/^minimax\.h3\.ref2v\.direct\.(guided|planned|prompt)@1\.0\.0$/.test(value)) return "standard";
+    // Combat has its own explicit version selector. Every installed version
+    // exposes all three routes; version filtering happens below, not by tier.
+    if (/^minimax\.h3\.(fl2va|ref2v)\.combat(\.multishot)?\.(guided|planned|prompt)@\d+\.\d+\.\d+$/.test(value)) return "standard";
+    if (/^minimax\.h3\.fl2va\.direct\.multishot\.(guided|planned|prompt)@1\.1\.0$/.test(value)) return "standard";
+    if (/^minimax\.h3\.fl2va\.direct\.(guided|planned|prompt)@1\.2\.0$/.test(value)) return "standard";
+    if (/^minimax\.h3\.ref2v\.direct\.(guided|planned|prompt)@1\.1\.0$/.test(value)) return "standard";
     if (value === "minimax.h3.ref2v.direct@0.5.0") return "standard";
     if ([
       "minimax.h3.base.animal-interview@0.2.0",
@@ -505,7 +508,11 @@
       // A saved or explicitly chosen version always remains visible, including locked runs.
       const otherFamily = select.dataset.recipeFamily && option.dataset.recipeFamily
         && select.dataset.recipeFamily !== option.dataset.recipeFamily;
-      option.hidden = (!enabled.has(tier) || otherFamily) && option.value !== select.value;
+      const otherPreparation = (select.dataset.preparationFamily && option.dataset.preparationFamily
+        && select.dataset.preparationFamily !== option.dataset.preparationFamily)
+        || (select.dataset.preparationVersion && option.dataset.preparationVersion
+          && select.dataset.preparationVersion !== option.dataset.preparationVersion);
+      option.hidden = (!enabled.has(tier) || otherFamily || otherPreparation) && option.value !== select.value;
     }
   }
 

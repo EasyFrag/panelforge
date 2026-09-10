@@ -1,0 +1,95 @@
+{
+  "schema_version": 9,
+  "cookbook_id": "minimax.h3.ref2v.direct.prompt",
+  "version": "1.1.0",
+  "display_name": "Ref2V · Prompt direct · 1 étape",
+  "description": "Intention et images vers prompt H3 en un appel. Un mouvement caméra principal ; durée demandée, sinon 8 s. Optional English dialogue and vocal reactions, policy 1.0.0.",
+  "target_mode": "ref2v_direct",
+  "output_contract": "minimax.h3.mono.prompt_direct_v1",
+  "preset": "ref2v-mono-motion-dialogue-camera-owned-v4",
+  "stages": [
+    "final_prompt"
+  ],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "drop_with_warning",
+  "writer_projection": "full",
+  "visibility": "public",
+  "execution_mode": "supervised",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/ref-en.txt"
+  ],
+  "engine_contract": {
+    "id": "minimax.h3.protocol",
+    "version": "0.1.0"
+  },
+  "slots": [
+    {
+      "id": "references",
+      "label": "Références directes",
+      "description": "Une à neuf images ordonnées ; chaque rôle borne précisément l'influence de son <Picture N>.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": [
+        "subject",
+        "first_frame",
+        "keyframe",
+        "last_frame",
+        "composition",
+        "environment",
+        "style",
+        "motion"
+      ],
+      "required_uses": [],
+      "required_shots": [],
+      "minimum_references": 1,
+      "maximum_references": 9
+    }
+  ],
+  "templates": {
+    "final_prompt_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "vocal-preparation",
+        "version": "1.0.0",
+        "file": "direct.system.txt"
+      }
+    ],
+    "final_prompt_user": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "prompt-direct.user.txt"
+      }
+    ],
+    "revision_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "vocal-preparation",
+        "version": "1.0.0",
+        "file": "direct.system.txt"
+      }
+    ],
+    "revision_user": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "prompt-direct-revision.user.txt"
+      }
+    ]
+  },
+  "preparation_steps": 1,
+  "profile": {
+    "id": "minimax.h3.ref2v.direct",
+    "version": "0.6.0"
+  },
+  "vocal_policy_version": "1.0.0"
+}

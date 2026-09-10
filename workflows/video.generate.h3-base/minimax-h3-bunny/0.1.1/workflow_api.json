@@ -1,0 +1,528 @@
+{
+  "1": {
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "视频 VAE / Video VAE"
+    }
+  },
+  "2": {
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "音频 VAE / Audio VAE"
+    }
+  },
+  "3": {
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "H3 CLIP / Text Encoder"
+    }
+  },
+  "5": {
+    "inputs": {
+      "lora_name": "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors",
+      "strength_model": 0.7000000000000002,
+      "model": [
+        "69",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderBypassModelOnly",
+    "_meta": {
+      "title": "H3 Turbo 加速 LoRA / Acceleration LoRA"
+    }
+  },
+  "7": {
+    "inputs": {
+      "prompt": [
+        "49",
+        0
+      ],
+      "width": [
+        "29",
+        0
+      ],
+      "height": [
+        "29",
+        1
+      ],
+      "length": [
+        "30",
+        1
+      ],
+      "task_type": "auto",
+      "audio_mode": "native",
+      "audio_denoise_strength": 1,
+      "add_source_as_reference": false,
+      "prompt_primary_audio_ordinal": 0,
+      "strict_prompt_tags": true,
+      "ref_image_size": "match",
+      "reference_video_policy": "official_2_to_15s",
+      "allow_above_reference_area": false,
+      "clip": [
+        "3",
+        0
+      ],
+      "video_vae": [
+        "1",
+        0
+      ],
+      "audio_vae": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3AudioConditioningT8",
+    "_meta": {
+      "title": "一采 Conditioning / Stage 1 Conditioning · AUTO"
+    }
+  },
+  "8": {
+    "inputs": {
+      "steps": 8,
+      "shift_video": 12,
+      "shift_audio": 3,
+      "sampler_name": "dual_clock_euler",
+      "scheduler": "native_flow",
+      "model": [
+        "45",
+        0
+      ],
+      "av_latent": [
+        "7",
+        1
+      ]
+    },
+    "class_type": "MiniMaxH3DualClockSamplerT8",
+    "_meta": {
+      "title": "一采双时钟 / Stage 1 Dual Clock · Video 12 / Audio 3"
+    }
+  },
+  "9": {
+    "inputs": {
+      "base_steps": 9,
+      "coarse_steps": 4,
+      "refine_steps": 5,
+      "model": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3LearnedTwoPassParityPlanT8Advanced",
+    "_meta": {
+      "title": "双采计划 / Two-Pass Plan · 一采4 + 二采5"
+    }
+  },
+  "10": {
+    "inputs": {
+      "model": [
+        "8",
+        0
+      ],
+      "conditioning": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "一采引导 / Stage 1 Guider"
+    }
+  },
+  "11": {
+    "inputs": {
+      "noise_seed": 683072603085675
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "固定种子噪声 / Seeded Noise"
+    }
+  },
+  "12": {
+    "inputs": {
+      "noise": [
+        "11",
+        0
+      ],
+      "guider": [
+        "10",
+        0
+      ],
+      "sampler": [
+        "8",
+        1
+      ],
+      "sigmas": [
+        "9",
+        0
+      ],
+      "latent_image": [
+        "7",
+        1
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "一采 / Stage 1 · 4步动作结构 / 4-Step Motion"
+    }
+  },
+  "13": {
+    "inputs": {
+      "model_name": "minimax_h3_latent_upscaler_3d_fp16.safetensors",
+      "size_mode": "scale_by",
+      "scale_by": [
+        "54",
+        0
+      ],
+      "target_megapixels": 1,
+      "target_width": 1280,
+      "target_height": 704,
+      "aspect_policy": "preserve_source",
+      "max_anisotropy": 1.05,
+      "precision": "fp16",
+      "release_policy": "offload_after",
+      "av_latent": [
+        "12",
+        1
+      ]
+    },
+    "class_type": "MiniMaxH3LearnedLatentUpscaleT8Advanced",
+    "_meta": {
+      "title": "H3 3D 潜空间放大 / Learned Latent Upscale"
+    }
+  },
+  "14": {
+    "inputs": {
+      "prompt": [
+        "49",
+        0
+      ],
+      "width": [
+        "13",
+        1
+      ],
+      "height": [
+        "13",
+        2
+      ],
+      "length": [
+        "30",
+        1
+      ],
+      "task_type": "auto",
+      "audio_mode": "native",
+      "audio_denoise_strength": 1,
+      "add_source_as_reference": false,
+      "prompt_primary_audio_ordinal": 0,
+      "strict_prompt_tags": true,
+      "ref_image_size": "match",
+      "reference_video_policy": "official_2_to_15s",
+      "allow_above_reference_area": false,
+      "clip": [
+        "3",
+        0
+      ],
+      "video_vae": [
+        "1",
+        0
+      ],
+      "audio_vae": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3AudioConditioningT8",
+    "_meta": {
+      "title": "二采 Conditioning / Stage 2 Conditioning · AUTO"
+    }
+  },
+  "15": {
+    "inputs": {
+      "audio_policy": "auto",
+      "second_pass_audio_source": "legacy_policy",
+      "second_pass_audio_strength": 0,
+      "learned_latent": [
+        "13",
+        0
+      ],
+      "highres_template": [
+        "14",
+        1
+      ],
+      "positive": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3TwoPassLatentReconcileT8Advanced",
+    "_meta": {
+      "title": "二采协调 / Stage 2 Reconcile · 尺寸与音频"
+    }
+  },
+  "16": {
+    "inputs": {
+      "shift_video": 12,
+      "shift_audio": 3,
+      "enable_tail": false,
+      "extra_tail_steps": 1,
+      "tail_spacing": "video_sigma_linear",
+      "enable_model_time_bias": false,
+      "bias": -0.025,
+      "bias_start_progress": 0.7,
+      "bias_end_progress": 0.95,
+      "bias_domain": "video_sigma",
+      "enable_stg": false,
+      "stg_scale": 0.35,
+      "stg_double_blocks": "25",
+      "stg_start_progress": 0.25,
+      "stg_end_progress": 0.85,
+      "enable_restart": false,
+      "restart_video_sigma": 0.15,
+      "restart_steps": 3,
+      "restart_seed": 714389775293974,
+      "model": [
+        "46",
+        0
+      ],
+      "av_latent": [
+        "15",
+        0
+      ],
+      "refine_sigmas": [
+        "9",
+        1
+      ]
+    },
+    "class_type": "MiniMaxH3TwoPassDetailMixerT8Advanced",
+    "_meta": {
+      "title": "二采细节 / Stage 2 Detail Mixer · 固定5步"
+    }
+  },
+  "17": {
+    "inputs": {
+      "model": [
+        "16",
+        0
+      ],
+      "conditioning": [
+        "15",
+        1
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "二采引导 / Stage 2 Guider"
+    }
+  },
+  "19": {
+    "inputs": {
+      "noise": [
+        "11",
+        0
+      ],
+      "guider": [
+        "17",
+        0
+      ],
+      "sampler": [
+        "16",
+        1
+      ],
+      "sigmas": [
+        "16",
+        2
+      ],
+      "latent_image": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "二采 / Stage 2 · 5步HQ重构 / 5-Step HQ"
+    }
+  },
+  "20": {
+    "inputs": {
+      "av_latent": [
+        "19",
+        0
+      ],
+      "video_vae": [
+        "1",
+        0
+      ],
+      "audio_vae": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3AVDecodeT8",
+    "_meta": {
+      "title": "二采AV解码 / Stage 2 AV Decode"
+    }
+  },
+  "27": {
+    "inputs": {
+      "value": 10
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "视频时长（秒）/ Duration (Seconds)"
+    }
+  },
+  "29": {
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 0.9,
+      "multiple": 32
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "一采基础分辨率 / Stage 1 Base Resolution"
+    }
+  },
+  "30": {
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": [
+        "27",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "帧数自动换算 / Auto Frame Count"
+    }
+  },
+  "45": {
+    "inputs": {
+      "lora_name": "minmax_nsfw/Motion_Repair.safetensors",
+      "strength_model": 0.6,
+      "model": [
+        "67",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "一采 / Stage 1 · Motion Repair · 0.60"
+    }
+  },
+  "46": {
+    "inputs": {
+      "lora_name": "minmax_nsfw/Motion_Repair.safetensors",
+      "strength_model": 0.2,
+      "model": [
+        "67",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "二采 / Stage 2 · Motion Repair · 0.20"
+    }
+  },
+  "49": {
+    "inputs": {
+      "value": "subject_definitions:\n<Subject 1> is the female warrior whose facial identity, porcelain skin, silver-white long hair with straight bangs, and ethereal yet lethal demeanor come from the visual description. Her attire consists of a glowing white silk robe with intricate gold embroidery and metallic accents. Her primary weapon is a Tachi (Japanese-style sword) which emits intense crimson red energy effects during combat.\n<Subject 2> is the high-fantasy battlefield environment featuring ruined structures, cracked stone grounds, and a dark, ominous atmosphere where ancient runes and massive shadows reside.\n<Subject 3> is the visual style definition: 3D CG cinematic realism with top-tier Chinese animation aesthetic (Xianxia/Gufeng), global illumination, physically-based rendering (PBR) for satin fabrics and armor, dynamic volumetric fog, and high-gloss material response.\n\nsummary:\n[reference generation] The target video is a 15-second high-fantasy battle sequence featuring a cold, lethal female warrior with silver-white hair and a white silk robe engaging in extreme-speed combat. The sequence progresses from a supersonic dash and sword draw to rapid slashing, aerial energy storms, a piercing counter-attack, and concludes with a heavy landing and a menacing stare as ancient shadows awaken. The visual style employs 3D CG cinematic realism with PBR materials, volumetric fog, and intense crimson red sword-light effects. No dialogue or subtitles are present.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1] through [Shot 6]): fully_preserved - The warrior's facial features, silver-white hair with bangs, white silk robe with gold embroidery, and the specific crimson red energy sword effects remain consistent throughout all shots.\n<Subject 2> (appears in [Shot 1] through [Shot 6]): fully_preserved - The battlefield environment maintains its ruined, high-fantasy aesthetic with consistent lighting and atmospheric fog.\n<Subject 3> (appears in [Shot 1] through [Shot 6]): weak_reference - The overall visual quality adheres to the defined 3D CG cinematic style with PBR rendering and volumetric lighting.\n\ndetailed_description:\nThe target video utilizes 3D CG cinematic realism with a top-tier Chinese animation aesthetic, featuring global illumination, physically-based rendering for satin fabrics and armor, and dynamic volumetric fog. The color palette is dominated by cold whites, silvers, and intense crimson red energy effects.\n\n[Shot 1] Extreme low-angle camera starting with a static close-up of <Subject 1>. Within the first 1 second, she instantly bursts from a still state into a supersonic dash. As she sprints at extreme speed, the ground beneath her feet cracks and collapses continuously in a chain reaction, with debris and dust violently ejecting outward due to high-speed airflow. Her silver-white long hair and the hem of her white robe are pulled straight back by wind pressure, creating a sharp, knife-edge silhouette. Mid-dash, she instantly draws her Tachi; the camera freezes on a close-up of the blade: a sweep of crimson metallic glow dominates the frame, signifying an explosion of killing intent.\n\n[Shot 2] At 00:01.000, the camera cuts to a dynamic tracking shot. Enemy attacks strike at close range; <Subject 1> dodges with zero lag, attacks grazing her body. Brief slow-motion emphasizes the contrast of extreme speed, then the rhythm instantly doubles. She dashes low to the ground, leaving multiple afterimages. She executes three ultra-high-speed lethal strikes with her Tachi—horizontal slash, upward thrust, spinning instant kill. The sword moves so fast it weaves a sharp net of red light, tearing enemy armor into fragments with dense sparks flying.\n\n[Shot 3] At 00:04.000, the camera cuts to a wide-angle low angle with a high-altitude diving crane shot. <Subject 1> pushes off the ground into the air in one fluid motion, no lingering in mid-air. Her body flips crisply, and the Tachi cuts an extremely sharp scarlet arc. She releases a cone-shaped sword qi (red energy) storm, vertically bombing the enemy crowd below. The ground undergoes chain explosions, high-frequency camera shake, intense and violent impact, rapid rhythm without drag.\n\n[Shot 4] At 00:07.000, the camera orbits 360 degrees rapidly around <Subject 1>, then instantly cuts to a facial close-up. Cold close-up locking on her face, eyes scanning enemies. She pivots in mid-air to dodge, seamlessly transitioning into a supersonic close-range thrust, piercing through the enemy formation like an arrow. The Tachi penetrates armor, fragments flying. Extreme agility display: wall-kicking for leverage, mid-air direction changes, teleport-like dashes through the battlefield. Only red sword-light afterimages remain across the battlefield. Mystical runes suddenly unfold around her, an spiritual impact wave blasting through the scene.\n\n[Shot 5] At 00:10.000, the camera cuts to a vertical rapid falling shot, freezing at the moment of impact. <Subject 1> hard-blocks a heavy strike, instantly dissipates the force and counters. She spins, delivering a precise counter-thrust with her Tachi, piercing the enemy's core. She shatters a crumbling wall, rocketing straight into the sky, swinging a giant crescent-shaped world-destroying sword qi, frontally tearing through the entire ruined battlefield.\n\n[Shot 6] At 00:12.000, the camera cuts to a slow pull-back wide establishing shot, stable framing. <Subject 1> lands heavily, dust and debris scattering. She holds her Tachi hanging by her side in a sharp, ready stance, the blade still retaining red sword-light. Smoke slowly settles. She raises her eyes, locking onto the depths of the darkness with a cold gaze. In the distance, ancient runes light up, and a massive shadow begins to awaken. She lifts her Tachi in a defensive stance. Her white hair and robe flap violently in the wind, killing intent continuously rising.\n\noverall_soundscape:\nHigh-frequency combat sound effects throughout. Sharp metallic Tachi unsheathing and clashing sounds. Dense red sword qi whistling and air-tearing noises. Deep rumbling and explosion impacts. The soundscape is dominated by high-speed whooshes, sharp metallic impacts, and low-frequency booms from energy releases and ground destruction.\n\nnon_diegetic_music:\nN/A"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "BUNNY 提示词模板 / Prompt Template"
+    }
+  },
+  "51": {
+    "inputs": {
+      "fps": 24,
+      "bit_depth": 8,
+      "images": [
+        "20",
+        0
+      ],
+      "audio": [
+        "20",
+        1
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "合成视频 / Create Video"
+    }
+  },
+  "53": {
+    "inputs": {
+      "filename_prefix": "video/MiniMax_H3",
+      "format": "mp4",
+      "codec": "h264",
+      "codec.encoding": "auto",
+      "video": [
+        "51",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "BUNNY HQ 成片保存 / Save Final Video"
+    }
+  },
+  "54": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "放大倍率 / Upscale Scale"
+    }
+  },
+  "66": {
+    "inputs": {
+      "base_model": "minimax_h3_fl2va_bf16.safetensors",
+      "overlay_model": "minimax_h3_ref2va_bf16.safetensors",
+      "overlay_preset": "block_range_adaln",
+      "block_range_start": 25,
+      "block_range_end": 49,
+      "final_adaln_from_overlay": false,
+      "custom_overlays": "",
+      "custom_base": "",
+      "weight_dtype": "default"
+    },
+    "class_type": "MiniMaxH3HybridLoader",
+    "_meta": {
+      "title": "MiniMax H3 Hybrid Loader"
+    }
+  },
+  "67": {
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "ModelAttentionBackend",
+    "_meta": {
+      "title": "ModelAttentionBackend"
+    }
+  },
+  "69": {
+    "inputs": {
+      "unet_name": "minimax_h3_fl2va_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  }
+}

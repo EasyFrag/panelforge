@@ -1,0 +1,38 @@
+{
+  "shots": [
+    {
+      "duration_ms": 2300,
+      "camera_motion": "tracking_shot",
+      "opening_composition": "Wide two-shot from the terrace edge: subject 1 (bearded, dark hair, ember-toned combat leathers, twin ignited flame-blades) crouched low beside a broken column on the left; subject 2 (clean-faced, dark hair, pale frost-trimmed armor, heavy frost greatsword held high) standing center-right in cold air with visible breath.",
+      "description": "Subject 1 explodes forward in a low sliding dash along the cracked flagstones, trailing sparks, and closes the distance before subject 2 can reset his guard. He feints a high cut that makes subject 2 raise the greatsword, then pivots under the blade and rakes both flame-blades across subject 2's forearms with a sharp crack of heated metal as the frost guard splinters. The impact staggers subject 2 half a step; subject 1 rides the recoil into a spinning double slash that clips subject 2's shoulder and drives him backward, his boots skidding on stone until he slams into the column, the rock chipping with a heavy thud while frost veins spider across its face. Subject 1 presses without pause, hopping onto the column's base and throwing a short fire burst at subject 2's face that forces him to twist away, head snapping aside as embers scatter.",
+      "end_state": "Subject 2 braced against the broken column on the right, greatsword planted in the ground for balance and off-kilter; subject 1 perched on the column base with both flame-blades extended, holding the offensive initiative.",
+      "transition": "Subject 2's planted greatsword becomes the pivot of his reversal; the cut lands as frost begins racing from that blade into the flagstones beneath subject 1."
+    },
+    {
+      "duration_ms": 1900,
+      "camera_motion": "arc_shot",
+      "opening_composition": "Arcing view wrapping around the column: subject 2 still braced against it on the right, subject 1 advancing from the base on the left, bright frost veins spreading across the stone floor between them.",
+      "description": "Subject 2 drives the greatsword's pommel into the ground and channels a burst of ice that races outward under subject 1's feet; the flagstones lock with a cracking snap as his footing seizes. Before subject 1 can break free, subject 2 wrenches the blade up in a rising frost arc that meets subject 1's next flame slash head-on, a violent hiss of steam where fire and ice collide and the shockwave knocks subject 1 off the column base. Subject 2 uses the collision's push to rotate his hips and swing the greatsword in a low horizontal sweep that catches subject 1 around the waist, hurling him sideways across the terrace. Subject 1 tumbles over a fallen pillar, rolling to absorb the impact, and pops up on the far side of it as subject 2 strides after him, dragging a ribbon of frost behind the blade; the fight has now crossed from the column line into the open middle of the terrace.",
+      "end_state": "Subject 1 back on his feet beyond the fallen pillar in the center of the terrace with blades held low; subject 2 advancing with the greatsword trailing ice, initiative now flipped to him.",
+      "transition": "Subject 2's forward stride opens a heavy overhead strike; the cut lands as the greatsword clears its backswing above subject 1's head."
+    },
+    {
+      "duration_ms": 1900,
+      "camera_motion": "tracking_shot",
+      "opening_composition": "Side tracking view as subject 2 bears down on subject 1 in the terrace center, greatsword raised high with frost crackling along its edge; broken columns and the low iron balustrade behind them.",
+      "description": "Subject 2 brings the greatsword down in a crushing overhead chop aimed at subject 1's guard; subject 1 sidesteps at the last instant and the blade bites into the flagstones, shattering a wedge of stone with a deep boom that sends shards flying. The recoil of the embedded sword leaves subject 2 momentarily committed, so subject 1 slips inside the arc and drives a flame-blade thrust at his ribs, but subject 2 catches the point on the flat of his own blade with a ringing clang and uses the contact to shoulder-check subject 1 backward into the low balustrade. The iron rail groans and buckles under the impact as frost climbs up it from subject 2's grip. Subject 1 rebounds off the rail and backflips over the broken section, landing beyond it near the collapsed archway while subject 2 yanks the greatsword free of the shattered stone with a grinding scrape and follows, swinging a wide horizontal frost cleave that slices the air where subject 1 just stood.",
+      "end_state": "Subject 1 landed past the balustrade near the collapsed archway at the terrace's far end with blades raised to meet the incoming cleave; subject 2 mid-swing with the greatsword extended, momentum carrying him forward.",
+      "transition": "Subject 1's raised blades and subject 2's extended cleave converge; the cut lands on the moment of contact while the offensive is still fully engaged."
+    },
+    {
+      "duration_ms": 1900,
+      "camera_motion": "push.in",
+      "opening_composition": "Tighter framing pushing in toward the far end: subject 1 and subject 2 closing over the last stretch of cracked stone before the collapsed archway, both weapons committed to the exchange.",
+      "description": "The horizontal frost cleave meets subject 1's crossed flame-blades in a blinding flash of steam and ringing metal that throws sparks and ice shards outward; the force drives subject 1's boots skidding backward across the flagstones while subject 2 keeps pressing the blade forward, grinding it along the crossed steel. Subject 1 twists his wrists to deflect the greatsword aside and immediately counters with a rising flame slash at subject 2's throat, forcing him to drop into a low parry that sends a spray of molten sparks up past his face. Without releasing the parry, subject 2 pivots on his back foot and hammers a short upward ice jab under subject 1's guard, the point striking the blade with a sharp crack that snaps a shard of frost off the steel. Subject 1 is driven back to the lip of the collapsed archway; he plants his heels and throws both flame-blades in a wide two-handed overhead arc aimed at subject 2's head, while subject 2 answers by launching a full committed thrust of the greatsword straight down its length, and the final instant catches the two weapons locked mid-collision with steam erupting between them, neither attack resolved.",
+      "end_state": "Both fighters locked at the archway lip, flame-blades and frost greatsword clashing in an unresolved mid-strike, bodies braced against each other's momentum, the offensive still fully engaged at the cut.",
+      "transition": "Final shot; the clip ends on this unresolved collision with no further cut."
+    }
+  ],
+  "overall_soundscape": "Fully diegetic and synchronized to the action: skidding boots and sliding dashes on stone, the crack of heated metal on frost-guarded arms, a heavy thud as a body slams into a column, the cracking snap of flagstones freezing, a violent hiss of steam where fire meets ice, ringing clangs and grinding scrapes of blade-on-blade, deep booms of shattered stone with flying shards, the groan of buckling iron rail, and bursts of erupting steam on each collision. No human voice, no grunts, no spoken words.",
+  "non_diegetic_music": "None. There is no music of any kind; the audio bed is entirely diegetic."
+}

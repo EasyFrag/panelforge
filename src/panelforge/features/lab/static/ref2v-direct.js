@@ -12,7 +12,7 @@
   const multishotCookbookId = "minimax.h3.ref2v.direct.multishot";
   const superFastCookbookId = "minimax.h3.ref2v.direct.multishot.superfast";
   const superFastCookbookVersion = "0.2.0";
-  const preferredCookbookValue = `${cookbookId}@${experimentalProfileVersion}`;
+  const preferredCookbookValue = "minimax.h3.ref2v.direct.guided@1.1.0";
   const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame", "État visible complet à 0,00 s : sujets, pose, cadrage, perspective, décor, lumière et composition."],
@@ -51,6 +51,7 @@
     model: $("#ref2vd-model"),
     refreshModels: $("#ref2vd-refresh-models"),
     cookbook: $("#ref2vd-cookbook"),
+    preparationFamily: $("#ref2vd-preparation-family"),
     activeCookbook: $("#ref2vd-active-cookbook"),
     imageInput: $("#ref2vd-image-input"),
     referenceList: $("#ref2vd-reference-list"),
@@ -65,6 +66,8 @@
     creativeCameraValue: $("#ref2vd-creative-camera-value"),
     creativeExtraMotion: $("#ref2vd-creative-extra-motion"),
     creativeExtraMotionValue: $("#ref2vd-creative-extra-motion-value"),
+    creativeDialogue: $("#ref2vd-creative-dialogue"),
+    creativeDialogueValue: $("#ref2vd-creative-dialogue-value"),
     creativeAudacityControl: $("#ref2vd-creative-audacity-control"),
     creativeAudacity: $("#ref2vd-creative-audacity"),
     creativeAudacityValue: $("#ref2vd-creative-audacity-value"),
@@ -253,8 +256,27 @@
     );
   }
 
+  const combatControls = window.PanelForgeCombatControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
+
+  function preparationFamily(value = state.session || activeCookbookSpec() || state.cookbook) {
+    return value?.preparation?.family || "classic";
+  }
+
+  function changePreparationFamily() {
+    if (state.session || interactionLocked()) return render();
+    const family = elements.preparationFamily.value;
+    if (family === "combat") return combatControls.choose("combat", "1.3.0");
+    const choices = directCookbooks().filter((item) => preparationFamily(item) === family
+      && core.recipeTier(cookbookValue(item)) === "standard");
+    const next = choices.find((item) => item.preparation_steps === preparationSteps()) || choices[0];
+    if (!next) return render();
+    state.cookbook = next;
+    elements.creativeDirection.checked = false;
+    render();
+  }
+
   function creativeBriefPayload() {
-    return elements.creativeDirection.checked
+    return creativeBriefAvailable() && elements.creativeDirection.checked
       ? {
         brief_variant_id: creativeBriefVariant.id,
         brief_variant_version: creativeBriefVariant.version,
@@ -332,6 +354,8 @@
     available.forEach((cookbook) => {
       const option = document.createElement("option");
       option.value = cookbookValue(cookbook);
+      option.dataset.preparationFamily = preparationFamily(cookbook);
+        option.dataset.preparationVersion = cookbook.preparation?.version || "";
       option.textContent = cookbookLabel(cookbook);
       elements.cookbook.append(option);
     });
@@ -376,8 +400,9 @@
     const payload = await core.request("/api/prompt-lab/sessions?limit=30");
     const sessions = (payload.sessions || []).filter(
       (item) => item.session_mode === "direct_multimodal"
-        && item.profile && item.profile.id === profileId
-        && [profileVersion, experimentalProfileVersion].includes(item.profile.version),
+        && item.profile && ((item.profile.id === profileId
+          && [profileVersion, experimentalProfileVersion, "0.6.0"].includes(item.profile.version))
+          || item.profile.id === "minimax.h3.ref2v.combat"),
     );
     elements.sessionList.replaceChildren();
     if (!sessions.length) {
@@ -392,7 +417,7 @@
       button.type = "button";
       button.className = "session-link";
       const title = document.createElement("b");
-      title.textContent = session.references.map((item) => item.label).join(" + ");
+      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : "") + session.references.map((item) => item.label).join(" + ");
       const detail = document.createElement("small");
       detail.textContent = `${session.references.length} image${session.references.length > 1 ? "s" : ""} · ${session.brief_complete ? "Brief validé" : "Préparation vidéo"}`;
       button.append(title, detail);
@@ -434,7 +459,10 @@
       );
       if (openedSuperFast) state.cookbook = superFastCookbookSpec();
       else if (matchingCookbook) state.cookbook = matchingCookbook;
-      else state.cookbook = directCookbooks().find((item) => item.id === cookbookId && item.version === session.profile?.version) || state.cookbook;
+      else state.cookbook = directCookbooks().find((item) => item.profile?.id === session.profile?.id
+        && item.profile.version === session.profile?.version && item.preparation_steps === 3)
+        || directCookbooks().find((item) => item.id === cookbookId && item.version === session.profile?.version)
+        || null;
       state.superFastRecord = null;
       elements.executionMode.value = "supervised";
       releaseDraftPreviews();
@@ -672,7 +700,7 @@
       elements.modeWarning.hidden = false;
       return;
     }
-    const recipeMismatch = !state.session
+    const recipeMismatch = !state.session && !combatControls.current()
       && !isMultishotCookbook(activeCookbookSpec())
       && intentionRequestsMultipleShots(elements.intention.value);
     elements.modeWarning.textContent = recipeMismatch
@@ -720,6 +748,7 @@
               profile_id: selectedProfile().id,
               profile_version: selectedProfile().version,
               ...creativeBriefPayload(),
+              combat_settings: combatControls.payload(),
               inherit_brief_variant: false,
             }),
           },
@@ -736,6 +765,7 @@
         body.append("model_id", elements.model.value);
         body.append("profile_id", profile.id);
         body.append("profile_version", profile.version);
+        if (combatControls.payload()) body.append("combat_settings", JSON.stringify(combatControls.payload()));
         if (elements.creativeDirection.checked) {
           body.append("brief_variant_id", creativeBriefVariant.id);
           body.append("brief_variant_version", creativeBriefVariant.version);
@@ -772,6 +802,7 @@
       scene_life: Number(elements.creativeSceneLife.value),
       camera: Number(elements.creativeCamera.value),
       extra_motion: Number(elements.creativeExtraMotion.value),
+      dialogue: state.cookbook?.vocal_policy_version ? Number(elements.creativeDialogue.value) : 0,
     };
   }
 
@@ -786,6 +817,7 @@
     elements.creativeSceneLife.value = String(resolved.scene_life ?? fallback);
     elements.creativeCamera.value = String(resolved.camera ?? fallback);
     elements.creativeExtraMotion.value = String(resolved.extra_motion ?? fallback);
+    elements.creativeDialogue.value = String(resolved.dialogue ?? 0);
     updateCreativeAxes();
   }
 
@@ -793,6 +825,8 @@
     elements.creativeSceneLifeValue.value = elements.creativeSceneLife.value;
     elements.creativeCameraValue.value = elements.creativeCamera.value;
     elements.creativeExtraMotionValue.value = elements.creativeExtraMotion.value;
+    elements.creativeDialogueValue.value = elements.creativeDialogue.value;
+    elements.creativeDialogue.closest("label").hidden = !state.cookbook?.vocal_policy_version;
   }
 
   function setCreativeAudacity(value = 2) {
@@ -812,13 +846,14 @@
     const current = currentCreativeAxes();
     return expected.scene_life === current.scene_life
       && expected.camera === current.camera
-      && expected.extra_motion === current.extra_motion;
+      && expected.extra_motion === current.extra_motion
+      && Number(expected.dialogue ?? 0) === current.dialogue;
   }
 
   function creativeAudacityMatch(brief) {
     if (!brief) return false;
     return Number(brief.creative_audacity ?? 0) === Number(
-      (preparationSteps() < 3 || elements.creativeDirection.checked) ? elements.creativeAudacity.value : 0,
+      (preparationFamily() === "combat" || preparationSteps() < 3 || elements.creativeDirection.checked) ? elements.creativeAudacity.value : 0,
     );
   }
 
@@ -827,7 +862,7 @@
     return {
       creative_freedom: creativeAggregate(creative_axes),
       creative_axes,
-      creative_audacity: (preparationSteps() < 3 || elements.creativeDirection.checked)
+      creative_audacity: (preparationFamily() === "combat" || preparationSteps() < 3 || elements.creativeDirection.checked)
         ? Number(elements.creativeAudacity.value)
         : 0,
     };
@@ -1095,6 +1130,18 @@
       ? state.composition.cookbook : null;
     const selectedCookbook = compositionReference || state.cookbook;
     const activeCookbook = activeCookbookSpec();
+    const combat = preparationFamily() === "combat";
+    elements.preparationFamily.value = preparationFamily();
+    elements.preparationFamily.disabled = interactionLocked() || Boolean(session);
+    elements.cookbook.dataset.preparationFamily = preparationFamily();
+    core.refreshRecipeVisibility(elements.cookbook);
+    const audacityHint = elements.creativeAudacityControl?.querySelector("small");
+    if (audacityHint) {
+      if (!audacityHint.dataset.classicText) audacityHint.dataset.classicText = audacityHint.textContent;
+      audacityHint.textContent = combat ? "Initiative et richesse de la chor\u00e9graphie" : audacityHint.dataset.classicText;
+    }
+    combatControls.draw(activeCookbook || state.cookbook);
+    core.refreshRecipeVisibility(elements.cookbook);
     const locked = interactionLocked();
     const directSuperFast = directSuperFastModeActive();
     const creativeBriefVisible = creativeBriefAvailable(activeCookbook || state.cookbook);
@@ -1102,11 +1149,11 @@
     elements.creativeDirectionOption.hidden = !creativeBriefVisible;
     const shortRoute = preparationSteps() < 3;
     const intentLocked = Boolean(shortRoute && state.composition?.preparation_intent);
-    elements.creativeAudacityControl.hidden = !creativeBriefVisible && !shortRoute;
+    elements.creativeAudacityControl.hidden = !combat && !creativeBriefVisible && !shortRoute;
     elements.creativeDirection.disabled = locked || !creativeBriefVisible
       || Boolean(session && session.active_brief);
-    elements.creativeAudacity.disabled = locked || intentLocked || (!shortRoute && (!creativeBriefVisible
-      || !elements.creativeDirection.checked || Boolean(session && session.active_brief)));
+    elements.creativeAudacity.disabled = locked || intentLocked || (combat ? Boolean(session && session.active_brief)
+      : (!shortRoute && (!creativeBriefVisible || !elements.creativeDirection.checked || Boolean(session && session.active_brief))));
     renderWorkflowShape(directSuperFast);
     core.renderPreparationStages(elements, directSuperFast ? ["brief", "prompt"] : core.preparationStages(activeCookbook));
     renderPreparationCopy(activeCookbook);
@@ -1114,7 +1161,7 @@
     renderRoleReview();
     renderSetupWarnings();
     if (selectedCookbook) showCookbookSelection(selectedCookbook);
-    elements.cookbook.disabled = locked || Boolean(compositionReference);
+    elements.cookbook.disabled = locked || Boolean(session);
     elements.activeCookbook.textContent = activeCookbook
       ? compositionReference
         ? `${activeCookbook.display_name} · ${activeCookbook.id}@${activeCookbook.version} verrouillée`
@@ -1136,7 +1183,7 @@
     elements.refreshSessions.disabled = locked;
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
     elements.intention.disabled = locked || intentLocked;
-    for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
+    for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion, elements.creativeDialogue]) {
       control.disabled = locked || intentLocked;
     }
     elements.showReasoning.disabled = locked;
@@ -1194,7 +1241,8 @@
     const audacityLabel = brief
       ? brief.creative_audacity ?? 0
       : Number(elements.creativeAudacity.value);
-    const briefLabel = shortRoute ? `Intention directe · audace ${audacityLabel}/3` : session.brief_variant
+    const briefLabel = combat ? `${shortRoute ? "Intention" : "Brief"} Combat ${session.preparation.version} \u00b7 audace ${audacityLabel}/3`
+      : shortRoute ? `Intention directe · audace ${audacityLabel}/3` : session.brief_variant
       ? `Brief : direction créative ${session.brief_variant.version} · audace ${audacityLabel}/3`
       : `Brief : standard ${session.profile.version}`;
     elements.sessionConfig.textContent = `Modèle : ${session.model_id} · ${briefLabel} · Recette : ${recipeLabel}`;
@@ -1399,7 +1447,7 @@
   }
 
   function renderMultishotSummary() {
-    const multishot = isMultishotCookbook(activeCookbookSpec());
+    const multishot = isMultishotCookbook(activeCookbookSpec()) || (combatControls.current() && preparationSteps() > 1);
     elements.multishotSummary.hidden = !multishot;
     if (!multishot) return;
 
@@ -1454,17 +1502,18 @@
       header.append(title, badge);
       const description = document.createElement("p");
       description.textContent = shot
-        ? summaryText(shot.actions || shot.primary_action || shot.dominant_action || shot.action || shot.purpose || shot.objective || shot.description) || "Action non résumée."
+        ? summaryText(shot.phases?.flatMap(phase => phase.exchanges || []) || shot.exchanges || shot.actions || shot.primary_action || shot.dominant_action || shot.action || shot.purpose || shot.objective || shot.description) || "Action non résumée."
         : "Plan manquant.";
       card.append(header, description);
       if (shot) {
         const details = [
           ["Entrée", summaryText(shot.entry_state)],
           ["Cadrage", summaryText(shot.opening_composition)],
-          ["Raccord", summaryText(shot.continuity_from_previous)],
-          ["Sortie", summaryText(shot.observable_end_state || shot.exit_state)],
+          ["Raccord", summaryText(shot.transition || shot.continuity_from_previous)],
+          ["Sortie", summaryText(shot.end_state || shot.observable_end_state || shot.exit_state)],
           ["Références", summaryText(shot.active_picture_labels || shot.active_references || shot.references)],
-          ["Caméra", cameraSummary(shot.camera)],
+          ["Rythme", shot.pacing],
+          ["Caméra", shot.phases?.map(phase => [phase.cue, cameraSummary(phase.camera)].filter(Boolean).join(" ")).join(" → ") || shot.camera_motion || cameraSummary(shot.camera)],
         ].filter(([, value]) => value);
         if (details.length) {
           const metadata = document.createElement("p");
@@ -1999,6 +2048,7 @@
     state.quickRecord = null;
     state.superFastRecord = null;
     state.forkSource = null;
+    combatControls.restore(null);
     state.cookbook = isSuperFastReference(preservedCookbook)
       ? superFastCookbookSpec()
       : preservedCookbook && directCookbooks().find(
@@ -2023,6 +2073,7 @@
   elements.imageInput.addEventListener("change", () => addFiles(elements.imageInput.files || []));
   elements.form.addEventListener("submit", createSession);
   elements.refreshModels.addEventListener("click", () => loadModels().catch((error) => showSetupMessage(error.message)));
+  elements.preparationFamily.addEventListener("change", changePreparationFamily);
   elements.refreshSessions.addEventListener("click", () => loadSessions().catch((error) => showSetupMessage(error.message)));
   elements.cookbook.addEventListener("change", () => {
     const next = directCookbooks().find(
@@ -2063,7 +2114,7 @@
       setBusy(false);
     }
   });
-  for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion]) {
+  for (const control of [elements.creativeSceneLife, elements.creativeCamera, elements.creativeExtraMotion, elements.creativeDialogue]) {
     control.addEventListener("input", () => { updateCreativeAxes(); render(); });
   }
   elements.creativeAudacity.addEventListener("input", () => {

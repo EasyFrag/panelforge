@@ -108,6 +108,7 @@ class Krea2AssistedWebTest(unittest.TestCase):
             first = self.client.post(url + "?enqueue=true", json=body)
             second = self.client.post(url + "?enqueue=true", json={**body, "prompt": PROMPT + " Blue background.", "seed": "17"})
             self.assertEqual(first.status_code, 201, first.text)
+            self.assertRegex(first.headers["server-timing"], r"prepare;dur=\d+\.\d, worker;dur=\d+\.\d, serialize;dur=\d+\.\d")
             self.assertEqual(second.status_code, 201, second.text)
             self.assertEqual(first.json()["project"]["attempts"][0]["status"], "queued")
             self.assertEqual(wake.call_count, 2)

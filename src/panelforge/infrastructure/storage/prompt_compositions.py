@@ -32,7 +32,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _COMPOSITION_KEYS = {
     "schema_version",
     "created_at",
@@ -173,7 +173,7 @@ class LocalPromptCompositionStore:
     ) -> tuple[PromptComposition, str, str]:
         _require_regular_file(path)
         data = _read_json_object(path)
-        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") == 3 else set())
+        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") in {3, 4} else set())
         if set(data) != expected_keys:
             raise StorageCorruptionError(
                 "invalid prompt composition fields for "
@@ -182,7 +182,7 @@ class LocalPromptCompositionStore:
         schema_version = data.get("schema_version")
         if (
             isinstance(schema_version, bool)
-            or schema_version not in {1, 2, _SCHEMA_VERSION}
+            or schema_version not in {1, 2, 3, _SCHEMA_VERSION}
         ):
             raise StorageCorruptionError(
                 "unsupported prompt composition schema for "
@@ -330,7 +330,7 @@ def intent_to_dict(intent: PreparationIntent | None) -> dict[str, object] | None
         "creative_freedom": intent.creative_freedom,
         "creative_audacity": intent.creative_audacity,
         "creative_axes": (
-            {name: getattr(intent.creative_axes, name) for name in ("scene_life", "camera", "extra_motion")}
+            {name: getattr(intent.creative_axes, name) for name in ("scene_life", "camera", "extra_motion", "dialogue")}
             if intent.creative_axes is not None else None
         ),
     }

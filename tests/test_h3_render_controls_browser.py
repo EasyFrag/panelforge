@@ -16,7 +16,8 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
         if not browsers:
             self.skipTest("local Chromium not installed")
         page = (STATIC / "index.html").read_text(encoding="utf-8")
-        settings = '<div class="h3-render-settings">' + page.split('<div class="h3-render-settings">', 1)[1].split('</div>', 1)[0] + '</div>'
+        ratio_start = page.index('<label>Ratio<select id="h3r-ratio"')
+        settings = '<div class="h3-render-settings">' + page[ratio_start:].split('</div>', 1)[0] + '</div>'
         script = r"""
         (async () => { try {
           const check = (ok, message) => { if (!ok) throw new Error(message); };
@@ -31,6 +32,9 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
           const randomSeed = () => String(++nextSeed), inferredDuration = (_, fallback) => fallback;
           const renderWarnings = () => {}, renderControls = () => {}, connectPreview = () => {}, startPolling = () => {};
           const projectId = () => state.project.project_id;
+          const bunnyActive = () => false, syncBunny = () => {}, syncVideoLoraControls = () => {};
+          const recipeKey = () => '', switchRecipe = async () => {};
+          state.spec.recipe = {id: 'minimax-h3-latent-speed', version: '0.1.3'};
           const renderProject = project => { state.project = project; };
           let failure = ''; const setStatus = message => { failure = message; };
           const sent = [];
@@ -55,18 +59,25 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
           check(!failure && sent.length === 2, 'render controls prepare attempts');
           check(sent.every(body => body.initial_megapixels === 0.6 && body.megapixels === 1.2 && body.seed === seed && body.seed_locked), 'both resolutions and identical seed sent on repeated renders');
           check(elements.seed.value === seed, 'locked seed unchanged after render');
-          fillSettings({settings: {aspect_ratio: state.spec.defaults.aspect_ratio, megapixels: 0.4, duration_seconds: 6, steps: 20, seed: '42'}, initial_megapixels: 0.8});
+          await fillSettings({settings: {aspect_ratio: state.spec.defaults.aspect_ratio, megapixels: 0.4, duration_seconds: 6, steps: 20, seed: '42'}, initial_megapixels: 0.8});
           check(elements.initialMegapixels.value === '0.8' && elements.megapixels.value === '0.4', 'reuse restores distinct resolutions');
-          fillSettings({settings: {aspect_ratio: state.spec.defaults.aspect_ratio, megapixels: 1.2, duration_seconds: 6, steps: 20, seed: '41'}});
+          await fillSettings({settings: {aspect_ratio: state.spec.defaults.aspect_ratio, megapixels: 1.2, duration_seconds: 6, steps: 20, seed: '41'}});
           check(elements.initialMegapixels.value === '0.2' && elements.megapixels.value === '1.2', 'old attempt keeps output and assumes initial 0.2');
           elements.seedLock.checked = false; await renderAttempt();
           check(sent.at(-1).seed === null && !sent.at(-1).seed_locked && elements.seed.value !== '41', 'seed can still be randomized');
+          state.spec.recipe = {id: 'minimax-h3-ref2v', version: '0.2.1'};
+          delete state.spec.defaults.seed_locked; hydrateDefaults();
+          check(elements.seedLock.checked, 'missing seed default also falls back to reuse');
+          check(elements.megapixels.value === '0.2' && elements.initialMegapixels.value === '0.2', 'new REF2V uses the same resolution defaults');
+          elements.initialMegapixels.value = '0.4'; elements.megapixels.value = '0.8';
+          const refSeed = elements.seed.value; await renderAttempt(); await renderAttempt();
+          check(sent.slice(-2).every(body => body.initial_megapixels === 0.4 && body.megapixels === 0.8 && body.seed === refSeed && body.seed_locked), 'REF2V sends both MP independently and reuses seed');
           document.getElementById('result').textContent = 'PASS';
         } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + error.stack; } })();
         """
         source = (STATIC / "h3-render-lab.js").read_text(encoding="utf-8")
         functions = "  function hydrateDefaults(" + source.split("  function hydrateDefaults(", 1)[1].split("  function setPreviewBlob(", 1)[0]
-        functions += "  async function renderAttempt(" + source.split("  async function renderAttempt(", 1)[1].split("  async function cancelAttempt(", 1)[0]
+        functions += "  function renderParameters(" + source.split("  function renderParameters(", 1)[1].split("  async function cancelAttempt(", 1)[0]
         script = script.replace("__CONTROL_FUNCTIONS__", functions)
         html = '<meta charset="utf-8"><pre id="result">PENDING</pre>' + settings + '<script>' + script + '</script>'
         with tempfile.TemporaryDirectory() as temporary:

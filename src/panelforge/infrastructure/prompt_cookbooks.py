@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 
 from panelforge.domain import CookbookRef, ReferenceEvidencePolicy
+from panelforge.domain.video_preparation import VideoPreparationRef
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,8 @@ class PromptCookbook:
     preparation_steps: int = 3
     profile_id: str | None = None
     profile_version: str | None = None
+    vocal_policy_version: str | None = None
+    preparation: VideoPreparationRef = VideoPreparationRef()
 
 
 class LocalPromptCookbookCatalog:
@@ -96,7 +99,7 @@ class LocalPromptCookbookCatalog:
         if not isinstance(manifest, dict):
             raise ValueError(f"invalid cookbook fields: {manifest_path}")
         schema_version = manifest.get("schema_version")
-        if schema_version not in {2, 3, 4, 5, 6, 7, 8}:
+        if schema_version not in {2, 3, 4, 5, 6, 7, 8, 9, 10}:
             raise ValueError(f"unsupported cookbook schema: {manifest_path}")
         expected = {
             "schema_version",
@@ -114,6 +117,12 @@ class LocalPromptCookbookCatalog:
             "slots",
             "templates",
         }
+        if schema_version >= 9:
+            expected.add("vocal_policy_version")
+            if manifest.get("vocal_policy_version") != "1.0.0":
+                raise ValueError("unsupported vocal policy version")
+        if schema_version >= 10:
+            expected.add("preparation")
         if schema_version >= 3:
             expected.add("invalid_camera_target_policy")
         if schema_version >= 5:
@@ -219,7 +228,7 @@ class LocalPromptCookbookCatalog:
         ):
             raise ValueError("preparation_steps does not match cookbook stages")
         if schema_version >= 8 and (preparation_steps == 1) != (
-            manifest["output_contract"] in {"minimax.h3.mono.prompt_direct_v1", "minimax.h3.multishot.prompt_direct_v1"}
+            manifest["output_contract"] in {"minimax.h3.mono.prompt_direct_v1", "minimax.h3.multishot.prompt_direct_v1", "minimax.h3.combat.sequence_direct_v1"}
         ):
             raise ValueError("preparation_steps does not match the output contract")
         template_keys = {
@@ -312,6 +321,8 @@ class LocalPromptCookbookCatalog:
             raise ValueError(f"cookbook identity does not match its path: {manifest_path}")
         return PromptCookbook(
             schema_version=schema_version,
+            preparation=VideoPreparationRef.from_dict(manifest["preparation"]) if schema_version >= 10 else VideoPreparationRef(),
+            vocal_policy_version=manifest.get("vocal_policy_version"),
             reference=reference,
             display_name=_text(manifest["display_name"], "display_name"),
             description=_text(manifest["description"], "description"),

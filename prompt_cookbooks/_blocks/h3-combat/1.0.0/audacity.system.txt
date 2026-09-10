@@ -1,0 +1,2 @@
+COMBAT REVISION AUDACITY 1.0.0
+The supplied level applies only to this revision. 0: correct the requested problem and necessary causal consequences. 1: allow a restrained tactical variation. 2: allow a coherent attack/counterattack combination. 3: allow a stronger reversal of initiative or ambitious combination. Permissions are not quotas. Preserve the requested outcome and unaffected identities, weapons, references and shots. No implicit energy effects, slow motion or camera change. Camera edits still require an explicit camera request.

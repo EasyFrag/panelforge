@@ -1,0 +1,10 @@
+[
+  {"name": "10Eros_Max_h3_hybrid_beta5.safetensors", "label": "EROS · hybride beta5", "modes": ["h3-base", "ref2va"]},
+  {"name": "minimax_h3_fl2va_bf16.safetensors", "label": "MiniMax H3 · FL2VA BF16", "modes": ["h3-base"]},
+  {"name": "minimax_h3_ref2va_bf16.safetensors", "label": "MiniMax H3 · REF2VA BF16", "modes": ["ref2va"]},
+  {"name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "label": "MiniMax H3 · FL2VA INT8", "modes": ["h3-base"]},
+  {"name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors", "label": "MiniMax H3 · REF2VA INT8", "modes": ["ref2va"]},
+  {"name": "minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors", "label": "MiniMax H3 · hybride 25–49 INT8", "modes": ["h3-base", "ref2va"]},
+  {"name": "minimax_h3_hybrid_fl2va_ref2va_b30-49-int8.safetensors", "label": "MiniMax H3 · hybride 30–49 INT8", "modes": ["h3-base", "ref2va"]},
+  {"name": "PinkCherry_fl2va_MiniMax_H3_bf16_beta-0.6.safetensors", "label": "PinkCherry · FL2VA beta 0.6", "modes": ["h3-base"]}
+]

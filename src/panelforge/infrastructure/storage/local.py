@@ -139,7 +139,9 @@ class LocalAssetStore:
         asset_dir = self._entry_dir(self._assets_root, asset_id)
         asset_dir.mkdir(exist_ok=False)
         try:
-            _atomic_write(asset_dir / "asset.json", dict(_asset_to_dict(asset), schema_version=2, external_path=str(path)))
+            _atomic_write(asset_dir / "asset.json", _json_bytes(
+                dict(_asset_to_dict(asset), schema_version=2, external_path=str(path))
+            ))
         except BaseException:
             (asset_dir / "asset.json").unlink(missing_ok=True)
             asset_dir.rmdir()

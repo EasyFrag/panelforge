@@ -20,6 +20,7 @@ from .minimax_h3_protocol import (
 from .minimax_h3_protocol import normalize_dialogue_language_tags
 from .direct_ref2v_prompt import lint_direct_ref2v_prompt
 from .direct_ref2v_plan import extract_explicit_dialogues
+from .vocal_policy import speech_lines, validate_speech
 
 
 DIRECT_PROMPT_CONTRACT = "minimax.h3.mono.prompt_direct_v1"
@@ -33,19 +34,25 @@ class PreparationSource:
     creative_freedom: int
     creative_axes: CreativeFreedomAxes | None
     creative_audacity: int
+    vocal_dialogues: tuple[str, ...] = ()
 
 
 def preparation_source(session: PromptLabSession, composition: PromptComposition) -> PreparationSource:
     intent = composition.preparation_intent
     if intent is not None:
-        digest = hashlib.sha256(json.dumps(asdict(intent), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        snapshot = asdict(intent)
+        # A new default field must not invalidate existing approved documents.
+        if snapshot["creative_axes"] is not None and not snapshot["creative_axes"].get("dialogue"):
+            snapshot["creative_axes"].pop("dialogue", None)
+        digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         return PreparationSource(f"intent:{digest}", intent.source_text, intent.source_text,
                                  intent.creative_freedom, intent.creative_axes, intent.creative_audacity)
     brief = session.active_brief_revision
     if not session.brief_complete or brief is None:
         raise ValueError("approve a current structured brief first")
     return PreparationSource(f"brief:{brief.revision_id}", brief.source_text, brief.content,
-                             brief.creative_freedom, brief.creative_axes, brief.creative_audacity)
+                             brief.creative_freedom, brief.creative_axes, brief.creative_audacity,
+                             brief.vocal_dialogues)
 
 
 def direct_prompt_context(session, mapping, source_text: str, *, reference_header: str | None = None) -> str:
@@ -132,7 +139,14 @@ def direct_prompt_errors(content: str, *, context: dict | None = None, ref2v: bo
                 H3BaseInputMode(mode), context["header"], context["duration_ms"], (),
             )))
         actual_dialogues = Counter(re.findall(r"<d>\s*\[[^\]]+\]\s*(.*?)\s*</d>", content, flags=re.DOTALL))
-        if actual_dialogues != Counter(context.get("dialogues", ())):
+        if context.get("vocal_policy_version"):
+            try:
+                validate_speech(speech_lines(content), context.get("dialogues", ()),
+                    level=context.get("dialogue_level", 0), source_text=context.get("source_text", ""),
+                    duration_ms=context["duration_ms"], locked=context.get("chosen_dialogues"))
+            except ValueError as error:
+                errors.append(str(error))
+        elif actual_dialogues != Counter(context.get("dialogues", ())):
             errors.append("Le prompt direct doit préserver les paroles exactes de l'intention, sans dialogue supplémentaire.")
         times = [int(m) * 60000 + int(s) * 1000 + int(ms) for m, s, ms in re.findall(r"\b(\d{2}):(\d{2})\.(\d{3})\b", content)]
         if times != sorted(times) or any(time > context["duration_ms"] for time in times):

@@ -18,6 +18,7 @@ from panelforge.domain import (
     VideoAspectRatio,
     VideoLabSettings,
 )
+from panelforge.domain.h3_render import validate_h3_initial_megapixels
 from .render_progress import (
     RenderProgressProfile,
     validate_render_progress_profile,
@@ -83,6 +84,7 @@ class VideoLabPreset:
     preview_fps: int
     preview_jpeg_quality: int
     preview_max_resolution: int
+    initial_megapixels: float = 0.2
 
     def settings(self, *, seed: int, seed_locked: bool = False) -> VideoLabSettings:
         return VideoLabSettings(
@@ -160,6 +162,10 @@ class VideoLabPresetRecipe:
     def supports_video_lora(self) -> bool:
         return self.preset.video_lora_overlay is not None
 
+    @property
+    def supports_initial_megapixels(self) -> bool:
+        return "initial_megapixels" in self.preset.inputs
+
     def build_workflow(
         self,
         *,
@@ -169,6 +175,7 @@ class VideoLabPresetRecipe:
         output_filename_prefix: str,
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
+        initial_megapixels: float = 0.2,
     ) -> dict[str, Any]:
         return build_video_lab_workflow(
             self.preset,
@@ -178,6 +185,7 @@ class VideoLabPresetRecipe:
             output_filename_prefix=output_filename_prefix,
             spectrum_enabled=spectrum_enabled,
             video_lora=video_lora,
+            initial_megapixels=initial_megapixels,
         )
 
 
@@ -224,6 +232,10 @@ class Ref2VH3RenderPresetRecipe:
     def supports_video_lora(self) -> bool:
         return self.recipe.supports_video_lora
 
+    @property
+    def supports_initial_megapixels(self) -> bool:
+        return self.recipe.supports_initial_megapixels
+
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]:
         if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= self.maximum_keyframes:
             raise ValueError("invalid Ref2V keyframe count")
@@ -239,6 +251,7 @@ class Ref2VH3RenderPresetRecipe:
         keyframe_indices: tuple[int, ...],
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
+        initial_megapixels: float = 0.2,
     ) -> dict[str, Any]:
         if not self.minimum_reference_images <= len(source_images) <= self.maximum_reference_images:
             raise ValueError(
@@ -255,6 +268,7 @@ class Ref2VH3RenderPresetRecipe:
             output_filename_prefix=output_filename_prefix,
             spectrum_enabled=spectrum_enabled,
             video_lora=video_lora,
+            initial_megapixels=initial_megapixels,
         )
         binding = self.recipe.preset.reference_images[-1]
         template = self.recipe.preset.workflow[binding.load_node_id]
@@ -378,7 +392,7 @@ def validate_video_lab_workflow(
         "seed",
         "output_filename_prefix",
     }
-    optional_inputs = {"spectrum_enabled"}
+    optional_inputs = {"spectrum_enabled", "initial_megapixels"}
     optional_bindings = {"video_lora_overlay"}
     required_binding_keys = required_inputs | {"reference_images", "output_video"}
     expected_binding_keys = required_binding_keys | optional_inputs | optional_bindings
@@ -471,8 +485,12 @@ def build_video_lab_workflow(
     output_filename_prefix: str,
     spectrum_enabled: bool = False,
     video_lora: H3VideoLoraSelection | None = None,
+    initial_megapixels: float = 0.2,
 ) -> dict[str, Any]:
     """Compile an isolated workflow and prune unused reference slots."""
+    validate_h3_initial_megapixels(initial_megapixels)
+    if "initial_megapixels" not in preset.inputs and initial_megapixels != 0.2:
+        raise ValueError("Ce workflow historique fixe la génération initiale à 0,2 MP.")
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must not be empty")
     if not isinstance(settings, VideoLabSettings):
@@ -499,6 +517,7 @@ def build_video_lab_workflow(
         "seed": settings.seed,
         "output_filename_prefix": output_filename_prefix,
         "spectrum_enabled": spectrum_enabled,
+        "initial_megapixels": initial_megapixels,
     }
     for name, value in values.items():
         if name not in preset.inputs:
@@ -771,6 +790,8 @@ def _validate_presets(value: Any) -> dict[str, VideoLabPreset]:
             raise VideoPresetValidationError(f"duplicate preset {preset_id!r}")
         try:
             aspect_ratio = VideoAspectRatio(config.get("aspect_ratio"))
+            initial_megapixels = config.get("initial_megapixels", 0.2)
+            validate_h3_initial_megapixels(initial_megapixels)
             defaults = VideoLabSettings(
                 aspect_ratio=aspect_ratio,
                 megapixels=config.get("megapixels"),
@@ -787,6 +808,7 @@ def _validate_presets(value: Any) -> dict[str, VideoLabPreset]:
             megapixels=defaults.megapixels,
             duration_seconds=defaults.duration_seconds,
             steps=defaults.steps,
+            initial_megapixels=initial_megapixels,
             preview_frames=_integer(preview.get("frames"), f"{label}.preview.frames"),
             preview_fps=_integer(preview.get("fps"), f"{label}.preview.fps"),
             preview_jpeg_quality=_integer(

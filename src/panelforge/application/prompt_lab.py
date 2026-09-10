@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings
+
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,6 +30,7 @@ from panelforge.domain import (
 
 from .revised_documents import RevisedDocumentContract, strip_markdown_fence
 from .direct_ref2v_plan import explicit_dialogue_ledger, extract_explicit_dialogues
+from .vocal_policy import vocal_level, vocal_policy, validate_brief_speech, requests_vocal_change
 
 
 _H3_BASE_PROFILE_IDS = {
@@ -356,6 +359,8 @@ class PromptProfile:
     brief_revision_user_prompt: str | None = None
     brief_variants: tuple[BriefPromptVariant, ...] = ()
     session_mode: PromptSessionMode = PromptSessionMode.ANALYZED
+    vocal_policy_version: str | None = None
+    preparation: VideoPreparationRef = VideoPreparationRef()
 
     def __post_init__(self) -> None:
         if not isinstance(self.session_mode, PromptSessionMode):
@@ -478,6 +483,7 @@ class PromptLabService:
         references: tuple[NewReference, ...],
         brief_variant_id: str | None = None,
         brief_variant_version: str | None = None,
+        combat_settings: CombatSettings | None = None,
     ) -> PromptLabSession:
         profile = self.profiles.get(profile_id, profile_version)
         _validate_brief_variant(
@@ -496,7 +502,9 @@ class PromptLabService:
                 raise ValueError(
                     "I2V Direct requires the image role and use first_frame"
                 )
-        if profile.profile_id in _H3_BASE_PROFILE_IDS:
+        if profile.profile_id in _H3_BASE_PROFILE_IDS or (
+            profile.preparation.is_combat and profile.session_mode is PromptSessionMode.H3_BASE
+        ):
             if len(references) > 2:
                 raise ValueError("H3 Base accepts at most a first and a last frame")
             roles = [reference.role for reference in references]
@@ -520,6 +528,9 @@ class PromptLabService:
             brief_variant_id=brief_variant_id,
             brief_variant_version=brief_variant_version,
             session_mode=profile.session_mode,
+            preparation=profile.preparation,
+            combat_settings=(combat_settings or CombatSettings(orientation="mixed" if profile.preparation.version in {"1.2.0", "1.3.0"} else None))
+                if profile.preparation.is_combat and profile.preparation.version in {"1.1.0", "1.1.1", "1.2.0", "1.3.0"} else combat_settings,
             references=tuple(
                 PromptReference(
                     reference_id=f"ref-{uuid4().hex}",
@@ -544,14 +555,23 @@ class PromptLabService:
         brief_variant_id: str | None = None,
         brief_variant_version: str | None = None,
         inherit_brief_variant: bool = True,
+        combat_settings: CombatSettings | None = None,
     ) -> PromptLabSession:
         """Create a clean session that reuses another session's image assets."""
         if (profile_id is None) != (profile_version is None):
             raise ValueError("fork profile id and version must be provided together")
         source = self.sessions.get(session_id)
+        target_profile = self.profiles.get(
+            source.profile_id if profile_id is None else profile_id,
+            source.profile_version if profile_version is None else profile_version,
+        )
+        if target_profile.preparation.family != source.preparation.family:
+            inherit_brief_variant = False
         for reference in source.references:
             self.assets.get(reference.asset_id)
         return self.create_session(
+            combat_settings=(combat_settings if combat_settings is not None else
+                source.combat_settings if target_profile.preparation == source.preparation else None),
             model_id=source.model_id if model_id is None else model_id,
             profile_id=source.profile_id if profile_id is None else profile_id,
             profile_version=(
@@ -965,8 +985,13 @@ class PromptLabService:
         session = self.sessions.get(session_id)
         profile = self._profile(session)
         system_prompt, user_prompt = _brief_prompts(profile, session)
+        if session.combat_settings is not None:
+            from .combat_sequence import check_intention
+            check_intention(source_text, session.combat_settings)
         context, snapshots = _brief_inputs(session)
         freedom, axes = _creative_settings(creative_freedom, creative_axes)
+        if vocal_level(axes) and not profile.vocal_policy_version:
+            raise ValueError("Choisissez une recette avec liberté de dialogue.")
         audacity = _creative_audacity(creative_audacity)
         result = self.gateway.complete(
             CompletionRequest(
@@ -974,9 +999,9 @@ class PromptLabService:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt.format(
                     creative_freedom=freedom,
-                    creative_policy=_creative_policy(freedom, axes),
+                    creative_policy=_creative_policy(freedom, axes, preparation=session.preparation),
                     creative_audacity=audacity,
-                    creative_audacity_policy=creative_audacity_policy(audacity),
+                    creative_audacity_policy=creative_audacity_policy(audacity, preparation=session.preparation),
                     reference_context=context,
                     source_text=_required_text(source_text, "source_text"),
                     dialogue_ledger=explicit_dialogue_ledger(source_text),
@@ -1009,17 +1034,22 @@ class PromptLabService:
         session = self.sessions.get(session_id)
         profile = self._profile(session)
         system_prompt, user_prompt = _brief_prompts(profile, session)
+        if session.combat_settings is not None:
+            from .combat_sequence import check_intention
+            check_intention(source_text, session.combat_settings)
         context, snapshots = _brief_inputs(session)
         freedom, axes = _creative_settings(creative_freedom, creative_axes)
+        if vocal_level(axes) and not profile.vocal_policy_version:
+            raise ValueError("Choisissez une recette avec liberté de dialogue.")
         audacity = _creative_audacity(creative_audacity)
         request = CompletionRequest(
             model_id=session.model_id,
             system_prompt=system_prompt,
             user_prompt=user_prompt.format(
                 creative_freedom=freedom,
-                creative_policy=_creative_policy(freedom, axes),
+                creative_policy=_creative_policy(freedom, axes, preparation=session.preparation),
                 creative_audacity=audacity,
-                creative_audacity_policy=creative_audacity_policy(audacity),
+                creative_audacity_policy=creative_audacity_policy(audacity, preparation=session.preparation),
                 reference_context=context,
                 source_text=_required_text(source_text, "source_text"),
                 dialogue_ledger=explicit_dialogue_ledger(source_text),
@@ -1078,10 +1108,11 @@ class PromptLabService:
                     creative_policy=_creative_policy(
                         current.creative_freedom,
                         current.creative_axes,
+                        preparation=session.preparation,
                     ),
                     creative_audacity=current.creative_audacity,
                     creative_audacity_policy=creative_audacity_policy(
-                        current.creative_audacity
+                        current.creative_audacity, preparation=session.preparation,
                     ),
                     reference_context=context,
                     source_text=current.source_text,
@@ -1125,10 +1156,11 @@ class PromptLabService:
                 creative_policy=_creative_policy(
                     current.creative_freedom,
                     current.creative_axes,
+                    preparation=session.preparation,
                 ),
                 creative_audacity=current.creative_audacity,
                 creative_audacity_policy=creative_audacity_policy(
-                    current.creative_audacity
+                    current.creative_audacity, preparation=session.preparation,
                 ),
                 reference_context=context,
                 source_text=current.source_text,
@@ -1185,7 +1217,7 @@ class PromptLabService:
                 + ", ".join(use.value for use in reference.uses)
                 + f"; evidence_policy={reference.evidence_policy.value}."
             )
-        policy = creative_freedom_policy(freedom, axes)
+        policy = creative_freedom_policy(freedom, axes, preparation=session.preparation)
         camera_instruction = (
             "Choose the minimum sufficient two-to-six-shot hard-cut sequence; "
             "keep typed camera motion optional and continuity-safe."
@@ -1226,7 +1258,7 @@ class PromptLabService:
             ),
             (
                 f"- LIBERTÉS AUTORISÉES\nCreative freedom {freedom}/100. {policy} "
-                f"Creative audacity {audacity}/3. {creative_audacity_policy(audacity)}"
+                f"Creative audacity {audacity}/3. {creative_audacity_policy(audacity, preparation=session.preparation)}"
             ),
             (
                 "- QUESTIONS OU AMBIGUÏTÉS\n"
@@ -1247,7 +1279,10 @@ class PromptLabService:
         return self.sessions.save(updated.approve_brief())
 
     def _profile(self, session: PromptLabSession) -> PromptProfile:
-        return self.profiles.get(session.profile_id, session.profile_version)
+        profile = self.profiles.get(session.profile_id, session.profile_version)
+        if profile.preparation != session.preparation:
+            raise ValueError("preparation family/version differs from the session's pinned profile")
+        return profile
 
     def _image(self, reference: PromptReference) -> ImageInput:
         asset = self.assets.get(reference.asset_id)
@@ -1338,6 +1373,26 @@ class PromptLabService:
     ) -> PromptLabSession:
         if session.profile_id == _ANIMAL_INTERVIEW_PROFILE_ID:
             _validate_animal_interview_brief(source_text, content)
+        profile = self._profile(session)
+        additions = ()
+        if profile.vocal_policy_version:
+            from .direct_fl2va_prompt import requested_h3_base_duration_ms
+            requested = extract_explicit_dialogues(source_text)
+            # Quotes and spoken tags are two representations of the same ledger.
+            available = content
+            for text in requested:
+                if text not in available:
+                    raise ValueError("Le Brief doit conserver les paroles demandées mot pour mot.")
+            additions = validate_brief_speech(content, requested,
+                level=vocal_level(creative_axes), source_text=source_text,
+                duration_ms=requested_h3_base_duration_ms(source_text) or 8000)
+            previous = session.active_brief_revision
+            if (origin is RevisionOrigin.REWRITE and previous is not None
+                    and not requests_vocal_change(instruction or "")
+                    and additions != previous.vocal_dialogues):
+                raise ValueError("Cette révision doit conserver les répliques déjà retenues dans le Brief.")
+        elif vocal_level(creative_axes):
+            raise ValueError("Choisissez une recette avec liberté de dialogue.")
         revision = BriefRevision(
             revision_id=f"brief-{uuid4().hex}",
             source_text=source_text,
@@ -1345,6 +1400,7 @@ class PromptLabService:
             creative_freedom=creative_freedom,
             creative_axes=creative_axes,
             creative_audacity=creative_audacity,
+            vocal_dialogues=additions,
             origin=origin,
             references=references,
             parent_revision_id=session.active_brief_revision_id,
@@ -1413,7 +1469,8 @@ def _brief_prompts(
         return variant.brief_system_prompt, variant.brief_user_prompt
     if profile.brief_system_prompt is None or profile.brief_user_prompt is None:
         raise ValueError("this prompt profile does not support structured briefs")
-    return profile.brief_system_prompt, profile.brief_user_prompt
+    from .combat_sequence import action_policy
+    return profile.brief_system_prompt + action_policy(session.combat_settings, session.preparation.version), profile.brief_user_prompt
 
 
 def _normalize_brief_document(content: str) -> str:
@@ -1466,7 +1523,8 @@ def _brief_revision_prompts(
         or profile.brief_revision_user_prompt is None
     ):
         raise ValueError("this prompt profile does not support brief revision")
-    return profile.brief_revision_system_prompt, profile.brief_revision_user_prompt
+    from .combat_sequence import action_policy
+    return profile.brief_revision_system_prompt + action_policy(session.combat_settings, session.preparation.version), profile.brief_revision_user_prompt
 
 
 def _validate_brief_variant(
@@ -1653,8 +1711,11 @@ def _creative_audacity(value: int) -> int:
     return value
 
 
-def creative_audacity_policy(value: int) -> str:
+def creative_audacity_policy(value: int, *, preparation: VideoPreparationRef = VideoPreparationRef()) -> str:
     value = _creative_audacity(value)
+    if preparation.is_combat:
+        from .combat_preparation import combat_audacity_policy
+        return combat_audacity_policy(value, preparation)
     return (
         "Aucune initiative créative : complète seulement les transitions nécessaires et "
         "n'ajoute aucune idée-signature non demandée."
@@ -1673,8 +1734,9 @@ def creative_audacity_policy(value: int) -> str:
 def _creative_policy(
     value: int,
     axes: CreativeFreedomAxes | None = None,
+    *, preparation: VideoPreparationRef = VideoPreparationRef(),
 ) -> str:
-    return creative_freedom_policy(value, axes)
+    return creative_freedom_policy(value, axes, preparation=preparation)
 
 
 def creative_axes_from_legacy(value: int) -> CreativeFreedomAxes:
@@ -1711,9 +1773,13 @@ def _creative_settings(
 def creative_freedom_policy(
     value: int,
     axes: CreativeFreedomAxes | None = None,
+    *, preparation: VideoPreparationRef = VideoPreparationRef(),
 ) -> str:
     value = _creative_freedom(value)
     resolved = axes or creative_axes_from_legacy(value)
+    if preparation.is_combat:
+        from .combat_preparation import combat_freedom_policy
+        return combat_freedom_policy(resolved, preparation)
     legacy_band = (
         "Factuel strict"
         if value <= 20
@@ -1751,6 +1817,7 @@ def creative_freedom_policy(
         f"Vie de la scène {resolved.scene_life}/3 : {scene}. "
         f"Caméra {resolved.camera}/3 : {camera}. "
         f"Mouvements additionnels {resolved.extra_motion}/3 : {motion}."
+        + (" " + vocal_policy(resolved.dialogue) if resolved.dialogue else "")
     )
 
 

@@ -203,7 +203,7 @@ class ProductionV2UiTest(unittest.TestCase):
         self.assertIn('--production-v2-image-ratio", previewRatio', self.script)
         self.assertIn("aspect-ratio: var(--production-v2-image-ratio, auto)", self.styles)
         self.assertIn(".production-v2-parent-context .production-v2-image-button { height: 150px; min-height: 0; aspect-ratio: auto; }", self.styles)
-        self.assertIn("/static/lab.css?v=20260909.2", self.page)
+        self.assertIn("/static/lab.css?v=20260909.6", self.page)
 
 
 if __name__ == "__main__":

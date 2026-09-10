@@ -1,0 +1,7 @@
+CURRENT COMPILED PROMPT
+{{CURRENT}}
+
+LATEST USER CHANGE
+{{INSTRUCTION}}
+
+Return the complete four-field direct-prompt JSON object after applying this change. Extract the original camera movement into camera_motion or change it if requested; remove compiled camera and duration sentences, headers and shot headings from the description. Preserve all unaffected actions, timing, identities, references and dialogue. When removing an effect, remove its words from the positive prose rather than adding repeated negations. The existing image mapping and total duration remain application-owned; a new preparation requires a fork.

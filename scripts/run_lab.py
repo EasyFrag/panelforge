@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -12,6 +13,11 @@ from uuid import uuid4
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
+from panelforge.infrastructure.combat_preparation import load_combat_revision_policy
+from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
+from panelforge.infrastructure.presets.h3_checkpoint import CheckpointH3RenderRecipe
+from panelforge.infrastructure.presets.h3_loras import MultiLoraH3RenderRecipe
+from panelforge.application.h3_checkpoints import CachedH3Checkpoints
 
 from panelforge.application import (
     ChangeViewRunner,
@@ -100,13 +106,16 @@ PRESET_DIRECTORY = (
     / "qwen-edit-2511-multiple-angles"
     / "0.2.0"
 )
+BUNNY_RENDER_WORKFLOW_DIRECTORY = PROJECT_ROOT / "workflows" / "video.generate.h3-base" / "minimax-h3-bunny" / "0.1.2"
 VIDEO_PRESET_DIRECTORY = (
     PROJECT_ROOT
     / "workflows"
     / "video.generate.ref2v"
     / "minimax-h3-ref2v"
-    / "0.2.0"
+    / "0.2.1"
 )
+REF2V_RENDER_WORKFLOW_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.3"
+HISTORICAL_REF2V_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.0"
 KREA2_PRESET_DIRECTORY = (
     PROJECT_ROOT
     / "workflows"
@@ -119,7 +128,7 @@ H3_RENDER_WORKFLOW_DIRECTORY = (
     / "workflows"
     / "video.generate.h3-base"
     / "minimax-h3-latent-speed"
-    / "0.1.3"
+    / "0.1.5"
 )
 KREA2_BATCH_WORKFLOW_DIRECTORY = (
     PROJECT_ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"
@@ -237,10 +246,11 @@ def build_app(args: argparse.Namespace):
     video_recipe = VideoLabPresetRecipe(
         load_video_lab_workflow(VIDEO_PRESET_DIRECTORY)
     )
-    ref2v_render_recipe = Ref2VH3RenderPresetRecipe(video_recipe)
-    h3_render_recipe = H3RenderPresetRecipe(
+    ref2v_render_recipe = MultiLoraH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(
+        load_video_lab_workflow(REF2V_RENDER_WORKFLOW_DIRECTORY))), REF2V_RENDER_WORKFLOW_DIRECTORY)
+    h3_render_recipe = MultiLoraH3RenderRecipe(H3RenderPresetRecipe(
         load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY)
-    )
+    ), H3_RENDER_WORKFLOW_DIRECTORY)
     krea2_recipe = Krea2T2IRecipe(
         load_krea2_t2i_workflow(KREA2_PRESET_DIRECTORY)
     )
@@ -447,9 +457,28 @@ def build_app(args: argparse.Namespace):
         assets=assets,
     )
     h3_render = H3RenderService(
+        combat_revision_policies=tuple(load_combat_revision_policy(PROJECT_ROOT / "prompt_cookbooks" / "_blocks", version)
+                                      for version in ("1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0")),
         gateway=gateway,
         workflow=h3_render_recipe,
         ref2v_workflow=ref2v_render_recipe,
+        additional_workflows=(
+            MultiLoraH3RenderRecipe(BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY), BUNNY_RENDER_WORKFLOW_DIRECTORY),
+            CheckpointH3RenderRecipe(BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.1"), BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.1"),
+            BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.0"),
+        ),
+        historical_h3_workflows=(
+            CheckpointH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.4")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.4"),
+            H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.3")),
+        ),
+        historical_ref2v_workflows=(
+            CheckpointH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(VIDEO_PRESET_DIRECTORY.parent / "0.2.2"))), VIDEO_PRESET_DIRECTORY.parent / "0.2.2"),
+            *(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(VIDEO_PRESET_DIRECTORY.parent / version)))
+              for version in ("0.2.1", "0.2.0")),
+        ),
+        list_video_loras=runtime_comfy.list_lora_models,
+        checkpoints=CachedH3Checkpoints(runtime_comfy.list_unet_models, tuple(json.loads(
+            (SRC_ROOT / "panelforge/infrastructure/presets/h3_checkpoints.json").read_text(encoding="utf-8")))),
         comfy=h3_render_comfy,
         assets=assets,
         projects=h3_render_projects,

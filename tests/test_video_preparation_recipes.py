@@ -50,7 +50,7 @@ class ScriptedGateway:
         yield CompletionStreamEvent(StreamEventKind.COMPLETED, StreamPhase.COMPLETED, result=result)
 
 
-def preparation_service(directory, family, route, responses, *, roles=None, source_text="A dragon emerges from an egg in 12 seconds.", version="1.0.0", multishot=False):
+def preparation_service(directory, family, route, responses, *, roles=None, source_text="A dragon emerges from an egg in 12 seconds.", version="1.0.0", multishot=False, profile_version=None, creative_axes=None, preparation_family="classic", combat_settings=None):
     h3 = family == "fl2va"
     roles = roles if roles is not None else ("first_frame",) if h3 else ("subject_reference",)
     assets = LocalAssetStore(directory)
@@ -59,13 +59,18 @@ def preparation_service(directory, family, route, responses, *, roles=None, sour
         asset = assets.create(b"\x89PNG\r\n\x1a\nfixture" + bytes([index]), "image/png")
         refs.append(PromptReference(f"ref-{index}", asset.asset_id, role, f"private-{index}.png",
                                     uses=(ReferenceUse(role.removesuffix("_reference")),)))
-    base = f"minimax.h3.{family}.direct"
+    from panelforge.domain.video_preparation import VideoPreparationRef
+    preparation = VideoPreparationRef(preparation_family, version if preparation_family == "combat" else None)
+    base = f"minimax.h3.{family}.{'combat' if preparation.is_combat else 'direct'}"
+    if preparation.is_combat:
+        profile_version = version
     if multishot:
         base += ".multishot"
     session = PromptLabSession(
         session_id="preparation-session", model_id="fixture-model", profile_id=base,
-        profile_version="0.2.0" if multishot else ("0.5.0" if version == "1.1.0" else "0.4.0") if h3 else "0.5.0", references=tuple(refs),
+        profile_version=profile_version or ("0.2.0" if multishot else ("0.5.0" if version == "1.1.0" else "0.4.0") if h3 else "0.5.0"), references=tuple(refs),
         session_mode=PromptSessionMode.H3_BASE if h3 else PromptSessionMode.DIRECT_MULTIMODAL,
+        preparation=preparation, combat_settings=combat_settings,
     )
     sessions = LocalPromptSessionStore(directory)
     sessions.create(session)
@@ -78,7 +83,7 @@ def preparation_service(directory, family, route, responses, *, roles=None, sour
                      for role in ("first_frame", "last_frame")) if h3 else (
                          CookbookBinding("references", tuple(ref.reference_id for ref in refs)),
                      )
-    intent = PreparationIntent(source_text, 35, CreativeFreedomAxes(1, 0, 1), 2)
+    intent = PreparationIntent(source_text, 35, creative_axes or CreativeFreedomAxes(1, 0, 1), 2)
     composition = service.configure(session.session_id, f"{base}.{route}", version, bindings,
                                     preparation_intent=None if route == "guided" else intent)
     return service, gateway, session, composition

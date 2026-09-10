@@ -3,12 +3,17 @@
 from __future__ import annotations
 from .dlss import DlssResult, validate_dlss_attempt, validate_dlss_lineage
 
+from panelforge.domain.h3_checkpoint import H3ModelLoading, validate_h3_model_selection
+
 from dataclasses import dataclass, replace
 from enum import StrEnum
 import math
 import re
 
 from .video_lab import VideoAspectRatio, VideoLabSettings
+from .video_preparation import VideoPreparationRef, CombatSettings, validate_combat_settings
+from .recipes import RecipeRef
+from .h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -32,14 +37,31 @@ class H3RenderInputMode(StrEnum):
     REF2VA = "ref2va"
 
 
+def derive_h3_render_input_mode(first_frame: bool, last_frame: bool) -> H3RenderInputMode:
+    """Resolve the frame-conditioned mode shared by projects and render recipes."""
+    if not first_frame and not last_frame:
+        return H3RenderInputMode.T2VA
+    if first_frame and not last_frame:
+        return H3RenderInputMode.I2VA
+    if not first_frame:
+        return H3RenderInputMode.L2VA
+    return H3RenderInputMode.FL2VA
+
+
 class H3RenderTurnRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
 
 
 class H3RenderRevisionVersion(StrEnum):
+    COMBAT = "1.0.0"
+    COMBAT_1_1 = "1.1.0"
+    COMBAT_1_1_1 = "1.1.1"
+    COMBAT_1_2 = "1.2.0"
+    COMBAT_1_3 = "1.3.0"
     LEGACY = "0.1.0"
     CAMERA_LOCKED = "0.2.0"
+    VOCAL = "0.3.0"
 
 
 class H3RenderAttemptStatus(StrEnum):
@@ -92,6 +114,74 @@ def canonical_h3_video_lora_name(value: object) -> str:
             f"H3 video LoRA must be a .safetensors file below {H3_VIDEO_LORA_PREFIX}"
         )
     return normalized
+
+
+@dataclass(frozen=True, slots=True)
+class H3VideoLoraSlot:
+    name: str
+    strength: float = 0.5
+    second_strength: float | None = None
+    enabled: bool = True
+
+    def __post_init__(self) -> None:
+        validated = H3VideoLoraSelection(self.name, self.strength, None)
+        object.__setattr__(self, "name", validated.name)
+        object.__setattr__(self, "strength", validated.strength)
+        if self.second_strength is not None:
+            second = H3VideoLoraSelection(self.name, self.second_strength, None)
+            object.__setattr__(self, "second_strength", second.strength)
+        if type(self.enabled) is not bool:
+            raise TypeError("L’activation d’un LoRA doit être un booléen.")
+
+
+@dataclass(frozen=True, slots=True)
+class H3VideoLoraStack:
+    entries: tuple[H3VideoLoraSlot, ...] = ()
+    enabled: bool = True
+    clip_last_layer: int | None = -2
+    version: str = "0.1.0"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.entries, tuple) or len(self.entries) > 2:
+            raise ValueError("La configuration accepte au maximum deux LoRA.")
+        if any(not isinstance(entry, H3VideoLoraSlot) for entry in self.entries):
+            raise TypeError("Sélection LoRA invalide.")
+        if len({entry.name.casefold() for entry in self.entries}) != len(self.entries):
+            raise ValueError("Un même LoRA ne peut pas occuper les deux emplacements.")
+        if type(self.enabled) is not bool:
+            raise TypeError("L’activation des LoRA doit être un booléen.")
+        if self.clip_last_layer is not None and (type(self.clip_last_layer) is not int or self.clip_last_layer != -2):
+            raise ValueError("CLIP Last Layer doit être -2 ou désactivé.")
+        if self.version != "0.1.0":
+            raise ValueError("Version de configuration LoRA indisponible.")
+
+    @property
+    def active_entries(self) -> tuple[H3VideoLoraSlot, ...]:
+        return tuple(entry for entry in self.entries if entry.enabled) if self.enabled else ()
+
+    def validate_mode(self, per_pass: bool) -> None:
+        if per_pass and self.clip_last_layer is not None:
+            raise ValueError("BUNNY ne prend pas en charge CLIP Last Layer.")
+        if any((entry.second_strength is not None) != per_pass for entry in self.entries):
+            raise ValueError("Chaque LoRA BUNNY nécessite deux forces ; le rendu basique utilise une seule force.")
+
+    @classmethod
+    def from_dict(cls, value: dict | None) -> H3VideoLoraStack | None:
+        if value is None:
+            return None
+        data = dict(value)
+        data["entries"] = tuple(H3VideoLoraSlot(**entry) for entry in data.get("entries", ()))
+        return cls(**data)
+
+
+def validate_video_lora_stack(stack, legacy, per_pass: bool) -> None:
+    if stack is None:
+        return
+    if not isinstance(stack, H3VideoLoraStack):
+        raise TypeError("video_loras must be H3VideoLoraStack or None")
+    if legacy is not None:
+        raise ValueError("Utilisez la configuration LoRA unique ou multiple, pas les deux simultanément.")
+    stack.validate_mode(per_pass)
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,16 +254,36 @@ class H3RenderAttempt:
     warnings: tuple[str, ...] = ()
     initial_megapixels: float = 0.2
     dlss: DlssResult | None = None
+    recipe: RecipeRef | None = None
+    bunny: H3BunnySettings | None = None
+    checkpoint: str | None = None
+    model_loading: H3ModelLoading | None = None
+    video_loras: H3VideoLoraStack | None = None
 
     def __post_init__(self) -> None:
+        validate_h3_model_selection(self.checkpoint, self.model_loading)
         _text(self.attempt_id, "attempt_id")
         validate_h3_initial_megapixels(self.initial_megapixels)
+        if not isinstance(self.settings, VideoLabSettings):
+            raise TypeError("settings must be VideoLabSettings")
+        if self.recipe is not None and not isinstance(self.recipe, RecipeRef):
+            raise TypeError("recipe must be a RecipeRef or None")
+        is_bunny = self.recipe is not None and self.recipe.recipe_id == BUNNY_RECIPE_ID
+        validate_video_lora_stack(self.video_loras, self.video_lora, is_bunny)
+        if is_bunny != (self.bunny is not None):
+            raise ValueError("Les réglages BUNNY doivent appartenir à une recette BUNNY.")
+        if self.bunny is not None:
+            if not isinstance(self.bunny, H3BunnySettings):
+                raise TypeError("bunny must be H3BunnySettings")
+            if self.spectrum_enabled or (self.video_lora and self.video_lora.clip_last_layer is not None):
+                raise ValueError("BUNNY ne prend pas en charge Spectrum ou CLIP Last Layer.")
+            if self.settings.steps != self.bunny.coarse_steps + self.bunny.refine_steps:
+                raise ValueError("Les steps BUNNY doivent correspondre au total des deux passes.")
+            bunny_geometry(self.settings, self.initial_megapixels)
         if isinstance(self.index, bool) or not isinstance(self.index, int) or self.index < 1:
             raise ValueError("attempt index must be positive")
         _text(self.prompt, "prompt")
         _text(self.effective_prompt, "effective_prompt")
-        if not isinstance(self.settings, VideoLabSettings):
-            raise TypeError("settings must be VideoLabSettings")
         if not isinstance(self.music_enabled, bool):
             raise TypeError("music_enabled must be a boolean")
         if not isinstance(self.spectrum_enabled, bool):
@@ -312,6 +422,67 @@ class H3RenderAttempt:
 
 
 @dataclass(frozen=True, slots=True)
+class H3RenderSetup:
+    settings: VideoLabSettings
+    initial_megapixels: float
+    music_enabled: bool
+    spectrum_enabled: bool
+    video_lora: H3VideoLoraSelection | None
+    recipe: RecipeRef
+    bunny: H3BunnySettings | None = None
+    checkpoint: str | None = None
+    model_loading: H3ModelLoading | None = None
+    video_loras: H3VideoLoraStack | None = None
+
+    def __post_init__(self) -> None:
+        validate_h3_model_selection(self.checkpoint, self.model_loading)
+        if not isinstance(self.settings, VideoLabSettings) or not isinstance(self.recipe, RecipeRef):
+            raise TypeError("invalid render setup")
+        validate_video_lora_stack(self.video_loras, self.video_lora, self.recipe.recipe_id == BUNNY_RECIPE_ID)
+        validate_h3_initial_megapixels(self.initial_megapixels)
+        if type(self.music_enabled) is not bool or type(self.spectrum_enabled) is not bool:
+            raise TypeError("render switches must be booleans")
+        if self.video_lora is not None and not isinstance(self.video_lora, H3VideoLoraSelection):
+            raise TypeError("invalid video LoRA")
+        if (self.recipe.recipe_id == BUNNY_RECIPE_ID) != (self.bunny is not None):
+            raise ValueError("render setup recipe and BUNNY parameters disagree")
+        if self.bunny is not None:
+            if not isinstance(self.bunny, H3BunnySettings):
+                raise TypeError("invalid BUNNY settings")
+            if self.settings.steps != self.bunny.coarse_steps + self.bunny.refine_steps:
+                raise ValueError("render steps must match the BUNNY schedule")
+            bunny_geometry(self.settings, self.initial_megapixels)
+            if self.spectrum_enabled or (self.video_lora and self.video_lora.clip_last_layer is not None):
+                raise ValueError("BUNNY does not support Spectrum or CLIP last layer")
+
+
+@dataclass(frozen=True, slots=True)
+class H3Ref2VAdaptation:
+    request_id: str
+    source_project_id: str
+    source_prompt: str
+    reference_roles: tuple[str, ...]
+    render_setup: H3RenderSetup
+    status: str = "pending"
+    raw_response: str | None = None
+    error: str | None = None
+    call_id: str | None = None
+    version: str = "1.0.0"
+
+    def __post_init__(self) -> None:
+        for value in (self.request_id, self.source_project_id, self.source_prompt):
+            _text(value, "adaptation source")
+        if self.version != "1.0.0" or self.status not in {"pending", "running", "ready", "failed"}:
+            raise ValueError("invalid adaptation version or status")
+        if not isinstance(self.render_setup, H3RenderSetup):
+            raise TypeError("invalid adaptation render setup")
+        if not isinstance(self.reference_roles, tuple) or not self.reference_roles or any(
+            role not in {"first_frame", "last_frame", "subject_reference"} for role in self.reference_roles
+        ):
+            raise ValueError("invalid adaptation reference roles")
+
+
+@dataclass(frozen=True, slots=True)
 class H3RenderProject:
     project_id: str
     source_session_id: str
@@ -336,8 +507,22 @@ class H3RenderProject:
     revision_draft: str | None = None
     revision_error: str | None = None
     revision_draft_version: H3RenderRevisionVersion | None = None
+    dialogue_level: int = 0
+    adaptation: H3Ref2VAdaptation | None = None
+    preparation: VideoPreparationRef = VideoPreparationRef()
+    combat_settings: CombatSettings | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.preparation, VideoPreparationRef):
+            raise TypeError("preparation must be a VideoPreparationRef")
+        validate_combat_settings(self.preparation, self.combat_settings)
+        if type(self.dialogue_level) is not int or not 0 <= self.dialogue_level <= 3:
+            raise ValueError("dialogue_level must be between 0 and 3")
+        if self.adaptation is not None:
+            if not isinstance(self.adaptation, H3Ref2VAdaptation) or self.input_mode is not H3RenderInputMode.REF2VA:
+                raise TypeError("adaptations require a REF2VA project")
+            if len(self.adaptation.reference_roles) != len(self.reference_asset_ids):
+                raise ValueError("adaptation roles disagree with its reference images")
         for value, label in (
             (self.project_id, "project_id"),
             (self.source_session_id, "source_session_id"),
@@ -403,7 +588,11 @@ class H3RenderProject:
             H3RenderRevisionVersion,
         ):
             raise TypeError("revision_version must be an H3RenderRevisionVersion or None")
-        _strings(self.camera_clauses, "camera_clauses", maximum=8)
+        _strings(self.camera_clauses, "camera_clauses", maximum=12 if self.preparation == VideoPreparationRef("combat", "1.3.0") else 8)
+        if self.revision_version is not None and self.preparation.is_combat != (
+            self.revision_version in {H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}
+        ):
+            raise ValueError("revision version belongs to a different preparation family")
         if self.revision_draft is not None:
             _text(self.revision_draft, "revision_draft")
         if self.revision_error is not None:
@@ -417,6 +606,13 @@ class H3RenderProject:
             )
         if self.revision_draft_version is not None and self.revision_error is None:
             raise ValueError("a revision draft version requires a revision error")
+        if self.revision_draft_version is not None and self.preparation.is_combat != (
+            self.revision_draft_version in {H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}
+        ):
+            raise ValueError("revision draft belongs to a different preparation family")
+        if self.preparation.is_combat and any(version is not None and version.value != self.preparation.version
+                                             for version in (self.revision_version, self.revision_draft_version)):
+            raise ValueError("Combat revisions must keep the saved preparation version")
 
     def add_turn(self, turn: H3RenderTurn) -> H3RenderProject:
         if any(value.turn_id == turn.turn_id for value in self.turns):
@@ -504,13 +700,7 @@ class H3RenderProject:
 
 
 def _input_mode(first: str | None, last: str | None) -> H3RenderInputMode:
-    if first is None and last is None:
-        return H3RenderInputMode.T2VA
-    if first is not None and last is None:
-        return H3RenderInputMode.I2VA
-    if first is None:
-        return H3RenderInputMode.L2VA
-    return H3RenderInputMode.FL2VA
+    return derive_h3_render_input_mode(first is not None, last is not None)
 
 
 def _text(value: object, label: str) -> str:

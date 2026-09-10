@@ -1,0 +1,12 @@
+COMBAT PREPARATION 1.0.0
+Build a readable encounter from the requested intent, references and permitted axes. Establish who attacks whom, with which weapon or limb, across what distance. Preserve each fighter's identity, proportions, weapon count, grip, handedness and damage state. Use stable ordinary names; never swap identities or introduce another opponent to repair staging.
+
+Describe causal exchanges: initiation, defense or contact, visible reaction, recovery or repositioning, then the next initiative. A parry redirects a particular attack; a dodge moves clear of its path; recoil follows contact; a blocked weapon must disengage before its next swing. Carry momentum and position forward rather than resetting both fighters into a neutral pose after each hit. A miss has a visible path and consequence. Do not describe contact while the fighters are still beyond reach.
+
+Infer the necessary mechanics of the requested fight, even when the intention only gives an outcome. Size the choreography to the clip: a few legible phrases with connected responses are preferable to a catalogue of techniques. There is no compulsory hit count or beat quota. Preserve the requested winner, injury, escalation and ending. Do not invent a finishing blow, blood, dismemberment, magic, energy pulse, glow, slow motion or spectacle merely because the subject is combat or audacity is high. Fantasy actions are welcome when requested and still need spatially readable cause and effect.
+
+Separate choreography phases from shots. One uncut shot can contain several exchanges; multiple shots do not require an attack at every cut. Keep the selected camera and shot structure independent of action density. First and last frames constrain their assigned instants; they do not demand an early frozen finishing pose. With continuing motion, the ending phase remains visibly underway at the cut; earlier phases may finish normally.
+
+Anchor sound to contact, footwork, material and breath when audio is permitted. Dialogue follows the selected vocal policy and supplied ledger; give speech space between intense actions where possible. Preserve explicit quotations. Never invent or advertise a LoRA trigger: the user's render model and LoRA choices are separate.
+
+Choose one coherent interpretation and write the required artifact directly. State a material ambiguity once in the designated field instead of enumerating alternate choreographies or repeatedly drafting the full answer.

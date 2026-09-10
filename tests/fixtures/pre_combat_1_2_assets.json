@@ -1,0 +1,15 @@
+{
+  "prompt_cookbooks/minimax.h3.fl2va.combat.guided/1.1.1/manifest.json": "1e9da26e8e2c90218724dd39a39f39ef21d5963420b9f168cbc1162f883c7bf2",
+  "prompt_cookbooks/minimax.h3.fl2va.combat.planned/1.1.1/manifest.json": "a5abd38fa12cdb38af762de5c276be70c4acd280f253a9a3e1102b39513b98ca",
+  "prompt_cookbooks/minimax.h3.fl2va.combat.prompt/1.1.1/manifest.json": "dc9fe63669528666910e3b5a8b01bbee017236e4e713d9c72369048b86f56624",
+  "prompt_cookbooks/minimax.h3.ref2v.combat.guided/1.1.1/manifest.json": "4c5defd17b14cd97d6eced5cf890629b53a574ba669cb113027ad58e3cf6388a",
+  "prompt_cookbooks/minimax.h3.ref2v.combat.planned/1.1.1/manifest.json": "9755e55dfb4d91b7fb901a23e12d820be79279f7c708378337d4010c1b83afa4",
+  "prompt_cookbooks/minimax.h3.ref2v.combat.prompt/1.1.1/manifest.json": "e5417dda57a1f6aa186b6dbf91fda84450044ee5bea01d968342966f25fa28b8",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.1/identity.system.txt": "bcc055944f62ee3cff12ebafca12c1611b632a9ae5d22b33af4e0bc464176791",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.1/render-revision.system.txt": "fa8771cd10042bfd4466c71a4276c484b4be1af38592592dd164f8ed6c6ed4c4",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.1/sequence-direct.system.txt": "01b1b16b9948f54d7e748f81fb7b2e1f79dbe27d932c5b7a8a53e95f82439b0e",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.1/sequence-plan.system.txt": "a7c181abd367b3d8fc281d1d43dbfa43075bec0653d1970ad8de807844ea5758",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.1/sequence-writer.system.txt": "df1405f887bbe8586b58db96a2596c1b5fa4239703345f9064613cea660f4059",
+  "prompt_profiles/video.compose/minimax-h3-fl2va-combat/1.1.1/manifest.json": "dfe8ee99f21e6e84aed844e24fe1414299ec496f83c4bc5b79197ebbaff2a59e",
+  "prompt_profiles/video.compose/minimax-h3-ref2v-combat/1.1.1/manifest.json": "d465fe7f776cf97b4d10897a5bf0873e5f05f7ef76f2aaf4dc87fc78299b30ed"
+}

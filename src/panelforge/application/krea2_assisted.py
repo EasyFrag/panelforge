@@ -452,7 +452,7 @@ class Krea2AssistedService:
         if not isinstance(settings, Krea2BatchSettings):
             raise TypeError("settings must be Krea2BatchSettings")
         if enqueue:
-            self._validate_render_settings(settings)
+            self._validate_render_settings(settings, allow_cached=True)
         chosen_seed = self._seed_factory() if seed is None else seed
         with self._lock:
             project = self.projects.get(project_id)
@@ -524,7 +524,7 @@ class Krea2AssistedService:
                 raise ValueError("Une composition locale ne peut pas être envoyée à ComfyUI.")
             if attempt.status in _RENDER_PENDING:
                 return project  # A repeated /start never duplicates a submission.
-            self._validate_render_settings(attempt.settings)
+            self._validate_render_settings(attempt.settings, allow_cached=True)
             saved = self.projects.save(project.replace_attempt(attempt.queue(self._next_queue_order())))
             self._render_wake.set()
             return saved
@@ -1031,7 +1031,10 @@ class Krea2AssistedService:
             return project
         return self.projects.save(project.replace_attempt(updated))
 
-    def _validate_render_settings(self, settings: Krea2BatchSettings) -> None:
+    def _validate_render_settings(self, settings: Krea2BatchSettings, *, allow_cached: bool = False) -> None:
+        known = getattr(self.resources, "selection_in_last_inventory", None)
+        if allow_cached and callable(known) and known(settings.model_name, tuple(value.name for value in settings.loras)):
+            return
         if not self._model_available(settings.model_name):
             raise ValueError("Le checkpoint sélectionné n’est pas disponible dans le catalogue KREA2.")
         available = {

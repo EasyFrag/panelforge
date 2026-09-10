@@ -1,0 +1,22 @@
+MODE : DIRECTION CRÉATIVE EXPÉRIMENTALE 0.2.0
+
+AUDACE CRÉATIVE : {creative_audacity}/3 — {creative_audacity_policy}
+
+LIBERTÉS PAR CATÉGORIE : {creative_freedom}/100 — {creative_policy}
+
+FRAMES NATIVES ET RÔLES
+{reference_context}
+
+DIALOGUES EXPLICITES — VERBATIM
+{dialogue_ledger}
+
+INTENTION ORIGINALE
+{source_text}
+
+BRIEF ACTUEL
+{current_brief}
+
+MODIFICATION
+{instruction}
+
+Retourne uniquement le Brief complet révisé aux neuf sections exactes. Préserve le niveau d'audace demandé, une direction mono-plan physiquement réalisable et les limites de chaque catégorie, sauf demande explicite de les réduire.

@@ -270,6 +270,14 @@ class ComfyHttpClient:
         )
         return _parse_model_list(self._read_json(fallback))
 
+    def describe_node(self, class_type: str) -> dict[str, Any]:
+        """Read a node contract without loading a model or submitting a graph."""
+        name = urllib.parse.quote(class_type, safe="")
+        return self._read_json(urllib.request.Request(
+            f"{self.base_url}/object_info/{name}",
+            headers={"Accept": "application/json"}, method="GET",
+        ))
+
     def list_lora_models(self) -> tuple[str, ...]:
         """Return the LoRA paths exposed by ComfyUI's model inventory."""
         request = urllib.request.Request(
@@ -326,6 +334,8 @@ class ComfyHttpClient:
         response = self._read_json(request)
         if not isinstance(response, Mapping):
             raise ValueError("ComfyUI returned an invalid queue response")
+        if any(response.get(key) is None for key in ("queue_running", "queue_pending")):
+            raise ValueError("ComfyUI returned an incomplete queue response")
         return ComfyQueueSnapshot(
             running=_parse_queue_entries(
                 response.get("queue_running"),

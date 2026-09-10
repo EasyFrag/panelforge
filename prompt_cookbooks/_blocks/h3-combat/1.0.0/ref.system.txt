@@ -1,0 +1,1 @@
+REFERENCE INPUT. The supplied mapping defines identity, object, environment, style and frame roles independently. Never treat an identity image as the opening pose or copy its background without permission. Describe who attacks whom using stable ordinary names. The application compiles the exact reference header; do not write or reinterpret it in editable body fields.

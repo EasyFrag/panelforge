@@ -1,9 +1,15 @@
 """Durable local store for conversational H3 Base render projects."""
 
 from __future__ import annotations
+from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings
 from panelforge.domain.dlss import DlssResult
+from panelforge.domain.h3_bunny import H3BunnySettings
+from panelforge.domain.recipes import RecipeRef
 
 from datetime import UTC, datetime
+from panelforge.domain.h3_checkpoint import H3ModelLoading
+from panelforge.domain.h3_render import H3VideoLoraStack
+
 from dataclasses import asdict
 import hashlib
 import json
@@ -20,6 +26,8 @@ from panelforge.domain.h3_render import (
     H3RenderInputMode,
     H3RenderKeyframe,
     H3RenderProject,
+    H3RenderSetup,
+    H3Ref2VAdaptation,
     H3RenderRevisionVersion,
     H3RenderTurn,
     H3RenderTurnRole,
@@ -117,7 +125,9 @@ class LocalH3RenderProjectStore:
 
 def _serialize(project: H3RenderProject) -> dict[str, object]:
     return {
-        "schema_version": 4,
+        "schema_version": 12,
+        "preparation": project.preparation.as_dict(),
+        "combat_settings": project.combat_settings.as_dict() if project.combat_settings else None,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "source_session_id": project.source_session_id,
@@ -126,6 +136,8 @@ def _serialize(project: H3RenderProject) -> dict[str, object]:
         "revision_model_id": project.revision_model_id,
         "input_mode": project.input_mode.value,
         "current_prompt": project.current_prompt,
+        "dialogue_level": project.dialogue_level,
+        "adaptation": asdict(project.adaptation) if project.adaptation else None,
         "planned_cut_times_ms": list(project.planned_cut_times_ms),
         "first_frame_asset_id": project.first_frame_asset_id,
         "first_frame_label": project.first_frame_label,
@@ -167,6 +179,11 @@ def _serialize(project: H3RenderProject) -> dict[str, object]:
 def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
     return {
         "attempt_id": attempt.attempt_id,
+        "recipe": asdict(attempt.recipe) if attempt.recipe else None,
+        "bunny": asdict(attempt.bunny) if attempt.bunny else None,
+        "checkpoint": attempt.checkpoint,
+        "video_loras": asdict(attempt.video_loras) if attempt.video_loras is not None else None,
+        "model_loading": asdict(attempt.model_loading) if attempt.model_loading else None,
         "dlss": asdict(attempt.dlss) if attempt.dlss else None,
         "index": attempt.index,
         "prompt": attempt.prompt,
@@ -211,9 +228,11 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> H3RenderProject:
-    if value.get("schema_version") not in {1, 2, 3, 4}:
+    if type(value.get("schema_version")) is not int or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}:
         raise ValueError("unsupported H3 render project schema")
     return H3RenderProject(
+        preparation=VideoPreparationRef.from_dict(value["preparation"]) if value["schema_version"] >= 7 else VideoPreparationRef(),
+        combat_settings=CombatSettings.from_dict(value["combat_settings"]) if value["schema_version"] >= 8 and value["combat_settings"] is not None else None,
         project_id=value["project_id"],
         source_session_id=value["source_session_id"],
         source_prompt_revision_id=value["source_prompt_revision_id"],
@@ -221,6 +240,8 @@ def _deserialize(value: dict[str, Any]) -> H3RenderProject:
         revision_model_id=value.get("revision_model_id"),
         input_mode=H3RenderInputMode(value["input_mode"]),
         current_prompt=value["current_prompt"],
+        dialogue_level=value.get("dialogue_level", 0),
+        adaptation=_adaptation_from_dict(value.get("adaptation")),
         planned_cut_times_ms=tuple(value.get("planned_cut_times_ms", [])),
         first_frame_asset_id=value.get("first_frame_asset_id"),
         first_frame_label=value.get("first_frame_label"),
@@ -230,7 +251,8 @@ def _deserialize(value: dict[str, Any]) -> H3RenderProject:
         reference_labels=tuple(value.get("reference_labels", [])),
         revision_version=(
             H3RenderRevisionVersion(value["revision_version"])
-            if value.get("revision_version") else None
+            if value.get("revision_version") else
+            H3RenderRevisionVersion.CAMERA_LOCKED if value["schema_version"] < 6 else None
         ),
         camera_clauses=tuple(value.get("camera_clauses", [])),
         revision_draft=value.get("revision_draft"),
@@ -266,6 +288,11 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
     video_lora = value.get("video_lora")
     return H3RenderAttempt(
         attempt_id=value["attempt_id"],
+        checkpoint=value.get("checkpoint"),
+        video_loras=H3VideoLoraStack.from_dict(value.get("video_loras")),
+        model_loading=H3ModelLoading(**value["model_loading"]) if value.get("model_loading") else None,
+        recipe=RecipeRef(**value["recipe"]) if value.get("recipe") is not None else None,
+        bunny=H3BunnySettings(**value["bunny"]) if value.get("bunny") is not None else None,
         dlss=DlssResult(**value["dlss"]) if value.get("dlss") else None,
         index=value["index"],
         prompt=value["prompt"],
@@ -307,6 +334,22 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
         error=value.get("error"),
         warnings=tuple(value.get("warnings", [])),
     )
+
+
+def _adaptation_from_dict(value: dict | None) -> H3Ref2VAdaptation | None:
+    if value is None:
+        return None
+    data = dict(value)
+    setup = dict(data.pop("render_setup"))
+    settings = dict(setup.pop("settings"))
+    settings["aspect_ratio"] = VideoAspectRatio(settings["aspect_ratio"])
+    setup["recipe"] = RecipeRef(**setup["recipe"])
+    setup["video_loras"] = H3VideoLoraStack.from_dict(setup.get("video_loras"))
+    setup["model_loading"] = H3ModelLoading(**setup["model_loading"]) if setup.get("model_loading") else None
+    setup["bunny"] = H3BunnySettings(**setup["bunny"]) if setup.get("bunny") else None
+    setup["video_lora"] = H3VideoLoraSelection(**setup["video_lora"]) if setup.get("video_lora") else None
+    data["reference_roles"] = tuple(data["reference_roles"])
+    return H3Ref2VAdaptation(**data, render_setup=H3RenderSetup(settings=VideoLabSettings(**settings), **setup))
 
 
 def _safe(value: str) -> None:

@@ -216,6 +216,33 @@ class AssistedRenderQueueTest(unittest.TestCase):
         self.assertIn("LoRA indisponible", self.service.projects.get(self.project.project_id).attempt(first.attempt_id).error)
         self.assertTrue(self.service.process_next_render())
 
+    def test_known_selection_queues_without_discovery_but_worker_revalidates(self):
+        from unittest.mock import patch
+
+        self.resources.selection_in_last_inventory = lambda model, loras: model == self.settings.model_name and not loras
+        with patch.object(self.resources, "list_models", side_effect=AssertionError("enqueue scanned checkpoints")), \
+             patch.object(self.resources, "list_loras", side_effect=AssertionError("enqueue scanned LoRAs")):
+            first = self.prepare()
+            prepared = self.prepare(enqueue=False)
+            self.service.queue_attempt(self.project.project_id, prepared.attempt_id)
+        self.assertEqual(first.status, Status.QUEUED)
+        # A removed file is caught before ComfyUI, even if admission used the old catalogue.
+        self.resources.models = ()
+        self.assertTrue(self.service.process_next_render())
+        failed = self.service.projects.get(self.project.project_id).attempt(first.attempt_id)
+        self.assertEqual(failed.status, Status.FAILED)
+        self.assertIn("checkpoint", failed.error)
+        self.assertEqual(self.comfy.workflows, [])
+
+    def test_unknown_selection_still_uses_fresh_discovery_before_enqueue(self):
+        from unittest.mock import patch
+
+        self.resources.selection_in_last_inventory = lambda *_: False
+        with patch.object(self.resources, "list_models", wraps=self.resources.list_models) as discover:
+            first = self.prepare()
+        discover.assert_called_once()
+        self.assertEqual(first.status, Status.QUEUED)
+
     def test_running_cancel_is_targeted_and_concurrent_drainers_stay_serial(self):
         first = self.prepare()
         self.comfy.block_first = True

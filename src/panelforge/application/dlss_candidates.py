@@ -1,6 +1,6 @@
 """Attach shared post-processing results to existing workshops without replaying generation."""
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 from panelforge.domain.dlss import DlssResult
 from panelforge.domain.krea2_edit import Krea2EditUpscale, Krea2EditAttemptStatus
@@ -57,6 +57,11 @@ class DlssCandidates:
                     snapshot["input_asset_id"] = original.output_asset_id
             if owner in {"h3", "ref2v"}:
                 snapshot["keyframe_timestamps_ms"] = list(attempt.keyframe_timestamps_ms)
+                snapshot["generation_recipe"] = asdict(attempt.recipe) if attempt.recipe else None
+                snapshot["generation_bunny"] = asdict(attempt.bunny) if attempt.bunny else None
+                snapshot["generation_video_loras"] = asdict(attempt.video_loras) if attempt.video_loras is not None else None
+                snapshot["generation_checkpoint"] = attempt.checkpoint
+                snapshot["generation_model_loading"] = asdict(attempt.model_loading) if attempt.model_loading else None
             return snapshot
 
     def validate_current(self, snapshot):

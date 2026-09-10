@@ -10,6 +10,12 @@
     lab: $(`${prefix}-lab`), status: $(`${prefix}-status`), warnings: $(`${prefix}-warnings`),
     prompt: $(`${prefix}-prompt`), ratio: $(`${prefix}-ratio`), megapixels: $(`${prefix}-megapixels`),
     initialMegapixels: $(`${prefix}-initial-megapixels`),
+    recipe: $(`${prefix}-render-recipe`), bunnyControls: $(`${prefix}-bunny-controls`),
+    bunnyModel: $(`${prefix}-bunny-model`), bunnyGeometry: $(`${prefix}-bunny-geometry`),
+    bunnyTurbo: $(`${prefix}-bunny-turbo`), bunnyBase: $(`${prefix}-bunny-base`),
+    bunnyCoarse: $(`${prefix}-bunny-coarse`), bunnyRefine: $(`${prefix}-bunny-refine`),
+    bunnyPreview: $(`${prefix}-bunny-preview`), bunnySecond: $(`${prefix}-bunny-lora-second`),
+    bunnySecondLabel: $(`${prefix}-bunny-lora-second-label`),
     duration: $(`${prefix}-duration`), steps: $(`${prefix}-steps`), seed: $(`${prefix}-seed`),
     seedLock: $(`${prefix}-seed-lock`), music: $(`${prefix}-music`), spectrum: $(`${prefix}-spectrum`), render: $(`${prefix}-render`),
     cancel: $(`${prefix}-cancel`), mode: $(`${prefix}-mode`), live: $(`${prefix}-live-preview`),
@@ -19,7 +25,9 @@
     attempts: $(`${prefix}-attempts`), revisionVersion: $(`${prefix}-revision-version`),
     revisionModel: $(`${prefix}-revision-model`),
     revisionAudacity: $(`${prefix}-revision-audacity`),
+    dialogue: $(`${prefix}-dialogue`), dialogueValue: $(`${prefix}-dialogue-value`), dialogueControl: $(`${prefix}-dialogue-control`),
     revisionAudacityValue: $(`${prefix}-revision-audacity-value`),
+    convert: $(`${prefix}-convert-ref2v`),
     revisionDraft: $(`${prefix}-revision-draft`), revisionError: $(`${prefix}-revision-error`),
     revisionDraftContent: $(`${prefix}-revision-draft-content`),
     revisionRetry: $(`${prefix}-revision-retry`),
@@ -54,7 +62,128 @@
     renderProgressStartedAt: 0,
     renderProgressTimer: null,
     renderProgressData: null,
+    specCache: new Map(), recipeDrafts: new Map(), defaultRecipeKey: "",
+    recipeLoading: false, recipeToken: 0, contextToken: 0, turboProfiles: {}, turboMode: "on", bunnyError: "",
   };
+
+  const checkpointPicker = window.PanelForgeH3Checkpoints?.mount(prefix, {
+    request, mode: specMode, onChange: () => { syncBunny(); renderControls(); },
+  });
+  const loraEditor = window.PanelForgeH3Loras?.mount(prefix, {
+    request, onChange: () => renderControls(),
+  });
+
+  const recipeKey = (recipe) => recipe ? `${recipe.recipe_id || recipe.id}@${recipe.version}` : state.defaultRecipeKey;
+  const bunnyActive = () => Boolean(state.spec?.bunny);
+  const draftFields = ["ratio", "megapixels", "initialMegapixels", "duration", "steps", "seed", "seedLock", "music", "spectrum",
+    "videoLoraProfile", "videoLoraModel", "videoLoraStrength", "videoLoraClip", "bunnyTurbo", "bunnyBase", "bunnyCoarse", "bunnyRefine", "bunnyPreview", "bunnySecond"];
+  function captureControls(fields = draftFields) {
+    return Object.fromEntries(fields.filter(k => elements[k]).map(k => [k,
+      elements[k].type === "checkbox" ? elements[k].checked : elements[k].value]));
+  }
+  function restoreControls(values) {
+    for (const [key, value] of Object.entries(values)) {
+      const field = elements[key]; if (!field) continue;
+      if (field.type === "checkbox") field.checked = value; else field.value = value;
+    }
+  }
+  function rememberRecipe() {
+    if (!state.spec || !state.project) return;
+    state.recipeDrafts.set(`${projectId()}:${recipeKey(state.spec.recipe)}`, {
+      checkpoint: checkpointPicker?.value || null,
+      video_loras: loraEditor?.value || null,
+      fields: captureControls(), profiles: structuredClone(state.turboProfiles), mode: state.turboMode,
+    });
+  }
+  function showLora(name) {
+    if (name && ![...elements.videoLoraModel.options].some(o => o.value === name)) {
+      const option = document.createElement("option"); option.value = name;
+      option.textContent = `${name} · indisponible`; option.disabled = true;
+      elements.videoLoraModel.append(option);
+    }
+    elements.videoLoraModel.value = name || "";
+  }
+  function syncBunny() {
+    if (!elements.bunnyControls) return;
+    const enabled = bunnyActive();
+    elements.bunnyControls.hidden = !enabled;
+    elements.bunnySecondLabel.hidden = !enabled;
+    elements.steps.closest("label").hidden = enabled;
+    elements.spectrum.closest("label").hidden = enabled;
+    elements.videoLoraClip.closest("label").hidden = enabled;
+    const forceLabel = elements.videoLoraStrength.closest("label");
+    if (forceLabel?.firstChild?.nodeType === Node.TEXT_NODE) forceLabel.firstChild.textContent = enabled ? "Force passe 1 " : "Force ";
+    if (elements.initialMegapixels) {
+      const label = elements.initialMegapixels.closest("label");
+      label.hidden = false;
+      const note = label.querySelector("[data-initial-note]");
+      if (note) note.textContent = state.spec?.limits?.initial_megapixels ? "" : "Fixé à 0,2 MP par cette recette";
+    }
+    state.bunnyError = "";
+    if (!enabled) return;
+    elements.bunnyModel.textContent = checkpointPicker?.value ? `${checkpointPicker.label} · chargement direct` : state.spec.bunny.model_label;
+    const base = Number(elements.bunnyBase.value), coarse = Number(elements.bunnyCoarse.value), refine = Number(elements.bunnyRefine.value);
+    elements.steps.value = String(coarse + refine);
+    if (!Number.isInteger(base) || !Number.isInteger(coarse) || base < 2 || base > 100 || coarse < 1 || coarse >= base || ![3, 4, 5].includes(refine) || coarse + refine > 100) {
+      state.bunnyError = "Steps : base 2–100, première passe inférieure à la base, seconde passe 3–5, total ≤ 100.";
+    }
+    const initial = Number(elements.initialMegapixels.value), target = Number(elements.megapixels.value);
+    const [rw, rh] = elements.ratio.value.split(" ")[0].split(":").map(Number);
+    // ResolutionSelector uses Python round; preserve half-to-even at the grid boundary.
+    const round = x => x % 1 === 0.5 ? (Math.floor(x) % 2 === 0 ? Math.floor(x) : Math.ceil(x)) : Math.round(x);
+    const size = mp => {
+      const scale = Math.sqrt(mp * 1024 * 1024 / (rw * rh));
+      return [round(rw * scale / 32) * 32, round(rh * scale / 32) * 32];
+    };
+    const [w, h] = size(initial), [tw, th] = size(target), ratio = w / h;
+    const iw = Math.sqrt(tw * th * ratio), ih = iw / ratio;
+    const candidates = [];
+    for (const cw of new Set([Math.floor(iw / 32) * 32, Math.ceil(iw / 32) * 32])) {
+      for (const ch of new Set([Math.floor(ih / 32) * 32, Math.ceil(ih / 32) * 32])) {
+        const ow = Math.max(32, cw), oh = Math.max(32, ch);
+        candidates.push({w: ow, h: oh, aspect: Math.abs(Math.log((ow / oh) / ratio)), size: Math.hypot((ow - iw) / iw, (oh - ih) / ih)});
+      }
+    }
+    candidates.sort((a, b) => a.aspect - b.aspect || a.size - b.size);
+    const out = candidates[0], sx = out.w / w, sy = out.h / h;
+    if (![initial, target].every(v => Number.isFinite(v) && v >= 0.1 && v <= 16 && Math.abs(v * 10 - Math.round(v * 10)) < 1e-8)
+        || Math.min(sx, sy) < 1 || Math.max(sx, sy) > 4 || Math.max(sx, sy) / Math.min(sx, sy) > 1.05 || Math.max(tw, th) > 4096) {
+      state.bunnyError = "Résolution : MP par pas de 0,1 ; sortie de ×1 à ×4, sans réduction, cible ≤ 4096 px.";
+    }
+    elements.bunnyGeometry.textContent = state.bunnyError || `${w} × ${h} → ${out.w} × ${out.h} · upscale ×${Math.sqrt(sx * sy).toFixed(3)} · ${coarse} + ${refine} steps exécutés`;
+  }
+  async function switchRecipe(key, { restoreDraft = true, remember = true } = {}) {
+    if (!key) return;
+    if (remember) rememberRecipe();
+    const previous = recipeKey(state.spec?.recipe);
+    const token = ++state.recipeToken, project = projectId();
+    const common = captureControls(["ratio", "duration", "seed", "seedLock", "music"]);
+    state.recipeLoading = true; renderControls();
+    try {
+      if (!state.specCache.has(key)) {
+        const at = key.lastIndexOf("@");
+        const spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}&recipe_id=${encodeURIComponent(key.slice(0, at))}&recipe_version=${encodeURIComponent(key.slice(at + 1))}`);
+        state.specCache.set(key, spec);
+      }
+      if (token !== state.recipeToken || project !== projectId()) return;
+      state.spec = state.specCache.get(key);
+      hydrateDefaults({ renderOnly: true });
+      const draft = restoreDraft && state.recipeDrafts.get(`${project}:${key}`);
+      if (draft) {
+        checkpointPicker?.set(draft.checkpoint);
+        showLora(draft.fields.videoLoraModel);
+        restoreControls(draft.fields); state.turboProfiles = structuredClone(draft.profiles); state.turboMode = draft.mode;
+        loraEditor?.restore(draft.video_loras);
+      } else restoreControls(common);
+      elements.recipe.value = key;
+      syncBunny(); syncVideoLoraControls(); renderWarnings();
+    } catch (error) {
+      if (token === state.recipeToken) { elements.recipe.value = previous; setStatus(error.message, "error"); }
+      throw error;
+    } finally {
+      if (token === state.recipeToken) { state.recipeLoading = false; renderControls(); }
+    }
+  }
 
   async function request(url, options = {}) {
     if (core && core.request) return core.request(url, options);
@@ -120,7 +249,8 @@
   function syncVideoLoraControls() {
     if (!elements.videoLoraProfile) return;
     const enabled = elements.videoLoraProfile.value === "lora";
-    elements.videoLoraFields.hidden = !enabled;
+    elements.videoLoraFields.hidden = !enabled || Boolean(loraEditor?.supported);
+    loraEditor?.setEnabled(enabled);
     if (elements.videoLoraStrengthValue) {
       elements.videoLoraStrengthValue.textContent = Number(elements.videoLoraStrength.value || 0.5).toFixed(2);
     }
@@ -132,8 +262,10 @@
     elements.revisionAudacityValue.textContent = `${elements.revisionAudacity.value}/3`;
   }
 
-  function hydrateDefaults() {
+  function hydrateDefaults({ renderOnly = false } = {}) {
     if (!state.spec) return;
+    checkpointPicker?.configure(state.spec.checkpoint_selection);
+    loraEditor?.configure(state.spec.video_lora_stack, state.spec.video_lora);
     const defaults = state.spec.defaults;
     elements.ratio.replaceChildren(...state.spec.aspect_ratios.map((value) => {
       const option = document.createElement("option");
@@ -145,12 +277,12 @@
     elements.megapixels.value = String(defaults.megapixels);
     if (elements.initialMegapixels) {
       elements.initialMegapixels.value = String(defaults.initial_megapixels ?? 0.2);
-      elements.initialMegapixels.closest("label").hidden = !state.spec.limits?.initial_megapixels;
+      elements.initialMegapixels.closest("label").hidden = false;
     }
     elements.duration.value = String(inferredDuration(state.project?.current_prompt, defaults.duration_seconds));
     elements.steps.value = String(defaults.steps);
     elements.seed.value = randomSeed();
-    elements.seedLock.checked = defaults.seed_locked ?? specMode === "h3-base";
+    elements.seedLock.checked = defaults.seed_locked ?? true;
     elements.music.value = "off";
     elements.spectrum.checked = false;
     if (elements.videoLoraProfile) {
@@ -160,16 +292,36 @@
         const option = document.createElement("option"); option.value = name; option.textContent = name; return option;
       }));
       const loraOption = elements.videoLoraProfile.querySelector('option[value="lora"]');
-      if (loraOption) loraOption.disabled = !config.supported || !models.length;
+      if (loraOption) loraOption.disabled = !config.supported || (!models.length && !loraEditor?.supported);
       elements.videoLoraProfile.value = "standard";
       elements.videoLoraStrength.value = String(config.defaults?.strength ?? 0.5);
       elements.videoLoraClip.checked = (config.defaults?.clip_last_layer ?? -2) === -2;
       elements.videoLoraWarning.textContent = config.warning || (!models.length ? "Aucun LoRA MiniMax trouvé dans minmax_nsfw/." : "");
       elements.videoLoraWarning.hidden = !elements.videoLoraWarning.textContent;
-      syncVideoLoraControls();
     }
-    if (elements.revisionVersion) {
-      elements.revisionVersion.replaceChildren(...(state.spec.revision_versions || []).map((item) => {
+    if (elements.recipe) {
+      elements.recipe.replaceChildren(...(state.spec.render_recipes || []).map(item => {
+        const option = document.createElement("option"); option.value = recipeKey(item); option.textContent = `${item.label} (${item.version})`; return option;
+      }));
+      elements.recipe.value = recipeKey(state.spec.recipe);
+    }
+    if (bunnyActive()) {
+      const config = state.spec.bunny;
+      state.turboProfiles = structuredClone(config.turbo_profiles); state.turboMode = "on";
+      elements.bunnyTurbo.checked = true; elements.bunnyPreview.checked = true;
+      elements.bunnyBase.value = "9"; elements.bunnyCoarse.value = "4"; elements.bunnyRefine.value = "5";
+      elements.bunnySecond.value = String(config.lora_second_strength);
+      elements.videoLoraProfile.value = "lora";
+      showLora(config.default_lora); elements.videoLoraStrength.value = String(config.lora_first_strength);
+      elements.videoLoraClip.checked = false;
+    }
+    if (loraEditor?.supported) {
+      elements.videoLoraProfile.value = loraEditor.value.enabled ? "lora" : "standard";
+      elements.videoLoraWarning.hidden = true;
+    }
+    syncBunny(); syncVideoLoraControls();
+    if (!renderOnly && elements.revisionVersion) {
+      elements.revisionVersion.replaceChildren(...(state.project?.revision_versions || state.spec.revision_versions || []).map((item) => {
         const option = document.createElement("option");
         option.value = item.version; option.textContent = item.label;
         return option;
@@ -177,7 +329,7 @@
       state.selectedRevisionVersion = state.project?.revision_version || state.spec.default_revision_version || "0.2.0";
       elements.revisionVersion.value = state.selectedRevisionVersion;
     }
-    if (elements.revisionModel) {
+    if (!renderOnly && elements.revisionModel) {
       const selectedModel = state.project?.revision_model_id || state.project?.model_id || "";
       window.PanelForgeModelPicker.populate(
         elements.revisionModel,
@@ -195,8 +347,12 @@
     renderWarnings();
   }
 
-  function fillSettings(attempt) {
+  async function fillSettings(attempt) {
     if (!attempt) return;
+    const owner = projectId(), key = recipeKey(attempt.recipe);
+    await switchRecipe(recipeKey(attempt.recipe), { restoreDraft: false });
+    if (owner !== projectId() || (elements.recipe && recipeKey(state.spec.recipe) !== key)) return;
+    checkpointPicker?.set(attempt.checkpoint);
     const settings = attempt.settings;
     elements.ratio.value = settings.aspect_ratio;
     elements.megapixels.value = String(settings.megapixels);
@@ -210,12 +366,21 @@
     if (elements.videoLoraProfile) {
       elements.videoLoraProfile.value = attempt.video_lora ? "lora" : "standard";
       if (attempt.video_lora) {
-        elements.videoLoraModel.value = attempt.video_lora.name;
+        showLora(attempt.video_lora.name);
         elements.videoLoraStrength.value = String(attempt.video_lora.strength);
         elements.videoLoraClip.checked = attempt.video_lora.clip_last_layer === -2;
       }
-      syncVideoLoraControls();
     }
+    if (attempt.bunny) {
+      const b = attempt.bunny;
+      elements.bunnyTurbo.checked = b.turbo_enabled; state.turboMode = b.turbo_enabled ? "on" : "off";
+      elements.bunnyBase.value = String(b.base_steps); elements.bunnyCoarse.value = String(b.coarse_steps); elements.bunnyRefine.value = String(b.refine_steps);
+      elements.bunnySecond.value = String(b.lora_second_strength); elements.bunnyPreview.checked = b.preview_enabled;
+    }
+    loraEditor?.restoreAttempt(attempt);
+    if (loraEditor?.supported) elements.videoLoraProfile.value = loraEditor.value.enabled ? "lora" : "standard";
+    syncVideoLoraControls();
+    syncBunny(); renderControls();
     renderWarnings();
   }
 
@@ -311,6 +476,10 @@
   }
 
   function connectPreview(attempt) {
+    if (attempt?.bunny?.preview_enabled === false) {
+      elements.live.hidden = true; elements.liveEmpty.hidden = false;
+      elements.liveEmpty.textContent = "Preview désactivée · suivi du rendu actif.";
+    }
     closeSocket();
     if (!attempt?.events_url) return;
     beginRenderProgress(attempt);
@@ -401,10 +570,14 @@
 
   function settingsSummary(attempt) {
     const s = attempt.settings;
-    const lora = attempt.video_lora
+    const lora = attempt.video_loras ? ` · ${window.PanelForgeH3Loras.summary(attempt.video_loras)}` : attempt.video_lora
       ? ` · LoRA ${attempt.video_lora.name} × ${Number(attempt.video_lora.strength).toFixed(2)}${attempt.video_lora.clip_last_layer === -2 ? " · CLIP -2" : ""}`
       : " · Standard";
-    const initial = specMode === "h3-base" ? ` · ${attempt.initial_megapixels ?? 0.2} MP avant upscale` : "";
+    if (attempt.bunny) {
+      const b = attempt.bunny, g = attempt.bunny_geometry;
+      return `BUNNY ${attempt.recipe.version} · ${s.aspect_ratio.split(" ")[0]} · ${attempt.initial_megapixels} MP → ${s.megapixels} MP${g ? ` · ${g.width} × ${g.height} · ×${g.scale.toFixed(3)}` : ""} · ${s.duration_seconds} s · Turbo ${b.turbo_enabled ? "ON" : "OFF"} · ${b.base_steps}/${b.coarse_steps}/${b.refine_steps} steps · seed ${s.seed}${attempt.video_loras ? lora : attempt.video_lora ? ` · ${attempt.video_lora.name} · forces ${attempt.video_lora.strength}/${b.lora_second_strength}` : " · Aucun LoRA"}`;
+    }
+    const initial = ` · ${attempt.initial_megapixels ?? 0.2} MP avant upscale`;
     return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP sortie${initial} · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"} · Spectrum ${attempt.spectrum_enabled ? "ON" : "OFF"}${lora}`;
   }
 
@@ -444,6 +617,11 @@
       }
       const summary = document.createElement("small"); summary.textContent = attempt.dlss
         ? `DLSS · ${attempt.dlss.width} × ${attempt.dlss.height} · ${Number(attempt.dlss.fps).toFixed(2)} FPS · ${Number(attempt.dlss.duration_seconds).toFixed(2)} s` : settingsSummary(attempt); card.append(summary);
+      if (attempt.model_loading) {
+        const model = document.createElement("small"), loading = attempt.model_loading;
+        model.textContent = `Modèle : ${loading.checkpoint}${loading.overlay ? ` + ${loading.overlay}` : ""} · ${attempt.checkpoint ? "chargement direct" : "par défaut"}`;
+        model.style.overflowWrap = "anywhere"; card.append(model);
+      }
       if (attempt.error) { const error = document.createElement("p"); error.className = "error-text"; error.textContent = attempt.error; card.append(error); }
       if (attempt.warnings?.length) { const warning = document.createElement("p"); warning.className = "warning-text"; warning.textContent = attempt.warnings.join(" · "); card.append(warning); }
       if (attempt.keyframes?.length) {
@@ -493,6 +671,8 @@
               assetId: lastFrame.asset_id,
               label: `Suite essai ${attempt.index} - dernière frame`,
               sourceSessionId: state.project.source_session_id,
+              preparation: state.project.preparation,
+              combatSettings: state.project.combat_settings,
             });
           } catch (error) {
             continuationError.textContent = error.message;
@@ -535,7 +715,13 @@
     state.project = project;
     elements.lab.hidden = false;
     if (changed || !preservePrompt) elements.prompt.value = project.current_prompt;
+    if (elements.dialogue && changed) elements.dialogue.value = String(project.dialogue_level ?? 0);
     if (elements.revisionVersion && changed) {
+      elements.revisionVersion.replaceChildren(...(project.revision_versions || state.spec?.revision_versions || []).map((item) => {
+        const option = document.createElement("option");
+        option.value = item.version; option.textContent = item.label;
+        return option;
+      }));
       state.selectedRevisionVersion = project.revision_version || state.spec?.default_revision_version || "0.2.0";
       elements.revisionVersion.value = state.selectedRevisionVersion;
     }
@@ -554,6 +740,8 @@
       if (rejected) elements.revisionDraft.open = true;
     }
     elements.mode.textContent = `Mode ${project.input_mode.toUpperCase()} · modèle initial ${project.model_id}`;
+    if (project.preparation?.family === "combat") elements.mode.textContent += ` · Combat ${project.preparation.version}`;
+    if (project.combat_settings?.orientation) elements.mode.textContent += ` · ${window.PanelForgeCombatControls?.orientationLabel(project.combat_settings.orientation) || project.combat_settings.orientation}`;
     renderWarnings();
     renderTurns(); renderAttempts(); renderOutput(); renderControls();
     finishRenderProgress(latestAttempt());
@@ -561,9 +749,21 @@
 
   function renderControls() {
     const active = activeAttempt();
-    const disabled = state.busy || Boolean(active);
-    const missingLora = elements.videoLoraProfile?.value === "lora" && !elements.videoLoraModel?.value;
-    elements.render.disabled = disabled || !state.project || !elements.prompt.value.trim() || missingLora;
+    const incomplete = state.project?.adaptation && state.project.adaptation.status !== "ready";
+    const disabled = state.busy || state.recipeLoading || Boolean(active) || Boolean(incomplete);
+    const missingLora = loraEditor?.supported ? Boolean(loraEditor.error) : elements.videoLoraProfile?.value === "lora" && (!elements.videoLoraModel?.value || !(state.spec?.video_lora?.models || []).includes(elements.videoLoraModel.value));
+    if (loraEditor?.supported) {
+      elements.videoLoraWarning.textContent = loraEditor.error;
+      elements.videoLoraWarning.hidden = elements.videoLoraProfile.value === "lora" || !loraEditor.error;
+    }
+    if (elements.convert) elements.convert.disabled = state.busy || state.recipeLoading || !state.project || !elements.prompt.value.trim() || !elements.revisionModel?.value || Boolean(state.bunnyError) || missingLora;
+    elements.render.disabled = disabled || !state.project || !elements.prompt.value.trim() || missingLora || Boolean(state.bunnyError);
+    if (elements.recipe) elements.recipe.disabled = state.busy || state.recipeLoading;
+    checkpointPicker?.setDisabled(disabled);
+    loraEditor?.setDisabled(disabled);
+    for (const field of [elements.bunnyTurbo, elements.bunnyBase, elements.bunnyCoarse, elements.bunnyRefine, elements.bunnyPreview, elements.bunnySecond]) {
+      if (field) field.disabled = disabled || !bunnyActive();
+    }
     elements.cancel.disabled = !active || state.busy;
     elements.refine.disabled = disabled || !state.project || !elements.message.value.trim() || !elements.revisionModel?.value;
     if (elements.revisionRetry) {
@@ -573,6 +773,11 @@
     if (elements.initialMegapixels) elements.initialMegapixels.disabled = disabled || !state.spec?.limits?.initial_megapixels;
     for (const field of [elements.videoLoraProfile, elements.videoLoraModel, elements.videoLoraStrength, elements.videoLoraClip]) {
       if (field) field.disabled = disabled || (field !== elements.videoLoraProfile && elements.videoLoraProfile.value !== "lora");
+    }
+    if (elements.dialogue) {
+      elements.dialogue.disabled = disabled;
+      elements.dialogueControl.hidden = !["0.3.0", "1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(elements.revisionVersion?.value);
+      elements.dialogueValue.textContent = `${elements.dialogue.value}/3`;
     }
     if (elements.revisionVersion) elements.revisionVersion.disabled = disabled;
     if (elements.revisionAudacity) elements.revisionAudacity.disabled = disabled;
@@ -585,20 +790,33 @@
 
   async function openContext(detail) {
     state.context = detail;
-    if (!detail?.ready || !detail.session_id || !detail.prompt_revision_id) {
+    if (!detail?.project_id && (!detail?.ready || !detail.session_id || !detail.prompt_revision_id)) {
+      rememberRecipe(); ++state.contextToken; ++state.recipeToken; state.recipeLoading = false;
       elements.lab.hidden = true; state.project = null; stopPolling(); closeSocket(); stopRenderProgressClock(); return;
     }
-    const key = `${detail.session_id}:${detail.prompt_revision_id}`;
-    if (state.openingKey === key || (state.project?.source_session_id === detail.session_id && state.project?.source_prompt_revision_id === detail.prompt_revision_id)) return;
+    const key = detail.project_id || `${detail.session_id}:${detail.prompt_revision_id}`;
+    if (state.openingKey === key || (!detail.project_id && state.project?.source_session_id === detail.session_id && state.project?.source_prompt_revision_id === detail.prompt_revision_id)) return;
+    const contextToken = ++state.contextToken;
     state.openingKey = key;
     try {
-      if (!state.spec) state.spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}`);
-      const payload = await request(`/api/h3-render/projects/from-session/${encodeURIComponent(detail.session_id)}`, { method: "POST" });
+      rememberRecipe();
+      ++state.recipeToken; state.recipeLoading = false;
+      if (!state.defaultRecipeKey) {
+        state.spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}`);
+        state.defaultRecipeKey = recipeKey(state.spec.recipe); state.specCache.set(state.defaultRecipeKey, state.spec);
+      }
+      if (contextToken !== state.contextToken) return;
+      const payload = detail.project_id
+        ? await request(`/api/h3-render/projects/${encodeURIComponent(detail.project_id)}`)
+        : await request(`/api/h3-render/projects/from-session/${encodeURIComponent(detail.session_id)}`, { method: "POST" });
+      if (contextToken !== state.contextToken) return;
       const changed = state.project?.project_id !== payload.project.project_id;
       renderProject(payload.project);
       if (changed) {
+        state.spec = state.specCache.get(state.defaultRecipeKey);
         hydrateDefaults();
-        if (latestAttempt()) fillSettings(latestAttempt());
+        if (latestAttempt()) await fillSettings(latestAttempt());
+        else if (payload.project.adaptation) await fillSettings(payload.project.adaptation.render_setup);
       }
       if (activeAttempt()) { connectPreview(activeAttempt()); startPolling(); }
     } catch (error) {
@@ -606,27 +824,39 @@
     } finally { if (state.openingKey === key) state.openingKey = ""; renderControls(); }
   }
 
-  async function renderAttempt() {
-    if (!state.project || state.busy) return;
-    state.busy = true; renderControls();
-    elements.live.hidden = true; elements.liveEmpty.hidden = false; elements.liveEmpty.textContent = "Connexion à la preview ComfyUI…";
-    try {
-      const prepared = await request(`/api/h3-render/projects/${encodeURIComponent(projectId())}/attempts`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+  function renderParameters() {
+    return {
+          recipe_id: state.spec.recipe.id, recipe_version: state.spec.recipe.version,
+          checkpoint: checkpointPicker?.value || null,
+          bunny: bunnyActive() ? {
+            turbo_enabled: elements.bunnyTurbo.checked, base_steps: Number(elements.bunnyBase.value),
+            coarse_steps: Number(elements.bunnyCoarse.value), refine_steps: Number(elements.bunnyRefine.value),
+            lora_second_strength: Number(elements.bunnySecond.value), preview_enabled: elements.bunnyPreview.checked,
+          } : null,
           prompt: elements.prompt.value.trim(), aspect_ratio: elements.ratio.value,
           megapixels: Number(elements.megapixels.value), duration_seconds: Number(elements.duration.value),
           ...(elements.initialMegapixels && state.spec?.limits?.initial_megapixels
             ? { initial_megapixels: Number(elements.initialMegapixels.value) } : {}),
           steps: Number(elements.steps.value), seed: elements.seedLock.checked ? elements.seed.value.trim() : null,
           seed_locked: elements.seedLock.checked, music_enabled: elements.music.value === "on",
-          spectrum_enabled: elements.spectrum.checked,
-          video_lora: elements.videoLoraProfile?.value === "lora" ? {
+          spectrum_enabled: bunnyActive() ? false : elements.spectrum.checked,
+          ...(loraEditor?.supported ? { video_loras: loraEditor.value } : {}),
+          video_lora: !loraEditor?.supported && elements.videoLoraProfile?.value === "lora" ? {
             name: elements.videoLoraModel.value,
             strength: Number(elements.videoLoraStrength.value),
-            clip_last_layer: elements.videoLoraClip.checked ? -2 : null,
+            clip_last_layer: !bunnyActive() && elements.videoLoraClip.checked ? -2 : null,
           } : null,
-        }),
+        };
+  }
+
+  async function renderAttempt() {
+    if (!state.project || state.busy || state.recipeLoading || state.bunnyError || loraEditor?.error) return;
+    state.busy = true; renderControls();
+    elements.live.hidden = true; elements.liveEmpty.hidden = false; elements.liveEmpty.textContent = "Connexion à la preview ComfyUI…";
+    try {
+      const prepared = await request(`/api/h3-render/projects/${encodeURIComponent(projectId())}/attempts`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(renderParameters()),
       });
       renderProject(prepared.project, { preservePrompt: true });
       const attempt = prepared.project.attempts.at(-1);
@@ -660,7 +890,7 @@
   async function resumeAttempt(attempt) {
     try {
       const payload = await request(`/api/h3-render/projects/${encodeURIComponent(projectId())}/attempts/${encodeURIComponent(attempt.attempt_id)}/resume`, { method: "POST" });
-      renderProject(payload.project); fillSettings(attempt); elements.prompt.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      renderProject(payload.project); await fillSettings(attempt); elements.prompt.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (error) { setStatus(error.message, "error"); }
   }
 
@@ -681,6 +911,7 @@
           feedback_attempt_id: state.project.feedback_attempt_id,
           revision_version: elements.revisionVersion?.value || state.project.revision_version || null,
           revision_audacity: Number(elements.revisionAudacity?.value || 0),
+          dialogue_level: ["0.3.0", "1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(elements.revisionVersion?.value) ? Number(elements.dialogue?.value || 0) : 0,
           repair_rejected: repairRejected,
         }),
       }, (event) => {
@@ -707,7 +938,25 @@
     );
   }
 
+  if (elements.convert) elements.convert.addEventListener("click", () => {
+    if (!state.project || elements.convert.disabled) return;
+    window.dispatchEvent(new CustomEvent("panelforge:convert-h3", { detail: {
+      project: state.project, settings: renderParameters(),
+      model_id: elements.revisionModel.value, include_reasoning: elements.reasoning.checked,
+    }}));
+  });
   elements.render.addEventListener("click", renderAttempt);
+  if (elements.recipe) elements.recipe.addEventListener("change", () => { switchRecipe(elements.recipe.value).catch(() => {}); });
+  if (elements.bunnyTurbo) elements.bunnyTurbo.addEventListener("change", () => {
+    state.turboProfiles[state.turboMode] = { base_steps: Number(elements.bunnyBase.value), coarse_steps: Number(elements.bunnyCoarse.value), refine_steps: Number(elements.bunnyRefine.value) };
+    state.turboMode = elements.bunnyTurbo.checked ? "on" : "off";
+    const profile = state.turboProfiles[state.turboMode];
+    elements.bunnyBase.value = String(profile.base_steps); elements.bunnyCoarse.value = String(profile.coarse_steps); elements.bunnyRefine.value = String(profile.refine_steps);
+    syncBunny(); renderControls();
+  });
+  for (const field of [elements.ratio, elements.initialMegapixels, elements.megapixels, elements.bunnyBase, elements.bunnyCoarse, elements.bunnyRefine, elements.bunnySecond]) {
+    if (field) field.addEventListener("input", () => { syncBunny(); renderControls(); });
+  }
   elements.cancel.addEventListener("click", cancelAttempt);
   elements.refine.addEventListener("click", refinePrompt);
   if (elements.revisionRetry) elements.revisionRetry.addEventListener("click", retryRejectedRevision);
@@ -718,8 +967,9 @@
   if (elements.videoLoraModel) elements.videoLoraModel.addEventListener("change", renderControls);
   if (elements.videoLoraStrength) elements.videoLoraStrength.addEventListener("input", syncVideoLoraControls);
   if (elements.revisionVersion) elements.revisionVersion.addEventListener("change", () => {
-    state.selectedRevisionVersion = elements.revisionVersion.value;
+    state.selectedRevisionVersion = elements.revisionVersion.value; renderControls();
   });
+  if (elements.dialogue) elements.dialogue.addEventListener("input", renderControls);
   if (elements.revisionAudacity) elements.revisionAudacity.addEventListener("input", syncRevisionAudacity);
   if (elements.revisionModel) elements.revisionModel.addEventListener("change", renderControls);
   window.addEventListener(contextEvent, (event) => openContext(event.detail));

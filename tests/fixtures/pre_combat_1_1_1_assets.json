@@ -1,0 +1,21 @@
+{
+  "prompt_cookbooks/minimax.h3.fl2va.combat.guided/1.1.0/manifest.json": "29b77f125438aa86679b551702ad9d1a15f10c697848ab43b191e7c03ed9d868",
+  "prompt_cookbooks/minimax.h3.fl2va.combat.planned/1.1.0/manifest.json": "ea5e4af957965c5c01bcf9821af7e70bd046e3671733b13c0d98a034388db82e",
+  "prompt_cookbooks/minimax.h3.fl2va.combat.prompt/1.1.0/manifest.json": "7acaa5aa6e2c2e49d38386357f1a8b966d8a390a65909cce50214711b0e2ae41",
+  "prompt_cookbooks/minimax.h3.ref2v.combat.guided/1.1.0/manifest.json": "8858183d9efd2fd148930cc63be21e10140203239706e20d3252895919856cb8",
+  "prompt_cookbooks/minimax.h3.ref2v.combat.planned/1.1.0/manifest.json": "86f71e368bcdcbbca29efd089cd40af5936e3c16435c29a6be3a3628c232e16e",
+  "prompt_cookbooks/minimax.h3.ref2v.combat.prompt/1.1.0/manifest.json": "eb139ca61cea5fd3beaecd374c0bcdda1ce40360106ae1c97a7d5f2ed924e1d7",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/audacity.system.txt": "5a7a8151b15f00a43f7b2ebff4ac3f45dffd0b4031ad9ba30b64f9c10e0fef3d",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/brief-revision.system.txt": "8016608bbdda65f4f892e751ad0f4de93ef2def68d077a68ee163b32eecd11e6",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/brief.system.txt": "eda6f2b13c780346dcc9456590fee6b96e810bc04169847a3454c8564f92d866",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/choreography.system.txt": "a9f67c3d297437c702733af3ac3fbe7aec36123f8b559ad8161ab4bebd1f35f9",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/ref.system.txt": "fa5ace7b291198e51a622e967bdb0644c085f9b9266d390d369b5f39fa0e3db4",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/render-revision.system.txt": "883d9a419215d785bedb093aca599376960b39cac9e3d9a339e30e2f7e1679ac",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/request.user.txt": "c73731f067c031db20a25edf67e471de2d510dba2293b810818688744f41ee8e",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/revision.user.txt": "5a048c6862e44bab88b3b97b86aeb5a71a422147b817408aad1e2def3f2a2d4e",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/sequence-direct.system.txt": "702339f905aa650db2183c4022b1d18771d4130ca7fa59442b01ac3ec6159837",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/sequence-plan.system.txt": "b1135abbfa2003792ede17f182f0c7f23afc11248a5624ee15c9c9d6cd0025f9",
+  "prompt_cookbooks/_blocks/h3-combat/1.1.0/sequence-writer.system.txt": "508d522d3d5b816b737db0e926cb837886619eecf275204113c17aa2345e8200",
+  "prompt_profiles/video.compose/minimax-h3-fl2va-combat/1.1.0/manifest.json": "641693e69de78fe58099fd8d73d08b685ea024109a389eea5ae123b21913ba4c",
+  "prompt_profiles/video.compose/minimax-h3-ref2v-combat/1.1.0/manifest.json": "9ba06337c4604ff542ea723f634d4c69733b5e447bf639f2dc426fc6ebebd42b"
+}

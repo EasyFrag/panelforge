@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from panelforge.application import BriefPromptVariant, PromptProfile
 from panelforge.domain import PromptSessionMode
+from panelforge.domain.video_preparation import VideoPreparationRef
 
 
 _MANIFEST_KEYS = {
@@ -60,8 +62,9 @@ _BRIEF_VARIANT_PROMPT_KEYS = {
 
 
 class LocalPromptProfileCatalog:
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, shared_blocks_root: str | Path | None = None) -> None:
         self._root = Path(root).resolve()
+        self._shared_blocks_root = Path(shared_blocks_root).resolve() if shared_blocks_root else self._root.parent / "prompt_cookbooks" / "_blocks"
         self._profiles = self._load_all()
 
     def list(self) -> tuple[PromptProfile, ...]:
@@ -84,25 +87,48 @@ class LocalPromptProfileCatalog:
             if not isinstance(data, dict):
                 raise ValueError(f"invalid prompt profile manifest: {manifest_path}")
             schema_version = data.get("schema_version")
-            if schema_version not in {1, 2, 3, 4}:
+            if schema_version not in {1, 2, 3, 4, 5, 6}:
                 raise ValueError("unsupported prompt profile schema")
             expected_manifest_keys = (
-                _MANIFEST_KEYS_V4 if schema_version == 4 else _MANIFEST_KEYS
+                (_MANIFEST_KEYS_V4 | {"vocal_policy_version", "preparation"}) if schema_version == 6 else
+                (_MANIFEST_KEYS_V4 | {"vocal_policy_version"}) if schema_version == 5 else _MANIFEST_KEYS_V4 if schema_version == 4 else _MANIFEST_KEYS
             )
             if set(data) != expected_manifest_keys:
                 raise ValueError(f"invalid prompt profile manifest: {manifest_path}")
+            if schema_version >= 5 and data["vocal_policy_version"] != "1.0.0":
+                raise ValueError("unsupported vocal policy version")
             prompts = data["prompts"]
             expected_prompt_keys = {
                 1: _PROMPT_KEYS_V1,
                 2: _PROMPT_KEYS_V2,
                 3: _PROMPT_KEYS_V3,
                 4: _PROMPT_KEYS_V4,
+                5: _PROMPT_KEYS_V4,
+                6: _PROMPT_KEYS_V4,
             }[schema_version]
             if not isinstance(prompts, dict) or set(prompts) != expected_prompt_keys:
                 raise ValueError("invalid prompt profile prompt bindings")
             directory = manifest_path.parent.resolve()
 
             def read_prompt(key: str) -> str:
+                if schema_version >= 6 and isinstance(prompts[key], list):
+                    parts = []
+                    for part in prompts[key]:
+                        if not isinstance(part, dict) or set(part) != {"block", "version", "file"}:
+                            raise ValueError("invalid profile shared block binding")
+                        if not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", part["block"]) or not re.fullmatch(r"\d+\.\d+\.\d+", part["version"]):
+                            raise ValueError("profile blocks require an exact version")
+                        block_root = (self._shared_blocks_root / part["block"] / part["version"]).resolve()
+                        block_root.relative_to(self._shared_blocks_root.resolve())
+                        path = (block_root / part["file"]).resolve()
+                        path.relative_to(block_root)
+                        value = path.read_text(encoding="utf-8").strip()
+                        if not value:
+                            raise ValueError("empty profile shared block")
+                        parts.append(value)
+                    if not parts:
+                        raise ValueError("empty profile prompt")
+                    return "\n\n".join(parts)
                 path = (directory / prompts[key]).resolve()
                 try:
                     path.relative_to(directory)
@@ -165,9 +191,11 @@ class LocalPromptProfileCatalog:
                     else None
                 ),
                 brief_variants=brief_variants,
+                vocal_policy_version=data.get("vocal_policy_version"),
+                preparation=VideoPreparationRef.from_dict(data["preparation"]) if schema_version >= 6 else VideoPreparationRef(),
                 session_mode=(
                     PromptSessionMode(data["session_mode"])
-                    if schema_version == 4
+                    if schema_version >= 4
                     else PromptSessionMode.ANALYZED
                 ),
             )

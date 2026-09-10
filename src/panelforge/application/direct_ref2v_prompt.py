@@ -122,6 +122,14 @@ def direct_reference_header(
     )
 
 
+
+def direct_reference_header_for_roles(roles: tuple[str, ...]) -> str:
+    """Use the same compiler rules for a conversion without a synthetic Brief."""
+    if not 1 <= len(roles) <= 9:
+        raise ValueError("Ref2V requires one to nine reference roles")
+    return "\n".join(_reference_rule(role, number) for number, role in enumerate(roles, 1))
+
+
 def lint_direct_ref2v_prompt(content: str) -> tuple[str, ...]:
     """Validate the dynamic one-to-nine-picture compact Ref2V envelope."""
 
@@ -151,6 +159,7 @@ def lint_direct_ref2v_prompt(content: str) -> tuple[str, ...]:
     picture_numbers = sorted(
         {int(number) for number in re.findall(r"<Picture\s+(\d+)>", mapping_header)}
     )
+
     if not picture_numbers or picture_numbers != list(
         range(1, len(picture_numbers) + 1)
     ) or len(picture_numbers) > 9:

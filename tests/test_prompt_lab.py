@@ -433,7 +433,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 8)
+            self.assertEqual(raw["schema_version"], 13)
             self.assertEqual(raw["session_mode"], "direct_multimodal")
             self.assertIsNone(raw["brief_variant_id"])
             self.assertIsNone(raw["brief_variant_version"])
@@ -445,8 +445,11 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                 ]
             )
             raw["schema_version"] = 5
+            del raw["preparation"]
+            del raw["combat_settings"]
             del raw["brief_variant_id"]
             del raw["brief_variant_version"]
+            del raw["brief_revisions"][0]["vocal_dialogues"]
             del raw["brief_revisions"][0]["creative_axes"]
             del raw["brief_revisions"][0]["creative_audacity"]
             (
@@ -470,6 +473,8 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 4
+            del raw["preparation"]
+            del raw["combat_settings"]
             del raw["brief_variant_id"]
             del raw["brief_variant_version"]
             del raw["session_mode"]
@@ -539,6 +544,9 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 7
+            del raw["preparation"]
+            del raw["combat_settings"]
+            del raw["brief_revisions"][0]["vocal_dialogues"]
             del raw["brief_revisions"][0]["creative_audacity"]
             path.write_text(json.dumps(raw), encoding="utf-8")
 
@@ -641,13 +649,13 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 8)
+            self.assertEqual(raw["schema_version"], 13)
             self.assertEqual(raw["session_mode"], "analyzed")
             self.assertEqual(raw["brief_revisions"][0]["creative_freedom"], 50)
             self.assertEqual(raw["brief_revisions"][0]["creative_audacity"], 2)
             self.assertEqual(
                 raw["brief_revisions"][0]["creative_axes"],
-                {"scene_life": 2, "camera": 1, "extra_motion": 3},
+                {"scene_life": 2, "camera": 1, "extra_motion": 3, "dialogue": 0},
             )
             self.assertEqual(raw["references"][0]["evidence_policy"], "full")
             self.assertEqual(
@@ -656,9 +664,12 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
 
             raw["schema_version"] = 3
+            del raw["preparation"]
+            del raw["combat_settings"]
             del raw["brief_variant_id"]
             del raw["brief_variant_version"]
             del raw["session_mode"]
+            del raw["brief_revisions"][0]["vocal_dialogues"]
             del raw["brief_revisions"][0]["creative_axes"]
             del raw["brief_revisions"][0]["creative_audacity"]
             del raw["references"][0]["evidence_policy"]
@@ -687,6 +698,8 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 2
+            del raw["preparation"]
+            del raw["combat_settings"]
             del raw["brief_variant_id"]
             del raw["brief_variant_version"]
             del raw["session_mode"]

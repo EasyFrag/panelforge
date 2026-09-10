@@ -23,6 +23,8 @@ from typing import Any, Protocol
 import urllib.parse
 import urllib.request
 
+from panelforge.domain.krea2_lab import normalize_krea2_model_name
+
 
 _MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth"}
 _BF16_THRESHOLD_BYTES = 16 * 1024**3
@@ -428,12 +430,26 @@ class LocalKrea2ResourceCatalog:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lock = RLock()
         self._inventory_warnings: dict[Krea2ResourceKind, tuple[str, ...]] = {}
+        self._inventory_names: dict[Krea2ResourceKind, frozenset[str]] = {}
 
     def list_models(self) -> tuple[Krea2Resource, ...]:
         return self._scan(Krea2ResourceKind.MODEL)
 
     def list_loras(self) -> tuple[Krea2Resource, ...]:
         return self._scan(Krea2ResourceKind.LORA)
+
+    def selection_in_last_inventory(self, model_name: str, lora_names: tuple[str, ...]) -> bool:
+        """Fast positive admission check; the worker still validates a fresh inventory.
+
+        Read immutable snapshots without waiting for a concurrent network scan.
+        A missing/unknown selection falls back to discovery in the caller. Opening
+        or refreshing the catalogue still scans normally, including newly added files.
+        """
+        return (
+            normalize_krea2_model_name(model_name) in self._inventory_names.get(Krea2ResourceKind.MODEL, ())
+            and all(normalize_krea2_model_name(name) in self._inventory_names.get(Krea2ResourceKind.LORA, ())
+                    for name in lora_names)
+        )
 
     def inventory_warnings(self) -> tuple[str, ...]:
         return tuple(
@@ -652,6 +668,7 @@ class LocalKrea2ResourceCatalog:
                     + " KREA2 détecté."
                 )
             self._inventory_warnings[kind] = tuple(warnings)
+            self._inventory_names[kind] = frozenset(normalize_krea2_model_name(value.comfy_name) for value in result)
         result.sort(
             key=lambda item: (
                 not item.favorite,

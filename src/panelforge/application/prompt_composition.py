@@ -16,6 +16,8 @@ from .h3_multishot_preparation import (
     compile_compact_multishot, validate_compact_multishot, multishot_state_warnings,
     align_state_multishot_duration,
 )
+from . import combat_sequence
+from .vocal_policy import vocal_level, vocal_policy, speech_lines, validate_speech
 from .video_preparation import (
     DIRECT_PROMPT_CONTRACT, compile_direct_prompt, direct_prompt_context,
     direct_prompt_errors, preparation_source,
@@ -521,6 +523,7 @@ class CookbookSlotPort(Protocol):
 
 class PromptCookbookPort(Protocol):
     schema_version: int
+    vocal_policy_version: str | None
     reference: CookbookRef
     display_name: str
     description: str
@@ -1419,7 +1422,7 @@ class PromptCompositionService:
         )
         result = self.gateway.complete(request)
         revised = result.content
-        if cookbook.output_contract not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT}:
+        if cookbook.output_contract not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *combat_sequence.CONTRACTS}:
             revised = _revision_document_contract(
                 cookbook,
                 stage,
@@ -1683,7 +1686,7 @@ class PromptCompositionService:
         )
         request = CompletionRequest(
             model_id=session.model_id,
-            system_prompt=cookbook.beat_sheet_reconcile_system_prompt,
+            system_prompt=cookbook.beat_sheet_reconcile_system_prompt + _vocal_stage_policy(session, composition, cookbook, CompositionStage.BEAT_SHEET),
             user_prompt=_render(
                 cookbook.beat_sheet_reconcile_user_prompt,
                 BRIEF=(
@@ -1841,6 +1844,8 @@ class PromptCompositionService:
         composition = self.compositions.get(source_session_id)
         cookbook = self._validated_cookbook(session, composition)
         expected = self._expected_sources(session, composition, stage)
+        if cookbook.output_contract in combat_sequence.CONTRACTS:
+            return self._combat_request(session, composition, cookbook, stage, expected, instruction, include_reasoning)
         prefix = ""
         if instruction is None:
             system_prompt, user_prompt = self._generation_prompts(
@@ -2131,6 +2136,7 @@ class PromptCompositionService:
             prefix = _mono_direct_context(session, composition, cookbook)
         elif cookbook.output_contract == MULTISHOT_DIRECT_CONTRACT and instruction is None:
             prefix = _mono_direct_context(session, composition, cookbook)
+        system_prompt += _vocal_stage_policy(session, composition, cookbook, stage)
         request = CompletionRequest(
             model_id=session.model_id,
             system_prompt=system_prompt,
@@ -2170,6 +2176,60 @@ class PromptCompositionService:
             include_reasoning=include_reasoning,
         )
         return session, composition, cookbook, expected, request, prefix
+
+    def _combat_request(self, session, composition, cookbook, stage, expected, instruction, include_reasoning):
+        source = preparation_source(session, composition)
+        combat_sequence.check_intention(source.source_text, session.combat_settings)
+        if instruction:
+            combat_sequence.check_intention(instruction, session.combat_settings)
+        context = json.loads(_mono_direct_context(session, composition, cookbook))
+        context["settings"] = session.combat_settings.as_dict()
+        context["preparation"] = session.preparation.as_dict()
+        if composition.preparation_intent is None:
+            context["locked_speech"] = list((*extract_explicit_dialogues(source.source_text), *source.vocal_dialogues))
+        planned = cookbook.output_contract in combat_sequence.PLAN_CONTRACTS
+        current = composition.document(stage).active_revision
+        if planned and stage is CompositionStage.FINAL_PROMPT:
+            plan = _approved_stage(composition, CompositionStage.BEAT_SHEET,
+                self._expected_sources(session, composition, CompositionStage.BEAT_SHEET))
+            context["plan"] = json.loads(plan.content)
+        if instruction is not None:
+            if not instruction.strip() or current is None or current.source_ids != expected:
+                raise ValueError("Générez un candidat à jour avant de demander une révision.")
+            if stage is CompositionStage.FINAL_PROMPT:
+                saved = combat_sequence.decode_context(current.compiler_context)
+                context["plan"] = saved["sequence_plan"]
+                context["locked_speech"] = saved["chosen_speech"]
+        writer = stage is CompositionStage.FINAL_PROMPT and "plan" in context
+        system = (cookbook.beat_sheet_system_prompt if stage is CompositionStage.BEAT_SHEET else
+                  cookbook.final_prompt_system_prompt)
+        if writer and instruction is not None:
+            system = cookbook.revision_system_prompt
+        mapping = (direct_h3_base_reference_mapping(session, composition_picture_mapping(composition))
+                   if cookbook.target_mode == "fl2va_direct" else _preparation_reference_mapping(session, composition))
+        user = "\n\n".join((
+            "USER INTENTION:\n" + source.source_text,
+            ("APPROVED BRIEF:\n" + source.content) if composition.preparation_intent is None else "",
+            "REFERENCE ROLES:\n" + mapping,
+            "REQUESTED DURATION MS: " + str(context["duration_ms"]),
+            "PLAN TO PRESERVE:\n" + json.dumps(context.get("plan"), ensure_ascii=False),
+            "SPOKEN LEDGER:\n" + json.dumps(context.get("locked_speech", context["dialogues"]), ensure_ascii=False),
+            "Return exactly this JSON schema:\n" + combat_sequence.schema(stage.value, writer, session.preparation.version),
+            ("CURRENT CANDIDATE:\n" + current.content + "\nUSER REVISION:\n" + instruction) if instruction is not None else "",
+        ))
+        system += combat_sequence.action_policy(session.combat_settings, session.preparation.version)
+        if session.preparation.is_combat and session.preparation.version == "1.3.0":
+            from .combat_cinematic_policy import demonstration
+            system += demonstration(session.combat_settings, stage.value, source.source_text)
+        system += "\n" + creative_freedom_policy(source.creative_freedom, source.creative_axes, preparation=session.preparation)
+        system += "\n" + creative_audacity_policy(source.creative_audacity, preparation=session.preparation)
+        system += _vocal_stage_policy(session, composition, cookbook, stage)
+        request = CompletionRequest(model_id=session.model_id, system_prompt=system, user_prompt=user,
+            images=self._direct_reference_images(session, composition, include_source_filenames=False) if not writer else (),
+            temperature=0.3 if stage is CompositionStage.BEAT_SHEET else 0.2, max_tokens=262_144,
+            operation_id=f"{cookbook.reference.cookbook_id}@{cookbook.reference.version}.{stage.value}.{'revise' if instruction else 'generate'}",
+            include_reasoning=include_reasoning)
+        return session, composition, cookbook, expected, request, combat_sequence.encode_context(context)
 
     def _direct_reference_images(
         self,
@@ -2219,8 +2279,8 @@ class PromptCompositionService:
                     if cookbook.target_mode == "fl2va_direct" else _preparation_reference_mapping(session, composition)
                 ),
                 DURATION_MS=str(json.loads(_mono_direct_context(session, composition, cookbook))["duration_ms"]),
-                CREATIVE_POLICY=creative_freedom_policy(brief.creative_freedom, brief.creative_axes),
-                AUDACITY_POLICY=creative_audacity_policy(brief.creative_audacity),
+                CREATIVE_POLICY=creative_freedom_policy(brief.creative_freedom, brief.creative_axes, preparation=session.preparation),
+                AUDACITY_POLICY=creative_audacity_policy(brief.creative_audacity, preparation=session.preparation),
                 DIALOGUE_LEDGER=explicit_dialogue_ledger(brief.source_text),
                 DIRECT_SCHEMA=compact_multishot_schema() if cookbook.output_contract == MULTISHOT_DIRECT_CONTRACT else "",
             )
@@ -2272,10 +2332,11 @@ class PromptCompositionService:
                             _dialogue_source(cookbook, brief)
                         ),
                         CREATIVE_FREEDOM=str(brief.creative_freedom),
-                        AUDACITY_POLICY=creative_audacity_policy(brief.creative_audacity),
+                        AUDACITY_POLICY=creative_audacity_policy(brief.creative_audacity, preparation=session.preparation),
                         CREATIVE_POLICY=creative_freedom_policy(
                             brief.creative_freedom,
                             brief.creative_axes,
+                            preparation=session.preparation,
                         ),
                     ),
                 )
@@ -2470,7 +2531,7 @@ class PromptCompositionService:
         )
         if stage.value not in cookbook.stages:
             raise ValueError(f"stage {stage.value} is not active for this cookbook")
-        if cookbook.output_contract in _PLANNED_CONTRACTS:
+        if cookbook.output_contract in _PLANNED_CONTRACTS or cookbook.output_contract in combat_sequence.PLAN_CONTRACTS:
             action_plan_sources = (
                 f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
                 brief.source_id,
@@ -2582,7 +2643,7 @@ class PromptCompositionService:
             raise ValueError("the cookbook engine contract changed")
         if (getattr(cookbook, "preparation_steps", 3) < 3) != (composition.preparation_intent is not None):
             raise ValueError("preparation input does not match the recipe")
-        if cookbook.output_contract in _H3_PROTOCOL_CONTRACTS and (
+        if cookbook.output_contract in (_H3_PROTOCOL_CONTRACTS | combat_sequence.CONTRACTS) and (
             cookbook.reference.engine_contract_id,
             cookbook.reference.engine_contract_version,
         ) != (PROTOCOL_ID, PROTOCOL_VERSION):
@@ -2607,12 +2668,42 @@ class PromptCompositionService:
             composition.cookbook.cookbook_id,
             composition.cookbook.version,
         )
+        if cookbook.output_contract in combat_sequence.CONTRACTS:
+            session = self.sessions.get(composition.source_session_id)
+            base = json.loads(_mono_direct_context(session, composition, cookbook))
+            base["settings"] = session.combat_settings.as_dict()
+            base["preparation"] = session.preparation.as_dict()
+            if composition.preparation_intent is None:
+                source = preparation_source(session, composition)
+                base["locked_speech"] = list((*extract_explicit_dialogues(source.source_text), *source.vocal_dialogues))
+            if stage is CompositionStage.BEAT_SHEET:
+                content = combat_sequence.canonical_plan(content, base)
+            else:
+                context = combat_sequence.decode_context(compiler_context)
+                for key in ("mode", "header", "duration_ms", "settings", "preparation"):
+                    if context[key] != base[key]:
+                        raise ValueError("Le contexte Combat ne correspond plus à cet atelier.")
+                combat_sequence.validate_final(content, context)
+            document = composition.document(stage)
+            revision = CompositionRevision(revision_id=f"{stage.value}-{uuid4().hex}",
+                content=_strip_fence(content), origin=origin, source_ids=expected,
+                parent_revision_id=document.active_revision_id, instruction=instruction,
+                compiler_context=compiler_context)
+            return self.compositions.save_if_current(composition, composition.update_document(document.add_revision(revision)))
         if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
             session = self.sessions.get(composition.source_session_id)
             compiler_context = _mono_direct_context(session, composition, cookbook)
-            errors = direct_prompt_errors(content, context=json.loads(compiler_context))
+            context = json.loads(compiler_context)
+            if getattr(cookbook, "vocal_policy_version", None):
+                active = composition.document(stage).active_revision
+                if origin in {RevisionOrigin.MANUAL, RevisionOrigin.REWRITE} and active is not None:
+                    context["chosen_dialogues"] = [text for _, text in speech_lines(active.content)]
+            errors = direct_prompt_errors(content, context=context)
             if errors:
                 raise ValueError(" ".join(errors))
+            if getattr(cookbook, "vocal_policy_version", None):
+                context["chosen_dialogues"] = [text for _, text in speech_lines(content)]
+                compiler_context = json.dumps(context, ensure_ascii=False)
         elif cookbook.output_contract == MULTISHOT_DIRECT_CONTRACT:
             if compiler_context is None:
                 raise ValueError("Générez le découpage direct avant de modifier son prompt.")
@@ -2940,6 +3031,15 @@ class PromptCompositionService:
             raise ValueError(f"unsupported output contract: {cookbook.output_contract}")
         # The one-step contract was validated above against its saved reference,
         # duration and dialogue context; it has no legacy label dispatcher.
+        if getattr(cookbook, "vocal_policy_version", None) and stage is CompositionStage.BEAT_SHEET:
+            source = preparation_source(self.sessions.get(composition.source_session_id), composition)
+            plan = json.loads(content)
+            cues = plan.get("dialogue_cues", [])
+            protected = extract_explicit_dialogues(source.source_text)
+            locked = (*protected, *source.vocal_dialogues) if composition.preparation_intent is None else None
+            validate_speech(tuple((cue["language"], cue["text"]) for cue in cues), protected,
+                level=vocal_level(source.creative_axes), source_text=source.source_text,
+                duration_ms=requested_h3_base_duration_ms(source.source_text) or 8000, locked=locked)
         document = composition.document(stage)
         revision = CompositionRevision(
             revision_id=f"{stage.value}-{uuid4().hex}",
@@ -2988,7 +3088,7 @@ class PromptCompositionService:
                         origin is RevisionOrigin.REWRITE
                         and extract_revision
                         and cookbook.output_contract
-                        not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT}
+                        not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *combat_sequence.CONTRACTS}
                     ):
                         result_content = _revision_document_contract(
                             cookbook,
@@ -3153,6 +3253,11 @@ def lint_cookbook_document(
     stage: CompositionStage,
     content: str,
 ) -> tuple[str, ...]:
+    if cookbook.output_contract in combat_sequence.CONTRACTS:
+        if stage.value not in cookbook.stages:
+            return ("Étape absente de cette recette Combat.",)
+        return combat_sequence.lint_document(content, stage.value,
+            "ref2va" if cookbook.target_mode == "ref2v_direct" else "t2va", cookbook.preparation.version)
     if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
         if stage is not CompositionStage.FINAL_PROMPT:
             return (f"Stage {stage.value} does not belong to this cookbook.",)
@@ -4159,6 +4264,9 @@ def _approved_brief(session: PromptLabSession):
 def _dialogue_source(cookbook: PromptCookbookPort, brief) -> str:
     """Use the completed interview script only for the dedicated recipe."""
 
+    if getattr(cookbook, "vocal_policy_version", None):
+        return "\n".join(json.dumps(text, ensure_ascii=False) for text in (
+            *extract_explicit_dialogues(brief.source_text), *getattr(brief, "vocal_dialogues", ())))
     return (
         brief.content
         if cookbook.output_contract in _FL2VA_ANIMAL_INTERVIEW_CONTRACTS
@@ -4182,10 +4290,16 @@ def _validate_bindings(
     cookbook: PromptCookbookPort,
     bindings: tuple[CookbookBinding, ...],
 ) -> None:
+    from panelforge.domain.video_preparation import VideoPreparationRef
+    if session.preparation != getattr(cookbook, "preparation", VideoPreparationRef()):
+        raise ValueError("preparation family/version differs; start a new exploration to change families")
     experimental_pairs = {
         ("minimax.h3.fl2va.direct", "0.4.0"),
         ("minimax.h3.fl2va.direct", "0.5.0"),
         ("minimax.h3.ref2v.direct", "0.5.0"),
+        ("minimax.h3.fl2va.direct", "0.6.0"),
+        ("minimax.h3.fl2va.direct.multishot", "0.3.0"),
+        ("minimax.h3.ref2v.direct", "0.6.0"),
     }
     profile_pair = (session.profile_id, session.profile_version)
     cookbook_pair = (cookbook.reference.cookbook_id, cookbook.reference.version)
@@ -4803,6 +4917,7 @@ def _is_h3_camera_context(value: str) -> bool:
 def _is_hidden_compiler_context(value: str) -> bool:
     return (
         _is_h3_camera_context(value)
+        or value.startswith(combat_sequence.MARKER)
         or value.startswith(FL2VA_CONTEXT_MARKER)
         or value.startswith(FL2VA_MULTISHOT_CONTEXT_MARKER)
         or is_timed_camera_context(value)
@@ -5143,10 +5258,27 @@ def _preparation_reference_mapping(session, composition) -> str:
 
 def _mono_direct_context(session, composition, cookbook) -> str:
     mapping = composition_picture_mapping(composition)
-    return direct_prompt_context(
+    value = direct_prompt_context(
         session, mapping, preparation_source(session, composition).source_text,
         reference_header=(_preparation_reference_header(session, composition) if cookbook.target_mode == "ref2v_direct" else None),
     )
+    if getattr(cookbook, "vocal_policy_version", None):
+        source = preparation_source(session, composition)
+        context = json.loads(value)
+        context.update(vocal_policy_version=cookbook.vocal_policy_version,
+            dialogue_level=getattr(source.creative_axes, "dialogue", 0), source_text=source.source_text)
+        value = json.dumps(context, ensure_ascii=False)
+    return value
+
+
+def _vocal_stage_policy(session, composition, cookbook, stage) -> str:
+    if not getattr(cookbook, "vocal_policy_version", None):
+        return ""
+    source = preparation_source(session, composition)
+    level = vocal_level(source.creative_axes)
+    locked = composition.preparation_intent is None or (
+        stage is CompositionStage.FINAL_PROMPT and cookbook.preparation_steps > 1)
+    return "\n\n" + vocal_policy(level, locked=locked)
 
 
 def _align_base_multishot_duration(cookbook, content: str, duration_ms: int) -> str:
@@ -5164,6 +5296,8 @@ def _compile_content_with_context(
     source_text: str | None = None,
     dialogue_source_text: str | None = None,
 ) -> tuple[str, str | None]:
+    if cookbook.output_contract in combat_sequence.CONTRACTS:
+        return combat_sequence.compile_result(result, prefix, stage.value)
     if cookbook.output_contract == MULTISHOT_DIRECT_CONTRACT:
         if stage is not CompositionStage.FINAL_PROMPT:
             raise ValueError("the direct multi-shot recipe has only a final prompt stage")

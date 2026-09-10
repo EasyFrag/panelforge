@@ -1,0 +1,134 @@
+{
+  "schema_version": 9,
+  "cookbook_id": "minimax.h3.ref2v.direct.guided",
+  "version": "1.1.0",
+  "display_name": "Ref2V · Exploration guidée · 3 étapes",
+  "description": "Brief puis Plan puis prompt H3. Chaque proposition peut être discutée et validée. Optional English dialogue and vocal reactions, policy 1.0.0.",
+  "target_mode": "ref2v_direct",
+  "output_contract": "minimax.h3.ref2v.direct_supervised_h3_v4",
+  "preset": "ref2v-mono-motion-dialogue-camera-owned-v4",
+  "stages": [
+    "beat_sheet",
+    "final_prompt"
+  ],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "drop_with_warning",
+  "writer_projection": "camera_clean_compact_v5",
+  "visibility": "public",
+  "execution_mode": "supervised",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/ref-en.txt"
+  ],
+  "engine_contract": {
+    "id": "minimax.h3.protocol",
+    "version": "0.1.0"
+  },
+  "slots": [
+    {
+      "id": "references",
+      "label": "Références directes",
+      "description": "Une à neuf images ordonnées ; chaque rôle borne précisément l'influence de son <Picture N>.",
+      "evidence_policy": "full",
+      "subject_label": null,
+      "accepted_uses": [
+        "subject",
+        "first_frame",
+        "keyframe",
+        "last_frame",
+        "composition",
+        "environment",
+        "style",
+        "motion"
+      ],
+      "required_uses": [],
+      "required_shots": [],
+      "minimum_references": 1,
+      "maximum_references": 9
+    }
+  ],
+  "templates": {
+    "beat_sheet_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "ref2v-plan-mode.system.txt"
+      },
+      {
+        "block": "vocal-preparation",
+        "version": "1.0.0",
+        "file": "plan.system.txt"
+      },
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "guided.system.txt"
+      }
+    ],
+    "beat_sheet_user": [
+      {
+        "cookbook_id": "minimax.h3.ref2v.direct",
+        "version": "0.5.0",
+        "template": "beat_sheet_user"
+      }
+    ],
+    "beat_sheet_reconcile_system": [
+      {
+        "cookbook_id": "minimax.h3.ref2v.direct",
+        "version": "0.5.0",
+        "template": "beat_sheet_reconcile_system"
+      }
+    ],
+    "beat_sheet_reconcile_user": [
+      {
+        "cookbook_id": "minimax.h3.ref2v.direct",
+        "version": "0.5.0",
+        "template": "beat_sheet_reconcile_user"
+      }
+    ],
+    "final_prompt_system": [
+      {
+        "block": "video-preparation",
+        "version": "1.0.0",
+        "file": "common.system.txt"
+      },
+      {
+        "cookbook_id": "minimax.h3.ref2v.direct",
+        "version": "0.5.0",
+        "template": "final_prompt_system"
+      }
+    ],
+    "final_prompt_user": [
+      {
+        "cookbook_id": "minimax.h3.ref2v.direct",
+        "version": "0.5.0",
+        "template": "final_prompt_user"
+      }
+    ],
+    "revision_system": [
+      {
+        "cookbook_id": "minimax.h3.ref2v.direct",
+        "version": "0.5.0",
+        "template": "revision_system"
+      }
+    ],
+    "revision_user": [
+      {
+        "cookbook_id": "minimax.h3.ref2v.direct",
+        "version": "0.5.0",
+        "template": "revision_user"
+      }
+    ]
+  },
+  "preparation_steps": 3,
+  "profile": {
+    "id": "minimax.h3.ref2v.direct",
+    "version": "0.6.0"
+  },
+  "vocal_policy_version": "1.0.0"
+}

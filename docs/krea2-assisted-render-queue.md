@@ -75,3 +75,6 @@ worker autonome et parcours HTTP de mise en file atomique.
 Ces tests n’ont pas été lancés. Les seuls contrôles effectués sont statiques :
 syntaxe Python/JavaScript, structure HTML/identifiants et vérification du diff.
 Le comportement réel et l’interface restent à valider par l’utilisateur.
+# Fluidité — complément du 9 septembre 2026
+
+Voir [l’audit et les correctifs ciblés](assisted-performance-audit-2026-09-09.md) : admission depuis le catalogue déjà connu avec revalidation fraîche dans le worker, bouton libéré dès l’enregistrement, cartes stables pendant le polling et historique limité avant désérialisation. FIFO, snapshots de réglages, reprise des exécutions et annulation restent inchangés. Mesures passives `Server-Timing` sur le POST d’ajout ; tests préparés, non exécutés.

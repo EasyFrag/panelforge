@@ -1,0 +1,1 @@
+SHOT STRUCTURE: TWO TO FOUR SHOTS. Preserve identity, weapon ownership, geography and consequential states across cuts. Select meaningful phase boundaries, not a mandatory cut per hit. Repeated camera angles are allowed. An intentional ellipse must say what changed; otherwise show the connecting action. Native first_frame belongs to shot 1 and native last_frame to the last shot.

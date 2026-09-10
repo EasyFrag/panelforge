@@ -1,0 +1,18 @@
+{
+  "cookbooks": {
+    "minimax.h3.fl2va.direct.guided@1.2.0": "bbbbb43202a10e75eeead6f75133ca9aaf4158968eeb4ec0c4d2c3021b90286e",
+    "minimax.h3.fl2va.direct.planned@1.2.0": "45758d1cadcd9143b613df01d2b8f317a6f9aed03c899485c4155db5599cdb21",
+    "minimax.h3.fl2va.direct.prompt@1.2.0": "f5704294b355c44d2f505fb4630305c005da23daebc4cf8b19017e65c1f8f133",
+    "minimax.h3.fl2va.direct.multishot.guided@1.1.0": "74996d6a08db6d554ed6fc01a68b36002ab776f2f89b55bf0dd1a1c33fc9dfc2",
+    "minimax.h3.fl2va.direct.multishot.planned@1.1.0": "5b68c95a907570a9cf0d5d2db3e7d585f4a5759ebe033a16fc3c9ff7a04c4d03",
+    "minimax.h3.fl2va.direct.multishot.prompt@1.1.0": "43c013748f5f06028328ebc61cd7543fb93a38efeb2123d9061d6c7dce7021c8",
+    "minimax.h3.ref2v.direct.guided@1.1.0": "b3d1b6509af60b3257bd57b3650f2e22152e64dd93677388c0bebe5de5c94539",
+    "minimax.h3.ref2v.direct.planned@1.1.0": "aeede12646229e5fc9b0b3261a33fd125cdeaf3bade8fcace281841a947375d3",
+    "minimax.h3.ref2v.direct.prompt@1.1.0": "e8a282085995fe95f6d913928a26a3ddf53da7e962ffcb96066fc8e7caa237c8"
+  },
+  "profiles": {
+    "minimax.h3.fl2va.direct@0.6.0": "01623980c36d928ae893a687f2f129f5461a0834fd0f1e5e861b655fe826d90b",
+    "minimax.h3.fl2va.direct.multishot@0.3.0": "abf754e736546d3aa00a5342c5a9c8108071133dcb581720b3fae6da6362fb65",
+    "minimax.h3.ref2v.direct@0.6.0": "324d0a9305dd1109fbc186aaf26d304116c38f9f9057ff9574b9a9bc473e0a36"
+  }
+}
