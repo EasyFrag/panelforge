@@ -486,6 +486,7 @@
 
   // Presentation policy only: manifests and saved recipe references remain immutable.
   function recipeTier(value) {
+    if (/^minimax\.h3\.(fl2va|ref2v)\.sensual\.planned@1\.0\.0$/.test(value)) return "standard";
     if (/^minimax\.h3\.(fl2va|ref2v)\.classic\.cinematic\.planned@1\.0\.0$/.test(value)) return "experimental";
     // Combat has its own explicit version selector. Every installed version
     // exposes all three routes; version filtering happens below, not by tier.

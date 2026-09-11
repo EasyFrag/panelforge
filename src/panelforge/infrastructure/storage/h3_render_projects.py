@@ -1,7 +1,7 @@
 """Durable local store for conversational H3 Base render projects."""
 
 from __future__ import annotations
-from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings
+from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings, SensualSettings
 from panelforge.domain.dlss import DlssResult
 from panelforge.domain.h3_bunny import H3BunnySettings
 from panelforge.domain.recipes import RecipeRef
@@ -125,9 +125,10 @@ class LocalH3RenderProjectStore:
 
 def _serialize(project: H3RenderProject) -> dict[str, object]:
     return {
-        "schema_version": 13,
+        "schema_version": 14,
         "preparation": project.preparation.as_dict(),
         "cinematic_settings": project.cinematic_settings.as_dict() if project.cinematic_settings else None,
+        "sensual_settings": project.sensual_settings.as_dict() if project.sensual_settings else None,
         "combat_settings": project.combat_settings.as_dict() if project.combat_settings else None,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
@@ -229,11 +230,12 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> H3RenderProject:
-    if type(value.get("schema_version")) is not int or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}:
+    if type(value.get("schema_version")) is not int or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}:
         raise ValueError("unsupported H3 render project schema")
     return H3RenderProject(
         preparation=VideoPreparationRef.from_dict(value["preparation"]) if value["schema_version"] >= 7 else VideoPreparationRef(),
         cinematic_settings=ClassicCinematicSettings.from_dict(value["cinematic_settings"]) if value["schema_version"] >= 13 and value["cinematic_settings"] is not None else None,
+        sensual_settings=SensualSettings.from_dict(value["sensual_settings"]) if value["schema_version"] >= 14 and value["sensual_settings"] is not None else None,
         combat_settings=CombatSettings.from_dict(value["combat_settings"]) if value["schema_version"] >= 8 and value["combat_settings"] is not None else None,
         project_id=value["project_id"],
         source_session_id=value["source_session_id"],

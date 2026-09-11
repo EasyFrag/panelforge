@@ -6,20 +6,21 @@
   <title>PanelForge Lab</title>
   <link rel="stylesheet" href="/static/lab.css?v=20260911.4">
   <script src="/static/lab.js?v=20260907.8" defer></script>
-  <script src="/static/lab-core.js?v=20260911.4" defer></script>
+  <script src="/static/lab-core.js?v=20260911.5" defer></script>
   <script src="/static/dlss-lab.js?v=20260909.3" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
   <script src="/static/classic-cinematic-controls.js?v=20260910.9" defer></script>
   <script src="/static/combat-controls.js?v=20260910.6" defer></script>
-  <script src="/static/i2v-direct.js?v=20260911.3" defer></script>
+  <script src="/static/sensual-controls.js?v=20260911.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260911.4" defer></script>
   <script src="/static/h3-checkpoints.js?v=20260910.7" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260911.3" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260911.4" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
   <script src="/static/video-lab.js?v=20260907.8" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260911.3" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260911.4" defer></script>
   <script src="/static/media-analysis-media.js?v=20260910.11" defer></script>
   <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
@@ -828,6 +829,7 @@
             <select id="i2vd-preparation-family">
               <option value="classic">Classique</option>
               <option value="combat">Combat</option>
+              <option value="sensual">Sensuel</option>
             </select>
           </label>
           <label class="field-label">Version Classique
@@ -849,6 +851,21 @@
               </select>
             </label>
             <small id="i2vd-cinematic-summary"></small>
+          </div>
+          <div id="i2vd-sensual-controls" hidden>
+            <p><b>Sensuel 1.0 · explicite maximal</b><br><small>Terminologie directe, actions et contacts décrits causalement. Réservé aux adultes consentants.</small></p>
+            <label class="field-label">Nombre de plans
+              <select id="i2vd-sensual-shots">
+                <option value="auto" selected>Auto · selon l’intention</option>
+                <option value="1">1 plan · sans coupure</option>
+                <option value="2">2 plans · 1 coupure</option>
+                <option value="3">3 plans · 2 coupures</option>
+                <option value="4">4 plans · 3 coupures</option>
+                <option value="5">5 plans · 4 coupures</option>
+                <option value="6">6 plans · 5 coupures</option>
+              </select>
+            </label>
+            <small id="i2vd-sensual-summary"></small>
           </div>
           <label class="field-label" hidden>Version Combat
             <select id="i2vd-combat-version">
@@ -1220,6 +1237,7 @@
             <select id="ref2vd-preparation-family">
               <option value="classic">Classique</option>
               <option value="combat">Combat</option>
+              <option value="sensual">Sensuel</option>
             </select>
           </label>
           <label class="field-label">Version Classique
@@ -1241,6 +1259,21 @@
               </select>
             </label>
             <small id="ref2vd-cinematic-summary"></small>
+          </div>
+          <div id="ref2vd-sensual-controls" hidden>
+            <p><b>Sensuel 1.0 · explicite maximal</b><br><small>Terminologie directe, actions et contacts décrits causalement. Réservé aux adultes consentants.</small></p>
+            <label class="field-label">Nombre de plans
+              <select id="ref2vd-sensual-shots">
+                <option value="auto" selected>Auto · selon l’intention</option>
+                <option value="1">1 plan · sans coupure</option>
+                <option value="2">2 plans · 1 coupure</option>
+                <option value="3">3 plans · 2 coupures</option>
+                <option value="4">4 plans · 3 coupures</option>
+                <option value="5">5 plans · 4 coupures</option>
+                <option value="6">6 plans · 5 coupures</option>
+              </select>
+            </label>
+            <small id="ref2vd-sensual-summary"></small>
           </div>
           <label class="field-label" hidden>Version Combat
             <select id="ref2vd-combat-version">

@@ -1,0 +1,52 @@
+{
+  "schema_version": 10,
+  "cookbook_id": "minimax.h3.fl2va.sensual.planned",
+  "version": "1.0.0",
+  "display_name": "H3 Base · Sensuel · Explicite maximal · 2 étapes",
+  "description": "Sensuel 1.0 indépendant : Plan causal détaillé puis rédaction explicite fidèle. Auto ou 1–6 plans.",
+  "target_mode": "fl2va_direct",
+  "output_contract": "minimax.h3.sensual.cinematic_planned_v1",
+  "preset": "sensual-explicit-maximal-1.0",
+  "stages": ["beat_sheet", "final_prompt"],
+  "require_distinct_references": true,
+  "invalid_camera_target_policy": "reject",
+  "writer_projection": "full",
+  "visibility": "public",
+  "execution_mode": "supervised",
+  "sources": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/base-en.txt",
+    "https://civitai.red/models/2851079/h3-eros-max"
+  ],
+  "engine_contract": {"id": "minimax.h3.protocol", "version": "0.1.0"},
+  "slots": [
+    {"id": "first_frame", "label": "Première frame", "description": "Frame exacte facultative à 0,00 seconde.", "evidence_policy": "full", "subject_label": null, "accepted_uses": ["first_frame"], "required_uses": ["first_frame"], "required_shots": [], "minimum_references": 0, "maximum_references": 1},
+    {"id": "last_frame", "label": "Dernière frame", "description": "Frame exacte facultative à l'instant final.", "evidence_policy": "full", "subject_label": null, "accepted_uses": ["last_frame"], "required_uses": ["last_frame"], "required_shots": [], "minimum_references": 0, "maximum_references": 1}
+  ],
+  "templates": {
+    "beat_sheet_system": [
+      {"block": "video-preparation", "version": "1.0.0", "file": "common.system.txt"},
+      {"block": "h3-sensual", "version": "1.0.0", "file": "direction.system.txt"},
+      {"block": "h3-sensual", "version": "1.0.0", "file": "plan.system.txt"},
+      {"block": "h3-sensual", "version": "1.0.0", "file": "examples-plan.system.txt"}
+    ],
+    "beat_sheet_user": [{"block": "h3-sensual", "version": "1.0.0", "file": "request.user.txt"}],
+    "final_prompt_system": [
+      {"block": "video-preparation", "version": "1.0.0", "file": "common.system.txt"},
+      {"block": "h3-sensual", "version": "1.0.0", "file": "direction.system.txt"},
+      {"block": "h3-sensual", "version": "1.0.0", "file": "writer.system.txt"},
+      {"block": "h3-sensual", "version": "1.0.0", "file": "examples-writer.system.txt"}
+    ],
+    "final_prompt_user": [{"block": "h3-sensual", "version": "1.0.0", "file": "request.user.txt"}],
+    "revision_system": [
+      {"block": "video-preparation", "version": "1.0.0", "file": "common.system.txt"},
+      {"block": "h3-sensual", "version": "1.0.0", "file": "direction.system.txt"},
+      {"block": "h3-sensual", "version": "1.0.0", "file": "writer.system.txt"}
+    ],
+    "revision_user": [{"block": "h3-sensual", "version": "1.0.0", "file": "revision.user.txt"}]
+  },
+  "preparation_steps": 2,
+  "profile": {"id": "minimax.h3.fl2va.sensual", "version": "1.0.0"},
+  "vocal_policy_version": "1.0.0",
+  "preparation": {"family": "sensual", "version": "1.0.0"}
+}

@@ -117,7 +117,7 @@ class CombatOrientationIntegrationTest(unittest.TestCase):
                                 self.assertEqual(gateway.requests[-1].images, ())
                             self.assertEqual(LocalPromptSessionStore(directory).get(session.session_id).combat_settings, settings)
                             raw = json.loads((Path(directory) / "prompt_sessions" / session.session_id / "session.json").read_text(encoding="utf-8"))
-                            self.assertEqual(raw["schema_version"], 14)
+                            self.assertEqual(raw["schema_version"], 15)
                             renders = CombatRenderTest().service(directory)
                             renders.sessions, renders.compositions = service.sessions, service.compositions
                             project = renders.get_or_create_from_session(session.session_id)
@@ -190,7 +190,7 @@ class CombatOrientationIntegrationTest(unittest.TestCase):
                 roles=("subject_reference", "subject_reference"))
             service.generate(session.session_id, CompositionStage.FINAL_PROMPT)
             path = Path(directory) / "prompt_sessions" / session.session_id / "session.json"
-            raw = json.loads(path.read_text(encoding="utf-8")); raw.pop("cinematic_settings"); raw["schema_version"] = 11
+            raw = json.loads(path.read_text(encoding="utf-8")); raw.pop("sensual_settings"); raw.pop("cinematic_settings"); raw["schema_version"] = 11
             path.write_text(json.dumps(raw), encoding="utf-8")
             self.assertEqual(LocalPromptSessionStore(directory).get(session.session_id).combat_settings, settings)
             renders = CombatRenderTest().service(directory)
@@ -198,6 +198,6 @@ class CombatOrientationIntegrationTest(unittest.TestCase):
             project = renders.get_or_create_from_session(session.session_id)
             path = Path(directory) / "h3_render_projects" / project.project_id / "project.json"
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 13)
+            self.assertEqual(raw["schema_version"], 14)
             raw["schema_version"] = 8; path.write_text(json.dumps(raw), encoding="utf-8")
             self.assertEqual(LocalH3RenderProjectStore(directory).get(project.project_id), project)

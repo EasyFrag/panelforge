@@ -321,6 +321,8 @@ class H3RenderService:
     ) -> tuple[H3RenderRevisionVersion, ...]:
         if preparation.is_classic_cinematic:
             return (H3RenderRevisionVersion.CLASSIC_CINEMATIC,)
+        if preparation.is_sensual:
+            return (H3RenderRevisionVersion.SENSUAL,)
         if preparation.is_combat:
             if preparation.version == "1.3.0":
                 return (H3RenderRevisionVersion.COMBAT_1_3,)
@@ -358,7 +360,7 @@ class H3RenderService:
             if existing is not None:
                 return self._refresh_detached(existing)
             is_ref2v = (
-                session.profile_id in {"minimax.h3.ref2v.direct", "minimax.h3.ref2v.combat"}
+                session.profile_id in {"minimax.h3.ref2v.direct", "minimax.h3.ref2v.combat", "minimax.h3.ref2v.sensual"}
                 and session.session_mode.value == "direct_multimodal"
             )
             if is_ref2v and self.ref2v_workflow is None:
@@ -412,6 +414,7 @@ class H3RenderService:
                 preparation=session.preparation,
                 combat_settings=session.combat_settings,
                 cinematic_settings=session.cinematic_settings,
+                sensual_settings=session.sensual_settings,
                 camera_clauses=extract_compiled_camera_clauses(final.content),
                 dialogue_level=getattr(
                     composition.preparation_intent.creative_axes if composition.preparation_intent
@@ -531,7 +534,7 @@ class H3RenderService:
                 )
             project = project.select_revision_version(version)
             if dialogue_level is not None:
-                if dialogue_level and version not in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC}:
+                if dialogue_level and version not in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC, H3RenderRevisionVersion.SENSUAL}:
                     raise ValueError("Choisissez la révision 0.3.0 pour la liberté de dialogue.")
                 project = replace(project, dialogue_level=dialogue_level)
             project = project.select_revision_model(
@@ -730,7 +733,7 @@ class H3RenderService:
             if initial_megapixels != 0.2 and not getattr(recipe, "supports_initial_megapixels", False):
                 raise ValueError("Ce workflow fixe la génération initiale à 0,2 MP.")
             prompt = canonicalize_h3_revision(project.current_prompt, prompt, project.input_mode, combat_sequence=project.combat_settings is not None, combat_version=project.preparation.version,
-                classic_cinematic=project.preparation.is_classic_cinematic)
+                classic_cinematic=project.preparation.is_classic_cinematic, sensual_cinematic=project.preparation.is_sensual)
             duration_ms = round(settings.effective_duration_seconds * 1000)
             cuts = extract_prompt_cut_times_ms(prompt) or project.planned_cut_times_ms
             timestamps = plan_keyframe_timestamps_ms(
@@ -969,7 +972,7 @@ class H3RenderService:
         combat_policy = self.combat_revision_policies.get(project.preparation) if project.preparation.is_combat else None
         if project.preparation.is_combat and combat_policy is None:
             raise ValueError("the pinned Combat revision prompts are unavailable")
-        camera_locked = version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC}
+        camera_locked = version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC, H3RenderRevisionVersion.SENSUAL}
         images: list[ImageInput] = []
         if feedback is not None:
             for frame in feedback.keyframes:
@@ -1032,9 +1035,10 @@ class H3RenderService:
                 f"{repair_draft or 'No prompt field could be recovered; rebuild it from CURRENT COMPLETE H3 PROMPT.'}"
             )
         sections.append(f"NEW USER MESSAGE (authoritative):\n{message}")
-        if version in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC}:
+        if version in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC, H3RenderRevisionVersion.SENSUAL}:
             sections.append(vocal_policy(project.dialogue_level))
         from .classic_cinematic import REVISION_SYSTEM as classic_revision_system
+        from .sensual_cinematic import REVISION_SYSTEM as sensual_revision_system
         ref_system = _REF2V_REVISION_SYSTEM_CAMERA_LOCKED if camera_locked else _REF2V_REVISION_SYSTEM
         if "[Shot 2]" in project.current_prompt:
             ref_system = ref_system.replace("scene setup, Shot 1,", "scene setup, all numbered shot headings with their exact cut timestamps,")
@@ -1044,6 +1048,7 @@ class H3RenderService:
             model_id=project.revision_model_id or project.model_id,
             system_prompt=(
                 classic_revision_system if project.preparation.is_classic_cinematic else
+                sensual_revision_system if project.preparation.is_sensual else
                 (combat_policy.system_prompt + _combat_action_policy(project)) if combat_policy else (ref_system
                 if project.input_mode is H3RenderInputMode.REF2VA
                 else (
@@ -1058,6 +1063,7 @@ class H3RenderService:
             max_tokens=131_072,
             operation_id=(
                 f"h3.{project.input_mode.value}.classic.cinematic.render.revision@{version.value}" if project.preparation.is_classic_cinematic else
+                f"h3.{project.input_mode.value}.sensual.render.revision@1.0.0" if project.preparation.is_sensual else
                 f"h3.{project.input_mode.value}.combat.render.revision@{project.preparation.version}" if combat_policy else
                 f"h3.ref2v.render.revision@{version.value}"
                 if project.input_mode is H3RenderInputMode.REF2VA
@@ -1075,7 +1081,7 @@ class H3RenderService:
     ) -> H3RenderProject:
         value = _decode_json(raw)
         expected = {"message", "questions", "prompt", "recommendations"}
-        if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC}:
+        if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC, H3RenderRevisionVersion.SENSUAL}:
             expected.add("camera_directives")
         if set(value) != expected:
             raise ValueError("H3 render revision response has invalid fields")
@@ -1086,7 +1092,7 @@ class H3RenderService:
             project = self.projects.get(project_id)
             candidate = _bounded_text(value.get("prompt"), "H3 prompt", 60_000)
             camera_clauses = project.camera_clauses
-            if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC}:
+            if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC, H3RenderRevisionVersion.SENSUAL}:
                 camera_clauses = _revision_camera_clauses(
                     value.get("camera_directives"),
                     project.camera_clauses,
@@ -1103,9 +1109,10 @@ class H3RenderService:
                 project.input_mode,
                 combat_sequence=project.combat_settings is not None, combat_version=project.preparation.version,
                 classic_cinematic=project.preparation.is_classic_cinematic,
-                camera_clauses=camera_clauses if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC} else (),
+                sensual_cinematic=project.preparation.is_sensual,
+                camera_clauses=camera_clauses if version in {H3RenderRevisionVersion.CAMERA_LOCKED, H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC, H3RenderRevisionVersion.SENSUAL} else (),
             )
-            if version in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC}:
+            if version in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC, H3RenderRevisionVersion.SENSUAL}:
                 from .direct_fl2va_prompt import requested_h3_base_duration_ms
                 latest_message = next((turn.content for turn in reversed(project.turns)
                                        if turn.role is H3RenderTurnRole.USER), "")
@@ -1498,10 +1505,11 @@ def canonicalize_h3_revision(
     combat_sequence: bool = False,
     combat_version: str | None = None,
     classic_cinematic: bool = False,
+    sensual_cinematic: bool = False,
 ) -> str:
     current = _bounded_text(current_prompt, "current prompt", 60_000).replace("\r\n", "\n")
     value = _bounded_text(candidate, "candidate prompt", 60_000).replace("\r\n", "\n")
-    if classic_cinematic or combat_version == "1.3.0":
+    if classic_cinematic or sensual_cinematic or combat_version == "1.3.0":
         from .cinematic_core_v1 import preserve_camera_layout
         preserve_camera_layout(current, value)
         if camera_clauses and extract_compiled_camera_clauses(value) != camera_clauses:
@@ -1513,8 +1521,11 @@ def canonicalize_h3_revision(
             candidate_body = current_body
         result = f"{header}\n\n{candidate_body.strip()}"
         _validate_revision_camera_clauses(result, camera_clauses)
-        if classic_cinematic:
-            from .classic_cinematic import prompt_errors
+        if classic_cinematic or sensual_cinematic:
+            if sensual_cinematic:
+                from .sensual_cinematic import prompt_errors
+            else:
+                from .classic_cinematic import prompt_errors
             _preserve_sequence_cuts(current, result)
             errors = prompt_errors(result, input_mode.value)
         elif combat_sequence:
@@ -1543,8 +1554,11 @@ def canonicalize_h3_revision(
     if names != ["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]:
         raise ValueError("H3 prompt must contain the three canonical fields exactly once and in order")
     _validate_revision_camera_clauses(result, camera_clauses)
-    if classic_cinematic:
-        from .classic_cinematic import prompt_errors
+    if classic_cinematic or sensual_cinematic:
+        if sensual_cinematic:
+            from .sensual_cinematic import prompt_errors
+        else:
+            from .classic_cinematic import prompt_errors
         _preserve_sequence_cuts(current, result)
         errors = prompt_errors(result, input_mode.value)
         if errors:

@@ -255,7 +255,8 @@ class CinematicIntegrationTest(unittest.TestCase):
             service.generate(session.session_id, CompositionStage.FINAL_PROMPT)
             path = Path(directory) / "prompt_sessions" / session.session_id / "session.json"
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 14)
+            self.assertEqual(raw["schema_version"], 15)
+            raw.pop("sensual_settings")
             raw.pop("cinematic_settings")
             raw["schema_version"] = 12
             path.write_text(json.dumps(raw), encoding="utf-8")
@@ -265,7 +266,7 @@ class CinematicIntegrationTest(unittest.TestCase):
             project = renders.get_or_create_from_session(session.session_id)
             path = Path(directory) / "h3_render_projects" / project.project_id / "project.json"
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 13)
+            self.assertEqual(raw["schema_version"], 14)
             raw["schema_version"] = 9
             path.write_text(json.dumps(raw), encoding="utf-8")
             self.assertEqual(LocalH3RenderProjectStore(directory).get(project.project_id), project)

@@ -303,8 +303,9 @@ class ClassicCinematicIntegrationTest(unittest.TestCase):
             service, _, session, _ = preparation_service(directory, "fl2va", "planned", [], version="1.2.0", profile_version="0.6.0")
             path = Path(directory) / "prompt_sessions" / session.session_id / "session.json"
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 14)
+            self.assertEqual(raw["schema_version"], 15)
             raw["schema_version"] = 13
+            raw.pop("sensual_settings")
             raw.pop("cinematic_settings")
             path.write_text(json.dumps(raw), encoding="utf-8")
             reopened = LocalPromptSessionStore(directory).get(session.session_id)

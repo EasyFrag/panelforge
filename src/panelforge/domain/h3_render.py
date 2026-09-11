@@ -11,7 +11,10 @@ import math
 import re
 
 from .video_lab import VideoAspectRatio, VideoLabSettings
-from .video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings, validate_combat_settings, validate_cinematic_settings
+from .video_preparation import (
+    VideoPreparationRef, CombatSettings, ClassicCinematicSettings, SensualSettings,
+    validate_combat_settings, validate_cinematic_settings, validate_sensual_settings,
+)
 from .recipes import RecipeRef
 from .h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
 
@@ -63,6 +66,7 @@ class H3RenderRevisionVersion(StrEnum):
     CAMERA_LOCKED = "0.2.0"
     VOCAL = "0.3.0"
     CLASSIC_CINEMATIC = "0.4.0"
+    SENSUAL = "0.5.0"
 
 
 class H3RenderAttemptStatus(StrEnum):
@@ -514,12 +518,14 @@ class H3RenderProject:
     preparation: VideoPreparationRef = VideoPreparationRef()
     combat_settings: CombatSettings | None = None
     cinematic_settings: ClassicCinematicSettings | None = None
+    sensual_settings: SensualSettings | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.preparation, VideoPreparationRef):
             raise TypeError("preparation must be a VideoPreparationRef")
         validate_combat_settings(self.preparation, self.combat_settings)
         validate_cinematic_settings(self.preparation, self.cinematic_settings)
+        validate_sensual_settings(self.preparation, self.sensual_settings)
         if type(self.dialogue_level) is not int or not 0 <= self.dialogue_level <= 3:
             raise ValueError("dialogue_level must be between 0 and 3")
         if self.adaptation is not None:
@@ -617,6 +623,8 @@ class H3RenderProject:
         for version in (self.revision_version, self.revision_draft_version):
             if version is not None and self.preparation.is_classic_cinematic != (version is H3RenderRevisionVersion.CLASSIC_CINEMATIC):
                 raise ValueError("Classic cinematic revisions must keep their pinned preparation")
+            if version is not None and self.preparation.is_sensual != (version is H3RenderRevisionVersion.SENSUAL):
+                raise ValueError("Sensual revisions must keep their pinned preparation")
         if self.preparation.is_combat and any(version is not None and version.value != self.preparation.version
                                              for version in (self.revision_version, self.revision_draft_version)):
             raise ValueError("Combat revisions must keep the saved preparation version")

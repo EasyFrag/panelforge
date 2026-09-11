@@ -16,7 +16,7 @@ from .h3_multishot_preparation import (
     compile_compact_multishot, validate_compact_multishot, multishot_state_warnings,
     align_state_multishot_duration,
 )
-from . import combat_sequence, classic_cinematic
+from . import combat_sequence, classic_cinematic, sensual_cinematic
 
 from .vocal_policy import vocal_level, vocal_policy, speech_lines, validate_speech
 from .video_preparation import (
@@ -289,11 +289,41 @@ _RETENTION_MARKERS = {
 }
 _I2VA_INSTRUCTION = I2VA_FIXED_INSTRUCTION
 _I2VA_FIELDS = DIRECT_I2VA_FIELDS
-_SEQUENCE_CONTRACTS = combat_sequence.CONTRACTS | classic_cinematic.CONTRACTS
-_SEQUENCE_PLAN_CONTRACTS = combat_sequence.PLAN_CONTRACTS | classic_cinematic.PLAN_CONTRACTS
+_SEQUENCE_HANDLERS = {
+    **{contract: combat_sequence for contract in combat_sequence.CONTRACTS},
+    **{contract: classic_cinematic for contract in classic_cinematic.CONTRACTS},
+    **{contract: sensual_cinematic for contract in sensual_cinematic.CONTRACTS},
+}
+_SEQUENCE_CONTRACTS = set(_SEQUENCE_HANDLERS)
+_SEQUENCE_PLAN_CONTRACTS = combat_sequence.PLAN_CONTRACTS | classic_cinematic.PLAN_CONTRACTS | sensual_cinematic.PLAN_CONTRACTS
 
 def _sequence_handler(cookbook):
-    return classic_cinematic if cookbook.output_contract in classic_cinematic.CONTRACTS else combat_sequence
+    try:
+        return _SEQUENCE_HANDLERS[cookbook.output_contract]
+    except KeyError as error:
+        raise ValueError("unknown sequence preparation contract") from error
+
+
+def _sequence_settings(session):
+    if session.preparation.is_classic_cinematic:
+        return session.cinematic_settings
+    if session.preparation.is_sensual:
+        return session.sensual_settings
+    return session.combat_settings
+
+
+def _sequence_schema(handler, session, stage, writer, context):
+    if handler is classic_cinematic or handler is sensual_cinematic:
+        return handler.schema(stage.value, plan=context.get("plan"))
+    return handler.schema(stage.value, writer, session.preparation.version)
+
+
+def _sequence_policy(session, source_text):
+    if session.preparation.is_classic_cinematic:
+        return classic_cinematic.policy(session.cinematic_settings, source_text)
+    if session.preparation.is_sensual:
+        return sensual_cinematic.policy(session.sensual_settings, source_text)
+    return combat_sequence.action_policy(session.combat_settings, session.preparation.version)
 
 
 _I2VA_CANONICAL_CONTRACT = "minimax.h3.i2va.canonical_v1"
@@ -2192,8 +2222,12 @@ class PromptCompositionService:
             combat_sequence.check_intention(source.source_text, session.combat_settings)
             if instruction:
                 combat_sequence.check_intention(instruction, session.combat_settings)
+        elif session.preparation.is_sensual:
+            sensual_cinematic.requested_count(source.source_text, session.sensual_settings)
+            if instruction:
+                sensual_cinematic.requested_count(instruction, session.sensual_settings)
         context = json.loads(_mono_direct_context(session, composition, cookbook))
-        context["settings"] = (session.cinematic_settings if session.preparation.is_classic_cinematic else session.combat_settings).as_dict()
+        context["settings"] = _sequence_settings(session).as_dict()
         context["preparation"] = session.preparation.as_dict()
         if composition.preparation_intent is None:
             context["locked_speech"] = list((*extract_explicit_dialogues(source.source_text), *source.vocal_dialogues))
@@ -2217,9 +2251,7 @@ class PromptCompositionService:
             system = cookbook.revision_system_prompt
         mapping = (direct_h3_base_reference_mapping(session, composition_picture_mapping(composition))
                    if cookbook.target_mode == "fl2va_direct" else _preparation_reference_mapping(session, composition))
-        output_schema = (classic_cinematic.schema(stage.value, plan=context.get("plan"))
-                         if session.preparation.is_classic_cinematic else
-                         handler.schema(stage.value, writer, session.preparation.version))
+        output_schema = _sequence_schema(handler, session, stage, writer, context)
         user = "\n\n".join((
             "USER INTENTION:\n" + source.source_text,
             ("APPROVED BRIEF:\n" + source.content) if composition.preparation_intent is None else "",
@@ -2230,10 +2262,11 @@ class PromptCompositionService:
             "Return exactly this JSON schema:\n" + output_schema,
             ("CURRENT CANDIDATE:\n" + current.content + "\nUSER REVISION:\n" + instruction) if instruction is not None else "",
         ))
-        system += (classic_cinematic.policy(session.cinematic_settings, source.source_text) if session.preparation.is_classic_cinematic
-                   else combat_sequence.action_policy(session.combat_settings, session.preparation.version))
+        system += _sequence_policy(session, source.source_text)
         if writer and session.preparation.is_classic_cinematic:
             system += classic_cinematic.writer_layout(context["plan"])
+        if writer and session.preparation.is_sensual:
+            system += sensual_cinematic.writer_layout(context["plan"])
         if session.preparation.is_combat and session.preparation.version == "1.3.0":
             from .combat_cinematic_policy import demonstration
             system += demonstration(session.combat_settings, stage.value, source.source_text)
@@ -2688,7 +2721,7 @@ class PromptCompositionService:
             session = self.sessions.get(composition.source_session_id)
             handler = _sequence_handler(cookbook)
             base = json.loads(_mono_direct_context(session, composition, cookbook))
-            base["settings"] = (session.cinematic_settings if session.preparation.is_classic_cinematic else session.combat_settings).as_dict()
+            base["settings"] = _sequence_settings(session).as_dict()
             base["preparation"] = session.preparation.as_dict()
             if composition.preparation_intent is None:
                 source = preparation_source(session, composition)
@@ -4936,6 +4969,7 @@ def _is_hidden_compiler_context(value: str) -> bool:
         _is_h3_camera_context(value)
         or value.startswith(combat_sequence.MARKER)
         or value.startswith(classic_cinematic.MARKER)
+        or value.startswith(sensual_cinematic.MARKER)
         or value.startswith(FL2VA_CONTEXT_MARKER)
         or value.startswith(FL2VA_MULTISHOT_CONTEXT_MARKER)
         or is_timed_camera_context(value)

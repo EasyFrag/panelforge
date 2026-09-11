@@ -10,11 +10,14 @@ class VideoPreparationRef:
     version: str | None = None
 
     def __post_init__(self) -> None:
-        if self.family not in {"classic", "combat"}:
+        if self.family not in {"classic", "combat", "sensual"}:
             raise ValueError("unknown video preparation family")
         if self.family == "classic":
             if self.version not in (None, "1.0.0"):
                 raise ValueError("unknown Classic cinematic version")
+        elif self.family == "sensual":
+            if self.version != "1.0.0":
+                raise ValueError("unknown Sensual cinematic version")
         elif not isinstance(self.version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", self.version):
             raise ValueError("combat preparation requires an exact version")
 
@@ -36,8 +39,43 @@ class VideoPreparationRef:
         return self.family == "classic" and self.version == "1.0.0"
 
     @property
+    def is_sensual(self) -> bool:
+        return self.family == "sensual" and self.version == "1.0.0"
+
+    @property
     def uses_cinematic_phases(self) -> bool:
-        return self.is_classic_cinematic or (self.is_combat and self.version == "1.3.0")
+        return self.is_classic_cinematic or self.is_sensual or (self.is_combat and self.version == "1.3.0")
+
+
+@dataclass(frozen=True, slots=True)
+class SensualSettings:
+    """Pinned V1 controls; explicitness is intentionally not a free slider yet."""
+
+    explicitness: str = "explicit_maximal"
+    shot_count: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.explicitness != "explicit_maximal":
+            raise ValueError("Sensual 1.0 supports only explicit_maximal")
+        if self.shot_count is not None and (type(self.shot_count) is not int or not 1 <= self.shot_count <= 6):
+            raise ValueError("sensual shot_count must be 1-6 or null (Auto)")
+
+    def as_dict(self) -> dict:
+        return {"explicitness": self.explicitness, "shot_count": self.shot_count}
+
+    @classmethod
+    def from_dict(cls, value: object) -> "SensualSettings":
+        if not isinstance(value, dict) or set(value) != {"explicitness", "shot_count"}:
+            raise ValueError("invalid Sensual settings")
+        return cls(**value)
+
+
+def validate_sensual_settings(preparation: VideoPreparationRef, settings: SensualSettings | None) -> None:
+    if preparation.is_sensual:
+        if not isinstance(settings, SensualSettings):
+            raise ValueError("Sensual 1.0 requires its saved explicitness and shot setting")
+    elif settings is not None:
+        raise ValueError("these controls belong to Sensual 1.0")
 
 
 @dataclass(frozen=True, slots=True)

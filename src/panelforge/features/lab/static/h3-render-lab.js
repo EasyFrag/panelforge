@@ -678,6 +678,7 @@
               preparation: state.project.preparation,
               combatSettings: state.project.combat_settings,
               cinematicSettings: state.project.cinematic_settings,
+              sensualSettings: state.project.sensual_settings,
             });
           } catch (error) {
             continuationError.textContent = error.message;
@@ -747,6 +748,7 @@
     elements.mode.textContent = `Mode ${project.input_mode.toUpperCase()} · modèle initial ${project.model_id}`;
     if (project.preparation?.family === "combat") elements.mode.textContent += ` · Combat ${project.preparation.version}`;
     if (project.preparation?.family === "classic" && project.preparation.version === "1.0.0") elements.mode.textContent += " · Classique Mise en scène 1.0";
+    if (project.preparation?.family === "sensual") elements.mode.textContent += " · Sensuel 1.0 · explicite maximal";
     if (project.combat_settings?.orientation) elements.mode.textContent += ` · ${window.PanelForgeCombatControls?.orientationLabel(project.combat_settings.orientation) || project.combat_settings.orientation}`;
     renderWarnings();
     renderTurns(); renderAttempts(); renderOutput(); renderControls();

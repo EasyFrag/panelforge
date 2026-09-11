@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings
+from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings, SensualSettings
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -485,6 +485,7 @@ class PromptLabService:
         brief_variant_version: str | None = None,
         combat_settings: CombatSettings | None = None,
         cinematic_settings: ClassicCinematicSettings | None = None,
+        sensual_settings: SensualSettings | None = None,
     ) -> PromptLabSession:
         profile = self.profiles.get(profile_id, profile_version)
         _validate_brief_variant(
@@ -504,7 +505,8 @@ class PromptLabService:
                     "I2V Direct requires the image role and use first_frame"
                 )
         if profile.profile_id in _H3_BASE_PROFILE_IDS or (
-            (profile.preparation.is_combat or profile.preparation.is_classic_cinematic) and profile.session_mode is PromptSessionMode.H3_BASE
+            (profile.preparation.is_combat or profile.preparation.is_classic_cinematic or profile.preparation.is_sensual)
+            and profile.session_mode is PromptSessionMode.H3_BASE
         ):
             if len(references) > 2:
                 raise ValueError("H3 Base accepts at most a first and a last frame")
@@ -531,6 +533,7 @@ class PromptLabService:
             session_mode=profile.session_mode,
             preparation=profile.preparation,
             cinematic_settings=(cinematic_settings or ClassicCinematicSettings()) if profile.preparation.is_classic_cinematic else cinematic_settings,
+            sensual_settings=(sensual_settings or SensualSettings()) if profile.preparation.is_sensual else sensual_settings,
             combat_settings=(combat_settings or CombatSettings(orientation="mixed" if profile.preparation.version in {"1.2.0", "1.3.0"} else None))
                 if profile.preparation.is_combat and profile.preparation.version in {"1.1.0", "1.1.1", "1.2.0", "1.3.0"} else combat_settings,
             references=tuple(
@@ -559,6 +562,7 @@ class PromptLabService:
         inherit_brief_variant: bool = True,
         combat_settings: CombatSettings | None = None,
         cinematic_settings: ClassicCinematicSettings | None = None,
+        sensual_settings: SensualSettings | None = None,
     ) -> PromptLabSession:
         """Create a clean session that reuses another session's image assets."""
         if (profile_id is None) != (profile_version is None):
@@ -575,6 +579,8 @@ class PromptLabService:
         return self.create_session(
             cinematic_settings=(cinematic_settings if cinematic_settings is not None else
                 source.cinematic_settings if target_profile.preparation == source.preparation else None),
+            sensual_settings=(sensual_settings if sensual_settings is not None else
+                source.sensual_settings if target_profile.preparation == source.preparation else None),
             combat_settings=(combat_settings if combat_settings is not None else
                 source.combat_settings if target_profile.preparation == source.preparation else None),
             model_id=source.model_id if model_id is None else model_id,

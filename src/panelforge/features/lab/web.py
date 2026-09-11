@@ -402,6 +402,7 @@ class PromptSessionForkBody(BaseModel):
     inherit_brief_variant: bool = True
     combat_settings: dict | None = None
     cinematic_settings: dict | None = None
+    sensual_settings: dict | None = None
 
 
 class BriefVariantBody(BaseModel):
@@ -3997,6 +3998,7 @@ def create_app(
         evidence_policies: Annotated[list[str] | None, Form()] = None,
         combat_settings: Annotated[str | None, Form()] = None,
         cinematic_settings: Annotated[str | None, Form()] = None,
+        sensual_settings: Annotated[str | None, Form()] = None,
     ) -> dict[str, object]:
         service = _require_prompt_lab(prompt_lab)
         images = images or []
@@ -4085,6 +4087,7 @@ def create_app(
                 references=references,
                 combat_settings=_combat_settings_value(json.loads(combat_settings)) if combat_settings is not None else None,
                 cinematic_settings=_cinematic_settings_value(json.loads(cinematic_settings)) if cinematic_settings is not None else None,
+                sensual_settings=_sensual_settings_value(json.loads(sensual_settings)) if sensual_settings is not None else None,
             )
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="prompt profile not found") from error
@@ -4134,6 +4137,7 @@ def create_app(
                     inherit_brief_variant=body.inherit_brief_variant,
                     combat_settings=_combat_settings_value(body.combat_settings),
                     cinematic_settings=_cinematic_settings_value(body.cinematic_settings),
+                    sensual_settings=_sensual_settings_value(body.sensual_settings),
                 )
             )
         except (KeyError, FileNotFoundError) as error:
@@ -4734,12 +4738,16 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
         "input_mode": project.input_mode.value,
         "preparation": project.preparation.as_dict(),
         "cinematic_settings": project.cinematic_settings.as_dict() if project.cinematic_settings else None,
+        "sensual_settings": project.sensual_settings.as_dict() if project.sensual_settings else None,
         "combat_settings": project.combat_settings.as_dict() if project.combat_settings else None,
         "combat_shot_count": len(project.planned_cut_times_ms) + 1 if project.combat_settings else None,
         "revision_versions": [
-            {"version": version.value, "label": "Classique Mise en scène 1.0 · expérimental" if project.preparation.is_classic_cinematic else f"Combat {version.value} · chorégraphie, dialogues et caméra"}
+            {"version": version.value, "label": (
+                "Classique Mise en scène 1.0 · expérimental" if project.preparation.is_classic_cinematic else
+                "Sensuel 1.0 · explicite maximal" if project.preparation.is_sensual else
+                f"Combat {version.value} · chorégraphie, dialogues et caméra")}
             for version in H3RenderService.revision_versions_for_mode(project.input_mode, project.preparation)
-        ] if project.preparation.is_combat or project.preparation.is_classic_cinematic else None,
+        ] if project.preparation.is_combat or project.preparation.is_classic_cinematic or project.preparation.is_sensual else None,
         "dialogue_level": project.dialogue_level,
         "adaptation": adaptation,
         "current_prompt": project.current_prompt,
@@ -6139,6 +6147,7 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
         "session_mode": session.session_mode.value,
         "preparation": session.preparation.as_dict(),
         "cinematic_settings": session.cinematic_settings.as_dict() if session.cinematic_settings else None,
+        "sensual_settings": session.sensual_settings.as_dict() if session.sensual_settings else None,
         "combat_settings": session.combat_settings.as_dict() if session.combat_settings else None,
         "profile": {
             "id": session.profile_id,
@@ -6436,6 +6445,7 @@ def serialize_prompt_composition(
         "source_session_id": composition.source_session_id,
         "combat_sequence": _combat_sequence_summary(composition),
         "cinematic_sequence": _classic_sequence_summary(composition),
+        "sensual_sequence": _sensual_sequence_summary(composition),
         "preparation_intent": (
             {
                 "source_text": composition.preparation_intent.source_text,
@@ -6942,6 +6952,11 @@ def _cinematic_settings_value(value):
     return ClassicCinematicSettings.from_dict(value) if value is not None else None
 
 
+def _sensual_settings_value(value):
+    from panelforge.domain.video_preparation import SensualSettings
+    return SensualSettings.from_dict(value) if value is not None else None
+
+
 def _classic_sequence_summary(composition):
     from panelforge.application.classic_cinematic import MARKER, decode_context
     revision = composition.final_prompt.active_revision
@@ -6949,6 +6964,19 @@ def _classic_sequence_summary(composition):
         context = decode_context(revision.compiler_context)
         return {"shot_count": len(context["shot_starts_ms"]), "settings": context["settings"]}
     if composition.cookbook.cookbook_id.endswith(".classic.cinematic.planned"):
+        plan = composition.beat_sheet.active_revision
+        if plan is not None:
+            return {"shot_count": len(json.loads(plan.content)["shots"])}
+    return None
+
+
+def _sensual_sequence_summary(composition):
+    from panelforge.application.sensual_cinematic import MARKER, decode_context
+    revision = composition.final_prompt.active_revision
+    if revision is not None and (revision.compiler_context or "").startswith(MARKER):
+        context = decode_context(revision.compiler_context)
+        return {"shot_count": len(context["shot_starts_ms"]), "settings": context["settings"]}
+    if composition.cookbook.cookbook_id.endswith(".sensual.planned"):
         plan = composition.beat_sheet.active_revision
         if plan is not None:
             return {"shot_count": len(json.loads(plan.content)["shots"])}

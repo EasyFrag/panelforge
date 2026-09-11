@@ -268,6 +268,7 @@
 
   const combatControls = window.PanelForgeCombatControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
   const cinematicControls = window.PanelForgeClassicCinematicControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
+  const sensualControls = window.PanelForgeSensualControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked });
 
   function preparationFamily(value = state.session || activeCookbookSpec() || state.cookbook) {
     return value?.preparation?.family || "classic";
@@ -277,6 +278,7 @@
     if (state.session || interactionLocked()) return render();
     const family = elements.preparationFamily.value;
     if (family === "combat") return combatControls.choose("combat", "1.3.0");
+    if (family === "sensual") return sensualControls.choose();
     const choices = directCookbooks().filter((item) => preparationFamily(item) === family
       && !item.preparation?.version
       && core.recipeTier(cookbookKey(item)) === "standard"
@@ -333,7 +335,7 @@
         option.value = cookbookKey(cookbook);
         option.dataset.preparationFamily = preparationFamily(cookbook);
         option.dataset.preparationVersion = cookbook.preparation?.version || "";
-        option.dataset.classicVersion = cookbook.preparation?.family === "combat" ? "" : cookbook.preparation?.version || "legacy";
+        option.dataset.classicVersion = cookbook.preparation?.family === "classic" ? cookbook.preparation?.version || "legacy" : "";
         option.dataset.recipeFamily = sequenceKind(cookbook);
         option.textContent = cookbook.profile ? `${cookbook.display_name} (${cookbook.version})` : cookbook.id === multishotCookbookId
           ? `Multi-plan structuré · 2 à 4 plans (${cookbook.version})`
@@ -423,7 +425,7 @@
     const sessions = (payload.sessions || []).filter(
       (item) => item.profile && (
         (item.session_mode === "h3_base"
-          && [monoProfile.id, multishotProfile.id, animalInterviewProfile.id, "minimax.h3.fl2va.classic.cinematic", "minimax.h3.fl2va.combat", "minimax.h3.fl2va.combat.multishot"].includes(item.profile.id))
+          && [monoProfile.id, multishotProfile.id, animalInterviewProfile.id, "minimax.h3.fl2va.classic.cinematic", "minimax.h3.fl2va.combat", "minimax.h3.fl2va.combat.multishot", "minimax.h3.fl2va.sensual"].includes(item.profile.id))
         || (item.session_mode === "direct_multimodal" && item.profile.id === legacyProfileId)
       ),
     );
@@ -440,7 +442,7 @@
       button.type = "button";
       button.className = "session-link";
       const title = document.createElement("b");
-      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : window.PanelForgeClassicCinematicControls.isCinematic(session) ? "Mise en scène \u00b7 " : "") + sessionInputModeLabel(session);
+      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : preparationFamily(session) === "sensual" ? "Sensuel \u00b7 " : window.PanelForgeClassicCinematicControls.isCinematic(session) ? "Mise en scène \u00b7 " : "") + sessionInputModeLabel(session);
       const detail = document.createElement("small");
       detail.textContent = session.brief_complete ? "Brief validé" : "Préparation vidéo";
       button.append(title, detail);
@@ -784,6 +786,7 @@
               ...creativeBriefPayload(),
               combat_settings: combatControls.payload(),
               cinematic_settings: cinematicControls.payload(),
+              sensual_settings: sensualControls.payload(),
             }),
           },
         );
@@ -807,6 +810,7 @@
         body.append("profile_version", profile.version);
         if (combatControls.payload()) body.append("combat_settings", JSON.stringify(combatControls.payload()));
         if (cinematicControls.payload()) body.append("cinematic_settings", JSON.stringify(cinematicControls.payload()));
+        if (sensualControls.payload()) body.append("sensual_settings", JSON.stringify(sensualControls.payload()));
         if (elements.creativeDirection.checked) {
           const variant = selectedCreativeBriefVariant();
           body.append("brief_variant_id", variant.id);
@@ -1021,8 +1025,10 @@
       if (!audacityHint.dataset.classicText) audacityHint.dataset.classicText = audacityHint.textContent;
       audacityHint.textContent = combat ? "Initiative et richesse de la chor\u00e9graphie" : audacityHint.dataset.classicText;
     }
+    if (elements.sequenceKind) elements.sequenceKind.closest("label").hidden = false;
     combatControls.draw(activeCookbook || state.cookbook);
     cinematicControls.draw(activeCookbook || state.cookbook);
+    sensualControls.draw(activeCookbook || state.cookbook);
     core.refreshRecipeVisibility(elements.cookbook);
     const locked = interactionLocked();
     const creativeBriefVisible = creativeBriefAvailable(activeCookbook || state.cookbook);
@@ -1757,6 +1763,7 @@
     state.forkSource = null;
     combatControls.restore(null);
     cinematicControls.restore(null);
+    sensualControls.restore(null);
     state.session = null;
     state.composition = null;
     state.quickRecord = null;
@@ -1774,7 +1781,7 @@
     render();
   }
 
-  async function prefillFirstFrame({ assetId, label, sourceSessionId = null, preparation = null, combatSettings = null, cinematicSettings = null }) {
+  async function prefillFirstFrame({ assetId, label, sourceSessionId = null, preparation = null, combatSettings = null, cinematicSettings = null, sensualSettings = null }) {
     if (!state.spec || !state.cookbook) throw new Error("H3 Base est encore en cours de chargement.");
     if (interactionLocked()) throw new Error("Une préparation H3 Base est en cours. Réessayez après sa fin.");
     if (typeof assetId !== "string" || !assetId) throw new Error("La frame de fin est indisponible.");
@@ -1795,7 +1802,12 @@
             && sequenceKind(item) === "mono" && item.preparation_steps === (origin?.preparation_steps ?? 3));
           if (!sourceCookbook) throw new Error("La version Combat de ce rendu est indisponible. Le parcours courant est conservé.");
         }
-        if (!sourceCookbook && fromRef2V && pinnedPreparation?.family !== "combat") {
+        if (pinnedPreparation?.family === "sensual" && !sourceCookbook && fromRef2V) {
+          sourceCookbook = directCookbooks().find((item) => window.PanelForgeSensualControls.isSensual(item)
+            && sequenceKind(item) === "mono" && item.preparation_steps === 2);
+          if (!sourceCookbook) throw new Error("La préparation Sensuelle exacte est indisponible pour cette reprise.");
+        }
+        if (!sourceCookbook && fromRef2V && pinnedPreparation?.family === "classic") {
           sourceCookbook = directCookbooks().find((item) => preparationFamily(item) === "classic"
             && (item.preparation?.version || null) === (pinnedPreparation?.version || null)
             && sequenceKind(item) === "mono" && item.preparation_steps === (origin?.preparation_steps ?? 3)
@@ -1816,6 +1828,9 @@
       if (preparation?.family === "classic" && preparation.version === "1.0.0" && !window.PanelForgeClassicCinematicControls.isCinematic(sourceCookbook)) {
         throw new Error("La recette Classique Mise en scène exacte est indisponible pour cette reprise.");
       }
+      if (preparation?.family === "sensual" && !window.PanelForgeSensualControls.isSensual(sourceCookbook)) {
+        throw new Error("La reprise doit conserver la préparation Sensuelle 1.0.");
+      }
       const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}/content`);
       if (!response.ok) throw new Error("Impossible de charger la frame de fin.");
       const blob = await response.blob();
@@ -1832,6 +1847,7 @@
       }
       if (["1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(preparation?.version)) combatControls.restore(combatSettings);
       if (preparation?.family === "classic" && preparation.version === "1.0.0") cinematicControls.restore(cinematicSettings);
+      if (preparation?.family === "sensual") sensualControls.restore(sensualSettings);
       setSelectedFile("first", file);
       showSetupMessage("Dernière frame sélectionnée comme première image. Décrivez la suite pour créer le nouveau parcours.");
       window.PanelForgeLabNavigation?.switchView("i2v-direct");

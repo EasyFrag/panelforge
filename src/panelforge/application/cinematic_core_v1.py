@@ -1,6 +1,6 @@
 """Cinematic compiler mechanics, v1.0.0: no creative-family policy.
 
-Adopted explicitly by Combat 1.3 and Classic cinematic 1.0. Each family
+Adopted explicitly by Combat 1.3, Classic cinematic 1.0 and Sensual 1.0. Each family
 owns its schema, instructions, validation policy and saved context marker.
 """
 import re

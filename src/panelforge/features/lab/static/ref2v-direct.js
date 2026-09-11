@@ -258,6 +258,7 @@
 
   const combatControls = window.PanelForgeCombatControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
   const cinematicControls = window.PanelForgeClassicCinematicControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
+  const sensualControls = window.PanelForgeSensualControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked });
 
   function preparationFamily(value = state.session || activeCookbookSpec() || state.cookbook) {
     return value?.preparation?.family || "classic";
@@ -267,6 +268,7 @@
     if (state.session || interactionLocked()) return render();
     const family = elements.preparationFamily.value;
     if (family === "combat") return combatControls.choose("combat", "1.3.0");
+    if (family === "sensual") return sensualControls.choose();
     const choices = directCookbooks().filter((item) => preparationFamily(item) === family
       && !item.preparation?.version
       && core.recipeTier(cookbookValue(item)) === "standard");
@@ -358,7 +360,7 @@
       option.value = cookbookValue(cookbook);
       option.dataset.preparationFamily = preparationFamily(cookbook);
         option.dataset.preparationVersion = cookbook.preparation?.version || "";
-        option.dataset.classicVersion = cookbook.preparation?.family === "combat" ? "" : cookbook.preparation?.version || "legacy";
+        option.dataset.classicVersion = cookbook.preparation?.family === "classic" ? cookbook.preparation?.version || "legacy" : "";
       option.textContent = cookbookLabel(cookbook);
       elements.cookbook.append(option);
     });
@@ -405,7 +407,7 @@
       (item) => item.session_mode === "direct_multimodal"
         && item.profile && ((item.profile.id === profileId
           && [profileVersion, experimentalProfileVersion, "0.6.0"].includes(item.profile.version))
-          || ["minimax.h3.ref2v.combat", "minimax.h3.ref2v.classic.cinematic"].includes(item.profile.id)),
+          || ["minimax.h3.ref2v.combat", "minimax.h3.ref2v.classic.cinematic", "minimax.h3.ref2v.sensual"].includes(item.profile.id)),
     );
     elements.sessionList.replaceChildren();
     if (!sessions.length) {
@@ -420,7 +422,7 @@
       button.type = "button";
       button.className = "session-link";
       const title = document.createElement("b");
-      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : window.PanelForgeClassicCinematicControls.isCinematic(session) ? "Mise en scène \u00b7 " : "") + session.references.map((item) => item.label).join(" + ");
+      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : preparationFamily(session) === "sensual" ? "Sensuel \u00b7 " : window.PanelForgeClassicCinematicControls.isCinematic(session) ? "Mise en scène \u00b7 " : "") + session.references.map((item) => item.label).join(" + ");
       const detail = document.createElement("small");
       detail.textContent = `${session.references.length} image${session.references.length > 1 ? "s" : ""} · ${session.brief_complete ? "Brief validé" : "Préparation vidéo"}`;
       button.append(title, detail);
@@ -703,7 +705,7 @@
       elements.modeWarning.hidden = false;
       return;
     }
-    const recipeMismatch = !state.session && !combatControls.current() && !cinematicControls.current()
+    const recipeMismatch = !state.session && !combatControls.current() && !cinematicControls.current() && !sensualControls.current()
       && !isMultishotCookbook(activeCookbookSpec())
       && intentionRequestsMultipleShots(elements.intention.value);
     elements.modeWarning.textContent = recipeMismatch
@@ -753,6 +755,7 @@
               ...creativeBriefPayload(),
               combat_settings: combatControls.payload(),
               cinematic_settings: cinematicControls.payload(),
+              sensual_settings: sensualControls.payload(),
               inherit_brief_variant: false,
             }),
           },
@@ -771,6 +774,7 @@
         body.append("profile_version", profile.version);
         if (combatControls.payload()) body.append("combat_settings", JSON.stringify(combatControls.payload()));
         if (cinematicControls.payload()) body.append("cinematic_settings", JSON.stringify(cinematicControls.payload()));
+        if (sensualControls.payload()) body.append("sensual_settings", JSON.stringify(sensualControls.payload()));
         if (elements.creativeDirection.checked) {
           body.append("brief_variant_id", creativeBriefVariant.id);
           body.append("brief_variant_version", creativeBriefVariant.version);
@@ -1147,6 +1151,7 @@
     }
     combatControls.draw(activeCookbook || state.cookbook);
     cinematicControls.draw(activeCookbook || state.cookbook);
+    sensualControls.draw(activeCookbook || state.cookbook);
     core.refreshRecipeVisibility(elements.cookbook);
     const locked = interactionLocked();
     const directSuperFast = directSuperFastModeActive();
@@ -1453,7 +1458,7 @@
   }
 
   function renderMultishotSummary() {
-    const multishot = isMultishotCookbook(activeCookbookSpec()) || ((combatControls.current() || cinematicControls.current()) && preparationSteps() > 1);
+    const multishot = isMultishotCookbook(activeCookbookSpec()) || ((combatControls.current() || cinematicControls.current() || sensualControls.current()) && preparationSteps() > 1);
     elements.multishotSummary.hidden = !multishot;
     if (!multishot) return;
 
@@ -2056,6 +2061,7 @@
     state.forkSource = null;
     combatControls.restore(null);
     cinematicControls.restore(null);
+    sensualControls.restore(null);
     state.cookbook = isSuperFastReference(preservedCookbook)
       ? superFastCookbookSpec()
       : preservedCookbook && directCookbooks().find(

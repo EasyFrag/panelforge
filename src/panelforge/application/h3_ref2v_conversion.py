@@ -67,7 +67,16 @@ def conversion_document(prompt: str) -> dict:
             "overall_soundscape": values["overall_soundscape"], "non_diegetic_music": values["non_diegetic_music"]}
 
 
-def compile_conversion(raw: str, source_prompt: str, roles: tuple[str, ...], *, combat_sequence: bool = False, combat_version: str | None = None, classic_cinematic: bool = False) -> str:
+def compile_conversion(
+    raw: str,
+    source_prompt: str,
+    roles: tuple[str, ...],
+    *,
+    combat_sequence: bool = False,
+    combat_version: str | None = None,
+    classic_cinematic: bool = False,
+    sensual_cinematic: bool = False,
+) -> str:
     source = conversion_document(source_prompt)
     value = raw.strip()
     if value.startswith("```") and value.endswith("```"):
@@ -96,9 +105,12 @@ def compile_conversion(raw: str, source_prompt: str, roles: tuple[str, ...], *, 
     prompt = header + "\n\n" + setup + "\n\n"
     prompt += "\n\n".join(h + " " + b for h, b in zip(headings, bodies, strict=True))
     prompt += f"\n\noverall_soundscape:\n{source['overall_soundscape']}\n\nnon_diegetic_music:\n{source['non_diegetic_music']}"
-    if classic_cinematic:
-        from .classic_cinematic import prompt_errors
+    if classic_cinematic or sensual_cinematic:
         from .cinematic_core_v1 import preserve_camera_layout
+        if sensual_cinematic:
+            from .sensual_cinematic import prompt_errors
+        else:
+            from .classic_cinematic import prompt_errors
         errors = prompt_errors(prompt, "ref2va")
         preserve_camera_layout(source_prompt, prompt)
     elif combat_sequence:
@@ -163,7 +175,8 @@ class H3Ref2VConversionService:
             planned_cut_times_ms=source.planned_cut_times_ms, dialogue_level=source.dialogue_level,
             revision_version=self.renders.default_revision_version(H3RenderInputMode.REF2VA, source.preparation),
             preparation=source.preparation,
-            combat_settings=source.combat_settings, cinematic_settings=source.cinematic_settings, adaptation=adaptation)
+            combat_settings=source.combat_settings, cinematic_settings=source.cinematic_settings,
+            sensual_settings=source.sensual_settings, adaptation=adaptation)
         with self._lock:
             try:
                 existing = self.renders.projects.get(target_id)
@@ -216,7 +229,8 @@ class H3Ref2VConversionService:
                         raise ValueError("La réponse de conversion a été tronquée ; le brouillon est conservé.")
                     prompt = compile_conversion(raw, adaptation.source_prompt, adaptation.reference_roles,
                                                 combat_sequence=project.combat_settings is not None, combat_version=project.preparation.version,
-                                                classic_cinematic=project.preparation.is_classic_cinematic)
+                                                classic_cinematic=project.preparation.is_classic_cinematic,
+                                                sensual_cinematic=project.preparation.is_sensual)
                     project = self.renders.projects.save(replace(project, current_prompt=prompt,
                         camera_clauses=extract_compiled_camera_clauses(prompt), planned_cut_times_ms=extract_prompt_cut_times_ms(prompt),
                         adaptation=replace(adaptation, status="ready", raw_response=raw, call_id=call_id)))
