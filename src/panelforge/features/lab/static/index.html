@@ -4,22 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260910.8">
+  <link rel="stylesheet" href="/static/lab.css?v=20260911.4">
   <script src="/static/lab.js?v=20260907.8" defer></script>
-  <script src="/static/lab-core.js?v=20260910.5" defer></script>
+  <script src="/static/lab-core.js?v=20260911.4" defer></script>
   <script src="/static/dlss-lab.js?v=20260909.3" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
+  <script src="/static/classic-cinematic-controls.js?v=20260910.9" defer></script>
   <script src="/static/combat-controls.js?v=20260910.6" defer></script>
-  <script src="/static/i2v-direct.js?v=20260910.6" defer></script>
+  <script src="/static/i2v-direct.js?v=20260911.3" defer></script>
   <script src="/static/h3-checkpoints.js?v=20260910.7" defer></script>
-  <script src="/static/h3-loras.js?v=20260910.8" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260910.8" defer></script>
+  <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
+  <script src="/static/h3-loras.js?v=20260911.3" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260911.3" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
   <script src="/static/video-lab.js?v=20260907.8" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260910.6" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260911.3" defer></script>
+  <script src="/static/media-analysis-media.js?v=20260910.11" defer></script>
+  <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
+  <script src="/static/media-analysis.js?v=20260911.2" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260907.8" defer></script>
-  <script src="/static/krea2-resource-ui.js?v=20260904.1" defer></script>
+  <script src="/static/krea2-resource-ui.js?v=20260911.4" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260909.6" defer></script>
@@ -825,6 +830,26 @@
               <option value="combat">Combat</option>
             </select>
           </label>
+          <label class="field-label">Version Classique
+            <select id="i2vd-classic-version">
+              <option value="legacy">Recettes actuelles</option>
+              <option value="1.0.0">Mise en scène 1.0 · 2 étapes · Expérimental</option>
+            </select>
+          </label>
+          <div id="i2vd-cinematic-controls" hidden>
+            <label class="field-label">Nombre de plans
+              <select id="i2vd-cinematic-shots">
+                <option value="auto" selected>Auto · selon l’intention</option>
+                <option value="1">1 plan · sans coupure</option>
+                <option value="2">2 plans · 1 coupure</option>
+                <option value="3">3 plans · 2 coupures</option>
+                <option value="4">4 plans · 3 coupures</option>
+                <option value="5">5 plans · 4 coupures</option>
+                <option value="6">6 plans · 5 coupures</option>
+              </select>
+            </label>
+            <small id="i2vd-cinematic-summary"></small>
+          </div>
           <label class="field-label" hidden>Version Combat
             <select id="i2vd-combat-version">
               <option value="1.3.0">1.3 · Direction cinématographique · 2 appels</option>
@@ -1058,6 +1083,25 @@
                 <span id="h3r-status" class="run-status active">Prêt</span>
               </div>
               <label class="h3-recipe-picker">Recette de rendu<select id="h3r-render-recipe" aria-label="Recette de rendu"></select></label>
+              <section id="h3r-bunny-controls" class="h3-bunny-controls" hidden>
+                <label class="h3-bunny-turbo-toggle"><input id="h3r-bunny-turbo" type="checkbox" aria-describedby="h3r-bunny-turbo-note" checked> Ajouter le Turbo BUNNY</label>
+                <small id="h3r-bunny-turbo-note" role="status"></small>
+                <details class="h3-bunny-sampling">
+                  <summary>Steps et aperçu BUNNY</summary>
+                  <div class="analysis-actions">
+                    <button type="button" data-bunny-sampling="on">Steps rapides · 9 / 4 / 5</button>
+                    <button type="button" data-bunny-sampling="off">Steps classiques · 30 / 25 / 5</button>
+                  </div>
+                <small id="h3r-bunny-model"></small>
+                <div class="h3-render-settings">
+                  <label>Calendrier de base<input id="h3r-bunny-base" type="number" min="2" max="100" step="1" value="9"></label>
+                  <label>Steps passe 1<input id="h3r-bunny-coarse" type="number" min="1" max="99" step="1" value="4"></label>
+                  <label>Steps passe 2<input id="h3r-bunny-refine" type="number" min="3" max="5" step="1" value="5"></label>
+                  <label class="h3-render-feature-toggle"><span>Preview</span><span><input id="h3r-bunny-preview" type="checkbox" checked> Aperçu pendant le calcul</span></label>
+                </div>
+                </details>
+                <small id="h3r-bunny-geometry" aria-live="polite"></small>
+              </section>
               <details id="h3r-checkpoint-panel" class="h3-checkpoint-panel" hidden>
                 <summary id="h3r-checkpoint-summary">Modèle vidéo · Par défaut</summary>
                 <div class="h3-checkpoint-picker">
@@ -1066,17 +1110,6 @@
                 </div>
                 <p id="h3r-checkpoint-note" class="muted" role="status"></p>
               </details>
-              <section id="h3r-bunny-controls" class="h3-bunny-controls" hidden>
-                <small id="h3r-bunny-model"></small>
-                <div class="h3-render-settings">
-                  <label class="h3-render-feature-toggle"><span>Turbo</span><span><input id="h3r-bunny-turbo" type="checkbox" checked> Activer (0,7)</span></label>
-                  <label>Calendrier de base<input id="h3r-bunny-base" type="number" min="2" max="100" step="1" value="9"></label>
-                  <label>Steps passe 1<input id="h3r-bunny-coarse" type="number" min="1" max="99" step="1" value="4"></label>
-                  <label>Steps passe 2<input id="h3r-bunny-refine" type="number" min="3" max="5" step="1" value="5"></label>
-                  <label class="h3-render-feature-toggle"><span>Preview</span><span><input id="h3r-bunny-preview" type="checkbox" checked> Aperçu pendant le calcul</span></label>
-                </div>
-                <small id="h3r-bunny-geometry" aria-live="polite"></small>
-              </section>
               <div id="h3r-warnings" class="h3-render-warnings" hidden></div>
               <details class="h3-render-prompt">
                 <summary>Prompt utilisé pour le prochain rendu</summary>
@@ -1105,7 +1138,7 @@
               <section class="h3-video-lora" aria-label="Profil LoRA video H3">
                 <label>Profil de rendu<select id="h3r-video-lora-profile"><option value="standard" selected>Standard</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
                 <div id="h3r-video-lora-fields" class="h3-video-lora-fields" hidden>
-                  <label>LoRA vidéo<select id="h3r-video-lora-model"><option value="">Chargement…</option></select></label>
+                  <div class="h3-lora-picker"><label>LoRA vidéo<select id="h3r-video-lora-model"><option value="">Chargement…</option></select></label><button id="h3r-video-lora-info" class="resource-icon-button" type="button" aria-label="Informations sur le LoRA vidéo">i</button></div>
                   <label>Force <output id="h3r-video-lora-strength-value">0.50</output><input id="h3r-video-lora-strength" type="range" min="0" max="1" step="0.05" value="0.5"></label>
                   <label id="h3r-bunny-lora-second-label" hidden>Force passe 2<input id="h3r-bunny-lora-second" type="number" min="0" max="1" step="0.05" value="0.2"></label>
                   <label class="h3-video-lora-clip"><input id="h3r-video-lora-clip" type="checkbox" checked> CLIP Set Last Layer · -2</label>
@@ -1189,6 +1222,26 @@
               <option value="combat">Combat</option>
             </select>
           </label>
+          <label class="field-label">Version Classique
+            <select id="ref2vd-classic-version">
+              <option value="legacy">Recettes actuelles</option>
+              <option value="1.0.0">Mise en scène 1.0 · 2 étapes · Expérimental</option>
+            </select>
+          </label>
+          <div id="ref2vd-cinematic-controls" hidden>
+            <label class="field-label">Nombre de plans
+              <select id="ref2vd-cinematic-shots">
+                <option value="auto" selected>Auto · selon l’intention</option>
+                <option value="1">1 plan · sans coupure</option>
+                <option value="2">2 plans · 1 coupure</option>
+                <option value="3">3 plans · 2 coupures</option>
+                <option value="4">4 plans · 3 coupures</option>
+                <option value="5">5 plans · 4 coupures</option>
+                <option value="6">6 plans · 5 coupures</option>
+              </select>
+            </label>
+            <small id="ref2vd-cinematic-summary"></small>
+          </div>
           <label class="field-label" hidden>Version Combat
             <select id="ref2vd-combat-version">
               <option value="1.3.0">1.3 · Direction cinématographique · 2 appels</option>
@@ -1391,6 +1444,25 @@
                 <span id="ref2vr-status" class="run-status active">Prêt</span>
               </div>
               <label class="h3-recipe-picker">Recette de rendu<select id="ref2vr-render-recipe" aria-label="Recette de rendu"></select></label>
+              <section id="ref2vr-bunny-controls" class="h3-bunny-controls" hidden>
+                <label class="h3-bunny-turbo-toggle"><input id="ref2vr-bunny-turbo" type="checkbox" aria-describedby="ref2vr-bunny-turbo-note" checked> Ajouter le Turbo BUNNY</label>
+                <small id="ref2vr-bunny-turbo-note" role="status"></small>
+                <details class="h3-bunny-sampling">
+                  <summary>Steps et aperçu BUNNY</summary>
+                  <div class="analysis-actions">
+                    <button type="button" data-bunny-sampling="on">Steps rapides · 9 / 4 / 5</button>
+                    <button type="button" data-bunny-sampling="off">Steps classiques · 30 / 25 / 5</button>
+                  </div>
+                <small id="ref2vr-bunny-model"></small>
+                <div class="h3-render-settings">
+                  <label>Calendrier de base<input id="ref2vr-bunny-base" type="number" min="2" max="100" step="1" value="9"></label>
+                  <label>Steps passe 1<input id="ref2vr-bunny-coarse" type="number" min="1" max="99" step="1" value="4"></label>
+                  <label>Steps passe 2<input id="ref2vr-bunny-refine" type="number" min="3" max="5" step="1" value="5"></label>
+                  <label class="h3-render-feature-toggle"><span>Preview</span><span><input id="ref2vr-bunny-preview" type="checkbox" checked> Aperçu pendant le calcul</span></label>
+                </div>
+                </details>
+                <small id="ref2vr-bunny-geometry" aria-live="polite"></small>
+              </section>
               <details id="ref2vr-checkpoint-panel" class="h3-checkpoint-panel" hidden>
                 <summary id="ref2vr-checkpoint-summary">Modèle vidéo · Par défaut</summary>
                 <div class="h3-checkpoint-picker">
@@ -1399,17 +1471,6 @@
                 </div>
                 <p id="ref2vr-checkpoint-note" class="muted" role="status"></p>
               </details>
-              <section id="ref2vr-bunny-controls" class="h3-bunny-controls" hidden>
-                <small id="ref2vr-bunny-model"></small>
-                <div class="h3-render-settings">
-                  <label class="h3-render-feature-toggle"><span>Turbo</span><span><input id="ref2vr-bunny-turbo" type="checkbox" checked> Activer (0,7)</span></label>
-                  <label>Calendrier de base<input id="ref2vr-bunny-base" type="number" min="2" max="100" step="1" value="9"></label>
-                  <label>Steps passe 1<input id="ref2vr-bunny-coarse" type="number" min="1" max="99" step="1" value="4"></label>
-                  <label>Steps passe 2<input id="ref2vr-bunny-refine" type="number" min="3" max="5" step="1" value="5"></label>
-                  <label class="h3-render-feature-toggle"><span>Preview</span><span><input id="ref2vr-bunny-preview" type="checkbox" checked> Aperçu pendant le calcul</span></label>
-                </div>
-                <small id="ref2vr-bunny-geometry" aria-live="polite"></small>
-              </section>
               <div id="ref2vr-warnings" class="h3-render-warnings" hidden></div>
               <details class="h3-render-prompt">
                 <summary>Prompt utilisé pour le prochain rendu</summary>
@@ -1428,7 +1489,7 @@
               <section class="h3-video-lora" aria-label="Profil LoRA video Ref2V">
                 <label>Profil de rendu<select id="ref2vr-video-lora-profile"><option value="standard" selected>Standard</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
                 <div id="ref2vr-video-lora-fields" class="h3-video-lora-fields" hidden>
-                  <label>LoRA vidéo<select id="ref2vr-video-lora-model"><option value="">Chargement…</option></select></label>
+                  <div class="h3-lora-picker"><label>LoRA vidéo<select id="ref2vr-video-lora-model"><option value="">Chargement…</option></select></label><button id="ref2vr-video-lora-info" class="resource-icon-button" type="button" aria-label="Informations sur le LoRA vidéo">i</button></div>
                   <label>Force <output id="ref2vr-video-lora-strength-value">0.50</output><input id="ref2vr-video-lora-strength" type="range" min="0" max="1" step="0.05" value="0.5"></label>
                   <label id="ref2vr-bunny-lora-second-label" hidden>Force passe 2<input id="ref2vr-bunny-lora-second" type="number" min="0" max="1" step="0.05" value="0.2"></label>
                   <label class="h3-video-lora-clip"><input id="ref2vr-video-lora-clip" type="checkbox" checked> CLIP Set Last Layer · -2</label>
@@ -1491,10 +1552,104 @@
     </div>
   </main>
 
+  <main id="media-analysis-workspace" class="media-analysis-workspace" hidden>
+    <nav class="video-lab-modebar" aria-label="Modes Video Lab">
+      <button type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
+      <button type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
+      <button type="button" class="active" data-video-lab-mode="media-analysis">Analyser des médias</button>
+    </nav>
+    <header class="ma-heading"><small>VIDEO LAB · ANALYSE VISUELLE</small><h1>Des images à votre intention</h1>
+      <p>Analysez un extrait vidéo ou des images, puis préparez votre scène dans H3 ou REF2V.</p></header>
+    <div class="ma-layout">
+      <section class="ma-panel" data-ma-input>
+        <label class="prompt-upload" for="ma-files"><b>Importer une vidéo ou des images</b>
+          <input id="ma-files" type="file" accept="video/mp4,video/webm,video/quicktime,.m4v,image/png,image/jpeg,image/webp" multiple>
+          <small>Une vidéo lisible par le navigateur, ou jusqu’à 16 images PNG, JPEG ou WebP.</small>
+        </label>
+        <div id="ma-video-controls" hidden>
+          <video id="ma-video" class="ma-video" controls playsinline preload="metadata"></video>
+          <div class="ma-range" role="group" aria-label="Sélection de l’extrait">
+            <div class="ma-range-track"><span id="ma-selection"></span></div>
+            <input id="ma-start-range" type="range" min="0" max="10" step="0.01" value="0" aria-label="Début de l’extrait">
+            <input id="ma-end-range" type="range" min="0" max="10" step="0.01" value="10" aria-label="Fin de l’extrait">
+          </div>
+          <div class="ma-controls"><label>Début (s)<input id="ma-start" type="number" min="0" step="0.01" value="0"></label>
+            <label>Fin (s)<input id="ma-end" type="number" min="0.1" step="0.01" value="10"></label>
+            <button id="ma-play" type="button">Lire l’extrait</button></div>
+          <p id="ma-range-label" class="muted"></p>
+          <div class="ma-controls"><label>Captures<input id="ma-samples" type="number" min="2" max="16" step="1" value="8"></label>
+            <button id="ma-capture" type="button">Préparer / actualiser les captures</button>
+            <button id="ma-capture-current" type="button">Ajouter l’image au curseur</button></div>
+          <small>Extrait de 60 secondes maximum. Les temps des captures commencent à zéro au début de l’extrait.</small>
+        </div>
+        <div class="section-title"><h2>Images analysées</h2><small id="ma-count">0 / 16 images</small></div>
+        <div id="ma-frames" class="ma-frames"></div>
+        <label id="ma-add-images-control" hidden>Ajouter des images à la série<input id="ma-add-images" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
+        <section id="ma-speech-panel" class="ma-speech" hidden>
+          <label class="reasoning-toggle"><input id="ma-speech-enabled" type="checkbox"> Transcrire les paroles</label>
+          <small id="ma-speech-availability">Transcription locale facultative.</small>
+          <div id="ma-speech-options" hidden>
+            <div class="ma-controls">
+              <label>Langue des paroles<select id="ma-speech-language">
+                <option value="en" selected>Anglais</option><option value="fr">Français</option><option value="auto">Détection automatique</option>
+                <option value="es">Espagnol</option><option value="de">Allemand</option><option value="it">Italien</option>
+                <option value="pt">Portugais</option><option value="ja">Japonais</option><option value="zh">Chinois</option>
+              </select></label>
+              <label>Traitement local<select id="ma-speech-device"><option value="cpu" selected>CPU · par défaut</option><option value="cuda">GPU</option></select></label>
+            </div>
+            <small>La vidéo est transférée temporairement au Lab (1 Gio maximum). Seul l’extrait choisi est transcrit ; les paroles restent dans leur langue originale.</small>
+            <p id="ma-speech-file-note" class="muted" hidden>Réimportez la vidéo pour refaire la transcription. Le texte enregistré reste modifiable.</p>
+            <button id="ma-speech-transcribe" type="button">Transcrire l’extrait</button>
+            <p id="ma-speech-status" role="status" aria-live="polite"></p>
+            <div id="ma-speech-result" hidden>
+              <p id="ma-speech-stale" class="error" hidden>L’extrait ou la langue a changé. Retranscrivez, ou désactivez les paroles pour continuer.</p>
+              <label>Paroles — texte et repères corrigeables<textarea id="ma-speech-text" rows="7" maxlength="12000" placeholder="Aucune parole détectée."></textarea></label>
+              <small>Les temps commencent à zéro au début de l’extrait. La transcription ne détermine pas quel personnage parle.</small>
+              <button id="ma-speech-restore" type="button">Restaurer la transcription initiale</button>
+            </div>
+            <label class="reasoning-toggle"><input id="ma-speech-keep" type="checkbox"> Conserver les répliques dans l’intention</label>
+            <small>Sinon, les paroles servent uniquement à comprendre la scène. La rédaction de l’intention reste en français.</small>
+          </div>
+        </section>
+        <p id="ma-timeline-error" class="error" role="status"></p>
+        <label>Durée cible de la scène (s)<input id="ma-duration" type="number" min="5" max="15" step="any" value="8"></label>
+        <small>H3 et REF2V : 5 à 15 secondes. L’extrait analysé peut être plus long ; le rythme sera adapté à la durée cible.</small>
+        <small>Les repères des images sont facultatifs. Leur ordre et les temps renseignés sont conservés.</small>
+        <label>Votre intention ou vos adaptations — facultatif<textarea id="ma-instruction" rows="4" maxlength="12000" placeholder="Ex. : garde les actions et la caméra, mais remplace les personnages par deux chevaliers."></textarea></label>
+        <div class="ma-controls"><label>Modèle multimodal<select id="ma-model"></select></label>
+          <button id="ma-refresh-models" type="button">Actualiser</button></div>
+        <label class="llm-local-toggle"><input id="ma-local" type="checkbox" data-llm-local-for="ma-model"> Local · Unsloth</label>
+        <label class="reasoning-toggle"><input id="ma-reasoning" type="checkbox"> Trace modèle</label>
+        <button id="ma-analyze" type="button" class="primary" disabled>Analyser et rédiger l’intention</button>
+      </section>
+      <section class="ma-panel">
+        <p id="ma-message" role="status" aria-live="polite">Importez les médias pour commencer.</p>
+        <progress id="ma-progress" max="1" hidden></progress><button id="ma-cancel" type="button" disabled>Annuler l’analyse</button>
+        <details><summary>Trace du modèle</summary><pre id="ma-trace" class="ma-trace"></pre></details>
+        <div id="ma-result" hidden>
+          <h2>Intention en français</h2><p id="ma-stale" class="error" hidden>Les entrées ont changé. Relancez l’analyse avant de transférer cette intention.</p>
+          <textarea id="ma-intention" rows="15" maxlength="16000" aria-label="Intention française éditable"></textarea>
+          <div class="ma-actions"><button id="ma-save" type="button" disabled>Enregistrer</button><button id="ma-copy" type="button" disabled>Copier</button></div>
+          <details><summary>Observations et incertitudes</summary><ul id="ma-observations"></ul><ul id="ma-uncertainties"></ul></details>
+          <details data-ma-input><summary>Références pour générer la vidéo</summary>
+            <p>Choisissez les images à utiliser, ou importez vos propres références. Ce choix ne change pas l’analyse.</p>
+            <label>Ajouter mes références<input id="ma-extra-refs" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
+            <h3>H3 — images facultatives</h3><div class="ma-controls"><label>Première image<select id="ma-first"><option value="">Aucune</option></select></label>
+              <label>Dernière image<select id="ma-last"><option value="">Aucune</option></select></label></div>
+            <h3>REF2V — images et rôles</h3><div id="ma-ref-list"></div>
+          </details>
+          <div class="ma-actions"><button id="ma-h3" type="button" class="primary" disabled>Préparer dans H3</button><button id="ma-ref2v" type="button" class="primary" disabled>Préparer dans REF2V</button></div>
+        </div>
+        <details data-ma-input><summary>Analyses récentes</summary><div id="ma-history" class="ma-history"></div></details>
+      </section>
+    </div>
+  </main>
+
   <main id="video-lab-workspace" class="video-lab-workspace" hidden>
     <nav class="video-lab-modebar" aria-label="Modes Video Lab">
       <button type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
       <button class="active" type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
+      <button type="button" data-video-lab-mode="media-analysis">Analyser des médias</button>
     </nav>
     <aside class="controls video-lab-controls">
       <div class="title-row">
@@ -1594,6 +1749,7 @@
     <nav class="video-lab-modebar" aria-label="Modes Video Lab">
       <button class="active" type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
       <button type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
+      <button type="button" data-video-lab-mode="media-analysis">Analyser des médias</button>
     </nav>
 
     <aside class="controls social-lab-controls">

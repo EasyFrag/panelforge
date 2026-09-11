@@ -13,6 +13,7 @@
     recipe: $(`${prefix}-render-recipe`), bunnyControls: $(`${prefix}-bunny-controls`),
     bunnyModel: $(`${prefix}-bunny-model`), bunnyGeometry: $(`${prefix}-bunny-geometry`),
     bunnyTurbo: $(`${prefix}-bunny-turbo`), bunnyBase: $(`${prefix}-bunny-base`),
+    bunnyTurboNote: $(`${prefix}-bunny-turbo-note`),
     bunnyCoarse: $(`${prefix}-bunny-coarse`), bunnyRefine: $(`${prefix}-bunny-refine`),
     bunnyPreview: $(`${prefix}-bunny-preview`), bunnySecond: $(`${prefix}-bunny-lora-second`),
     bunnySecondLabel: $(`${prefix}-bunny-lora-second-label`),
@@ -34,6 +35,7 @@
     videoLoraProfile: $(`${prefix}-video-lora-profile`),
     videoLoraFields: $(`${prefix}-video-lora-fields`),
     videoLoraModel: $(`${prefix}-video-lora-model`),
+    videoLoraInfo: $(`${prefix}-video-lora-info`),
     videoLoraStrength: $(`${prefix}-video-lora-strength`),
     videoLoraStrengthValue: $(`${prefix}-video-lora-strength-value`),
     videoLoraClip: $(`${prefix}-video-lora-clip`),
@@ -63,7 +65,7 @@
     renderProgressTimer: null,
     renderProgressData: null,
     specCache: new Map(), recipeDrafts: new Map(), defaultRecipeKey: "",
-    recipeLoading: false, recipeToken: 0, contextToken: 0, turboProfiles: {}, turboMode: "on", bunnyError: "",
+    recipeLoading: false, recipeToken: 0, contextToken: 0, bunnyError: "",
   };
 
   const checkpointPicker = window.PanelForgeH3Checkpoints?.mount(prefix, {
@@ -92,7 +94,7 @@
     state.recipeDrafts.set(`${projectId()}:${recipeKey(state.spec.recipe)}`, {
       checkpoint: checkpointPicker?.value || null,
       video_loras: loraEditor?.value || null,
-      fields: captureControls(), profiles: structuredClone(state.turboProfiles), mode: state.turboMode,
+      fields: captureControls(),
     });
   }
   function showLora(name) {
@@ -121,6 +123,9 @@
     }
     state.bunnyError = "";
     if (!enabled) return;
+    if (elements.bunnyTurboNote) elements.bunnyTurboNote.textContent = elements.bunnyTurbo.checked
+      ? `Turbo supplémentaire actif${state.spec.bunny.turbo_strength != null ? ` · force ${state.spec.bunny.turbo_strength}` : ""}. Décochez si votre checkpoint intègre déjà Turbo. Les steps restent indépendants.`
+      : "Turbo supplémentaire désactivé. Les steps sont conservés ; adaptez-les aux recommandations du checkpoint.";
     elements.bunnyModel.textContent = checkpointPicker?.value ? `${checkpointPicker.label} · chargement direct` : state.spec.bunny.model_label;
     const base = Number(elements.bunnyBase.value), coarse = Number(elements.bunnyCoarse.value), refine = Number(elements.bunnyRefine.value);
     elements.steps.value = String(coarse + refine);
@@ -172,7 +177,7 @@
       if (draft) {
         checkpointPicker?.set(draft.checkpoint);
         showLora(draft.fields.videoLoraModel);
-        restoreControls(draft.fields); state.turboProfiles = structuredClone(draft.profiles); state.turboMode = draft.mode;
+        restoreControls(draft.fields);
         loraEditor?.restore(draft.video_loras);
       } else restoreControls(common);
       elements.recipe.value = key;
@@ -307,7 +312,6 @@
     }
     if (bunnyActive()) {
       const config = state.spec.bunny;
-      state.turboProfiles = structuredClone(config.turbo_profiles); state.turboMode = "on";
       elements.bunnyTurbo.checked = true; elements.bunnyPreview.checked = true;
       elements.bunnyBase.value = "9"; elements.bunnyCoarse.value = "4"; elements.bunnyRefine.value = "5";
       elements.bunnySecond.value = String(config.lora_second_strength);
@@ -373,7 +377,7 @@
     }
     if (attempt.bunny) {
       const b = attempt.bunny;
-      elements.bunnyTurbo.checked = b.turbo_enabled; state.turboMode = b.turbo_enabled ? "on" : "off";
+      elements.bunnyTurbo.checked = b.turbo_enabled;
       elements.bunnyBase.value = String(b.base_steps); elements.bunnyCoarse.value = String(b.coarse_steps); elements.bunnyRefine.value = String(b.refine_steps);
       elements.bunnySecond.value = String(b.lora_second_strength); elements.bunnyPreview.checked = b.preview_enabled;
     }
@@ -673,6 +677,7 @@
               sourceSessionId: state.project.source_session_id,
               preparation: state.project.preparation,
               combatSettings: state.project.combat_settings,
+              cinematicSettings: state.project.cinematic_settings,
             });
           } catch (error) {
             continuationError.textContent = error.message;
@@ -741,6 +746,7 @@
     }
     elements.mode.textContent = `Mode ${project.input_mode.toUpperCase()} · modèle initial ${project.model_id}`;
     if (project.preparation?.family === "combat") elements.mode.textContent += ` · Combat ${project.preparation.version}`;
+    if (project.preparation?.family === "classic" && project.preparation.version === "1.0.0") elements.mode.textContent += " · Classique Mise en scène 1.0";
     if (project.combat_settings?.orientation) elements.mode.textContent += ` · ${window.PanelForgeCombatControls?.orientationLabel(project.combat_settings.orientation) || project.combat_settings.orientation}`;
     renderWarnings();
     renderTurns(); renderAttempts(); renderOutput(); renderControls();
@@ -764,6 +770,9 @@
     for (const field of [elements.bunnyTurbo, elements.bunnyBase, elements.bunnyCoarse, elements.bunnyRefine, elements.bunnyPreview, elements.bunnySecond]) {
       if (field) field.disabled = disabled || !bunnyActive();
     }
+    elements.bunnyControls?.querySelectorAll("[data-bunny-sampling]").forEach(button => {
+      button.disabled = disabled || !bunnyActive();
+    });
     elements.cancel.disabled = !active || state.busy;
     elements.refine.disabled = disabled || !state.project || !elements.message.value.trim() || !elements.revisionModel?.value;
     if (elements.revisionRetry) {
@@ -774,9 +783,10 @@
     for (const field of [elements.videoLoraProfile, elements.videoLoraModel, elements.videoLoraStrength, elements.videoLoraClip]) {
       if (field) field.disabled = disabled || (field !== elements.videoLoraProfile && elements.videoLoraProfile.value !== "lora");
     }
+    if (elements.videoLoraInfo) elements.videoLoraInfo.disabled = !elements.videoLoraModel.value || elements.videoLoraInfo.dataset.loading === "true";
     if (elements.dialogue) {
       elements.dialogue.disabled = disabled;
-      elements.dialogueControl.hidden = !["0.3.0", "1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(elements.revisionVersion?.value);
+      elements.dialogueControl.hidden = !["0.3.0", "0.4.0", "1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(elements.revisionVersion?.value);
       elements.dialogueValue.textContent = `${elements.dialogue.value}/3`;
     }
     if (elements.revisionVersion) elements.revisionVersion.disabled = disabled;
@@ -911,7 +921,7 @@
           feedback_attempt_id: state.project.feedback_attempt_id,
           revision_version: elements.revisionVersion?.value || state.project.revision_version || null,
           revision_audacity: Number(elements.revisionAudacity?.value || 0),
-          dialogue_level: ["0.3.0", "1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(elements.revisionVersion?.value) ? Number(elements.dialogue?.value || 0) : 0,
+          dialogue_level: ["0.3.0", "0.4.0", "1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(elements.revisionVersion?.value) ? Number(elements.dialogue?.value || 0) : 0,
           repair_rejected: repairRejected,
         }),
       }, (event) => {
@@ -946,13 +956,28 @@
     }}));
   });
   elements.render.addEventListener("click", renderAttempt);
+  elements.videoLoraInfo?.addEventListener("click", async () => {
+    elements.videoLoraInfo.dataset.loading = "true"; renderControls();
+    try { await window.PanelForgeH3LoraInfo.open(elements.videoLoraModel.value); }
+    catch (error) { setStatus(`Fiche LoRA indisponible : ${error.message}`, "error"); }
+    finally { elements.videoLoraInfo.dataset.loading = "false"; renderControls(); }
+  });
   if (elements.recipe) elements.recipe.addEventListener("change", () => { switchRecipe(elements.recipe.value).catch(() => {}); });
   if (elements.bunnyTurbo) elements.bunnyTurbo.addEventListener("change", () => {
-    state.turboProfiles[state.turboMode] = { base_steps: Number(elements.bunnyBase.value), coarse_steps: Number(elements.bunnyCoarse.value), refine_steps: Number(elements.bunnyRefine.value) };
-    state.turboMode = elements.bunnyTurbo.checked ? "on" : "off";
-    const profile = state.turboProfiles[state.turboMode];
-    elements.bunnyBase.value = String(profile.base_steps); elements.bunnyCoarse.value = String(profile.coarse_steps); elements.bunnyRefine.value = String(profile.refine_steps);
+    // A checkpoint may already contain Turbo: bypassing the extra LoRA must
+    // not silently replace a distilled schedule with 30/25/5 steps.
     syncBunny(); renderControls();
+  });
+  elements.bunnyControls?.querySelectorAll("[data-bunny-sampling]").forEach(button => {
+    button.addEventListener("click", () => {
+      if (button.disabled || !bunnyActive()) return;
+      const profile = state.spec.bunny.turbo_profiles?.[button.dataset.bunnySampling];
+      if (!profile) return;
+      elements.bunnyBase.value = String(profile.base_steps);
+      elements.bunnyCoarse.value = String(profile.coarse_steps);
+      elements.bunnyRefine.value = String(profile.refine_steps);
+      syncBunny(); renderControls();
+    });
   });
   for (const field of [elements.ratio, elements.initialMegapixels, elements.megapixels, elements.bunnyBase, elements.bunnyCoarse, elements.bunnyRefine, elements.bunnySecond]) {
     if (field) field.addEventListener("input", () => { syncBunny(); renderControls(); });

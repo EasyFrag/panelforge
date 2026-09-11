@@ -267,6 +267,7 @@
   }
 
   const combatControls = window.PanelForgeCombatControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
+  const cinematicControls = window.PanelForgeClassicCinematicControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
 
   function preparationFamily(value = state.session || activeCookbookSpec() || state.cookbook) {
     return value?.preparation?.family || "classic";
@@ -277,6 +278,7 @@
     const family = elements.preparationFamily.value;
     if (family === "combat") return combatControls.choose("combat", "1.3.0");
     const choices = directCookbooks().filter((item) => preparationFamily(item) === family
+      && !item.preparation?.version
       && core.recipeTier(cookbookKey(item)) === "standard"
       && sequenceKind(item) === elements.sequenceKind.value);
     const next = choices.find((item) => item.preparation_steps === preparationSteps()) || choices[0];
@@ -331,6 +333,7 @@
         option.value = cookbookKey(cookbook);
         option.dataset.preparationFamily = preparationFamily(cookbook);
         option.dataset.preparationVersion = cookbook.preparation?.version || "";
+        option.dataset.classicVersion = cookbook.preparation?.family === "combat" ? "" : cookbook.preparation?.version || "legacy";
         option.dataset.recipeFamily = sequenceKind(cookbook);
         option.textContent = cookbook.profile ? `${cookbook.display_name} (${cookbook.version})` : cookbook.id === multishotCookbookId
           ? `Multi-plan structuré · 2 à 4 plans (${cookbook.version})`
@@ -420,7 +423,7 @@
     const sessions = (payload.sessions || []).filter(
       (item) => item.profile && (
         (item.session_mode === "h3_base"
-          && [monoProfile.id, multishotProfile.id, animalInterviewProfile.id, "minimax.h3.fl2va.combat", "minimax.h3.fl2va.combat.multishot"].includes(item.profile.id))
+          && [monoProfile.id, multishotProfile.id, animalInterviewProfile.id, "minimax.h3.fl2va.classic.cinematic", "minimax.h3.fl2va.combat", "minimax.h3.fl2va.combat.multishot"].includes(item.profile.id))
         || (item.session_mode === "direct_multimodal" && item.profile.id === legacyProfileId)
       ),
     );
@@ -437,7 +440,7 @@
       button.type = "button";
       button.className = "session-link";
       const title = document.createElement("b");
-      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : "") + sessionInputModeLabel(session);
+      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : window.PanelForgeClassicCinematicControls.isCinematic(session) ? "Mise en scène \u00b7 " : "") + sessionInputModeLabel(session);
       const detail = document.createElement("small");
       detail.textContent = session.brief_complete ? "Brief validé" : "Préparation vidéo";
       button.append(title, detail);
@@ -780,6 +783,7 @@
               inherit_brief_variant: false,
               ...creativeBriefPayload(),
               combat_settings: combatControls.payload(),
+              cinematic_settings: cinematicControls.payload(),
             }),
           },
         );
@@ -802,6 +806,7 @@
         body.append("profile_id", profile.id);
         body.append("profile_version", profile.version);
         if (combatControls.payload()) body.append("combat_settings", JSON.stringify(combatControls.payload()));
+        if (cinematicControls.payload()) body.append("cinematic_settings", JSON.stringify(cinematicControls.payload()));
         if (elements.creativeDirection.checked) {
           const variant = selectedCreativeBriefVariant();
           body.append("brief_variant_id", variant.id);
@@ -1017,6 +1022,7 @@
       audacityHint.textContent = combat ? "Initiative et richesse de la chor\u00e9graphie" : audacityHint.dataset.classicText;
     }
     combatControls.draw(activeCookbook || state.cookbook);
+    cinematicControls.draw(activeCookbook || state.cookbook);
     core.refreshRecipeVisibility(elements.cookbook);
     const locked = interactionLocked();
     const creativeBriefVisible = creativeBriefAvailable(activeCookbook || state.cookbook);
@@ -1750,6 +1756,7 @@
     if (selectedCookbook) state.cookbook = selectedCookbook;
     state.forkSource = null;
     combatControls.restore(null);
+    cinematicControls.restore(null);
     state.session = null;
     state.composition = null;
     state.quickRecord = null;
@@ -1767,7 +1774,7 @@
     render();
   }
 
-  async function prefillFirstFrame({ assetId, label, sourceSessionId = null, preparation = null, combatSettings = null }) {
+  async function prefillFirstFrame({ assetId, label, sourceSessionId = null, preparation = null, combatSettings = null, cinematicSettings = null }) {
     if (!state.spec || !state.cookbook) throw new Error("H3 Base est encore en cours de chargement.");
     if (interactionLocked()) throw new Error("Une préparation H3 Base est en cours. Réessayez après sa fin.");
     if (typeof assetId !== "string" || !assetId) throw new Error("La frame de fin est indisponible.");
@@ -1790,6 +1797,7 @@
         }
         if (!sourceCookbook && fromRef2V && pinnedPreparation?.family !== "combat") {
           sourceCookbook = directCookbooks().find((item) => preparationFamily(item) === "classic"
+            && (item.preparation?.version || null) === (pinnedPreparation?.version || null)
             && sequenceKind(item) === "mono" && item.preparation_steps === (origin?.preparation_steps ?? 3)
             && core.recipeTier(cookbookKey(item)) === "standard");
           if (!sourceCookbook) throw new Error("La préparation Classique de destination est indisponible.");
@@ -1804,6 +1812,9 @@
       if (preparation?.family === "combat" && (!sourceCookbook || sourceCookbook.preparation?.family !== "combat"
         || sourceCookbook.preparation.version !== preparation.version)) {
         throw new Error("La reprise doit conserver la version Combat du rendu.");
+      }
+      if (preparation?.family === "classic" && preparation.version === "1.0.0" && !window.PanelForgeClassicCinematicControls.isCinematic(sourceCookbook)) {
+        throw new Error("La recette Classique Mise en scène exacte est indisponible pour cette reprise.");
       }
       const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}/content`);
       if (!response.ok) throw new Error("Impossible de charger la frame de fin.");
@@ -1820,6 +1831,7 @@
         state.cookbook = directCookbooks().find((item) => cookbookKey(item) === preferredCookbookKey);
       }
       if (["1.1.0", "1.1.1", "1.2.0", "1.3.0"].includes(preparation?.version)) combatControls.restore(combatSettings);
+      if (preparation?.family === "classic" && preparation.version === "1.0.0") cinematicControls.restore(cinematicSettings);
       setSelectedFile("first", file);
       showSetupMessage("Dernière frame sélectionnée comme première image. Décrivez la suite pour créer le nouveau parcours.");
       window.PanelForgeLabNavigation?.switchView("i2v-direct");
@@ -1830,7 +1842,24 @@
     elements.intention.focus({ preventScroll: true });
   }
 
-  window.PanelForgeH3Base = Object.freeze({ prefillFirstFrame });
+  function prefillAnalysis({ intention, firstFile = null, lastFile = null }) {
+    if (!state.spec || !state.cookbook) throw new Error("H3 Base est encore en cours de chargement.");
+    if (interactionLocked()) throw new Error("Une préparation H3 Base est en cours. L’analyse reste disponible pour le transfert.");
+    if (!intention?.trim()) throw new Error("L’intention est vide.");
+    if (!state.session && (elements.intention.value.trim() || state.firstFile || state.lastFile || state.forkSource)) {
+      throw new Error("Un brouillon H3 Base est déjà ouvert. Conservez-le ou ouvrez un nouvel atelier avant de transférer l’analyse.");
+    }
+    resetSession();
+    if (firstFile) setSelectedFile("first", firstFile);
+    if (lastFile) setSelectedFile("last", lastFile);
+    elements.intention.value = intention.trim(); render();
+    showSetupMessage("Intention issue de l’analyse. Vérifiez les références et choisissez votre parcours habituel.");
+    window.PanelForgeLabNavigation?.switchView("i2v-direct");
+    elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
+    elements.intention.focus({ preventScroll: true });
+  }
+
+  window.PanelForgeH3Base = Object.freeze({ prefillFirstFrame, prefillAnalysis });
 
   elements.imageInput.addEventListener("change", () => selectFile("first"));
   elements.lastImageInput.addEventListener("change", () => selectFile("last"));

@@ -114,6 +114,23 @@ class H3CheckpointWorkflowTest(unittest.TestCase):
 
 
 class H3CheckpointCatalogTest(unittest.TestCase):
+    def test_turbo_eros_is_available_in_both_workshops_only_when_installed(self):
+        turbo = "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors"
+        read = Mock(return_value=(EROS, turbo))
+        catalog = CachedH3Checkpoints(read, ENTRIES, monotonic=lambda: 1.0)
+        read.assert_not_called()
+        for mode in H3RenderInputMode:
+            with self.subTest(mode=mode):
+                models = catalog.inventory(mode)["models"]
+                self.assertEqual([model["name"] for model in models], [EROS, turbo])
+                self.assertIn("Turbo intégré", models[1]["label"])
+                catalog.validate(turbo, mode)
+        read.assert_called_once()
+        read.return_value = (EROS,)
+        self.assertEqual([m["name"] for m in catalog.inventory(H3RenderInputMode.REF2VA, refresh=True)["models"]], [EROS])
+        with self.assertRaisesRegex(ValueError, "absent"):
+            catalog.validate(turbo, H3RenderInputMode.REF2VA)
+
     def test_cached_inventory_filters_modes_refreshes_and_never_falls_back(self):
         clock = [0.0]
         read = Mock(return_value=(EROS, "minimax_h3_fl2va_bf16.safetensors", "unrelated.safetensors"))
@@ -207,7 +224,7 @@ class H3CheckpointServiceTest(unittest.TestCase):
         attempt = H3RenderAttempt("attempt", 1, PROMPT, PROMPT, settings, False, (), recipe=recipe("h3", old=True).reference)
         project = H3RenderProject("project", "session", "revision", "fake", H3RenderInputMode.T2VA, PROMPT, attempts=(attempt,))
         raw = _serialize(project)
-        self.assertEqual(raw["schema_version"], 12)
+        self.assertEqual(raw["schema_version"], 13)
         raw["schema_version"] = 10
         raw["attempts"][0].pop("checkpoint")
         raw["attempts"][0].pop("model_loading")

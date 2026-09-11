@@ -12,6 +12,7 @@
     ref2vDirect: $("#ref2vd-workspace"),
     videoLab: $("#video-lab-workspace"),
     socialLab: $("#social-lab-workspace"),
+    mediaAnalysis: $("#media-analysis-workspace"),
     productionLab: $("#production-lab-workspace"),
     productionV2Lab: $("#production-v2-lab-workspace"),
     recipeBadge: $("#recipe-badge"),
@@ -22,7 +23,20 @@
     videoLabModes: [...document.querySelectorAll("[data-video-lab-mode]")],
   };
 
+  const navigationKey = "panelforge.lab.last-view.v1";
+  const workspaces = new Map([
+    ["change-view", elements.changeView], ["krea2-image-lab", elements.krea2ImageLab],
+    ["krea2-assisted-lab", elements.krea2AssistedLab], ["krea2-batch-lab", elements.krea2BatchLab],
+    ["krea2-edit-lab", elements.krea2EditLab], ["i2v-direct", elements.i2vDirect],
+    ["ref2v-direct", elements.ref2vDirect], ["video-lab", elements.videoLab],
+    ["social-lab", elements.socialLab], ["media-analysis", elements.mediaAnalysis],
+    ["production-lab", elements.productionLab], ["production-v2-lab", elements.productionV2Lab],
+  ]);
+  let activeView = null;
+
   function switchView(view) {
+    if (!workspaces.get(view)) return false;
+    activeView = view;
     const imageLabActive = [
       "change-view",
       "krea2-image-lab",
@@ -30,27 +44,14 @@
       "krea2-batch-lab",
       "krea2-edit-lab",
     ].includes(view);
-    const visibility = [
-      [elements.changeView, view === "change-view"],
-      [elements.krea2ImageLab, view === "krea2-image-lab"],
-      [elements.krea2AssistedLab, view === "krea2-assisted-lab"],
-      [elements.krea2BatchLab, view === "krea2-batch-lab"],
-      [elements.krea2EditLab, view === "krea2-edit-lab"],
-      [elements.i2vDirect, view === "i2v-direct"],
-      [elements.ref2vDirect, view === "ref2v-direct"],
-      [elements.videoLab, view === "video-lab"],
-      [elements.socialLab, view === "social-lab"],
-      [elements.productionLab, view === "production-lab"],
-      [elements.productionV2Lab, view === "production-v2-lab"],
-    ];
-    visibility.forEach(([element, visible]) => {
-      if (element) element.hidden = !visible;
+    workspaces.forEach((element, name) => {
+      if (element) element.hidden = name !== view;
     });
     if (elements.recipeBadge) elements.recipeBadge.hidden = view !== "change-view";
     if (elements.i2vDirectNewRun) elements.i2vDirectNewRun.hidden = view !== "i2v-direct";
     if (elements.ref2vDirectNewRun) elements.ref2vDirectNewRun.hidden = view !== "ref2v-direct";
     const baseTopLevelView = imageLabActive ? "change-view" : view;
-    const topLevelView = view === "social-lab" ? "video-lab" : baseTopLevelView;
+    const topLevelView = ["social-lab", "media-analysis"].includes(view) ? "video-lab" : baseTopLevelView;
     elements.nav.forEach((button) => {
       button.classList.toggle(
         "active",
@@ -63,6 +64,8 @@
     elements.videoLabModes.forEach((button) => {
       button.classList.toggle("active", button.dataset.videoLabMode === view);
     });
+    try { window.sessionStorage.setItem(navigationKey, view); } catch (_) { /* navigation works without browser storage */ }
+    return true;
   }
 
   window.PanelForgeLabNavigation = Object.freeze({ switchView });
@@ -78,6 +81,24 @@
   elements.videoLabModes.forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.videoLabMode));
   });
+
+  // Restore visibility before the deferred workshop scripts initialize, so
+  // Assisted does not start loading just because it was the HTML default.
+  let savedView = null;
+  try { savedView = window.sessionStorage.getItem(navigationKey); } catch (_) { /* private/blocked storage */ }
+  const initialView = workspaces.get(savedView) ? savedView : "krea2-assisted-lab";
+  if (switchView(initialView)) {
+    const activateRestoredMode = () => {
+      if (activeView !== initialView) return; // an intervening navigation wins
+      // Reuse only the mode's navigation button to initialize lazy modules.
+      // H3/REF2V already initialize themselves; do not repeat their discovery.
+      const button = elements.imageLabModes.find(item => item.dataset.imageLabMode === initialView)
+        || elements.videoLabModes.find(item => item.dataset.videoLabMode === initialView);
+      button?.click();
+    };
+    if (document.readyState !== "complete") document.addEventListener("DOMContentLoaded", activateRestoredMode, {once: true});
+    else setTimeout(activateRestoredMode, 0);
+  }
 
   function errorDetailMessage(detail) {
     if (typeof detail === "string") return detail;
@@ -465,6 +486,7 @@
 
   // Presentation policy only: manifests and saved recipe references remain immutable.
   function recipeTier(value) {
+    if (/^minimax\.h3\.(fl2va|ref2v)\.classic\.cinematic\.planned@1\.0\.0$/.test(value)) return "experimental";
     // Combat has its own explicit version selector. Every installed version
     // exposes all three routes; version filtering happens below, not by tier.
     if (/^minimax\.h3\.(fl2va|ref2v)\.combat(\.multishot)?\.(guided|planned|prompt)@\d+\.\d+\.\d+$/.test(value)) return "standard";
@@ -511,7 +533,9 @@
       const otherPreparation = (select.dataset.preparationFamily && option.dataset.preparationFamily
         && select.dataset.preparationFamily !== option.dataset.preparationFamily)
         || (select.dataset.preparationVersion && option.dataset.preparationVersion
-          && select.dataset.preparationVersion !== option.dataset.preparationVersion);
+          && select.dataset.preparationVersion !== option.dataset.preparationVersion)
+        || (select.dataset.classicVersion && option.dataset.classicVersion
+          && select.dataset.classicVersion !== option.dataset.classicVersion);
       option.hidden = (!enabled.has(tier) || otherFamily || otherPreparation) && option.value !== select.value;
     }
   }

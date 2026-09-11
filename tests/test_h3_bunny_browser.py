@@ -140,6 +140,8 @@ class BunnyBrowserTest(unittest.TestCase):
             check(!el('initial-megapixels').closest('label').textContent.includes('Fixé'), 'fixed-value hint cleared on recipe switch');
             check(el('bunny-geometry').textContent.includes('×1.000'), 'x1 geometry');
             check(el('bunny-turbo').checked && el('bunny-coarse').value === '4', 'Turbo profile default');
+            check(el('bunny-turbo').getClientRects().length > 0 && !el('bunny-turbo').closest('details'), 'Turbo visible without opening a menu');
+            check(el('bunny-turbo-note').textContent.includes('intègre déjà Turbo'), 'integrated Turbo checkpoint guidance');
             if (multiple) {
               check(rows().length === 2 && el('video-lora-fields').hidden, 'new controls replace legacy fields');
               check(control(0, '[data-lora-model]').value === combat && control(1, '[data-lora-model]').value === lora, 'Combat then Motion default');
@@ -157,9 +159,26 @@ class BunnyBrowserTest(unittest.TestCase):
             } else check(el('video-lora-model').value === lora && el('video-lora-strength').value === '0.6' && el('bunny-lora-second').value === '0.2', 'single LoRA two forces');
             check(el('spectrum').closest('label').hidden && el('video-lora-clip').closest('label').hidden, 'unsupported controls hidden');
             change('bunny-turbo', false);
-            check(el('bunny-base').value === '30' && el('bunny-coarse').value === '25', 'non turbo defaults');
+            check(el('bunny-base').value === '9' && el('bunny-coarse').value === '4' && el('bunny-refine').value === '5', 'integrated Turbo keeps fast steps');
+            check(el('checkpoint').value === eros && el('seed').value === seed, 'Turbo toggle preserves checkpoint and seed');
+            el('render').click();
+            await until(() => projects[`project-${prefix}`].attempts.at(-1)?.status === 'succeeded' && !el('render-recipe').disabled);
+            const fast = calls.filter(c => c.url === `/api/h3-render/projects/project-${prefix}/attempts`).at(-1).body;
+            check(fast.checkpoint === eros && !fast.bunny.turbo_enabled && fast.bunny.base_steps === 9 && fast.bunny.coarse_steps === 4 && fast.bunny.refine_steps === 5, 'API receives integrated Turbo checkpoint with unchanged fast schedule');
+            const saved = structuredClone(projects[`project-${prefix}`]);
+            await pick(legacy);
+            window.dispatchEvent(new CustomEvent(eventName, {detail: {ready: false}}));
+            window.dispatchEvent(new CustomEvent(eventName, {detail: {project_id: saved.project_id}}));
+            await until(() => el('render-recipe').value === bunny && !el('render-recipe').disabled);
+            check(!el('bunny-turbo').checked && el('bunny-base').value === '9' && el('bunny-coarse').value === '4', 'reopening an integrated Turbo render restores toggle and fast steps');
+            const sampling = el('bunny-controls').querySelector('details'); sampling.open = true;
+            sampling.querySelector('[data-bunny-sampling="off"]').click();
+            check(el('bunny-base').value === '30' && el('bunny-coarse').value === '25' && !el('bunny-turbo').checked, 'classic steps require an explicit choice independent of Turbo');
+            sampling.querySelector('[data-bunny-sampling="on"]').click();
+            check(el('bunny-base').value === '9' && el('bunny-coarse').value === '4' && !el('bunny-turbo').checked, 'fast steps never reenable extra Turbo');
+            sampling.querySelector('[data-bunny-sampling="off"]').click();
             input('bunny-coarse', '24'); change('bunny-turbo', true); change('bunny-turbo', false);
-            check(el('bunny-coarse').value === '24', 'custom sampling profile retained');
+            check(el('bunny-base').value === '30' && el('bunny-coarse').value === '24', 'custom steps unchanged by either Turbo toggle');
             change('bunny-preview', false);
             await pick(legacy);
             check(el('megapixels').value === '0.8' && el('bunny-controls').hidden, 'legacy draft restored');

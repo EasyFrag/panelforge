@@ -15,6 +15,11 @@ SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 from panelforge.infrastructure.combat_preparation import load_combat_revision_policy
 from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
+from panelforge.application.media_analysis import MediaAnalysisService
+from panelforge.infrastructure.storage.media_analysis import LocalMediaAnalysisStore
+from panelforge.infrastructure.media_analysis_images import MediaAnalysisImages
+from panelforge.application.media_transcription import MediaTranscriptionService
+from panelforge.infrastructure.media_transcription import PurfviewTranscriber
 from panelforge.infrastructure.presets.h3_checkpoint import CheckpointH3RenderRecipe
 from panelforge.infrastructure.presets.h3_loras import MultiLoraH3RenderRecipe
 from panelforge.application.h3_checkpoints import CachedH3Checkpoints
@@ -74,6 +79,7 @@ from panelforge.infrastructure.presets.firered_edit import load_firered_edit_wor
 from panelforge.infrastructure.edit_images import PillowEditImages
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
+from panelforge.infrastructure.h3_lora_resources import H3LoraResourceCatalog
 from panelforge.infrastructure.local_gpu import NvidiaSmiMonitor
 from panelforge.infrastructure.production_thermal import (
     CombinedProductionThermalMonitor,
@@ -106,7 +112,7 @@ PRESET_DIRECTORY = (
     / "qwen-edit-2511-multiple-angles"
     / "0.2.0"
 )
-BUNNY_RENDER_WORKFLOW_DIRECTORY = PROJECT_ROOT / "workflows" / "video.generate.h3-base" / "minimax-h3-bunny" / "0.1.2"
+BUNNY_RENDER_WORKFLOW_DIRECTORY = PROJECT_ROOT / "workflows" / "video.generate.h3-base" / "minimax-h3-bunny" / "0.1.3"
 VIDEO_PRESET_DIRECTORY = (
     PROJECT_ROOT
     / "workflows"
@@ -114,7 +120,7 @@ VIDEO_PRESET_DIRECTORY = (
     / "minimax-h3-ref2v"
     / "0.2.1"
 )
-REF2V_RENDER_WORKFLOW_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.3"
+REF2V_RENDER_WORKFLOW_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.4"
 HISTORICAL_REF2V_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.0"
 KREA2_PRESET_DIRECTORY = (
     PROJECT_ROOT
@@ -128,7 +134,7 @@ H3_RENDER_WORKFLOW_DIRECTORY = (
     / "workflows"
     / "video.generate.h3-base"
     / "minimax-h3-latent-speed"
-    / "0.1.5"
+    / "0.1.6"
 )
 KREA2_BATCH_WORKFLOW_DIRECTORY = (
     PROJECT_ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"
@@ -464,14 +470,17 @@ def build_app(args: argparse.Namespace):
         ref2v_workflow=ref2v_render_recipe,
         additional_workflows=(
             MultiLoraH3RenderRecipe(BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY), BUNNY_RENDER_WORKFLOW_DIRECTORY),
+            MultiLoraH3RenderRecipe(BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.2"), BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.2"),
             CheckpointH3RenderRecipe(BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.1"), BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.1"),
             BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.0"),
         ),
         historical_h3_workflows=(
+            MultiLoraH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.5")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.5"),
             CheckpointH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.4")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.4"),
             H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.3")),
         ),
         historical_ref2v_workflows=(
+            MultiLoraH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.3"))), REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.3"),
             CheckpointH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(VIDEO_PRESET_DIRECTORY.parent / "0.2.2"))), VIDEO_PRESET_DIRECTORY.parent / "0.2.2"),
             *(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(VIDEO_PRESET_DIRECTORY.parent / version)))
               for version in ("0.2.1", "0.2.0")),
@@ -516,6 +525,17 @@ def build_app(args: argparse.Namespace):
         projects=social_projects,
         application_outcomes=gateway,
         source_prompt_resolver=resolve_social_source_prompt,
+    )
+    whisper_root = Path(os.environ.get("PANELFORGE_WHISPER_ROOT") or
+        str(Path(os.environ.get("APPDATA") or Path.home() / "AppData/Roaming") / "Subtitle Edit/SpeechToText/Purfview-Faster-Whisper-XXL"))
+    media_analysis = MediaAnalysisService(
+        gateway=gateway, assets=assets, store=LocalMediaAnalysisStore(args.workspace),
+        images=MediaAnalysisImages(), application_outcomes=gateway,
+        prompt_directory=PROJECT_ROOT / "prompt_profiles/media.analyze/visual-intention/1.0.1",
+        speech_prompt_directory=PROJECT_ROOT / "prompt_profiles/media.analyze/visual-intention/1.1.1",
+        transcription=MediaTranscriptionService(PurfviewTranscriber(
+            executable=whisper_root / "faster-whisper-xxl.exe",
+            ffmpeg=whisper_root / "ffmpeg.exe", model_directory=whisper_root / "_models")),
     )
     local_gpu_monitor = NvidiaSmiMonitor()
     production_thermal_monitor = CombinedProductionThermalMonitor(
@@ -571,11 +591,14 @@ def build_app(args: argparse.Namespace):
         prompt_composition=prompt_composition,
         video_lab=video_lab,
         h3_render=h3_render,
+        h3_lora_resources=H3LoraResourceCatalog(workspace_root=args.workspace,
+            inventory=h3_render.video_lora_inventory, comfy=krea2_batch_comfy),
         krea2_lab=krea2_lab,
         krea2_batch=krea2_batch,
         krea2_edit=krea2_edit,
         krea2_assisted=krea2_assisted,
         social_lab=social_lab,
+        media_analysis=media_analysis,
         production=production,
         production_v2=production_v2,
         llm_activity_monitor=gateway,

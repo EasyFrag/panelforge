@@ -140,11 +140,17 @@
   ) {
     const dialog = document.createElement("dialog");
     dialog.className = "krea2-resource-dialog";
+    const releasePreviews = () => {
+      dialog.querySelectorAll("video").forEach(video => {
+        video.pause(); video.removeAttribute("src"); video.load();
+      });
+    };
     const panel = document.createElement("section");
     const header = document.createElement("header");
     const title = document.createElement("h3");
     title.textContent = resourceName(resource);
     const dismiss = () => {
+      releasePreviews();
       if (typeof dialog.close === "function") dialog.close();
       else dialog.remove();
     };
@@ -350,13 +356,30 @@
       const gallery = document.createElement("div");
       gallery.className = "krea2-resource-dialog-gallery";
       resource.preview_urls.slice(0, 3).forEach((url) => {
-        const image = document.createElement("img");
-        image.src = url;
-        image.alt = `Aperçu de ${title.textContent}`;
-        image.loading = "eager";
-        image.decoding = "async";
-        image.referrerPolicy = "no-referrer";
-        gallery.append(image);
+        let parsed;
+        try { parsed = new URL(url); } catch (_) { return; }
+        if (parsed.protocol !== "https:") return;
+        const isVideo = /\.(mp4|webm|m4v|mov|ogv)$/i.test(parsed.pathname);
+        const container = document.createElement("figure");
+        const media = document.createElement(isVideo ? "video" : "img");
+        if (isVideo) {
+          media.controls = true; media.playsInline = true; media.muted = true;
+          media.preload = "metadata";
+          media.setAttribute("aria-label", `Aperçu vidéo de ${title.textContent}`);
+        } else {
+          media.alt = `Aperçu de ${title.textContent}`;
+          media.loading = "eager"; media.decoding = "async"; media.referrerPolicy = "no-referrer";
+        }
+        const caption = document.createElement("figcaption");
+        const failure = document.createElement("span"); failure.hidden = true;
+        failure.textContent = "Aperçu indisponible dans le navigateur. ";
+        failure.setAttribute("role", "status");
+        const link = document.createElement("a"); link.href = parsed.href;
+        link.target = "_blank"; link.rel = "noreferrer noopener";
+        link.textContent = isVideo ? "Ouvrir la vidéo" : "Ouvrir l’image";
+        media.addEventListener("error", () => { failure.hidden = false; });
+        media.src = parsed.href;
+        caption.append(failure, link); container.append(media, caption); gallery.append(container);
       });
       panel.append(gallery);
     } else if (typeof refreshResource === "function" && !resource.remote_checked_at) {
@@ -369,7 +392,7 @@
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) dismiss();
     });
-    dialog.addEventListener("close", () => dialog.remove());
+    dialog.addEventListener("close", () => { releasePreviews(); dialog.remove(); });
     document.body.append(dialog);
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");

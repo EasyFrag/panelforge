@@ -252,8 +252,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260910.8", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260910.6", page.text)
+        self.assertIn("/static/lab.css?v=20260911.4", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260911.3", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         core_script = self.client.get("/static/lab-core.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -287,7 +287,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(core_script.status_code, 200)
-        self.assertIn("/static/lab-core.js?v=20260910.5", page.text)
+        self.assertIn("/static/lab-core.js?v=20260911.4", page.text)
         self.assertIn("function errorDetailMessage(detail)", core_script.text)
         self.assertIn('item.loc.filter((part) => part !== "body")', core_script.text)
         self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
@@ -405,7 +405,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="h3r-spectrum" type="checkbox"', page.text)
         self.assertIn('id="ref2vr-spectrum" type="checkbox"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260910.8', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260911.3', page.text)
         self.assertIn('id="h3r-render-progress"', page.text)
         self.assertIn('id="ref2vr-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', render_script.text)
@@ -449,7 +449,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("core.createLlmOutcomeTone()", render_script.text)
         self.assertIn("outcomeTone.success()", render_script.text)
         self.assertIn("outcomeTone.failure()", render_script.text)
-        self.assertIn('/static/i2v-direct.js?v=20260910.6', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260911.3', page.text)
         self.assertIn('id="i2vd-animal-interview-fields"', page.text)
         self.assertEqual(page.text.count('class="field-label animal-interview-primary-field"'), 2)
         self.assertIn('id="i2vd-dialogue-language"', page.text)
@@ -510,7 +510,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("beat-sheet/reconcile/stream", script.text)
         self.assertIn('i2vDirect: $("#i2vd-workspace")', core_script.text)
         self.assertIn(
-            '[elements.i2vDirect, view === "i2v-direct"]',
+            '["i2v-direct", elements.i2vDirect]',
             core_script.text,
         )
 

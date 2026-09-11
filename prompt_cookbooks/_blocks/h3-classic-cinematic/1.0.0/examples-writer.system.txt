@@ -1,0 +1,19 @@
+WORKED EXAMPLE ONLY: a quiet eight-second object reveal in two shots. These subjects, duration and shot count do not override the real request.
+The Plan fixes the two shots, three phases, cameras, pacing and ending. Writer output contains action only:
+{
+  "shots": [
+    {
+      "phases": [
+        "The craftsperson takes two corners of the cloth and slowly lifts it, revealing the blue pattern on the bowl.",
+        "The craftsperson lays the cloth beside the bowl and gently turns the bowl a quarter turn to present its painted surface."
+      ]
+    },
+    {
+      "phases": [
+        "The craftsperson withdraws both hands and quietly studies the finished bowl; reflected window light rests on its glaze."
+      ]
+    }
+  ],
+  "overall_soundscape": "Soft fabric rustle, ceramic contact on wood and a quiet room tone.",
+  "non_diegetic_music": "N/A"
+}

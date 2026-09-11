@@ -232,7 +232,7 @@ class CombatPreparationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _, session, _ = preparation_service(directory, "fl2va", "prompt", [])
             path = Path(directory) / "prompt_sessions" / session.session_id / "session.json"
-            data = json.loads(path.read_text(encoding="utf-8")); data["schema_version"] = 9; data.pop("preparation"); data.pop("combat_settings")
+            data = json.loads(path.read_text(encoding="utf-8")); data["schema_version"] = 9; data.pop("preparation"); data.pop("combat_settings"); data.pop("cinematic_settings")
             path.write_text(json.dumps(data), encoding="utf-8")
             self.assertEqual(LocalPromptSessionStore(directory).get(session.session_id).preparation, VideoPreparationRef())
 
@@ -289,7 +289,7 @@ class CombatRenderTest(unittest.TestCase):
         classic = H3RenderProject("classic", "session", "revision", "fixture", H3RenderInputMode.T2VA, PROMPT,
                                   revision_version=H3RenderRevisionVersion.VOCAL)
         raw = _serialize(classic)
-        self.assertEqual(raw["schema_version"], 12)
+        self.assertEqual(raw["schema_version"], 13)
         raw["schema_version"] = 6
         raw.pop("preparation")
         self.assertEqual(_deserialize(raw), classic)

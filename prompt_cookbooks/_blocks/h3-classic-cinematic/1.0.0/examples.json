@@ -1,0 +1,83 @@
+{
+  "plan": {
+    "continuity_invariants": [
+      "The same ceramic bowl and folded cloth remain on the wooden table. The revealed pattern belongs to the bowl."
+    ],
+    "shots": [
+      {
+        "duration_ms": 5000,
+        "opening_composition": "A medium view shows a seated craftsperson beside a covered ceramic bowl on a wooden table.",
+        "phases": [
+          {
+            "cue": "The cloth rests over the bowl.",
+            "camera": {
+              "motion": "static_shot",
+              "amplitude": null,
+              "speed": null,
+              "target_clause": ""
+            },
+            "actions": [
+              "The craftsperson takes two corners of the cloth and slowly lifts it, revealing the blue pattern on the bowl."
+            ]
+          },
+          {
+            "cue": "The pattern is fully visible.",
+            "camera": {
+              "motion": "push.in",
+              "amplitude": null,
+              "speed": null,
+              "target_clause": "toward the uncovered bowl"
+            },
+            "actions": [
+              "The craftsperson lays the cloth beside the bowl and gently turns the bowl a quarter turn to present its painted surface."
+            ]
+          }
+        ],
+        "pacing": "The reveal is unhurried, with time to observe the pattern.",
+        "end_state": "The uncovered bowl faces forward with the folded cloth beside it.",
+        "transition": "The visible pattern carries into a closer view of the finished object."
+      },
+      {
+        "duration_ms": 3000,
+        "opening_composition": "A close view shows the same uncovered bowl and the edge of the cloth on the table.",
+        "phases": [
+          {
+            "cue": "The bowl has stopped turning.",
+            "camera": {
+              "motion": "static_shot",
+              "amplitude": null,
+              "speed": null,
+              "target_clause": ""
+            },
+            "actions": [
+              "The craftsperson withdraws both hands and quietly studies the finished bowl; reflected window light rests on its glaze."
+            ]
+          }
+        ],
+        "pacing": "A brief still observation completes the reveal.",
+        "end_state": "The bowl stays upright and undisturbed on the table.",
+        "transition": "The clip ends on the completed display."
+      }
+    ],
+    "spoken_lines": [],
+    "overall_soundscape": "Soft fabric rustle, ceramic contact on wood and a quiet room tone.",
+    "non_diegetic_music": "N/A"
+  },
+  "writer": {
+    "shots": [
+      {
+        "phases": [
+          "The craftsperson takes two corners of the cloth and slowly lifts it, revealing the blue pattern on the bowl.",
+          "The craftsperson lays the cloth beside the bowl and gently turns the bowl a quarter turn to present its painted surface."
+        ]
+      },
+      {
+        "phases": [
+          "The craftsperson withdraws both hands and quietly studies the finished bowl; reflected window light rests on its glaze."
+        ]
+      }
+    ],
+    "overall_soundscape": "Soft fabric rustle, ceramic contact on wood and a quiet room tone.",
+    "non_diegetic_music": "N/A"
+  }
+}

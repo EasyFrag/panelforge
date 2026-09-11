@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings
+from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings
 
 from panelforge.domain import (
     AnalysisRevision,
@@ -35,7 +35,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 13
+_SCHEMA_VERSION = 14
 _SESSION_KEYS_V1_V2 = {
     "schema_version",
     "created_at",
@@ -193,11 +193,12 @@ class LocalPromptSessionStore:
         _require_regular_file(path)
         data = _read_json_object(path)
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, _SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, _SCHEMA_VERSION}:
             raise StorageCorruptionError(
                 f"unsupported prompt session schema for {expected_id!r}"
             )
         expected_keys = (
+            (_SESSION_KEYS_V7 | {"preparation", "combat_settings", "cinematic_settings"}) if schema_version >= 14 else
             (_SESSION_KEYS_V7 | {"preparation", "combat_settings"}) if schema_version >= 11 else
             (_SESSION_KEYS_V7 | {"preparation"}) if schema_version >= 10 else _SESSION_KEYS_V7
             if schema_version >= 7
@@ -246,6 +247,7 @@ def _session_to_dict(
     return {
         "schema_version": _SCHEMA_VERSION,
         "preparation": session.preparation.as_dict(),
+        "cinematic_settings": session.cinematic_settings.as_dict() if session.cinematic_settings else None,
         "combat_settings": session.combat_settings.as_dict() if session.combat_settings else None,
         "created_at": created_at,
         "updated_at": updated_at,
@@ -517,6 +519,7 @@ def _session_from_dict(
         profile_version=data["profile_version"],
         brief_variant_id=(data["brief_variant_id"] if schema_version >= 7 else None),
         preparation=VideoPreparationRef.from_dict(data["preparation"]) if schema_version >= 10 else VideoPreparationRef(),
+        cinematic_settings=ClassicCinematicSettings.from_dict(data["cinematic_settings"]) if schema_version >= 14 and data["cinematic_settings"] is not None else None,
         combat_settings=CombatSettings.from_dict(data["combat_settings"]) if schema_version >= 11 and data["combat_settings"] is not None else None,
         brief_variant_version=(
             data["brief_variant_version"] if schema_version >= 7 else None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .video_preparation import VideoPreparationRef, CombatSettings, validate_combat_settings
+from .video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings, validate_combat_settings, validate_cinematic_settings
 
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -419,11 +419,13 @@ class PromptLabSession:
     approved_brief_revision_id: str | None = None
     preparation: VideoPreparationRef = VideoPreparationRef()
     combat_settings: CombatSettings | None = None
+    cinematic_settings: ClassicCinematicSettings | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.preparation, VideoPreparationRef):
             raise TypeError("preparation must be a VideoPreparationRef")
         validate_combat_settings(self.preparation, self.combat_settings)
+        validate_cinematic_settings(self.preparation, self.cinematic_settings)
 
     @property
     def analysis_complete(self) -> bool:

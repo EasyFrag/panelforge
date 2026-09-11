@@ -287,14 +287,14 @@ class CombatSequenceIntegrationTest(unittest.TestCase):
                 "overall_soundscape": "N/A", "non_diegetic_music": "N/A"})], preparation_family="combat", source_text=INTENT)
             service.generate(session.session_id, CompositionStage.FINAL_PROMPT)
             path = Path(directory) / "prompt_sessions" / session.session_id / "session.json"
-            raw = json.loads(path.read_text(encoding="utf-8")); raw["schema_version"] = 10; raw.pop("combat_settings")
+            raw = json.loads(path.read_text(encoding="utf-8")); raw["schema_version"] = 10; raw.pop("combat_settings"); raw.pop("cinematic_settings")
             path.write_text(json.dumps(raw), encoding="utf-8")
             self.assertEqual(service.sessions.get(session.session_id), session)
             renders = combat_fixtures.CombatRenderTest().service(directory)
             renders.sessions, renders.compositions = service.sessions, service.compositions
             project = renders.get_or_create_from_session(session.session_id)
             path = next((Path(directory) / "h3_render_projects").rglob("project.json"))
-            raw = json.loads(path.read_text(encoding="utf-8")); raw["schema_version"] = 7; raw.pop("combat_settings")
+            raw = json.loads(path.read_text(encoding="utf-8")); raw["schema_version"] = 7; raw.pop("combat_settings"); raw.pop("cinematic_settings")
             path.write_text(json.dumps(raw), encoding="utf-8")
             reopened = renders.projects.get(project.project_id)
             self.assertEqual(reopened, project)

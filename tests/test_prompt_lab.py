@@ -433,7 +433,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 13)
+            self.assertEqual(raw["schema_version"], 14)
             self.assertEqual(raw["session_mode"], "direct_multimodal")
             self.assertIsNone(raw["brief_variant_id"])
             self.assertIsNone(raw["brief_variant_version"])
@@ -445,6 +445,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                 ]
             )
             raw["schema_version"] = 5
+            raw.pop("cinematic_settings", None)
             del raw["preparation"]
             del raw["combat_settings"]
             del raw["brief_variant_id"]
@@ -473,6 +474,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 4
+            raw.pop("cinematic_settings", None)
             del raw["preparation"]
             del raw["combat_settings"]
             del raw["brief_variant_id"]
@@ -544,6 +546,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 7
+            raw.pop("cinematic_settings", None)
             del raw["preparation"]
             del raw["combat_settings"]
             del raw["brief_revisions"][0]["vocal_dialogues"]
@@ -649,7 +652,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
                     / "session.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(raw["schema_version"], 13)
+            self.assertEqual(raw["schema_version"], 14)
             self.assertEqual(raw["session_mode"], "analyzed")
             self.assertEqual(raw["brief_revisions"][0]["creative_freedom"], 50)
             self.assertEqual(raw["brief_revisions"][0]["creative_audacity"], 2)
@@ -664,6 +667,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
 
             raw["schema_version"] = 3
+            raw.pop("cinematic_settings", None)
             del raw["preparation"]
             del raw["combat_settings"]
             del raw["brief_variant_id"]
@@ -698,6 +702,7 @@ class LocalPromptSessionStoreTest(unittest.TestCase):
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 2
+            raw.pop("cinematic_settings", None)
             del raw["preparation"]
             del raw["combat_settings"]
             del raw["brief_variant_id"]

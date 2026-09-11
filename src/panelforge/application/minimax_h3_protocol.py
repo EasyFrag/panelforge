@@ -99,6 +99,10 @@ _FREE_CAMERA_NOUN = re.compile(
     r"\bPOV\s+shot\b|"
     r"\bcamera\s+(?:movement|motion|position|framing)\b"
 )
+_NEGATED_CAMERA_NOUN = re.compile(
+    r"(?i)\b(?:without(?:\s+any)?|rather\s+than(?:\s+any)?|instead\s+of(?:\s+any)?|no)"
+    r"\s+camera\s+(?:movement|motion)\b"
+)
 _NONCANONICAL_CAMERA_MODIFIER = re.compile(
     r"(?i)\bwith\s+(?!(?:small|large)\s+amplitude\b)\w+\s+amplitude\b|"
     r"\bat\s+(?!(?:slow|fast)\s+speed\b)\w+\s+speed\b"
@@ -429,7 +433,7 @@ def lint_h3_prompt(
     )
     if (
         _FREE_CAMERA_MOTION.search(prose_without_canonical_camera)
-        or _FREE_CAMERA_NOUN.search(prose_without_canonical_camera)
+        or _FREE_CAMERA_NOUN.search(_NEGATED_CAMERA_NOUN.sub("", prose_without_canonical_camera))
         or _has_noncanonical_camera_modifier(modifier_source)
     ):
         issues.append(

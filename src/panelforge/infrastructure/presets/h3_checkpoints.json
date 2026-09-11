@@ -1,5 +1,6 @@
 [
   {"name": "10Eros_Max_h3_hybrid_beta5.safetensors", "label": "EROS · hybride beta5", "modes": ["h3-base", "ref2va"]},
+  {"name": "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors", "label": "EROS · Turbo intégré · hybride beta5", "modes": ["h3-base", "ref2va"]},
   {"name": "minimax_h3_fl2va_bf16.safetensors", "label": "MiniMax H3 · FL2VA BF16", "modes": ["h3-base"]},
   {"name": "minimax_h3_ref2va_bf16.safetensors", "label": "MiniMax H3 · REF2VA BF16", "modes": ["ref2va"]},
   {"name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "label": "MiniMax H3 · FL2VA INT8", "modes": ["h3-base"]},

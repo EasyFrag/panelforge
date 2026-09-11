@@ -257,6 +257,7 @@
   }
 
   const combatControls = window.PanelForgeCombatControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
+  const cinematicControls = window.PanelForgeClassicCinematicControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
 
   function preparationFamily(value = state.session || activeCookbookSpec() || state.cookbook) {
     return value?.preparation?.family || "classic";
@@ -267,6 +268,7 @@
     const family = elements.preparationFamily.value;
     if (family === "combat") return combatControls.choose("combat", "1.3.0");
     const choices = directCookbooks().filter((item) => preparationFamily(item) === family
+      && !item.preparation?.version
       && core.recipeTier(cookbookValue(item)) === "standard");
     const next = choices.find((item) => item.preparation_steps === preparationSteps()) || choices[0];
     if (!next) return render();
@@ -356,6 +358,7 @@
       option.value = cookbookValue(cookbook);
       option.dataset.preparationFamily = preparationFamily(cookbook);
         option.dataset.preparationVersion = cookbook.preparation?.version || "";
+        option.dataset.classicVersion = cookbook.preparation?.family === "combat" ? "" : cookbook.preparation?.version || "legacy";
       option.textContent = cookbookLabel(cookbook);
       elements.cookbook.append(option);
     });
@@ -402,7 +405,7 @@
       (item) => item.session_mode === "direct_multimodal"
         && item.profile && ((item.profile.id === profileId
           && [profileVersion, experimentalProfileVersion, "0.6.0"].includes(item.profile.version))
-          || item.profile.id === "minimax.h3.ref2v.combat"),
+          || ["minimax.h3.ref2v.combat", "minimax.h3.ref2v.classic.cinematic"].includes(item.profile.id)),
     );
     elements.sessionList.replaceChildren();
     if (!sessions.length) {
@@ -417,7 +420,7 @@
       button.type = "button";
       button.className = "session-link";
       const title = document.createElement("b");
-      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : "") + session.references.map((item) => item.label).join(" + ");
+      title.textContent = (preparationFamily(session) === "combat" ? "Combat \u00b7 " : window.PanelForgeClassicCinematicControls.isCinematic(session) ? "Mise en scène \u00b7 " : "") + session.references.map((item) => item.label).join(" + ");
       const detail = document.createElement("small");
       detail.textContent = `${session.references.length} image${session.references.length > 1 ? "s" : ""} · ${session.brief_complete ? "Brief validé" : "Préparation vidéo"}`;
       button.append(title, detail);
@@ -700,7 +703,7 @@
       elements.modeWarning.hidden = false;
       return;
     }
-    const recipeMismatch = !state.session && !combatControls.current()
+    const recipeMismatch = !state.session && !combatControls.current() && !cinematicControls.current()
       && !isMultishotCookbook(activeCookbookSpec())
       && intentionRequestsMultipleShots(elements.intention.value);
     elements.modeWarning.textContent = recipeMismatch
@@ -749,6 +752,7 @@
               profile_version: selectedProfile().version,
               ...creativeBriefPayload(),
               combat_settings: combatControls.payload(),
+              cinematic_settings: cinematicControls.payload(),
               inherit_brief_variant: false,
             }),
           },
@@ -766,6 +770,7 @@
         body.append("profile_id", profile.id);
         body.append("profile_version", profile.version);
         if (combatControls.payload()) body.append("combat_settings", JSON.stringify(combatControls.payload()));
+        if (cinematicControls.payload()) body.append("cinematic_settings", JSON.stringify(cinematicControls.payload()));
         if (elements.creativeDirection.checked) {
           body.append("brief_variant_id", creativeBriefVariant.id);
           body.append("brief_variant_version", creativeBriefVariant.version);
@@ -1141,6 +1146,7 @@
       audacityHint.textContent = combat ? "Initiative et richesse de la chor\u00e9graphie" : audacityHint.dataset.classicText;
     }
     combatControls.draw(activeCookbook || state.cookbook);
+    cinematicControls.draw(activeCookbook || state.cookbook);
     core.refreshRecipeVisibility(elements.cookbook);
     const locked = interactionLocked();
     const directSuperFast = directSuperFastModeActive();
@@ -1447,7 +1453,7 @@
   }
 
   function renderMultishotSummary() {
-    const multishot = isMultishotCookbook(activeCookbookSpec()) || (combatControls.current() && preparationSteps() > 1);
+    const multishot = isMultishotCookbook(activeCookbookSpec()) || ((combatControls.current() || cinematicControls.current()) && preparationSteps() > 1);
     elements.multishotSummary.hidden = !multishot;
     if (!multishot) return;
 
@@ -2049,6 +2055,7 @@
     state.superFastRecord = null;
     state.forkSource = null;
     combatControls.restore(null);
+    cinematicControls.restore(null);
     state.cookbook = isSuperFastReference(preservedCookbook)
       ? superFastCookbookSpec()
       : preservedCookbook && directCookbooks().find(
@@ -2069,6 +2076,26 @@
     clearStageDrafts();
     render();
   }
+
+  function prefillAnalysis({ intention, references }) {
+    if (!state.spec || !state.cookbook) throw new Error("REF2V est encore en cours de chargement.");
+    if (interactionLocked()) throw new Error("Une préparation REF2V est en cours. L’analyse reste disponible pour le transfert.");
+    if (!intention?.trim() || !Array.isArray(references) || !references.length || references.length > 9) throw new Error("Choisissez une intention et 1 à 9 références.");
+    if (references.some(r => !r.file || !roleOptions.some(([role]) => role === r.role))) throw new Error("Référence ou rôle indisponible.");
+    if (["first_frame", "last_frame"].some(role => references.filter(r => r.role === role).length > 1)) throw new Error("Une seule première et une seule dernière frame exactes sont autorisées.");
+    if (!state.session && (elements.intention.value.trim() || state.drafts.length || state.forkSource)) {
+      throw new Error("Un brouillon REF2V est déjà ouvert. Conservez-le ou ouvrez un nouvel atelier avant de transférer l’analyse.");
+    }
+    resetSession();
+    state.drafts = references.map(({ file, role }) => ({ file, role, previewUrl: URL.createObjectURL(file) }));
+    invalidateRoleConfirmation(); renderDraftReferences();
+    elements.intention.value = intention.trim(); render();
+    showSetupMessage("Intention issue de l’analyse. Vérifiez les rôles des références avant de lancer la préparation.");
+    window.PanelForgeLabNavigation?.switchView("ref2v-direct");
+    elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
+    elements.intention.focus({ preventScroll: true });
+  }
+  window.PanelForgeRef2V = Object.freeze({ prefillAnalysis });
 
   elements.imageInput.addEventListener("change", () => addFiles(elements.imageInput.files || []));
   elements.form.addEventListener("submit", createSession);

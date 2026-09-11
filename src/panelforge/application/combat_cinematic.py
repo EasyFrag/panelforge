@@ -120,58 +120,10 @@ def compile_result(content: str, context: dict) -> tuple[str, str]:
 
 def _compile(plan: Plan, writer: Writer, context: dict) -> tuple[str, str]:
     from . import combat_sequence as legacy
-    legacy._count(plan.shots, context)
-    if len(writer.shots) != len(plan.shots):
-        raise ValueError("Le rédacteur doit conserver tous les plans approuvés.")
-    header = legacy._header(context, len(plan.shots))
-    sections, starts, cameras, protected = [], [], [], []
-    elapsed, camera_index = 0, 0
-    for index, (shot, written) in enumerate(zip(plan.shots, writer.shots, strict=True), 1):
-        if len(shot.phases) != len(written.phases):
-            raise ValueError("Le rédacteur doit conserver les phases continues de chaque plan.")
-        starts.append(elapsed)
-        heading = "Shot 1:" if context["mode"] == "ref2va" and len(plan.shots) == 1 else f"[Shot {index}]"
-        if index > 1:
-            heading += f" At {legacy._time(elapsed)},"
-        chunks, shot_protected = [], []
-        for phase_index, (phase, prose) in enumerate(zip(shot.phases, written.phases, strict=True)):
-            if not prose.strip() or any(not e.strip() for e in phase.exchanges):
-                raise ValueError("Les actions d’une phase ne doivent pas être vides.")
-            camera_index += 1
-            camera = compile_camera_motion(phase.camera.directive(camera_index))
-            cameras.append(f"At {legacy._time(elapsed)}, {camera}" if index > 1 and phase_index == 0 else camera)
-            if phase_index == 0:
-                chunks.extend((camera, shot.opening_composition, shot.pacing, phase.cue, prose))
-            else:
-                chunks.extend((phase.cue, camera, prose))
-            shot_protected.append(phase.cue)
-            _prose(phase.cue + " " + prose, header)
-        _prose(" ".join((shot.opening_composition, shot.pacing, shot.end_state, shot.transition)), header)
-        chunks.extend((shot.end_state, shot.transition))
-        shot_protected.extend((shot.opening_composition, shot.pacing, shot.end_state, shot.transition))
-        protected.append(shot_protected)
-        sections.append(heading + " " + " ".join(chunks))
-        elapsed += shot.duration_ms
-    if elapsed != context["duration_ms"]:
-        raise ValueError("Les durées du Plan doivent correspondre à la durée de l’atelier.")
-    body = f"The target video lasts {elapsed / 1000:g} seconds.\n\n" + "\n\n".join(sections)
-    if context["mode"] != "ref2va":
-        body = "integrated_multimodal_description:\n" + body
-    output = normalize_dialogue_language_tags((header + "\n\n" + body).strip()
-        + f"\n\noverall_soundscape: {writer.overall_soundscape}\n\nnon_diegetic_music: {writer.non_diegetic_music}")
-    context.update(compiled_header=header, shot_starts_ms=starts, cameras=cameras,
-        locked_speech=list(plan.spoken_lines), cinematic_protected=protected,
-        camera_phase_counts=[len(s.phases) for s in plan.shots])
-    legacy.validate_final(output, context)
-    context["chosen_speech"] = [line for _, line in speech_lines(output)]
-    saved = plan.model_dump(mode="json")
-    for shot, written in zip(saved["shots"], writer.shots, strict=True):
-        for phase, prose in zip(shot["phases"], written.phases, strict=True):
-            phase["exchanges"] = [prose]
-    saved.update(spoken_lines=context["chosen_speech"], overall_soundscape=writer.overall_soundscape,
-        non_diegetic_music=writer.non_diegetic_music)
-    context["sequence_plan"] = saved
-    return output, legacy.encode_context(context)
+    from .cinematic_core_v1 import compile_sequence
+    return compile_sequence(plan, writer, context, check_count=legacy._count,
+        validate_final=legacy.validate_final, encode_context=legacy.encode_context,
+        action_field="exchanges")
 
 
 def shot_bodies(content: str) -> tuple[str, ...]:

@@ -16,7 +16,8 @@ from .h3_multishot_preparation import (
     compile_compact_multishot, validate_compact_multishot, multishot_state_warnings,
     align_state_multishot_duration,
 )
-from . import combat_sequence
+from . import combat_sequence, classic_cinematic
+
 from .vocal_policy import vocal_level, vocal_policy, speech_lines, validate_speech
 from .video_preparation import (
     DIRECT_PROMPT_CONTRACT, compile_direct_prompt, direct_prompt_context,
@@ -288,6 +289,13 @@ _RETENTION_MARKERS = {
 }
 _I2VA_INSTRUCTION = I2VA_FIXED_INSTRUCTION
 _I2VA_FIELDS = DIRECT_I2VA_FIELDS
+_SEQUENCE_CONTRACTS = combat_sequence.CONTRACTS | classic_cinematic.CONTRACTS
+_SEQUENCE_PLAN_CONTRACTS = combat_sequence.PLAN_CONTRACTS | classic_cinematic.PLAN_CONTRACTS
+
+def _sequence_handler(cookbook):
+    return classic_cinematic if cookbook.output_contract in classic_cinematic.CONTRACTS else combat_sequence
+
+
 _I2VA_CANONICAL_CONTRACT = "minimax.h3.i2va.canonical_v1"
 _I2VA_DIRECT_CONTRACT = "minimax.h3.i2va.direct_supervised_h3_v1"
 _I2VA_DIRECT_CAMERA_OWNED_CONTRACT = "minimax.h3.i2va.direct_supervised_h3_v2"
@@ -1422,7 +1430,7 @@ class PromptCompositionService:
         )
         result = self.gateway.complete(request)
         revised = result.content
-        if cookbook.output_contract not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *combat_sequence.CONTRACTS}:
+        if cookbook.output_contract not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *_SEQUENCE_CONTRACTS}:
             revised = _revision_document_contract(
                 cookbook,
                 stage,
@@ -1844,8 +1852,8 @@ class PromptCompositionService:
         composition = self.compositions.get(source_session_id)
         cookbook = self._validated_cookbook(session, composition)
         expected = self._expected_sources(session, composition, stage)
-        if cookbook.output_contract in combat_sequence.CONTRACTS:
-            return self._combat_request(session, composition, cookbook, stage, expected, instruction, include_reasoning)
+        if cookbook.output_contract in _SEQUENCE_CONTRACTS:
+            return self._sequence_request(session, composition, cookbook, stage, expected, instruction, include_reasoning)
         prefix = ""
         if instruction is None:
             system_prompt, user_prompt = self._generation_prompts(
@@ -2177,17 +2185,19 @@ class PromptCompositionService:
         )
         return session, composition, cookbook, expected, request, prefix
 
-    def _combat_request(self, session, composition, cookbook, stage, expected, instruction, include_reasoning):
+    def _sequence_request(self, session, composition, cookbook, stage, expected, instruction, include_reasoning):
         source = preparation_source(session, composition)
-        combat_sequence.check_intention(source.source_text, session.combat_settings)
-        if instruction:
-            combat_sequence.check_intention(instruction, session.combat_settings)
+        handler = _sequence_handler(cookbook)
+        if session.preparation.is_combat:
+            combat_sequence.check_intention(source.source_text, session.combat_settings)
+            if instruction:
+                combat_sequence.check_intention(instruction, session.combat_settings)
         context = json.loads(_mono_direct_context(session, composition, cookbook))
-        context["settings"] = session.combat_settings.as_dict()
+        context["settings"] = (session.cinematic_settings if session.preparation.is_classic_cinematic else session.combat_settings).as_dict()
         context["preparation"] = session.preparation.as_dict()
         if composition.preparation_intent is None:
             context["locked_speech"] = list((*extract_explicit_dialogues(source.source_text), *source.vocal_dialogues))
-        planned = cookbook.output_contract in combat_sequence.PLAN_CONTRACTS
+        planned = cookbook.output_contract in _SEQUENCE_PLAN_CONTRACTS
         current = composition.document(stage).active_revision
         if planned and stage is CompositionStage.FINAL_PROMPT:
             plan = _approved_stage(composition, CompositionStage.BEAT_SHEET,
@@ -2197,7 +2207,7 @@ class PromptCompositionService:
             if not instruction.strip() or current is None or current.source_ids != expected:
                 raise ValueError("Générez un candidat à jour avant de demander une révision.")
             if stage is CompositionStage.FINAL_PROMPT:
-                saved = combat_sequence.decode_context(current.compiler_context)
+                saved = handler.decode_context(current.compiler_context)
                 context["plan"] = saved["sequence_plan"]
                 context["locked_speech"] = saved["chosen_speech"]
         writer = stage is CompositionStage.FINAL_PROMPT and "plan" in context
@@ -2207,6 +2217,9 @@ class PromptCompositionService:
             system = cookbook.revision_system_prompt
         mapping = (direct_h3_base_reference_mapping(session, composition_picture_mapping(composition))
                    if cookbook.target_mode == "fl2va_direct" else _preparation_reference_mapping(session, composition))
+        output_schema = (classic_cinematic.schema(stage.value, plan=context.get("plan"))
+                         if session.preparation.is_classic_cinematic else
+                         handler.schema(stage.value, writer, session.preparation.version))
         user = "\n\n".join((
             "USER INTENTION:\n" + source.source_text,
             ("APPROVED BRIEF:\n" + source.content) if composition.preparation_intent is None else "",
@@ -2214,10 +2227,13 @@ class PromptCompositionService:
             "REQUESTED DURATION MS: " + str(context["duration_ms"]),
             "PLAN TO PRESERVE:\n" + json.dumps(context.get("plan"), ensure_ascii=False),
             "SPOKEN LEDGER:\n" + json.dumps(context.get("locked_speech", context["dialogues"]), ensure_ascii=False),
-            "Return exactly this JSON schema:\n" + combat_sequence.schema(stage.value, writer, session.preparation.version),
+            "Return exactly this JSON schema:\n" + output_schema,
             ("CURRENT CANDIDATE:\n" + current.content + "\nUSER REVISION:\n" + instruction) if instruction is not None else "",
         ))
-        system += combat_sequence.action_policy(session.combat_settings, session.preparation.version)
+        system += (classic_cinematic.policy(session.cinematic_settings, source.source_text) if session.preparation.is_classic_cinematic
+                   else combat_sequence.action_policy(session.combat_settings, session.preparation.version))
+        if writer and session.preparation.is_classic_cinematic:
+            system += classic_cinematic.writer_layout(context["plan"])
         if session.preparation.is_combat and session.preparation.version == "1.3.0":
             from .combat_cinematic_policy import demonstration
             system += demonstration(session.combat_settings, stage.value, source.source_text)
@@ -2229,7 +2245,7 @@ class PromptCompositionService:
             temperature=0.3 if stage is CompositionStage.BEAT_SHEET else 0.2, max_tokens=262_144,
             operation_id=f"{cookbook.reference.cookbook_id}@{cookbook.reference.version}.{stage.value}.{'revise' if instruction else 'generate'}",
             include_reasoning=include_reasoning)
-        return session, composition, cookbook, expected, request, combat_sequence.encode_context(context)
+        return session, composition, cookbook, expected, request, handler.encode_context(context)
 
     def _direct_reference_images(
         self,
@@ -2531,7 +2547,7 @@ class PromptCompositionService:
         )
         if stage.value not in cookbook.stages:
             raise ValueError(f"stage {stage.value} is not active for this cookbook")
-        if cookbook.output_contract in _PLANNED_CONTRACTS or cookbook.output_contract in combat_sequence.PLAN_CONTRACTS:
+        if cookbook.output_contract in _PLANNED_CONTRACTS or cookbook.output_contract in _SEQUENCE_PLAN_CONTRACTS:
             action_plan_sources = (
                 f"cookbook:{composition.cookbook.cookbook_id}@{composition.cookbook.version}",
                 brief.source_id,
@@ -2643,7 +2659,7 @@ class PromptCompositionService:
             raise ValueError("the cookbook engine contract changed")
         if (getattr(cookbook, "preparation_steps", 3) < 3) != (composition.preparation_intent is not None):
             raise ValueError("preparation input does not match the recipe")
-        if cookbook.output_contract in (_H3_PROTOCOL_CONTRACTS | combat_sequence.CONTRACTS) and (
+        if cookbook.output_contract in (_H3_PROTOCOL_CONTRACTS | _SEQUENCE_CONTRACTS) and (
             cookbook.reference.engine_contract_id,
             cookbook.reference.engine_contract_version,
         ) != (PROTOCOL_ID, PROTOCOL_VERSION):
@@ -2668,22 +2684,23 @@ class PromptCompositionService:
             composition.cookbook.cookbook_id,
             composition.cookbook.version,
         )
-        if cookbook.output_contract in combat_sequence.CONTRACTS:
+        if cookbook.output_contract in _SEQUENCE_CONTRACTS:
             session = self.sessions.get(composition.source_session_id)
+            handler = _sequence_handler(cookbook)
             base = json.loads(_mono_direct_context(session, composition, cookbook))
-            base["settings"] = session.combat_settings.as_dict()
+            base["settings"] = (session.cinematic_settings if session.preparation.is_classic_cinematic else session.combat_settings).as_dict()
             base["preparation"] = session.preparation.as_dict()
             if composition.preparation_intent is None:
                 source = preparation_source(session, composition)
                 base["locked_speech"] = list((*extract_explicit_dialogues(source.source_text), *source.vocal_dialogues))
             if stage is CompositionStage.BEAT_SHEET:
-                content = combat_sequence.canonical_plan(content, base)
+                content = handler.canonical_plan(content, base)
             else:
-                context = combat_sequence.decode_context(compiler_context)
+                context = handler.decode_context(compiler_context)
                 for key in ("mode", "header", "duration_ms", "settings", "preparation"):
                     if context[key] != base[key]:
-                        raise ValueError("Le contexte Combat ne correspond plus à cet atelier.")
-                combat_sequence.validate_final(content, context)
+                        raise ValueError("Le contexte de mise en scène ne correspond plus à cet atelier.")
+                handler.validate_final(content, context)
             document = composition.document(stage)
             revision = CompositionRevision(revision_id=f"{stage.value}-{uuid4().hex}",
                 content=_strip_fence(content), origin=origin, source_ids=expected,
@@ -3088,7 +3105,7 @@ class PromptCompositionService:
                         origin is RevisionOrigin.REWRITE
                         and extract_revision
                         and cookbook.output_contract
-                        not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *combat_sequence.CONTRACTS}
+                        not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *_SEQUENCE_CONTRACTS}
                     ):
                         result_content = _revision_document_contract(
                             cookbook,
@@ -3253,10 +3270,10 @@ def lint_cookbook_document(
     stage: CompositionStage,
     content: str,
 ) -> tuple[str, ...]:
-    if cookbook.output_contract in combat_sequence.CONTRACTS:
+    if cookbook.output_contract in _SEQUENCE_CONTRACTS:
         if stage.value not in cookbook.stages:
-            return ("Étape absente de cette recette Combat.",)
-        return combat_sequence.lint_document(content, stage.value,
+            return ("Étape absente de cette recette.",)
+        return _sequence_handler(cookbook).lint_document(content, stage.value,
             "ref2va" if cookbook.target_mode == "ref2v_direct" else "t2va", cookbook.preparation.version)
     if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
         if stage is not CompositionStage.FINAL_PROMPT:
@@ -4918,6 +4935,7 @@ def _is_hidden_compiler_context(value: str) -> bool:
     return (
         _is_h3_camera_context(value)
         or value.startswith(combat_sequence.MARKER)
+        or value.startswith(classic_cinematic.MARKER)
         or value.startswith(FL2VA_CONTEXT_MARKER)
         or value.startswith(FL2VA_MULTISHOT_CONTEXT_MARKER)
         or is_timed_camera_context(value)
@@ -5296,8 +5314,8 @@ def _compile_content_with_context(
     source_text: str | None = None,
     dialogue_source_text: str | None = None,
 ) -> tuple[str, str | None]:
-    if cookbook.output_contract in combat_sequence.CONTRACTS:
-        return combat_sequence.compile_result(result, prefix, stage.value)
+    if cookbook.output_contract in _SEQUENCE_CONTRACTS:
+        return _sequence_handler(cookbook).compile_result(result, prefix, stage.value)
     if cookbook.output_contract == MULTISHOT_DIRECT_CONTRACT:
         if stage is not CompositionStage.FINAL_PROMPT:
             raise ValueError("the direct multi-shot recipe has only a final prompt stage")

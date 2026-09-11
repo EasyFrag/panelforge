@@ -293,36 +293,8 @@ def compile_result(content: str, encoded: str, stage: str) -> tuple[str, str]:
 
 
 def prompt_errors(content: str, mode: str, version: str | None = None) -> tuple[str, ...]:
-    errors = [x.message for x in lint_h3_prompt(H3ProtocolMode(mode), content) if x.severity is H3IssueSeverity.ERROR]
-    # Anchor references may mention [Shot N]; count only actual body headings.
-    matches = list(re.finditer(r"(?m)^(?:\[Shot (\d+)\]|Shot (\d+):)(?: At (\d{2}):(\d{2})\.(\d{3}),)?", content))
-    nums = [int(m[1] or m[2]) for m in matches]
-    if not 1 <= len(nums) <= 6 or nums != list(range(1, len(nums) + 1)):
-        errors.append("La séquence doit contenir 1 à 6 plans consécutifs.")
-    if matches and (matches[0][3] is not None or any(m[3] is None for m in matches[1:])):
-        errors.append("Seules les coupures après le premier plan doivent être horodatées.")
-    times = [int(m[3]) * 60000 + int(m[4]) * 1000 + int(m[5]) for m in matches[1:] if m[3]]
-    if any(t <= 0 for t in times) or any(a >= b for a, b in zip(times, times[1:])):
-        errors.append("Les instants de coupe doivent être strictement croissants.")
-    for name in ("overall_soundscape", "non_diegetic_music"):
-        if len(re.findall(rf"(?m)^{name}:\s*\S", content)) != 1:
-            errors.append(f"Le champ {name} doit apparaître une fois.")
-    fields = re.findall(r"(?m)^(integrated_multimodal_description|overall_soundscape|non_diegetic_music):", content)
-    expected = (["integrated_multimodal_description"] if mode != "ref2va" else []) + ["overall_soundscape", "non_diegetic_music"]
-    if fields != expected:
-        errors.append("Conservez les champs visuels et audio dans leur ordre canonique.")
-    if matches and content.find("\noverall_soundscape:") < matches[-1].end():
-        errors.append("Les champs audio doivent suivre tous les plans.")
-    if version == "1.3.0":
-        from .combat_cinematic import camera_layout
-        layout = camera_layout(content)
-        if any(not 1 <= len(phase) <= 2 for phase in layout):
-            errors.append("Chaque plan Combat 1.3 contient une ou deux phases caméra continues.")
-        if sum(map(len, layout)) != len(extract_compiled_camera_clauses(content)):
-            errors.append("Les phases caméra doivent appartenir aux plans.")
-    elif len(extract_compiled_camera_clauses(content)) != len(nums):
-        errors.append("Chaque plan doit contenir une directive caméra compilée.")
-    return tuple(dict.fromkeys(errors))
+    from .cinematic_core_v1 import prompt_errors as shared_errors
+    return shared_errors(content, mode, continuous_phases=version == "1.3.0", phase_label=" Combat 1.3")
 
 
 def validate_final(content: str, context: dict, *, preserve_cameras: bool = True) -> None:

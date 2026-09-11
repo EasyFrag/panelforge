@@ -1,0 +1,86 @@
+{
+  "schema_version": 6,
+  "profile_id": "minimax.h3.ref2v.classic.cinematic",
+  "version": "1.0.0",
+  "display_name": "Ref2V · Classique Mise en scène (expérimental)",
+  "target_model_family": "MiniMax H3",
+  "session_mode": "direct_multimodal",
+  "source_guides": [
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/SKILL.md",
+    "https://github.com/MiniMax-AI/MiniMax-H3/blob/05d91ff89f58b665e56424fd66db9ef0351b3015/skills/h3-prompt-writing/references/ref-en.txt"
+  ],
+  "prompts": {
+    "analysis_system": [
+      {
+        "block": "h3-output-contracts",
+        "version": "1.0.0",
+        "file": "diagnostic-analysis_system.txt"
+      }
+    ],
+    "analysis_user": [
+      {
+        "block": "h3-output-contracts",
+        "version": "1.0.0",
+        "file": "diagnostic-analysis_user.txt"
+      }
+    ],
+    "revision_system": [
+      {
+        "block": "h3-output-contracts",
+        "version": "1.0.0",
+        "file": "diagnostic-revision_system.txt"
+      }
+    ],
+    "revision_user": [
+      {
+        "block": "h3-output-contracts",
+        "version": "1.0.0",
+        "file": "diagnostic-revision_user.txt"
+      }
+    ],
+    "brief_system": [
+      {
+        "block": "h3-classic-cinematic",
+        "version": "1.0.0",
+        "file": "direction.system.txt"
+      },
+      {
+        "block": "h3-output-contracts",
+        "version": "1.0.0",
+        "file": "brief-vocals.system.txt"
+      }
+    ],
+    "brief_user": [
+      {
+        "block": "h3-output-contracts",
+        "version": "1.0.0",
+        "file": "ref2v-brief_user.txt"
+      }
+    ],
+    "brief_revision_system": [
+      {
+        "block": "h3-classic-cinematic",
+        "version": "1.0.0",
+        "file": "direction.system.txt"
+      },
+      {
+        "block": "h3-output-contracts",
+        "version": "1.0.0",
+        "file": "brief-vocals.system.txt"
+      }
+    ],
+    "brief_revision_user": [
+      {
+        "block": "h3-output-contracts",
+        "version": "1.0.0",
+        "file": "ref2v-brief_revision_user.txt"
+      }
+    ]
+  },
+  "status": "experimental",
+  "vocal_policy_version": "1.0.0",
+  "preparation": {
+    "family": "classic",
+    "version": "1.0.0"
+  }
+}

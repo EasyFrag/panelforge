@@ -13,8 +13,8 @@ class VideoPreparationRef:
         if self.family not in {"classic", "combat"}:
             raise ValueError("unknown video preparation family")
         if self.family == "classic":
-            if self.version is not None:
-                raise ValueError("classic preparation versions belong to their existing recipes")
+            if self.version not in (None, "1.0.0"):
+                raise ValueError("unknown Classic cinematic version")
         elif not isinstance(self.version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", self.version):
             raise ValueError("combat preparation requires an exact version")
 
@@ -30,6 +30,42 @@ class VideoPreparationRef:
     @property
     def is_combat(self) -> bool:
         return self.family == "combat"
+
+    @property
+    def is_classic_cinematic(self) -> bool:
+        return self.family == "classic" and self.version == "1.0.0"
+
+    @property
+    def uses_cinematic_phases(self) -> bool:
+        return self.is_classic_cinematic or (self.is_combat and self.version == "1.3.0")
+
+
+@dataclass(frozen=True, slots=True)
+class ClassicCinematicSettings:
+    """An explicit count overrides intention; None delegates to intention/Plan."""
+
+    shot_count: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.shot_count is not None and (type(self.shot_count) is not int or not 1 <= self.shot_count <= 6):
+            raise ValueError("classic shot_count must be 1-6 or null (Auto)")
+
+    def as_dict(self) -> dict:
+        return {"shot_count": self.shot_count}
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ClassicCinematicSettings":
+        if not isinstance(value, dict) or set(value) != {"shot_count"}:
+            raise ValueError("invalid Classic cinematic settings")
+        return cls(**value)
+
+
+def validate_cinematic_settings(preparation: VideoPreparationRef, settings: ClassicCinematicSettings | None) -> None:
+    if preparation.is_classic_cinematic:
+        if not isinstance(settings, ClassicCinematicSettings):
+            raise ValueError("Classic cinematic requires its saved shot setting")
+    elif settings is not None:
+        raise ValueError("these controls belong to Classic cinematic 1.0")
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,7 +11,7 @@ import math
 import re
 
 from .video_lab import VideoAspectRatio, VideoLabSettings
-from .video_preparation import VideoPreparationRef, CombatSettings, validate_combat_settings
+from .video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings, validate_combat_settings, validate_cinematic_settings
 from .recipes import RecipeRef
 from .h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
 
@@ -62,6 +62,7 @@ class H3RenderRevisionVersion(StrEnum):
     LEGACY = "0.1.0"
     CAMERA_LOCKED = "0.2.0"
     VOCAL = "0.3.0"
+    CLASSIC_CINEMATIC = "0.4.0"
 
 
 class H3RenderAttemptStatus(StrEnum):
@@ -139,21 +140,22 @@ class H3VideoLoraStack:
     entries: tuple[H3VideoLoraSlot, ...] = ()
     enabled: bool = True
     clip_last_layer: int | None = -2
-    version: str = "0.1.0"
+    version: str = "0.2.0"
 
     def __post_init__(self) -> None:
-        if not isinstance(self.entries, tuple) or len(self.entries) > 2:
-            raise ValueError("La configuration accepte au maximum deux LoRA.")
+        maximum = {"0.1.0": 2, "0.2.0": 4}.get(self.version)
+        if maximum is None:
+            raise ValueError("Version de configuration LoRA indisponible.")
+        if not isinstance(self.entries, tuple) or len(self.entries) > maximum:
+            raise ValueError(f"La configuration accepte au maximum {maximum} LoRA.")
         if any(not isinstance(entry, H3VideoLoraSlot) for entry in self.entries):
             raise TypeError("Sélection LoRA invalide.")
         if len({entry.name.casefold() for entry in self.entries}) != len(self.entries):
-            raise ValueError("Un même LoRA ne peut pas occuper les deux emplacements.")
+            raise ValueError("Un même LoRA ne peut pas occuper plusieurs emplacements.")
         if type(self.enabled) is not bool:
             raise TypeError("L’activation des LoRA doit être un booléen.")
         if self.clip_last_layer is not None and (type(self.clip_last_layer) is not int or self.clip_last_layer != -2):
             raise ValueError("CLIP Last Layer doit être -2 ou désactivé.")
-        if self.version != "0.1.0":
-            raise ValueError("Version de configuration LoRA indisponible.")
 
     @property
     def active_entries(self) -> tuple[H3VideoLoraSlot, ...]:
@@ -511,11 +513,13 @@ class H3RenderProject:
     adaptation: H3Ref2VAdaptation | None = None
     preparation: VideoPreparationRef = VideoPreparationRef()
     combat_settings: CombatSettings | None = None
+    cinematic_settings: ClassicCinematicSettings | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.preparation, VideoPreparationRef):
             raise TypeError("preparation must be a VideoPreparationRef")
         validate_combat_settings(self.preparation, self.combat_settings)
+        validate_cinematic_settings(self.preparation, self.cinematic_settings)
         if type(self.dialogue_level) is not int or not 0 <= self.dialogue_level <= 3:
             raise ValueError("dialogue_level must be between 0 and 3")
         if self.adaptation is not None:
@@ -588,7 +592,7 @@ class H3RenderProject:
             H3RenderRevisionVersion,
         ):
             raise TypeError("revision_version must be an H3RenderRevisionVersion or None")
-        _strings(self.camera_clauses, "camera_clauses", maximum=12 if self.preparation == VideoPreparationRef("combat", "1.3.0") else 8)
+        _strings(self.camera_clauses, "camera_clauses", maximum=12 if self.preparation.uses_cinematic_phases else 8)
         if self.revision_version is not None and self.preparation.is_combat != (
             self.revision_version in {H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}
         ):
@@ -610,6 +614,9 @@ class H3RenderProject:
             self.revision_draft_version in {H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3}
         ):
             raise ValueError("revision draft belongs to a different preparation family")
+        for version in (self.revision_version, self.revision_draft_version):
+            if version is not None and self.preparation.is_classic_cinematic != (version is H3RenderRevisionVersion.CLASSIC_CINEMATIC):
+                raise ValueError("Classic cinematic revisions must keep their pinned preparation")
         if self.preparation.is_combat and any(version is not None and version.value != self.preparation.version
                                              for version in (self.revision_version, self.revision_draft_version)):
             raise ValueError("Combat revisions must keep the saved preparation version")

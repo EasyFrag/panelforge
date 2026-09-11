@@ -2,6 +2,8 @@
 
 2026-09-10 : **implémentation autorisée et livrée dans le checkout `D:\Code\localQ\.panelpatch`**, après la proposition ci-dessous. Aucun test exécuté, appel LLM, génération ou redémarrage de service.
 
+**Ajout du 11 septembre 2026 : EROS Turbo intégré.** L’inventaire `GET http://bucket:8188/object_info/UNETLoader`, consulté en lecture seule, contient `10Eros_Max_h3_TURBO-hybrid_beta5.safetensors`. Le fichier était installé mais absent du catalogue explicite PanelForge. Il est désormais enregistré pour H3 et REF2V, sous « EROS · Turbo intégré · hybride beta5 », à côté de l’EROS précédent. Aucun changement de modèle par défaut ou de sampling. Pour BUNNY, sélectionner cette variante et décocher « Ajouter le Turbo BUNNY » ; les steps restent ceux choisis par l’utilisateur. Le catalogue est chargé au démarrage du Lab : redémarrer le Lab après les traitements puis ouvrir le sélecteur / Actualiser la liste. Aucun redémarrage ou rendu effectué par l’agent. Régression d’inventaire préparée dans `tests/test_h3_checkpoints.py`, non exécutée ; syntaxe et catalogue contrôlés statiquement. La qualité de cette variante reste à expérimenter par l’utilisateur.
+
 ## Utilisation livrée
 
 Sous **Recette de rendu**, ouvrir **Modèle vidéo · Par défaut** et sélectionner **EROS · hybride beta5**. La ligne reste repliable. Le choix porte sur le prochain rendu, sans réécriture du prompt ni modification du seed, des MP, des LoRA ou du Turbo.

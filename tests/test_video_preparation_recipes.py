@@ -50,7 +50,7 @@ class ScriptedGateway:
         yield CompletionStreamEvent(StreamEventKind.COMPLETED, StreamPhase.COMPLETED, result=result)
 
 
-def preparation_service(directory, family, route, responses, *, roles=None, source_text="A dragon emerges from an egg in 12 seconds.", version="1.0.0", multishot=False, profile_version=None, creative_axes=None, preparation_family="classic", combat_settings=None):
+def preparation_service(directory, family, route, responses, *, roles=None, source_text="A dragon emerges from an egg in 12 seconds.", version="1.0.0", multishot=False, profile_version=None, creative_axes=None, preparation_family="classic", combat_settings=None, cinematic_settings=None):
     h3 = family == "fl2va"
     roles = roles if roles is not None else ("first_frame",) if h3 else ("subject_reference",)
     assets = LocalAssetStore(directory)
@@ -60,8 +60,11 @@ def preparation_service(directory, family, route, responses, *, roles=None, sour
         refs.append(PromptReference(f"ref-{index}", asset.asset_id, role, f"private-{index}.png",
                                     uses=(ReferenceUse(role.removesuffix("_reference")),)))
     from panelforge.domain.video_preparation import VideoPreparationRef
-    preparation = VideoPreparationRef(preparation_family, version if preparation_family == "combat" else None)
+    preparation = VideoPreparationRef(preparation_family, version if preparation_family == "combat" or cinematic_settings is not None else None)
     base = f"minimax.h3.{family}.{'combat' if preparation.is_combat else 'direct'}"
+    if preparation.is_classic_cinematic:
+        base = f"minimax.h3.{family}.classic.cinematic"
+        profile_version = version
     if preparation.is_combat:
         profile_version = version
     if multishot:
@@ -70,7 +73,7 @@ def preparation_service(directory, family, route, responses, *, roles=None, sour
         session_id="preparation-session", model_id="fixture-model", profile_id=base,
         profile_version=profile_version or ("0.2.0" if multishot else ("0.5.0" if version == "1.1.0" else "0.4.0") if h3 else "0.5.0"), references=tuple(refs),
         session_mode=PromptSessionMode.H3_BASE if h3 else PromptSessionMode.DIRECT_MULTIMODAL,
-        preparation=preparation, combat_settings=combat_settings,
+        preparation=preparation, combat_settings=combat_settings, cinematic_settings=cinematic_settings,
     )
     sessions = LocalPromptSessionStore(directory)
     sessions.create(session)

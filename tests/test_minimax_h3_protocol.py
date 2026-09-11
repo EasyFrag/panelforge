@@ -28,6 +28,20 @@ from panelforge.domain.minimax_h3 import (
 
 
 class MiniMaxH3ProtocolTest(unittest.TestCase):
+    def test_absence_of_camera_motion_is_not_an_uncompiled_directive(self):
+        for mode in ("t2va", "i2va", "l2va", "fl2va", "ref2va"):
+            for sentence in ("The rhythm comes from expressions rather than any camera motion.",
+                             "The actor pauses without camera movement.",
+                             "No camera motion; the actor turns a page.",
+                             "The rhythm comes from expressions instead of camera movement."):
+                with self.subTest(mode=mode,sentence=sentence):
+                    issues=lint_h3_prompt(mode, "The camera holds a static shot. " + sentence)
+                    self.assertNotIn("free_camera_motion", {issue.code for issue in issues})
+            for sentence in ("The camera drifts toward the door.", "There is gentle handheld movement.",
+                             "No camera motion. The lens tracks the actor.", "The scene has visible camera movement."):
+                with self.subTest(mode=mode,sentence=sentence):
+                    self.assertIn("free_camera_motion", {issue.code for issue in lint_h3_prompt(mode,sentence)})
+
     def test_protocol_provenance_is_pinned(self) -> None:
         self.assertEqual(PROTOCOL_ID, "minimax.h3.protocol")
         self.assertEqual(PROTOCOL_VERSION, "0.1.0")
