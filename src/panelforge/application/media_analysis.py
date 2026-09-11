@@ -1,6 +1,7 @@
 """One visual analysis call, producing an editable French intention."""
 from dataclasses import asdict
 import json
+import logging
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
@@ -9,6 +10,9 @@ from panelforge.domain.media_analysis import ANALYSIS_VERSION, SPEECH_ANALYSIS_V
 from .prompt_lab import CompletionRequest, ImageInput, StreamEventKind, LlmCallApplicationOutcome, truncated_response_message
 from .revised_documents import strip_markdown_fence
 from .media_intention import without_source_citations, source_reference_warning
+
+
+logger = logging.getLogger(__name__)
 
 
 class MediaAnalysisConflict(ValueError):
@@ -117,7 +121,7 @@ class MediaAnalysisService:
                 if event.kind is StreamEventKind.COMPLETED:
                     if event.result is None:
                         raise ValueError("L’analyse n’a pas renvoyé de résultat.")
-                    value = parse_result(event.result.content)
+                    value = parse_result(event.result.content, call_id=call_id)
                     generated = f"Durée cible : {request.duration_seconds:g} secondes.\n\n{value['intention']}"
                     intention = without_source_citations(generated)
                     record.update(status="succeeded", generated_intention=generated, intention=intention,
@@ -154,9 +158,15 @@ class MediaAnalysisService:
                 error_type=type(error).__name__ if error else None, error_message=str(error) if error else None)
 
 
-def parse_result(raw):
+def parse_result(raw, *, call_id=None):
+    recovered = False
     try:
-        value = json.loads(strip_markdown_fence(raw.strip()))
+        source = strip_markdown_fence(raw.strip()).strip()
+        try:
+            value = json.loads(source)
+        except json.JSONDecodeError as error:
+            value = _recover_final_uncertainties_array(source, error)
+            recovered = True
     except (ValueError, AttributeError) as error:
         raise ValueError("L’analyse n’a pas fourni le JSON attendu. Les médias sont conservés pour réessayer.") from error
     if not isinstance(value, dict) or set(value) != {"intention", "observations", "uncertainties"}:
@@ -166,4 +176,23 @@ def parse_result(raw):
     for key in ("observations", "uncertainties"):
         if not isinstance(value[key], list) or len(value[key]) > 24 or any(not isinstance(s, str) or not s.strip() or len(s) > 2_000 for s in value[key]):
             raise ValueError("Observations d’analyse invalides.")
+    if recovered:
+        # The gateway's raw response remains untouched in the LLM trace.
+        logger.warning("Media analysis call %s: recovered missing final ] in uncertainties; raw response preserved",
+            call_id or "unknown")
     return value
+
+
+def _recover_final_uncertainties_array(source, error):
+    """Accept only one missing ] before the final }, never complete truncated text."""
+    if error.msg != "Expecting ',' delimiter" or source[error.pos:] != "}":
+        raise error
+    candidate = source[:error.pos] + "]" + source[error.pos:]
+    # Preserve object pairs while inspecting the candidate: duplicate keys must
+    # not be silently discarded by this recovery path.
+    pairs = json.loads(candidate, object_pairs_hook=tuple)
+    if (not isinstance(pairs, tuple) or len(pairs) != 3
+            or {key for key, _ in pairs} != {"intention", "observations", "uncertainties"}
+            or pairs[-1][0] != "uncertainties"):
+        raise error
+    return dict(pairs)

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -113,6 +114,27 @@ class MediaAnalysisTest(unittest.TestCase):
         self.assertEqual(list(self.service.stream(record["analysis_id"]))[-1]["record"]["intention"],edited["intention"])
         self.assertEqual(len(self.gateway.requests),1)
 
+    def test_recovered_response_is_saved_once_and_logged_without_changing_raw_response(self):
+        raw = RESULT[:-2] + "}"
+        self.gateway.response = raw
+        self.service.application_outcomes = Mock()
+        record = self.service.create(self.request())
+        with self.assertLogs("panelforge.application.media_analysis", level="WARNING") as logs:
+            done = list(self.service.stream(record["analysis_id"]))[-1]["record"]
+        self.assertEqual(done["status"], "succeeded")
+        self.assertEqual(done["observations"], json.loads(RESULT)["observations"])
+        self.assertEqual(done["uncertainties"], json.loads(RESULT)["uncertainties"])
+        self.assertTrue(done["generated_intention"].endswith(json.loads(RESULT)["intention"]))
+        self.assertIn("fixture-call", logs.output[0])
+        self.assertEqual(self.gateway.response, raw)
+        reported = self.service.application_outcomes.report_application_outcome.call_args
+        self.assertEqual(reported.args[0], "fixture-call")
+        self.assertEqual(reported.args[1].value, "accepted")
+        self.assertEqual(LocalMediaAnalysisStore(self.temporary.name).get(record["analysis_id"]), done)
+        with self.assertNoLogs("panelforge.application.media_analysis"):
+            self.assertEqual(list(self.service.stream(record["analysis_id"]))[-1]["record"], done)
+        self.assertEqual(len(self.gateway.requests), 1)
+
     def test_failure_truncation_and_disconnect_release_the_analysis(self):
         record = self.service.create(self.request())
         analysis_id = record["analysis_id"]
@@ -121,9 +143,11 @@ class MediaAnalysisTest(unittest.TestCase):
         with self.assertRaises(MediaAnalysisConflict): self.service.stream(analysis_id)
         stream.close()
         self.assertEqual(self.store.get(analysis_id)["status"],"failed")
-        for kind, response in ((StreamEventKind.COMPLETED,"not JSON"),(StreamEventKind.TRUNCATED,RESULT)):
+        for kind, response in ((StreamEventKind.COMPLETED,"not JSON"),(StreamEventKind.TRUNCATED,RESULT),
+                               (StreamEventKind.TRUNCATED,RESULT[:-2] + "}")):
             self.gateway.kind,self.gateway.response = kind,response
-            last = list(self.service.stream(analysis_id))[-1]
+            with self.assertNoLogs("panelforge.application.media_analysis"):
+                last = list(self.service.stream(analysis_id))[-1]
             self.assertEqual(last["kind"],"error")
             self.assertEqual(last["record"]["request"]["frames"][2]["time_seconds"],3)
         self.gateway.kind,self.gateway.response = StreamEventKind.COMPLETED,RESULT
@@ -138,7 +162,7 @@ class MediaAnalysisTest(unittest.TestCase):
         for bad in (b"not an image",b"<svg/>"):
             with self.assertRaises(ValueError): MediaAnalysisImages().prepare(bad)
 
-    def test_response_structure_is_checked_without_silent_repair(self):
+    def test_response_structure_is_checked(self):
         self.assertEqual(parse_result(f"```json\n{RESULT}\n```"),json.loads(RESULT))
         for raw in ("{}", '["text"]', '{"intention":"test"}', RESULT[:-2]):
             with self.assertRaises(ValueError): parse_result(raw)
@@ -165,3 +189,51 @@ class MediaAnalysisTest(unittest.TestCase):
             self.assertEqual(client.get(path).json()["intention"],"Une scène corrigée.")
             self.assertEqual(len(client.get("/api/media-analysis/analyses").json()["analyses"]),1)
             client.post(path+"/stream"); self.assertEqual(len(self.gateway.requests),1)
+
+
+class MediaAnalysisJsonRecoveryTest(unittest.TestCase):
+    def test_valid_json_is_unchanged_and_not_logged_as_recovered(self):
+        value = json.loads(RESULT)
+        value["uncertainties"] = []
+        for raw, expected in ((RESULT, json.loads(RESULT)), (json.dumps(value), value),
+                              (f"```json\n{RESULT}\n```", json.loads(RESULT))):
+            with self.subTest(raw=raw), self.assertNoLogs("panelforge.application.media_analysis"):
+                self.assertEqual(parse_result(raw), expected)
+
+    def test_only_missing_final_uncertainties_bracket_is_recovered(self):
+        value = dict(intention='Elle regarde le panneau "Arrivée" puis avance.',
+            observations=['Le panneau affiche {A} et [B].'],
+            uncertainties=['Le texte "uncertainties": [ est visible.', 'Chemin C:\\notes ; suite inconnue.'])
+        for indent in (None, 2):
+            raw = json.dumps(value, ensure_ascii=False, indent=indent)
+            index = raw.rfind("]")
+            broken = raw[:index] + raw[index + 1:]
+            for response in (broken, f" \n```json\n{broken}\n```\n "):
+                with self.subTest(indent=indent), self.assertLogs("panelforge.application.media_analysis") as logs:
+                    self.assertEqual(parse_result(response, call_id="recovery-fixture"), value)
+                self.assertEqual(len(logs.output), 1)
+                self.assertIn("recovery-fixture", logs.output[0])
+                self.assertIn("raw response preserved", logs.output[0])
+
+    def test_other_malformed_or_invalid_results_remain_rejected(self):
+        value = json.loads(RESULT)
+        invalid_values = [
+            dict(intention=value["intention"], uncertainties=value["uncertainties"], observations=value["observations"]),
+            {**value, "intention": ""}, {**value, "intention": "a" * 15_001},
+            {**value, "observations": [1]}, {**value, "uncertainties": [1]},
+            {**value, "uncertainties": [" "]}, {**value, "uncertainties": ["a" * 2_001]},
+            {**value, "uncertainties": ["a"] * 25}, {**value, "uncertainties": [["a"]]},
+            {**value, "uncertainties": [{"detail": "a"}]}, {**value, "uncertainties": []},
+            dict(extra="a", **value),
+        ]
+        malformed = [RESULT[:-2], RESULT[:-3] + "}", RESULT[:-2] + "} trailing text",
+            RESULT[:-2] + ",}", "prefix " + RESULT[:-2] + "}",
+            '{"intention":"duplicate",' + RESULT[1:-2] + "}"]
+        for invalid in invalid_values:
+            raw = json.dumps(invalid)
+            index = raw.rfind("]")
+            malformed.append(raw[:index] + raw[index + 1:])
+        for raw in malformed:
+            with self.subTest(raw=raw), self.assertNoLogs("panelforge.application.media_analysis"):
+                with self.assertRaises(ValueError):
+                    parse_result(raw)
