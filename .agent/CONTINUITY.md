@@ -2,6 +2,8 @@
 
 ## Goal
 
+- **Version actuelle sauvegardée sur GitHub le 14 septembre 2026, sur demande explicite** : snapshot du Lab incluant UX vidéo, édition/versionnement des consignes et traces LLM, correctifs KREA2, recadrage et réglages Qwen. Branche de sauvegarde `snapshots/lab-2026-09-14`, tag de livraison `snapshot-lab-2026-09-14`. Aucun nouveau patch fonctionnel dans cette publication.
+
 - **Rappel du backlog demandé après les réglages Qwen** : P1 prompting I2V / Mise en scène 1.1, puis P2 analyse vidéo adaptative ; presets sampling EROS/BUNNY encore à raccorder, priorité non numérotée. Les rejets H3 récemment diagnostiqués restent un suivi de maintenance, sans correctif appliqué ni nouvelle autorisation dans ce tour. UX vidéo/éditeur de consignes, recadrage KREA2 et réglages Qwen déjà implémentés ; ne pas les présenter comme de nouveaux chantiers. Recherche de seeds mise de côté, comparaison dédiée de presets BUNNY abandonnée. Rappel documentaire uniquement, aucun code ni service modifié.
 
 - **Qwen Changer la vue : réglages de rendu implémentés le 14 septembre 2026**. Steps, résolution MP et format accessibles en avancé ; defaults actuels préservés (8 steps, dimensionnement automatique, PNG). Demande parallèle : diagnostic des doubles rejets H3 et rappel des quatre consignes de l’éditeur. Diagnostic terminé, aucune recette H3 modifiée. Contrôles statiques terminés, tests laissés à l’utilisateur.
@@ -23,6 +25,8 @@
 - **Contrainte confirmée par l’utilisateur les 2026-09-10/11, à préserver** : Combat, Classique et Sensuel sont trois familles de préparation indépendantes. Une modification spécifique ne change pas les deux autres. Partager uniquement les améliorations générales via un socle à versions exactes et une adoption explicite examinée ; aucun héritage de « latest » entre familles. Conserver familles, versions et réglages jusque dans les révisions conversationnelles, conversions et continuations. Application/file/rendu restent communs.
 
 ## Current state
+
+- **Publication GitHub du Lab** : code regroupé dans `8aa23e10cb162fed0e9032d5f4d1cbd4e59f2a14` (132 fichiers), poussé sur `https://github.com/EasyFrag/panelforge` / `snapshots/lab-2026-09-14` ; correspondance du SHA distant vérifiée. Le commit documentaire suivant enregistre cette livraison et porte le tag annoté `snapshot-lab-2026-09-14`. Checkout actif `.panelpatch`, branche locale `h3-video-lora` ; remote local `origin` conservé, publication directe vers GitHub. Vérifications statiques : 47 Python, 7 JavaScript, 3 JSON ; hashes du workflow/prompt Qwen corrects dans l’index ; 61 fragments LLM identiques aux replis du code. Cinq espaces terminaux de fragments de prompt sont intentionnels et conservés pour l’assemblage exact, autres fichiers sans erreur de whitespace. Aucun test applicatif, LLM, rendu ou service lancé. Le snapshot antérieur `snapshot-before-render-ux-prompts-2026-09-14` reste disponible.
 
 - **Qwen Changer la vue 0.3.0** : nouveau bundle conservant les octets du workflow/prompt 0.2.0, bindings supplémentaires validés ; identifiants de nodes uniquement dans le manifest. `ChangeViewRenderSettings` valide 1–50 steps, 0,1–4 MP ou automatique, ratios explicites. Défauts inchangés ; MP manuel utilise ImageScaleToTotalPixels, ratio imposé ImageScale/crop center, alignement 32 px, aucune dépendance ajoutée. LoRA Lightning 8 steps, CFG/sampler/prompt conservés. API spec + champs multipart, paramètres persistés dans les runs, reprise à l’ouverture de l’historique, bouton Réglages initiaux. UI rangée dans les réglages avancés existants ; lab.js 20260914.2, CSS 20260914.4. Guide `docs/qwen-change-view-settings-0.3.0.md`. Tests préparés pour defaults identiques, réglages indépendants, bornes, persistance et route ; uniquement AST Python/Node --check/HTML/hashes/diff vérifiés, aucune génération ni service relancé.
 
@@ -690,6 +694,8 @@
 - Architecture proposée pour le rendu intégré H3 Base : un projet enfant persistant sous la composition, initialisé avec le prompt final et ses frames, porte des révisions de prompt de rendu, une conversation dédiée et des essais vidéo. Chaque tour d'édition reste un seul appel LLM direct depuis le prompt courant, sans Brief ni Plan, et ne modifie jamais la composition approuvée. Chaque essai conserve prompt effectif, réglages, seed, mode musique, run ComfyUI, MP4 et keyframes ; un essai sélectionné devient feedback visuel du tour suivant. `Music Off` force seulement la copie de rendu de `non_diegetic_music` à `N/A`, sans retirer dialogues ni sons diégétiques et sans réécrire le prompt canonique.
 
 ## Next steps
+
+- **Après la sauvegarde GitHub du 14 septembre** : continuer les essais utilisateur de la version livrée ; P1 prompting I2V, P2 analyse adaptative et presets sampling EROS/BUNNY restent les prochaines évolutions, sans autorisation nouvelle liée à cette publication. Les erreurs H3 de dialogue/références restent diagnostiquées seulement.
 
 - **Validation utilisateur Qwen 0.3.0** : redémarrer le Lab puis Ctrl+F5 ; retrouver 8 steps et dimensionnement automatique en avancé, essayer MP/format et reprise depuis l’historique. Tests ciblés documentés dans `docs/qwen-change-view-settings-0.3.0.md`, non lancés par l’agent. Pour H3, entourer les paroles imposées de guillemets ; le diagnostic est livré, aucune modification des recettes ni de leur contenu n’a été appliquée.
 
