@@ -1,10 +1,14 @@
 """Shared HTTP surface for local DLSS, independent of generation endpoints."""
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from panelforge.application.dlss_image_comparison import queue_image_comparison
 from panelforge.domain.dlss import DlssSettings
+from panelforge.domain.dlss_image_presets import image_presets
 
 
 class DlssOptionsBody(BaseModel):
@@ -29,6 +33,17 @@ class DlssRequestBody(BaseModel):
     attempt_id: str
     settings: DlssOptionsBody
     request_id: str = Field(default="preview", min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+
+    def resolved_settings(self):
+        # Apply image defaults only to omitted fields; keep explicit choices and
+        # the existing video contract, including previously persisted jobs.
+        defaults = {"size": "1.5", "skin": -1} if self.owner in {"assisted", "edit"} else {}
+        return DlssSettings(**{**defaults, **self.settings.model_dump(exclude_unset=True)})
+
+
+class DlssImageComparisonBody(DlssRequestBody):
+    owner: Literal["assisted", "edit"]
+    preset_ids: list[str] = Field(min_length=1, max_length=5)
 
 
 def register_dlss_routes(app, service):
@@ -77,12 +92,24 @@ def register_dlss_routes(app, service):
 
     @router.post("/preview")
     def preview(body: DlssRequestBody):
-        return action(lambda: service.preview(body.owner, body.owner_id, body.attempt_id, DlssSettings(**body.settings.model_dump())))
+        def read():
+            settings = body.resolved_settings()
+            value = service.preview(body.owner, body.owner_id, body.attempt_id, settings)
+            if body.owner in {"assisted", "edit"}:
+                value["image_presets"] = image_presets(settings)
+            return value
+        return action(read)
+
+    @router.post("/image-comparisons", status_code=202)
+    def comparison(body: DlssImageComparisonBody):
+        return action(lambda: {"jobs": [public_job(job) for job in queue_image_comparison(
+            service, owner=body.owner, owner_id=body.owner_id, attempt_id=body.attempt_id,
+            settings=body.resolved_settings(), preset_ids=body.preset_ids, request_id=body.request_id)]})
 
     @router.post("/jobs", status_code=202)
     def queue(body: DlssRequestBody):
         return action(lambda: public_job(service.queue(owner=body.owner, owner_id=body.owner_id, attempt_id=body.attempt_id,
-                           settings=DlssSettings(**body.settings.model_dump()), request_id=body.request_id)))
+                           settings=body.resolved_settings(), request_id=body.request_id)))
 
     @router.get("/jobs")
     def jobs(owner: str | None = None, owner_id: str | None = None):
@@ -108,6 +135,8 @@ def public_job(job):
             "input_metadata", "output_dimensions", "output_metadata", "warnings", "cancel_requested",
             "progress", "finished_at", "video_export", "local_output_path")
     value = {k: job.get(k) for k in keys}
+    if job.get("comparison"):
+        value["comparison"] = job["comparison"]
     for name in ("output", "report"):
         asset_id = job.get(name + "_asset_id")
         value[name + "_url"] = f"/api/assets/{asset_id}/content" if asset_id else None

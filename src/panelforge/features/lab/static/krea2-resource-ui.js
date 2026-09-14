@@ -138,6 +138,31 @@
     refreshResource = null,
     onUpdate = () => {},
   ) {
+    if (resource.detail_url && !resource._detailsLoaded) {
+      const loading = document.createElement("dialog");
+      loading.className = "krea2-resource-dialog";
+      const message = document.createElement("p");
+      message.textContent = "Chargement de la fiche…";
+      const close = document.createElement("button");
+      close.type = "button";
+      close.textContent = "Fermer";
+      close.onclick = () => loading.close();
+      loading.append(message, close);
+      loading.addEventListener("close", () => loading.remove(), { once: true });
+      document.body.append(loading);
+      loading.showModal();
+      fetch(resource.detail_url).then(async response => {
+        if (!response.ok) throw new Error("Fiche indisponible. Réessayez en rouvrant le i.");
+        const details = await response.json();
+        updateResource(resource, details);
+        resource._detailsLoaded = true;
+        if (!loading.open) return;
+        loading.close();
+        onUpdate(resource);
+        openResourceInfo(resource, updatePreference, refreshResource, onUpdate);
+      }).catch(error => { message.textContent = error.message; });
+      return loading;
+    }
     const dialog = document.createElement("dialog");
     dialog.className = "krea2-resource-dialog";
     const releasePreviews = () => {
@@ -963,7 +988,60 @@
     container.append(modelSection, loraSection);
   }
 
+  function catalogStatus(container, reload, isVisible = () => true) {
+    const bar = document.createElement("div");
+    bar.className = "image-catalog-status";
+    const message = document.createElement("small");
+    message.setAttribute("role", "status");
+    const refresh = document.createElement("button");
+    refresh.type = "button";
+    refresh.textContent = "Actualiser les modèles";
+    bar.append(message, refresh);
+    // Never add another grid child to an atelier: it steals the sidebar column.
+    const host = container.querySelector("[data-image-catalog-status]")
+      || container.querySelector(":scope > .controls") || container;
+    host.prepend(bar);
+    let timer;
+    function failed(error) {
+      message.textContent = error.catalogPhase === "request"
+        ? `Catalogue indisponible : ${error.message}`
+        : `Affichage des modèles interrompu : ${error.message}`;
+      message.classList.add("error");
+      console.error("Image Lab catalogue", error);
+      refresh.disabled = false;
+      schedule(30000);
+    }
+    const run = (force = false) => Promise.resolve().then(() => reload(force)).catch(failed);
+    function schedule(delay) {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (isVisible()) run();
+        else schedule(30000);
+      }, delay);
+    }
+    refresh.addEventListener("click", () => run(true));
+    return {
+      failed,
+      observe(spec) {
+        const entries = Object.entries(spec.catalog_status || {});
+        const statuses = entries.map(([, value]) => value);
+        const pending = statuses.some(s => s.refreshing);
+        const errors = entries.filter(([, s]) => s.error).map(([key, s]) => `${key === "llm" ? "Modèles LLM" : "Catalogue images"} : ${s.error}`);
+        const error = errors.join(" · ");
+        message.classList.toggle("error", Boolean(error));
+        message.textContent = error || (pending
+          ? "Actualisation des modèles en arrière-plan…"
+          : spec.render_models?.length ? `${spec.render_models.length} modèles · ${spec.loras?.length || 0} LoRA`
+          : "Catalogue images en attente");
+        refresh.disabled = pending;
+        schedule(pending ? 2000 : error ? 30000 : 300000);
+      },
+      retry() { schedule(2000); },
+    };
+  }
+
   window.PanelForgeKrea2ResourceUi = Object.freeze({
+    catalogStatus,
     modelGroups,
     loraGroups,
     appendGroupedOptions,

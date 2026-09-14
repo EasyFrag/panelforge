@@ -1035,6 +1035,10 @@ class Krea2AssistedService:
         known = getattr(self.resources, "selection_in_last_inventory", None)
         if allow_cached and callable(known) and known(settings.model_name, tuple(value.name for value in settings.loras)):
             return
+        validate = getattr(self.resources, "validate_selection", None)
+        if callable(validate):
+            validate(settings.model_name, tuple(value.name for value in settings.loras))
+            return
         if not self._model_available(settings.model_name):
             raise ValueError("Le checkpoint sélectionné n’est pas disponible dans le catalogue KREA2.")
         available = {

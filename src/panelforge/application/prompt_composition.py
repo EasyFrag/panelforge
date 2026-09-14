@@ -689,6 +689,7 @@ class PromptCompositionService:
         cookbook_version: str,
         bindings: tuple[CookbookBinding, ...],
         preparation_intent: PreparationIntent | None = None,
+        writer_model_id: str | None = None,
     ) -> PromptComposition:
         session = self.sessions.get(source_session_id)
         cookbook = self.cookbooks.get(cookbook_id, cookbook_version)
@@ -711,6 +712,7 @@ class PromptCompositionService:
                     cookbook=cookbook.reference,
                     bindings=bindings,
                     preparation_intent=preparation_intent,
+                    writer_model_id=writer_model_id,
                 )
             )
         if existing.cookbook != cookbook.reference:
@@ -719,9 +721,30 @@ class PromptCompositionService:
             )
         if existing.preparation_intent != preparation_intent:
             raise ValueError("the preparation intention is locked; fork this run to change it")
+        if writer_model_id is not None and existing.writer_model_id != writer_model_id:
+            raise ValueError("use the writer-model setting to change an existing composition")
         return self.compositions.save_if_current(
             existing,
             existing.with_bindings(bindings),
+        )
+
+    def set_writer_model(
+        self,
+        source_session_id: str,
+        writer_model_id: str | None,
+        *,
+        expected_writer_model_id: str | None,
+    ) -> PromptComposition:
+        """Change the next writer call without invalidating approved documents."""
+        from panelforge.domain.prompt_writer import supports_writer_model
+
+        composition = self.compositions.get(source_session_id)
+        if not supports_writer_model(composition.cookbook.cookbook_id, composition.cookbook.version):
+            raise ValueError("this cookbook does not support a separate final-prompt model")
+        if composition.writer_model_id != expected_writer_model_id:
+            raise ValueError("the writer model changed concurrently; reopen this workshop")
+        return self.compositions.save_if_current(
+            composition, replace(composition, writer_model_id=writer_model_id),
         )
 
     def status(
@@ -2273,7 +2296,8 @@ class PromptCompositionService:
         system += "\n" + creative_freedom_policy(source.creative_freedom, source.creative_axes, preparation=session.preparation)
         system += "\n" + creative_audacity_policy(source.creative_audacity, preparation=session.preparation)
         system += _vocal_stage_policy(session, composition, cookbook, stage)
-        request = CompletionRequest(model_id=session.model_id, system_prompt=system, user_prompt=user,
+        model_id = (composition.writer_model_id or session.model_id) if writer else session.model_id
+        request = CompletionRequest(model_id=model_id, system_prompt=system, user_prompt=user,
             images=self._direct_reference_images(session, composition, include_source_filenames=False) if not writer else (),
             temperature=0.3 if stage is CompositionStage.BEAT_SHEET else 0.2, max_tokens=262_144,
             operation_id=f"{cookbook.reference.cookbook_id}@{cookbook.reference.version}.{stage.value}.{'revise' if instruction else 'generate'}",

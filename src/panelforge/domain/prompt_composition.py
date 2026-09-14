@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from .prompt_lab import CreativeFreedomAxes, RevisionOrigin
+from .prompt_writer import supports_writer_model
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +185,7 @@ class PromptComposition:
     beat_sheet: StageDocument = StageDocument(CompositionStage.BEAT_SHEET)
     final_prompt: StageDocument = StageDocument(CompositionStage.FINAL_PROMPT)
     preparation_intent: PreparationIntent | None = None
+    writer_model_id: str | None = None
 
     def document(self, stage: CompositionStage) -> StageDocument:
         if stage is CompositionStage.REFERENCE_PLAN:
@@ -216,6 +218,12 @@ class PromptComposition:
             raise TypeError("preparation_intent must be PreparationIntent or None")
         if not isinstance(self.cookbook, CookbookRef):
             raise TypeError("cookbook must be a CookbookRef")
+        if self.writer_model_id is not None:
+            _require_text(self.writer_model_id, "writer_model_id")
+            if self.writer_model_id != self.writer_model_id.strip():
+                raise ValueError("writer_model_id must not contain surrounding whitespace")
+            if not supports_writer_model(self.cookbook.cookbook_id, self.cookbook.version):
+                raise ValueError("this cookbook does not support a separate final-prompt model")
         if not isinstance(self.bindings, tuple) or not self.bindings:
             raise ValueError("bindings must be a non-empty tuple")
         slot_ids: set[str] = set()

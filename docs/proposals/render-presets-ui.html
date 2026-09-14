@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PanelForge — Proposition de presets de rendu</title>
+<style>
+  :root { color-scheme: light; --green:#17644e; --line:#dbd5ca; --muted:#64766f; }
+  * { box-sizing:border-box; } body { margin:0;background:#f2f0e9;color:#17312b;font:15px/1.5 system-ui,sans-serif; }
+  main { max-width:1100px;margin:32px auto;padding:0 20px; } h1 { font-size:25px;margin:6px 0; } h2 { font-size:18px;margin:0 0 14px; }
+  p { margin:8px 0 18px; } small,.muted { color:var(--muted); } .badge { background:#e0eee7;border-radius:20px;padding:5px 10px;font-size:12px; }
+  header,.row { display:flex;gap:12px;align-items:center;justify-content:space-between; } header { margin-bottom:24px;flex-wrap:wrap; }
+  .layout { display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:22px;align-items:start; }
+  .panel { background:#fffefa;border:1px solid var(--line);border-radius:15px;padding:22px;min-width:0; }
+  .grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; } .four { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  label { display:block;font-size:13px;font-weight:650; } select,input[type=number],input[type=text] { display:block;width:100%;font:inherit;color:inherit;border:1px solid var(--line);border-radius:8px;padding:10px;background:white;margin-top:5px;min-width:0; }
+  input[type=checkbox] { accent-color:var(--green); } .inline { display:flex;gap:7px;align-items:center;font-weight:450; }
+  button { cursor:pointer;border:1px solid var(--line);border-radius:8px;background:white;color:inherit;padding:10px 14px;font:inherit; }
+  button.primary { color:white;background:var(--green);border-color:var(--green);font-weight:650; }
+  .tabs { display:flex;gap:7px;margin-bottom:22px; } .tabs button[aria-pressed=true] { color:var(--green);border-color:var(--green);background:#e6f1eb; }
+  details { border-top:1px solid var(--line);padding:14px 0; } details:last-of-type { border-bottom:1px solid var(--line); }
+  summary { cursor:pointer;font-weight:650;font-size:13px; } details .grid { margin-top:12px; }
+  .spaced { margin:20px 0; } .note { font-size:13px;background:#f0f5f0;padding:12px;border-radius:8px;margin:12px 0; }
+  .preset { border:1px solid var(--line);border-radius:9px;padding:12px;margin:8px 0;display:flex;align-items:flex-start;gap:10px; }
+  .preset strong { display:block;font-size:14px; } .preset small { display:block;font-weight:400; }
+  .player { aspect-ratio:9/12;background:linear-gradient(150deg,#d6e2d8,#f0ebdf);border:1px solid var(--line);border-radius:10px;display:grid;place-items:center;text-align:center;padding:25px;color:var(--muted); }
+  .results { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px; }
+  .result { border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;min-width:0; }
+  .result b { display:block; } .result span { display:block;color:var(--muted);margin-top:20px; }
+  footer { display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px; } #message { font-size:13px; } [hidden] { display:none!important; }
+  @media(max-width:800px) { .layout { grid-template-columns:1fr; } .four { grid-template-columns:repeat(2,minmax(0,1fr)); } .player { aspect-ratio:16/9; } }
+</style>
+<main>
+  <header><div><small>PANELFORGE · PROPOSITION</small><h1>Créer et ajuster la vidéo</h1></div><span class="badge">Maquette interactive · aucune génération</span></header>
+  <p role="note"><strong>Proposition dépassée.</strong> Ouvrir la <a href="render-presets-v2.html">nouvelle maquette du 14 septembre : sélecteur unique et réglages repliés</a>. La zone de comparaison et les lancements en série ci-dessous sont abandonnés ; voir <a href="bunny-sampling-presets.md">le cadrage actualisé</a>.</p>
+  <div class="layout">
+    <section class="panel">
+      <nav class="tabs" aria-label="Mode de rendu"><button id="single" aria-pressed="true">Rendu</button><button id="compare" aria-pressed="false">Comparer des presets</button></nav>
+      <div class="grid">
+        <label>Moteur<select><option>BUNNY · 2 passes</option></select></label>
+        <label>Modèle<select><option>EROS · Turbo intégré · beta5</option></select></label>
+      </div>
+      <div id="single-presets" class="spaced">
+        <label>Préréglage<select id="preset"><option value="baseline">BUNNY actuel · témoin</option><option value="motion">EROS · Mouvement · à valider</option><option value="audio">EROS · Audio · à valider</option><option value="fast">EROS · Rapide · à valider</option></select></label>
+        <div class="note" id="preset-note">Témoin : reprendre exactement les réglages du rendu sélectionné, y compris son Turbo et ses LoRA.</div>
+      </div>
+      <div id="comparison" class="spaced" hidden>
+        <p class="muted">Même prompt, images, seed, durée, résolution et LoRA pour toute la série.</p>
+        <label class="preset"><input type="checkbox" checked data-series="Témoin"><span><strong>BUNNY actuel · témoin</strong><small>Réglages du rendu sélectionné conservés.</small></span></label>
+        <label class="preset"><input type="checkbox" checked data-series="Mouvement"><span><strong>EROS · Mouvement</strong><small>res_multistep / simple · adaptation BUNNY à valider</small></span></label>
+        <label class="preset"><input type="checkbox" checked data-series="Audio"><span><strong>EROS · Audio</strong><small>lcm / simple · adaptation BUNNY à valider</small></span></label>
+        <label class="preset"><input type="checkbox" data-series="Rapide"><span><strong>EROS · Rapide</strong><small>er_sde / beta · adaptation BUNNY à valider</small></span></label>
+        <small>Chaque adaptation EROS devra définir les deux passes avant de devenir un preset exécutable. Ces choix illustrent l'interface.</small>
+      </div>
+      <div class="grid four">
+        <label>Ratio<select><option>9:16</option><option>16:9</option></select></label>
+        <label>Durée (s)<input type="number" value="6" min="1"></label>
+        <label>MP initiaux<input type="number" value="0.9" step="0.1"></label>
+        <label>MP sortie<input type="number" value="0.9" step="0.1"></label>
+      </div>
+      <div class="grid spaced"><label>Seed<input type="text" value="1427340712"><span class="inline"><input type="checkbox" checked>Réutiliser</span></label><label>Musique<select><option>OFF · N/A</option><option>ON</option></select></label></div>
+      <details><summary>LoRA · 2 actifs · forces conservées</summary><div class="grid"><label>LoRA<select><option>Combat V2</option><option>Motion Repair</option></select></label><label>Passe 1 / Passe 2<input type="text" value="0,60 / 0,20"></label></div><p class="muted">Les quatre emplacements, leurs fiches et leurs forces restent accessibles ici. Un preset de sampling ne remplace pas les LoRA.</p></details>
+      <details><summary>Réglages avancés · sampling et Turbo</summary><div class="grid"><label>Calendrier de base<input type="number" value="9"></label><label>Steps passe 1<input type="number" value="4"></label><label>Steps passe 2<input type="number" value="5"></label><label>Turbo supplémentaire<select><option>Valeur conservée du témoin</option><option>Désactivé · EROS Turbo intégré</option></select></label></div><div class="note">Exemple des réglages du témoin : 4 + 5 steps exécutés. Les adaptations EROS auront leur propre définition des deux passes.</div><label class="inline"><input type="checkbox" checked>Aperçu pendant le calcul</label></details>
+      <details><summary>Prompt utilisé · version enregistrée</summary><p class="muted">Le prompt final déjà préparé apparaît ici. Comparer des presets ne relance pas le LLM.</p><button type="button">Adapter en REF2V</button></details>
+      <footer><button id="launch" class="primary">Lancer un rendu</button><button id="save">Enregistrer comme preset</button></footer>
+      <p id="message" role="status" class="muted"></p>
+    </section>
+    <section class="panel"><div class="row"><h2 id="result-title">Dernier rendu</h2><span class="badge">Zone de résultat</span></div><div class="player"><span>Vidéo du rendu sélectionné<br><small>Aucune vidéo générée dans cette maquette</small></span></div><div id="results" class="results" hidden></div><p class="muted">Dans une série : retrouver le preset exact, comparer mouvement, ressemblance et audio, puis reprendre les réglages du candidat préféré.</p></section>
+  </div>
+</main>
+<script>
+  const el=id=>document.getElementById(id);
+  let comparing=false;
+  const notes={baseline:'Témoin : reprendre exactement les réglages du rendu sélectionné, y compris son Turbo et ses LoRA.',motion:'Piste auteur : res_multistep / simple, 6–8 steps. La répartition entre les deux passes BUNNY reste à valider.',audio:'Piste auteur : lcm / simple, 6–8 steps. La répartition entre les deux passes BUNNY reste à valider.',fast:'Piste auteur : er_sde / beta, 4 steps. Ce nombre ne correspond pas directement au triplet BUNNY.'};
+  function paint(){
+    el('single').setAttribute('aria-pressed',String(!comparing));el('compare').setAttribute('aria-pressed',String(comparing));
+    el('comparison').hidden=!comparing;el('single-presets').hidden=comparing;el('results').hidden=!comparing;
+    const selected=[...document.querySelectorAll('[data-series]:checked')].map(x=>x.dataset.series);
+    el('launch').textContent=comparing?`Lancer les ${selected.length} essais`:'Lancer un rendu';el('launch').disabled=comparing&&!selected.length;
+    el('result-title').textContent=comparing?'Série comparée':'Dernier rendu';el('results').replaceChildren();
+    for(const name of selected){const card=document.createElement('div');card.className='result';const b=document.createElement('b');b.textContent=name;const status=document.createElement('span');status.textContent='En attente';card.append(b,status);el('results').append(card);}
+    el('preset-note').textContent=notes[el('preset').value];
+  }
+  el('single').onclick=()=>{comparing=false;paint();};el('compare').onclick=()=>{comparing=true;paint();};
+  el('preset').onchange=paint;document.querySelectorAll('[data-series]').forEach(x=>x.onchange=paint);
+  el('launch').onclick=()=>el('message').textContent='Démonstration uniquement. Dans l’application, la série serait mise en file en arrière-plan ; aucune génération n’est lancée ici.';
+  el('save').onclick=()=>el('message').textContent='Proposition : enregistrer les réglages de sampling avec un nom et une version. Aucune donnée enregistrée dans cette maquette.';
+  paint();
+</script>
+</html>

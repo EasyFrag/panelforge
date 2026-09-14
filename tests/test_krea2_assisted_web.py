@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from time import monotonic, sleep
 
 from fastapi.testclient import TestClient
 
@@ -267,6 +268,11 @@ class Krea2AssistedWebTest(unittest.TestCase):
     def test_project_chat_and_single_t2i_render(self):
         spec = self.client.get("/api/image-lab/krea2-assisted/spec")
         self.assertEqual(spec.status_code, 200)
+        deadline = monotonic() + 3
+        while any(value["refreshing"] for value in spec.json().get("catalog_status", {}).values()):
+            self.assertLess(monotonic(), deadline, "fake catalog refresh timed out")
+            sleep(.005)
+            spec = self.client.get("/api/image-lab/krea2-assisted/spec")
         self.assertEqual([item["version"] for item in spec.json()["assistance_recipes"]], ["1.0.0", "2.0.0", "3.0.0"])
         self.assertEqual(spec.json()["limits"]["lora_count"], 10)
         model = spec.json()["render_models"][0]["comfy_name"]

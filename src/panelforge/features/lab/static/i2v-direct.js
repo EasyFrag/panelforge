@@ -14,7 +14,7 @@
   const multishotCookbookId = "minimax.h3.fl2va.direct.multishot";
   const animalInterviewCookbookId = "minimax.h3.base.animal-interview";
   const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
-  const preferredCookbookKey = "minimax.h3.fl2va.direct.guided@1.2.0";
+  const preferredCookbookKey = "minimax.h3.fl2va.classic.cinematic.planned@1.0.0";
 
   const state = {
     spec: null,
@@ -28,6 +28,7 @@
     session: null,
     composition: null,
     busy: false,
+    writerSaving: false,
     quickRunning: false,
     compoundRunning: false,
     quickRecord: null,
@@ -266,6 +267,11 @@
       : creativeBriefVariant;
   }
 
+  const writerModels = window.PanelForgePromptWriterModel.create({
+    prefix: "i2vd", state, planner: elements.model,
+    cookbook: () => activeCookbookSpec() || state.cookbook,
+    request: core.request, render, busy: interactionLocked,
+  });
   const combatControls = window.PanelForgeCombatControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
   const cinematicControls = window.PanelForgeClassicCinematicControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
   const sensualControls = window.PanelForgeSensualControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked });
@@ -350,7 +356,8 @@
       });
     state.cookbook = available.find(
       (item) => cookbookKey(item) === preferredCookbookKey,
-    ) || available.at(-1) || null;
+    ) || available.find((item) => cookbookKey(item) === "minimax.h3.fl2va.direct.guided@1.2.0")
+      || available.at(-1) || null;
     elements.cookbook.value = cookbookKey(state.cookbook);
     core.refreshRecipeVisibility(elements.cookbook);
   }
@@ -397,6 +404,7 @@
       );
       if (!models.length) throw new Error("llama.swap ne publie actuellement aucun modèle.");
       window.PanelForgeModelPicker.populate(elements.model, models, selected);
+      writerModels.populate(models);
       render();
     } catch (error) {
       if (requestId === state.modelRequestId && !hadModels) {
@@ -593,7 +601,7 @@
   }
 
   async function openSession(sessionSummary) {
-    if (state.quickRunning) return;
+    if (state.quickRunning || state.writerSaving) return;
     const sessionId = sessionSummary.id;
     const requestId = ++state.openRequestId;
     state.openingSessionId = sessionId;
@@ -608,6 +616,7 @@
       state.forkSource = null;
       state.session = session;
       state.composition = compositionPayload ? compositionPayload.composition : null;
+      writerModels.restore(state.composition?.writer_model_id);
       state.cookbook = cookbookForSession(session, state.composition) || state.cookbook;
       state.quickRecord = quickPipeline.load(session.id);
       selectModel(session.model_id);
@@ -768,6 +777,7 @@
     let created = false;
     setBusy(true);
     try {
+      writerModels.value();
       if (state.session) {
         if (!state.cookbook?.profile || state.composition) throw new Error("Ce run est d\u00e9j\u00e0 configur\u00e9.");
         // Retry only recipe persistence after a failed configuration request.
@@ -913,7 +923,7 @@
 
   function interactionLocked() {
     return state.busy || state.quickRunning || state.compoundRunning
-      || Boolean(state.openingSessionId);
+      || state.writerSaving || Boolean(state.openingSessionId);
   }
 
   function currentBriefInputs() {
@@ -1007,6 +1017,8 @@
   }
 
   function render() {
+    // Recipe metadata can arrive after the initial slider setup.
+    updateCreativeAxes();
     const session = state.session;
     const compositionReference = state.composition && state.composition.cookbook
       ? state.composition.cookbook : null;
@@ -1071,6 +1083,7 @@
       : currentInputModeLabel();
     elements.model.disabled = locked || Boolean(session);
     window.PanelForgeModelPicker.setDisabled(elements.model, elements.model.disabled);
+    writerModels.draw();
     elements.refreshModels.disabled = locked;
     elements.refreshSessions.disabled = locked;
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
@@ -1516,7 +1529,10 @@
   }
 
   async function ensureComposition() {
-    if (state.composition) return;
+    if (state.composition) {
+      await writerModels.save();
+      return;
+    }
     if (!state.cookbook) throw new Error("Choisissez une recette H3 Base.");
     const first = referenceForRole(state.session, "first_frame");
     const last = referenceForRole(state.session, "last_frame");
@@ -1528,6 +1544,7 @@
         body: JSON.stringify({
           cookbook_id: state.cookbook.id,
           cookbook_version: state.cookbook.version,
+          writer_model_id: writerModels.value(),
           preparation_intent: preparationSteps() < 3 ? { source_text: currentSourceText(), ...creativePayload() } : null,
           bindings: {
             first_frame: first ? [first.id] : [],
@@ -1753,7 +1770,7 @@
   }
 
   function resetSession() {
-    if (state.quickRunning) return;
+    if (state.quickRunning || state.writerSaving) return;
     state.openRequestId += 1;
     state.openingSessionId = null;
     const selectedCookbook = directCookbooks().find(
@@ -1764,6 +1781,7 @@
     combatControls.restore(null);
     cinematicControls.restore(null);
     sensualControls.restore(null);
+    writerModels.restore(null);
     state.session = null;
     state.composition = null;
     state.quickRecord = null;
@@ -1789,8 +1807,10 @@
     setBusy(true);
     try {
       let sourceCookbook = null;
+      let sourceWriterModel = null;
       if (sourceSessionId) {
         const payload = await core.request(`/api/prompt-lab/sessions/${encodeURIComponent(sourceSessionId)}/composition`);
+        sourceWriterModel = payload.composition?.writer_model_id || null;
         const reference = payload.composition?.cookbook;
         sourceCookbook = directCookbooks().find((item) => cookbookKey(item) === cookbookKey(reference)) || null;
         const origin = state.cookbooks.find((item) => cookbookKey(item) === cookbookKey(reference));
@@ -1842,6 +1862,7 @@
       resetSession();
       if (sourceCookbook) {
         state.cookbook = sourceCookbook;
+        if (sourceCookbook.supports_writer_model) writerModels.restore(sourceWriterModel);
       } else if (state.cookbook?.id !== monoCookbookId && !state.cookbook?.profile) {
         state.cookbook = directCookbooks().find((item) => cookbookKey(item) === preferredCookbookKey);
       }

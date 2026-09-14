@@ -22,7 +22,7 @@ class DlssBrowserTest(unittest.TestCase):
           if(url==='/api/dlss/runtime')return ok({state:'ready',owned:false});
           if(url==='/api/dlss/preview'){
             if(delayPreview){delayPreview=false;return new Promise(resolve=>{delayed=()=>resolve(ok({input_metadata:{width:1,height:1},output_dimensions:[9,9]}));});}
-            return ok({input_metadata:{width:64,height:96},output_dimensions:body.settings.size==='source'?[64,96]:[128,192]});
+            return ok({input_metadata:{width:64,height:96},output_dimensions:body.settings.size==='source'?[64,96]:body.settings.size==='1.5'?[96,144]:[128,192]});
           }
           if(url==='/api/dlss/jobs'&&body){
             if(failPost)return {ok:false,status:503,json:async()=>({detail:'simulated network failure'})};
@@ -41,7 +41,17 @@ class DlssBrowserTest(unittest.TestCase):
           const source={attempt_id:'original',index:1,status:'succeeded',output_url:'data:image/png;base64,',output_asset_id:'base'};
           api.open({owner:'edit',ownerId:'workshop',attempt:source});
           await until(()=>!start.disabled);
-          check(el('size').value==='source','Edit defaults to source size');
+          const initial=()=>el('size').value==='1.5'&&['intensity','tone','structure','detail'].every(name=>Number(el(name).value)===1)&&Number(el('skin').value)===-1&&el('style').value==='Default'&&!el('strict_neural').checked;
+          check(initial(),'Edit uses the native image defaults');
+          check(!el('size').querySelector('[value=source]').hidden,'source size remains selectable for masked steps');
+          form.querySelector('details').open=true;
+          const help=dialog.querySelector('[aria-controls=dlss-help-intensity]');
+          const submits=()=>calls.filter(c=>c.body&&c.url==='/api/dlss/jobs').length;
+          const beforeHelp=submits();help.click();
+          check(help.getAttribute('aria-expanded')==='true'&&!dialog.querySelector('#dlss-help-intensity').hidden,'image help opens inline');
+          check(initial()&&submits()===beforeHelp,'reading help does not alter or submit settings');
+          help.click();check(dialog.querySelector('#dlss-help-intensity').hidden,'help closes');
+          el('size').value='source';el('size').dispatchEvent(new Event('input',{bubbles:true}));await until(()=>!start.disabled);
           check(!calls.some(c=>c.body&&c.url==='/api/dlss/jobs'),'opening never queues a treatment');
           check(dialog.querySelector('[data-control=stop]').disabled,'external instance cannot be stopped');
           el('intensity').value='0.5';el('intensity').dispatchEvent(new Event('input',{bubbles:true}));
@@ -53,11 +63,13 @@ class DlssBrowserTest(unittest.TestCase):
           check(el('intensity').value==='0.5','failure preserves settings');
           dialog.querySelector('[data-close]').click();
           api.open({owner:'edit',ownerId:'workshop',attempt:source});await until(()=>!start.disabled);
-          check(el('intensity').value==='0.5','draft survives closing');
+          check(el('intensity').value==='0.5'&&el('size').value==='source','explicit settings survive closing');
+          dialog.querySelector('[data-reset-image]').click();await until(()=>!start.disabled);
+          check(initial()&&submits()===2,'reset restores image defaults without submitting');
           delayPreview=true;api.open({owner:'assisted',ownerId:'old',attempt:source});await until(()=>delayed);
           api.open({owner:'assisted',ownerId:'new',attempt:source});await until(()=>!start.disabled);delayed();await pause();
-          check(dialog.querySelector('[data-dimensions]').textContent.includes('128'),'stale preview cannot replace the current dimensions');
-          check(el('size').value==='2','Assisted defaults to real 2x output');
+          check(dialog.querySelector('[data-dimensions]').textContent.includes('144'),'stale preview cannot replace the current dimensions');
+          check(initial(),'Assisted uses the same native defaults as Edit');
           const variant={...source,attempt_id:'enhanced',output_asset_id:'larger',dlss:{root_attempt_id:'original',width:128,height:192}};
           let selected=null;const group=api.groups([source,variant],'assisted:new')[0];
           check(group.variants.length===2&&group.attempt===source,'one card groups original and DLSS');
@@ -65,6 +77,7 @@ class DlssBrowserTest(unittest.TestCase):
           check(selected==='enhanced'&&api.groups([source,variant],'assisted:new')[0].attempt.output_asset_id==='larger','actions can target the exact selected variant');
           api.open({owner:'h3',ownerId:'video',attempt:source});await until(()=>!start.disabled);
           check(el('size').value==='1.724'&&el('interpolate').checked&&!el('hdr').checked,'video defaults to 1.724x and 60 FPS in SDR');
+          check([...dialog.querySelectorAll('[data-image]')].every(node=>node.hidden),'image help and reset remain hidden for video');
           check(!calls.some(c=>c.body&&c.url.startsWith('/api/dlss/runtime/')),'no lifecycle command runs automatically in the panel');
           document.getElementById('result').textContent='PASS';
         }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack;}})();
@@ -163,12 +176,14 @@ class DlssBrowserTest(unittest.TestCase):
         if not browsers:
             self.skipTest("local Chromium not installed")
         html = '<meta charset="utf-8"><div class="runtime-maintenance"></div><pre id="result">PENDING</pre>'
-        html += "<script>" + bootstrap + "</script><script>" + (STATIC / "dlss-lab.js").read_text(encoding="utf-8") + "</script><script>" + scenario + "</script>"
+        html += "<style>" + (STATIC / "lab.css").read_text(encoding="utf-8") + "</style>"
+        html += "<script>" + bootstrap + "</script><script>" + (STATIC / "dlss-image-comparison.js").read_text(encoding="utf-8") + "</script>"
+        html += "<script>" + (STATIC / "dlss-lab.js").read_text(encoding="utf-8") + "</script><script>" + scenario + "</script>"
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             page = path / "test.html"
             page.write_text(html, encoding="utf-8")
-            result = subprocess.run([str(browsers[-1]), "--headless", "--disable-gpu", "--disable-background-networking", "--no-first-run",
+            result = subprocess.run([str(browsers[-1]), "--headless", "--window-size=1400,1000", "--disable-gpu", "--disable-background-networking", "--no-first-run",
                 "--virtual-time-budget=10000", f"--user-data-dir={path / 'profile'}", "--dump-dom", page.as_uri()],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])

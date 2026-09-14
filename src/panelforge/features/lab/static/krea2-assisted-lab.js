@@ -15,6 +15,8 @@
     inspirationCard: $("krea2-assisted-inspiration-card"),
     workspace: $("krea2-assisted-lab-workspace"),
     newForm: $("krea2-assisted-new-form"),
+    newProject: $("krea2-assisted-new-project"),
+    historyState: $("krea2-assisted-history-state"),
     name: $("krea2-assisted-name"),
     intention: $("krea2-assisted-intention"),
     reference: $("krea2-assisted-reference"),
@@ -98,6 +100,8 @@
   const state = {
     initialized: false,
     initializing: null,
+    catalogSignature: null,
+    projectRequest: null,
     spec: null,
     projects: [],
     project: null,
@@ -144,15 +148,18 @@
 
   function setBusy(value) {
     state.busy = value;
-    elements.create.disabled = value || !state.spec;
-    elements.chat.disabled = value || !state.project;
-    elements.recipeChat.disabled = value || !state.project;
+    const llmReady = Boolean(state.spec?.llm_models?.length);
+    const modelsReady = Boolean(state.spec?.render_models?.some(m => m.comfy_name === elements.model.value));
+    const lorasReady = state.loraSlots.every(slot => !slot.name || state.spec?.loras?.some(lora => lora.comfy_name === slot.name));
+    elements.create.disabled = value || !llmReady;
+    elements.chat.disabled = value || !state.project || !llmReady;
+    elements.recipeChat.disabled = value || !state.project || !llmReady;
     elements.revisionLlm.disabled = value || !state.project;
     window.PanelForgeModelPicker.setDisabled(elements.revisionLlm, value || !state.project);
     elements.promptLanguage.disabled = value || !state.project;
     elements.guidanceFile.disabled = value || !state.project;
     elements.guidanceRemove.disabled = value || !state.project;
-    elements.render.disabled = value || !state.project;
+    elements.render.disabled = value || !state.project || !modelsReady || !lorasReady;
     elements.saveDraft.disabled = value || !state.project;
     elements.publishRecipe.disabled = value || !state.project;
     elements.branchTree.querySelectorAll("button").forEach((button) => { button.disabled = value; });
@@ -193,12 +200,14 @@
       state.spec.llm_models || [],
       previousLlm,
     );
+    if (previousLlm) window.PanelForgeModelPicker.select(elements.llm, previousLlm, "modèle indisponible");
     const previousRevisionLlm = elements.revisionLlm.value;
     window.PanelForgeModelPicker.populate(
       elements.revisionLlm,
       state.spec.llm_models || [],
       previousRevisionLlm,
     );
+    if (previousRevisionLlm) window.PanelForgeModelPicker.select(elements.revisionLlm, previousRevisionLlm, "modèle indisponible");
 
     const previousModel = elements.model.value;
     resourceUi.renderModelPicker(elements.model, {
@@ -246,6 +255,7 @@
       onChange: (values) => {
         state.loraSlots = values;
         renderLoraStack();
+        setBusy(state.busy);
       },
     });
   }
@@ -313,6 +323,7 @@
     ensureMissingOption(elements.model, attempt.settings.model_id);
     elements.model.value = attempt.settings.model_id;
     resourceUi.syncModelPicker(elements.model);
+    ensureMissingOption(elements.ratio, attempt.settings.aspect_ratio);
     elements.ratio.value = attempt.settings.aspect_ratio;
     elements.megapixels.value = String(attempt.settings.megapixels);
     elements.seed.value = attempt.seed ?? "";
@@ -695,6 +706,7 @@
         save.addEventListener("click", () => saveImage(attempt.attempt_id));
         actions.append(feedback, save);
         if (window.PanelForgeDlss) actions.append(window.PanelForgeDlss.button({ owner: "assisted", ownerId: project.project_id, attempt }));
+        if (window.PanelForgeDlss?.comparisonButton) actions.append(window.PanelForgeDlss.comparisonButton({ owner: "assisted", ownerId: project.project_id, attempt }));
         if (state.spec?.restaging?.enabled) {
           const compose = document.createElement("button");
           compose.type = "button";
@@ -898,10 +910,37 @@
   }
 
   async function loadSpec(preserve = false) {
+    return refreshCatalog(preserve);
+  }
+
+  const catalogStatus = resourceUi.catalogStatus(elements.workspace,
+    force => refreshCatalog(true, force), () => !elements.workspace.hidden);
+  let catalogRequest = null;
+  async function refreshCatalog(preserve = true, force = false) {
+    if (catalogRequest) return force ? catalogRequest.then(() => refreshCatalog(preserve, true)) : catalogRequest;
+    catalogRequest = fetchCatalog(preserve, force).catch(error => {
+      catalogStatus.failed(error);
+      throw error;
+    }).finally(() => { catalogRequest = null; });
+    return catalogRequest;
+  }
+  async function fetchCatalog(preserve, force) {
+    let next;
+    try {
+      next = await request(`/api/image-lab/krea2-assisted/spec${force ? "?refresh=true" : ""}`);
+      if (!next || ![next.render_models, next.loras, next.llm_models].every(Array.isArray)) {
+        throw new Error("Réponse de catalogue invalide.");
+      }
+    } catch (error) { error.catalogPhase = "request"; throw error; }
+    if (state.busy && state.spec) { catalogStatus.observe(next); catalogStatus.retry(); return; }
+    // Capture at application time: a user may have navigated during the request.
+    preserve = preserve || Boolean(state.project);
     const previousModel = preserve ? elements.model.value : "";
     const previousRevisionLlm = preserve ? elements.revisionLlm.value : "";
     const previousSlots = state.loraSlots.map((slot) => ({ ...slot }));
-    state.spec = await request("/api/image-lab/krea2-assisted/spec");
+    state.spec = next;
+    const signature = JSON.stringify([next.render_models, next.loras, next.llm_models]);
+    if (state.catalogSignature === signature) { catalogStatus.observe(next); return; }
     const previousRecipe = elements.assistanceRecipe.value || "3.0.0";
     elements.assistanceRecipe.replaceChildren();
     for (const recipe of state.spec.assistance_recipes || []) {
@@ -924,33 +963,66 @@
       }
       state.loraSlots = previousSlots;
       renderLoraStack();
+      resourceUi.syncModelPicker(elements.model);
     }
+    setBusy(state.busy);
+    // A failed repaint must be retried even if the next HTTP payload is identical.
+    state.catalogSignature = signature;
+    catalogStatus.observe(next);
+  }
+
+  function setHistoryMessage(message = "", error = false) {
+    if (!elements.historyState) return;
+    elements.historyState.textContent = message;
+    elements.historyState.hidden = !message;
+    elements.historyState.classList.toggle("error", error);
   }
 
   async function loadHistory() {
-    const payload = await request("/api/image-lab/krea2-assisted/projects?limit=30");
-    state.projects = payload.projects || [];
-    renderHistory();
+    if (!state.projectRequest) setHistoryMessage("Chargement des projets…");
+    try {
+      const payload = await request("/api/image-lab/krea2-assisted/projects?limit=30");
+      state.projects = payload.projects || [];
+      renderHistory();
+      if (elements.newProject && !state.projects.length) elements.newProject.open = true;
+      if (!state.projectRequest) setHistoryMessage();
+    } catch (error) {
+      if (!state.projectRequest) setHistoryMessage(`Projets indisponibles : ${error.message}`, true);
+      throw error;
+    }
   }
 
   async function openProject(projectId) {
-    if (state.busy || restagingEditor.saving) return;
-    stopPolling();
+    if ((state.busy && !state.projectRequest) || restagingEditor.saving) return;
+    state.projectRequest?.abort();
+    const controller = new AbortController();
+    state.projectRequest = controller;
     state.navigationSerial += 1;
-    clearGuidance();
-    setBusy(true);
-    setMessage();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const [payload] = await Promise.all([
-        request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}`), loadRenderQueue(),
-      ]);
+      stopPolling();
+      clearGuidance();
+      setBusy(true);
+      setMessage();
+      setHistoryMessage("Ouverture du projet… Vous pouvez en choisir un autre.");
+      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(projectId)}`, { signal: controller.signal });
+      if (state.projectRequest !== controller) return;
+      loadRenderQueue().catch(error => setMessage(error.message, true));
       renderProject(payload.project);
       restoreRenderState(payload.project);
+      setHistoryMessage();
       if ((state.renderQueue.items || []).length) schedulePoll();
     } catch (error) {
-      setMessage(error.message, true);
+      if (state.projectRequest !== controller) return;
+      const message = error.name === "AbortError" ? "Le projet met trop longtemps à répondre. Réessayez ou choisissez un autre projet." : error.message;
+      setHistoryMessage(message, true);
+      setMessage(message, true);
     } finally {
-      setBusy(false);
+      clearTimeout(timeout);
+      if (state.projectRequest === controller) {
+        state.projectRequest = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -1270,19 +1342,21 @@
 
   async function initialize() {
     if (state.initializing) return state.initializing;
-    if (state.initialized) return;
+    if (state.initialized) return refreshCatalog(true);
     state.initializing = (async () => {
-      setBusy(true);
+      setBusy(state.busy);
       try {
-        await Promise.all([loadSpec(), loadHistory(), loadPresets(), loadRenderQueue()]);
-        state.initialized = true;
+        const results = await Promise.allSettled([loadSpec(), loadHistory(), loadPresets(), loadRenderQueue()]);
+        state.initialized = results.every(result => result.status === "fulfilled");
+        results.filter(result => result.status === "rejected").forEach(result => setNewMessage(result.reason.message));
       } catch (error) { setNewMessage(`Création assistée indisponible : ${error.message}`); }
-      finally { state.initializing = null; setBusy(false); }
+      finally { state.initializing = null; }
     })();
     return state.initializing;
   }
 
   elements.newForm.addEventListener("submit", createProject);
+  elements.model.addEventListener("change", () => setBusy(state.busy));
   elements.newPreset.addEventListener("change", () => {
     const preset = state.presets.find((p) => p.preset_id === elements.newPreset.value);
     elements.newPresetNote.textContent = preset
@@ -1302,7 +1376,7 @@
   });
   elements.presetForm.addEventListener("submit", savePreset);
   $("krea2-assisted-preset-close").addEventListener("click", () => elements.presetDialog.close());
-  elements.refresh.addEventListener("click", loadHistory);
+  elements.refresh.addEventListener("click", () => loadHistory().catch(() => {}));
   elements.chat.addEventListener("click", () => sendChat("creation"));
   elements.recipeChat.addEventListener("click", () => sendChat("recipe"));
   elements.guidanceFile.addEventListener("change", selectGuidanceFile);

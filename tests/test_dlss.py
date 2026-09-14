@@ -256,6 +256,9 @@ class DlssTest(unittest.TestCase):
                         settings={"size": "2"}, request_id="http")
             first = client.post("/api/dlss/jobs", json=body)
             self.assertEqual(first.status_code, 202, first.text)
+            self.assertEqual(first.json()["settings"]["size"], "2")  # explicit size is preserved
+            self.assertEqual(first.json()["settings"]["skin"], -1)
+            self.assertEqual(first.json()["settings"]["intensity"], 1)
             self.assertEqual(client.post("/api/dlss/jobs", json=body).json()["job_id"], first.json()["job_id"])
             body["settings"]["size"] = "source"
             self.assertEqual(client.post("/api/dlss/preview", json=body).status_code, 422)

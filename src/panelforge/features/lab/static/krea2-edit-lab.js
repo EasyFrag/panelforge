@@ -112,6 +112,8 @@
   const state = {
     initialized: false,
     initializing: null,
+    catalogSignature: null,
+    catalogStaticReady: false,
     busy: false,
     spec: null,
     sources: [],
@@ -290,6 +292,7 @@
   }
 
   function switchEngine() {
+    if (!state.spec) return;
     if (state.source?.subject_reference) { elements.engine.value = "krea2"; return; }
     if (state.busy || retouchEditor.saving || !isEditable()) {
       elements.engine.value = state.renderEngine;
@@ -320,6 +323,7 @@
   }
 
   function renderEngineControls() {
+    if (!state.spec) return;
     elements.workspace.querySelectorAll("[data-edit-engine]").forEach((node) => {
       node.hidden = node.dataset.editEngine !== state.renderEngine;
     });
@@ -345,6 +349,7 @@
 
   function applyRenderSettings(settings) {
     state.renderEngine = settings.engine || "krea2";
+    ensureOption(elements.engine, state.renderEngine, state.renderEngine);
     elements.engine.value = state.renderEngine;
     if (isFireRed()) {
       const workflow = fireRedWorkflow(settings);
@@ -370,6 +375,7 @@
     ensureOption(elements.model, model, model);
     elements.model.value = model;
     syncModelPicker(elements.model);
+    ensureOption(elements.ratio, settings.aspect_ratio, settings.aspect_ratio);
     elements.ratio.value = settings.aspect_ratio || "";
     elements.megapixels.value = String(settings.megapixels ?? "");
     elements.refBoost.value = String(settings.ref_boost ?? "");
@@ -391,7 +397,7 @@
     };
     return {
       engine: "krea2",
-      workflow_id: state.spec?.workflows?.find((w) => (w.engine || "krea2") === "krea2" && w.version === elements.workflow.value)?.id || state.spec.recipe.id,
+      workflow_id: state.spec?.workflows?.find((w) => (w.engine || "krea2") === "krea2" && w.version === elements.workflow.value)?.id || state.spec?.recipe?.id,
       workflow_version: elements.workflow.value,
       model_id: elements.model.value, aspect_ratio: elements.ratio.value,
       megapixels: Number(elements.megapixels.value), seed: elements.seed.value,
@@ -434,33 +440,10 @@
     state.initializing = (async () => {
       setMessage("Chargement…");
       try {
-        if (!state.initialized) {
-          state.spec = await request("/api/image-lab/krea2-edit/spec");
-          window.PanelForgeModelPicker.populate(
-            elements.llm,
-            state.spec.llm_models || [],
-            elements.llm.value,
-          );
-          renderModelPicker(elements.model, {
-            resources: state.spec.render_models || [],
-            updatePreference: updateResourcePreference,
-            refreshResource,
-          });
-          options(elements.ratio, state.spec.aspect_ratios || [], (value) => value, (value) => value);
-          options(elements.engine, state.spec.engines || [{ id: "krea2", name: "KREA2" }], (value) => value.id, (value) => value.name);
-          options(elements.workflow, (state.spec.workflows || [state.spec.recipe]).filter((value) => (value.engine || "krea2") === "krea2"), (value) => value.version,
-            (value) => `${value.name || "Workflow"} (${value.version})`);
-          applyDefaultRenderSettings();
-          elements.fixedNote.textContent = `Fixe : ${state.spec.fixed.identity_lora} × ${state.spec.fixed.identity_lora_strength} · Euler / Simple · CFG ${state.spec.fixed.cfg}.`;
-          renderResourceManager();
-        }
-        await loadSources();
-        if (!renderSettingsComplete()) {
-          if (state.source) openSource(state.source, { hydrate: true, force: true });
-          else applyDefaultRenderSettings();
-        }
-        state.initialized = true;
-        setMessage("");
+        const results = await Promise.allSettled([loadCatalog(), loadSources()]);
+        state.initialized = results.every(result => result.status === "fulfilled");
+        const failed = results.find(result => result.status === "rejected");
+        setMessage(failed ? failed.reason.message : "", Boolean(failed));
       } catch (error) {
         state.initialized = false;
         setMessage(error.message, true);
@@ -470,6 +453,67 @@
       }
     })();
     return state.initializing;
+  }
+
+  const catalogStatus = window.PanelForgeKrea2ResourceUi.catalogStatus(elements.workspace,
+    force => loadCatalog(force), () => !elements.workspace.hidden);
+  let catalogRequest = null;
+  function loadCatalog(force = false) {
+    if (catalogRequest) return force ? catalogRequest.then(() => loadCatalog(true)) : catalogRequest;
+    catalogRequest = fetchCatalog(force).catch(error => {
+      catalogStatus.failed(error);
+      throw error;
+    }).finally(() => { catalogRequest = null; });
+    return catalogRequest;
+  }
+  async function fetchCatalog(force) {
+    let next;
+    try {
+      next = await request(`/api/image-lab/krea2-edit/spec${force ? "?refresh=true" : ""}`);
+      if (!next || ![next.render_models, next.loras, next.llm_models].every(Array.isArray)) {
+        throw new Error("Réponse de catalogue invalide.");
+      }
+    } catch (error) { error.catalogPhase = "request"; throw error; }
+    if (state.busy || retouchEditor.saving) { catalogStatus.observe(next); catalogStatus.retry(); return; }
+    state.spec = next;
+    const signature = JSON.stringify([next.render_models, next.loras, next.llm_models]);
+    if (state.catalogSignature === signature) { catalogStatus.observe(next); return; }
+    const selected = { model: elements.model.value, llm: elements.llm.value,
+      ratio: elements.ratio.value, engine: elements.engine.value, workflow: elements.workflow.value };
+    window.PanelForgeModelPicker.populate(elements.llm, next.llm_models || [], selected.llm);
+    if (selected.llm) window.PanelForgeModelPicker.select(elements.llm, selected.llm, "modèle indisponible");
+    renderModelPicker(elements.model, { resources: next.render_models || [],
+      updatePreference: updateResourcePreference, refreshResource });
+    if (!state.catalogStaticReady) {
+      options(elements.ratio, next.aspect_ratios || [], value => value, value => value);
+      options(elements.engine, next.engines || [], value => value.id, value => value.name);
+      options(elements.workflow, (next.workflows || [next.recipe]).filter(value => (value.engine || "krea2") === "krea2"),
+        value => value.version, value => `${value.name || "Workflow"} (${value.version})`);
+      if (!state.source) applyDefaultRenderSettings();
+      else {
+        // A workshop may open before even the static spec. Fill only empty inputs.
+        const defaults = isFireRed() ? fireRedWorkflow(state.fireRedRecipe || {})?.defaults || {} : next.defaults || {};
+        for (const [field, key] of [["megapixels", "megapixels"], ["steps", "steps"], ["refBoost", "ref_boost"]]) {
+          if (!elements[field].value && defaults[key] != null) elements[field].value = String(defaults[key]);
+        }
+        if (!selected.workflow && !isFireRed()) selected.workflow = next.recipe?.version;
+        if (!selected.ratio && !isFireRed()) selected.ratio = defaults.aspect_ratio;
+        if (!selected.model && !isFireRed()) selected.model = defaults.model_id;
+      }
+    }
+    for (const key of ["model", "ratio", "engine", "workflow"]) {
+      if (selected[key]) {
+        ensureOption(elements[key], selected[key], `${selected[key]} · indisponible`);
+        elements[key].value = selected[key];
+      }
+    }
+    syncModelPicker(elements.model);
+    renderLoras();
+    renderResourceManager();
+    render();
+    state.catalogStaticReady = true;
+    state.catalogSignature = signature;
+    catalogStatus.observe(next);
   }
 
   async function loadSources({ preserve = true, expanded = state.backlogExpanded, projectId = state.source?.project_id } = {}) {
@@ -666,7 +710,7 @@
       elements.projectName.value = source.project_name || root.project_name || defaultProjectName(root.filename);
       elements.stepName.value = defaultStepName(source);
       delete elements.stepName.dataset.edited;
-      const defaults = state.spec.defaults;
+      const defaults = state.spec?.defaults || {};
       const parent = state.sources.find((s) => s.source_id === source.parent_source_id);
       const inherited = parent?.attempts?.find((a) => a.attempt_id === source.parent_attempt_id)?.settings;
       const fireSettings = previous?.settings?.engine === "firered" ? previous.settings
@@ -676,7 +720,7 @@
         workflow_id: previous?.workflow_id || (source.recipe?.engine === "firered" ? source.recipe.id : undefined),
         workflow_version: previous?.workflow_version || (source.recipe?.engine === "firered" ? source.recipe.version : undefined),
       } : {
-        workflow_version: resumed?.workflow_version || (source.subject_reference || !isEditable(source) ? source.recipe?.version : state.spec.recipe?.version),
+        workflow_version: resumed?.workflow_version || (source.subject_reference || !isEditable(source) ? source.recipe?.version : state.spec?.recipe?.version),
         model_id: previous?.settings.model_id || metadata.model_id || defaults.model_id,
         aspect_ratio: previous?.settings.aspect_ratio || metadata.aspect_ratio || defaults.aspect_ratio,
         megapixels: previous?.settings.megapixels ?? metadata.megapixels ?? defaults.megapixels,
@@ -1075,7 +1119,7 @@
       ...(source.metadata.warnings || []),
     ];
     if (!isFireRed() && elements.model.selectedOptions[0]?.dataset.missing) warningValues.push("Le checkpoint historique est indisponible : choisissez un modèle installé avant le rendu.");
-    if (!isFireRed()) state.loraSlots.filter((slot) => slot.name && !(state.spec.loras || []).some((value) => value.comfy_name === slot.name)).forEach((slot) => warningValues.push(`LoRA indisponible : ${slot.name}`));
+    if (!isFireRed()) state.loraSlots.filter((slot) => slot.name && !(state.spec?.loras || []).some((value) => value.comfy_name === slot.name)).forEach((slot) => warningValues.push(`LoRA indisponible : ${slot.name}`));
     if (isFireRed() && !fireRedWorkflow(state.fireRedRecipe || {})) warningValues.push("La recette FireRed de cet essai est indisponible.");
     elements.warnings.hidden = !warningValues.length;
     elements.warnings.textContent = warningValues.join(" · ");
@@ -1088,13 +1132,15 @@
     elements.restart.title = "Repartir de la source de cette étape avec une conversation et des essais vides.";
     elements.projectName.disabled = !editable || Boolean(source.project_name);
     elements.stepName.disabled = !editable;
-    elements.buildPrompt.disabled = state.busy || !editable || !elements.instruction.value.trim() || !elements.llm.value;
+    elements.buildPrompt.disabled = state.busy || !editable || !elements.instruction.value.trim() || !elements.llm.value || !state.spec?.llm_models?.length;
     elements.promptLanguage.disabled = state.busy || !editable;
     elements.assistanceVersion.disabled = state.busy || !editable;
     elements.workflow.disabled = state.busy || !editable;
     elements.workflowDefaults.disabled = state.busy || !editable;
     elements.render.disabled = state.busy || !editable || Boolean(active) || !elements.prompt.value.trim()
-      || (isFireRed() ? !fireRedWorkflow(state.fireRedRecipe || {}) : !elements.model.value);
+      || (isFireRed() ? !fireRedWorkflow(state.fireRedRecipe || {})
+        : !state.spec?.render_models?.some(m => m.comfy_name === elements.model.value)
+          || state.loraSlots.some(slot => slot.name && !state.spec?.loras?.some(lora => lora.comfy_name === slot.name)));
     elements.cancel.disabled = !active;
     elements.processed.disabled = state.busy || Boolean(active) || projectVersion().status === "historical";
     elements.hide.disabled = state.busy || Boolean(active) || projectVersion().status === "historical";
@@ -1156,6 +1202,7 @@
           upscale.disabled = !canDlss(attempt);
           actions.append(upscale);
         }
+        if (window.PanelForgeDlss?.comparisonButton) actions.append(window.PanelForgeDlss.comparisonButton({ owner: "edit", ownerId: state.source.source_id, attempt }));
         if (state.spec?.retouch?.enabled && (isEditable() || attempt.retouch || attempt.upscale?.mask_asset_id)) {
           const retouch = document.createElement("button");
           retouch.type = "button";
@@ -1528,6 +1575,7 @@
       await refreshCurrent();
       if (state.source?.source_id !== source.source_id) return;
       render();
+      if (job.comparison && !job.select_result) return;
       elements.compareAfter.value = job.candidate_id;
       elements.compareBefore.value = job.snapshot.parent_attempt_id;
       renderComparison(); updateComparisonActions();

@@ -395,7 +395,7 @@ class Krea2EditWebTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('id="krea2-edit-lab-workspace"', html)
-        self.assertIn('/static/krea2-edit-lab.js?v=20260909.1', html)
+        self.assertIn('/static/krea2-edit-lab.js?v=20260913.1', html)
         self.assertIn('id="krea2-edit-workflow"', html)
         self.assertIn('id="krea2-edit-workflow-defaults"', html)
         self.assertIn('id="krea2-edit-compare-slider"', html)

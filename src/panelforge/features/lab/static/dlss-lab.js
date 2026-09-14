@@ -6,6 +6,8 @@
   const pending = new Map(), quickRequests = new Map(), inlinePanels = new Map(), unread = new Set();
   const videoOptions = Object.freeze({ size: "1.724", interpolate: true, hdr: false, intensity: 1, tone: 1, structure: 1,
     skin: -1, detail: 1, style: "Default", strict_neural: false, codec: "H.264 (NVIDIA NVENC)" });
+  const imageOptions = Object.freeze({ size: "1.5", interpolate: false, hdr: false, intensity: 1, tone: 1, structure: 1,
+    skin: -1, detail: 1, style: "Default", strict_neural: false, codec: "H.264 (NVIDIA NVENC)" });
   const isVideo = value => ["h3", "ref2v"].includes(value?.owner);
   const rootKey = value => `${value.owner}:${value.ownerId}:${value.attempt.dlss?.root_attempt_id || value.attempt.attempt_id}`;
   const jobKey = job => `${job.snapshot.owner}:${job.snapshot.owner_id}:${job.snapshot.root_attempt_id}`;
@@ -35,7 +37,9 @@
         <label><input name="strict_neural" type="checkbox"> Refuser le mode de repli</label>
         <label data-video>Encodage<select name="codec"><option>H.264 (NVIDIA NVENC)</option><option>H.264</option><option>H.265 (NVIDIA NVENC)</option></select></label>
         <label data-video><input name="hdr" type="checkbox"> Sortie HDR · source HDR uniquement</label>
-      </div></details><p data-error class="error-text" role="alert"></p><button data-start class="primary" type="submit">Lancer l’upscale</button>
+      </div><p data-image class="muted">Préréglages NR et modèle DLSS : Default · Masque automatique désactivé.</p>
+      <button type="button" data-image data-reset-image>Réglages initiaux de l’image</button></details>
+      <p data-error class="error-text" role="alert"></p><button data-start class="primary" type="submit">Lancer l’upscale</button>
     </form>
     <details class="dlss-runtime"><summary>Comfy local · <span data-runtime>état inconnu</span></summary>
       <div class="actions"><button type="button" data-control="free">Libérer la mémoire</button><button type="button" data-control="stop">Arrêter Comfy local</button><button type="button" data-control="restart">Redémarrer</button><a href="/api/dlss/runtime-log" target="_blank" rel="noopener">Journal local</a></div>
@@ -43,6 +47,39 @@
     </details><div class="dlss-jobs" aria-live="polite"></div>`;
   document.body.append(dialog);
   const $ = selector => dialog.querySelector(selector), form = $("form"), field = name => form.elements.namedItem(name);
+  const imageComparison = window.PanelForgeDlssImageComparison?.setup({ dialog, onSelect: job => {
+    selections.set(jobKey(job), job.candidate_id); unread.delete(job.job_id);
+    window.dispatchEvent(new CustomEvent("panelforge:dlss-complete", { detail: { ...job, select_result: true } }));
+    if (dialog.open) close();
+    updateBackground();
+  } });
+  const imageHelp = {
+    size: "×1,5 (Quality) agrandit la largeur et la hauteur de 50 %. ×1 conserve les dimensions ; ×2 et ×3 agrandissent davantage. Dans Edit, Taille de la source retrouve les dimensions de l’étape et réapplique son masque.",
+    style: "Choix de rendu du moteur : Default reprend son style standard ; Natural et Cinematic sont des variantes à comparer sur la même image. Le résultat dépend de l’image et du moteur.",
+    intensity: "Force globale du rendu neuronal (NR), de 0 à 2. La valeur initiale est 1 ; monter vers 2 demande un traitement plus marqué. Ce réglage ne change pas la taille de l’image.",
+    tone: "Force du traitement des tonalités locales, notamment les contrastes entre zones claires et sombres. Valeur initiale : 1 ; une valeur plus forte peut modifier davantage l’aspect de l’éclairage.",
+    structure: "Force du traitement des structures et textures locales. Valeur initiale : 1. Une valeur plus forte peut transformer davantage les textures ; elle ne garantit pas plus de fidélité à l’original.",
+    skin: "Force de structure dédiée à la peau. −1 conserve le comportement natif du moteur : ce n’est pas une intensité négative. Les valeurs de 0 à 2 imposent une force explicite ; leur effet dépend du traitement et du masquage du moteur.",
+    detail: "À 1, conserve la sortie du moteur sans amplification supplémentaire. Au-dessus de 1, amplifie les écarts de luminosité entre la source et le résultat. Ce contrôle ne lance pas une seconde passe neuronale.",
+    strict_neural: "Décoché par défaut : accepte le mode de repli si l’agrandissement neuronal n’est pas actif. Coché : le traitement échoue dans ce cas. Cette option contrôle l’acceptation du résultat, pas la force de l’effet."
+  };
+  Object.entries(imageHelp).forEach(([name, text]) => {
+    const label = field(name).closest("label");
+    const title = [...label.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    const wrapper = document.createElement("div"); wrapper.className = "dlss-field";
+    label.before(wrapper); wrapper.append(label);
+    const info = document.createElement("button"), help = document.createElement("span");
+    info.type = "button"; info.textContent = "i"; info.className = "dlss-help-button"; info.dataset.image = "";
+    info.title = text;
+    info.setAttribute("aria-label", `À propos de ${title.textContent.trim()}`);
+    info.setAttribute("aria-expanded", "false"); info.setAttribute("aria-controls", `dlss-help-${name}`);
+    help.id = `dlss-help-${name}`; help.className = "dlss-field-help"; help.textContent = text; help.hidden = true;
+    info.addEventListener("click", event => {
+      event.preventDefault(); event.stopPropagation(); help.hidden = !help.hidden;
+      info.setAttribute("aria-expanded", String(!help.hidden));
+    });
+    wrapper.append(info); label.append(help);
+  });
   const serviceButton = document.createElement("button");
   serviceButton.type = "button"; serviceButton.className = "runtime-button"; serviceButton.textContent = "DLSS local";
   document.querySelector(".runtime-maintenance")?.append(serviceButton);
@@ -56,7 +93,7 @@
   }));
   const payload = () => ({ owner: context.owner, owner_id: context.ownerId, attempt_id: context.attempt.attempt_id, settings: settings() });
   const draftKey = () => context ? `${context.owner}:${context.ownerId}:${context.attempt.attempt_id}` : null;
-  function remember() { if (context) drafts.set(draftKey(), { settings: settings(), requests: context.requests }); }
+  function remember() { if (context) drafts.set(draftKey(), { settings: settings(), requests: context.requests, comparison: imageComparison?.draft() }); }
   async function open(value) {
     if (sending) return;
     remember(); epoch += 1; context = value ? { ...value, requests: new Map() } : null;
@@ -64,13 +101,16 @@
     form.hidden = !context; $("[data-target]").textContent = context ? context.attempt.label || `Essai ${context.attempt.index || ""}` : "Moteur local et tâches DLSS";
     if (context) {
       const saved = drafts.get(draftKey());
+      imageComparison?.restore(context, saved?.comparison);
       context.requests = saved?.requests || new Map();
       const video = ["h3", "ref2v"].includes(context.owner);
-      const defaults = video ? videoOptions : { size: context.owner === "edit" ? "source" : "2", style: "Default", intensity: video ? 1 : 2,
-        tone: video ? 1 : 2, structure: video ? 1 : 2, skin: video ? -1 : 2, detail: 1, strict_neural: false, interpolate: false, hdr: false, codec: "H.264 (NVIDIA NVENC)" };
+      const defaults = video ? videoOptions : imageOptions;
       Object.entries(saved?.settings || defaults).forEach(([name, v]) => { if (field(name).type === "checkbox") field(name).checked = v; else field(name).value = v; });
       field("size").querySelector('[value="source"]').hidden = context.owner !== "edit";
       dialog.querySelectorAll("[data-video]").forEach(e => { e.hidden = !video; });
+      dialog.querySelectorAll("[data-image]").forEach(e => { e.hidden = video; });
+      dialog.querySelectorAll(".dlss-field-help").forEach(e => { e.hidden = true; });
+      dialog.querySelectorAll(".dlss-help-button").forEach(e => e.setAttribute("aria-expanded", "false"));
       const media = document.createElement(video ? "video" : "img");
       media.src = context.attempt.output_url; if (video) { media.controls = true; media.preload = "metadata"; } else media.alt = "Résultat sélectionné";
       $(".dlss-preview").append(media); preview();
@@ -78,12 +118,22 @@
     if (!dialog.open) dialog.showModal();
     renderJobs(); runtime(); poll();
   }
-  function close() { if (sending && !isVideo(context)) return; remember(); epoch += 1; clearTimeout(previewTimer); dialog.close(); }
+  function close() { if (sending && !isVideo(context) && !imageComparison?.batch()) return; remember(); epoch += 1; clearTimeout(previewTimer); dialog.close(); }
   $("[data-close]").addEventListener("click", close);
   dialog.addEventListener("cancel", e => { e.preventDefault(); close(); });
-  form.addEventListener("input", () => {
+  form.addEventListener("input", event => {
+    if (event.target.closest?.(".dlss-image-presets")) {
+      remember(); $("[data-start]").disabled = sending || !previewReady || !imageComparison.valid(); return;
+    }
     remember(); previewReady = false; $("[data-start]").disabled = true; epoch += 1;
     clearTimeout(previewTimer); previewTimer = setTimeout(preview, 350);
+  });
+  $("[data-reset-image]").addEventListener("click", () => {
+    if (!context || isVideo(context) || sending) return;
+    Object.entries(imageOptions).forEach(([name, value]) => {
+      if (field(name).type === "checkbox") field(name).checked = value; else field(name).value = value;
+    });
+    form.dispatchEvent(new Event("input", { bubbles: true }));
   });
   async function preview() {
     if (!context) return;
@@ -95,13 +145,15 @@
     try {
       const data = await request("/api/dlss/preview", payload());
       if (current !== epoch) return;
+      if (!isVideo(context)) imageComparison?.applyPreview(data);
       $("[data-dimensions]").textContent = `${data.input_metadata.width} × ${data.input_metadata.height} → ${data.output_dimensions.join(" × ")}`;
       if (context.attempt.dlss) $("[data-size-note]").textContent += " La nouvelle variante repart de l’original, sans empiler les passes DLSS.";
-      $("[data-error]").textContent = ""; previewReady = true; $("[data-start]").disabled = sending;
+      $("[data-error]").textContent = ""; previewReady = true; $("[data-start]").disabled = sending || (imageComparison && !imageComparison.valid());
     } catch (error) { if (current === epoch) { $("[data-error]").textContent = error.message; $("[data-dimensions]").textContent = ""; } }
   }
   form.addEventListener("submit", async event => {
     event.preventDefault(); if (!context || sending || !previewReady || !form.reportValidity()) return;
+    if (!isVideo(context) && imageComparison?.batch()) { await submitImageComparison(); return; }
     const body = payload(), key = JSON.stringify(body);
     if (!context.requests.has(key)) context.requests.set(key, requestId());
     body.request_id = context.requests.get(key); remember(); sending = true;
@@ -119,6 +171,28 @@
     }
     finally { sending = false; form.querySelectorAll("input,select,button").forEach(e => { e.disabled = false; }); updateBackground(); }
   });
+
+  async function submitImageComparison() {
+    if (!imageComparison.valid()) return;
+    const source = context, body = { ...payload(), preset_ids: imageComparison.batch() };
+    const key = JSON.stringify(body);
+    if (!source.requests.has(key)) source.requests.set(key, requestId());
+    body.request_id = source.requests.get(key); remember(); sending = true;
+    pending.set(rootKey(source), { sending: true, error: "" }); updateBackground();
+    form.querySelectorAll("input,select,button").forEach(e => { e.disabled = true; });
+    close();
+    try {
+      const data = await request("/api/dlss/image-comparisons", body);
+      data.jobs.forEach(trackQueued); pending.delete(rootKey(source)); await poll();
+    } catch (error) {
+      pending.set(rootKey(source), { sending: false, error: `${error.message} Rouvre Upscale DLSS et relance la même sélection pour reprendre l’envoi sans doublon.` });
+      $("[data-error]").textContent = error.message;
+    } finally {
+      sending = false; form.querySelectorAll("input,select,button").forEach(e => { e.disabled = false; });
+      imageComparison.applyPreview({ image_presets: [] }); previewReady = false;
+      updateBackground();
+    }
+  }
 
   function trackQueued(job) {
     if (!knownJobs.has(job.job_id)) {
@@ -159,13 +233,22 @@
     const text = document.createElement("p"); text.className = "dlss-progress-label";
     text.textContent = jobText(job); item.append(text);
     const size = document.createElement("small");
-    size.textContent = `${job.settings.size === "source" ? "Taille source" : "×" + job.settings.size}${job.settings.interpolate ? " · 60 FPS" : ""}`; item.append(size);
+    size.textContent = `${job.comparison ? job.comparison.label + " · " : ""}${job.settings.size === "source" ? "Taille source" : "×" + job.settings.size}${job.settings.interpolate ? " · 60 FPS" : ""}`; item.append(size);
+    if (job.comparison) {
+      const summary = document.createElement("p"); summary.textContent = imageComparison?.groupSummary(job) || ""; item.append(summary);
+      const details = document.createElement("details"), title = document.createElement("summary"), params = document.createElement("p");
+      title.textContent = "Réglages"; params.textContent = imageComparison?.describe(job.settings) || ""; details.append(title, params); item.append(details);
+    }
     if (job.status === "running" && Number.isFinite(job.progress?.percent)) {
       const bar = document.createElement("progress"); bar.max = 100; bar.value = job.progress.percent;
       bar.setAttribute("aria-label", job.progress.label); item.append(bar);
     }
     const note = document.createElement("p"); note.textContent = job.error || (job.warnings || []).join(" · "); item.append(note);
     const actions = document.createElement("div"); actions.className = "dlss-job-actions"; item.append(actions);
+    if (imageComparison && !job.snapshot.media_type.startsWith("video") && job.status === "succeeded") {
+      actions.append(imageComparison.button({ owner: job.snapshot.owner, ownerId: job.snapshot.owner_id,
+        preferredJobId: job.job_id, attempt: { attempt_id: job.snapshot.root_attempt_id } }));
+    }
     for (const [url, label, extension] of [[job.output_url, "Télécharger", job.snapshot.media_type.startsWith("video") ? "mp4" : "png"], [job.report_url, "Diagnostic", "json"]]) {
       if (url) { const link = document.createElement("a"); link.href = url; link.textContent = label; link.download = `${job.job_id}.${extension}`; actions.append(link); }
     }
@@ -204,6 +287,7 @@
     return item;
   }
   function updateBackground() {
+    imageComparison?.refresh(jobs);
     for (const [panel, value] of inlinePanels) {
       if (!panel.isConnected) { inlinePanels.delete(panel); continue; }
       const scope = rootKey(value), items = jobs.filter(j => jobKey(j) === scope);
@@ -224,6 +308,7 @@
     background.hidden = !working.length && !recent.length && !preparing && !errors.length;
     backgroundSummary.textContent = working.length ? `DLSS · ${working.length} tâche(s) · ${jobText(working[0])}`
       : preparing ? "DLSS · Préparation en arrière-plan" : errors.length ? "DLSS · Erreur au lancement" : "DLSS · Résultat disponible";
+    if (working[0]?.comparison && imageComparison) backgroundSummary.textContent = `DLSS image · ${imageComparison.groupSummary(working[0])} · ${jobText(working[0])}`;
     backgroundJobs.replaceChildren(...[...working, ...recent].map(j => renderJob(j)));
     for (const [key, value] of errors) {
       const note = document.createElement("p"); note.textContent = value.error;
@@ -274,7 +359,7 @@
         window.PanelForgeLabCore?.observeRenderOutcome?.(`dlss:${job.job_id}`, active.has(job.status) ? "running" : job.status);
         if (job.status === "succeeded" && knownJobs.has(job.job_id) && knownJobs.get(job.job_id) !== "succeeded") {
           unread.add(job.job_id);
-          if (!job.snapshot.media_type.startsWith("video")) {
+          if (!job.snapshot.media_type.startsWith("video") && !job.comparison) {
             selections.set(jobKey(job), job.candidate_id);
             window.dispatchEvent(new CustomEvent("panelforge:dlss-complete", { detail: job }));
           }
@@ -299,7 +384,10 @@
   }
   function picker(group, onChange) {
     const select = document.createElement("select"); select.className = "dlss-variant-picker"; select.setAttribute("aria-label", "Version du résultat");
-    group.variants.forEach((v, i) => select.add(new Option(i ? `DLSS ${i} · ${v.dlss.width} × ${v.dlss.height}` : "Original", v.attempt_id)));
+    group.variants.forEach((v, i) => {
+      const label = jobs.find(j => j.job_id === v.dlss?.job_id)?.comparison?.label;
+      select.add(new Option(i ? `${label || `DLSS ${i}`} · ${v.dlss.width} × ${v.dlss.height}` : "Original", v.attempt_id));
+    });
     select.value = group.attempt.attempt_id; select.hidden = group.variants.length < 2;
     select.addEventListener("change", () => { selections.set(group.key, select.value); onChange(select.value); }); return select;
   }
@@ -314,6 +402,7 @@
     }
     return button;
   }
-  window.PanelForgeDlss = Object.freeze({ open, button, groups, picker, inlineStatus });
+  window.PanelForgeDlss = Object.freeze({ open, button, groups, picker, inlineStatus,
+    comparisonButton: value => imageComparison?.button(value) || document.createElement("span") });
   poll();
 })();

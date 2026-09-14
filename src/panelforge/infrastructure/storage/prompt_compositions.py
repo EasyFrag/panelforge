@@ -32,7 +32,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 _COMPOSITION_KEYS = {
     "schema_version",
     "created_at",
@@ -173,7 +173,9 @@ class LocalPromptCompositionStore:
     ) -> tuple[PromptComposition, str, str]:
         _require_regular_file(path)
         data = _read_json_object(path)
-        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") in {3, 4} else set())
+        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") in {3, 4, 5} else set())
+        if data.get("schema_version") == 5:
+            expected_keys |= {"writer_model_id"}
         if set(data) != expected_keys:
             raise StorageCorruptionError(
                 "invalid prompt composition fields for "
@@ -182,7 +184,7 @@ class LocalPromptCompositionStore:
         schema_version = data.get("schema_version")
         if (
             isinstance(schema_version, bool)
-            or schema_version not in {1, 2, 3, _SCHEMA_VERSION}
+            or schema_version not in {1, 2, 3, 4, _SCHEMA_VERSION}
         ):
             raise StorageCorruptionError(
                 "unsupported prompt composition schema for "
@@ -231,6 +233,7 @@ def _composition_to_dict(
         "updated_at": updated_at,
         "source_session_id": composition.source_session_id,
         "preparation_intent": intent_to_dict(composition.preparation_intent),
+        "writer_model_id": composition.writer_model_id,
         "cookbook": {
             "cookbook_id": composition.cookbook.cookbook_id,
             "version": composition.cookbook.version,
@@ -297,6 +300,7 @@ def _composition_from_dict(
     return PromptComposition(
         source_session_id=data["source_session_id"],
         preparation_intent=intent_from_dict(data.get("preparation_intent")),
+        writer_model_id=data.get("writer_model_id"),
         cookbook=CookbookRef(
             cookbook_id=raw_cookbook["cookbook_id"],
             version=raw_cookbook["version"],

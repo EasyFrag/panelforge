@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260909.6', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260913.2', self.page)
         self.assertIn('<option value="3.0.0" selected>V3', self.page)
         self.assertIn('id="krea2-assisted-new-preset"', self.page)
         self.assertIn('id="krea2-assisted-preset-dialog"', self.page)
@@ -111,9 +111,11 @@ class Krea2AssistedUiTest(unittest.TestCase):
             self.script.index("async function openProject") :
             self.script.index("async function createProject")
         ]
-        self.assertIn("if (state.busy) return;", open_project)
+        self.assertIn("state.busy && !state.projectRequest", open_project)
+        self.assertIn("state.projectRequest?.abort()", open_project)
+        self.assertIn("if (state.projectRequest !== controller) return;", open_project)
         self.assertIn("setBusy(true);", open_project)
-        self.assertIn("finally {\n      setBusy(false);\n    }", open_project)
+        self.assertIn("state.projectRequest = null;\n        setBusy(false);", open_project)
 
     def test_attempt_cards_summarize_render_settings_and_loras(self):
         self.assertIn("settings.resolution || {}", self.script)

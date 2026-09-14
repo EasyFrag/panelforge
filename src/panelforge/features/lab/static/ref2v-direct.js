@@ -12,7 +12,7 @@
   const multishotCookbookId = "minimax.h3.ref2v.direct.multishot";
   const superFastCookbookId = "minimax.h3.ref2v.direct.multishot.superfast";
   const superFastCookbookVersion = "0.2.0";
-  const preferredCookbookValue = "minimax.h3.ref2v.direct.guided@1.1.0";
+  const preferredCookbookValue = "minimax.h3.ref2v.classic.cinematic.planned@1.0.0";
   const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame", "État visible complet à 0,00 s : sujets, pose, cadrage, perspective, décor, lumière et composition."],
@@ -34,6 +34,7 @@
     session: null,
     composition: null,
     busy: false,
+    writerSaving: false,
     quickRunning: false,
     superFastRunning: false,
     compoundRunning: false,
@@ -256,6 +257,11 @@
     );
   }
 
+  const writerModels = window.PanelForgePromptWriterModel.create({
+    prefix: "ref2vd", state, planner: elements.model,
+    cookbook: () => activeCookbookSpec() || state.cookbook,
+    request: core.request, render, busy: interactionLocked,
+  });
   const combatControls = window.PanelForgeCombatControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
   const cinematicControls = window.PanelForgeClassicCinematicControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
   const sensualControls = window.PanelForgeSensualControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked });
@@ -348,7 +354,8 @@
     const available = orderedDirectCookbooks();
     state.cookbook = available.find(
       (item) => cookbookValue(item) === preferredCookbookValue,
-    ) || available[0] || null;
+    ) || available.find((item) => cookbookValue(item) === "minimax.h3.ref2v.direct.guided@1.1.0")
+      || available[0] || null;
     elements.cookbook.value = state.cookbook ? cookbookValue(state.cookbook) : "";
   }
 
@@ -399,6 +406,8 @@
     const selected = elements.model.value;
     const payload = await core.request("/api/prompt-lab/models");
     window.PanelForgeModelPicker.populate(elements.model, payload.models || [], selected);
+    writerModels.populate(payload.models || []);
+    render();
   }
 
   async function loadSessions() {
@@ -438,7 +447,7 @@
   }
 
   async function openSession(sessionSummary) {
-    if (state.quickRunning || state.superFastRunning) return;
+    if (state.quickRunning || state.superFastRunning || state.writerSaving) return;
     const sessionId = sessionSummary.id;
     const requestId = ++state.openRequestId;
     let openedSuperFast = false;
@@ -454,6 +463,7 @@
       state.forkSource = null;
       state.session = session;
       state.composition = compositionPayload ? compositionPayload.composition : null;
+      writerModels.restore(state.composition?.writer_model_id);
       state.quickRecord = quickPipeline.load(session.id);
       openedSuperFast = Boolean(
         state.composition && isSuperFastReference(state.composition.cookbook),
@@ -739,6 +749,7 @@
     let created = false;
     setBusy(true);
     try {
+      writerModels.value();
       if (state.session) {
         if (!state.cookbook?.profile || state.composition) throw new Error("Ce run est d\u00e9j\u00e0 configur\u00e9.");
         // Retry only recipe persistence after a failed configuration request.
@@ -879,7 +890,7 @@
 
   function interactionLocked() {
     return state.busy || state.quickRunning || state.superFastRunning || state.compoundRunning
-      || Boolean(state.openingSessionId);
+      || state.writerSaving || Boolean(state.openingSessionId);
   }
 
   function currentBriefInputs() {
@@ -1134,6 +1145,8 @@
   }
 
   function render() {
+    // Recipe metadata can arrive after the initial slider setup.
+    updateCreativeAxes();
     const session = state.session;
     const compositionReference = state.composition && state.composition.cookbook
       ? state.composition.cookbook : null;
@@ -1190,6 +1203,7 @@
       || Boolean(state.forkSource) || state.drafts.length >= 9;
     elements.model.disabled = locked || Boolean(state.session);
     window.PanelForgeModelPicker.setDisabled(elements.model, elements.model.disabled);
+    writerModels.draw();
     elements.refreshModels.disabled = locked;
     elements.refreshSessions.disabled = locked;
     elements.sessionList.querySelectorAll(".session-link").forEach((button) => { button.disabled = locked; });
@@ -1817,7 +1831,10 @@
   }
 
   async function ensureComposition() {
-    if (state.composition) return;
+    if (state.composition) {
+      await writerModels.save();
+      return;
+    }
     if (!state.cookbook) throw new Error("Choisissez une recette Ref2V Direct.");
     const response = await core.request(
       `/api/prompt-lab/sessions/${state.session.id}/composition`,
@@ -1827,6 +1844,7 @@
         body: JSON.stringify({
           cookbook_id: state.cookbook.id,
           cookbook_version: state.cookbook.version,
+          writer_model_id: writerModels.value(),
           preparation_intent: preparationSteps() < 3 ? { source_text: elements.intention.value.trim(), ...creativePayload() } : null,
           bindings: { references: state.session.references.map((item) => item.id) },
         }),
@@ -2050,7 +2068,7 @@
   }
 
   function resetSession() {
-    if (state.quickRunning || state.superFastRunning) return;
+    if (state.quickRunning || state.superFastRunning || state.writerSaving) return;
     state.openRequestId += 1;
     state.openingSessionId = null;
     const preservedCookbook = activeCookbookSpec() || state.cookbook;
@@ -2062,6 +2080,7 @@
     combatControls.restore(null);
     cinematicControls.restore(null);
     sensualControls.restore(null);
+    writerModels.restore(null);
     state.cookbook = isSuperFastReference(preservedCookbook)
       ? superFastCookbookSpec()
       : preservedCookbook && directCookbooks().find(

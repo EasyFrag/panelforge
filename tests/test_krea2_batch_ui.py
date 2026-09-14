@@ -17,7 +17,7 @@ class Krea2BatchUiTest(unittest.TestCase):
     def test_exposes_recipe_batch_as_third_image_lab_mode(self):
         self.assertIn('id="krea2-batch-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-batch-lab"', self.page)
-        self.assertIn('/static/krea2-resource-ui.js?v=20260911.4', self.page)
+        self.assertIn('/static/krea2-resource-ui.js?v=20260913.1', self.page)
         self.assertIn('/static/krea2-batch-lab.js?v=20260907.8', self.page)
         self.assertIn('"krea2-batch-lab"', self.navigation)
 

@@ -1,5 +1,32 @@
 # Backlog produit
 
+## Priorités actives — 14 septembre 2026
+
+- **En cours : simplification du rendu H3 / REF2V.** Maquette demandée et créée :
+  [presets de rendu](proposals/render-presets-v2.html). Un seul preset pour le
+  prochain rendu, contrôles avancés repliés, quatre LoRA et fiches accessibles,
+  MP initiaux/après upscale et Seed Réutiliser visibles. Pas de zone de comparaison
+  ni de lancements en série BUNNY. Application non modifiée à ce stade.
+- **P1 — Évolution du prompting I2V / Mise en scène 1.1.** Mise en attente explicite
+  par l'utilisateur, à conserver. Première étape : réduire la redescription de la
+  frame initiale exacte tout en conservant les ancrages du Plan interne. Les bases
+  utiles pourront être adoptées explicitement en REF2V selon les rôles d'images.
+  Version expérimentale distincte, ancienne version conservée pour des essais
+  longs, deux appels et indépendance des familles maintenus. Voir le
+  [cadrage](proposals/bunny-sampling-presets.md).
+- **P2 — Améliorer l'analyse vidéo → intention française → H3/REF2V.** Inspiration
+  demandée : [video-to-h3-prompt](https://github.com/LoveRain1997/video-to-h3-prompt).
+  Enrichir l'outil déjà livré : chronologie causale, distinction action/caméra/montage,
+  réexamen limité des passages ambigus. Réutiliser le modèle vision sélectionné,
+  l'extraction et la transcription CPU actuels ; pas de nouveau service ni de
+  pipeline concurrent de rédaction H3. Discussion uniquement, aucun patch moteur.
+  [Analyse et proposition bornée](proposals/media-analysis-adaptive-p2.md).
+
+Les points datés ci-dessous conservent l'historique. Ces priorités du 14 septembre
+remplacent les anciennes priorités des travaux encore à faire ; la V1 d'analyse
+média et sa transcription sont déjà implémentées. La comparaison DLSS image
+existante n'est pas concernée par l'abandon de la comparaison BUNNY.
+
 **Point du 11 septembre — Analyse média** : transcription locale facultative implémentée, CPU par défaut sur demande utilisateur, GPU sélectionnable ; [guide 1.1](media-analysis-speech-1.1.md). Tests préparés à exécuter par l’utilisateur. Nouvelle discussion : distinguer une intention décrivant toute la scène (T2V) et une intention privilégiant action/changements/caméra/rythme quand des images sont déjà fournies (I2V/REF2V), sans supprimer les descriptions encore nécessaires selon le rôle des références. Attendre le retour d’essai avant modification des consignes sur ce point.
 
 Priorités fixées par l’utilisateur le 9 septembre 2026 : **combat P0**, **analyse vidéo/images vers prompt P1**. Recherche de seeds laissée de côté.
@@ -28,7 +55,7 @@ Contrainte confirmée : deux familles indépendantes, blocs communs à versions 
 
 Choix distinct de la recette technique BUNNY et du LoRA de rendu : `BUNNY` est le déclencheur de Weapon Combat, pas un mot universel de prompting. L’auteur déconseille d’empiler Weapon Combat avec Combat Base V2 ou un autre LoRA de mouvement fort. Forces des deux passes, netteté et qualité selon le mode restent à expérimenter par l’utilisateur. **Aucun test ou rendu automatique ; expérimentation réservée à l’utilisateur.**
 
-## P1 — Analyse vidéo / images vers intention française puis H3/REF2V — V1 implémentée
+## Livré — Analyse vidéo / images vers intention française puis H3/REF2V — ancienne P1
 
 **Implémentation autorisée et réalisée le 10 septembre**, après l’alignement ci-dessous : [guide V1 et tests utilisateur](media-analysis-1.0.md). Dans Video Lab, extrait sélectionnable, captures ajustables, images réordonnables et temps facultatifs ; un appel d’analyse, intention française éditable, transfert explicite vers H3/REF2V. Tests préparés et non exécutés. Extrait jusqu’à 60 s ; durée cible 5–15 s pour les rendus actuels. Les paragraphes suivants conservent le cadrage préalable, désormais mis en œuvre ; les mentions de discussion sans autorisation décrivent cet état antérieur.
 

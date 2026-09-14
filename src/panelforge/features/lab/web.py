@@ -21,6 +21,7 @@ from threading import Lock
 from time import perf_counter
 from typing import Annotated, Any, Callable, Literal
 from panelforge.domain.prompt_composition import PreparationIntent
+from panelforge.domain.prompt_writer import supports_writer_model
 from panelforge.domain.krea2_edit import KREA2_EDIT_REF_BOOST_MAX
 from panelforge.domain.firered_edit import FireRedEditSettings
 from panelforge.application.krea2_restage import DEFAULT_INSTRUCTION as RESTAGING_INSTRUCTION, RestagingConflictError
@@ -415,6 +416,12 @@ class CompositionConfigureBody(BaseModel):
     cookbook_version: str
     bindings: dict[str, list[str]]
     preparation_intent: BriefStructureBody | None = None
+    writer_model_id: str | None = None
+
+
+class CompositionWriterModelBody(BaseModel):
+    writer_model_id: str | None
+    expected_writer_model_id: str | None
 
 
 class PlanArbitrationBody(BaseModel):
@@ -850,6 +857,8 @@ def create_app(
                 await asyncio.to_thread(krea2_assisted.stop_render_worker)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
+    from .image_catalog import ImageLabCatalogs
+    image_catalogs = ImageLabCatalogs()
     app.include_router(media_analysis_router(media_analysis))
     h3_conversion = H3Ref2VConversionService(h3_render) if h3_render is not None else None
     krea2_models = (
@@ -2206,6 +2215,15 @@ def create_app(
             },
         }
 
+    @app.get("/api/image-lab/krea2-batch/resources/{resource_id}")
+    def krea2_resource_detail(resource_id: str) -> dict[str, object]:
+        service = _require_krea2_batch(krea2_batch)
+        try:
+            read = getattr(service.resources, "get_ui_detail", service.resources.get)
+            return serialize_krea2_resource(read(resource_id))
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Ressource introuvable dans le catalogue.") from error
+
     @app.post("/api/image-lab/krea2-batch/resources/{resource_id}/preference")
     def update_krea2_resource_preference(
         resource_id: str,
@@ -2246,6 +2264,9 @@ def create_app(
                     resource_id,
                     annotations,
                 )
+            publish = getattr(service.resources, "publish_ui_resource", None)
+            if callable(publish):
+                publish(resource)
             return serialize_krea2_resource(resource)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="KREA2 resource not found") from error
@@ -2256,7 +2277,11 @@ def create_app(
     def refresh_krea2_resource(resource_id: str) -> dict[str, object]:
         service = _require_krea2_batch(krea2_batch)
         try:
-            return serialize_krea2_resource(service.resources.refresh_remote(resource_id))
+            resource = service.resources.refresh_remote(resource_id)
+            publish = getattr(service.resources, "publish_ui_resource", None)
+            if callable(publish):
+                publish(resource)
+            return serialize_krea2_resource(resource)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="KREA2 resource not found") from error
 
@@ -2430,20 +2455,13 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/image-lab/krea2-assisted/spec")
-    def krea2_assisted_spec() -> dict[str, object]:
+    def krea2_assisted_spec(refresh: bool = False) -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
-        models = service.resources.list_models()
-        loras = service.resources.list_loras()
         return {
             "restaging": {"enabled": krea2_edit is not None and any(getattr(w, "requires_subject_reference", False) for w in krea2_edit.workflows),
                           "default_instruction": RESTAGING_INSTRUCTION},
             "assistance_recipes": service.list_assistance_recipes(),
-            "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
-            "render_models": [serialize_krea2_resource(resource) for resource in models],
-            "loras": [serialize_krea2_resource(resource) for resource in loras],
-            "resource_warnings": list(
-                getattr(service.resources, "inventory_warnings", lambda: ())()
-            ),
+            **image_catalogs.read(service.resources, service, _serialize_llm_model, refresh=refresh),
             "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
             "defaults": {
                 "aspect_ratio": Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
@@ -2810,30 +2828,8 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/image-lab/krea2-edit/spec")
-    def krea2_edit_spec() -> dict[str, object]:
+    def krea2_edit_spec(refresh: bool = False) -> dict[str, object]:
         service = _require_krea2_edit(krea2_edit)
-        render_models: list[object] = []
-        loras: list[object] = []
-        if krea2_batch is not None:
-            render_models = [
-                serialize_krea2_resource(resource)
-                for resource in krea2_batch.resources.list_models()
-            ]
-            loras = [
-                serialize_krea2_resource(resource)
-                for resource in krea2_batch.resources.list_loras()
-            ]
-        resource_warnings = (
-            list(
-                getattr(
-                    krea2_batch.resources,
-                    "inventory_warnings",
-                    lambda: (),
-                )()
-            )
-            if krea2_batch is not None
-            else []
-        )
         return {
             "recipe": {
                 "id": service.workflow.reference.recipe_id,
@@ -2842,7 +2838,8 @@ def create_app(
                 "workflow_sha256": service.workflow.reference.workflow_sha256,
                 "status": service.workflow.status,
             },
-            "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
+            **image_catalogs.read(krea2_batch.resources if krea2_batch else None, service,
+                                  _serialize_llm_model, refresh=refresh),
             "engines": [{"id": name, "name": "FireRed 1.1" if name == "firered" else "KREA2"}
                         for name in dict.fromkeys(item.engine for item in service.workflows)],
             "workflows": [{"id": item.reference.recipe_id, "engine": item.engine,
@@ -2850,9 +2847,6 @@ def create_app(
                            "version": item.reference.version, "name": item.display_name,
                            "workflow_sha256": item.reference.workflow_sha256, "defaults": item.defaults}
                           for item in service.workflows],
-            "render_models": render_models,
-            "loras": loras,
-            "resource_warnings": resource_warnings,
             "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
             "defaults": service.workflow.defaults,
             "limits": {
@@ -4253,6 +4247,7 @@ def create_app(
                     "writer_projection": cookbook.writer_projection,
                     "stages": list(cookbook.stages),
                     "preparation_steps": getattr(cookbook, "preparation_steps", 3),
+                    "supports_writer_model": supports_writer_model(cookbook.reference.cookbook_id, cookbook.reference.version),
                     "preparation": cookbook.preparation.as_dict(),
                     "vocal_policy_version": getattr(cookbook, "vocal_policy_version", None),
                     "profile": (
@@ -4333,8 +4328,19 @@ def create_app(
                         creative_audacity=body.preparation_intent.creative_audacity,
                     ) if body.preparation_intent is not None else None
                 ),
+                writer_model_id=body.writer_model_id,
             ),
         )
+
+    @app.put("/api/prompt-lab/sessions/{session_id}/composition/writer-model")
+    def set_composition_writer_model(
+        session_id: str, body: CompositionWriterModelBody,
+    ) -> dict[str, object]:
+        service = _require_prompt_composition(prompt_composition)
+        return _composition_action(service, lambda: service.set_writer_model(
+            session_id, body.writer_model_id,
+            expected_writer_model_id=body.expected_writer_model_id,
+        ))
 
     @app.post("/api/prompt-lab/sessions/{session_id}/super-fast/stream")
     def stream_super_fast_ref2v(
@@ -6443,6 +6449,8 @@ def serialize_prompt_composition(
         }
     return {
         "source_session_id": composition.source_session_id,
+        "writer_model_id": composition.writer_model_id,
+        "supports_writer_model": supports_writer_model(composition.cookbook.cookbook_id, composition.cookbook.version),
         "combat_sequence": _combat_sequence_summary(composition),
         "cinematic_sequence": _classic_sequence_summary(composition),
         "sensual_sequence": _sensual_sequence_summary(composition),

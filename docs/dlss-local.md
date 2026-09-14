@@ -10,8 +10,8 @@ Pour **H3 / REF2V**, le bouton **Upscale DLSS** lance directement **×1,724 + 60
 
 | Atelier | Taille par défaut | Comportement |
 | --- | --- | --- |
-| Edit | Taille de la source | Améliore la génération d’origine à ×2, revient à la taille source et réapplique le masque et l’harmonisation enregistrés, s’il y en a. Les pixels source hors masque et transition restent protégés. |
-| Assisted | ×2 | Traite l’image sélectionnée dans son ensemble. |
+| Edit | ×1,5 · Quality | Finition de toute l’image sélectionnée. Le choix explicite « Taille de la source » reste disponible pour continuer une étape avec son masque. |
+| Assisted | ×1,5 · Quality | Traite l’image sélectionnée dans son ensemble. |
 | H3 / REF2V | ×1,724 + 60 FPS | Lancement direct en arrière-plan ; conserve la durée et la présence d’audio. Le mode avancé permet notamment de garder la cadence source. |
 
 Dans Edit, choisir un facteur au lieu de « Taille de la source » effectue une **finition de toute l’image sélectionnée**, composite inclus. Les zones issues de la source peuvent alors changer aussi. Ce résultat conserve sa taille agrandie ; il ne porte pas l’ancien masque comme si ce masque avait protégé le traitement final. L’ancien candidat masqué reste disponible pour reprendre ce masque. Une nouvelle retouche sur la finition utilise cette image améliorée comme entrée et revient au contrat de taille source du comparateur.
@@ -20,7 +20,43 @@ Les facteurs proposés sont ×1 (DLAA), ×1,5, ×1,724, ×2 et ×3. Le panneau a
 
 Les réglages avancés reprennent les contrôles NR du workflow fourni. HDR désactivé, codec H.264 NVENC par défaut ; H.265 NVENC requis pour activer HDR. La fluidification passe réellement par le nœud d’interpolation avant la sauvegarde vidéo. L’interpolation et le changement de résolution restent deux opérations distinctes.
 
+### Réglages initiaux image et aides — 11 septembre 2026
+
+Les nouveaux panneaux image reprennent la capture fournie et les valeurs de `NvidiaDLSSImageUpscale` installé : taille ×1,5, intensité NR / tonalité locale / structure locale / détails de sortie à 1, structure peau à −1, style Default, repli autorisé. Les réglages fixes du graphe restent NR Preset Default, DLSS Model Preset Default, Automatic Mask désactivé. Auparavant, le panneau envoyait 2 pour les quatre forces NR, dont la peau, avec ×2 en Assisted et Taille source en Edit.
+
+Les boutons « i » à côté des réglages ouvrent une aide locale, utilisable au clavier ; le survol montre aussi l’explication. Le bouton « Réglages initiaux de l’image », dans les options avancées, restaure ces valeurs sans lancer de traitement. Les réglages déjà choisis restent mémorisés par image tant que le panneau est fermé puis rouvert dans le même onglet.
+
+−1 pour la peau est la valeur native, pas une force négative. Les valeurs natives et les choix de styles sont documentés dans le [projet d’origine](https://github.com/Merserk/dlss5-visual-enhancer#settings). Les effets précis dépendent du moteur et de l’image ; le contrôle Détails à 1 laisse la sortie du moteur intacte, tandis qu’une valeur supérieure amplifie les écarts de luminosité, sans seconde inférence, selon la [documentation du node installé](https://github.com/Konohamaru04/ComfyUI-NVIDIA-DLSS-Frame-Interpolation#sdr-output-detail-strength).
+
+Les requêtes API image partielles reçoivent également ces défauts ; les valeurs explicitement transmises restent prioritaires. Les bindings du workflow appliquent ces valeurs lors de la compilation : le graphe historique 0.1.0 reste immuable, et les tâches déjà enregistrées gardent leurs réglages et leur référence de workflow. Le mode Taille source conserve sa passe intermédiaire ×2 puis sa recomposition avec masque. Aucun changement des réglages vidéo.
+
+Cache CSS et panneau DLSS : **20260911.6**. Tests préparés, non exécutés : `tests.test_dlss_image_defaults`, `tests.test_dlss`, `tests.test_dlss_browser` (défauts jusqu’aux entrées du node, choix explicites, vidéo inchangée, aides et reset sans soumission, brouillons et dimensions). Après ses traitements, l’utilisateur redémarre le Lab pour l’API puis recharge la page. Aucun runtime, LLM, ComfyUI, rendu ou service lancé/modifié par l’agent.
+
 ## Résultats et historique
+
+### Comparer les préréglages image — 13 septembre 2026
+
+Dans **Upscale DLSS → Traitement de l’image**, choisir **Comparer des préréglages**. Le mode **Upscale unique** reste sélectionné à la première ouverture. Les cinq profils sont cochés initialement ; décocher ceux qui ne sont pas souhaités, puis **Lancer les N variantes**. La taille de sortie est commune à toute la série. Les réglages avancés constituent le point de départ de chaque profil ; la recette image est versionnée `1.0.0`.
+
+| Profil | Écart par rapport aux réglages actuels |
+| --- | --- |
+| Réglages actuels | Aucun |
+| Traitement doux | Intensité NR −0,25 |
+| Détails renforcés | Détails de sortie +0,15 |
+| Structure renforcée | Structure locale +0,20 |
+| Tonalité adoucie | Tonalité locale −0,20 |
+
+Les valeurs sont bornées aux plages du moteur. Un profil devenu identique au point de départ à une limite est désactivé pour éviter une exécution inutile. Style, peau, taille et refus du repli conservent les choix de l’utilisateur. Les valeurs effectives de chaque profil sont visibles avant lancement. Ces profils sont des points de comparaison, sans promesse de supériorité visuelle.
+
+Le panneau se ferme dès l’envoi ; la file DLSS existante exécute les variantes en arrière-plan, depuis la même source, avec un compteur **N/M variantes terminées**, les erreurs et l’annulation/reprise de chaque tâche. Une seule lecture des dimensions est nécessaire à l’admission de toute la série. En cas d’envoi interrompu, rouvrir le panneau dans le même onglet et relancer la même sélection reprend l’admission avec le même identifiant, sans dupliquer les tâches déjà enregistrées. Un identifiant réutilisé avec d’autres réglages est refusé. Les sorties prêtes restent disponibles si une autre variante échoue.
+
+**Comparer DLSS** apparaît sur la carte source et dans les résultats du suivi. Il ouvre deux panneaux avec Original / variantes terminées, réglages consultables, zoom commun, vue entière et affichage à 100 % des pixels de sortie. Défilement ou glissement à la souris synchronisent la zone examinée ; changer de variante conserve le cadrage. La comparaison propose les résultats de la même source et des mêmes dimensions que la variante sélectionnée. Les images sont chargées à l’ouverture du comparateur, sans précharger cinq sorties HD dans chaque carte.
+
+**Afficher cette variante dans l’atelier** sélectionne le candidat exact, qui peut ensuite être enregistré, utilisé pour un feedback ou validé comme auparavant. Une série ne sélectionne pas automatiquement son dernier résultat et ne rafraîchit pas l’atelier à chaque fin de tâche. Les tâches, profils, paramètres et liens de filiation sont persistés dans le journal DLSS existant ; après un refresh, les séries terminées restent comparables. Aucun schéma de projet ni fichier original n’est remplacé. Dans Edit, **Taille de la source** conserve la recomposition et le masque pour chaque variante.
+
+L’API supplémentaire `POST /api/dlss/image-comparisons` accepte uniquement `assisted` et `edit`, de un à cinq `preset_ids` distincts et les réglages communs. Les jobs gardent leur exécution, annulation et import individuels. H3/REF2V, leur admission simple, les paramètres vidéo, le worker partagé et les workflows versionnés restent inchangés.
+
+Assets DLSS image, DLSS commun, Assisted/Edit et CSS : **20260913.2**. Après les traitements, redémarrer le Lab pour charger la nouvelle route puis Ctrl+F5. Vérifications préparées pour l’utilisateur : `python -m unittest tests.test_dlss_image_comparison tests.test_dlss_image_comparison_browser tests.test_dlss_image_defaults tests.test_dlss_browser tests.test_dlss`. Elles utilisent uniquement les faux gateways et fixtures locales. Contrôles statiques effectués par l’agent, aucun test, navigateur ou upscale réel exécuté.
 
 - Chaque sortie est une **variante du rendu d’origine**, sélectionnable par Original / DLSS dans sa carte. Elle ne consomme pas de numéro de génération et ne remplace aucun fichier existant.
 - Feedback, téléchargement, export, validation Edit, reprise Assisted et continuation vidéo utilisent le candidat sélectionné. Les vignettes et la dernière frame d’une vidéo DLSS sont extraites de sa propre sortie.
@@ -30,7 +66,7 @@ Les réglages avancés reprennent les contrôles NR du workflow fourni. HDR dés
 
 ## Suivi vidéo en arrière-plan
 
-Le suivi apparaît sous la carte du rendu, avec un indicateur global discret qui reste accessible pendant la navigation. Le panneau avancé reste facultatif. Les commandes de prompt et de génération ne sont pas verrouillées par DLSS ; seuls les traitements DLSS partagent leur file locale. À la fin d’une vidéo DLSS, la sélection actuelle et le brouillon de prompt sont conservés. **Voir le résultat** sélectionne explicitement la variante et recharge les essais, sans réinitialiser le prompt ou les réglages. L’autosélection des images garde son comportement précédent.
+Le suivi apparaît sous la carte du rendu, avec un indicateur global discret qui reste accessible pendant la navigation. Le panneau avancé reste facultatif. Les commandes de prompt et de génération ne sont pas verrouillées par DLSS ; seuls les traitements DLSS partagent leur file locale. À la fin d’une vidéo DLSS, la sélection actuelle et le brouillon de prompt sont conservés. **Voir le résultat** sélectionne explicitement la variante et recharge les essais, sans réinitialiser le prompt ou les réglages. L’autosélection des upscales image uniques garde son comportement précédent ; les séries comparatives attendent un choix explicite.
 
 Les phases sont **Upscale**, **Fluidification 60 FPS**, **Enregistrement**, puis récupération/import et copie serveur. La barre affiche le pourcentage fourni par Comfy pour la phase courante, avec le temps écoulé ; elle peut donc repartir au début lors du passage à la phase suivante. Aucun pourcentage global de durée n’est inventé. Sans valeur mesurée, l’état reste textuel ; une progression ancienne est signalée comme en attente de mise à jour.
 

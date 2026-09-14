@@ -18,12 +18,13 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from threading import RLock
+from threading import Lock, RLock
 from typing import Any, Protocol
 import urllib.parse
 import urllib.request
 
 from panelforge.domain.krea2_lab import normalize_krea2_model_name
+from .background_snapshot import BackgroundSnapshot
 
 
 _MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth"}
@@ -431,6 +432,88 @@ class LocalKrea2ResourceCatalog:
         self._lock = RLock()
         self._inventory_warnings: dict[Krea2ResourceKind, tuple[str, ...]] = {}
         self._inventory_names: dict[Krea2ResourceKind, frozenset[str]] = {}
+        self._ui_init_lock = Lock()
+        self._ui_cache = None
+        self._ui_known: dict[str, dict] = {}
+        self._sidecars: dict[str, tuple[datetime, dict, str | None]] = {}
+
+    def ui_snapshot(self, *, force=False):
+        """Shared lightweight catalogue. No caller waits for remote discovery."""
+        with self._ui_init_lock:
+            if self._ui_cache is None:
+                scope = json.dumps([str(self.models_root), str(self.loras_root),
+                                    str(getattr(self.comfy, "base_url", ""))])
+                self._ui_cache = BackgroundSnapshot(
+                    self._load_ui_inventory,
+                    path=self._state_path.with_name("krea2_inventory_cache.json"), scope=scope,
+                    validate=self._valid_ui_inventory,
+                )
+        value, status = self._ui_cache.read(force=force)
+        if value:
+            self._ui_known = {item["resource_id"]: item
+                              for key in ("render_models", "loras") for item in value[key]}
+            for kind, key in ((Krea2ResourceKind.MODEL, "render_models"), (Krea2ResourceKind.LORA, "loras")):
+                self._inventory_names[kind] = frozenset(normalize_krea2_model_name(item["comfy_name"]) for item in value[key])
+        return value or {"render_models": [], "loras": [], "resource_warnings": []}, status
+
+    @staticmethod
+    def _valid_ui_inventory(value):
+        return isinstance(value, dict) and isinstance(value.get("resource_warnings"), list) and all(
+            isinstance(value.get(key), list) and all(
+                isinstance(item, dict) and item.get("kind") == kind
+                and isinstance(item.get("resource_id"), str) and isinstance(item.get("comfy_name"), str)
+                for item in value[key])
+            for key, kind in (("render_models", "model"), ("loras", "lora")))
+
+    def _load_ui_inventory(self):
+        values = {}
+        for kind, key in ((Krea2ResourceKind.MODEL, "render_models"), (Krea2ResourceKind.LORA, "loras")):
+            values[key] = [self._ui_summary(resource) for resource in self._scan(kind, details=False)]
+        values["resource_warnings"] = list(self.inventory_warnings())
+        return values
+
+    @staticmethod
+    def _ui_summary(resource):
+        value = serialize_krea2_resource(resource)
+        for key in ("description", "preview_urls", "trained_words"):
+            value.pop(key, None)
+        value["detail_url"] = f"/api/image-lab/krea2-batch/resources/{resource.resource_id}"
+        return value
+
+    def publish_ui_resource(self, resource):
+        """Preferences appear immediately, without another inventory scan."""
+        summary = self._ui_summary(resource)
+        self._ui_known = {**self._ui_known, resource.resource_id: summary}
+        if self._ui_cache is not None:
+            def update(value):
+                for key in ("render_models", "loras"):
+                    value[key] = [summary if item["resource_id"] == resource.resource_id else item for item in value[key]]
+                return value
+            self._ui_cache.patch(update)
+        return resource
+
+    def get_ui_detail(self, resource_id):
+        # IDs must belong to the configured inventory; never accept a client path.
+        self.ui_snapshot()
+        known = self._ui_known.get(resource_id)
+        if known is None:
+            raise KeyError(resource_id)
+        with self._lock:
+            state = self._load_state()
+            resource = self._remote_resource(known["comfy_name"], kind=Krea2ResourceKind(known["kind"]), state=state)
+            resource = self._reload_resource(resource, state)
+        return self.publish_ui_resource(resource)
+
+    def validate_selection(self, model_name, lora_names):
+        """Fresh names only, for the worker; never read every resource card."""
+        models = self._scan(Krea2ResourceKind.MODEL, details=False)
+        loras = self._scan(Krea2ResourceKind.LORA, details=False) if lora_names else ()
+        if normalize_krea2_model_name(model_name) not in {normalize_krea2_model_name(r.comfy_name) for r in models}:
+            raise ValueError("Le checkpoint sélectionné n’est plus disponible dans le catalogue KREA2.")
+        available = {normalize_krea2_model_name(r.comfy_name) for r in loras}
+        missing = [name for name in lora_names if normalize_krea2_model_name(name) not in available]
+        if missing:
+            raise ValueError("LoRA indisponible pour cet essai : " + ", ".join(missing))
 
     def list_models(self) -> tuple[Krea2Resource, ...]:
         return self._scan(Krea2ResourceKind.MODEL)
@@ -459,6 +542,11 @@ class LocalKrea2ResourceCatalog:
         )
 
     def get(self, resource_id: str) -> Krea2Resource:
+        if resource_id in self._ui_known:
+            known = self._ui_known[resource_id]
+            state = self._load_state()
+            return self._reload_resource(self._remote_resource(
+                known["comfy_name"], kind=Krea2ResourceKind(known["kind"]), state=state), state)
         for resource in self.list_models():
             if resource.resource_id == resource_id:
                 return resource
@@ -617,7 +705,7 @@ class LocalKrea2ResourceCatalog:
             return self._resource(path, root=root, kind=resource.kind, state=state)
         return self._remote_resource(resource.comfy_name, kind=resource.kind, state=state)
 
-    def _scan(self, kind: Krea2ResourceKind) -> tuple[Krea2Resource, ...]:
+    def _scan(self, kind: Krea2ResourceKind, *, details=True) -> tuple[Krea2Resource, ...]:
         root = self.models_root if kind is Krea2ResourceKind.MODEL else self.loras_root
         with self._lock:
             state = self._load_state()
@@ -625,9 +713,10 @@ class LocalKrea2ResourceCatalog:
             local_root_available = root.is_dir()
             if local_root_available:
                 result = [
-                    self._resource(path, root=root, kind=kind, state=state)
+                    self._resource(path, root=root, kind=kind, state=state, read_details=details)
                     for path in root.rglob("*")
-                    if path.is_file()
+                    if path.suffix.casefold() in _MODEL_EXTENSIONS
+                    and path.is_file()
                     and not path.is_symlink()
                     and path.suffix.casefold() in _MODEL_EXTENSIONS
                 ]
@@ -641,6 +730,8 @@ class LocalKrea2ResourceCatalog:
                         else self.comfy.list_lora_models()
                     )
                 except Exception as error:
+                    if not details:
+                        raise RuntimeError("Inventaire ComfyUI indisponible") from error
                     remote_names = ()
                     warnings.append(
                         "Inventaire ComfyUI des "
@@ -795,6 +886,7 @@ class LocalKrea2ResourceCatalog:
         root: Path,
         kind: Krea2ResourceKind,
         state: Mapping[str, Any],
+        read_details: bool = True,
     ) -> Krea2Resource:
         relative = path.relative_to(root).as_posix()
         prefix = "Krea2" if kind is Krea2ResourceKind.MODEL else "krea2"
@@ -807,11 +899,17 @@ class LocalKrea2ResourceCatalog:
             else {}
         )
         favorite = bool(preference.get("favorite", False))
-        sidecar, warning = _read_rgthree_sidecar(path)
+        cached = self._sidecars.get(resource_id)
+        if read_details and (cached is None or (self._clock() - cached[0]).total_seconds() >= 300):
+            sidecar, warning = _read_rgthree_sidecar(path)
+            self._sidecars[resource_id] = (self._clock(), sidecar, warning)
+        else:
+            sidecar, warning = (cached[1], cached[2]) if cached else ({}, None)
+        known = self._ui_known.get(resource_id, {})
         sidecar_safety = _sidecar_safety(sidecar)
         try:
             safety = Krea2ResourceSafety(
-                preference.get("safety", sidecar_safety.value)
+                preference.get("safety", known.get("safety", sidecar_safety.value) if not read_details else sidecar_safety.value)
             )
         except ValueError:
             safety = sidecar_safety
@@ -875,6 +973,7 @@ class LocalKrea2ResourceCatalog:
                 _preference_text(preference.get("display_name"))
                 or _sidecar_display_name(sidecar)
                 or _optional_text(remote.get("display_name"))
+                or (known.get("display_name") if not read_details else None)
                 or path.stem
             ),
             base_model=(
