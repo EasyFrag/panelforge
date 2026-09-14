@@ -2,6 +2,8 @@
 
 ## Goal
 
+- **Nouvelle version GitHub demandée le 14 septembre 2026** : publier l’état courant après l’optimisation Sensuel sans alignement, les correctifs de validation Plan et le déverrouillage LoRA KREA2, dans une branche snapshot et un tag dédiés, sans modifier le remote local ni la branche principale.
+
 - **Correctif du validateur Plan Sensuel autorisé et implémenté le 14 septembre 2026** : absorber sans nouvel appel LLM les deux écarts bénins observés dans les traces, tout en conservant le registre vocal exact et le rejet des vraies instructions caméra libres. Ne pas ajouter de tokens aux prompts ni modifier les recettes Classique/Combat.
 
 - **Correctif rapide KREA2 Modif autorisé le 14 septembre 2026** : empêcher les contrôles LoRA de rester désactivés après l’import d’une image. Corriger uniquement le cycle d’état de l’interface, sans modifier le catalogue, les compatibilités de modèles, les forces ni les réglages enregistrés.
@@ -31,6 +33,8 @@
 - **Contrainte confirmée par l’utilisateur les 2026-09-10/11, à préserver** : Combat, Classique et Sensuel sont trois familles de préparation indépendantes. Une modification spécifique ne change pas les deux autres. Partager uniquement les améliorations générales via un socle à versions exactes et une adoption explicite examinée ; aucun héritage de « latest » entre familles. Conserver familles, versions et réglages jusque dans les révisions conversationnelles, conversions et continuations. Application/file/rendu restent communs.
 
 ## Current state
+
+- **Snapshot GitHub `2026-09-14.2`** : contenu fonctionnel regroupé dans `75f1271781aadb576bff79a7f190f711cdc98e35` (16 fichiers, 202 ajouts, 70 suppressions) et publié sur `https://github.com/EasyFrag/panelforge.git`, branche `snapshots/lab-2026-09-14.2`. Le tag annoté `snapshot-lab-2026-09-14.2` pointe sur le commit documentaire final de cette livraison. Branche distante et tag déréférencé vérifiés ; branche locale `h3-video-lora` et remote local `origin` vers `D:\Code\panelforge` conservés. Inventaire, diff stagé, whitespace et motifs de credentials contrôlés sans inclure de données runtime. Vérifications statiques des patches terminées ; tests applicatifs non exécutés, aucun LLM/rendu/service lancé ou redémarré.
 
 - **Validateur Plan Sensuel corrigé après diagnostic des deux derniers rejets** : dans `sensual_cinematic._normalize_speech`, une balise `<d>English texte</d>` sans crochets est canonisée seulement si `texte` correspond exactement à une entrée de `spoken_lines` et si `English` est exactement sa langue déclarée ; une langue ou des mots différents restent rejetés. Dans le lint H3 commun, seule la formulation spatiale passive `from [the] camera position` est retirée de la détection de mouvement ; `camera position shifts`, `camera drifts` et les autres mouvements libres restent des erreurs. Cette exception générique corrige un faux positif du protocole commun sans changer les prompts ou les sorties des familles ; la tolérance vocale reste propre à Sensuel. Régressions ajoutées dans `test_sensual_cinematic` et `test_minimax_h3_protocol`, couvrant les deux cas acceptés et les deux contre-exemples rejetés. AST des quatre fichiers, gardes structurelles et `git diff --check` OK. Tests applicatifs non exécutés, aucun LLM/rendu/service lancé ou redémarré. Le Lab doit être redémarré par l’utilisateur pour charger le Python modifié.
 
@@ -706,6 +710,8 @@
 - Architecture proposée pour le rendu intégré H3 Base : un projet enfant persistant sous la composition, initialisé avec le prompt final et ses frames, porte des révisions de prompt de rendu, une conversation dédiée et des essais vidéo. Chaque tour d'édition reste un seul appel LLM direct depuis le prompt courant, sans Brief ni Plan, et ne modifie jamais la composition approuvée. Chaque essai conserve prompt effectif, réglages, seed, mode musique, run ComfyUI, MP4 et keyframes ; un essai sélectionné devient feedback visuel du tour suivant. `Music Off` force seulement la copie de rendu de `non_diegetic_music` à `N/A`, sans retirer dialogues ni sons diégétiques et sans réécrire le prompt canonique.
 
 ## Next steps
+
+- **Après la snapshot GitHub `2026-09-14.2`** : redémarrer le Lab pour charger les validateurs Python, faire Ctrl+F5 pour le correctif LoRA KREA2, puis valider les deux parcours. La snapshot est une branche/tag de sauvegarde ; aucune fusion automatique vers la branche principale ou modification du remote local n’a été effectuée.
 
 - **Valider le correctif Plan Sensuel** : l’utilisateur redémarre le Lab puis relance le Plan de la même session ou une préparation équivalente. Les formes `<d>English …</d>` correspondant exactement au registre et `from the camera position` ne doivent plus provoquer de retry ; toute parole différente ou vraie commande caméra doit encore être rejetée. Tests ciblés laissés à l’utilisateur : `tests.test_sensual_cinematic.SensualCinematicContractTest.test_plan_canonicalizes_exact_unbracketed_language_and_passive_camera_position` et `tests.test_minimax_h3_protocol.MiniMaxH3ProtocolTest.test_passive_camera_position_is_not_mistaken_for_camera_motion`.
 
