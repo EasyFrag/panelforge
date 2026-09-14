@@ -1,0 +1,1 @@
+n'ajoute aucun mouvement de caméra non demandé

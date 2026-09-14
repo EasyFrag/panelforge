@@ -32,7 +32,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 _COMPOSITION_KEYS = {
     "schema_version",
     "created_at",
@@ -66,6 +66,7 @@ _REVISION_KEYS_V1 = {
     "instruction",
 }
 _REVISION_KEYS_V2 = {*_REVISION_KEYS_V1, "compiler_context"}
+_REVISION_KEYS_V6 = {*_REVISION_KEYS_V2, "llm_call_id", "prompt_recipe_revision"}
 
 
 class LocalPromptCompositionStore:
@@ -173,8 +174,8 @@ class LocalPromptCompositionStore:
     ) -> tuple[PromptComposition, str, str]:
         _require_regular_file(path)
         data = _read_json_object(path)
-        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") in {3, 4, 5} else set())
-        if data.get("schema_version") == 5:
+        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") in {3, 4, 5, 6} else set())
+        if data.get("schema_version") in {5, 6}:
             expected_keys |= {"writer_model_id"}
         if set(data) != expected_keys:
             raise StorageCorruptionError(
@@ -184,7 +185,7 @@ class LocalPromptCompositionStore:
         schema_version = data.get("schema_version")
         if (
             isinstance(schema_version, bool)
-            or schema_version not in {1, 2, 3, 4, _SCHEMA_VERSION}
+            or schema_version not in {1, 2, 3, 4, 5, _SCHEMA_VERSION}
         ):
             raise StorageCorruptionError(
                 "unsupported prompt composition schema for "
@@ -265,6 +266,8 @@ def _document_to_dict(document: StageDocument) -> dict[str, object]:
                 "parent_revision_id": revision.parent_revision_id,
                 "instruction": revision.instruction,
                 "compiler_context": revision.compiler_context,
+                "llm_call_id": revision.llm_call_id,
+                "prompt_recipe_revision": revision.prompt_recipe_revision,
             }
             for revision in document.revisions
         ],
@@ -370,7 +373,7 @@ def _document_from_dict(
     raw_revisions = _require_list(document["revisions"], "revisions")
     revisions: list[CompositionRevision] = []
     revision_keys = (
-        _REVISION_KEYS_V1 if schema_version == 1 else _REVISION_KEYS_V2
+        _REVISION_KEYS_V6 if schema_version >= 6 else (_REVISION_KEYS_V1 if schema_version == 1 else _REVISION_KEYS_V2)
     )
     for raw_revision in raw_revisions:
         revision = _require_object(raw_revision, "revision")
@@ -379,6 +382,8 @@ def _document_from_dict(
         revisions.append(
             CompositionRevision(
                 revision_id=revision["revision_id"],
+                llm_call_id=revision.get("llm_call_id"),
+                prompt_recipe_revision=revision.get("prompt_recipe_revision"),
                 content=revision["content"],
                 origin=RevisionOrigin(revision["origin"]),
                 source_ids=tuple(

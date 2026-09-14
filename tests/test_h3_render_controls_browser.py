@@ -18,6 +18,9 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
         page = (STATIC / "index.html").read_text(encoding="utf-8")
         ratio_start = page.index('<label>Ratio<select id="h3r-ratio"')
         settings = '<div class="h3-render-settings">' + page[ratio_start:].split('</div>', 1)[0] + '</div>'
+        for field in ("steps", "spectrum"):
+            position = page.index(f'id="h3r-{field}"')
+            settings += page[page.rfind("<label", 0, position):page.index("</label>", position) + len("</label>")]
         script = r"""
         (async () => { try {
           const check = (ok, message) => { if (!ok) throw new Error(message); };
@@ -29,6 +32,7 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
             spec: {defaults: {aspect_ratio: '9:16 (Portrait Widescreen)', megapixels: 0.2, initial_megapixels: 0.2,
               duration_seconds: 6, steps: 25, seed_locked: true}, aspect_ratios: ['9:16 (Portrait Widescreen)'], limits: {initial_megapixels: {minimum: 0.1}}}};
           const specMode = 'h3-base'; let nextSeed = 100;
+          const loraEditor = null, checkpointPicker = null;
           const randomSeed = () => String(++nextSeed), inferredDuration = (_, fallback) => fallback;
           const renderWarnings = () => {}, renderControls = () => {}, connectPreview = () => {}, startPolling = () => {};
           const projectId = () => state.project.project_id;

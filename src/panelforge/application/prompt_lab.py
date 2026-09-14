@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .prompt_recipe_text import prompt_text
+
 from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings, SensualSettings
 
 from collections.abc import Callable, Iterator
@@ -125,6 +127,7 @@ class CompletionRequest:
     max_tokens: int | None = 262_144
     operation_id: str = "unspecified"
     include_reasoning: bool = False
+    trace_context: dict | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.include_reasoning, bool):
@@ -1728,17 +1731,13 @@ def creative_audacity_policy(value: int, *, preparation: VideoPreparationRef = V
         from .combat_preparation import combat_audacity_policy
         return combat_audacity_policy(value, preparation)
     return (
-        "Aucune initiative créative : complète seulement les transitions nécessaires et "
-        "n'ajoute aucune idée-signature non demandée."
+        prompt_text('prompt_lab.creative_audacity_policy.01', "Aucune initiative créative : complète seulement les transitions nécessaires et n'ajoute aucune idée-signature non demandée.")
         if value == 0
-        else "Initiative discrète : tu peux retenir un enrichissement thématique subtil, "
-        "sans en faire un événement autonome."
+        else prompt_text('prompt_lab.creative_audacity_policy.02', 'Initiative discrète : tu peux retenir un enrichissement thématique subtil, sans en faire un événement autonome.')
         if value == 1
-        else "Initiative affirmée : retiens exactement une idée-signature visuelle, "
-        "mémorable, thématique et non nécessaire à la simple interpolation des frames."
+        else prompt_text('prompt_lab.creative_audacity_policy.03', 'Initiative affirmée : retiens exactement une idée-signature visuelle, mémorable, thématique et non nécessaire à la simple interpolation des frames.')
         if value == 2
-        else "Initiative audacieuse : retiens une idée-signature visuelle forte et tu peux "
-        "l'accompagner d'au plus un effet de soutien cohérent ; ne multiplie pas les actions."
+        else prompt_text('prompt_lab.creative_audacity_policy.04', "Initiative audacieuse : retiens une idée-signature visuelle forte et tu peux l'accompagner d'au plus un effet de soutien cohérent ; ne multiplie pas les actions.")
     )
 
 
@@ -1804,30 +1803,24 @@ def creative_freedom_policy(
     )
     scene = (
         "n'ajoute aucune animation d'arrière-plan",
-        "peut ajouter un micro-mouvement naturel d'arrière-plan si la scène paraît vide",
-        "peut animer un ou deux éléments compatibles du décor",
-        "peut enrichir plusieurs éléments compatibles du décor et de l'ambiance",
+        prompt_text('prompt_lab.creative_freedom_policy.01', "peut ajouter un micro-mouvement naturel d'arrière-plan si la scène paraît vide"),
+        prompt_text('prompt_lab.creative_freedom_policy.02', 'peut animer un ou deux éléments compatibles du décor'),
+        prompt_text('prompt_lab.creative_freedom_policy.03', "peut enrichir plusieurs éléments compatibles du décor et de l'ambiance"),
     )[resolved.scene_life]
     camera = (
-        "n'ajoute aucun mouvement de caméra non demandé",
-        "peut ajouter un mouvement de caméra subtil si le plan en bénéficie",
-        "peut choisir un mouvement de caméra clairement perceptible et compatible",
-        "peut composer plusieurs mouvements de caméra compatibles si le rythme le justifie",
+        prompt_text('prompt_lab.creative_freedom_policy.04', "n'ajoute aucun mouvement de caméra non demandé"),
+        prompt_text('prompt_lab.creative_freedom_policy.05', 'peut ajouter un mouvement de caméra subtil si le plan en bénéficie'),
+        prompt_text('prompt_lab.creative_freedom_policy.06', 'peut choisir un mouvement de caméra clairement perceptible et compatible'),
+        prompt_text('prompt_lab.creative_freedom_policy.07', 'peut composer plusieurs mouvements de caméra compatibles si le rythme le justifie'),
     )[resolved.camera]
     motion = (
-        "n'ajoute aucun mouvement de sujet ou d'objet non demandé",
-        "peut ajouter un micro-mouvement secondaire naturel si l'action paraît figée",
-        "peut ajouter un mouvement secondaire compatible au sujet ou à un objet",
-        "peut ajouter plusieurs mouvements secondaires compatibles sans créer un nouvel événement narratif",
+        prompt_text('prompt_lab.creative_freedom_policy.08', "n'ajoute aucun mouvement de sujet ou d'objet non demandé"),
+        prompt_text('prompt_lab.creative_freedom_policy.09', "peut ajouter un micro-mouvement secondaire naturel si l'action paraît figée"),
+        prompt_text('prompt_lab.creative_freedom_policy.10', 'peut ajouter un mouvement secondaire compatible au sujet ou à un objet'),
+        prompt_text('prompt_lab.creative_freedom_policy.11', 'peut ajouter plusieurs mouvements secondaires compatibles sans créer un nouvel événement narratif'),
     )[resolved.extra_motion]
     return (
-        f"{legacy_band}. Ces niveaux sont des autorisations, jamais des quotas : "
-        "n'enrichis que les "
-        "moments trop vides ou trop lents, sans contredire les frames, l'intention, "
-        "les dialogues ni la continuité physique. "
-        f"Vie de la scène {resolved.scene_life}/3 : {scene}. "
-        f"Caméra {resolved.camera}/3 : {camera}. "
-        f"Mouvements additionnels {resolved.extra_motion}/3 : {motion}."
+        prompt_text('prompt_lab.creative_freedom_policy.12', "{value1}. Ces niveaux sont des autorisations, jamais des quotas : n'enrichis que les moments trop vides ou trop lents, sans contredire les frames, l'intention, les dialogues ni la continuité physique. Vie de la scène {value2}/3 : {value3}. Caméra {value4}/3 : {value5}. Mouvements additionnels {value6}/3 : {value7}.", value1=legacy_band, value2=resolved.scene_life, value3=scene, value4=resolved.camera, value5=camera, value6=resolved.extra_motion, value7=motion)
         + (" " + vocal_policy(resolved.dialogue) if resolved.dialogue else "")
     )
 

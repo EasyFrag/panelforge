@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from panelforge.domain.video_preparation import VideoPreparationRef
 from .combat_preparation import CombatRevisionPolicy
+from .prompt_recipes import PromptRecipeStore
 from panelforge.domain.h3_render import validate_h3_initial_megapixels
 from panelforge.domain.h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
 
@@ -274,6 +275,8 @@ class H3RenderService:
         compositions: H3RenderCompositions,
         combat_revision_policies: tuple[CombatRevisionPolicy, ...] = (),
         application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
+        prompt_recipes: PromptRecipeStore | None = None,
+        llm_traces=None,
         run_timeout: float = 3600.0,
         poll_interval: float = 1.0,
         project_id_factory: Callable[[], str] | None = None,
@@ -299,6 +302,8 @@ class H3RenderService:
         self.sessions = sessions
         self.compositions = compositions
         self.application_outcomes = application_outcomes
+        self.prompt_recipes = prompt_recipes
+        self.llm_traces = llm_traces
         self.run_timeout = run_timeout
         self.poll_interval = poll_interval
         self._project_id_factory = project_id_factory or (lambda: f"h3-render-{uuid4().hex}")
@@ -765,6 +770,14 @@ class H3RenderService:
                 model_loading=model_loading,
                 warnings=(duration_warning,) if duration_warning else (),
             )
+            if self.llm_traces is not None:
+                from .prompt_recipes import preparation_call_ids
+                try:
+                    composition = self.compositions.get(project.source_session_id)
+                except KeyError:
+                    composition = None
+                calls = preparation_call_ids(composition, project.source_prompt_revision_id) if composition else []
+                self.llm_traces.snapshot(project, attempt, preparation_calls=calls)
             project = replace(project, current_prompt=prompt)
             return self.projects.save(project.add_attempt(attempt))
 
@@ -957,6 +970,45 @@ class H3RenderService:
             return self.projects.save(self.projects.get(project_id).resume_attempt(attempt_id))
 
     def _completion_request(
+        self,
+        project: H3RenderProject,
+        message: str,
+        include_reasoning: bool,
+        creative_audacity: int | None,
+        *,
+        repair_error: str | None = None,
+        repair_draft: str | None = None,
+    ) -> CompletionRequest:
+        from .prompt_recipes import EDITABLE_KEYS
+        from .prompt_recipe_text import using_prompt_texts
+        package = None
+        if self.prompt_recipes is not None:
+            # A source workshop may since have switched recipe/family. The render
+            # keeps its own preparation identity, including for future adjustments.
+            mode = "ref2v" if project.input_mode is H3RenderInputMode.REF2VA else "fl2va"
+            family = "classic.cinematic" if project.preparation.is_classic_cinematic else project.preparation.family
+            key = (f"minimax.h3.{mode}.{family}.planned", project.preparation.version)
+            if key in EDITABLE_KEYS:
+                package = self.prompt_recipes.get(*key)
+        with using_prompt_texts(package["fields"] if package else None):
+            request = self._completion_request_scoped(project, message, include_reasoning, creative_audacity,
+                repair_error=repair_error, repair_draft=repair_draft)
+        system = request.system_prompt
+        if package and package["fields"].get("render.system"):
+            system = package["fields"]["render.system"]
+            if project.preparation.is_combat:
+                with using_prompt_texts(package["fields"]):
+                    system += _combat_action_policy(project)
+        return replace(request, system_prompt=system, trace_context={
+            "session_id": project.source_session_id, "project_id": project.project_id,
+            "stage": "render_adjustment", "turn_id": project.turns[-1].turn_id,
+            "recipe_revision": package["revision"] if package else None,
+            "cookbook_id": package["cookbook_id"] if package else None,
+            "cookbook_version": package["version"] if package else None,
+            "source_prompt_revision_id": project.source_prompt_revision_id,
+        })
+
+    def _completion_request_scoped(
         self,
         project: H3RenderProject,
         message: str,

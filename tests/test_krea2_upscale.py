@@ -177,7 +177,7 @@ class UpscaleTest(unittest.TestCase):
     def test_old_project_schemas_and_image_orientation(self):
         path = self.root / "krea2_edits" / self.source.source_id / "source.json"
         data = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(data["schema_version"], 11)
+        self.assertEqual(data["schema_version"], 12)
         for schema in range(1, 9):
             legacy = {**data, "schema_version": schema}
             for attempt in legacy["attempts"]:

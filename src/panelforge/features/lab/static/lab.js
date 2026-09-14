@@ -130,9 +130,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     "drop-preview", "source-thumb", "source-kind", "source-name", "azimuths",
     "elevation", "shot-size", "lora-strength", "lora-value", "lora-warning",
     "seed", "compiled-prompt", "form-error", "generate", "run-status",
+    "change-view-render-settings", "change-view-steps", "change-view-megapixels",
+    "change-view-aspect-ratio", "change-view-reset-settings",
     "source-caption", "source-empty", "source-large", "result-caption",
     "result-empty", "result-loading", "result-image", "run-message", "keep",
-    "reject", "reuse", "refresh", "history-empty", "history-list",
+    "reject", "reuse", "change-view-download", "refresh", "history-empty", "history-list",
     "release-llm-vram", "release-comfy-vram", "runtime-message",
     "runtime-monitor", "runtime-server-monitor", "runtime-vram", "runtime-temp",
     "runtime-local-monitor", "runtime-local-vram", "runtime-local-temp",
@@ -166,6 +168,7 @@ function bindEvents() {
   ui.elevation.addEventListener("change", previewPrompt);
   ui["shot-size"].addEventListener("change", previewPrompt);
   ui["lora-strength"].addEventListener("input", renderLora);
+  ui["change-view-reset-settings"].addEventListener("click", () => restoreRenderSettings());
   ui["run-form"].addEventListener("submit", startRun);
   ui.keep.addEventListener("click", () => review("kept"));
   ui.reject.addEventListener("click", () => review("rejected"));
@@ -457,6 +460,24 @@ async function loadSpec() {
       min: lora.minimum, max: lora.maximum, step: lora.step, value: lora.default,
     });
     ui.seed.value = String(controls.seed.default);
+    const renderControls = state.spec.render_controls;
+    ui["change-view-render-settings"].hidden = !renderControls;
+    ui["change-view-render-settings"].disabled = !renderControls;
+    if (renderControls) {
+      Object.assign(ui["change-view-steps"], {
+        min: renderControls.steps.minimum, max: renderControls.steps.maximum,
+      });
+      Object.assign(ui["change-view-megapixels"], {
+        min: renderControls.megapixels.minimum, max: renderControls.megapixels.maximum,
+      });
+      renderSelect(ui["change-view-aspect-ratio"], {
+        default: renderControls.aspect_ratio.default,
+        options: renderControls.aspect_ratio.options.map(value => ({
+          value, label: value === "source" ? "Automatique · image source" : value,
+        })),
+      });
+      restoreRenderSettings();
+    }
     renderLora();
     await previewPrompt();
   } catch (error) {
@@ -482,6 +503,14 @@ function renderAzimuths(control) {
     label.append(input, text);
     ui.azimuths.append(label);
   });
+}
+
+function restoreRenderSettings(controls = {}) {
+  const defaults = state.spec?.render_controls;
+  if (!defaults) return;
+  ui["change-view-steps"].value = controls.steps ?? defaults.steps.default;
+  ui["change-view-megapixels"].value = controls.megapixels === "auto" ? "" : (controls.megapixels ?? "");
+  ui["change-view-aspect-ratio"].value = controls.aspect_ratio ?? defaults.aspect_ratio.default;
 }
 
 function renderSelect(select, control) {
@@ -572,6 +601,12 @@ async function startRun(event) {
   for (const [key, value] of Object.entries(view)) data.append(key, value);
   data.append("lora_strength", ui["lora-strength"].value);
   data.append("seed", seed);
+  if (state.spec.render_controls) {
+    data.append("steps", ui["change-view-steps"].value);
+    const megapixels = ui["change-view-megapixels"].value.trim();
+    if (megapixels) data.append("megapixels", megapixels);
+    data.append("aspect_ratio", ui["change-view-aspect-ratio"].value);
+  }
 
   setBusy(true);
   try {
@@ -624,6 +659,15 @@ function renderRun(run) {
   } else ui["result-image"].hidden = true;
   const ready = run.status === "succeeded";
   for (const button of [ui.keep, ui.reject, ui.reuse]) button.disabled = !ready;
+  const download = ui["change-view-download"];
+  download.hidden = !ready || !run.result_url;
+  if (!download.hidden) {
+    download.href = run.result_url;
+    download.download = `qwen-angle-${run.run_id}.png`;
+  } else {
+    download.removeAttribute("href");
+    download.removeAttribute("download");
+  }
   ui.keep.classList.toggle("selected", run.decision === "kept");
   ui.reject.classList.toggle("selected", run.decision === "rejected");
   if (run.source_url && !state.file && !state.sourceAssetId) {
@@ -689,7 +733,15 @@ async function openRun(runId) {
     state.file = null;
     state.sourceAssetId = run.source_asset_id;
     showSource(run.source_url, run.source_asset_id, "Asset historique");
+    for (const input of ui.azimuths.querySelectorAll("input")) input.checked = input.value === run.controls.azimuth;
+    ui.elevation.value = run.controls.elevation;
+    ui["shot-size"].value = run.controls.shot_size;
+    ui["lora-strength"].value = run.controls.multiple_angles_lora_strength;
+    ui.seed.value = run.controls.seed;
+    restoreRenderSettings(run.controls);
+    renderLora();
     renderRun(run);
+    updateGenerate();
   } catch (error) { showError(error.message); }
 }
 

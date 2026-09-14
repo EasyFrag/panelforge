@@ -9,6 +9,51 @@ Ce document décrit le rangement et la traçabilité, sans modifier de consigne,
 recette, validateur ou appel. Le texte joint par l'utilisateur sert uniquement
 à identifier l'assemblage ; ses instructions et son contenu ne sont pas adoptés.
 
+## Précision utilisateur : éditeur simple et historique durable
+
+L'utilisateur veut pouvoir modifier une consigne, enregistrer, puis utiliser
+automatiquement cette modification pour les prochains runs de la recette.
+Sélectionner une ancienne version et l'appliquer doit la réactiver. Il souhaite
+aussi consulter les échanges LLM une fois la vidéo terminée. Il accepte un
+rangement de fichiers plus simple comme alternative si un écran serait trop lourd.
+
+Recommandation : un petit écran **Recettes LLM**, accessible depuis « Consignes
+LLM », limité aux recettes actuelles. Une recette, une étape Plan/Rédaction/
+Ajustement, un éditeur, un sélecteur de révision, un bouton **Enregistrer et
+appliquer**. Une révision choisie dans l'historique peut être réactivée par
+**Appliquer cette version**. La portée est explicite (famille, mode ou modes
+concernés), sans propagation aux autres familles. Un numéro automatique de
+révision suffit ; pas de gestion de branches Git, de diff ou d'éditeur complexe
+imposée à l'utilisateur. Les sources restent des fichiers et la révision active
+une petite référence persistante ; pas de nouvelle base de données ou service.
+
+Une sauvegarde crée une révision immuable et la rend active, sans écraser la
+précédente. Tout nouveau cycle de préparation ou d'ajustement de la recette
+utilise cette révision, y compris depuis un projet déjà ouvert. Les appels
+déjà effectués restent inchangés. Un Writer poursuivant un Plan existant garde
+le paquet de consignes de ce Plan ; une nouvelle préparation utilise le paquet
+actif. Le changement devient ainsi le défaut persistant sans devoir sélectionner
+la version à chaque lancement, sans modifier rétroactivement une préparation.
+Un nouveau rendu utilisant un prompt H3 déjà rédigé ne fait pas d'appel LLM :
+la modification des consignes prend effet à la prochaine préparation ou au
+prochain ajustement, pas en réécrivant automatiquement le prompt lors du rendu.
+
+Depuis un rendu terminé : **Échanges LLM** liste les appels qui y ont réellement
+contribué, et les ajustements associés. Pour chaque appel : système exact, user/
+contexte/schéma exacts, réponse et raisonnement s'il a été fourni, modèle, date,
+étape, révision et résultat/erreur. Chargement à la demande ; les images restent
+référencées par leurs assets, sans duplication de leurs octets. Une erreur de
+préparation survenue avant l'appel est indiquée comme telle, sans inventer de
+message « envoyé ». Les traces doivent être liées durablement à la préparation
+et au rendu ; le journal tournant de vingt appels ne suffit pas.
+
+Les anciennes traces déjà évincées ne peuvent pas être recréées fidèlement à
+partir des fichiers actuels. Réutiliser seulement les traces dont l'association
+au run est certaine, et signaler ce qui manque. Le stockage doit garantir les
+futurs runs et ne pas présenter une reconstruction comme un appel historique.
+Cette précision remplace l'approche « éditeur externe seulement » comme option
+recommandée ; la simple arborescence reste l'alternative proposée par l'utilisateur.
+
 ## Constat dans l'état sauvegardé
 
 - Le début `REFERENCE AND CONTINUITY RULES` existe dans
@@ -54,7 +99,8 @@ Le panneau s'ouvre sur la famille, la version et le mode déjà sélectionnés.
   liste courte des sources de cette étape et identification des blocs partagés.
 - **Message assemblé** : texte système complet pour les réglages actuels,
   copier/exporter `.txt` ; section distincte pour contexte user et schéma technique.
-- **Dernier appel** : copie réellement envoyée, date, étape, modèle et empreinte.
+- **Échanges du rendu** : copies réellement envoyées, date, étape, modèle et empreinte,
+  accessibles après génération et conservées au-delà du journal tournant.
   Ne jamais présenter un assemblage calculé aujourd'hui comme le texte historique.
 
 La prévisualisation utilise le même assemblage que le vrai appel, sans génération
@@ -84,15 +130,18 @@ de contexte restent des variables, pas du texte utilisateur collé dans le syst�
 Extraire les formulations humaines encore dans Python, en conservant calculs,
 validation, schémas et compilation en code.
 
-Les fichiers se modifient dans l'éditeur habituel. **Actualiser les consignes**
-valide et capture leur révision pour une nouvelle préparation, sans redémarrer
-le Lab. Un contenu invalide est signalé ; il n'écrase pas la dernière révision
-utilisable. Pas de surveillance permanente de toute l'arborescence nécessaire.
+L'écran proposé enregistre les fichiers et active leur révision, sans redémarrer
+le Lab. Si l'alternative d'édition externe est finalement choisie, un bouton
+**Actualiser les consignes** pourra valider et capturer les modifications.
+Un contenu invalide est signalé ; il n'écrase pas la dernière révision utilisable.
+Un seul mécanisme de stockage/activation doit servir ces accès, sans surveillance
+permanente de toute l'arborescence nécessaire.
 
 Le paquet de consignes est figé au début d'une préparation : un Plan en cours
 et son Writer conservent la même révision, même si un fichier est modifié entre
-les deux appels. Les anciens projets conservent leurs versions ; reprendre avec
-des sources modifiées est un choix explicite, pas un effet du rafraîchissement.
+les deux appels. Les historiques conservent leurs versions ; les nouveaux cycles
+adoptent la révision active, même depuis un ancien projet. Le rechargement visuel
+d'une page ne déclenche ni préparation ni changement d'un appel enregistré.
 Enregistrer l'empreinte du paquet et le texte réellement envoyé avec l'appel
 ou sa préparation, avec une référence durable indépendante du journal tournant.
 

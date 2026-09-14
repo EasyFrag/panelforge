@@ -153,6 +153,35 @@ class Krea2EditWebTest(unittest.TestCase):
         self.client.close()
         self.temporary.cleanup()
 
+    def test_crop_endpoint_validates_rectangle_and_returns_a_clean_next_stage(self):
+        from io import BytesIO
+        from PIL import Image
+        from panelforge.infrastructure.edit_images import PillowEditImages
+
+        self.edit.edit_images = PillowEditImages()
+        content = BytesIO()
+        Image.new("RGB", (20, 12), "navy").save(content, format="PNG")
+        uploaded = self.client.post("/api/image-lab/krea2-edit/sources",
+                                    files={"source_image": ("wall.png", content.getvalue(), "image/png")})
+        source = uploaded.json()["source"]
+        url = f'/api/image-lab/krea2-edit/sources/{source["source_id"]}/crop'
+        body = {"request_id": "crop-http", "source_asset_id": source["source_asset_id"], "restart_count": 0,
+                "source_width": 20, "source_height": 12, "x": 2, "y": 1, "width": 10, "height": 8}
+        for changes, status in (({"width": 30}, 422), ({"x": True}, 422),
+                                ({"source_height": 13}, 409), ({"source_asset_id": "another"}, 409)):
+            with self.subTest(changes=changes):
+                self.assertEqual(self.client.post(url, json={**body, **changes}).status_code, status)
+        response = self.client.post(url, json=body)
+        self.assertEqual(response.status_code, 201, response.text)
+        child = response.json()["source"]
+        self.assertEqual(child["stage_index"], 2)
+        self.assertIsNone(child["generated_prompt"])
+        self.assertIsNone(child["metadata"]["prompt"])
+        again = self.client.post(url, json=body)
+        self.assertEqual(again.status_code, 201, again.text)
+        self.assertEqual(again.json()["source"]["source_id"], child["source_id"])
+        self.assertEqual(self.gateway.requests, [])
+
     def test_recent_backlog_loads_three_projects_and_keeps_the_open_older_project(self):
         uploaded = self.client.post("/api/image-lab/krea2-edit/sources",
                                     files={"source_image": ("wall.png", PNG, "image/png")})
@@ -395,7 +424,7 @@ class Krea2EditWebTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('id="krea2-edit-lab-workspace"', html)
-        self.assertIn('/static/krea2-edit-lab.js?v=20260913.1', html)
+        self.assertIn('/static/krea2-edit-lab.js?v=20260914.1', html)
         self.assertIn('id="krea2-edit-workflow"', html)
         self.assertIn('id="krea2-edit-workflow-defaults"', html)
         self.assertIn('id="krea2-edit-compare-slider"', html)

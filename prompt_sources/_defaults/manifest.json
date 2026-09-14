@@ -1,0 +1,246 @@
+{
+  "prompt_lab.creative_audacity_policy.01": {
+    "file": "prompt_lab/creative_audacity_policy-01.txt",
+    "template": false
+  },
+  "prompt_lab.creative_audacity_policy.02": {
+    "file": "prompt_lab/creative_audacity_policy-02.txt",
+    "template": false
+  },
+  "prompt_lab.creative_audacity_policy.03": {
+    "file": "prompt_lab/creative_audacity_policy-03.txt",
+    "template": false
+  },
+  "prompt_lab.creative_audacity_policy.04": {
+    "file": "prompt_lab/creative_audacity_policy-04.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.01": {
+    "file": "prompt_lab/creative_freedom_policy-01.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.02": {
+    "file": "prompt_lab/creative_freedom_policy-02.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.03": {
+    "file": "prompt_lab/creative_freedom_policy-03.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.04": {
+    "file": "prompt_lab/creative_freedom_policy-04.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.05": {
+    "file": "prompt_lab/creative_freedom_policy-05.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.06": {
+    "file": "prompt_lab/creative_freedom_policy-06.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.07": {
+    "file": "prompt_lab/creative_freedom_policy-07.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.08": {
+    "file": "prompt_lab/creative_freedom_policy-08.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.09": {
+    "file": "prompt_lab/creative_freedom_policy-09.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.10": {
+    "file": "prompt_lab/creative_freedom_policy-10.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.11": {
+    "file": "prompt_lab/creative_freedom_policy-11.txt",
+    "template": false
+  },
+  "prompt_lab.creative_freedom_policy.12": {
+    "file": "prompt_lab/creative_freedom_policy-12.txt",
+    "template": true
+  },
+  "classic_cinematic.writer_layout.01": {
+    "file": "classic_cinematic/writer_layout-01.txt",
+    "template": true
+  },
+  "classic_cinematic.writer_layout.02": {
+    "file": "classic_cinematic/writer_layout-02.txt",
+    "template": false
+  },
+  "classic_cinematic.policy.01": {
+    "file": "classic_cinematic/policy-01.txt",
+    "template": false
+  },
+  "classic_cinematic.policy.02": {
+    "file": "classic_cinematic/policy-02.txt",
+    "template": false
+  },
+  "classic_cinematic.policy.03": {
+    "file": "classic_cinematic/policy-03.txt",
+    "template": false
+  },
+  "classic_cinematic.policy.04": {
+    "file": "classic_cinematic/policy-04.txt",
+    "template": false
+  },
+  "sensual_cinematic.writer_layout.01": {
+    "file": "sensual_cinematic/writer_layout-01.txt",
+    "template": true
+  },
+  "sensual_cinematic.writer_layout.02": {
+    "file": "sensual_cinematic/writer_layout-02.txt",
+    "template": false
+  },
+  "sensual_cinematic.policy.01": {
+    "file": "sensual_cinematic/policy-01.txt",
+    "template": false
+  },
+  "sensual_cinematic.policy.02": {
+    "file": "sensual_cinematic/policy-02.txt",
+    "template": false
+  },
+  "sensual_cinematic.policy.03": {
+    "file": "sensual_cinematic/policy-03.txt",
+    "template": false
+  },
+  "sensual_cinematic.policy.04": {
+    "file": "sensual_cinematic/policy-04.txt",
+    "template": false
+  },
+  "sensual_cinematic.policy.05": {
+    "file": "sensual_cinematic/policy-05.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.01": {
+    "file": "combat_cinematic_policy/action_policy-01.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.02": {
+    "file": "combat_cinematic_policy/action_policy-02.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.03": {
+    "file": "combat_cinematic_policy/action_policy-03.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.04": {
+    "file": "combat_cinematic_policy/action_policy-04.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.05": {
+    "file": "combat_cinematic_policy/action_policy-05.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.06": {
+    "file": "combat_cinematic_policy/action_policy-06.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.07": {
+    "file": "combat_cinematic_policy/action_policy-07.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.08": {
+    "file": "combat_cinematic_policy/action_policy-08.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.09": {
+    "file": "combat_cinematic_policy/action_policy-09.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.10": {
+    "file": "combat_cinematic_policy/action_policy-10.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.action_policy.11": {
+    "file": "combat_cinematic_policy/action_policy-11.txt",
+    "template": false
+  },
+  "combat_cinematic_policy.demonstration.01": {
+    "file": "combat_cinematic_policy/demonstration-01.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.01": {
+    "file": "combat_preparation/combat_audacity_policy-01.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.02": {
+    "file": "combat_preparation/combat_audacity_policy-02.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.03": {
+    "file": "combat_preparation/combat_audacity_policy-03.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.04": {
+    "file": "combat_preparation/combat_audacity_policy-04.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.05": {
+    "file": "combat_preparation/combat_audacity_policy-05.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.06": {
+    "file": "combat_preparation/combat_audacity_policy-06.txt",
+    "template": true
+  },
+  "combat_preparation.combat_audacity_policy.07": {
+    "file": "combat_preparation/combat_audacity_policy-07.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.08": {
+    "file": "combat_preparation/combat_audacity_policy-08.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.09": {
+    "file": "combat_preparation/combat_audacity_policy-09.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.10": {
+    "file": "combat_preparation/combat_audacity_policy-10.txt",
+    "template": false
+  },
+  "combat_preparation.combat_audacity_policy.11": {
+    "file": "combat_preparation/combat_audacity_policy-11.txt",
+    "template": false
+  },
+  "combat_preparation.combat_freedom_policy.01": {
+    "file": "combat_preparation/combat_freedom_policy-01.txt",
+    "template": true
+  },
+  "combat_preparation.combat_freedom_policy.02": {
+    "file": "combat_preparation/combat_freedom_policy-02.txt",
+    "template": true
+  },
+  "vocal_policy.vocal_policy.01": {
+    "file": "vocal_policy/vocal_policy-01.txt",
+    "template": false
+  },
+  "vocal_policy.vocal_policy.02": {
+    "file": "vocal_policy/vocal_policy-02.txt",
+    "template": false
+  },
+  "vocal_policy.vocal_policy.03": {
+    "file": "vocal_policy/vocal_policy-03.txt",
+    "template": false
+  },
+  "vocal_policy.vocal_policy.04": {
+    "file": "vocal_policy/vocal_policy-04.txt",
+    "template": false
+  },
+  "vocal_policy.vocal_policy.05": {
+    "file": "vocal_policy/vocal_policy-05.txt",
+    "template": true
+  },
+  "vocal_policy.vocal_policy.06": {
+    "file": "vocal_policy/vocal_policy-06.txt",
+    "template": false
+  },
+  "vocal_policy.vocal_policy.07": {
+    "file": "vocal_policy/vocal_policy-07.txt",
+    "template": false
+  }
+}

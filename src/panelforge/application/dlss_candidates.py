@@ -30,6 +30,8 @@ class DlssCandidates:
             attempt = next((a for a in project.attempts if a.attempt_id == attempt_id), None)
             if attempt is None or attempt.status.value != "succeeded" or not attempt.output_asset_id:
                 raise ValueError("Choisis un résultat réussi à améliorer.")
+            if owner == "edit" and attempt.crop:
+                raise ValueError("Continue depuis l’étape recadrée avant d’améliorer un rendu.")
             if attempt.dlss:
                 # Another setting is compared from the same root, never a succession of DLSS passes.
                 attempt = next(a for a in project.attempts if a.attempt_id == attempt.dlss.root_attempt_id)

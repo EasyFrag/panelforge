@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from panelforge.domain.change_view_settings import ChangeViewRenderSettings
+
 from panelforge.domain.h3_render import H3VideoLoraStack
 
 import asyncio
@@ -22,7 +24,7 @@ from time import perf_counter
 from typing import Annotated, Any, Callable, Literal
 from panelforge.domain.prompt_composition import PreparationIntent
 from panelforge.domain.prompt_writer import supports_writer_model
-from panelforge.domain.krea2_edit import KREA2_EDIT_REF_BOOST_MAX
+from panelforge.domain.krea2_edit import KREA2_EDIT_REF_BOOST_MAX, Krea2EditCrop
 from panelforge.domain.firered_edit import FireRedEditSettings
 from panelforge.application.krea2_restage import DEFAULT_INSTRUCTION as RESTAGING_INSTRUCTION, RestagingConflictError
 from panelforge.domain.edit_settings import edit_engine, edit_settings_record, edit_render_dimensions, edit_output_dimensions
@@ -562,6 +564,19 @@ class Krea2EditPromotionBody(BaseModel):
     step_name: str | None = None
 
 
+class Krea2EditCropBody(BaseModel):
+    request_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$", strict=True)
+    source_asset_id: str = Field(min_length=1, max_length=128, strict=True)
+    restart_count: int = Field(ge=0, strict=True)
+    source_width: int = Field(gt=0, strict=True)
+    source_height: int = Field(gt=0, strict=True)
+    x: int = Field(ge=0, strict=True)
+    y: int = Field(ge=0, strict=True)
+    width: int = Field(gt=0, strict=True)
+    height: int = Field(gt=0, strict=True)
+    project_name: str | None = Field(default=None, max_length=120)
+
+
 class Krea2RestageBody(BaseModel):
     scene_asset_id: str = Field(min_length=1)
     instruction: str = Field(min_length=1, max_length=12_000)
@@ -820,6 +835,8 @@ def create_app(
     *,
     prompt_lab: PromptLabService | None = None,
     prompt_composition: PromptCompositionService | None = None,
+    prompt_recipes=None,
+    llm_traces=None,
     video_lab: VideoLabRunner | None = None,
     h3_render: H3RenderService | None = None,
     h3_lora_resources=None,
@@ -857,6 +874,8 @@ def create_app(
                 await asyncio.to_thread(krea2_assisted.stop_render_worker)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
+    from .prompt_recipes_web import prompt_recipes_router
+    app.include_router(prompt_recipes_router(prompt_recipes, llm_traces, prompt_composition, h3_render))
     from .image_catalog import ImageLabCatalogs
     image_catalogs = ImageLabCatalogs()
     app.include_router(media_analysis_router(media_analysis))
@@ -1694,6 +1713,7 @@ def create_app(
                 method.value for method in policy.method_order
             ],
             "controls": controls,
+            "render_controls": getattr(runner.recipe, "render_controls", None),
             "compiled_prompt": default_prompt,
         }
 
@@ -1723,6 +1743,9 @@ def create_app(
         shot_size: Annotated[str, Form()] = ShotSize.MEDIUM.value,
         lora_strength: Annotated[str, Form()] = "1.0",
         seed: Annotated[str, Form()] = "151020854543467",
+        steps: Annotated[str, Form()] = "8",
+        megapixels: Annotated[str | None, Form()] = None,
+        aspect_ratio: Annotated[str, Form()] = "source",
     ) -> dict[str, object]:
         if (source_image is None) == (source_asset_id is None):
             raise HTTPException(
@@ -1735,6 +1758,11 @@ def create_app(
             parsed_shot_size = ShotSize(shot_size)
             parsed_lora_strength = float(lora_strength)
             parsed_seed = _parse_seed(seed)
+            render_settings = ChangeViewRenderSettings(
+                steps=int(steps),
+                megapixels=None if megapixels in (None, "", "auto") else float(megapixels),
+                aspect_ratio=aspect_ratio,
+            )
             runner.recipe.is_experimental_lora_override(parsed_lora_strength)
 
             if source_image is not None:
@@ -1757,6 +1785,7 @@ def create_app(
                 shot_size=parsed_shot_size,
                 lora_strength=parsed_lora_strength,
                 seed=parsed_seed,
+                render_settings=render_settings,
             )
             run = runner.prepare(request)
         except (KeyError, FileNotFoundError) as error:
@@ -3134,6 +3163,20 @@ def create_app(
                 status_code=404,
                 detail="KREA2 edit source or attempt not found",
             ) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-edit/sources/{source_id}/crop", status_code=201)
+    def crop_krea2_edit_source(source_id: str, body: Krea2EditCropBody) -> dict[str, object]:
+        service = _require_krea2_edit(krea2_edit)
+        try:
+            crop = Krea2EditCrop(**body.model_dump(exclude={"project_name"}))
+            return {"source": serialize_krea2_edit_source(
+                service.crop_source(source_id, crop, project_name=body.project_name))}
+        except RetouchConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Image à recadrer introuvable.") from error
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -5432,6 +5475,7 @@ def serialize_krea2_edit_source(source: Krea2EditSource) -> dict[str, object]:
                 "attempt_id": attempt.attempt_id,
                 "kind": attempt.kind,
                 "label": source.attempt_label(attempt.attempt_id),
+                "crop": asdict(attempt.crop) if attempt.crop else None,
                 "workflow_version": (attempt.recipe or source.recipe).version,
                 "workflow_id": (attempt.recipe or source.recipe).recipe_id,
                 "engine": edit_engine(attempt.settings),
@@ -6443,6 +6487,8 @@ def serialize_prompt_composition(
                     "source_ids": list(revision.source_ids),
                     "parent_revision_id": revision.parent_revision_id,
                     "instruction": revision.instruction,
+                    "llm_call_id": revision.llm_call_id,
+                    "prompt_recipe_revision": revision.prompt_recipe_revision,
                 }
                 for revision in document.revisions
             ],

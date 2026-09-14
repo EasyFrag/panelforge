@@ -11,6 +11,8 @@
     prompt: $(`${prefix}-prompt`), ratio: $(`${prefix}-ratio`), megapixels: $(`${prefix}-megapixels`),
     initialMegapixels: $(`${prefix}-initial-megapixels`),
     recipe: $(`${prefix}-render-recipe`), bunnyControls: $(`${prefix}-bunny-controls`),
+    preset: $(`${prefix}-preset`), presetSummary: $(`${prefix}-preset-summary`),
+    loraEnabled: $(`${prefix}-lora-enabled`), loraSummary: $(`${prefix}-lora-summary`),
     bunnyModel: $(`${prefix}-bunny-model`), bunnyGeometry: $(`${prefix}-bunny-geometry`),
     bunnyTurbo: $(`${prefix}-bunny-turbo`), bunnyBase: $(`${prefix}-bunny-base`),
     bunnyTurboNote: $(`${prefix}-bunny-turbo-note`),
@@ -109,6 +111,7 @@
     if (!elements.bunnyControls) return;
     const enabled = bunnyActive();
     elements.bunnyControls.hidden = !enabled;
+    elements.bunnyGeometry.hidden = !enabled;
     elements.bunnySecondLabel.hidden = !enabled;
     elements.steps.closest("label").hidden = enabled;
     elements.spectrum.closest("label").hidden = enabled;
@@ -124,7 +127,7 @@
     state.bunnyError = "";
     if (!enabled) return;
     if (elements.bunnyTurboNote) elements.bunnyTurboNote.textContent = elements.bunnyTurbo.checked
-      ? `Turbo supplémentaire actif${state.spec.bunny.turbo_strength != null ? ` · force ${state.spec.bunny.turbo_strength}` : ""}. Décochez si votre checkpoint intègre déjà Turbo. Les steps restent indépendants.`
+      ? `Turbo supplémentaire actif${state.spec.bunny.turbo_strength != null ? ` · force ${Number(state.spec.bunny.turbo_strength).toFixed(2)}` : ""}. Décochez si votre checkpoint intègre déjà Turbo. Les steps restent indépendants.`
       : "Turbo supplémentaire désactivé. Les steps sont conservés ; adaptez-les aux recommandations du checkpoint.";
     elements.bunnyModel.textContent = checkpointPicker?.value ? `${checkpointPicker.label} · chargement direct` : state.spec.bunny.model_label;
     const base = Number(elements.bunnyBase.value), coarse = Number(elements.bunnyCoarse.value), refine = Number(elements.bunnyRefine.value);
@@ -645,6 +648,9 @@
         feedback.textContent = attempt.attempt_id === state.project.feedback_attempt_id ? "Retirer le feedback" : "Utiliser comme feedback";
         feedback.addEventListener("click", () => selectFeedback(attempt));
         actions.append(resume, feedback);
+        if (window.PanelForgePromptRecipes) {
+          actions.append(window.PanelForgePromptRecipes.historyButton(projectId(), attempt.attempt_id));
+        }
         if (window.PanelForgeDlss) {
           const target = { owner: specMode === "ref2va" ? "ref2v" : "h3", ownerId: projectId(), attempt };
           actions.append(window.PanelForgeDlss.button(target), window.PanelForgeDlss.button(target, { advanced: true }));
@@ -755,10 +761,51 @@
     finishRenderProgress(latestAttempt());
   }
 
+  function renderPreset(disabled) {
+    if (!elements.preset || !state.spec) return;
+    const profiles = bunnyActive() ? state.spec.bunny.turbo_profiles || {} : {};
+    const keys = bunnyActive() ? ["on", "off"] : ["default"];
+    const identity = `${recipeKey(state.spec.recipe)}:${keys.join()}`;
+    if (elements.preset.dataset.recipe !== identity) {
+      elements.preset.replaceChildren();
+      for (const key of [...keys, "custom"]) {
+        const option = document.createElement("option"); option.value = key;
+        option.textContent = {on: "Rapide · 9 / 4 / 5", off: "Classique · 30 / 25 / 5",
+          default: "Réglages de la recette", custom: "Personnalisé"}[key];
+        option.disabled = key === "custom" || (bunnyActive() && !profiles[key]);
+        elements.preset.append(option);
+      }
+      elements.preset.dataset.recipe = identity;
+    }
+    let selected = "custom";
+    if (bunnyActive()) {
+      selected = keys.find(key => profiles[key] && Number(elements.bunnyBase.value) === profiles[key].base_steps
+        && Number(elements.bunnyCoarse.value) === profiles[key].coarse_steps
+        && Number(elements.bunnyRefine.value) === profiles[key].refine_steps) || "custom";
+      elements.presetSummary.textContent = `Sampling BUNNY natif · ${elements.bunnyCoarse.value} + ${elements.bunnyRefine.value} steps · `
+        + (elements.bunnyTurbo.checked ? `Turbo ${Number(state.spec.bunny.turbo_strength).toFixed(2)}` : "Turbo supplémentaire désactivé");
+    } else {
+      if (Number(elements.steps.value) === state.spec.defaults.steps) selected = "default";
+      elements.presetSummary.textContent = `Sampling de la recette · ${elements.steps.value} steps`;
+    }
+    elements.preset.value = selected; elements.preset.disabled = disabled;
+    const stack = loraEditor?.supported ? loraEditor.value : null;
+    elements.loraEnabled.checked = elements.videoLoraProfile.value === "lora";
+    elements.loraEnabled.disabled = disabled || elements.videoLoraProfile.querySelector('[value="lora"]')?.disabled;
+    const entries = stack?.enabled ? stack.entries.filter(entry => entry.enabled) : [];
+    const names = entries.map(entry => entry.name.split(/[\\/]/).pop());
+    const summary = stack ? `${entries.length} LoRA actif(s)${names.length ? " · " + names.join(" → ") : ""}`
+      : elements.loraEnabled.checked ? `LoRA · ${elements.videoLoraModel.value || "à choisir"}` : "LoRA · aucun actif";
+    elements.loraSummary.textContent = summary;
+    elements.loraSummary.title = window.PanelForgeH3Loras?.summary(stack) || summary;
+    elements.loraSummary.classList.toggle("error-text", Boolean(loraEditor?.error));
+  }
+
   function renderControls() {
     const active = activeAttempt();
     const incomplete = state.project?.adaptation && state.project.adaptation.status !== "ready";
     const disabled = state.busy || state.recipeLoading || Boolean(active) || Boolean(incomplete);
+    renderPreset(disabled);
     const missingLora = loraEditor?.supported ? Boolean(loraEditor.error) : elements.videoLoraProfile?.value === "lora" && (!elements.videoLoraModel?.value || !(state.spec?.video_lora?.models || []).includes(elements.videoLoraModel.value));
     if (loraEditor?.supported) {
       elements.videoLoraWarning.textContent = loraEditor.error;
@@ -970,17 +1017,24 @@
     // not silently replace a distilled schedule with 30/25/5 steps.
     syncBunny(); renderControls();
   });
-  elements.bunnyControls?.querySelectorAll("[data-bunny-sampling]").forEach(button => {
-    button.addEventListener("click", () => {
-      if (button.disabled || !bunnyActive()) return;
-      const profile = state.spec.bunny.turbo_profiles?.[button.dataset.bunnySampling];
+  elements.preset?.addEventListener("change", () => {
+    if (elements.preset.disabled || !state.spec) return;
+    if (bunnyActive()) {
+      const profile = state.spec.bunny.turbo_profiles?.[elements.preset.value];
       if (!profile) return;
       elements.bunnyBase.value = String(profile.base_steps);
       elements.bunnyCoarse.value = String(profile.coarse_steps);
       elements.bunnyRefine.value = String(profile.refine_steps);
-      syncBunny(); renderControls();
-    });
+    } else if (elements.preset.value === "default") {
+      elements.steps.value = String(state.spec.defaults.steps);
+    }
+    syncBunny(); renderControls();
   });
+  elements.loraEnabled?.addEventListener("change", () => {
+    elements.videoLoraProfile.value = elements.loraEnabled.checked ? "lora" : "standard";
+    syncVideoLoraControls(); renderControls();
+  });
+  elements.steps.addEventListener("input", renderControls);
   for (const field of [elements.ratio, elements.initialMegapixels, elements.megapixels, elements.bunnyBase, elements.bunnyCoarse, elements.bunnyRefine, elements.bunnySecond]) {
     if (field) field.addEventListener("input", () => { syncBunny(); renderControls(); });
   }

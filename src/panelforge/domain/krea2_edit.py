@@ -223,6 +223,33 @@ class Krea2EditUpscale:
 
 
 @dataclass(frozen=True, slots=True)
+class Krea2EditCrop:
+    """Rectangle in the oriented source's native pixels; no render is involved."""
+
+    request_id: str
+    source_asset_id: str
+    restart_count: int
+    source_width: int
+    source_height: int
+    x: int
+    y: int
+    width: int
+    height: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", self.request_id):
+            raise ValueError("Identifiant de recadrage invalide.")
+        _text(self.source_asset_id, "crop source")
+        for name in ("restart_count", "x", "y", "width", "height", "source_width", "source_height"):
+            value = getattr(self, name)
+            minimum = 0 if name in {"restart_count", "x", "y"} else 1
+            if type(value) is not int or value < minimum:
+                raise ValueError("Le rectangle doit utiliser des coordonnées entières valides.")
+        if self.x + self.width > self.source_width or self.y + self.height > self.source_height:
+            raise ValueError("Le rectangle dépasse les limites de l’image.")
+
+
+@dataclass(frozen=True, slots=True)
 class Krea2EditAttempt:
     attempt_id: str
     prompt: str
@@ -238,6 +265,7 @@ class Krea2EditAttempt:
     upscale: Krea2EditUpscale | None = None
     output_dimensions: tuple[int, int] | None = None
     dlss: DlssResult | None = None
+    crop: Krea2EditCrop | None = None
 
     def __post_init__(self) -> None:
         _text(self.attempt_id, "attempt_id")
@@ -334,6 +362,17 @@ class Krea2EditAttempt:
         )
 
     def _validate_state(self) -> None:
+        if self.kind == "crop":
+            if (not isinstance(self.crop, Krea2EditCrop)
+                    or self.status is not Krea2EditAttemptStatus.SUCCEEDED
+                    or self.output_asset_id is None
+                    or self.output_dimensions != (self.crop.width, self.crop.height)
+                    or any(value is not None for value in (self.execution_id, self.compiled_workflow_sha256,
+                                                          self.error, self.retouch, self.upscale, self.dlss))):
+                raise ValueError("crop requires a local image and rectangle, without a GPU execution")
+            return
+        if self.crop is not None:
+            raise ValueError("crop provenance requires a crop attempt")
         if self.upscale is not None and not isinstance(self.upscale, Krea2EditUpscale):
             raise ValueError("invalid upscale provenance")
         if (self.kind == "upscale") != isinstance(self.upscale, Krea2EditUpscale):
@@ -542,6 +581,10 @@ class Krea2EditSource:
         previous: dict[str, Krea2EditAttempt] = {}
         request_ids: set[str] = set()
         for attempt in self.attempts:
+            if attempt.crop:
+                if attempt.crop.source_asset_id != self.source_asset_id or attempt.crop.request_id in request_ids:
+                    raise ValueError("crop must reference its stage source and a unique request")
+                request_ids.add(attempt.crop.request_id)
             if attempt.upscale is not None:
                 info = attempt.upscale
                 original = previous.get(info.original_attempt_id)
@@ -704,6 +747,8 @@ class Krea2EditSource:
     def attempt_label(self, attempt_id: str) -> str:
         generations = [value for value in self.attempts if value.kind == "generation"]
         attempt = next(value for value in self.attempts if value.attempt_id == attempt_id)
+        if attempt.crop:
+            return "Recadrage"
         if attempt.upscale:
             variants = [value for value in self.attempts if value.upscale
                         and value.upscale.parent_attempt_id == attempt.upscale.parent_attempt_id]

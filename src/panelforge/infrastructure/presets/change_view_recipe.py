@@ -19,6 +19,7 @@ from panelforge.domain.character import (
     ChangeView,
     ShotSize,
 )
+from panelforge.domain.change_view_settings import CHANGE_VIEW_ASPECT_RATIOS, ChangeViewRenderSettings
 
 from .change_view import build_change_view_workflow, render_change_view_prompt
 from .change_view_manifest import (
@@ -135,6 +136,16 @@ class ChangeViewPresetRecipe:
     def render_prompt(self, change: ChangeView) -> str:
         return render_change_view_prompt(change, self.preset)
 
+    @property
+    def render_controls(self) -> dict[str, object] | None:
+        if not self.preset.render_bindings:
+            return None
+        return {
+            "steps": {"default": 8, "minimum": 1, "maximum": 50},
+            "megapixels": {"default": None, "minimum": 0.1, "maximum": 4},
+            "aspect_ratio": {"default": "source", "options": list(CHANGE_VIEW_ASPECT_RATIOS)},
+        }
+
     def build_workflow(
         self,
         change: ChangeView,
@@ -142,6 +153,7 @@ class ChangeViewPresetRecipe:
         source_image: str,
         seed: int,
         lora_strength: float,
+        render_settings: ChangeViewRenderSettings | None = None,
     ) -> dict[str, object]:
         return build_change_view_workflow(
             change,
@@ -149,6 +161,7 @@ class ChangeViewPresetRecipe:
             source_image=source_image,
             seed=seed,
             multiple_angles_lora_strength=lora_strength,
+            render_settings=render_settings,
         )
 
     def is_experimental_lora_override(self, value: float) -> bool:

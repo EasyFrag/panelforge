@@ -151,7 +151,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
                 / "composition.json"
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 5)
+            self.assertEqual(raw["schema_version"], 6)
             self.assertEqual(raw["created_at"], "2026-08-08T10:00:00Z")
             self.assertEqual(raw["updated_at"], "2026-08-08T10:01:00Z")
             self.assertEqual(raw["bindings"][0]["slot_id"], "fighter_a")
@@ -189,6 +189,8 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
             ):
                 for revision in raw[document_name]["revisions"]:
                     revision.pop("compiler_context")
+                    revision.pop("llm_call_id")
+                    revision.pop("prompt_recipe_revision")
             path.write_text(json.dumps(raw), encoding="utf-8")
 
             loaded = store.get(composition.source_session_id)
@@ -201,7 +203,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
 
             store.save(loaded)
             migrated = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(migrated["schema_version"], 5)
+            self.assertEqual(migrated["schema_version"], 6)
             self.assertIsNone(
                 migrated["final_prompt"]["revisions"][0]["compiler_context"]
             )

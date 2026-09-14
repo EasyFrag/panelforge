@@ -61,6 +61,8 @@ from panelforge.infrastructure.presets import (
 )
 from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
 from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
+from panelforge.infrastructure.storage.prompt_recipes import LocalPromptRecipeStore
+from panelforge.infrastructure.storage.llm_traces import LocalLlmTraceStore
 from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
 from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter
 from panelforge.infrastructure.krea2_retouch import PillowRetouchCompositor
@@ -110,7 +112,7 @@ PRESET_DIRECTORY = (
     / "workflows"
     / "character.change_view"
     / "qwen-edit-2511-multiple-angles"
-    / "0.2.0"
+    / "0.3.0"
 )
 BUNNY_RENDER_WORKFLOW_DIRECTORY = PROJECT_ROOT / "workflows" / "video.generate.h3-base" / "minimax-h3-bunny" / "0.1.3"
 VIDEO_PRESET_DIRECTORY = (
@@ -277,6 +279,7 @@ def build_app(args: argparse.Namespace):
     prompt_sessions = LocalPromptSessionStore(args.workspace)
     prompt_compositions = LocalPromptCompositionStore(args.workspace)
     llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
+    llm_traces = LocalLlmTraceStore(args.workspace)
     production_jobs = LocalProductionJobStore(args.workspace)
     production_v2_store = LocalProductionV2Store(args.workspace)
     comfy = ComfyHttpClient(
@@ -372,6 +375,7 @@ def build_app(args: argparse.Namespace):
     gateway = LoggedMultimodalGateway(
         routed_gateway,
         llm_calls,
+        trace_store=llm_traces,
     )
     krea2_resources = LocalKrea2ResourceCatalog(
         models_root=getattr(
@@ -454,15 +458,27 @@ def build_app(args: argparse.Namespace):
         assets=assets,
         sessions=prompt_sessions,
     )
+    from panelforge.application.prompt_recipes import EDITABLE_RECIPES
+    from panelforge.application.classic_cinematic import REVISION_SYSTEM as classic_render_system
+    from panelforge.application.sensual_cinematic import REVISION_SYSTEM as sensual_render_system
+    combat_render_system = load_combat_revision_policy(PROJECT_ROOT / "prompt_cookbooks" / "_blocks", "1.3.0").system_prompt
+    cookbooks = LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks")
+    prompt_recipes = LocalPromptRecipeStore(args.workspace, cookbooks, PROJECT_ROOT / "prompt_sources" / "_defaults",
+        render_systems={(key, version): classic_render_system if ".classic." in key else
+            combat_render_system if ".combat." in key else sensual_render_system
+            for key, version, _ in EDITABLE_RECIPES})
     prompt_composition = PromptCompositionService(
         gateway=gateway,
-        cookbooks=LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks"),
+        cookbooks=cookbooks,
+        prompt_recipes=prompt_recipes,
         sessions=prompt_sessions,
         compositions=prompt_compositions,
         application_outcomes=gateway,
         assets=assets,
     )
     h3_render = H3RenderService(
+        prompt_recipes=prompt_recipes,
+        llm_traces=llm_traces,
         combat_revision_policies=tuple(load_combat_revision_policy(PROJECT_ROOT / "prompt_cookbooks" / "_blocks", version)
                                       for version in ("1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0")),
         gateway=gateway,
@@ -586,6 +602,8 @@ def build_app(args: argparse.Namespace):
     )
     return create_app(
         runner,
+        prompt_recipes=prompt_recipes,
+        llm_traces=llm_traces,
         dlss=dlss,
         prompt_lab=prompt_lab,
         prompt_composition=prompt_composition,

@@ -29,7 +29,7 @@ PRESET_DIRECTORY = (
     / "workflows"
     / "character.change_view"
     / "qwen-edit-2511-multiple-angles"
-    / "0.2.0"
+    / "0.3.0"
 )
 PNG = b"\x89PNG\r\n\x1a\nimage-content"
 
@@ -226,7 +226,7 @@ class LabWebTest(unittest.TestCase):
             page.text.index('id="release-llm-vram"'),
             page.text.index('id="release-comfy-vram"'),
         )
-        self.assertIn("/static/lab.js?v=20260907.8", page.text)
+        self.assertIn("/static/lab.js?v=20260914.2", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
@@ -252,8 +252,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260913.4", page.text)
-        self.assertIn("/static/prompt-writer-model.js?v=20260913.4", page.text)
+        self.assertIn("/static/lab.css?v=20260914.4", page.text)
+        self.assertIn("/static/prompt-writer-model.js?v=20260914.1", page.text)
         self.assertIn("/static/ref2v-direct.js?v=20260913.5", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         core_script = self.client.get("/static/lab-core.js")
@@ -340,7 +340,7 @@ class LabWebTest(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)), "HTML IDs must remain unique")
         self.assertEqual(spec.status_code, 200)
         payload = spec.json()
-        self.assertEqual(payload["recipe"]["version"], "0.2.0")
+        self.assertEqual(payload["recipe"]["version"], "0.3.0")
         self.assertEqual(payload["prompt_policy"], "locked")
         self.assertEqual(
             payload["controls"]["multiple_angles_lora_strength"]["maximum"],
@@ -406,7 +406,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="h3r-spectrum" type="checkbox"', page.text)
         self.assertIn('id="ref2vr-spectrum" type="checkbox"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260911.4', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260914.1', page.text)
         self.assertIn('id="h3r-render-progress"', page.text)
         self.assertIn('id="ref2vr-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', render_script.text)
@@ -995,6 +995,9 @@ class LabWebTest(unittest.TestCase):
         created = response.json()
         self.assertEqual(created["status"], "created")
         self.assertEqual(created["controls"]["seed"], seed)
+        self.assertEqual(created["controls"]["steps"], 8)
+        self.assertEqual(created["controls"]["megapixels"], "auto")
+        self.assertEqual(created["controls"]["aspect_ratio"], "source")
         self.assertEqual(
             created["experimental_overrides"],
             ["multiple_angles_lora_strength"],
@@ -1013,6 +1016,23 @@ class LabWebTest(unittest.TestCase):
             self.comfy.submitted[0]["108"]["inputs"]["seed"],
             int(seed),
         )
+
+    def test_change_view_accepts_render_settings_and_rejects_invalid_input(self):
+        spec = self.client.get("/api/change-view/spec").json()["render_controls"]
+        self.assertEqual(spec["steps"]["default"], 8)
+        source = self.assets.create(PNG, media_type="image/png")
+        response = self.client.post("/api/runs", data={
+            "source_asset_id": source.asset_id, "steps": "12", "megapixels": "2", "aspect_ratio": "1:1",
+        })
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["controls"]["megapixels"], 2)
+        self.assertEqual(self.comfy.submitted[-1]["108"]["inputs"]["steps"], 12)
+        submitted = len(self.comfy.submitted)
+        for invalid in ({"steps": "0"}, {"steps": "8.5"}, {"megapixels": "nan"}, {"aspect_ratio": "garbage"}):
+            with self.subTest(invalid=invalid):
+                rejected = self.client.post("/api/runs", data={"source_asset_id": source.asset_id, **invalid})
+                self.assertEqual(rejected.status_code, 422)
+        self.assertEqual(len(self.comfy.submitted), submitted)
 
     def test_review_and_reuse_create_explicit_lineage(self):
         first = self.client.post(

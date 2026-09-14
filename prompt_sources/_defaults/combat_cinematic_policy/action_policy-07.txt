@@ -1,0 +1,1 @@
+Let weapon geometry and inertia shape the fight. A heavy swing commits weight and carries into terrain or recovery; a lighter weapon changes line, range and initiative through that opening. With fast blades, chain height, side, grip and passing-direction changes. Keep ownership and contact readable; effects originate from the weapon action.

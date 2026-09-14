@@ -23,6 +23,7 @@ from panelforge.domain.krea2_batch import (
 from panelforge.domain.krea2_edit import (
     Krea2EditAttempt,
     Krea2EditAttemptStatus,
+    Krea2EditCrop,
     Krea2EditMetadata,
     Krea2EditPromptRevision,
     Krea2EditPromptStatus,
@@ -32,6 +33,7 @@ from panelforge.domain.krea2_edit import (
     Krea2EditSourceState,
 )
 from panelforge.domain.firered_edit import FireRedEditSettings
+from panelforge.domain.krea2_lab import Krea2AspectRatio
 from panelforge.domain.edit_settings import EditSettings, edit_engine, edit_settings_record, edit_output_dimensions
 from .image_edit import EditWorkflow, EditImages
 
@@ -695,6 +697,53 @@ class Krea2EditService:
             )
             return self.sources.save(source.add_attempt(attempt))
 
+    def crop_source(self, source_id: str, crop: Krea2EditCrop, *, project_name: str | None = None) -> Krea2EditSource:
+        """Save a local crop as a completed stage, then continue with a clean prompt."""
+        if self.edit_images is None:
+            raise ValueError("Le recadrage n’est pas configuré.")
+        if not isinstance(crop, Krea2EditCrop):
+            raise TypeError("crop must be Krea2EditCrop")
+        with self._lock:
+            source = self.sources.get(source_id)
+            if source.source_asset_id != crop.source_asset_id or source.restart_count != crop.restart_count:
+                raise RetouchConflictError("L’image ou l’étape a changé. Rouvre le recadrage.")
+            existing = next((a for a in source.attempts if a.crop and a.crop.request_id == crop.request_id), None)
+            if existing:
+                if existing.crop != crop:
+                    raise RetouchConflictError("Cette demande correspond déjà à un autre rectangle.")
+                return self.promote_attempt(source_id, existing.attempt_id, project_name=project_name,
+                                            step_name="Recadrage")
+            self._require_editable(source)
+            if self._stage_busy(source):
+                raise RetouchConflictError("Attends la fin de l’échange ou du rendu avant de recadrer.")
+            content = self.assets.read_bytes(source.source_asset_id)
+            if self.edit_images.dimensions(content) != (crop.source_width, crop.source_height):
+                raise RetouchConflictError("Les dimensions de l’image ont changé. Rouvre le recadrage.")
+            cropped = self.edit_images.crop(content, x=crop.x, y=crop.y, width=crop.width, height=crop.height)
+            # These are inherited settings for the next render, never used to crop.
+            last = source.attempts[-1] if source.attempts else None
+            metadata, defaults = source.metadata, self.workflow.defaults
+            settings = last.settings if last else metadata.firered_settings or Krea2EditSettings(
+                model_name=metadata.model_name or defaults["model_id"],
+                aspect_ratio=metadata.aspect_ratio or Krea2AspectRatio(defaults["aspect_ratio"]),
+                megapixels=metadata.megapixels if metadata.megapixels is not None else defaults["megapixels"],
+                seed=metadata.seed if metadata.seed is not None else 0,
+                ref_boost=metadata.ref_boost if metadata.ref_boost is not None else defaults["ref_boost"],
+                steps=metadata.steps if metadata.steps is not None else defaults["steps"],
+                loras=metadata.loras,
+            )
+            asset = self.assets.create(cropped, media_type="image/png", source_run_id=source_id)
+            attempt = Krea2EditAttempt(
+                attempt_id=self._attempt_id_factory(), prompt="Recadrage", settings=settings,
+                recipe=(last.recipe if last else None) or source.recipe,
+                status=Krea2EditAttemptStatus.SUCCEEDED, kind="crop", crop=crop,
+                output_asset_id=asset.asset_id, output_dimensions=(crop.width, crop.height),
+            )
+            self.sources.save(replace(source, attempts=(*source.attempts, attempt)))
+            # Existing promotion supplies history, revision handling, export and retry recovery.
+            return self.promote_attempt(source_id, attempt.attempt_id, project_name=project_name,
+                                        step_name="Recadrage")
+
     def prepare_upscale(self, source_id: str, attempt_id: str, *, model_name: str, request_id: str):
         return enhancement.prepare_upscale(self, source_id, attempt_id, model_name=model_name, request_id=request_id)
 
@@ -710,7 +759,7 @@ class Krea2EditService:
 
     def _retouch_inputs(self, source: Krea2EditSource, attempt_id: str) -> tuple[Krea2EditAttempt, Krea2EditAttempt]:
         selected = _attempt(source, attempt_id)
-        if selected.status is not Krea2EditAttemptStatus.SUCCEEDED:
+        if selected.status is not Krea2EditAttemptStatus.SUCCEEDED or selected.crop:
             raise ValueError("Choisis un essai réussi pour le retoucher.")
         original = _attempt(source, selected.retouch.original_attempt_id) if selected.retouch else selected
         if original.output_asset_id is None:
@@ -868,13 +917,13 @@ class Krea2EditService:
                 source_asset_id=attempt.output_asset_id,
                 filename=source.filename,
                 metadata=Krea2EditMetadata(
-                    prompt=None if source.subject_reference else attempt.prompt,
+                    prompt=None if source.subject_reference or attempt.crop else attempt.prompt,
                     model_name=attempt.settings.model_name,
                     aspect_ratio=attempt.settings.aspect_ratio if isinstance(attempt.settings, Krea2EditSettings) else None,
                     megapixels=attempt.settings.megapixels,
                     seed=attempt.settings.seed,
                     loras=attempt.settings.loras if isinstance(attempt.settings, Krea2EditSettings) else (),
-                    origin="upscale" if attempt.upscale else "retouch" if attempt.retouch else "edit",
+                    origin="crop" if attempt.crop else "upscale" if attempt.upscale else "retouch" if attempt.retouch else "edit",
                     ref_boost=attempt.settings.ref_boost if isinstance(attempt.settings, Krea2EditSettings) else None,
                     steps=attempt.settings.steps,
                     firered_settings=attempt.settings if isinstance(attempt.settings, FireRedEditSettings) else None,
@@ -886,8 +935,8 @@ class Krea2EditService:
                 parent_attempt_id=attempt.attempt_id,
                 project_name=requested_name,
                 revision=source.revision,
-                prompt_status=Krea2EditPromptStatus.IDLE if source.subject_reference else Krea2EditPromptStatus.READY,
-                generated_prompt=None if source.subject_reference else attempt.prompt,
+                prompt_status=Krea2EditPromptStatus.IDLE if source.subject_reference or attempt.crop else Krea2EditPromptStatus.READY,
+                generated_prompt=None if source.subject_reference or attempt.crop else attempt.prompt,
                 prompt_model_id=source.prompt_model_id,
             )
             advanced = source.advance(

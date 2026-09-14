@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from panelforge.domain.character import ChangeView
+from panelforge.domain.change_view_settings import ChangeViewRenderSettings
 
 from .change_view_manifest import (
     MULTIPLE_ANGLES_LORA_STRENGTH,
@@ -38,6 +39,7 @@ def build_change_view_workflow(
     source_image: str,
     seed: int,
     multiple_angles_lora_strength: float | None = None,
+    render_settings: ChangeViewRenderSettings | None = None,
 ) -> JsonObject:
     """Build one isolated workflow with this run's explicit inputs."""
     if not isinstance(source_image, str) or not source_image.strip():
@@ -46,6 +48,26 @@ def build_change_view_workflow(
         raise ValueError("seed must be an integer between 0 and 2^64 - 1")
 
     workflow = preset.workflow
+    settings = render_settings or ChangeViewRenderSettings()
+    if not settings.is_default:
+        if not preset.render_bindings:
+            raise ValueError("this change-view recipe does not expose render settings")
+        steps_binding = preset.render_bindings["steps"]
+        workflow[steps_binding.node_id]["inputs"][steps_binding.input_name] = settings.steps
+        size_binding = preset.render_bindings["image_size"]
+        size_node = workflow[size_binding.node_id]
+        source_image_link = size_node["inputs"][size_binding.input_name]
+        dimensions = settings.fixed_dimensions()
+        if dimensions is not None:
+            size_node.update(class_type="ImageScale", inputs={
+                "image": source_image_link, "upscale_method": "lanczos",
+                "width": dimensions[0], "height": dimensions[1], "crop": "center",
+            })
+        elif settings.megapixels is not None:
+            size_node.update(class_type="ImageScaleToTotalPixels", inputs={
+                "image": source_image_link, "upscale_method": "lanczos",
+                "megapixels": settings.megapixels, "resolution_steps": 32,
+            })
     values: Mapping[str, Any] = {
         "source_image": source_image,
         "positive_prompt": render_change_view_prompt(change, preset),

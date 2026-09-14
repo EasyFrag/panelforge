@@ -54,6 +54,8 @@ def prepare_upscale(service, source_id, parent_id, *, model_name, request_id):
         if selected is None or selected.status is not Krea2EditAttemptStatus.SUCCEEDED:
             raise ValueError("Choisis un essai réussi à améliorer.")
         original = selected
+        if original.crop:
+            raise ValueError("Continue depuis l’étape recadrée avant d’améliorer un rendu.")
         while original.kind != "generation":
             original_id = original.upscale.original_attempt_id if original.upscale else original.retouch.original_attempt_id
             original = next(a for a in source.attempts if a.attempt_id == original_id)

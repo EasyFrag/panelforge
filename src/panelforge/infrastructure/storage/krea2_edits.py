@@ -15,6 +15,7 @@ from typing import Any
 from panelforge.domain.krea2_batch import Krea2LoraSelection, Krea2PromptLanguage
 from panelforge.domain.krea2_edit import (
     Krea2EditAttempt,
+    Krea2EditCrop,
     Krea2EditAttemptStatus,
     Krea2EditMetadata,
     Krea2EditPromptRevision,
@@ -170,7 +171,7 @@ class LocalKrea2EditStore:
 
 def _to_dict(source: Krea2EditSource) -> dict[str, object]:
     return {
-        "schema_version": 11,
+        "schema_version": 12,
         "subject_reference": asdict(source.subject_reference) if source.subject_reference else None,
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "source_id": source.source_id,
@@ -213,7 +214,7 @@ def _to_dict(source: Krea2EditSource) -> dict[str, object]:
 
 def _from_dict(value: dict[str, Any]) -> Krea2EditSource:
     schema_version = value.get("schema_version")
-    if schema_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}:
+    if schema_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}:
         raise ValueError("unsupported KREA2 edit source schema")
     recipe = value["recipe"]
     return Krea2EditSource(
@@ -327,6 +328,7 @@ def _attempt_dict(value: Krea2EditAttempt) -> dict[str, object]:
         "attempt_id": value.attempt_id,
         "recipe": asdict(value.recipe) if value.recipe else None,
         "kind": value.kind,
+        "crop": asdict(value.crop) if value.crop else None,
         "dlss": asdict(value.dlss) if value.dlss else None,
         "retouch": asdict(value.retouch) if value.retouch else None,
         "upscale": asdict(value.upscale) if value.upscale else None,
@@ -347,6 +349,7 @@ def _attempt_from_dict(value: dict[str, Any]) -> Krea2EditAttempt:
         attempt_id=value["attempt_id"],
         recipe=RecipeRef(**value["recipe"]) if value.get("recipe") else None,
         kind=value.get("kind", "generation"),
+        crop=Krea2EditCrop(**value["crop"]) if value.get("crop") else None,
         dlss=DlssResult(**value["dlss"]) if value.get("dlss") else None,
         retouch=Krea2EditRetouch(**value["retouch"]) if value.get("retouch") is not None else None,
         upscale=(Krea2EditUpscale(**{**value["upscale"], "workflow": RecipeRef(**value["upscale"]["workflow"])})

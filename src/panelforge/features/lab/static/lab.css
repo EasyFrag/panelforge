@@ -20,6 +20,17 @@ button, select, input[type="range"], .dropzone { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .dropzone:focus-within { outline: 3px solid #17634c33; outline-offset: 2px; }
 [hidden] { display: none !important; }
 
+.image-crop-dialog { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); padding: 20px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); background: var(--panel); }
+.image-crop-dialog::backdrop { background: #0009; }
+.image-crop-dialog h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.image-crop-dialog p { margin: 8px 0; font-size: .8rem; }
+.image-crop-stage { display: flex; justify-content: center; background: #161b18; }
+.image-crop-stage canvas { display: block; touch-action: none; cursor: crosshair; }
+.image-crop-error { color: var(--red); }
+.image-crop-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.image-crop-actions button { padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.image-crop-actions [data-save] { background: var(--green); color: white; }
+
 /* Visual evidence analysis stays separate from render workspaces. */
 .media-analysis-workspace { display: block; width: 100%; min-width: 0; }
 .ma-heading { padding: 1.2rem 1.5rem .4rem; }
@@ -146,6 +157,13 @@ select, .seed-label input { min-height: 39px; padding: .5rem .6rem; }
 details { padding: .85rem 0; border-top: 1px solid var(--line); }
 summary { color: var(--muted); font-size: .72rem; font-weight: 750; }
 .seed-label { margin-top: .75rem; }
+#change-view-render-settings { margin-top: .8rem; }
+#change-view-render-settings legend { font-size: .75rem; font-weight: 700; }
+#change-view-render-settings label { display: grid; gap: .35rem; min-width: 0; color: var(--muted); font-size: .68rem; font-weight: 700; }
+#change-view-render-settings > label { margin-top: .7rem; }
+#change-view-render-settings input { width: 100%; min-width: 0; min-height: 39px; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); }
+#change-view-render-settings .caption { white-space: normal; }
+#change-view-reset-settings { margin-top: .65rem; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--green); font-size: .7rem; }
 .prompt label { font-size: .72rem; font-weight: 750; }
 .prompt .section-title small { color: var(--green); font-weight: 700; }
 textarea { margin-top: .5rem; padding: .6rem; resize: vertical; background: #f0eee8; font: .7rem/1.45 ui-monospace, monospace; }
@@ -174,6 +192,8 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .message { min-height: 1.2rem; margin: .65rem 0; color: var(--muted); font-size: .7rem; }
 .message.error-text { color: var(--red); }
 .actions { display: flex; gap: .5rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+#change-view-workspace .actions { flex-wrap: wrap; }
+#change-view-download { margin-left: 0; justify-content: center; }
 .actions button { min-height: 38px; padding: .5rem .75rem; background: white; }
 .actions button.primary { border-color: var(--green); color: white; background: var(--green); }
 .actions button.primary:hover:not(:disabled) { background: #104c3a; }
@@ -1730,3 +1750,40 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .prompt-writer-model select { width: 100%; min-width: 0; text-overflow: ellipsis; }
 .prompt-writer-model small { display: block; margin-top: .35rem; overflow-wrap: anywhere; }
 .prompt-writer-model [data-writer="status"]:empty { display: none; }
+
+/* Video setup: keep daily controls visible and defer detailed controls. */
+.h3-render-setup { display:grid; grid-template-columns: minmax(180px,1fr) minmax(240px,1.4fr) minmax(180px,1fr); gap:.8rem; align-items:start; }
+.h3-render-setup > * { min-width:0; }
+.h3-render-setup .h3-recipe-picker, .h3-render-setup .h3-checkpoint-panel { margin:0; padding:0; border:0; max-width:none; }
+.h3-render-setup label { display:grid; gap:.35rem; font-size:.8rem; font-weight:700; }
+.h3-render-setup select { width:100%; min-width:0; }
+.h3-render-setup .h3-checkpoint-picker { margin:0; flex-wrap:nowrap; }
+.h3-render-setup .h3-checkpoint-picker label { flex:1; min-width:0; }
+.h3-render-setup .h3-checkpoint-picker button { font-size:.7rem; max-width:90px; }
+.h3-render-setup .h3-checkpoint-panel p { font-size:.7rem; margin:.35rem 0 0; }
+.h3-preset-summary { grid-column:1/-1; color:var(--muted); padding-bottom:.4rem; }
+.h3-render-fold { border:1px solid var(--line); border-radius:12px; padding:.75rem; background:rgba(255,255,255,.4); margin:.6rem 0; }
+.h3-render-fold > summary { cursor:pointer; font-weight:700; font-size:.8rem; overflow-wrap:anywhere; }
+.h3-video-lora.h3-render-fold { display:block; }
+.h3-render-fold[open] > summary { margin-bottom:.8rem; }
+.h3-video-lora > label.h3-lora-enable { display:flex; align-items:center; gap:.4rem; margin-bottom:.75rem; }
+.h3-video-lora > label[hidden], .h3-render-settings > label[hidden], .h3-render-setup [hidden] { display:none !important; }
+.h3-sampling-details .h3-bunny-controls { padding:0; border:0; margin:0; }
+.prompt-recipes-open { align-self:start; margin:.35rem 0; font-size:.75rem; }
+.prompt-recipes-dialog { width:min(1100px,94vw); max-width:94vw; max-height:92vh; padding:1.4rem; border:1px solid var(--line,#d6d0c8); border-radius:16px; background:var(--panel,#fbfaf6); color:var(--ink,#152e28); overflow:auto; box-shadow:0 20px 70px #0004; }
+.prompt-recipes-dialog::backdrop { background:#10282088; }
+.prompt-recipes-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.prompt-recipes-heading h2 { margin:0; }
+.prompt-recipes-dialog label { display:grid; gap:.35rem; font-size:.8rem; font-weight:700; min-width:0; }
+.prompt-recipes-selectors { display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:.8rem; }
+.prompt-recipes-dialog select, .prompt-recipes-dialog input:not([type=checkbox]), .prompt-recipes-dialog textarea { width:100%; box-sizing:border-box; padding:.65rem; border:1px solid var(--line,#d6d0c8); border-radius:8px; background:white; color:inherit; }
+.prompt-recipes-dialog textarea { margin:.8rem 0 .35rem; min-height:280px; font:13px/1.5 Consolas,monospace; resize:vertical; }
+.prompt-recipes-dialog label.prompt-recipes-extra { display:flex; align-items:center; gap:.4rem; margin-top:.7rem; font-weight:400; }
+.prompt-recipes-dialog > label { margin-top:.8rem; }
+.prompt-recipes-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem; }
+.prompt-recipes-dialog button { padding:.55rem .8rem; }
+.prompt-recipes-dialog pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.5 Consolas,monospace; padding:.8rem; background:#fff; border-radius:8px; }
+.prompt-recipes-dialog details { margin:.6rem 0; }
+.prompt-recipes-dialog summary { cursor:pointer; }
+.prompt-trace-call { border-top:1px solid var(--line,#d6d0c8); padding:.8rem 0; }
+@media(max-width:850px) { .h3-render-setup, .prompt-recipes-selectors { grid-template-columns:1fr; } .prompt-recipes-dialog { padding:.8rem; } .prompt-recipes-actions button { flex:1 1 45%; } }

@@ -25,6 +25,7 @@ from panelforge.domain.character import (
     ChangeView,
     ShotSize,
 )
+from panelforge.domain.change_view_settings import ChangeViewRenderSettings
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -89,6 +90,9 @@ class RunStore(Protocol):
 
 class ChangeViewRecipe(Protocol):
     @property
+    def render_controls(self) -> dict[str, object] | None: ...
+
+    @property
     def reference(self) -> RecipeRef: ...
 
     @property
@@ -115,6 +119,7 @@ class ChangeViewRecipe(Protocol):
         source_image: str,
         seed: int,
         lora_strength: float,
+        render_settings: ChangeViewRenderSettings | None = None,
     ) -> dict[str, Any]: ...
 
     def is_experimental_lora_override(self, value: float) -> bool: ...
@@ -128,8 +133,11 @@ class ChangeViewRunRequest:
     shot_size: ShotSize
     lora_strength: float
     seed: int
+    render_settings: ChangeViewRenderSettings = ChangeViewRenderSettings()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.render_settings, ChangeViewRenderSettings):
+            raise TypeError("render_settings must be ChangeViewRenderSettings")
         if not isinstance(self.source_asset_id, str) or not self.source_asset_id.strip():
             raise ValueError("source_asset_id must not be empty")
         if not isinstance(self.azimuth, CameraAzimuth):
@@ -197,6 +205,20 @@ class ChangeViewRunner:
             if self.recipe.is_experimental_lora_override(request.lora_strength)
             else ()
         )
+        settings = request.render_settings
+        if getattr(self.recipe, "render_controls", None) is not None:
+            controls += (
+                ControlValue("steps", settings.steps),
+                ControlValue("megapixels", "auto" if settings.megapixels is None else settings.megapixels),
+                ControlValue("aspect_ratio", settings.aspect_ratio),
+            )
+            overrides += tuple(name for name, changed in (
+                ("steps", settings.steps != 8),
+                ("megapixels", settings.megapixels is not None),
+                ("aspect_ratio", settings.aspect_ratio != "source"),
+            ) if changed)
+        elif not settings.is_default:
+            raise ValueError("this change-view recipe does not expose render settings")
         run = RunRecord.create(
             run_id=self._run_id_factory(),
             recipe=self.recipe.reference,
@@ -234,6 +256,13 @@ class ChangeViewRunner:
                 elevation=CameraElevation(values["elevation"]),
                 shot_size=ShotSize(values["shot_size"]),
             )
+            render_options = {}
+            if "steps" in values:
+                render_options["render_settings"] = ChangeViewRenderSettings(
+                    steps=values["steps"],
+                    megapixels=None if values["megapixels"] == "auto" else values["megapixels"],
+                    aspect_ratio=values["aspect_ratio"],
+                )
             workflow = self.recipe.build_workflow(
                 change,
                 source_image=uploaded.workflow_value,
@@ -242,6 +271,7 @@ class ChangeViewRunner:
                     values["multiple_angles_lora_strength"],
                     "multiple_angles_lora_strength",
                 ),
+                **render_options,
             )
             workflow_sha256 = self.runs.save_compiled_workflow(run.run_id, workflow)
             execution_id = self.comfy.submit_workflow(workflow)

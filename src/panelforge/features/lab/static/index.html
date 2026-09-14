@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260913.4">
-  <script src="/static/lab.js?v=20260907.8" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260914.4">
+  <script src="/static/lab.js?v=20260914.2" defer></script>
   <script src="/static/lab-core.js?v=20260911.5" defer></script>
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
   <script src="/static/dlss-lab.js?v=20260913.2" defer></script>
@@ -13,12 +13,13 @@
   <script src="/static/classic-cinematic-controls.js?v=20260910.9" defer></script>
   <script src="/static/combat-controls.js?v=20260910.6" defer></script>
   <script src="/static/sensual-controls.js?v=20260911.1" defer></script>
-  <script src="/static/prompt-writer-model.js?v=20260913.4" defer></script>
+  <script src="/static/prompt-recipes.js?v=20260914.1" defer></script>
+  <script src="/static/prompt-writer-model.js?v=20260914.1" defer></script>
   <script src="/static/i2v-direct.js?v=20260913.5" defer></script>
-  <script src="/static/h3-checkpoints.js?v=20260910.7" defer></script>
+  <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260911.4" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260914.1" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
   <script src="/static/video-lab.js?v=20260907.8" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
@@ -32,7 +33,8 @@
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260913.2" defer></script>
   <script src="/static/krea2-batch-lab.js?v=20260907.8" defer></script>
-  <script src="/static/krea2-edit-lab.js?v=20260913.2" defer></script>
+  <script src="/static/image-crop.js?v=20260914.1" defer></script>
+  <script src="/static/krea2-edit-lab.js?v=20260914.1" defer></script>
   <script src="/static/production-lab.js?v=20260907.8" defer></script>
   <script src="/static/production-v2-lab.js?v=20260907.8" defer></script>
 </head>
@@ -121,6 +123,16 @@
 
         <details>
           <summary>Réglages avancés</summary>
+          <fieldset id="change-view-render-settings" hidden disabled>
+            <legend>Image générée</legend>
+            <div class="selects">
+              <label>Steps<input id="change-view-steps" type="number" min="1" max="50" step="1" value="8" required></label>
+              <label>Résolution (MP)<input id="change-view-megapixels" type="number" min="0.1" max="4" step="any" placeholder="Automatique (~1 MP)"></label>
+            </div>
+            <label>Format de l’image<select id="change-view-aspect-ratio"></select></label>
+            <p class="caption">Résolution vide : dimensionnement automatique actuel. Un format imposé recadre la source au centre. Sortie en PNG.</p>
+            <button id="change-view-reset-settings" type="button">Réglages initiaux</button>
+          </fieldset>
           <label class="seed-label">Seed
             <input id="seed" type="text" name="seed" inputmode="numeric" pattern="[0-9]+" maxlength="20" required>
           </label>
@@ -162,6 +174,7 @@
           <button id="keep" type="button" disabled>Conserver</button>
           <button id="reject" type="button" disabled>Rejeter</button>
           <button id="reuse" type="button" disabled>Utiliser comme source</button>
+          <a id="change-view-download" class="video-lab-download" download hidden>Télécharger le PNG</a>
         </div>
       </section>
 
@@ -664,6 +677,7 @@
             <label><input id="krea2-edit-compare-hover" type="checkbox"> Suivre la souris</label>
             <button id="krea2-edit-compare-zoom-before" type="button">Agrandir avant</button>
             <button id="krea2-edit-compare-zoom-after" type="button">Agrandir après</button>
+            <button id="krea2-edit-crop-source" type="button" disabled>Recadrer la source</button>
             <button id="krea2-edit-retouch-after" type="button" disabled>Retoucher l’image Après</button>
             <button id="krea2-edit-upscale-after" type="button" aria-controls="krea2-edit-upscale-panel" aria-expanded="false" disabled>Upscale DLSS</button>
             <button id="krea2-edit-promote-after" class="primary" type="button" disabled>Valider l’image Après et continuer</button>
@@ -1119,16 +1133,47 @@
                 <div><small>COMFYUI · H3 LATENT SPEED</small><h3>Créer et ajuster la vidéo</h3><p>Les frames, le mode d’entrée et le prompt sont repris automatiquement.</p></div>
                 <span id="h3r-status" class="run-status active">Prêt</span>
               </div>
+              <div class="h3-render-setup">
               <label class="h3-recipe-picker">Recette de rendu<select id="h3r-render-recipe" aria-label="Recette de rendu"></select></label>
+              <section id="h3r-checkpoint-panel" class="h3-checkpoint-panel" hidden>
+                <small hidden id="h3r-checkpoint-summary">Modèle vidéo · Par défaut</small>
+                <div class="h3-checkpoint-picker">
+                  <label>Checkpoint<select id="h3r-checkpoint" aria-describedby="h3r-checkpoint-note"><option value="">Par défaut</option></select></label>
+                  <button id="h3r-checkpoint-refresh" type="button">Actualiser la liste</button>
+                </div>
+                <p id="h3r-checkpoint-note" class="muted" role="status"></p>
+              </section>
+              <label class="h3-preset-picker">Preset de rendu<select id="h3r-preset" aria-describedby="h3r-preset-summary"></select></label>
+              <small id="h3r-preset-summary" class="h3-preset-summary" role="status"></small>
+              </div>
+                <small id="h3r-bunny-geometry" aria-live="polite"></small>
+              <div class="h3-render-settings">
+                <label>Ratio<select id="h3r-ratio"></select></label>
+                <label>MP initiaux<input id="h3r-initial-megapixels" type="number" min="0.1" max="16" step="0.1" value="0.2" title="Résolution de la génération initiale, avant upscale et finition."><small data-initial-note></small></label>
+                <label>MP après upscale<input id="h3r-megapixels" type="number" min="0.1" max="16" step="0.1" value="0.2" title="Résolution cible de la vidéo finale."></label>
+                <label>Durée<input id="h3r-duration" type="number" min="5" max="15" step="0.1"></label>
+
+                <label class="h3-render-seed">Seed<input id="h3r-seed" type="text" inputmode="numeric"><span><input id="h3r-seed-lock" type="checkbox" checked> Réutiliser</span></label>
+                <label class="h3-render-music"><span>Musique</span><select id="h3r-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
+
+              </div>
+              <details class="h3-video-lora h3-render-fold" aria-label="Profil LoRA video H3">
+                <summary id="h3r-lora-summary">LoRA · aucun actif</summary>
+                <label class="h3-lora-enable"><input id="h3r-lora-enabled" type="checkbox"> Activer les LoRA</label>
+                <label hidden>Profil de rendu<select id="h3r-video-lora-profile"><option value="standard" selected>Standard</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
+                <div id="h3r-video-lora-fields" class="h3-video-lora-fields" hidden>
+                  <div class="h3-lora-picker"><label>LoRA vidéo<select id="h3r-video-lora-model"><option value="">Chargement…</option></select></label><button id="h3r-video-lora-info" class="resource-icon-button" type="button" aria-label="Informations sur le LoRA vidéo">i</button></div>
+                  <label>Force <output id="h3r-video-lora-strength-value">0.50</output><input id="h3r-video-lora-strength" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+                  <label id="h3r-bunny-lora-second-label" hidden>Force passe 2<input id="h3r-bunny-lora-second" type="number" min="0" max="1" step="0.05" value="0.2"></label>
+                  <label class="h3-video-lora-clip"><input id="h3r-video-lora-clip" type="checkbox" checked> CLIP Set Last Layer · -2</label>
+                </div>
+                <div id="h3r-lora-stack" class="h3-lora-stack" hidden></div>
+                <small id="h3r-video-lora-warning" class="warning-text" hidden></small>
+              </details>
+              <details class="h3-render-fold h3-sampling-details"><summary>Réglages avancés · sampling, Turbo et aperçu</summary>
               <section id="h3r-bunny-controls" class="h3-bunny-controls" hidden>
                 <label class="h3-bunny-turbo-toggle"><input id="h3r-bunny-turbo" type="checkbox" aria-describedby="h3r-bunny-turbo-note" checked> Ajouter le Turbo BUNNY</label>
                 <small id="h3r-bunny-turbo-note" role="status"></small>
-                <details class="h3-bunny-sampling">
-                  <summary>Steps et aperçu BUNNY</summary>
-                  <div class="analysis-actions">
-                    <button type="button" data-bunny-sampling="on">Steps rapides · 9 / 4 / 5</button>
-                    <button type="button" data-bunny-sampling="off">Steps classiques · 30 / 25 / 5</button>
-                  </div>
                 <small id="h3r-bunny-model"></small>
                 <div class="h3-render-settings">
                   <label>Calendrier de base<input id="h3r-bunny-base" type="number" min="2" max="100" step="1" value="9"></label>
@@ -1136,17 +1181,11 @@
                   <label>Steps passe 2<input id="h3r-bunny-refine" type="number" min="3" max="5" step="1" value="5"></label>
                   <label class="h3-render-feature-toggle"><span>Preview</span><span><input id="h3r-bunny-preview" type="checkbox" checked> Aperçu pendant le calcul</span></label>
                 </div>
-                </details>
-                <small id="h3r-bunny-geometry" aria-live="polite"></small>
+
               </section>
-              <details id="h3r-checkpoint-panel" class="h3-checkpoint-panel" hidden>
-                <summary id="h3r-checkpoint-summary">Modèle vidéo · Par défaut</summary>
-                <div class="h3-checkpoint-picker">
-                  <label>Checkpoint<select id="h3r-checkpoint" aria-describedby="h3r-checkpoint-note"><option value="">Par défaut</option></select></label>
-                  <button id="h3r-checkpoint-refresh" type="button">Actualiser la liste</button>
-                </div>
-                <p id="h3r-checkpoint-note" class="muted" role="status"></p>
+                <div class="h3-render-settings"><label>Steps<input id="h3r-steps" type="number" min="1" max="100" step="1"></label><label class="h3-render-feature-toggle"><span>Spectrum</span><span><input id="h3r-spectrum" type="checkbox"> Activer</span></label></div>
               </details>
+
               <div id="h3r-warnings" class="h3-render-warnings" hidden></div>
               <details class="h3-render-prompt">
                 <summary>Prompt utilisé pour le prochain rendu</summary>
@@ -1162,27 +1201,8 @@
                 <button id="h3-conversion-open" type="button" hidden>Ouvrir l’atelier REF2V</button>
                 <details><summary>Réponse de l’adaptation</summary><pre id="h3-conversion-draft" class="trace-output"></pre></details>
               </section>
-              <div class="h3-render-settings">
-                <label>Ratio<select id="h3r-ratio"></select></label>
-                <label>MP initiaux<input id="h3r-initial-megapixels" type="number" min="0.1" max="16" step="0.1" value="0.2" title="Résolution de la génération initiale, avant upscale et finition."><small data-initial-note></small></label>
-                <label>MP après upscale<input id="h3r-megapixels" type="number" min="0.1" max="16" step="0.1" value="0.2" title="Résolution cible de la vidéo finale."></label>
-                <label>Durée<input id="h3r-duration" type="number" min="5" max="15" step="0.1"></label>
-                <label>Steps<input id="h3r-steps" type="number" min="1" max="100" step="1"></label>
-                <label class="h3-render-seed">Seed<input id="h3r-seed" type="text" inputmode="numeric"><span><input id="h3r-seed-lock" type="checkbox" checked> Réutiliser</span></label>
-                <label class="h3-render-music"><span>Musique</span><select id="h3r-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
-                <label class="h3-render-feature-toggle"><span>Spectrum</span><span><input id="h3r-spectrum" type="checkbox"> Activer</span></label>
-              </div>
-              <section class="h3-video-lora" aria-label="Profil LoRA video H3">
-                <label>Profil de rendu<select id="h3r-video-lora-profile"><option value="standard" selected>Standard</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
-                <div id="h3r-video-lora-fields" class="h3-video-lora-fields" hidden>
-                  <div class="h3-lora-picker"><label>LoRA vidéo<select id="h3r-video-lora-model"><option value="">Chargement…</option></select></label><button id="h3r-video-lora-info" class="resource-icon-button" type="button" aria-label="Informations sur le LoRA vidéo">i</button></div>
-                  <label>Force <output id="h3r-video-lora-strength-value">0.50</output><input id="h3r-video-lora-strength" type="range" min="0" max="1" step="0.05" value="0.5"></label>
-                  <label id="h3r-bunny-lora-second-label" hidden>Force passe 2<input id="h3r-bunny-lora-second" type="number" min="0" max="1" step="0.05" value="0.2"></label>
-                  <label class="h3-video-lora-clip"><input id="h3r-video-lora-clip" type="checkbox" checked> CLIP Set Last Layer · -2</label>
-                </div>
-                <div id="h3r-lora-stack" class="h3-lora-stack" hidden></div>
-                <small id="h3r-video-lora-warning" class="warning-text" hidden></small>
-              </section>
+
+
               <div class="h3-render-actions">
                 <button id="h3r-render" class="primary" type="button">Lancer un rendu</button>
                 <button id="h3r-cancel" type="button" disabled>Annuler</button>
@@ -1507,51 +1527,34 @@
                 <div><small>COMFYUI · H3 REF2V</small><h3>Créer et ajuster la vidéo</h3><p>Les références et le prompt sont repris automatiquement.</p></div>
                 <span id="ref2vr-status" class="run-status active">Prêt</span>
               </div>
+              <div class="h3-render-setup">
               <label class="h3-recipe-picker">Recette de rendu<select id="ref2vr-render-recipe" aria-label="Recette de rendu"></select></label>
-              <section id="ref2vr-bunny-controls" class="h3-bunny-controls" hidden>
-                <label class="h3-bunny-turbo-toggle"><input id="ref2vr-bunny-turbo" type="checkbox" aria-describedby="ref2vr-bunny-turbo-note" checked> Ajouter le Turbo BUNNY</label>
-                <small id="ref2vr-bunny-turbo-note" role="status"></small>
-                <details class="h3-bunny-sampling">
-                  <summary>Steps et aperçu BUNNY</summary>
-                  <div class="analysis-actions">
-                    <button type="button" data-bunny-sampling="on">Steps rapides · 9 / 4 / 5</button>
-                    <button type="button" data-bunny-sampling="off">Steps classiques · 30 / 25 / 5</button>
-                  </div>
-                <small id="ref2vr-bunny-model"></small>
-                <div class="h3-render-settings">
-                  <label>Calendrier de base<input id="ref2vr-bunny-base" type="number" min="2" max="100" step="1" value="9"></label>
-                  <label>Steps passe 1<input id="ref2vr-bunny-coarse" type="number" min="1" max="99" step="1" value="4"></label>
-                  <label>Steps passe 2<input id="ref2vr-bunny-refine" type="number" min="3" max="5" step="1" value="5"></label>
-                  <label class="h3-render-feature-toggle"><span>Preview</span><span><input id="ref2vr-bunny-preview" type="checkbox" checked> Aperçu pendant le calcul</span></label>
-                </div>
-                </details>
-                <small id="ref2vr-bunny-geometry" aria-live="polite"></small>
-              </section>
-              <details id="ref2vr-checkpoint-panel" class="h3-checkpoint-panel" hidden>
-                <summary id="ref2vr-checkpoint-summary">Modèle vidéo · Par défaut</summary>
+              <section id="ref2vr-checkpoint-panel" class="h3-checkpoint-panel" hidden>
+                <small hidden id="ref2vr-checkpoint-summary">Modèle vidéo · Par défaut</small>
                 <div class="h3-checkpoint-picker">
                   <label>Checkpoint<select id="ref2vr-checkpoint" aria-describedby="ref2vr-checkpoint-note"><option value="">Par défaut</option></select></label>
                   <button id="ref2vr-checkpoint-refresh" type="button">Actualiser la liste</button>
                 </div>
                 <p id="ref2vr-checkpoint-note" class="muted" role="status"></p>
-              </details>
-              <div id="ref2vr-warnings" class="h3-render-warnings" hidden></div>
-              <details class="h3-render-prompt">
-                <summary>Prompt utilisé pour le prochain rendu</summary>
-                <textarea id="ref2vr-prompt" rows="10" aria-label="Prompt H3 Ref2V du prochain rendu"></textarea>
-              </details>
+              </section>
+              <label class="h3-preset-picker">Preset de rendu<select id="ref2vr-preset" aria-describedby="ref2vr-preset-summary"></select></label>
+              <small id="ref2vr-preset-summary" class="h3-preset-summary" role="status"></small>
+              </div>
+                <small id="ref2vr-bunny-geometry" aria-live="polite"></small>
               <div class="h3-render-settings">
                 <label>Ratio<select id="ref2vr-ratio"></select></label>
                 <label>MP initiaux<input id="ref2vr-initial-megapixels" type="number" min="0.1" max="16" step="0.1" value="0.2" title="Résolution de la génération initiale, avant upscale et finition."><small data-initial-note></small></label>
                 <label>MP après upscale<input id="ref2vr-megapixels" type="number" min="0.1" max="16" step="0.1" value="0.2" title="Résolution cible de la vidéo finale."></label>
                 <label>Durée<input id="ref2vr-duration" type="number" min="5" max="15" step="0.1"></label>
-                <label>Steps principaux<input id="ref2vr-steps" type="number" min="1" max="100" step="1" title="La seconde passe d'upscale conserve 3 steps fixes."></label>
+
                 <label class="h3-render-seed">Seed<input id="ref2vr-seed" type="text" inputmode="numeric"><span><input id="ref2vr-seed-lock" type="checkbox" checked> Réutiliser</span></label>
                 <label class="h3-render-music"><span>Musique</span><select id="ref2vr-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
-                <label class="h3-render-feature-toggle"><span>Spectrum</span><span><input id="ref2vr-spectrum" type="checkbox"> Activer</span></label>
+
               </div>
-              <section class="h3-video-lora" aria-label="Profil LoRA video Ref2V">
-                <label>Profil de rendu<select id="ref2vr-video-lora-profile"><option value="standard" selected>Standard</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
+              <details class="h3-video-lora h3-render-fold" aria-label="Profil LoRA video Ref2V">
+                <summary id="ref2vr-lora-summary">LoRA · aucun actif</summary>
+                <label class="h3-lora-enable"><input id="ref2vr-lora-enabled" type="checkbox"> Activer les LoRA</label>
+                <label hidden>Profil de rendu<select id="ref2vr-video-lora-profile"><option value="standard" selected>Standard</option><option value="lora">LoRA MiniMax · expérimental</option></select></label>
                 <div id="ref2vr-video-lora-fields" class="h3-video-lora-fields" hidden>
                   <div class="h3-lora-picker"><label>LoRA vidéo<select id="ref2vr-video-lora-model"><option value="">Chargement…</option></select></label><button id="ref2vr-video-lora-info" class="resource-icon-button" type="button" aria-label="Informations sur le LoRA vidéo">i</button></div>
                   <label>Force <output id="ref2vr-video-lora-strength-value">0.50</output><input id="ref2vr-video-lora-strength" type="range" min="0" max="1" step="0.05" value="0.5"></label>
@@ -1560,7 +1563,30 @@
                 </div>
                 <div id="ref2vr-lora-stack" class="h3-lora-stack" hidden></div>
                 <small id="ref2vr-video-lora-warning" class="warning-text" hidden></small>
+              </details>
+              <details class="h3-render-fold h3-sampling-details"><summary>Réglages avancés · sampling, Turbo et aperçu</summary>
+              <section id="ref2vr-bunny-controls" class="h3-bunny-controls" hidden>
+                <label class="h3-bunny-turbo-toggle"><input id="ref2vr-bunny-turbo" type="checkbox" aria-describedby="ref2vr-bunny-turbo-note" checked> Ajouter le Turbo BUNNY</label>
+                <small id="ref2vr-bunny-turbo-note" role="status"></small>
+                <small id="ref2vr-bunny-model"></small>
+                <div class="h3-render-settings">
+                  <label>Calendrier de base<input id="ref2vr-bunny-base" type="number" min="2" max="100" step="1" value="9"></label>
+                  <label>Steps passe 1<input id="ref2vr-bunny-coarse" type="number" min="1" max="99" step="1" value="4"></label>
+                  <label>Steps passe 2<input id="ref2vr-bunny-refine" type="number" min="3" max="5" step="1" value="5"></label>
+                  <label class="h3-render-feature-toggle"><span>Preview</span><span><input id="ref2vr-bunny-preview" type="checkbox" checked> Aperçu pendant le calcul</span></label>
+                </div>
+
               </section>
+                <div class="h3-render-settings"><label>Steps principaux<input id="ref2vr-steps" type="number" min="1" max="100" step="1" title="La seconde passe d'upscale conserve 3 steps fixes."></label><label class="h3-render-feature-toggle"><span>Spectrum</span><span><input id="ref2vr-spectrum" type="checkbox"> Activer</span></label></div>
+              </details>
+
+              <div id="ref2vr-warnings" class="h3-render-warnings" hidden></div>
+              <details class="h3-render-prompt">
+                <summary>Prompt utilisé pour le prochain rendu</summary>
+                <textarea id="ref2vr-prompt" rows="10" aria-label="Prompt H3 Ref2V du prochain rendu"></textarea>
+              </details>
+
+
               <div class="h3-render-actions">
                 <button id="ref2vr-render" class="primary" type="button">Lancer un rendu</button>
                 <button id="ref2vr-cancel" type="button" disabled>Annuler</button>

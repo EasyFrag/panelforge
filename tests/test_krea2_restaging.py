@@ -192,7 +192,7 @@ class RestagingTest(unittest.TestCase):
 
     def test_schema_ten_reopens_and_old_stages_have_no_subject(self):
         source = self.prepare()
-        self.assertEqual(_to_dict(source)["schema_version"], 11)
+        self.assertEqual(_to_dict(source)["schema_version"], 12)
         self.assertEqual(LocalKrea2EditStore(self.root).get(source.source_id), source)
         single = self.service.add_source(asset_id=self.scene.asset_id, filename="old.png", metadata=Krea2EditMetadata())
         for schema in range(1, 10):

@@ -59,6 +59,43 @@ class EditAssistanceV3Test(unittest.TestCase):
         self.assertEqual(loaded, result)
         self.assertEqual(serialize_krea2_edit_source(loaded)["revisions"][-1]["assistance_version"], "3.0.0")
 
+    def test_fenced_json_is_accepted_and_raw_response_is_preserved(self):
+        for version, prompt in (("2.0.0", FULL), ("3.0.0", SHORT)):
+            for fence, newline in (("json", "\n"), ("", "\n"), ("JSON", "\r\n")):
+                with self.subTest(version=version, fence=fence, newline=newline):
+                    raw = " \n```" + fence + newline + json.dumps({
+                        "message": "Je propose cette modification.", "prompt": prompt,
+                    }) + newline + "```\n "
+                    self.gateway.response = raw
+                    result = list(self.service.stream_prepare_prompt(
+                        self.source.source_id, "Remove the paint", "fake",
+                        assistance_version=version,
+                    ))[-1].source
+                    self.assertEqual(result.prompt_status.value, "ready")
+                    self.assertEqual(result.generated_prompt, prompt)
+                    self.assertEqual(result.raw_prompt_response, raw)
+                    self.assertEqual(result.attempts, ())
+                    self.assertEqual(self.store.get(result.source_id), result)
+
+    def test_fenced_json_does_not_hide_invalid_or_ambiguous_responses(self):
+        valid = json.dumps({"message": "Proposition.", "prompt": SHORT})
+        invalid = (
+            "```json\n" + valid,
+            "Here is the result:\n```json\n" + valid + "\n```",
+            "```json\n" + valid + "\n```\nExtra explanation.",
+            "```json\n" + valid + "\n```\n```json\n" + valid + "\n```",
+            "```python\n" + valid + "\n```",
+            "```json\n" + valid[:-1] + "\n```",
+            '```json\n{"message": "Proposition."}\n```',
+            '```json\n{"message": "Proposition.", "prompt": []}\n```',
+            '```json\n{"message": "Proposition.", "prompt": " "}\n```',
+            '```json\n{"message": "Proposition.", "prompt": "edit", "extra": 1}\n```',
+            "```json\n" + json.dumps({"message": "Proposition.", "prompt": "x" * 40001}) + "\n```",
+        )
+        for raw in invalid:
+            with self.subTest(prefix=raw[:60]), self.assertRaises(ValueError):
+                v3.decode(raw)
+
     def test_switching_versions_keeps_their_contracts_and_saved_history(self):
         first = self.chat("FIRST_CORRECTION", version="2.0.0", output=FULL)
         second = self.chat("SECOND_CORRECTION")

@@ -1,0 +1,1 @@
+peut composer plusieurs mouvements de caméra compatibles si le rythme le justifie

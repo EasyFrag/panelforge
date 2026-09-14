@@ -1,5 +1,7 @@
 """Versioned permissions and validation for optional English speech."""
 
+from .prompt_recipe_text import prompt_text
+
 from collections import Counter
 import re
 
@@ -29,21 +31,15 @@ def speech_lines(content: str) -> tuple[tuple[str, str], ...]:
 def vocal_policy(level: int, *, locked: bool = False) -> str:
     validate_vocal_level(level)
     permission = (
-        "No spontaneous speech or vocal reactions; keep only what the user requests.",
-        "May add a brief nonverbal reaction (gasp, laugh, justified cry); no invented words.",
-        "May add one short English line and a brief appropriate nonverbal reaction.",
-        "May add a short English exchange, up to three short lines, between existing characters.",
+        prompt_text('vocal_policy.vocal_policy.01', 'No spontaneous speech or vocal reactions; keep only what the user requests.'),
+        prompt_text('vocal_policy.vocal_policy.02', 'May add a brief nonverbal reaction (gasp, laugh, justified cry); no invented words.'),
+        prompt_text('vocal_policy.vocal_policy.03', 'May add one short English line and a brief appropriate nonverbal reaction.'),
+        prompt_text('vocal_policy.vocal_policy.04', 'May add a short English exchange, up to three short lines, between existing characters.'),
     )[level]
     return (
-        f"VOCAL POLICY {VOCAL_POLICY_VERSION} — level {level}/3. {permission} "
-        "These are permissions, never quotas. Explicit silence overrides additions. "
-        "Preserve user-supplied words verbatim, including their original language. "
-        "Additions use [English], at most 12 words per line, and must leave time for the action; "
-        "aim below 2.5 spoken words per second across the clip. Identify the existing speaker. "
-        "Never invent a character, injury or event merely to motivate speech. "
-        "Describe nonverbal sounds as synchronized action/sound prose, not as spoken dialogue tags. "
-        + ("The supplied vocal ledger is already decided: retain it exactly, with its speakers and reactions; no further additions."
-           if locked else "Choose any additions once at this decision stage; downstream stages will preserve them.")
+        prompt_text('vocal_policy.vocal_policy.05', 'VOCAL POLICY {value1} — level {value2}/3. {value3} These are permissions, never quotas. Explicit silence overrides additions. Preserve user-supplied words verbatim, including their original language. Additions use [English], at most 12 words per line, and must leave time for the action; aim below 2.5 spoken words per second across the clip. Identify the existing speaker. Never invent a character, injury or event merely to motivate speech. Describe nonverbal sounds as synchronized action/sound prose, not as spoken dialogue tags. ', value1=VOCAL_POLICY_VERSION, value2=level, value3=permission)
+        + (prompt_text('vocal_policy.vocal_policy.06', 'The supplied vocal ledger is already decided: retain it exactly, with its speakers and reactions; no further additions.')
+           if locked else prompt_text('vocal_policy.vocal_policy.07', 'Choose any additions once at this decision stage; downstream stages will preserve them.'))
     )
 
 

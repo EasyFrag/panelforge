@@ -29,7 +29,7 @@ _DURATION_NUMBER = r"\d{1,3}(?:[.,]\d{1,3})?"
 _DURATION_UNIT = r"(?:s(?:ec(?:onde)?s?)?|secondes?|seconds?)"
 _EXPLICIT_TOTAL_DURATION_RE = re.compile(
     rf"(?:"
-    rf"\b(?:dur[ée]e|duration)\s*(?:totale?|total)?\s*"
+    rf"\b(?:dur[ée]e|duration)\s*(?:totale?|total|cible|target)?\s*"
     rf"(?:[:=]|\b(?:de|of|est|is)\b)?\s*"
     rf"(?P<label>{_DURATION_NUMBER})\s*-?\s*{_DURATION_UNIT}(?!\w)"
     rf"|"

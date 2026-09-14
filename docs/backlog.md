@@ -2,6 +2,19 @@
 
 ## Priorités actives — 14 septembre 2026
 
+- **Livré dans le checkout, sur autorisation : UX vidéo + édition des recettes LLM.**
+  [Guide 1.0](video-ux-prompt-editor-1.0.md). Sélecteur de presets existants,
+  checkpoint visible, LoRA et détails repliables ; éditeur des six recettes
+  actuelles, révisions et activation persistantes, aperçu sans appel au modèle,
+  échanges exacts durables depuis les rendus. Durée cible et contrat caméra
+  Classique corrigés. Redémarrage du Lab nécessaire ; tests préparés à lancer
+  par l'utilisateur, pas de génération ni service relancé par l'agent. P1/P2
+  restent en attente ; EROS/BUNNY sampling reste un lot technique distinct.
+- **Découpage du premier patch proposé** : [UX vidéo et édition des recettes LLM](proposals/video-ux-prompt-editor-patch.md).
+  Correctifs durée/caméra séparés en préalable, puis UX validée, petit éditeur
+  avec révision active persistante et traces LLM durables consultables depuis
+  les rendus. Presets actuels seulement dans ce lot ; adaptation EROS/BUNNY
+  distincte. Proposition documentaire demandée, pas encore de patch applicatif.
 - **Prochaine itération proposée : UX vidéo + consignes LLM accessibles.**
   Maquette de simplification du rendu **validée par l'utilisateur le 14 septembre** :
   [presets de rendu](proposals/render-presets-v2.html). Un seul preset pour le
@@ -13,6 +26,13 @@
   [Constat et proposition](proposals/editable-llm-prompts.md). **Discussion et
   alignement uniquement pour ce tour**, application non modifiée. État préalable
   sauvegardé sur GitHub : `snapshot-before-render-ux-prompts-2026-09-14`, commit `934cd2f`.
+  Précision suivante : préférer un petit éditeur **Recettes LLM**, sauvegarde
+  persistante par **Enregistrer et appliquer**, numéro de révision automatique,
+  retour à une ancienne révision par sélection/application. La révision active
+  devient le défaut de tous les nouveaux cycles de cette recette ; les appels
+  passés et un Plan/Writer déjà entamé restent figés. Consulter les **Échanges LLM**
+  depuis la vidéo terminée, avec traces durables liées aux runs. Le rangement
+  de fichiers seul reste l'alternative si l'écran est jugé trop lourd.
 - **P1 — Évolution du prompting I2V / Mise en scène 1.1.** Mise en attente explicite
   par l'utilisateur, à conserver. Première étape : réduire la redescription de la
   frame initiale exacte tout en conservant les ancrages du Plan interne. Les bases
@@ -27,6 +47,15 @@
   l'extraction et la transcription CPU actuels ; pas de nouveau service ni de
   pipeline concurrent de rédaction H3. Discussion uniquement, aucun patch moteur.
   [Analyse et proposition bornée](proposals/media-analysis-adaptive-p2.md).
+
+**Incident diagnostiqué puis corrigé dans le patch ci-dessus** : le libellé « Durée cible »
+produit par l'analyse média n'est pas reconnu par le parseur de durée H3 ; les
+repères d'action sont pris pour des totaux contradictoires. Deux préparations du
+14 septembre bloquées avant appel LLM, puis une acceptée après retrait des repères.
+[Diagnostic et correction ciblée proposée](diagnostics/media-h3-duration-2026-09-14.md).
+Le même diagnostic distingue le rejet caméra Classique du 13 septembre ; l'audit
+n'avait appliqué aucun correctif. Le patch autorisé ultérieurement ajoute une
+révision 2 des consignes Classique pour expliciter ce contrat, validateur inchangé.
 
 Les points datés ci-dessous conservent l'historique. Ces priorités du 14 septembre
 remplacent les anciennes priorités des travaux encore à faire ; la V1 d'analyse

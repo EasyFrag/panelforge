@@ -1,0 +1,2 @@
+
+APPROVED WRITER LAYOUT — preserve this nesting exactly. Shots are camera cuts; phases inside a shot are continuous, never separate shots. Replace each placeholder with its action paragraph; keep soundscape and music at the root. Each shot object has exactly one key, phases. For two phases, write two strings separated by a comma INSIDE that array; do not create phases1, phases2 or any numbered property.

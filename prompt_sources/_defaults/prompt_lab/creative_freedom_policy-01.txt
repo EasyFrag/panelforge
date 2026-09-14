@@ -1,0 +1,1 @@
+peut ajouter un micro-mouvement naturel d'arrière-plan si la scène paraît vide

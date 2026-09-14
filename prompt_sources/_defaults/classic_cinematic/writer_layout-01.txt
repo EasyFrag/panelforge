@@ -1,0 +1,1 @@
+Action paragraph for shot {value1}, phase {value2}

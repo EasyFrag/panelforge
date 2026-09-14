@@ -49,15 +49,16 @@
         }
       }
       select.addEventListener("change", () => { value = select.value || null; paint(); onChange(); });
-      panel.addEventListener("toggle", () => { if (panel.open && config.supported) load(); });
+      panel.addEventListener("toggle", () => { if ((panel.open || panel.tagName !== "DETAILS") && config.supported && !loaded) load(); });
       refresh.addEventListener("click", () => load(true));
+      select.addEventListener("focus", () => { if (!loaded && !loading && config.supported) load(); });
       return {
         get value() { return value; },
         get label() { return label(); },
         set(valueToRestore) { value = valueToRestore || null; paint(); },
         configure(spec) {
           ++token; loading = false; config = spec || {}; value = null; warning = ""; paint();
-          if (panel.open && config.supported) load();
+          if ((panel.open || panel.tagName !== "DETAILS") && config.supported && !loaded) load();
         },
         setDisabled(next) { disabled = next; select.disabled = disabled || !config.supported;
           refresh.disabled = disabled || loading || !config.supported; },

@@ -1,0 +1,1 @@
+{value1}. Ces niveaux sont des autorisations, jamais des quotas : n'enrichis que les moments trop vides ou trop lents, sans contredire les frames, l'intention, les dialogues ni la continuité physique. Vie de la scène {value2}/3 : {value3}. Caméra {value4}/3 : {value5}. Mouvements additionnels {value6}/3 : {value7}.

@@ -3,6 +3,8 @@
 Only cinematic_core_v1 and the shared H3/vocal protocols are adopted. Classic
 and Combat prompts, schemas, examples and policies are deliberately not used.
 """
+
+from .prompt_recipe_text import prompt_text
 import json
 import re
 from typing import Literal
@@ -200,12 +202,10 @@ def schema(stage: str, _planned=True, _version=None, *, plan: dict | None = None
 def writer_layout(plan: dict) -> str:
     approved = Plan.model_validate(plan)
     layout = {"shots": [{"phases": [{"beat_ids": [beat.beat_id for beat in phase.interactions],
-        "prose": f"Direct action paragraph for shot {shot_index}, phase {phase_index}"}
+        "prose": prompt_text('sensual_cinematic.writer_layout.01', 'Direct action paragraph for shot {value1}, phase {value2}', value1=shot_index, value2=phase_index)}
         for phase_index, phase in enumerate(shot.phases, 1)]}
         for shot_index, shot in enumerate(approved.shots, 1)]}
-    return ("\nAPPROVED SENSUAL WRITER LAYOUT — preserve this exact nesting and every beat_id. "
-        "Replace only each prose placeholder. One shot object contains its continuous phase objects; never turn phases "
-        "into cuts, merge beats, omit a contact/response/state, or add a numbered property. Keep soundscape and music at root.\n"
+    return (prompt_text('sensual_cinematic.writer_layout.02', '\nAPPROVED SENSUAL WRITER LAYOUT — preserve this exact nesting and every beat_id. Replace only each prose placeholder. One shot object contains its continuous phase objects; never turn phases into cuts, merge beats, omit a contact/response/state, or add a numbered property. Keep soundscape and music at root.\n')
         + json.dumps(layout, ensure_ascii=False))
 
 
@@ -234,21 +234,12 @@ def check_count(shots, context: dict) -> None:
 
 def policy(settings: SensualSettings, text: str) -> str:
     if settings.explicitness != "explicit_maximal":
-        raise ValueError("Sensual 1.0 attend le niveau explicite maximal verrouillé.")
+        raise ValueError(prompt_text('sensual_cinematic.policy.01', 'Sensual 1.0 attend le niveau explicite maximal verrouillé.'))
     count = requested_count(text, settings)
-    choice = f"Use exactly {count} shot(s)." if count else "Choose 1-6 shots from the intention, duration and physical progression; prefer fewer when they suffice."
+    choice = f"Use exactly {count} shot(s)." if count else prompt_text('sensual_cinematic.policy.02', 'Choose 1-6 shots from the intention, duration and physical progression; prefer fewer when they suffice.')
     return ("\nSENSUAL 1.0 — EXPLICIT MAXIMAL (PINNED)\n" + choice
-        + (" The explicit UI count overrides conflicting count wording." if settings.shot_count is not None else " Auto follows an explicit requested count when present.")
-        + " All depicted people must be clearly adults and every interaction voluntary and ongoing. "
-        "Maximal is mandatory literal specificity: use standard anatomical names and exact sexual-action verbs wherever "
-        "the requested act requires them. Never censor, euphemize, fade out, imply off-screen completion, or collapse an "
-        "action into labels such as intimate activity, sensual movement, pleasure or making love. For every chronological "
-        "beat state actor, exact action, anatomical/object contact, observable response and resulting position/contact. "
-        "Maintain contact, body orientation, clothing state and repetitive motion until a visible action changes them. "
-        "Do not invent an unrequested act category, participant, coercion, injury, fluid, climax or escalation. Explicitness "
-        "and shot count are independent. Camera fields alone own camera motion; phases are continuous, not hidden cuts. "
-        "Respect first/last anchors and every Ref2V role. All non-dialogue output is English. Declare spoken_languages and "
-        "preserve exact speech with canonical <d>[Language] words</d> tags.")
+        + (prompt_text('sensual_cinematic.policy.03', ' The explicit UI count overrides conflicting count wording.') if settings.shot_count is not None else prompt_text('sensual_cinematic.policy.04', ' Auto follows an explicit requested count when present.'))
+        + prompt_text('sensual_cinematic.policy.05', ' All depicted people must be clearly adults and every interaction voluntary and ongoing. Maximal is mandatory literal specificity: use standard anatomical names and exact sexual-action verbs wherever the requested act requires them. Never censor, euphemize, fade out, imply off-screen completion, or collapse an action into labels such as intimate activity, sensual movement, pleasure or making love. For every chronological beat state actor, exact action, anatomical/object contact, observable response and resulting position/contact. Maintain contact, body orientation, clothing state and repetitive motion until a visible action changes them. Do not invent an unrequested act category, participant, coercion, injury, fluid, climax or escalation. Explicitness and shot count are independent. Camera fields alone own camera motion; phases are continuous, not hidden cuts. Respect first/last anchors and every Ref2V role. All non-dialogue output is English. Declare spoken_languages and preserve exact speech with canonical <d>[Language] words</d> tags.'))
 
 
 def encode_context(value: dict) -> str:

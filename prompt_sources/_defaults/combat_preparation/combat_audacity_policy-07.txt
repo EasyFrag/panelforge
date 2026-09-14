@@ -1,0 +1,1 @@
+Translate the requested encounter faithfully; infer only necessary defense, contact, recoil and recovery.

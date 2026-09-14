@@ -77,6 +77,8 @@ class CompositionRevision:
     parent_revision_id: str | None = None
     instruction: str | None = None
     compiler_context: str | None = None
+    llm_call_id: str | None = None
+    prompt_recipe_revision: int | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.revision_id, "revision_id")
@@ -97,6 +99,12 @@ class CompositionRevision:
             _require_text(self.instruction, "instruction")
         if self.compiler_context is not None:
             _require_text(self.compiler_context, "compiler_context")
+        if self.llm_call_id is not None:
+            _require_text(self.llm_call_id, "llm_call_id")
+        if self.prompt_recipe_revision is not None and (
+            type(self.prompt_recipe_revision) is not int or self.prompt_recipe_revision < 1
+        ):
+            raise ValueError("prompt_recipe_revision must be a positive integer")
 
 
 @dataclass(frozen=True, slots=True)

@@ -166,6 +166,7 @@ class LocalKrea2ProjectExporter:
                           "file": (stage_directory / subject_filename).relative_to(project_directory).as_posix()}}
                        if stage.subject_reference else {}),
                     "kind": attempt.kind,
+                    "crop": asdict(attempt.crop) if attempt.crop else None,
                     "dlss": asdict(dlss) if dlss else None,
                     "dlss_report_file": "dlss-report.json" if dlss else None,
                     "engine": edit_engine(attempt.settings),
@@ -264,14 +265,15 @@ def _accepted_sidecar(
     upscale = _upscale_provenance(source, attempt)
     return {
         "schema_version": 1,
-        "kind": "accepted_upscale" if attempt.upscale else "accepted_retouch" if attempt.retouch else "accepted_edit",
+        "kind": "accepted_crop" if attempt.crop else "accepted_upscale" if attempt.upscale else "accepted_retouch" if attempt.retouch else "accepted_edit",
+        "crop": asdict(attempt.crop) if attempt.crop else None,
         "upscale": asdict(upscale) if upscale else None,
         "dlss": asdict(_dlss_provenance(source, attempt)) if _dlss_provenance(source, attempt) else None,
         "upscale_files": upscale_files,
         "output_dimensions": ({"width": output_dimensions[0], "height": output_dimensions[1]} if output_dimensions else None),
-        "render_settings_are_inherited": bool(upscale or attempt.retouch),
+        "render_settings_are_inherited": bool(upscale or attempt.retouch or attempt.crop),
         "retouch": asdict(attempt.retouch) if attempt.retouch else None,
-        "operation": "image.upscale" if attempt.upscale else "image.compose.mask@1.0.0" if attempt.retouch else "image.edit",
+        "operation": "image.crop@1.0.0" if attempt.crop else "image.upscale" if attempt.upscale else "image.compose.mask@1.0.0" if attempt.retouch else "image.edit",
         "composition": ({"width": attempt.retouch.width, "height": attempt.retouch.height,
                          "harmonize": attempt.retouch.harmonize,
                          "harmonize_strength": attempt.retouch.harmonize_strength,

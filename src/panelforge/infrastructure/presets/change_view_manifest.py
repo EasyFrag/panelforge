@@ -131,6 +131,7 @@ class ValidatedChangeViewPreset:
     controls: Mapping[str, NumericWorkflowControl]
     workflow_sha256: str
     _workflow_json: bytes = field(repr=False)
+    render_bindings: Mapping[str, WorkflowBinding] = field(default_factory=dict)
 
     @property
     def workflow(self) -> JsonObject:
@@ -224,6 +225,7 @@ def validate_change_view_preset(
         manifest.get("workflow_assertions"), workflow_nodes
     )
     controls = _validate_controls(manifest.get("controls"), assertions)
+    render_bindings = _validate_render_bindings(manifest.get("render_bindings"), workflow_nodes)
 
     serialized_workflow = json.dumps(
         workflow_nodes,
@@ -243,7 +245,31 @@ def validate_change_view_preset(
         controls=MappingProxyType(controls),
         workflow_sha256=workflow_sha256,
         _workflow_json=serialized_workflow,
+        render_bindings=MappingProxyType(render_bindings),
     )
+
+
+def _validate_render_bindings(value: Any, workflow: Mapping[str, Any]) -> dict[str, WorkflowBinding]:
+    if value is None:
+        return {}
+    config = _require_mapping(value, "render_bindings")
+    if set(config) != {"steps", "image_size"}:
+        raise PresetValidationError("render_bindings must declare steps and image_size")
+    result = {}
+    for name, (class_type, input_name) in {
+        "steps": ("KSampler", "steps"),
+        "image_size": ("FluxKontextImageScale", "image"),
+    }.items():
+        binding = _require_mapping(config[name], f"render_bindings.{name}")
+        node_id = _require_string(binding.get("node_id"), f"render_bindings.{name}.node_id")
+        node = _require_mapping(workflow.get(node_id), f"render_bindings.{name}.node")
+        inputs = _require_mapping(node.get("inputs"), f"render_bindings.{name}.inputs")
+        if node.get("class_type") != class_type or binding.get("input") != input_name or input_name not in inputs:
+            raise PresetValidationError(f"invalid render binding {name}")
+        if name == "steps" and inputs[input_name] != 8:
+            raise PresetValidationError("change-view render controls require the original 8-step default")
+        result[name] = WorkflowBinding(node_id=node_id, input_name=input_name)
+    return result
 
 
 def _validate_phrases(

@@ -1,0 +1,1 @@
+ Auto follows the explicitly requested count when present.

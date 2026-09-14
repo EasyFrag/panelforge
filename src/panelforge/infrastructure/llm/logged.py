@@ -45,9 +45,11 @@ class LoggedMultimodalGateway:
         clock: Callable[[], datetime] | None = None,
         timer: Callable[[], float] | None = None,
         id_factory: Callable[[], str] | None = None,
+        trace_store=None,
     ) -> None:
         self._delegate = delegate
         self._store = store
+        self._trace_store = trace_store
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._timer = timer or perf_counter
         self._id_factory = id_factory or (lambda: f"llm-{uuid4().hex}")
@@ -179,6 +181,8 @@ class LoggedMultimodalGateway:
                 self._finish_call(call_id)
 
     def _start_call(self, call_id: str, request: CompletionRequest) -> None:
+        if self._trace_store is not None:
+            self._trace_store.begin(call_id, request.trace_context)
         with self._active_lock:
             self._active_calls[call_id] = LlmActiveCall(
                 call_id=call_id,
@@ -272,14 +276,24 @@ class LoggedMultimodalGateway:
             error_type is not None or error_message is not None
         ):
             raise ValueError("application errors require a rejected outcome")
-        with self._outcome_lock:
-            self._application_outcomes[call_id] = (
-                outcome,
-                error_type,
-                error_message,
-            )
+        with self._active_lock:
+            still_active = call_id in self._active_calls
+        if still_active:
+            with self._outcome_lock:
+                self._application_outcomes[call_id] = (
+                    outcome,
+                    error_type,
+                    error_message,
+                )
+        if self._trace_store is not None:
+            self._trace_store.outcome(call_id, outcome, error_type, error_message)
 
     def _append(self, record: LlmCallRecord) -> None:
+        if self._trace_store is not None:
+            try:
+                self._trace_store.finish(record)
+            except Exception:
+                _LOGGER.exception("failed to persist durable video LLM trace %s", record.call_id)
         try:
             self._store.append(record)
         except Exception:

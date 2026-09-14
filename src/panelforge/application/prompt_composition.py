@@ -17,6 +17,7 @@ from .h3_multishot_preparation import (
     align_state_multishot_duration,
 )
 from . import combat_sequence, classic_cinematic, sensual_cinematic
+from .prompt_recipes import PromptRecipeStore
 
 from .vocal_policy import vocal_level, vocal_policy, speech_lines, validate_speech
 from .video_preparation import (
@@ -657,6 +658,7 @@ class PromptCompositionService:
         compositions: PromptCompositionStore,
         application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
         assets: AssetStore | None = None,
+        prompt_recipes: PromptRecipeStore | None = None,
     ) -> None:
         self.gateway = gateway
         self.cookbooks = cookbooks
@@ -664,6 +666,7 @@ class PromptCompositionService:
         self.compositions = compositions
         self.application_outcomes = application_outcomes
         self.assets = assets
+        self.prompt_recipes = prompt_recipes
 
     def list_cookbooks(
         self,
@@ -681,6 +684,10 @@ class PromptCompositionService:
 
     def get(self, source_session_id: str) -> PromptComposition:
         return self.compositions.get(source_session_id)
+
+    def preview_request(self, source_session_id: str, stage: CompositionStage) -> CompletionRequest:
+        """Assemble the next request without executing or changing the preparation."""
+        return self._request(source_session_id, stage, instruction=None)[4]
 
     def configure(
         self,
@@ -830,26 +837,34 @@ class PromptCompositionService:
             instruction=None,
         )
         result = self.gateway.complete(request)
-        content, compiler_context = _compile_content_with_context(
-            cookbook,
-            stage,
-            prefix,
-            result.content,
-            source_text=preparation_source(session, composition).source_text,
-            dialogue_source_text=_dialogue_source(
+        try:
+            content, compiler_context = _compile_content_with_context(
                 cookbook,
-                preparation_source(session, composition),
-            ),
-        )
-        return self._persist_if_current(
-            session,
-            composition,
-            stage,
-            expected,
-            content,
-            RevisionOrigin.MODEL,
-            compiler_context=compiler_context,
-        )
+                stage,
+                prefix,
+                result.content,
+                source_text=preparation_source(session, composition).source_text,
+                dialogue_source_text=_dialogue_source(
+                    cookbook,
+                    preparation_source(session, composition),
+                ),
+            )
+            completed = self._persist_if_current(
+                session,
+                composition,
+                stage,
+                expected,
+                content,
+                RevisionOrigin.MODEL,
+                compiler_context=compiler_context,
+                llm_call_id=result.call_id,
+                prompt_recipe_revision=(request.trace_context or {}).get("recipe_revision"),
+            )
+        except Exception as error:
+            self._report_application_outcome(result.call_id, LlmCallApplicationOutcome.REJECTED, error)
+            raise
+        self._report_application_outcome(result.call_id, LlmCallApplicationOutcome.ACCEPTED)
+        return completed
 
     def stream_generate(
         self,
@@ -1482,34 +1497,42 @@ class PromptCompositionService:
             instruction=instruction,
         )
         result = self.gateway.complete(request)
-        revised = result.content
-        if cookbook.output_contract not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *_SEQUENCE_CONTRACTS}:
-            revised = _revision_document_contract(
+        try:
+            revised = result.content
+            if cookbook.output_contract not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *_SEQUENCE_CONTRACTS}:
+                revised = _revision_document_contract(
+                    cookbook,
+                    stage,
+                    compiler_context=prefix or None,
+                ).extract(result.content)
+            content, compiler_context = _compile_content_with_context(
                 cookbook,
                 stage,
-                compiler_context=prefix or None,
-            ).extract(result.content)
-        content, compiler_context = _compile_content_with_context(
-            cookbook,
-            stage,
-            prefix,
-            revised,
-            source_text=preparation_source(session, composition).source_text,
-            dialogue_source_text=_dialogue_source(
-                cookbook,
-                preparation_source(session, composition),
-            ),
-        )
-        return self._persist_if_current(
-            session,
-            composition,
-            stage,
-            expected,
-            content,
-            RevisionOrigin.REWRITE,
-            instruction,
-            compiler_context=compiler_context,
-        )
+                prefix,
+                revised,
+                source_text=preparation_source(session, composition).source_text,
+                dialogue_source_text=_dialogue_source(
+                    cookbook,
+                    preparation_source(session, composition),
+                ),
+            )
+            completed = self._persist_if_current(
+                session,
+                composition,
+                stage,
+                expected,
+                content,
+                RevisionOrigin.REWRITE,
+                instruction,
+                compiler_context=compiler_context,
+                llm_call_id=result.call_id,
+                prompt_recipe_revision=(request.trace_context or {}).get("recipe_revision"),
+            )
+        except Exception as error:
+            self._report_application_outcome(result.call_id, LlmCallApplicationOutcome.REJECTED, error)
+            raise
+        self._report_application_outcome(result.call_id, LlmCallApplicationOutcome.ACCEPTED)
+        return completed
 
     def stream_revise(
         self,
@@ -2239,6 +2262,22 @@ class PromptCompositionService:
         return session, composition, cookbook, expected, request, prefix
 
     def _sequence_request(self, session, composition, cookbook, stage, expected, instruction, include_reasoning):
+        from .prompt_recipes import EDITABLE_KEYS
+        from .prompt_recipe_text import using_prompt_texts
+        package = None
+        key = (cookbook.reference.cookbook_id, cookbook.reference.version)
+        if self.prompt_recipes is not None and key in EDITABLE_KEYS:
+            pinned = None
+            if stage is CompositionStage.FINAL_PROMPT and instruction is None:
+                plan = _approved_stage(composition, CompositionStage.BEAT_SHEET,
+                    self._expected_sources(session, composition, CompositionStage.BEAT_SHEET))
+                pinned = plan.prompt_recipe_revision or 1
+            package = self.prompt_recipes.get(*key, revision=pinned)
+        with using_prompt_texts(package["fields"] if package else None):
+            return self._sequence_request_scoped(session, composition, cookbook, stage, expected,
+                instruction, include_reasoning, package)
+
+    def _sequence_request_scoped(self, session, composition, cookbook, stage, expected, instruction, include_reasoning, package):
         source = preparation_source(session, composition)
         handler = _sequence_handler(cookbook)
         if session.preparation.is_combat:
@@ -2272,9 +2311,21 @@ class PromptCompositionService:
                   cookbook.final_prompt_system_prompt)
         if writer and instruction is not None:
             system = cookbook.revision_system_prompt
+        if package:
+            field = "plan.system" if stage is CompositionStage.BEAT_SHEET else "revision.system" if instruction else "writer.system"
+            system = package["fields"][field]
+            if package["fields"].get("camera_contract"):
+                system += "\n\n" + package["fields"]["camera_contract"]
         mapping = (direct_h3_base_reference_mapping(session, composition_picture_mapping(composition))
                    if cookbook.target_mode == "fl2va_direct" else _preparation_reference_mapping(session, composition))
         output_schema = _sequence_schema(handler, session, stage, writer, context)
+        if package and stage is CompositionStage.BEAT_SHEET and package["fields"].get("camera_contract"):
+            schema_document = json.loads(output_schema)
+            camera = schema_document.get("$defs", {}).get("Camera", {}).get("properties", {}).get("target_clause")
+            if camera is not None:
+                camera["description"] = package["fields"]["camera_contract"]
+                output_schema = json.dumps(schema_document, ensure_ascii=False)
+
         user = "\n\n".join((
             "USER INTENTION:\n" + source.source_text,
             ("APPROVED BRIEF:\n" + source.content) if composition.preparation_intent is None else "",
@@ -2301,7 +2352,12 @@ class PromptCompositionService:
             images=self._direct_reference_images(session, composition, include_source_filenames=False) if not writer else (),
             temperature=0.3 if stage is CompositionStage.BEAT_SHEET else 0.2, max_tokens=262_144,
             operation_id=f"{cookbook.reference.cookbook_id}@{cookbook.reference.version}.{stage.value}.{'revise' if instruction else 'generate'}",
-            include_reasoning=include_reasoning)
+            include_reasoning=include_reasoning,
+            trace_context={"session_id": session.session_id, "stage": stage.value,
+                "cookbook_id": cookbook.reference.cookbook_id, "cookbook_version": cookbook.reference.version,
+                "recipe_revision": package["revision"] if package else None,
+                "source_ids": list(expected), "revision_requested": bool(instruction),
+                "reference_asset_ids": [reference.asset_id for reference in session.references]})
         return session, composition, cookbook, expected, request, handler.encode_context(context)
 
     def _direct_reference_images(
@@ -2675,6 +2731,8 @@ class PromptCompositionService:
         instruction: str | None = None,
         *,
         compiler_context: str | None = None,
+        llm_call_id: str | None = None,
+        prompt_recipe_revision: int | None = None,
     ) -> PromptComposition:
         current_session = self.sessions.get(initial_session.session_id)
         current = self.compositions.get(initial_session.session_id)
@@ -2701,6 +2759,8 @@ class PromptCompositionService:
             origin,
             instruction,
             compiler_context=compiler_context,
+            llm_call_id=llm_call_id,
+            prompt_recipe_revision=prompt_recipe_revision,
         )
 
     def _validated_cookbook(
@@ -2736,6 +2796,8 @@ class PromptCompositionService:
         instruction: str | None = None,
         *,
         compiler_context: str | None = None,
+        llm_call_id: str | None = None,
+        prompt_recipe_revision: int | None = None,
     ) -> PromptComposition:
         cookbook = self.cookbooks.get(
             composition.cookbook.cookbook_id,
@@ -2762,7 +2824,10 @@ class PromptCompositionService:
             revision = CompositionRevision(revision_id=f"{stage.value}-{uuid4().hex}",
                 content=_strip_fence(content), origin=origin, source_ids=expected,
                 parent_revision_id=document.active_revision_id, instruction=instruction,
-                compiler_context=compiler_context)
+                compiler_context=compiler_context, llm_call_id=llm_call_id,
+                prompt_recipe_revision=(prompt_recipe_revision if prompt_recipe_revision is not None else
+                    document.active_revision.prompt_recipe_revision
+                    if origin is RevisionOrigin.MANUAL and document.active_revision else None))
             return self.compositions.save_if_current(composition, composition.update_document(document.add_revision(revision)))
         if cookbook.output_contract == DIRECT_PROMPT_CONTRACT:
             session = self.sessions.get(composition.source_session_id)
@@ -3123,6 +3188,8 @@ class PromptCompositionService:
             parent_revision_id=document.active_revision_id,
             instruction=instruction,
             compiler_context=compiler_context,
+            llm_call_id=llm_call_id,
+            prompt_recipe_revision=prompt_recipe_revision,
         )
         return self.compositions.save_if_current(
             composition,
@@ -3191,6 +3258,8 @@ class PromptCompositionService:
                         origin,
                         instruction,
                         compiler_context=compiler_context,
+                        llm_call_id=event.result.call_id,
+                        prompt_recipe_revision=(request.trace_context or {}).get("recipe_revision"),
                     )
                 except Exception as error:
                     self._report_application_outcome(

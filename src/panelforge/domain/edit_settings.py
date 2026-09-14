@@ -38,6 +38,8 @@ def edit_output_dimensions(attempt: Krea2EditAttempt) -> tuple[int, int] | None:
 
 def edit_render_dimensions(source: Krea2EditSource, attempt: Krea2EditAttempt) -> tuple[int, int] | None:
     while attempt.kind != "generation":
+        if attempt.crop:
+            return edit_output_dimensions(attempt)
         original_id = (attempt.upscale.original_attempt_id if attempt.upscale
                        else attempt.retouch.original_attempt_id)
         attempt = next(value for value in source.attempts if value.attempt_id == original_id)

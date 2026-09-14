@@ -1,6 +1,7 @@
 """Versioned conversational writer for the existing identity-edit renderer."""
 
 import json
+import re
 
 VERSION = "2.0.0"
 OPERATION = "krea2.edit.conversation@2.0.0"
@@ -29,7 +30,11 @@ def context(source) -> str:
 
 
 def decode(raw: str) -> tuple[str, str]:
-    value = json.loads(raw)
+    # Some models wrap a valid object in Markdown despite the raw-JSON contract.
+    # Accept only a complete enclosing block; do not extract JSON from prose.
+    text = raw.strip()
+    fenced = re.fullmatch(r"```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```", text, re.IGNORECASE)
+    value = json.loads(fenced.group(1) if fenced else text)
     if not isinstance(value, dict) or set(value) != {"message", "prompt"}:
         raise ValueError("KREA2 Edit conversation requires message and prompt")
     for key, maximum in (("message", 6000), ("prompt", 40000)):

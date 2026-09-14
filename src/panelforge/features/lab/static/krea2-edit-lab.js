@@ -35,6 +35,7 @@
     compareHover: $("krea2-edit-compare-hover"),
     compareNote: $("krea2-edit-compare-note"),
     retouchAfter: $("krea2-edit-retouch-after"),
+    cropSource: $("krea2-edit-crop-source"),
     upscaleAfter: $("krea2-edit-upscale-after"),
     upscalePanel: $("krea2-edit-upscale-panel"),
     upscaleTarget: $("krea2-edit-upscale-target"),
@@ -954,7 +955,7 @@
   function updateComparisonActions() {
     const source = state.source;
     const candidate = source?.attempts.find((a) => a.attempt_id === elements.compareAfter.value);
-    elements.retouchAfter.disabled = state.busy || !state.spec?.retouch?.enabled || !candidate
+    elements.retouchAfter.disabled = state.busy || !state.spec?.retouch?.enabled || !candidate || Boolean(candidate.crop)
       || (!isEditable(source) && !candidate.retouch && !candidate.upscale?.mask_asset_id);
     elements.retouchAfter.textContent = isEditable(source) ? "Retoucher l’image Après" : "Voir le masque Après";
     elements.promoteAfter.hidden = !isEditable(source);
@@ -976,12 +977,12 @@
 
   function canDlss(attempt) {
     return Boolean(window.PanelForgeDlss && isEditable() && !state.busy && !retouchEditor.saving
-      && attempt?.status === "succeeded" && attempt.output_url);
+      && attempt?.status === "succeeded" && attempt.output_url && !attempt.crop);
   }
 
   function canUpscale(attempt) {
     return Boolean(isEditable() && !state.busy && !retouchEditor.saving && !activeAttempt()
-      && state.spec?.upscale?.enabled && attempt?.status === "succeeded" && attempt.output_url);
+      && state.spec?.upscale?.enabled && attempt?.status === "succeeded" && attempt.output_url && !attempt.crop);
   }
 
   function closeUpscale() {
@@ -1129,6 +1130,8 @@
       || source.prompt_status === "generating";
     elements.restart.hidden = !editable;
     elements.restart.disabled = !canRestart();
+    elements.cropSource.hidden = !editable;
+    elements.cropSource.disabled = !canRestart() || !window.PanelForgeImageCrop;
     elements.restart.title = "Repartir de la source de cette étape avec une conversation et des essais vides.";
     elements.projectName.disabled = !editable || Boolean(source.project_name);
     elements.stepName.disabled = !editable;
@@ -1173,7 +1176,8 @@
       }
       const copy = document.createElement("div");
       const title = document.createElement("b");
-      title.textContent = attempt.kind === "retouch"
+      title.textContent = attempt.crop ? "Recadrage"
+        : attempt.kind === "retouch"
         ? `${attempt.label} · composition locale`
         : attempt.upscale ? `${attempt.label} · ${attempt.status}`
         : attempt.engine === "firered" ? `${attempt.label} · ${attempt.status} · FireRed ${attempt.settings.mode === "lightning" ? "Lightning" : "Standard"}`
@@ -1184,7 +1188,8 @@
         : attempt.error || `${attempt.settings.megapixels} MP · ${attempt.settings.steps} steps`;
       if (attempt.retouch) meta.textContent = `${attempt.accepted ? "Validée · " : ""}${attempt.retouch.width} × ${attempt.retouch.height} · taille de la source`;
       if (attempt.upscale) meta.textContent = attempt.error || `${attempt.upscale.model_name} · ${attempt.upscale.width} × ${attempt.upscale.height} · ${attempt.upscale.preserve_source_size === false ? "finition agrandie" : "taille de la source"}`;
-      else meta.textContent += ` · workflow ${attempt.workflow_version || state.source.recipe?.version || "historique"}`;
+      else if (!attempt.crop) meta.textContent += ` · workflow ${attempt.workflow_version || state.source.recipe?.version || "historique"}`;
+      if (attempt.crop) meta.textContent = `${attempt.accepted ? "Validé · " : ""}${attempt.crop.width} × ${attempt.crop.height} px`;
       if (attempt.engine === "firered" && attempt.kind === "generation") {
         meta.textContent += ` · CFG ${attempt.settings.cfg}`;
         if (attempt.output_dimensions) meta.textContent += ` · ${attempt.output_dimensions.width} × ${attempt.output_dimensions.height}`;
@@ -1195,15 +1200,15 @@
       reuse.type = "button";
       reuse.textContent = "Reprendre prompt et réglages";
       reuse.addEventListener("click", () => reuseAttempt(attempt));
-      actions.append(reuse);
+      if (!attempt.crop) actions.append(reuse);
       if (attempt.status === "succeeded") {
-        if (window.PanelForgeDlss && isEditable()) {
+        if (window.PanelForgeDlss && isEditable() && !attempt.crop) {
           const upscale = window.PanelForgeDlss.button({ owner: "edit", ownerId: state.source.source_id, attempt });
           upscale.disabled = !canDlss(attempt);
           actions.append(upscale);
         }
-        if (window.PanelForgeDlss?.comparisonButton) actions.append(window.PanelForgeDlss.comparisonButton({ owner: "edit", ownerId: state.source.source_id, attempt }));
-        if (state.spec?.retouch?.enabled && (isEditable() || attempt.retouch || attempt.upscale?.mask_asset_id)) {
+        if (window.PanelForgeDlss?.comparisonButton && !attempt.crop) actions.append(window.PanelForgeDlss.comparisonButton({ owner: "edit", ownerId: state.source.source_id, attempt }));
+        if (!attempt.crop && state.spec?.retouch?.enabled && (isEditable() || attempt.retouch || attempt.upscale?.mask_asset_id)) {
           const retouch = document.createElement("button");
           retouch.type = "button";
           retouch.textContent = state.source.state !== "pending" ? "Voir le masque" : (attempt.retouch || attempt.upscale?.mask_asset_id) ? "Reprendre le masque" : "Retoucher";
@@ -1244,6 +1249,49 @@
       workflow_version: attempt.workflow_version || state.source.recipe?.version });
     if (attempt.status === "succeeded") state.feedbackAttemptId = attempt.attempt_id;
     render();
+  }
+
+  async function cropSource() {
+    if (!canRestart() || !window.PanelForgeImageCrop) return;
+    const source = state.source;
+    const projectName = elements.projectName.value.trim();
+    let rectangleKey = null, requestId = null;
+    retouchEditor.close();
+    state.busy = true;
+    render();
+    try {
+      const payload = await window.PanelForgeImageCrop.open({
+        url: source.source_url,
+        save: rectangle => {
+          const key = JSON.stringify(rectangle);
+          if (key !== rectangleKey) {
+            rectangleKey = key;
+            requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+          }
+          return request(`/api/image-lab/krea2-edit/sources/${encodeURIComponent(source.source_id)}/crop`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...rectangle, request_id: requestId, source_asset_id: source.source_asset_id,
+              restart_count: source.restart_count || 0, project_name: projectName || null }),
+          });
+        },
+      });
+      if (!payload) return;
+      state.contextEpoch += 1;
+      const next = sourceOf(payload);
+      state.source = next;
+      state.feedbackAttemptId = null;
+      try { await loadSources(); } catch (_) { /* The saved next stage is already available. */ }
+      state.busy = false;
+      openSource(state.source, { hydrate: true });
+      elements.instruction.focus();
+      setMessage(`Recadrage enregistré. Étape ${next.stage_index} : décris la modification à appliquer à cette image.`
+        + (next.export?.status === "failed" ? " L’export externe pourra être réessayé." : ""));
+    } catch (error) {
+      setMessage(error.message, true);
+    } finally {
+      state.busy = false;
+      render();
+    }
   }
 
   async function promoteAttempt(attempt) {
@@ -1561,6 +1609,7 @@
   }
 
   elements.retouchAfter.addEventListener("click", () => openRetouch(elements.compareAfter.value));
+  elements.cropSource.addEventListener("click", cropSource);
   elements.upscaleAfter.addEventListener("click", () => {
     const attempt = state.source?.attempts.find(a => a.attempt_id === elements.compareAfter.value);
     if (window.PanelForgeDlss && attempt) window.PanelForgeDlss.open({ owner: "edit", ownerId: state.source.source_id, attempt });

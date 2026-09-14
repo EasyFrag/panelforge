@@ -82,13 +82,14 @@ class LocalPromptCookbookCatalog:
         )
 
     def get(self, cookbook_id: str, version: str) -> PromptCookbook:
-        for cookbook in self.list():
-            if (
-                cookbook.reference.cookbook_id == cookbook_id
-                and cookbook.reference.version == version
-            ):
-                return cookbook
-        raise KeyError((cookbook_id, version))
+        # Resolve the exact identity without parsing unrelated historical recipes.
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", cookbook_id):
+            raise KeyError((cookbook_id, version))
+        _pinned_version(version)
+        directory = (self._root / cookbook_id / version).resolve()
+        if not directory.is_relative_to(self._root) or not (directory / "manifest.json").is_file():
+            raise KeyError((cookbook_id, version))
+        return self._load(directory)
 
     def _load(self, directory: Path) -> PromptCookbook:
         manifest_path = directory / "manifest.json"

@@ -347,7 +347,7 @@ class RetouchServiceTest(unittest.TestCase):
     def test_legacy_schemas_are_read_as_generations(self):
         path = self.root / "krea2_edits" / self.source.source_id / "source.json"
         data = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(data["schema_version"], 11)
+        self.assertEqual(data["schema_version"], 12)
         for version in (1, 2, 3, 4, 5):
             with self.subTest(version=version):
                 data["schema_version"] = version

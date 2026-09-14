@@ -10,6 +10,13 @@
     const summary = host.querySelector('[data-writer="summary"]');
     const status = host.querySelector('[data-writer="status"]');
     const picker = window.PanelForgeModelPicker;
+    const recipesButton = document.createElement("button"); recipesButton.type = "button";
+    recipesButton.textContent = "Consignes LLM"; recipesButton.className = "prompt-recipes-open";
+    host.before(recipesButton);
+    recipesButton.addEventListener("click", () => {
+      const reference = state.composition?.cookbook || cookbook();
+      window.PanelForgePromptRecipes?.open({key: reference?.id, version: reference?.version, sessionId: state.session?.id});
+    });
     let selected = null;
     let saving = null;
 
@@ -40,6 +47,7 @@
 
     function draw() {
       host.hidden = !supported();
+      recipesButton.hidden = !supported();
       fields.hidden = !enabled.checked;
       enabled.disabled = host.hidden || busy();
       model.disabled = host.hidden || !enabled.checked || busy();

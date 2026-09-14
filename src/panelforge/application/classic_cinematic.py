@@ -3,6 +3,8 @@
 Only neutral compiler v1.0 and shared H3/vocal protocols are adopted. No
 Combat schema, instruction, example, density or orientation is imported.
 """
+
+from .prompt_recipe_text import prompt_text
 import json
 import re
 
@@ -125,13 +127,9 @@ def schema(stage: str, *_unused, plan: dict | None = None) -> str:
 
 def writer_layout(plan: dict) -> str:
     approved = Plan.model_validate(plan)
-    layout = {"shots": [{"phases": [f"Action paragraph for shot {i + 1}, phase {j + 1}"
+    layout = {"shots": [{"phases": [prompt_text('classic_cinematic.writer_layout.01', 'Action paragraph for shot {value1}, phase {value2}', value1=i + 1, value2=j + 1)
                for j in range(len(shot.phases))]} for i, shot in enumerate(approved.shots)]}
-    return ("\nAPPROVED WRITER LAYOUT — preserve this nesting exactly. Shots are camera cuts; "
-            "phases inside a shot are continuous, never separate shots. Replace each placeholder with its "
-            "action paragraph; keep soundscape and music at the root. Each shot object has exactly one key, "
-            "phases. For two phases, write two strings separated by a comma INSIDE that array; do not create "
-            "phases1, phases2 or any numbered property.\n" + json.dumps(layout))
+    return (prompt_text('classic_cinematic.writer_layout.02', '\nAPPROVED WRITER LAYOUT — preserve this nesting exactly. Shots are camera cuts; phases inside a shot are continuous, never separate shots. Replace each placeholder with its action paragraph; keep soundscape and music at the root. Each shot object has exactly one key, phases. For two phases, write two strings separated by a comma INSIDE that array; do not create phases1, phases2 or any numbered property.\n') + json.dumps(layout))
 
 
 def _speech_languages(plan: Plan) -> dict[str, set[str]]:
@@ -198,17 +196,10 @@ def check_count(shots, context: dict) -> None:
 
 def policy(settings: ClassicCinematicSettings, text: str) -> str:
     count = requested_count(text, settings)
-    choice = f"Use exactly {count} shot(s)." if count else "Choose 1-6 shots from the intention, duration and visible progression; prefer fewer when they suffice."
+    choice = f"Use exactly {count} shot(s)." if count else prompt_text('classic_cinematic.policy.01', 'Choose 1-6 shots from the intention, duration and visible progression; prefer fewer when they suffice.')
     return ("\nCLASSIC CINEMATIC 1.0 — SAVED SHOT CONTROL\n" + choice
-        + (" The explicit UI count overrides any conflicting shot count in the intention." if settings.shot_count is not None else " Auto follows the explicitly requested count when present.")
-        + " Shot count and number of actions are independent. Several related actions may share one shot. "
-        "Match the requested tone: calm, contemplative, practical or lively. Do not force spectacle, confrontation, "
-        "rapid movement, extra dialogue or a cliffhanger. A pause or stable final state can be meaningful. "
-        "Camera phases are continuous, not extra shots. Only camera fields own camera motion; opening_composition "
-        "owns static framing; actions own subject/environment changes. Respect supplied first/last frames and reference roles. "
-        "In the Plan, spoken_languages must declare the full language name of each spoken_lines entry, in the same order "
-        "(both arrays empty when silent). Put the exact words in actions as <d>[English] words</d>, or the declared "
-        "original language. The Writer preserves these tags and words; never omit the language prefix.")
+        + (prompt_text('classic_cinematic.policy.02', ' The explicit UI count overrides any conflicting shot count in the intention.') if settings.shot_count is not None else prompt_text('classic_cinematic.policy.03', ' Auto follows the explicitly requested count when present.'))
+        + prompt_text('classic_cinematic.policy.04', ' Shot count and number of actions are independent. Several related actions may share one shot. Match the requested tone: calm, contemplative, practical or lively. Do not force spectacle, confrontation, rapid movement, extra dialogue or a cliffhanger. A pause or stable final state can be meaningful. Camera phases are continuous, not extra shots. Only camera fields own camera motion; opening_composition owns static framing; actions own subject/environment changes. Respect supplied first/last frames and reference roles. In the Plan, spoken_languages must declare the full language name of each spoken_lines entry, in the same order (both arrays empty when silent). Put the exact words in actions as <d>[English] words</d>, or the declared original language. The Writer preserves these tags and words; never omit the language prefix.'))
 
 
 def encode_context(value: dict) -> str:
