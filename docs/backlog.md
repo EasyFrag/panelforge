@@ -2,11 +2,17 @@
 
 ## Priorités actives — 14 septembre 2026
 
-- **En cours : simplification du rendu H3 / REF2V.** Maquette demandée et créée :
+- **Prochaine itération proposée : UX vidéo + consignes LLM accessibles.**
+  Maquette de simplification du rendu **validée par l'utilisateur le 14 septembre** :
   [presets de rendu](proposals/render-presets-v2.html). Un seul preset pour le
   prochain rendu, contrôles avancés repliés, quatre LoRA et fiches accessibles,
   MP initiaux/après upscale et Seed Réutiliser visibles. Pas de zone de comparaison
-  ni de lancements en série BUNNY. Application non modifiée à ce stade.
+  ni de lancements en série BUNNY. Ajouter un accès discret aux fichiers système
+  éditables et au message réellement assemblé pour le Plan/Writer ; isoler les
+  sources actives des anciennes recettes avec conservation des identités/versionnements.
+  [Constat et proposition](proposals/editable-llm-prompts.md). **Discussion et
+  alignement uniquement pour ce tour**, application non modifiée. État préalable
+  sauvegardé sur GitHub : `snapshot-before-render-ux-prompts-2026-09-14`, commit `934cd2f`.
 - **P1 — Évolution du prompting I2V / Mise en scène 1.1.** Mise en attente explicite
   par l'utilisateur, à conserver. Première étape : réduire la redescription de la
   frame initiale exacte tout en conservant les ancrages du Plan interne. Les bases
