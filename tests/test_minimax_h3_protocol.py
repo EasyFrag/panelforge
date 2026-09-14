@@ -42,6 +42,27 @@ class MiniMaxH3ProtocolTest(unittest.TestCase):
                 with self.subTest(mode=mode,sentence=sentence):
                     self.assertIn("free_camera_motion", {issue.code for issue in lint_h3_prompt(mode,sentence)})
 
+    def test_passive_camera_position_is_not_mistaken_for_camera_motion(self):
+        for mode in ("t2va", "i2va", "l2va", "fl2va", "ref2va"):
+            for sentence in (
+                "An off-screen voice comes from the camera position.",
+                "The man answers from camera position while remaining outside the frame.",
+            ):
+                with self.subTest(mode=mode, sentence=sentence):
+                    self.assertNotIn(
+                        "free_camera_motion",
+                        {issue.code for issue in lint_h3_prompt(mode, sentence)},
+                    )
+            for sentence in (
+                "The camera position shifts before the answer.",
+                "The voice comes from the camera position as the camera drifts left.",
+            ):
+                with self.subTest(mode=mode, sentence=sentence):
+                    self.assertIn(
+                        "free_camera_motion",
+                        {issue.code for issue in lint_h3_prompt(mode, sentence)},
+                    )
+
     def test_protocol_provenance_is_pinned(self) -> None:
         self.assertEqual(PROTOCOL_ID, "minimax.h3.protocol")
         self.assertEqual(PROTOCOL_VERSION, "0.1.0")

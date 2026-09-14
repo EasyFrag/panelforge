@@ -1655,6 +1655,7 @@
       state.source = sourceOf(payload);
       elements.uploadForm.reset();
       await loadSources();
+      state.busy = false;
       openSource(state.source, { hydrate: true, force: true });
     } catch (error) {
       elements.uploadMessage.textContent = error.message;

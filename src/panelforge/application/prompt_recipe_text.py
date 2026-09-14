@@ -31,5 +31,5 @@ def validate_template(value, baseline):
     fields = template_fields(value)
     if fields != template_fields(baseline) or any(not name.isidentifier() for name in fields):
         raise ValueError("Conservez exactement les variables entre accolades de la consigne initiale.")
-    if any("{" in spec or "}" in spec for _, _, spec, _ in Formatter().parse(value)):
+    if any(spec and ("{" in spec or "}" in spec) for _, _, spec, _ in Formatter().parse(value)):
         raise ValueError("Les variables imbriquées ne sont pas autorisées.")

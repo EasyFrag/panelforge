@@ -424,7 +424,7 @@ class Krea2EditWebTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('id="krea2-edit-lab-workspace"', html)
-        self.assertIn('/static/krea2-edit-lab.js?v=20260914.1', html)
+        self.assertIn('/static/krea2-edit-lab.js?v=20260914.2', html)
         self.assertIn('id="krea2-edit-workflow"', html)
         self.assertIn('id="krea2-edit-workflow-defaults"', html)
         self.assertIn('id="krea2-edit-compare-slider"', html)
@@ -458,6 +458,15 @@ class Krea2EditWebTest(unittest.TestCase):
         self.assertIn("state.initialized = false", script)
         self.assertIn("state.busy && !force", script)
         self.assertIn("{ hydrate: true, force: true }", script)
+        upload_handler = script.split(
+            'elements.uploadForm.addEventListener("submit"', 1
+        )[1]
+        self.assertIn(
+            "await loadSources();\n"
+            "      state.busy = false;\n"
+            "      openSource(state.source, { hydrate: true, force: true });",
+            upload_handler,
+        )
         self.assertIn("feedback_attempt_id", script)
         self.assertIn("core.createLlmOutcomeTone()", script)
         self.assertIn("outcomeTone.success()", script)

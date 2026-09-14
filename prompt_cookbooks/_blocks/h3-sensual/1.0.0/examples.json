@@ -1,31 +1,30 @@
 {
   "plan": {
     "participants": [
-      {"designation": "The adult woman", "adult": true, "reference_picture": null},
-      {"designation": "The adult man", "adult": true, "reference_picture": null}
+      {"designation": "The woman", "reference_picture": null},
+      {"designation": "The man", "reference_picture": null}
     ],
-    "consent_confirmed": true,
-    "continuity_invariants": ["The same consenting adult woman and adult man remain on the bed; body orientation and contact persist until explicitly changed."],
+    "continuity_invariants": ["The same woman and man remain on the bed; body orientation and contact persist until explicitly changed."],
     "shots": [{
       "duration_ms": 8000,
-      "opening_composition": "A medium side view shows the consenting adult man lying on the bed and the consenting adult woman kneeling astride his thighs, both visibly nude and facing each other.",
+      "opening_composition": "A medium side view shows the man lying on the bed and the woman kneeling astride his thighs, both visibly nude and facing each other.",
       "phases": [{
-        "cue": "The adult woman shifts her knees forward beside the adult man's hips.",
+        "cue": "The woman shifts her knees forward beside the man's hips.",
         "camera": {"motion": "static_shot", "amplitude": null, "speed": null, "target_clause": ""},
         "interactions": [
-          {"beat_id": "beat_1", "actor": "The adult woman", "action": "wraps one hand around the adult man's erect penis and guides it upward", "contact": "her fingers remain around the shaft while the tip aligns with her vaginal opening", "response": "the adult man raises his hips slightly and keeps both hands at her waist", "resulting_state": "she remains astride him with the penis held against her vaginal opening"},
-          {"beat_id": "beat_2", "actor": "The adult woman", "action": "lowers her pelvis and takes the penis into her vagina", "contact": "the penis penetrates her vagina as her thighs settle against his hips", "response": "the adult man grips her waist and visibly exhales while she braces one hand on his chest", "resulting_state": "she sits astride him with vaginal penetration maintained"}
+          {"beat_id": "beat_1", "actor": "The woman", "action": "wraps one hand around the man's erect penis and guides it upward", "contact": "her fingers remain around the shaft while the tip aligns with her vaginal opening", "response": "the man raises his hips slightly and keeps both hands at her waist", "resulting_state": "she remains astride him with the penis held against her vaginal opening"},
+          {"beat_id": "beat_2", "actor": "The woman", "action": "lowers her pelvis and takes the penis into her vagina", "contact": "the penis penetrates her vagina as her thighs settle against his hips", "response": "the man grips her waist and visibly exhales while she braces one hand on his chest", "resulting_state": "she sits astride him with vaginal penetration maintained"}
         ]
       }, {
         "cue": "Their hips settle into the established position.",
-        "camera": {"motion": "arc_shot", "amplitude": "small", "speed": "slow", "target_clause": "around the two adults on the bed"},
+        "camera": {"motion": "arc_shot", "amplitude": "small", "speed": "slow", "target_clause": "around the two participants on the bed"},
         "interactions": [
-          {"beat_id": "beat_3", "actor": "The adult woman", "action": "rocks her pelvis forward and back in a steady repeated motion", "contact": "the penis remains inside her vagina throughout each movement", "response": "the adult man's hips rise into the rhythm while his hands remain at her waist", "resulting_state": "both adults continue the same consensual penetrative rhythm without changing position"}
+          {"beat_id": "beat_3", "actor": "The woman", "action": "rocks her pelvis forward and back in a steady repeated motion", "contact": "the penis remains inside her vagina throughout each movement", "response": "the man's hips rise into the rhythm while his hands remain at her waist", "resulting_state": "both participants continue the same penetrative rhythm without changing position"}
         ]
       }],
       "pacing": "The approach is deliberate, followed by a steady readable rhythm without a time jump.",
-      "end_state": "The adult woman remains astride the adult man with penetration and the established hip motion continuing.",
-      "transition": "The clip ends during the ongoing consensual motion rather than implying an unseen completion."
+      "end_state": "The woman remains astride the man with penetration and the established hip motion continuing.",
+      "transition": "The clip ends during the ongoing motion rather than implying an unseen completion."
     }],
     "spoken_lines": [],
     "spoken_languages": [],
@@ -34,8 +33,8 @@
   },
   "writer": {
     "shots": [{"phases": [
-      {"beat_ids": ["beat_1", "beat_2"], "prose": "The adult woman wraps one hand around the adult man's erect penis and guides it upward, keeping her fingers around the shaft until the tip presses against her vaginal opening. The adult man raises his hips slightly and keeps both hands at her waist. She then lowers her pelvis and takes his penis into her vagina; her thighs settle against his hips as he grips her waist and exhales, while she braces one hand on his chest and maintains penetration."},
-      {"beat_ids": ["beat_3"], "prose": "The adult woman rocks her pelvis forward and back in a steady repeated motion, keeping the adult man's penis inside her vagina throughout each movement. His hips rise into her rhythm while his hands remain at her waist, and both adults continue the same consensual penetrative position."}
+      {"beat_ids": ["beat_1", "beat_2"], "prose": "The woman wraps one hand around the man's erect penis and guides it upward, keeping her fingers around the shaft until the tip presses against her vaginal opening. The man raises his hips slightly and keeps both hands at her waist. She then lowers her pelvis and takes his penis into her vagina; her thighs settle against his hips as he grips her waist and exhales, while she braces one hand on his chest and maintains penetration."},
+      {"beat_ids": ["beat_3"], "prose": "The woman rocks her pelvis forward and back in a steady repeated motion, keeping the man's penis inside her vagina throughout each movement. His hips rise into her rhythm while his hands remain at her waist, and both participants continue the same penetrative position."}
     ]}],
     "overall_soundscape": "Bed linen movement, close breathing and soft body contact follow the visible rhythm. No speech.",
     "non_diegetic_music": "N/A"

@@ -7,7 +7,6 @@ and Combat prompts, schemas, examples and policies are deliberately not used.
 from .prompt_recipe_text import prompt_text
 import json
 import re
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -33,11 +32,11 @@ _CAMERA_TARGET_PREFIX_TEXT = ", ".join(CAMERA_TARGET_PREFIXES)
 REVISION_SYSTEM = """You revise a Sensual 1.0 explicit-maximal MiniMax H3 prompt collaboratively.
 Return raw JSON with exactly message (concise French reply), questions (up to three strings),
 prompt (complete English runnable prompt), recommendations (up to eight strings), camera_directives (null or array).
-All depicted participants are consenting adults. Preserve the exact requested sexual acts, actor ownership,
-anatomical contacts, observable responses, progressive body positions and resulting states. Use direct, standard
+Preserve the exact requested sexual acts, actor ownership, anatomical contacts, observable responses, progressive
+body positions and resulting states. Use direct, standard
 anatomical and sexual vocabulary; never censor, euphemize, fade out, summarize or replace an explicit act with
-generic sensuality. Maximal explicitness is a writing obligation, not permission to invent an unrequested act,
-participant, coercion, injury, bodily fluid or escalation.
+generic sensuality. Maximal explicitness is a writing obligation, not permission to invent unrequested acts,
+participants, body details, outcomes or escalation.
 Rewrite the current prompt directly. Keep the exact reference header, Picture associations, duration, shot count,
 cut timestamps, ordered sections and continuous phases inside their original shots. H3 keeps
 integrated_multimodal_description; REF2VA keeps its reference rules and shot body without that field. Both keep
@@ -77,8 +76,7 @@ class Camera(_Model):
 
 
 class Participant(_Model):
-    designation: str = Field(min_length=1, description="Stable English actor designation used throughout, explicitly identifying this person as an adult.")
-    adult: Literal[True] = Field(description="Must be true. Sensual 1.0 depicts adults only.")
+    designation: str = Field(min_length=1, description="Stable English actor designation used throughout.")
     reference_picture: str | None = Field(default=None, description="Exact supplied label such as <Picture 2>, or null when no identity reference applies.")
 
     @model_validator(mode="after")
@@ -90,10 +88,10 @@ class Participant(_Model):
 
 class InteractionBeat(_Model):
     beat_id: str = Field(pattern=r"^beat_[1-9]\d*$", description="Globally sequential ID: beat_1, beat_2, ...")
-    actor: str = Field(min_length=1, description="Exact adult participant who initiates this beat; do not rely on an ambiguous pronoun.")
+    actor: str = Field(min_length=1, description="Exact participant who initiates this beat; do not rely on an ambiguous pronoun.")
     action: str = Field(min_length=1, description="Direct English verb phrase naming the exact requested sensual or sexual action. No euphemism or generic summary.")
     contact: str = Field(min_length=1, description="Exact visible anatomy/object contact, placement, direction and continuity. State literally when contact has not begun yet.")
-    response: str = Field(min_length=1, description="Observable voluntary physical response of the other adult or the initiating adult; no inferred inner thoughts.")
+    response: str = Field(min_length=1, description="Observable physical response of another participant or the initiating participant; no inferred inner thoughts.")
     resulting_state: str = Field(min_length=1, description="Concrete visible body positions, contact and ongoing motion after this beat, inherited by the next beat.")
 
     def strip(self) -> str:
@@ -108,17 +106,16 @@ class Phase(_Model):
 
 class PlannedShot(_Model):
     duration_ms: int = Field(gt=0, strict=True)
-    opening_composition: str = Field(min_length=1, description="English initial static framing, adult positions, clothing/body state and existing contact. Preserve actual <Picture N> roles. No camera movement.")
+    opening_composition: str = Field(min_length=1, description="English initial static framing, participant positions, clothing/body state and existing contact. Preserve actual <Picture N> roles. No camera movement.")
     phases: tuple[Phase, ...] = Field(min_length=1, max_length=2, description="One or two continuous phases. A phase is not a cut; the second inherits every position and contact from the first.")
     pacing: str = Field(min_length=1, description="English rhythm of approach, contact, repetition, pause or acceleration. No camera instruction.")
-    end_state: str = Field(min_length=1, description="Exact visible adult positions, anatomy, contact and ongoing or completed action at the shot end.")
+    end_state: str = Field(min_length=1, description="Exact visible participant positions, anatomy, contact and ongoing or completed action at the shot end.")
     transition: str = Field(min_length=1, description="Visible causal bridge into the next shot, or exact requested final moment. No extra cut, camera or timestamp.")
 
 
 class Plan(_Model):
     participants: tuple[Participant, ...] = Field(min_length=1, max_length=8)
-    consent_confirmed: Literal[True] = Field(description="Must be true: every depicted participant is an adult and the interaction is voluntary and ongoing.")
-    continuity_invariants: tuple[str, ...] = Field(min_length=1, description="English identity/reference associations, adult bodies, setting, requested limits, ownership and state continuity.")
+    continuity_invariants: tuple[str, ...] = Field(min_length=1, description="English identity/reference associations, bodies, setting, requested limits, ownership and state continuity.")
     shots: tuple[PlannedShot, ...] = Field(min_length=1, max_length=6)
     spoken_lines: tuple[str, ...] = Field(description="Exact spoken words in chronological order, without tags. Empty when nobody speaks.")
     spoken_languages: tuple[str, ...] = Field(default=(), description="One full English language name per spoken line, same order. Empty only when silent.")
@@ -144,7 +141,7 @@ class Plan(_Model):
             for phase in shot.phases:
                 for beat in phase.interactions:
                     if beat.actor.casefold() not in allowed:
-                        raise ValueError("Chaque actor doit reprendre exactement une désignation adulte déclarée.")
+                        raise ValueError("Chaque actor doit reprendre exactement une désignation de participant déclarée.")
         return self
 
 
@@ -173,12 +170,28 @@ class _CompiledWriter(_Model):
     non_diegetic_music: str
 
 
+def _plan_payload(value: str | dict) -> dict:
+    raw = json.loads(strip_markdown_fence(value)) if isinstance(value, str) else value
+    if not isinstance(raw, dict):
+        raise ValueError("Le Plan Sensuel doit être un objet JSON.")
+    payload = dict(raw)
+    payload.pop("consent_confirmed", None)
+    participants = payload.get("participants")
+    if isinstance(participants, (list, tuple)):
+        payload["participants"] = [
+            {key: item for key, item in participant.items() if key != "adult"}
+            if isinstance(participant, dict) else participant
+            for participant in participants
+        ]
+    return payload
+
+
 def schema(stage: str, _planned=True, _version=None, *, plan: dict | None = None) -> str:
     value = (Plan if stage == "beat_sheet" else Writer).model_json_schema()
     if stage == "beat_sheet":
         value.setdefault("required", []).append("spoken_languages")
     elif plan:
-        approved = Plan.model_validate(plan)
+        approved = Plan.model_validate(_plan_payload(plan))
         shots = value["properties"]["shots"]
         shots["minItems"] = shots["maxItems"] = len(approved.shots)
         shots.pop("items", None)
@@ -200,7 +213,7 @@ def schema(stage: str, _planned=True, _version=None, *, plan: dict | None = None
 
 
 def writer_layout(plan: dict) -> str:
-    approved = Plan.model_validate(plan)
+    approved = Plan.model_validate(_plan_payload(plan))
     layout = {"shots": [{"phases": [{"beat_ids": [beat.beat_id for beat in phase.interactions],
         "prose": prompt_text('sensual_cinematic.writer_layout.01', 'Direct action paragraph for shot {value1}, phase {value2}', value1=shot_index, value2=phase_index)}
         for phase_index, phase in enumerate(shot.phases, 1)]}
@@ -239,7 +252,7 @@ def policy(settings: SensualSettings, text: str) -> str:
     choice = f"Use exactly {count} shot(s)." if count else prompt_text('sensual_cinematic.policy.02', 'Choose 1-6 shots from the intention, duration and physical progression; prefer fewer when they suffice.')
     return ("\nSENSUAL 1.0 — EXPLICIT MAXIMAL (PINNED)\n" + choice
         + (prompt_text('sensual_cinematic.policy.03', ' The explicit UI count overrides conflicting count wording.') if settings.shot_count is not None else prompt_text('sensual_cinematic.policy.04', ' Auto follows an explicit requested count when present.'))
-        + prompt_text('sensual_cinematic.policy.05', ' All depicted people must be clearly adults and every interaction voluntary and ongoing. Maximal is mandatory literal specificity: use standard anatomical names and exact sexual-action verbs wherever the requested act requires them. Never censor, euphemize, fade out, imply off-screen completion, or collapse an action into labels such as intimate activity, sensual movement, pleasure or making love. For every chronological beat state actor, exact action, anatomical/object contact, observable response and resulting position/contact. Maintain contact, body orientation, clothing state and repetitive motion until a visible action changes them. Do not invent an unrequested act category, participant, coercion, injury, fluid, climax or escalation. Explicitness and shot count are independent. Camera fields alone own camera motion; phases are continuous, not hidden cuts. Respect first/last anchors and every Ref2V role. All non-dialogue output is English. Declare spoken_languages and preserve exact speech with canonical <d>[Language] words</d> tags.'))
+        + prompt_text('sensual_cinematic.policy.05', ' Maximal is mandatory literal specificity: use standard anatomical names and exact sexual-action verbs wherever the requested act requires them. Never censor, euphemize, fade out, imply off-screen completion, or collapse an action into labels such as intimate activity, sensual movement, pleasure or making love. For every chronological beat state actor, exact action, anatomical/object contact, observable response and resulting position/contact. Maintain contact, body orientation, clothing state and repetitive motion until a visible action changes them. Do not invent unrequested acts, participants, body details, outcomes or escalation. Explicitness and shot count are independent. Camera fields alone own camera motion; phases are continuous, not hidden cuts. Respect first/last anchors and every Ref2V role. All non-dialogue output is English. Declare spoken_languages and preserve exact speech with canonical <d>[Language] words</d> tags.\n'))
 
 
 def encode_context(value: dict) -> str:
@@ -286,6 +299,17 @@ def _normalize_speech(value, languages):
                 if languages.get(line) and language not in languages[line]:
                     raise ValueError("Conservez la langue déclarée pour chaque réplique approuvée.")
             return match[0]
+        prefixed = {
+            (language, line)
+            for line, choices in languages.items()
+            for language in choices
+            if words.startswith(language)
+            and words[len(language) : len(language) + 1].isspace()
+            and words[len(language) :].strip() == line
+        }
+        if len(prefixed) == 1:
+            language, line = next(iter(prefixed))
+            return compile_dialogue_tag(language, line)
         choices = languages.get(words, set())
         if len(choices) != 1:
             raise ValueError("Langue manquante ou ambiguë pour une réplique Sensuel.")
@@ -295,7 +319,7 @@ def _normalize_speech(value, languages):
 
 
 def canonical_plan(content: str, context: dict) -> str:
-    plan = Plan.model_validate_json(strip_markdown_fence(content))
+    plan = Plan.model_validate(_plan_payload(content))
     plan = Plan.model_validate(_normalize_speech(plan.model_dump(mode="json"), _speech_languages(plan)))
     check_count(plan.shots, context)
     header = core.reference_header(context, len(plan.shots))
@@ -330,7 +354,7 @@ def compile_result(content: str, encoded: str, stage: str) -> tuple[str, str]:
         return canonical_plan(content, context), encoded
     if not context.get("plan"):
         raise ValueError("Approuvez le Plan Sensuel avant la rédaction (deux appels).")
-    plan = Plan.model_validate(context["plan"])
+    plan = Plan.model_validate(_plan_payload(context["plan"]))
     writer = Writer.model_validate_json(strip_markdown_fence(content))
     return _compile(plan, writer, context)
 
@@ -392,7 +416,7 @@ def validate_final(content: str, context: dict) -> None:
 def lint_document(content: str, stage: str, mode: str, *_unused) -> tuple[str, ...]:
     try:
         if stage == "beat_sheet":
-            Plan.model_validate_json(strip_markdown_fence(content))
+            Plan.model_validate(_plan_payload(content))
             return ()
         return prompt_errors(content, mode)
     except ValueError as error:

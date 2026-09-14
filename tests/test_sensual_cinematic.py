@@ -40,7 +40,7 @@ def fixture(mode="i2va"):
         "header": direct_reference_header_for_roles(("subject_reference",)) if mode == "ref2va" else "",
         "settings": SensualSettings().as_dict(),
         "preparation": PREPARATION.as_dict(),
-        "source_text": "A consensual explicit scene between two adults in one continuous eight-second shot.",
+        "source_text": "An explicit scene with two participants in one continuous eight-second shot.",
         "duration_ms": 8000,
         "dialogues": [],
         "dialogue_level": 0,
@@ -83,6 +83,12 @@ class SensualCinematicContractTest(unittest.TestCase):
             prompts = "\n".join((recipe.beat_sheet_system_prompt, recipe.final_prompt_system_prompt))
             self.assertIn("EXPLICIT MAXIMAL", prompts.upper())
             self.assertNotIn("undressing.single_shot", prompts.casefold())
+            for term in ("adult", "consent", "voluntary", "coerc", "youth", "minor"):
+                self.assertNotIn(term, prompts.casefold())
+        schema = sensual.schema("beat_sheet").casefold()
+        for term in ("adult", "consent", "voluntary", "coerc", "youth", "minor"):
+            self.assertNotIn(term, schema)
+            self.assertNotIn(term, sensual.REVISION_SYSTEM.casefold())
 
     def test_compiles_exact_beat_ledger_for_h3_base_and_ref2v(self):
         for mode in ("i2va", "ref2va"):
@@ -107,7 +113,7 @@ class SensualCinematicContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             sensual.canonical_plan(json.dumps(bad_plan), context)
         bad_plan = deepcopy(plan)
-        bad_plan["participants"][0]["adult"] = False
+        bad_plan["participants"][0]["unexpected"] = True
         with self.assertRaises(ValueError):
             sensual.canonical_plan(json.dumps(bad_plan), context)
         bad_plan = deepcopy(plan)
@@ -124,6 +130,48 @@ class SensualCinematicContractTest(unittest.TestCase):
         wrong_writer["shots"][0]["phases"][0]["beat_ids"].reverse()
         with self.assertRaises(ValueError):
             sensual.compile_result(json.dumps(wrong_writer), sensual.encode_context(context), "final_prompt")
+
+    def test_legacy_alignment_fields_are_read_without_reentering_the_contract(self):
+        plan, _, context = fixture()
+        plan["consent_confirmed"] = True
+        for participant in plan["participants"]:
+            participant["adult"] = True
+        normalized = json.loads(sensual.canonical_plan(json.dumps(plan), context))
+        self.assertNotIn("consent_confirmed", normalized)
+        self.assertTrue(all("adult" not in participant for participant in normalized["participants"]))
+
+    def test_plan_canonicalizes_exact_unbracketed_language_and_passive_camera_position(self):
+        plan, _, context = fixture()
+        line = "Keep looking."
+        beat = plan["shots"][0]["phases"][0]["interactions"][0]
+        beat["action"] += f" and says <d>English {line}</d>"
+        beat["contact"] += "; an off-screen voice comes from the camera position"
+        plan["spoken_lines"] = [line]
+        plan["spoken_languages"] = ["English"]
+        context.update(
+            source_text=f'One participant says "{line}"',
+            dialogues=[line],
+            locked_speech=[line],
+        )
+
+        normalized = json.loads(sensual.canonical_plan(json.dumps(plan), context))
+        normalized_beat = normalized["shots"][0]["phases"][0]["interactions"][0]
+        self.assertIn(f"<d>[English] {line}</d>", normalized_beat["action"])
+        self.assertIn("from the camera position", normalized_beat["contact"])
+
+        wrong_language = deepcopy(plan)
+        wrong_language["shots"][0]["phases"][0]["interactions"][0]["action"] = (
+            beat["action"].replace("<d>English ", "<d>French ")
+        )
+        with self.assertRaisesRegex(ValueError, "Langue manquante ou ambiguë"):
+            sensual.canonical_plan(json.dumps(wrong_language), context)
+
+        free_camera = deepcopy(plan)
+        free_camera["shots"][0]["phases"][0]["interactions"][0]["contact"] = (
+            "The camera drifts toward the passenger."
+        )
+        with self.assertRaisesRegex(ValueError, "camera movement"):
+            sensual.canonical_plan(json.dumps(free_camera), context)
 
     def test_plan_teaches_the_exact_camera_target_prefix_contract(self):
         expected = (
@@ -190,7 +238,7 @@ class SensualCinematicIntegrationTest(unittest.TestCase):
                     [json.dumps(plan), json.dumps(writer)],
                     preparation_family="sensual",
                     sensual_settings=settings,
-                    source_text="A consensual explicit scene between two adults lasting eight seconds.",
+                    source_text="An explicit scene with two participants lasting eight seconds.",
                     roles=("first_frame",) if mode == "fl2va" else ("subject_reference",),
                 )
                 for stage in (CompositionStage.BEAT_SHEET, CompositionStage.FINAL_PROMPT):
@@ -202,6 +250,8 @@ class SensualCinematicIntegrationTest(unittest.TestCase):
                 for request in gateway.requests:
                     self.assertIn("Sensual 1.0", request.system_prompt)
                     self.assertNotIn("undressing.single_shot", request.system_prompt.casefold())
+                    for term in ("adult", "consent", "voluntary", "coerc", "youth", "minor"):
+                        self.assertNotIn(term, request.system_prompt.casefold())
 
                 reopened = LocalPromptSessionStore(directory).get(session.session_id)
                 self.assertEqual(reopened.sensual_settings, settings)
@@ -225,6 +275,8 @@ class SensualCinematicIntegrationTest(unittest.TestCase):
                 )
                 self.assertIn("Sensual 1.0 explicit-maximal", request.system_prompt)
                 self.assertNotIn("COMBAT POST-RENDER", request.system_prompt)
+                for term in ("adult", "consent", "voluntary", "coerc", "youth", "minor"):
+                    self.assertNotIn(term, request.system_prompt.casefold())
                 self.assertEqual(LocalH3RenderProjectStore(directory).get(project.project_id), project)
 
     def test_h3_to_ref2v_conversion_keeps_family_and_settings(self):

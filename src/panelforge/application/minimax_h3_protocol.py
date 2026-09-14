@@ -103,6 +103,9 @@ _NEGATED_CAMERA_NOUN = re.compile(
     r"(?i)\b(?:without(?:\s+any)?|rather\s+than(?:\s+any)?|instead\s+of(?:\s+any)?|no)"
     r"\s+camera\s+(?:movement|motion)\b"
 )
+_SPATIAL_CAMERA_POSITION = re.compile(
+    r"(?i)\bfrom\s+(?:the\s+)?camera\s+position\b"
+)
 _NONCANONICAL_CAMERA_MODIFIER = re.compile(
     r"(?i)\bwith\s+(?!(?:small|large)\s+amplitude\b)\w+\s+amplitude\b|"
     r"\bat\s+(?!(?:slow|fast)\s+speed\b)\w+\s+speed\b"
@@ -428,12 +431,18 @@ def lint_h3_prompt(
             phrase,
             "",
         )
+    free_camera_source = _SPATIAL_CAMERA_POSITION.sub(
+        "",
+        prose_without_canonical_camera,
+    )
     modifier_source = (
-        prose_without_canonical_camera if expected_directives else content
+        free_camera_source
+        if expected_directives
+        else _SPATIAL_CAMERA_POSITION.sub("", content)
     )
     if (
-        _FREE_CAMERA_MOTION.search(prose_without_canonical_camera)
-        or _FREE_CAMERA_NOUN.search(_NEGATED_CAMERA_NOUN.sub("", prose_without_canonical_camera))
+        _FREE_CAMERA_MOTION.search(free_camera_source)
+        or _FREE_CAMERA_NOUN.search(_NEGATED_CAMERA_NOUN.sub("", free_camera_source))
         or _has_noncanonical_camera_modifier(modifier_source)
     ):
         issues.append(
