@@ -264,6 +264,10 @@ class ClassicCinematicIntegrationTest(unittest.TestCase):
                     renders = render_fixtures.CombatRenderTest().service(directory)
                     renders.sessions, renders.compositions = service.sessions, service.compositions
                     project = renders.get_or_create_from_session(session.session_id)
+                    self.assertEqual(project.input_mode,
+                        H3RenderInputMode.REF2VA if mode == "ref2v" else H3RenderInputMode.FL2VA)
+                    self.assertEqual(project.reference_asset_ids,
+                        tuple(r.asset_id for r in session.references) if mode == "ref2v" else ())
                     self.assertEqual(project.revision_version, H3RenderRevisionVersion.CLASSIC_CINEMATIC)
                     self.assertEqual(project.cinematic_settings, settings)
                     self.assertEqual(LocalH3RenderProjectStore(directory).get(project.project_id), project)

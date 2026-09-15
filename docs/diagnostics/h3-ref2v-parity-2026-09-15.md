@@ -1,5 +1,7 @@
 # État H3 Image-to-Video / REF2V — 15 septembre 2026
 
+Suite autorisée après cet audit : [correctif du raccordement REF2V et snapshot préalable](../ref2v-classic-render-fix-2026-09-15.md). Les constats ci-dessous décrivent l'état avant ce correctif.
+
 Audit du checkout du Lab, `D:\Code\localQ\.panelpatch`, branche `h3-video-lora`, et des métadonnées du workspace `D:\Code\panelforge\workspace`. H3 doit faire référence pour les prochaines évolutions, selon la demande utilisateur. Aucun correctif, test applicatif, appel LLM, rendu ou redémarrage effectué.
 
 ## Conclusion

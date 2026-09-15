@@ -361,10 +361,21 @@ class H3RenderService:
         if final is None:
             raise ValueError("generate an H3 prompt before opening the render project")
         with self._lock:
+            ref2v_classic = (
+                session.profile_id == "minimax.h3.ref2v.classic.cinematic"
+                and session.session_mode.value == "direct_multimodal"
+            )
             existing = self.projects.find_source_revision(session_id, final.revision_id)
-            if existing is not None:
+            if existing is not None and not (
+                ref2v_classic and existing.input_mode is not H3RenderInputMode.REF2VA
+            ):
                 return self._refresh_detached(existing)
-            is_ref2v = (
+            if existing is not None and existing.attempts:
+                raise ValueError(
+                    "Cet ancien atelier REF2V a été enregistré en mode H3 et contient déjà des essais. "
+                    "Reprenez-le dans un nouvel atelier REF2V pour conserver son historique."
+                )
+            is_ref2v = ref2v_classic or (
                 session.profile_id in {"minimax.h3.ref2v.direct", "minimax.h3.ref2v.combat", "minimax.h3.ref2v.sensual"}
                 and session.session_mode.value == "direct_multimodal"
             )
@@ -373,6 +384,14 @@ class H3RenderService:
             first = None if is_ref2v else next((value for value in session.references if value.role == "first_frame"), None)
             last = None if is_ref2v else next((value for value in session.references if value.role == "last_frame"), None)
             references = tuple(session.references) if is_ref2v else ()
+            if ref2v_classic:
+                # Match the Picture numbering used by both LLM calls, including
+                # reordered bindings or a subset of the session's references.
+                from .prompt_composition import composition_picture_mapping
+                references = tuple(
+                    session.reference(reference_id)
+                    for reference_id, _ in composition_picture_mapping(composition)
+                )
             if is_ref2v and self.ref2v_workflow is not None and not (
                 self.ref2v_workflow.minimum_reference_images
                 <= len(references)
@@ -393,6 +412,17 @@ class H3RenderService:
                 if is_ref2v
                 else derive_h3_render_input_mode(first is not None, last is not None)
             )
+            if existing is not None:
+                # Repair only the omitted REF2V Classic profile, on explicit
+                # reopening, before any attempt. Keep the prompt and its edits.
+                return self.projects.save(replace(
+                    existing,
+                    input_mode=H3RenderInputMode.REF2VA,
+                    first_frame_asset_id=None, first_frame_label=None,
+                    last_frame_asset_id=None, last_frame_label=None,
+                    reference_asset_ids=tuple(value.asset_id for value in references),
+                    reference_labels=tuple(value.label for value in references),
+                ))
             plan = composition.document(CompositionStage.BEAT_SHEET).active_revision
             cuts = extract_plan_cut_times_ms(plan.content if plan is not None else "")
             if not cuts:
