@@ -1751,6 +1751,20 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .prompt-writer-model small { display: block; margin-top: .35rem; overflow-wrap: anywhere; }
 .prompt-writer-model [data-writer="status"]:empty { display: none; }
 
+/* Assisted sampling: one preset, optional independent pass controls. */
+.krea2-assisted-sampling { margin:.8rem 0; padding:.8rem; border:1px solid var(--line); border-radius:10px; }
+.krea2-assisted-sampling > label { display:grid; gap:.35rem; max-width:440px; font-size:.8rem; font-weight:700; }
+.krea2-assisted-sampling select { width:100%; min-width:0; }
+.krea2-assisted-sampling > small { display:block; margin:.4rem 0; overflow-wrap:anywhere; }
+.krea2-assisted-sampling summary { cursor:pointer; font-size:.8rem; padding:.35rem 0; }
+.krea2-assisted-sampling fieldset { min-width:0; border:0; margin:.7rem 0 0; padding:0; }
+.krea2-assisted-sampling legend { font-size:.8rem; font-weight:700; margin-bottom:.5rem; }
+.krea2-assisted-sampling-grid { display:grid; grid-template-columns:minmax(65px,.5fr) minmax(130px,1fr) minmax(110px,1fr); gap:.65rem; }
+.krea2-assisted-sampling-grid label { display:grid; gap:.3rem; min-width:0; font-size:.75rem; }
+.krea2-assisted-sampling-grid input { width:100%; min-width:0; box-sizing:border-box; }
+.krea2-assisted-sampling fieldset > small { display:block; margin-top:.3rem; }
+@media(max-width:650px) { .krea2-assisted-sampling-grid { grid-template-columns:1fr; } }
+
 /* Video setup: keep daily controls visible and defer detailed controls. */
 .h3-render-setup { display:grid; grid-template-columns: minmax(180px,1fr) minmax(240px,1.4fr) minmax(180px,1fr); gap:.8rem; align-items:start; }
 .h3-render-setup > * { min-width:0; }

@@ -4,8 +4,9 @@
   const active = new Set(["queued", "starting", "submitting", "running", "receiving", "importing"]);
   const labels = { queued: "En attente", starting: "Démarrage de Comfy local", submitting: "Envoi à Comfy local", running: "Traitement DLSS", receiving: "Récupération du résultat", importing: "Enregistrement du résultat", succeeded: "Terminé", failed: "Erreur", unconfirmed: "À vérifier", cancelled: "Annulé" };
   const pending = new Map(), quickRequests = new Map(), inlinePanels = new Map(), unread = new Set();
-  const videoOptions = Object.freeze({ size: "1.724", interpolate: true, hdr: false, intensity: 1, tone: 1, structure: 1,
-    skin: -1, detail: 1, style: "Default", strict_neural: false, codec: "H.264 (NVIDIA NVENC)" });
+  const videoEffects = Object.freeze({ intensity: 0.2, tone: 0, structure: 0.2, skin: 0, detail: 1, style: "Natural" });
+  const videoOptions = Object.freeze({ ...videoEffects, size: "1.724", interpolate: true, hdr: false,
+    strict_neural: false, codec: "H.264 (NVIDIA NVENC)" });
   const imageOptions = Object.freeze({ size: "1.5", interpolate: false, hdr: false, intensity: 1, tone: 1, structure: 1,
     skin: -1, detail: 1, style: "Default", strict_neural: false, codec: "H.264 (NVIDIA NVENC)" });
   const isVideo = value => ["h3", "ref2v"].includes(value?.owner);
@@ -37,8 +38,9 @@
         <label><input name="strict_neural" type="checkbox"> Refuser le mode de repli</label>
         <label data-video>Encodage<select name="codec"><option>H.264 (NVIDIA NVENC)</option><option>H.264</option><option>H.265 (NVIDIA NVENC)</option></select></label>
         <label data-video><input name="hdr" type="checkbox"> Sortie HDR · source HDR uniquement</label>
-      </div><p data-image class="muted">Préréglages NR et modèle DLSS : Default · Masque automatique désactivé.</p>
-      <button type="button" data-image data-reset-image>Réglages initiaux de l’image</button></details>
+      </div><p class="muted">Préréglages NR et modèle DLSS : Default · Masque automatique désactivé.</p>
+      <button type="button" data-image data-reset-image>Réglages initiaux de l’image</button>
+      <button type="button" data-video data-reset-video>Profil vidéo léger</button></details>
       <p data-error class="error-text" role="alert"></p><button data-start class="primary" type="submit">Lancer l’upscale</button>
     </form>
     <details class="dlss-runtime"><summary>Comfy local · <span data-runtime>état inconnu</span></summary>
@@ -133,6 +135,11 @@
     Object.entries(imageOptions).forEach(([name, value]) => {
       if (field(name).type === "checkbox") field(name).checked = value; else field(name).value = value;
     });
+    form.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  $("[data-reset-video]").addEventListener("click", () => {
+    if (!isVideo(context) || sending) return;
+    Object.entries(videoEffects).forEach(([name, value]) => { field(name).value = value; });
     form.dispatchEvent(new Event("input", { bubbles: true }));
   });
   async function preview() {

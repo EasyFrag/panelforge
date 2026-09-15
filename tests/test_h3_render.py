@@ -430,6 +430,15 @@ class H3RenderPromptAndKeyframeTest(unittest.TestCase):
         self.assertIn("rendu configuré pour 10 s", warning)
         self.assertIn("ne sont pas réécrits automatiquement", warning)
 
+    def test_cinematic_duration_header_is_used_for_mismatch_warning(self) -> None:
+        prompt = (
+            "integrated_multimodal_description:\nThe target video lasts 12.5 seconds.\n\n"
+            "[Shot 1] A gesture lasts 2 seconds. At 00:04.000, a cut."
+        )
+        self.assertIsNone(h3_prompt_duration_warning(prompt, 12.5))
+        self.assertIn("Prompt compilé pour 12.5 s", h3_prompt_duration_warning(prompt, 6))
+        self.assertIsNone(h3_prompt_duration_warning("A gesture lasts 2 seconds.", 6))
+
     def test_camera_locked_revision_preserves_compiled_clauses(self) -> None:
         current = (
             "integrated_multimodal_description:\n"

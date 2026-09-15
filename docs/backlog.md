@@ -2,6 +2,25 @@
 
 ## Priorités actives — 14 septembre 2026
 
+- **KREA2 Modif — image jointe à la consigne, proposition du 15 septembre.**
+  Permettre une image de référence facultative par échange, destinée au LLM qui
+  rédige la modification : source actuelle + consigne + exemple visuel. Petit
+  bouton près du message, aperçu amovible, pièce jointe conservée avec l'échange.
+  Reprendre seulement les attributs demandés, préserver le reste et rédiger des
+  instructions autonomes pour le moteur de rendu. Pas de réaffectation implicite
+  de cette pièce jointe au workflow décor + sujet existant ; le guidage direct
+  du rendu par une seconde image serait un périmètre distinct. Discussion,
+  non implémenté ; P1/P2 conservées, aucune priorité supplémentaire fixée.
+
+- **Livré dans le checkout le 15 septembre : presets KREA2 Assisted.**
+  [Guide 1.0](krea2-assisted-sampling-1.0.md). Actuel 8+2 er_sde/simple par défaut,
+  Finition 8+4 er_sde/simple, Moody Beta expérimental 8+4 euler_ancestral/beta.
+  Réglages des deux passes repliés, Personnalisé après modification, sauvegarde
+  par essai/branche et reprise fidèle. CFG 1,1/1,0, denoise final 0,30 et latent
+  ×1,5 conservés. Variantes à évaluer par l'utilisateur ; tests préparés, non
+  exécutés. Redémarrage Lab et Ctrl+F5 nécessaires. Aucun nouveau contrôle Batch,
+  Modif, H3/REF2V ou DLSS ; prompting inchangé. P1/P2 et EROS/BUNNY ci-dessous conservés.
+
 - **Livré dans le checkout, sur autorisation : UX vidéo + édition des recettes LLM.**
   [Guide 1.0](video-ux-prompt-editor-1.0.md). Sélecteur de presets existants,
   checkpoint visible, LoRA et détails repliables ; éditeur des six recettes

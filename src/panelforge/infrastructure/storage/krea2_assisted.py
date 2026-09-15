@@ -31,6 +31,7 @@ from panelforge.domain.krea2_batch import (
     Krea2PromptLanguage,
 )
 from panelforge.domain.krea2_lab import Krea2AspectRatio
+from panelforge.domain.krea2_sampling import Krea2AssistedSettings, sampling_for, sampling_from_dict
 from .krea2_style_presets import preset_dict, load_preset
 
 
@@ -109,7 +110,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
     branches = project.conversation_branches()
     turns = {turn.turn_id: turn for branch in branches for turn in branch.turns}
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "name": project.name,
@@ -181,7 +182,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
-    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8}:
+    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
         raise ValueError("unsupported KREA2 assisted project schema")
     branch_fields: dict[str, Any] = {}
     if value["schema_version"] >= 4:
@@ -255,6 +256,7 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
 
 def _settings(settings: Krea2BatchSettings) -> dict[str, object]:
     return {
+        **({"sampling": asdict(sampling_for(settings))} if isinstance(settings, Krea2AssistedSettings) else {}),
         "model_name": settings.model_name,
         "aspect_ratio": settings.aspect_ratio.value,
         "megapixels": settings.megapixels,
@@ -266,7 +268,9 @@ def _settings(settings: Krea2BatchSettings) -> dict[str, object]:
 
 
 def _load_settings(value: dict[str, Any]) -> Krea2BatchSettings:
-    return Krea2BatchSettings(
+    settings_type = Krea2AssistedSettings if "sampling" in value else Krea2BatchSettings
+    return settings_type(
+        **({"sampling": sampling_from_dict(value["sampling"])} if "sampling" in value else {}),
         model_name=value["model_name"],
         aspect_ratio=Krea2AspectRatio(value["aspect_ratio"]),
         megapixels=value["megapixels"],

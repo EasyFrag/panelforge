@@ -40,8 +40,29 @@ class DlssImageDefaultsTest(unittest.TestCase):
             partial = self.body(owner, {"intensity": 0.5, "skin": 0, "strict_neural": False}).resolved_settings()
             self.assertEqual(partial, DlssSettings(size="1.5", skin=0, intensity=0.5))
 
-    def test_video_defaults_and_explicit_quick_settings_are_unchanged(self):
+    def test_video_effect_defaults_preserve_explicit_and_saved_settings(self):
         quick = DlssSettings(size="1.724", interpolate=True, skin=-1)
+        light = DlssSettings(intensity=0.2, tone=0, structure=0.2, skin=0, detail=1, style="Natural")
         for owner in ("h3", "ref2v"):
-            self.assertEqual(self.body(owner, {}).resolved_settings(), DlssSettings())
+            self.assertEqual(self.body(owner, {}).resolved_settings(), light)
             self.assertEqual(self.body(owner, asdict(quick)).resolved_settings(), quick)
+            explicit = DlssSettings(size="3", intensity=0.1, tone=0.4, structure=0.6, skin=0.7,
+                                    style="Cinematic", detail=1.3, hdr=True, codec="H.265 (NVIDIA NVENC)")
+            self.assertEqual(self.body(owner, asdict(explicit)).resolved_settings(), explicit)
+
+    def test_light_video_profile_reaches_both_workflows(self):
+        for owner in ("h3", "ref2v"):
+            for interpolate in (False, True):
+                with self.subTest(owner=owner, interpolate=interpolate):
+                    directory = "dlss-smooth" if interpolate else "dlss"
+                    workflow = DlssWorkflow(ROOT / f"workflows/video.upscale/{directory}/0.1.0")
+                    settings = self.body(owner, {"size": "3", "interpolate": interpolate}).resolved_settings()
+                    graph = workflow.build("source.mp4", "test", settings)
+                    inputs = next(node["inputs"] for node in graph.values() if node["class_type"] == "NvidiaDLSSVideoUpscale")
+                    expected = {"nr_preset": "Default", "nr_style": "Natural", "nr_intensity": 0.2,
+                                "local_tone_strength": 0, "local_structure_strength": 0.2, "skin_structure_strength": 0,
+                                "automatic_mask": False, "output_detail_strength": 1, "hdr_mode": False,
+                                "upscale_mode": "3× (Ultra Performance)"}
+                    self.assertEqual({key: inputs[key] for key in expected}, expected)
+                    original = next(node["inputs"] for node in workflow.graph.values() if node["class_type"] == "NvidiaDLSSVideoUpscale")
+                    self.assertEqual(original["nr_intensity"], 1)

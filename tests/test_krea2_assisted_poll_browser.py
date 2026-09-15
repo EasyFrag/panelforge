@@ -35,6 +35,8 @@ class AssistedPollingBrowserTest(unittest.TestCase):
           let position = 1;
           const attemptStatus = a => a.status === 'queued' ? `queued ${position}` : a.status;
           const compactResourceName = value => value, strengthLabel = String;
+          const samplingSummary = () => '8 + 2 steps';
+          const validateSamplingInputs = () => true, readSampling = () => ({preset_id: 'current'});
           const imageFigure = (url, caption) => { const figure = document.createElement('figure');
             const img = document.createElement('img'); img.src = url; img.alt = caption; img.loading = 'lazy'; figure.append(img); return figure; };
           let reused = null, feedback = null;

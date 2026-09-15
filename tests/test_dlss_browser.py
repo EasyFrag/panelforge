@@ -77,7 +77,18 @@ class DlssBrowserTest(unittest.TestCase):
           check(selected==='enhanced'&&api.groups([source,variant],'assisted:new')[0].attempt.output_asset_id==='larger','actions can target the exact selected variant');
           api.open({owner:'h3',ownerId:'video',attempt:source});await until(()=>!start.disabled);
           check(el('size').value==='1.724'&&el('interpolate').checked&&!el('hdr').checked,'video defaults to 1.724x and 60 FPS in SDR');
+          const light=()=>el('style').value==='Natural'&&Number(el('intensity').value)===0.2&&Number(el('tone').value)===0&&Number(el('structure').value)===0.2&&Number(el('skin').value)===0&&Number(el('detail').value)===1;
+          check(light(),'advanced video starts with the light profile');
+          el('size').value='3';el('interpolate').checked=false;el('codec').value='H.265 (NVIDIA NVENC)';el('hdr').checked=true;
+          el('intensity').value='1';el('tone').value='1';el('style').value='Cinematic';el('detail').value='1.4';
+          const beforeReset=submits();dialog.querySelector('[data-reset-video]').click();await until(()=>!start.disabled);
+          check(light()&&submits()===beforeReset,'video reset restores effects without queueing');
+          check(el('size').value==='3'&&!el('interpolate').checked&&el('hdr').checked&&el('codec').value==='H.265 (NVIDIA NVENC)','video reset preserves geometry, cadence and explicit HDR');
+          dialog.querySelector('[data-close]').click();api.open({owner:'h3',ownerId:'video',attempt:source});await until(()=>!start.disabled);
+          check(light()&&el('size').value==='3','light profile and geometry survive reopening');
           check([...dialog.querySelectorAll('[data-image]')].every(node=>node.hidden),'image help and reset remain hidden for video');
+          api.open({owner:'assisted',ownerId:'fresh-image',attempt:source});await until(()=>!start.disabled);
+          check(initial()&&dialog.querySelector('[data-reset-video]').hidden,'video effects never become image defaults');
           check(!calls.some(c=>c.body&&c.url.startsWith('/api/dlss/runtime/')),'no lifecycle command runs automatically in the panel');
           document.getElementById('result').textContent='PASS';
         }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack;}})();
@@ -135,6 +146,8 @@ class DlssBrowserTest(unittest.TestCase):
           const posts=calls.filter(c=>c.url==='/api/dlss/jobs'&&c.body);
           check(posts[0].body.request_id===posts[1].body.request_id,'quick retry is idempotent');
           check(posts[1].body.settings.size==='1.724'&&posts[1].body.settings.interpolate&&!posts[1].body.settings.hdr,'quick defaults are independent from advanced settings');
+          const effects={intensity:0.2,tone:0,structure:0.2,skin:0,detail:1,style:'Natural'};
+          check(Object.entries(effects).every(([key,value])=>posts[1].body.settings[key]===value),'quick uses the light video profile');
           check(calls.filter(c=>c.url==='/api/dlss/preview').length===previews,'quick launch skips the options preview');
           const job=fakeJobs[0];job.status='running';job.progress={stage:'upscale',label:'Upscale',percent:50,updated_at:new Date().toISOString()};
           await until(()=>panel.querySelector('progress')?.value===50);

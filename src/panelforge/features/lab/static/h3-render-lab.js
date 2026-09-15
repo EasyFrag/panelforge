@@ -224,6 +224,7 @@
 
   function inferredDuration(prompt, fallback) {
     const matches = [
+      /\btarget video lasts\s+([0-9]+(?:\.[0-9]+)?)\s+seconds?\b/i,
       /aligns with the\s+([0-9]+(?:\.[0-9]+)?)-second mark of the target video/i,
       /one continuous(?: approximately)?\s+([0-9]+(?:\.[0-9]+)?)-second shot/i,
       /target video is(?: approximately)?\s+([0-9]+(?:\.[0-9]+)?)[ -]second/i,

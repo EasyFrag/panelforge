@@ -94,6 +94,58 @@ class Krea2AssistedWebTest(unittest.TestCase):
         self.client.close()
         self.temporary.cleanup()
 
+    def test_sampling_is_snapshotted_per_enqueue_and_survives_get_and_branch_draft(self):
+        from copy import deepcopy
+        from itertools import count
+        from unittest.mock import patch
+        from panelforge.infrastructure.presets.krea2_assisted import load_krea2_assisted_workflow
+        from panelforge.domain.krea2_sampling import sampling_spec
+
+        self.service.workflow = load_krea2_assisted_workflow(
+            ROOT / "workflows/image.generate.assisted/krea2-sampling/1.0.0", self.service.workflow)
+        project = self.service.create_project(name="Sampling", intention="Photo", model_id="local")
+        numbers = count(1)
+        self.service._attempt_id_factory = lambda: f"sampling-{next(numbers)}"
+        beta = sampling_spec()["presets"][2]["settings"]
+        custom = deepcopy(beta)
+        custom["preset_id"] = "custom"
+        custom["second_pass"] = {"steps": 5, "sampler": "er_sde", "scheduler": "simple"}
+        url = f"/api/image-lab/krea2-assisted/projects/{project.project_id}"
+        body = {"prompt": PROMPT, "model_id": "Krea2/krea2_turbo_bf16.safetensors",
+                "aspect_ratio": "9:16 (Portrait Widescreen)", "megapixels": 0.8,
+                "seed": "0", "loras": [], "expected_branch_id": "main", "sampling": beta}
+        with patch.object(self.service, "start_render_worker") as wake:
+            first = self.client.post(url + "/attempts?enqueue=true", json=body)
+            second = self.client.post(url + "/attempts?enqueue=true", json={**body, "sampling": custom})
+            self.assertEqual(first.status_code, 201, first.text)
+            self.assertEqual(second.status_code, 201, second.text)
+            self.assertEqual(wake.call_count, 2)
+        saved = self.client.get(url).json()["project"]
+        self.assertEqual(saved["attempts"][0]["settings"]["sampling"], beta)
+        self.assertEqual(saved["attempts"][1]["settings"]["sampling"], custom)
+        self.assertEqual(saved["render_settings"]["sampling"], custom)
+        self.assertEqual(saved["attempts"][0]["seed"], "0")
+        draft = {**body, "sampling": sampling_spec()["presets"][1]["settings"]}
+        response = self.client.post(url + "/branches", json={
+            "expected_branch_id": "main", "branch_id": "main", "draft": draft})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["project"]["render_settings"]["sampling"], draft["sampling"])
+        self.assertEqual(self.service.comfy.workflows, [])
+        self.assertEqual(self.gateway.requests, [])
+
+    def test_sampling_rejects_mislabeled_preset_before_queueing(self):
+        from panelforge.domain.krea2_sampling import sampling_spec
+        project = self.service.create_project(name="Sampling", intention="Photo", model_id="local")
+        sampling = sampling_spec()["presets"][0]["settings"]
+        sampling["first_pass"]["steps"] = 13
+        response = self.client.post(f"/api/image-lab/krea2-assisted/projects/{project.project_id}/attempts", json={
+            "prompt": PROMPT, "model_id": "Krea2/krea2_turbo_bf16.safetensors",
+            "aspect_ratio": "9:16 (Portrait Widescreen)", "megapixels": 0.8, "sampling": sampling})
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(self.service.projects.get(project.project_id).attempts, ())
+        self.assertEqual(self.service.comfy.workflows, [])
+        self.assertEqual(self.gateway.requests, [])
+
     def test_atomic_enqueue_accepts_multiple_requests_and_cancel_keeps_the_others(self):
         from itertools import count
         from unittest.mock import patch

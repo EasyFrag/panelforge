@@ -35,9 +35,13 @@ class DlssRequestBody(BaseModel):
     request_id: str = Field(default="preview", min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
 
     def resolved_settings(self):
-        # Apply image defaults only to omitted fields; keep explicit choices and
-        # the existing video contract, including previously persisted jobs.
-        defaults = {"size": "1.5", "skin": -1} if self.owner in {"assisted", "edit"} else {}
+        # Owner-specific defaults apply only to omitted fields. Explicit choices
+        # and persisted jobs keep their settings, including size/cadence/HDR.
+        defaults = {}
+        if self.owner in {"assisted", "edit"}:
+            defaults = {"size": "1.5", "skin": -1}
+        elif self.owner in {"h3", "ref2v"}:
+            defaults = {"intensity": 0.2, "tone": 0, "structure": 0.2, "skin": 0, "detail": 1, "style": "Natural"}
         return DlssSettings(**{**defaults, **self.settings.model_dump(exclude_unset=True)})
 
 

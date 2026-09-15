@@ -64,6 +64,7 @@ from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalo
 from panelforge.infrastructure.storage.prompt_recipes import LocalPromptRecipeStore
 from panelforge.infrastructure.storage.llm_traces import LocalLlmTraceStore
 from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
+from panelforge.infrastructure.presets.krea2_assisted import load_krea2_assisted_workflow
 from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter
 from panelforge.infrastructure.krea2_retouch import PillowRetouchCompositor
 from panelforge.infrastructure.krea2_upscale import PillowUpscaleImages
@@ -411,7 +412,10 @@ def build_app(args: argparse.Namespace):
         gateway=gateway,
         presets=LocalKrea2StylePresetStore(args.workspace),
         recipes=krea2_visual_recipes,
-        workflow=krea2_batch_workflow,
+        workflow=load_krea2_assisted_workflow(
+            PROJECT_ROOT / "workflows" / "image.generate.assisted" / "krea2-sampling" / "1.0.0",
+            krea2_batch_workflow,
+        ),
         comfy=krea2_assisted_comfy,
         assets=assets,
         projects=krea2_assisted_projects,

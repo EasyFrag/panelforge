@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from panelforge.domain.krea2_sampling import Krea2AssistedSampling, as_batch_settings, sampling_for
+
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 import json
 import secrets
 from threading import Event, Lock, RLock, Thread
@@ -279,7 +281,7 @@ class Krea2AssistedService:
                 preset_id=previous.preset_id if previous else f"style-{uuid4().hex}",
                 revision=previous.revision + 1 if previous else 1,
                 name=_bounded_text(name, "preset name", 120), prompt=attempt.prompt,
-                image_asset_id=attempt.output_asset_id, settings=attempt.settings,
+                image_asset_id=attempt.output_asset_id, settings=as_batch_settings(attempt.settings),
                 source_project_id=project_id, source_attempt_id=attempt_id, source_seed=attempt.seed,
                 prompt_language=attempt.conversation_prompt_language,
             ))
@@ -795,7 +797,7 @@ class Krea2AssistedService:
             selected = project.attempt(selected_id)
             if selected.status is not Krea2AssistedAttemptStatus.SUCCEEDED:
                 raise ValueError("the recipe settings must come from a successful render")
-            recipe = self.recipes.publish_new(proposal, selected.settings)
+            recipe = self.recipes.publish_new(proposal, as_batch_settings(selected.settings))
             project = project.with_recipe_draft(proposal).with_published_recipe(
                 recipe.recipe_id,
                 recipe.version,
@@ -1032,6 +1034,11 @@ class Krea2AssistedService:
         return self.projects.save(project.replace_attempt(updated))
 
     def _validate_render_settings(self, settings: Krea2BatchSettings, *, allow_cached: bool = False) -> None:
+        sampling = sampling_for(settings)
+        default_sampling = Krea2AssistedSampling()
+        if (sampling.first_pass, sampling.second_pass) != (default_sampling.first_pass, default_sampling.second_pass):
+            if not getattr(self.workflow, "supports_sampling", False):
+                raise ValueError("Le workflow Assisted chargé ne prend pas en charge ces réglages de sampling.")
         known = getattr(self.resources, "selection_in_last_inventory", None)
         if allow_cached and callable(known) and known(settings.model_name, tuple(value.name for value in settings.loras)):
             return
@@ -1235,6 +1242,7 @@ def _sidecar(
             "reference_filename": project.reference_filename,
         },
         "render": {
+            "sampling": asdict(sampling_for(effective_settings)),
             "model_name": effective_settings.model_name,
             "aspect_ratio": effective_settings.aspect_ratio.value,
             "megapixels": effective_settings.megapixels,

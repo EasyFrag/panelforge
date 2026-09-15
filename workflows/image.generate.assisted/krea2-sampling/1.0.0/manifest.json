@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "operation_id": "image.generate.assisted",
+  "recipe_id": "krea2-sampling",
+  "version": "1.0.0",
+  "base_workflow": {
+    "operation_id": "image.generate.batch",
+    "recipe_id": "krea2-community",
+    "version": "0.2.0",
+    "workflow_sha256": "e633582cbc1d415a5f2a1dcf093a67942f44fda2a26913388069c570c232299e"
+  },
+  "sampling_inputs": {
+    "first_pass.steps": {"node_id": "296", "input": "steps"},
+    "first_pass.sampler": {"node_id": "296", "input": "sampler_name"},
+    "first_pass.scheduler": {"node_id": "296", "input": "scheduler"},
+    "second_pass.steps": {"node_id": "301", "input": "steps"},
+    "second_pass.sampler": {"node_id": "301", "input": "sampler_name"},
+    "second_pass.scheduler": {"node_id": "301", "input": "scheduler"}
+  }
+}

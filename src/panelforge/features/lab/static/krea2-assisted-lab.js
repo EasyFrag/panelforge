@@ -75,6 +75,9 @@
     ratio: $("krea2-assisted-ratio"),
     megapixels: $("krea2-assisted-megapixels"),
     seed: $("krea2-assisted-seed"),
+    samplingPreset: $("krea2-assisted-sampling-preset"),
+    samplingSummary: $("krea2-assisted-sampling-summary"),
+    samplingDetails: $("krea2-assisted-sampling-details"),
     loras: $("krea2-assisted-loras"),
     catalogManager: $("krea2-assisted-catalog-manager"),
     render: $("krea2-assisted-render"),
@@ -94,6 +97,111 @@
     lightboxClose: $("krea2-assisted-lightbox-close"),
   };
   if (!elements.workspace) return;
+
+  const samplingPasses = ["first", "second"].map(stage => ({
+    steps: $(`krea2-assisted-${stage}-steps`),
+    sampler: $(`krea2-assisted-${stage}-sampler`),
+    scheduler: $(`krea2-assisted-${stage}-scheduler`),
+  }));
+  let samplingVersion = "1.0.0";
+  let samplingCatalogSignature = null;
+
+  function defaultSampling() {
+    return { preset_id: "current", version: "1.0.0",
+      first_pass: { steps: 8, sampler: "er_sde", scheduler: "simple" },
+      second_pass: { steps: 2, sampler: "er_sde", scheduler: "simple" } };
+  }
+
+  function readSampling() {
+    const passes = samplingPasses.map(row => ({
+      steps: Number(row.steps.value), sampler: row.sampler.value, scheduler: row.scheduler.value,
+    }));
+    return { preset_id: elements.samplingPreset.value, version: samplingVersion,
+      first_pass: passes[0], second_pass: passes[1] };
+  }
+
+  function samplingSummary(value) {
+    const config = value || defaultSampling();
+    const first = config.first_pass, second = config.second_pass;
+    return `${first.steps || "—"} + ${second.steps || "—"} steps · ${first.sampler} / ${first.scheduler}`
+      + (first.sampler === second.sampler && first.scheduler === second.scheduler
+        ? "" : ` → ${second.sampler} / ${second.scheduler}`);
+  }
+
+  function updateSamplingSummary() {
+    const value = readSampling();
+    elements.samplingSummary.textContent = samplingSummary(value)
+      + (value.preset_id === "moody_beta" ? " · adaptation Moody à tester" : "");
+  }
+
+  function loadSampling(value) {
+    const config = value || defaultSampling();
+    samplingVersion = config.version;
+    ensureMissingOption(elements.samplingPreset, config.preset_id);
+    elements.samplingPreset.value = config.preset_id;
+    [config.first_pass, config.second_pass].forEach((pass, index) => {
+      const row = samplingPasses[index];
+      row.steps.value = String(pass.steps);
+      for (const field of ["sampler", "scheduler"]) {
+        ensureMissingOption(row[field], pass[field]);
+        row[field].value = pass[field];
+      }
+    });
+    updateSamplingSummary();
+  }
+
+  function configureSampling(spec) {
+    if (!spec) return;
+    const signature = JSON.stringify(spec);
+    if (signature === samplingCatalogSignature) return;
+    const selected = readSampling();
+    elements.samplingPreset.replaceChildren();
+    for (const preset of spec.presets) {
+      const option = document.createElement("option");
+      option.value = preset.id; option.textContent = preset.label;
+      elements.samplingPreset.append(option);
+    }
+    const custom = document.createElement("option");
+    custom.value = "custom"; custom.textContent = "Personnalisé"; custom.disabled = true;
+    elements.samplingPreset.append(custom);
+    for (const row of samplingPasses) {
+      for (const [field, choices] of [["sampler", spec.samplers], ["scheduler", spec.schedulers]]) {
+        row[field].replaceChildren();
+        for (const name of choices) {
+          const option = document.createElement("option");
+          option.value = name; option.textContent = name; row[field].append(option);
+        }
+      }
+    }
+    // Catalogue refreshes must preserve drafts, including incomplete step inputs.
+    const rawSteps = samplingPasses.map(row => row.steps.value);
+    loadSampling(selected);
+    samplingPasses.forEach((row, index) => { row.steps.value = rawSteps[index]; });
+    updateSamplingSummary();
+    samplingCatalogSignature = signature;
+  }
+
+  function validateSamplingInputs() {
+    const invalid = samplingPasses.find(row => !row.steps.checkValidity());
+    if (!invalid) return true;
+    elements.samplingDetails.open = true;
+    invalid.steps.reportValidity(); invalid.steps.focus();
+    return false;
+  }
+
+  elements.samplingPreset.addEventListener("change", () => {
+    const preset = state.spec?.sampling?.presets.find(item => item.id === elements.samplingPreset.value);
+    if (preset) loadSampling(preset.settings);
+  });
+  for (const row of samplingPasses) {
+    for (const [field, control] of Object.entries(row)) {
+      control.addEventListener(field === "steps" ? "input" : "change", () => {
+        ensureMissingOption(elements.samplingPreset, "custom");
+        elements.samplingPreset.value = "custom";
+        updateSamplingSummary();
+      });
+    }
+  }
 
   const resourceUi = window.PanelForgeKrea2ResourceUi;
   const core = window.PanelForgeLabCore;
@@ -148,6 +256,12 @@
 
   function setBusy(value) {
     state.busy = value;
+    const samplingDisabled = value || !state.spec?.sampling;
+    elements.samplingPreset.disabled = samplingDisabled;
+    samplingPasses.forEach(row => Object.values(row).forEach(control => { control.disabled = samplingDisabled; }));
+    if (state.spec && !state.spec.sampling) {
+      elements.samplingSummary.textContent = "Réglages actuels · redémarrez le Lab pour activer les presets.";
+    }
     const llmReady = Boolean(state.spec?.llm_models?.length);
     const modelsReady = Boolean(state.spec?.render_models?.some(m => m.comfy_name === elements.model.value));
     const lorasReady = state.loraSlots.every(slot => !slot.name || state.spec?.loras?.some(lora => lora.comfy_name === slot.name));
@@ -318,6 +432,7 @@
 
   function loadAttemptSettings(attempt) {
     if (!attempt) return;
+    loadSampling(attempt.settings.sampling);
     elements.prompt.value = attempt.prompt;
     elements.model.value = attempt.settings.model_id;
     ensureMissingOption(elements.model, attempt.settings.model_id);
@@ -646,6 +761,7 @@
         ? `Composition locale · ${attempt.output_dimensions.width}×${attempt.output_dimensions.height} · taille de la base`
         : `Modèle · ${compactResourceName(settings.model_id)} · ${resolutionLabel} · ${settings.megapixels} MP`;
       renderMeta.title = `${attempt.composition ? "Génération d’origine\n" : ""}Checkpoint : ${settings.model_id}\nRésolution : ${resolutionLabel} · ${settings.aspect_ratio} · ${settings.megapixels} MP`;
+      renderMeta.title += `\nSampling : ${samplingSummary(settings.sampling)}`;
       const loras = settings.loras || [];
       const loraSummary = loras.length
         ? loras.map((lora) => `${compactResourceName(lora.name, 22)} ×${strengthLabel(lora.strength)}`).join(" · ")
@@ -808,6 +924,7 @@
       (a) => (a.conversation_branch_id || "main") === (project.active_branch_id || "main"),
     );
     if (last) loadAttemptSettings(last);
+    else loadSampling(null);
     // A newer conversational prompt can exist after the last render.
     elements.prompt.value = project.current_prompt || last?.prompt || "";
   }
@@ -854,11 +971,12 @@
 
   async function changeBranch(target) {
     if (state.busy || !state.project || restagingEditor.saving) return;
+    if (!validateSamplingInputs()) return;
     const projectId = state.project.project_id;
     const draft = elements.prompt.value.trim() ? {
       prompt: elements.prompt.value.trim(), model_id: elements.model.value,
       aspect_ratio: elements.ratio.value, megapixels: Number(elements.megapixels.value),
-      seed: elements.seed.value.trim() || null, loras: selectedLoras(),
+      seed: elements.seed.value.trim() || null, loras: selectedLoras(), sampling: readSampling(),
     } : null;
     stopPolling();
     state.navigationSerial += 1;
@@ -939,6 +1057,7 @@
     const previousRevisionLlm = preserve ? elements.revisionLlm.value : "";
     const previousSlots = state.loraSlots.map((slot) => ({ ...slot }));
     state.spec = next;
+    configureSampling(next.sampling);
     const signature = JSON.stringify([next.render_models, next.loras, next.llm_models]);
     if (state.catalogSignature === signature) { catalogStatus.observe(next); return; }
     const previousRecipe = elements.assistanceRecipe.value || "3.0.0";
@@ -1100,6 +1219,7 @@
 
   async function renderAttempt() {
     if (!state.project || state.busy) return;
+    if (!validateSamplingInputs()) return;
     const prompt = elements.prompt.value.trim();
     if (!prompt) { setMessage("Préparez ou écrivez d’abord un prompt.", true); return; }
     stopPolling();
@@ -1118,6 +1238,7 @@
           megapixels: Number(elements.megapixels.value),
           seed: elements.seed.value.trim() || null,
           loras: selectedLoras(),
+          sampling: readSampling(),
         }),
       });
       const attempt = payload.project.attempts.at(-1);
@@ -1290,6 +1411,7 @@
 
   async function applyPreset(presetId) {
     if (!state.project || state.busy) return;
+    if (!validateSamplingInputs()) return;
     setBusy(true);
     try {
       const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/style-preset`, {
@@ -1297,7 +1419,7 @@
         body: JSON.stringify({ preset_id: presetId, expected_branch_id: state.project.active_branch_id,
           draft: { prompt: elements.prompt.value, model_id: elements.model.value,
             aspect_ratio: elements.ratio.value, megapixels: Number(elements.megapixels.value),
-            seed: elements.seed.value.trim() || null, loras: selectedLoras() } }),
+            seed: elements.seed.value.trim() || null, loras: selectedLoras(), sampling: readSampling() } }),
       });
       renderProject(payload.project, { preservePrompt: true });
       restoreRenderState(payload.project);

@@ -6,7 +6,7 @@ Implémentation autorisée le 9 septembre 2026, après la [discussion initiale](
 
 **Upscale DLSS** est disponible sur les résultats réussis de KREA2 Assisted, de l’atelier Edit (KREA2 ou FireRed), et des vidéos H3 / REF2V. Dans Edit, il est aussi accessible sous le comparateur pour l’image sélectionnée dans « Après ». Pour les images, le panneau montre la cible, les dimensions prévues, la taille souhaitée et le bouton de lancement ; les autres réglages restent repliés.
 
-Pour **H3 / REF2V**, le bouton **Upscale DLSS** lance directement **×1,724 + 60 FPS**, sans popup. Ces valeurs sont fixes et indépendantes des derniers réglages avancés : HDR désactivé, H.264 NVENC, intensité/tonalité/structure/détails à 1, peau automatique (-1), style Default, repli autorisé. **Upscale avancé** ouvre le panneau ; le lancement revient à l’atelier dès que la tâche est enregistrée. Fermer le panneau pendant l’envoi ne l’annule pas.
+Pour **H3 / REF2V**, le bouton **Upscale DLSS** lance directement **×1,724 + 60 FPS**, sans popup. Ces valeurs sont fixes et indépendantes des derniers réglages avancés : HDR désactivé, H.264 NVENC, **profil vidéo léger** (Natural, intensité 0,20, tonalité 0, structure 0,20, peau 0, détails 1), repli autorisé. **Upscale avancé** ouvre le panneau ; le lancement revient à l’atelier dès que la tâche est enregistrée. Fermer le panneau pendant l’envoi ne l’annule pas.
 
 | Atelier | Taille par défaut | Comportement |
 | --- | --- | --- |
@@ -19,6 +19,16 @@ Dans Edit, choisir un facteur au lieu de « Taille de la source » effectue une 
 Les facteurs proposés sont ×1 (DLAA), ×1,5, ×1,724, ×2 et ×3. Le panneau affiche les dimensions réellement prévues, avec l’arrondi pair du nœud. Les images de sortie sont limitées à **16 MP** pour rester utilisables dans les ateliers existants ; le nœud accepte au maximum 7680 × 4320, portrait compris. La passe ×2 intermédiaire du mode taille source doit elle aussi respecter cette limite. Les images doivent avoir au moins 64 pixels sur chaque axe. Lecture PNG/JPEG/WebP fixe, orientation EXIF respectée, maximum 100 Mio ; en mode source, un écart de proportions supérieur à 1 % est refusé.
 
 Les réglages avancés reprennent les contrôles NR du workflow fourni. HDR désactivé, codec H.264 NVENC par défaut ; H.265 NVENC requis pour activer HDR. La fluidification passe réellement par le nœud d’interpolation avant la sauvegarde vidéo. L’interpolation et le changement de résolution restent deux opérations distinctes.
+
+### Profil vidéo léger — 14 septembre 2026
+
+Le profil demandé s’applique au lancement rapide et à la première ouverture des réglages avancés H3/REF2V : NR Preset **Default**, style **Natural**, intensité NR **0,20**, tonalité locale **0**, structure locale **0,20**, structure peau **0**, masque automatique **désactivé**, détails de sortie **1**. L’objectif est une intervention plus discrète ; la fidélité du teint reste à évaluer sur les vidéos de l’utilisateur.
+
+Le bouton **Profil vidéo léger** réapplique les six effets dans le panneau, sans lancer d’upscale ni changer la taille, l’interpolation, le codec ou le choix HDR explicite. Les brouillons du panneau conservent les choix manuels. Le HDR reste désactivé par défaut ; son activation volontaire et son contrat H.265 restent disponibles.
+
+Les requêtes vidéo API partielles utilisent les mêmes effets pour les champs omis. Les paramètres explicites et les tâches déjà enregistrées gardent leurs valeurs. Le facteur ×3 reste sélectionnable en avancé ; la demande de réduction d’effet ne change pas le défaut du bouton rapide ×1,724/60 FPS. Les préréglages image et la comparaison image sont conservés. Les graphes versionnés ne changent pas : les bindings appliquent les paramètres de chaque tâche.
+
+Cache `dlss-lab.js` **20260914.1**. Vérifications statiques Python/JavaScript et diff ; tests adaptés dans `test_dlss_image_defaults.py` et `test_dlss_browser.py`, laissés à l’utilisateur. Aucun traitement, test fonctionnel ni redémarrage lancé. Redémarrer le Lab puis Ctrl+F5 pour charger les nouveaux défauts.
 
 ### Réglages initiaux image et aides — 11 septembre 2026
 

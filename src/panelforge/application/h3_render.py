@@ -1528,6 +1528,7 @@ def h3_prompt_duration_warning(
     ):
         raise TypeError("render_duration_seconds must be a number")
     patterns = (
+        r"\btarget video lasts\s+([0-9]+(?:\.[0-9]+)?)\s+seconds?\b",
         r"\baligns with the\s+([0-9]+(?:\.[0-9]+)?)-second mark of the target video\b",
         r"\bone continuous(?: approximately)?\s+([0-9]+(?:\.[0-9]+)?)-second shot\b",
         r"\btarget video is(?: approximately)?\s+([0-9]+(?:\.[0-9]+)?)[ -]second\b",
