@@ -1,0 +1,139 @@
+"""User-run browser check with a fake API and no Lab/LLM/media server."""
+from pathlib import Path
+import os
+import unittest
+
+from tests.test_media_analysis_browser import MediaAnalysisBrowserTest, STATIC
+
+
+class StoriesBrowserTest(unittest.TestCase):
+    run_browser = MediaAnalysisBrowserTest.run_browser
+
+    def test_lazy_navigation_and_saved_projects_remain_usable_when_models_fail(self):
+        browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
+        if not browsers:
+            self.skipTest("local Chromium not installed")
+        index = (STATIC / "index.html").read_text(encoding="utf8")
+        markup = '<main id="stories-workspace"' + index.split('<main id="stories-workspace"', 1)[1].split('</main>', 1)[0] + '</main>'
+        setup = r"""
+          localStorage.clear(); sessionStorage.clear();
+          const pid='story-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+          localStorage.setItem('panelforge.stories.project',pid);
+          let finishModels;
+          const calls=[];
+          const concepts=[1,2,3].map(i=>({id:'concept-'+i,title:'Histoire '+i,hook:'<img src=x onerror=alert(1)>',
+            protagonist:'Citron',antagonist:'Reine',escalation:'Accusation',reveal:'Étiquette',ending:'Retour du colis'}));
+          const doc={concepts,selected_id:null,scenario:null};
+          let project={project_id:pid,title:'Histoire enregistrée',version:2,brief:'Une reine avare.',scene_count:6,clip_seconds:10,
+            model_id:'local::fixture',document:doc,turns:[{role:'assistant',text:'Voici les pistes.'}],job:null,
+            revisions:[{revision:1,label:'Propositions',document:doc}]};
+          window.fetch=async(url,options={})=>{
+            calls.push(String(url));
+            if(url==='/api/stories/models') return await new Promise(resolve=>{finishModels=()=>resolve(new Response(JSON.stringify({detail:'Serveur LLM indisponible'}),{status:503}));});
+            if(url==='/api/stories/projects')return new Response(JSON.stringify({projects:[{project_id:pid,title:project.title}]}));
+            if(url==='/api/stories/projects/'+pid)return new Response(JSON.stringify(project));
+            if(url.endsWith('/select')){
+              const body=JSON.parse(options.body);project=structuredClone(project);project.version++;
+              project.document.selected_id=body.concept_id;project.revisions.push({revision:2,label:'Choix',document:project.document});
+              return new Response(JSON.stringify(project));
+            }
+            throw new Error('Unexpected network '+url);
+          };
+        """
+        scenario = r"""
+          (async()=>{try{
+            const check=(v,m)=>{if(!v)throw new Error(m);};
+            const settle=()=>new Promise(r=>setTimeout(r,30));
+            await settle();check(calls.length===0,'hidden stories must not query model server');
+            document.querySelector('[data-lab-view="stories"]').click();await settle();
+            check(!document.getElementById('stories-workspace').hidden,'stories navigation visible');
+            check(sessionStorage.getItem('panelforge.lab.last-view.v1')==='stories','refresh remembers Stories');
+            check(document.querySelectorAll('.story-concept').length===3,'saved ideas loaded before model discovery finishes');
+            check(document.querySelectorAll('#story-concepts img').length===0,'LLM text never becomes HTML');
+            finishModels();await settle();
+            check(document.getElementById('story-model-message').textContent.includes('indisponible'),'offline model status visible');
+            document.querySelector('.story-concept button').click();await settle();
+            check(document.querySelectorAll('.story-concept.selected').length===1,'selection works without model');
+            check(document.getElementById('story-develop').disabled,'generation unavailable without model');
+            const instruction=document.getElementById('story-instruction');instruction.value='Garde cette idée.';instruction.dispatchEvent(new Event('input'));
+            window.PanelForgeLabNavigation.switchView('krea2-assisted-lab');
+            window.PanelForgeLabNavigation.switchView('stories');await settle();
+            check(instruction.value==='Garde cette idée.','navigation preserves unsent feedback');
+            check(calls.filter(u=>u==='/api/stories/models').length===1,'navigation does not repeatedly discover models');
+            document.querySelector('#result').textContent='PASS';
+          }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}})();
+        """
+        html = ('<meta charset="utf-8"><pre id="result">PENDING</pre>'
+                '<button data-lab-view="change-view">Image</button><button data-lab-view="stories">Histoires</button>'
+                '<section id="krea2-assisted-lab-workspace"></section>' + markup
+                + '<script>' + setup + '</script><script>' + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
+                + '</script><script>' + (STATIC / 'lab-core.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'stories.js').read_text(encoding='utf8')
+                + '</script><script>' + scenario + '</script>')
+        self.run_browser(browsers[-1], html)
+
+    def test_local_gemma_default_source_preferences_and_delayed_catalog(self):
+        browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
+        if not browsers:
+            self.skipTest("local Chromium not installed")
+        index = (STATIC / "index.html").read_text(encoding="utf8")
+        markup = '<main id="stories-workspace"' + index.split('<main id="stories-workspace"', 1)[1].split('</main>', 1)[0] + '</main>'
+        setup = r"""
+          localStorage.clear(); sessionStorage.clear();
+          const gemma='local::HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP';
+          const pid='story-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+          let catalog=[{id:'server-qwen',label:'Qwen3.8-27B',source:'server'},
+            {id:'server-other',label:'Autre serveur',source:'server'},
+            {id:'local::qwen',label:'Qwen3.8-27B',source:'local'},
+            {id:gemma,label:'Gemma 4 Hauhau',source:'local'}];
+          let finishModels;
+          const project={project_id:pid,title:'Ancienne histoire',version:1,brief:'Un conflit.',scene_count:6,clip_seconds:10,
+            model_id:'server-other',document:{concepts:[],selected_id:null,scenario:null},turns:[],job:null,revisions:[]};
+          window.fetch=async(url)=>{
+            if(url==='/api/stories/models')return await new Promise(resolve=>{finishModels=()=>resolve(new Response(JSON.stringify({models:catalog})));});
+            if(url==='/api/stories/projects')return new Response(JSON.stringify({projects:[{project_id:pid,title:project.title}]}));
+            if(url==='/api/stories/projects/'+pid)return new Response(JSON.stringify(project));
+            throw new Error('Unexpected network '+url);
+          };
+        """
+        scenario = r"""
+          (async()=>{try{
+            const check=(v,m)=>{if(!v)throw new Error(m);}, settle=()=>new Promise(r=>setTimeout(r,30));
+            const model=document.getElementById('story-model'),local=document.getElementById('story-local');
+            const change=element=>element.dispatchEvent(new Event('change',{bubbles:true}));
+            const source=value=>{local.checked=value;change(local);};
+            document.querySelector('[data-lab-view="stories"]').click();await settle();
+            check(local.checked,'local is checked before discovery');
+            finishModels();await settle();
+            check(model.value===gemma,'Gemma Hauhau takes priority over shared Qwen default');
+            check([...model.options].every(o=>o.value.startsWith('local::')),'only local options');
+            source(false);check(model.value==='server-qwen','server source is selectable');
+            model.value='server-other';change(model);
+            source(true);check(model.value===gemma,'returning to local restores Gemma');
+            model.value='local::qwen';change(model);
+            source(false);check(model.value==='server-other','server choice remembered');
+            source(true);check(model.value==='local::qwen','local choice remembered');
+            document.getElementById('story-new').click();
+            check(local.checked&&model.value==='local::qwen','new story respects explicit preference');
+            check(localStorage.getItem('panelforge.stories.model.local')==='local::qwen','preference persisted');
+            document.getElementById('story-refresh-models').click();await settle();
+            const projects=document.getElementById('story-projects');projects.value=pid;change(projects);await settle();
+            finishModels();await settle();
+            check(!local.checked&&model.value==='server-other','late catalog preserves reopened project model and source');
+            localStorage.removeItem('panelforge.stories.model-source');localStorage.removeItem('panelforge.stories.model.local');
+            document.getElementById('story-new').click();
+            catalog=catalog.filter(m=>m.id!==gemma);
+            document.getElementById('story-refresh-models').click();await settle();finishModels();await settle();
+            check(local.checked&&model.selectedOptions[0].dataset.missing==='true','missing default stays identifiable');
+            check(document.getElementById('story-create').disabled,'no silent switch to another LLM');
+            document.querySelector('#result').textContent='PASS';
+          }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}})();
+        """
+        html = ('<meta charset="utf-8"><pre id="result">PENDING</pre>'
+                '<button data-lab-view="change-view">Image</button><button data-lab-view="stories">Histoires</button>'
+                '<section id="krea2-assisted-lab-workspace"></section>' + markup
+                + '<script>' + setup + '</script><script>' + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
+                + '</script><script>' + (STATIC / 'lab-core.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'stories.js').read_text(encoding='utf8')
+                + '</script><script>' + scenario + '</script>')
+        self.run_browser(browsers[-1], html)

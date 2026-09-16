@@ -20,7 +20,7 @@ class ActivateRecipe(BaseModel):
     expected_active: int = Field(ge=1)
 
 
-def prompt_recipes_router(recipes, traces, compositions, renders):
+def prompt_recipes_router(recipes, traces, compositions, renders, *, stories=None):
     router = APIRouter(prefix="/api/prompt-recipes")
 
     def require(value):
@@ -36,26 +36,35 @@ def prompt_recipes_router(recipes, traces, compositions, renders):
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
 
+    def recipe_store(key):
+        from panelforge.domain.stories import RECIPE_ID
+        return require(stories.recipes if key == RECIPE_ID and stories is not None else recipes)
+
     @router.get("")
     def catalog():
-        return {"recipes": require(recipes).list()}
+        if recipes is None and stories is None:
+            require(None)
+        entries = recipes.list() if recipes is not None else []
+        if stories is not None:
+            entries += stories.recipes.list()
+        return {"recipes": entries}
 
     @router.get("/recipe/{key}/{version}")
     def read(key: str, version: str, revision: int | None = None):
         def load():
-            store = require(recipes)
+            store = recipe_store(key)
             return {"recipe": store.get(key, version, revision), "history": store.history(key, version)}
         return execute(load)
 
     @router.put("/recipe/{key}/{version}")
     def save(key: str, version: str, body: SaveRecipe):
-        return execute(lambda: {"recipe": require(recipes).save(key, version, **body.model_dump()),
-                                "history": recipes.history(key, version)})
+        return execute(lambda: {"recipe": recipe_store(key).save(key, version, **body.model_dump()),
+                                "history": recipe_store(key).history(key, version)})
 
     @router.post("/recipe/{key}/{version}/activate")
     def activate(key: str, version: str, body: ActivateRecipe):
-        return execute(lambda: {"recipe": require(recipes).activate(key, version, body.revision, body.expected_active),
-                                "history": recipes.history(key, version)})
+        return execute(lambda: {"recipe": recipe_store(key).activate(key, version, body.revision, body.expected_active),
+                                "history": recipe_store(key).history(key, version)})
 
     @router.get("/preview/{session_id}/{stage}")
     def preview(session_id: str, stage: str):

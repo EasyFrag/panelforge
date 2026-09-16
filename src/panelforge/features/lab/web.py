@@ -852,6 +852,8 @@ def create_app(
     dlss=None,
     social_lab: SocialLabService | None = None,
     media_analysis=None,
+    stories=None,
+    episodes=None,
     production: ProductionService | None = None,
     production_v2: ProductionV2Service | None = None,
     model_runtime: ModelRuntimeControl | None = None,
@@ -880,7 +882,13 @@ def create_app(
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
     from .prompt_recipes_web import prompt_recipes_router
-    app.include_router(prompt_recipes_router(prompt_recipes, llm_traces, prompt_composition, h3_render))
+    app.include_router(prompt_recipes_router(prompt_recipes, llm_traces, prompt_composition, h3_render, stories=stories))
+    from .stories_web import stories_router
+    app.include_router(stories_router(stories))
+    from .episodes_web import episodes_router
+    app.include_router(episodes_router(episodes, serialize_image_project=serialize_krea2_assisted_project,
+        validate_image=detect_image_media_type, image_body=Krea2AssistedAttemptBody,
+        render_body=H3RenderAttemptBody))
     from .image_catalog import ImageLabCatalogs
     image_catalogs = ImageLabCatalogs()
     app.include_router(media_analysis_router(media_analysis))

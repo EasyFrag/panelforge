@@ -2,6 +2,68 @@
 
 ## Priorités actives — 14 septembre 2026
 
+- **Histoires 1.0 — première partie de l'atelier Épisode livrée le 15 septembre.**
+  Espace dédié dans le bandeau : trois propositions → sélection/discussion →
+  scénario avec personnages/décors/dialogues/continuité, versions récupérables,
+  consignes éditables et échanges LLM consultables. Intentions copiables avec ou
+  sans durée, sans caméra imposée. [Guide](stories-1.0.md). Vérifications statiques
+  effectuées, tests préparés non exécutés, aucun appel LLM/rendu de vérification.
+  Correctif r2 : ton mélodramatique plus proche des exemples, fruits par défaut,
+  nouvelles pistes sans reprise de l'ancien mauvais scénario ; correction du
+  rejet des révisions contenant scénario et propositions ensemble.
+  Révision éditoriale r3 : exemple de deux scènes liées au format JSON dans le
+  développement, actes/conséquences, continuité et rythme renforcés. Deux appels
+  conservés ; anciennes consignes récupérables et personnalisations respectées.
+  [Détails](diagnostics/stories-editorial-r3-2026-09-15.md). Qualité narrative à
+  évaluer par l'utilisateur sur le même brief puis un autre conflit.
+
+- **Fabrication d’épisode 1.0 — première version implémentée le 15 septembre.**
+  Histoires → validation du scénario → fiches KREA2 compactes / import d’image →
+  références retenues → scènes par sélecteur, rôles/ordre/intention éditables et
+  dialogues ajoutés automatiquement → deux appels REF2V → panneau vidéo existant.
+  Snapshots, historique des préparations et réglages par scène persistants ;
+  reprise du rédacteur seul après échec si le Plan est déjà accepté. Neuf images,
+  Qwen local puis Gemma local, BUNNY 0.1.3 + Motion Repair seul par défaut.
+  [Guide](episodes-1.0.md). Vérifications statiques effectuées, tests préparés pour
+  l’utilisateur, aucun LLM/rendu de vérification ni redémarrage. Import Video Lab,
+  lancement de tout l’épisode et assemblage différés. P1/P2 inchangées.
+
+- **Fabrication 1.1 — autorisée et implémentée le 16 septembre.** Sélecteurs
+  checkpoint/favoris/informations et LoRA partagés avec KREA2 Assisted, presets
+  de style existants conservés par version, style commun texte/image et réglages
+  checkpoint/LoRA/sampling hérités avec personnalisation par fiche. Les trois
+  presets de rendu restent distincts du style. Cinq sliders H3/REF2V persistants
+  et transmis par scène, dialogue à zéro par défaut, deux appels conservés.
+  Historique du style/paramètres par essai, signalement des prompts/images à
+  actualiser, anciens choix préservés. Guidage visuel du LLM sans appel
+  supplémentaire ni changement du renderer. [Guide](episodes-1.0.md).
+  Contrôles statiques effectués ; tests utilisateur préparés, aucun LLM/rendu ni
+  redémarrage de vérification. H3 inchangé. Réutilisation des fiches entre
+  versions de scénario, import Video Lab et montage restent au backlog.
+
+- **Cadrage antérieur de l'atelier Épisode.**
+  Précisée le 15 septembre : scénario validé → références personnages/décors via
+  KREA2 Assisted compact → scènes accessibles par menu déroulant, références et
+  rôles préaffectés mais éditables, intention/dialogues, prompt puis rendu REF2V.
+  Defaults proposés : Classique expérimental deux appels Qwen local → Gemma local,
+  BUNNY 0.1.3 + Motion Repair seul actif (0,60/0,20), durée de la scène. Limite
+  vérifiée après correction : neuf images au total dans REF2V intégré et BUNNY,
+  confirmées par les nœuds Comfy installés ; trois personnages + décor sont possibles.
+  L'ancien rendu Video Lab reste à trois, ne pas réutiliser son transfert tronqué.
+  Import de scénario via analyse vidéo longue explicitement différé. Ce parcours
+  a ensuite été autorisé et implémenté dans la première version décrite ci-dessus.
+  Discussion avec le LLM et choix d'une histoire → découpage en micro-scènes de
+  10 secondes avec personnages/décors/dialogues → fiches personnages KREA2 →
+  storyboard textuel des intentions avec répliques insérées automatiquement → rendus
+  H3/REF2V en file → DLSS des prises retenues. Proposer aussi les références de
+  décors, l'assemblage et les sous-titres. Une micro-scène est une unité de rendu
+  et peut contenir plusieurs plans caméra. H3 et ses deux appels restent inchangés.
+  [Cadrage](proposals/episode-workshop-10s.md). Partie écriture livrée dans Histoires ;
+  références visuelles et pilotage individuel des clips livrés ; fabrication en lot
+  et livraison de l’épisode complet non implémentées ;
+  retrait de Production V1/V2 de la navigation et de leur chargement JS effectué
+  sur demande, historiques conservés. P1/P2 ci-dessous inchangées.
+
 - **KREA2 Modif — image jointe à la consigne, proposition du 15 septembre.**
   Permettre une image de référence facultative par échange, destinée au LLM qui
   rédige la modification : source actuelle + consigne + exemple visuel. Petit

@@ -7,10 +7,11 @@ STATIC = ROOT / "src" / "panelforge" / "features" / "lab" / "static"
 
 
 class ProductionUiTest(unittest.TestCase):
-    def test_navigation_and_workspace_expose_the_full_auto_controls(self):
+    def test_legacy_workspace_is_retained_without_navigation_or_bootstrap(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('data-lab-view="production-lab"', html)
+        self.assertNotIn('data-lab-view="production-lab"', html)
+        self.assertNotIn('/static/production-lab.js?v=', html)
         self.assertIn('id="production-lab-workspace"', html)
         self.assertIn('value="full_auto"', html)
         self.assertIn('id="production-audacity"', html)

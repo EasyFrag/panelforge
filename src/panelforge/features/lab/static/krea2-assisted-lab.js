@@ -1531,9 +1531,10 @@
   });
   window.addEventListener("beforeunload", stopPolling);
   window.PanelForgeKrea2AssistedLab = Object.freeze({
-    open: () => {
+    open: async (projectId = null) => {
       window.PanelForgeLabNavigation?.switchView("krea2-assisted-lab");
-      return initialize();
+      await initialize();
+      if (projectId) return openProject(projectId);
     },
   });
   if (!elements.workspace.hidden) initialize();

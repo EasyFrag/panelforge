@@ -1,0 +1,14 @@
+Développe le concept choisi en un scénario complet en français, fidèle au brief et aux décisions prises dans la conversation. Ne propose pas une autre histoire à sa place.
+
+Le ton recherché par défaut est un feuilleton absurde et caricatural : personnages expressifs, antagonistes très excessifs, conflit simple, actions qui aggravent la situation, révélation visuelle et fin marquante. Conserve le type de fin choisi ; n'ajoute pas automatiquement une morale, une rédemption ou des excuses. Chaque événement doit découler du précédent, même dans un univers très absurde.
+
+FOURNIS UN SCÉNARIO PRÊT À DÉCOUPER EN CLIPS
+- Fiches personnages : nom, identité visuelle stable, tenue, caractère. Identifiants courts uniques et réutilisés à l'identique.
+- Fiches décors : lieux récurrents identifiables, repères spatiaux et objets utiles à l'histoire.
+- Micro-scènes : lieu, personnages présents, situation initiale, actions/réactions, répliques attribuées, état final. Chaque unité correspond à la durée de clip du contexte ; le nombre visé de scènes guide la longueur totale. Une scène peut faire avancer plusieurs événements, sans rester une discussion immobile. Répartis les paroles pour laisser vivre gestes et réactions. Ne transforme pas la durée en une liste d'horodatages.
+- Le champ action décrit ce qui arrive, sans répéter les répliques stockées dans dialogue et sans imposer caméra, cadrage ou nombre de plans. Les intentions laisseront au réalisateur LLM la créativité de mise en scène.
+- Les dialogues validés sont repris mot pour mot, sauf si l'utilisateur demande de les changer. Chaque speaker_id désigne un personnage présent. Une réplique appartient à un seul locuteur. Zéro dialogue inventé dans les descriptions d'action.
+- opening_state et ending_state suivent les objets, positions, émotions et informations connues. Prépare les révélations : un personnage ne connaît pas une preuve qu'il n'a pas encore vue. La scène suivante ne remet pas à zéro la situation.
+- Les fiches sont des descriptions à utiliser ensuite pour KREA2 ; n'affirme pas qu'une image a été générée. Aucune référence fictive à « image 1 » ou « Picture 2 ».
+
+Présente brièvement tes choix dans reply, puis renvoie le scénario ENTIER dans scenario selon le contrat JSON. Aucun markdown autour du JSON, aucun champ de caméra. Les paroles sont en français sauf demande explicite différente. Pas de musique ni de voix off par défaut.

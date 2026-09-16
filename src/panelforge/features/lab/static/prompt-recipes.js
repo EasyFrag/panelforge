@@ -6,7 +6,7 @@
   };
   const button = text => { const el = node("button", text); el.type = "button"; return el; };
   const request = async (url, options = {}) => {
-    const response = await fetch(`/api/prompt-recipes${url}`, options);
+    const response = await fetch(url.startsWith("/api/") ? url : `/api/prompt-recipes${url}`, options);
     const data = await response.json();
     if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : `Erreur HTTP ${response.status}`);
     return data;
@@ -18,7 +18,7 @@
     "revision.system": "Ajuster le prompt avant rendu", "render.system": "Ajuster après rendu · consignes système"};
   const familyLabels = {prompt_lab: "Libertés créatives", vocal_policy: "Dialogue", classic_cinematic: "Mise en scène Classique",
     sensual_cinematic: "Mise en scène Sensuel", combat_cinematic_policy: "Mise en scène Combat", combat_preparation: "Libertés Combat"};
-  let modal, recipeSelect, revisions, components, editor, status, scope, note, save, activate, preview, history, extras;
+  let modal, recipeSelect, revisions, components, editor, status, scope, note, save, activate, preview, history, extras, lifecycleNote;
   let packageData = null, fields = {}, component = "plan.system", dirty = false, busy = false, token = 0, context = null;
 
   function discard() { return !dirty || window.confirm("Abandonner les modifications non enregistrées ?"); }
@@ -54,7 +54,7 @@
     activate = button("Appliquer cette version"); preview = button("Voir le prochain appel"); history = button("Échanges de cet atelier");
     actions.append(save, activate, preview, history); modal.append(actions);
     status = node("p"); status.setAttribute("role", "status"); modal.append(status);
-    modal.append(node("small", "Les nouveaux cycles utilisent la révision active. Un Plan déjà commencé conserve ses consignes pour la Rédaction. Relancer une vidéo seule conserve son prompt déjà écrit.", "muted"));
+    lifecycleNote = node("small", "", "muted"); modal.append(lifecycleNote);
     document.body.append(modal);
     modal.addEventListener("cancel", event => { if (busy || !discard()) event.preventDefault(); });
     modal.addEventListener("close", () => { ++token; });
@@ -85,8 +85,12 @@
     history.addEventListener("click", () => showHistory(`/history/session/${encodeURIComponent(context.sessionId)}`));
   }
   function fillComponents() {
-    const keys = Object.keys(fields).filter(key => mainFields[key] || extras.checked);
-    components.replaceChildren(...keys.map(key => option(key, mainFields[key] || (key === "camera_contract" ? "Contrat caméra · correctif technique"
+    const story = packageData?.cookbook_id === "story.brainrot";
+    extras.parentElement.hidden = story; preview.hidden = story; history.hidden = story;
+    note.placeholder = story ? "Ex. antagonistes plus excessifs" : "Ex. caméra clarifiée";
+    const labels = story ? {"plan.system": "Proposer trois histoires", "writer.system": "Développer le scénario", "revision.system": "Discuter et réviser"} : mainFields;
+    const keys = Object.keys(fields).filter(key => story ? labels[key] : mainFields[key] || extras.checked);
+    components.replaceChildren(...keys.map(key => option(key, labels[key] || (key === "camera_contract" ? "Contrat caméra · correctif technique"
       : `${familyLabels[key.split(".")[0]] || key.split(".")[0]} · ${key.split(".").slice(1).join(" · ")}`))));
     if (!keys.includes(component)) component = "plan.system";
     components.value = component; editor.value = fields[component] || ""; controls();
@@ -97,6 +101,9 @@
       `r${item.revision}${item.revision === packageData.active ? " · active" : ""} · ${item.note}`)));
     revisions.value = String(packageData.revision);
     scope.textContent = `${recipeSelect.selectedOptions[0]?.textContent || ""} · active : r${packageData.active}. Les modifications concernent uniquement cette recette.`;
+    lifecycleNote.textContent = packageData.cookbook_id === "story.brainrot"
+      ? "Chaque nouvel échange utilise les consignes actives. Les scénarios et les échanges déjà enregistrés restent conservés."
+      : "Les nouveaux cycles utilisent la révision active. Un Plan déjà commencé conserve ses consignes pour la Rédaction. Relancer une vidéo seule conserve son prompt déjà écrit.";
     fillComponents();
   }
   async function load(revision) {
@@ -158,7 +165,8 @@
       for (const record of data.calls) {
         const call = record.call, context = record.context;
         const item = node("article", "", "prompt-trace-call");
-        const stage = {beat_sheet: "Plan", final_prompt: "Rédaction", render_adjustment: "Ajustement après rendu"}[context.stage] || context.stage;
+        const stage = {beat_sheet: "Plan", final_prompt: "Rédaction", render_adjustment: "Ajustement après rendu",
+          story_ideas: "Propositions d’histoires", story_develop: "Scénario", story_revise: "Discussion / révision"}[context.stage] || context.stage;
         item.append(node("h3", `${stage} · ${context.recipe_revision ? `r${context.recipe_revision}` : "recette historique"}`));
         if (!call) { item.append(node("p", "Appel démarré ; résultat pas encore archivé. Une interruption du service peut laisser cette trace incomplète.")); }
         else {

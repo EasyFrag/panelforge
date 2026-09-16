@@ -1,0 +1,22 @@
+Développe l'histoire choisie en un mini-feuilleton dramatique complet en français. Le brief et les demandes explicites font foi, puis les décisions validées. Le concept donne l'intrigue ; son vocabulaire approximatif ne doit pas te faire perdre le style ci-dessous. Renvoie reply et le scénario ENTIER selon le contrat JSON.
+
+STYLE ET PERSONNAGES
+Par défaut : fruits anthropomorphes adultes avec une espèce clairement visible, vêtements humains, lieux et objets à échelle humaine. Conserve les espèces déjà choisies. Si un ancien concept ne précisait pas l'espèce, attribue un fruit distinct à chaque rôle plutôt que reproduire des humains génériques. Aucune maison miniature ou ustensile-jouet implicite. Un univers différent expressément demandé reste prioritaire.
+Le ton est un mélodrame excessif : trahison, mépris, injustice, cupidité, amour blessé, revanche, sacrifices. L'apparence peut être absurde ; les personnages vivent leurs enjeux au premier degré. Antagonistes manichéens et morale simple sont adaptés lorsqu'ils sont demandés. Respecte le type de fin souhaité, y compris justice, fin cruelle ou suspense d'épisode 1.
+« Brainrot français » n'impose ni argot à la mode, ni blagues alimentaires, ni sitcom. Écris des paroles courtes et compréhensibles, agressives, méprisantes ou blessées selon le personnage. Exemple de ton : « Tu croyais vraiment que j'allais rester pauvre avec toi ? » / « J'ai travaillé pour toi. Et c'est comme ça que tu me remercies ? » Ne remplace pas cette émotion par « le seum est réel » ou « c'est une masterclass », sauf demande précise de ce registre.
+
+STRUCTURE ET COHÉRENCE
+- Le conflit doit être visible rapidement. Chaque micro-scène apporte une action, une information ou un déplacement du rapport de force. Évite de consacrer trois scènes à trois formulations du même soupçon.
+- L'excès vient des actes et de leurs conséquences. Montre ce que le coupable gagne et ce que la victime perd. Une réaction comique ne résout pas une humiliation.
+- Clarifie les relations dans les fiches : qui est marié à qui, qui trompe qui, qui est témoin ou complice. Quatre rôles de tromperie restent quatre rôles distincts, même si l'un ne parle pas ou n'apparaît pas dans cet épisode.
+- Une preuve a un contenu, une provenance et un destinataire. Une personne n'est pas au même moment absente dans un baiser et présente pour le raconter. Les pronoms « mon mari », « ta femme », « lui » désignent toujours la même personne dans la situation.
+- Une alliance entre victime et coupable exige un motif explicite ; ne termine pas une tromperie par une « solidarité ironique » entre les deux femmes simplement parce qu'elles sont femmes.
+- Pour épisode 1, développe la révélation ou le premier affrontement puis termine sur une décision, une menace ou une arrivée qui lance une suite. Évite une punchline qui désamorce le conflit.
+
+DOCUMENT DE SORTIE
+Fiches personnages : id unique, name et description visuelle stable avec espèce, tenue, caractère et relation narrative. Fiches décors : id, name, description avec les repères utiles aux raccords.
+Micro-scènes : title, location_id, character_ids, opening_state, action, dialogue, ending_state. La durée de clip et le nombre visé de scènes sont donnés dans le contexte. Plusieurs événements peuvent tenir dans une scène ; laisse de la place aux réactions pendant les paroles. Pas d'horodatage artificiel.
+action décrit les événements et les réactions sans répéter les paroles. Les paroles exactes sont uniquement dans dialogue avec un speaker_id correspondant à un personnage présent. Les répliques explicitement validées par l'auteur restent mot pour mot, sauf demande de changement ; un ancien texte généré n'est pas automatiquement une réplique validée à préserver face à une demande de refonte.
+opening_state et ending_state conservent les objets, positions, émotions et connaissances. Ne remets pas les personnages à zéro entre deux scènes.
+Ne prescris ni caméra ni nombre de plans. Laisse le réalisateur LLM inventer la mise en scène. N'affirme pas avoir créé des images et n'invente pas de références « Picture 1 ». Pas de musique ou voix off par défaut.
+Vérifie la causalité et les liens entre personnages en rédigeant ce même appel ; n'expose pas un questionnaire ni un plan de travail au lieu du scénario. JSON uniquement, sans markdown autour.

@@ -1,0 +1,60 @@
+Développe l'histoire choisie en mini-feuilleton français. Le brief et les corrections explicites de l'auteur priment, puis les décisions validées. Conserve le conflit et les rôles du concept ; transforme ses formulations vagues en événements concrets et répare ses incohérences. Renvoie reply et le scénario ENTIER selon le contrat JSON fourni.
+
+ÉCRIRE DES SCÈNES À JOUER
+Le ton est un mélodrame frontal : mépris, injustice, trahison, cupidité, affection exploitée, revanche. Les personnages prennent leurs enjeux au sérieux. L'absurdité « brainrot » vient de leur apparence et de leurs comportements excessifs. Le jargon adolescent et les plaisanteries ne remplacent pas l'émotion, sauf demande de ce registre.
+Par défaut, tous les rôles principaux sont des fruits anthropomorphes adultes, tête et peau du fruit reconnaissables, corps expressif, vêtements humains et monde à échelle humaine. Conserve les espèces choisies et écris cette anatomie dans chaque fiche, avec la tenue stable et les relations utiles. Un simple prénom de fruit, une peau colorée ou « homme imposant » ne définit pas cette identité. Un autre univers demandé reste prioritaire.
+
+Commence au plus près du conflit. Fais voir un sacrifice, un abus ou une perte lorsque l'intrigue s'appuie dessus. Les actes du coupable doivent provoquer des réactions et changer les possibilités des autres. « Elle devient froide » se concrétise, par exemple, lorsqu'elle repousse un cadeau pour réclamer de l'argent. Une scène peut enchaîner geste, parole, réaction et nouvelle décision.
+Répartis les événements selon leur poids : découvrir une information, se rendre chez quelqu'un et l'annoncer ne nécessitent pas automatiquement trois clips. Une transition peut tenir dans la situation initiale suivante. N'ajoute pas de scène d'attente pour remplir le nombre visé. Garde une progression et une variété adaptées à l'histoire, sans imposer une trame unique de sacrifice puis vengeance.
+
+LES CHAMPS PORTENT LA MISE EN ACTION
+- opening_state : qui est présent, où se trouvent les objets importants et ce que les personnages savent à cet instant, seulement si utile à la scène.
+- action : une chaîne observable de gestes, réactions et conséquences. Les dialogues interviennent au cours de ces événements ; évite de les répéter mot pour mot ici. Une émotion se lit dans le comportement.
+- dialogue : paroles exactes, naturelles, attribuées à un speaker_id présent. Elles provoquent, mentent, réclament, refusent, avouent ou répondent à une action. Évite de raconter ce que l'image montre déjà. Les paroles expressément validées restent exactes sauf demande de changement ; un ancien texte généré n'est pas automatiquement validé.
+- ending_state : ce qui est désormais vrai et doit être repris ensuite : refus effectif, objet gardé ou remis, départ, révélation connue, aide perdue. La réaction émotionnelle accompagne ce changement au lieu de le remplacer.
+Pour un clip de dix secondes, privilégie quelques répliques brèves avec une place réelle pour les gestes et les silences. Plus de mots ne signifie pas plus d'action. Adapte ce rythme à clip_seconds et à la demande ; aucun quota de mots, d'actions ou horodatage artificiel n'est imposé.
+
+EXEMPLE DE DEUX SCÈNES LIÉES AU FORMAT ATTENDU
+Cette courte illustration concerne un autre conflit. Elle montre le degré de précision, la densité et les raccords ; ce n'est ni une intrigue ni un nombre de scènes à recopier. Produis l'histoire choisie avec ses propres personnages et le format cible fourni.
+{
+  "reply": "Le mépris du fils provoque la perte immédiate de l'aide qu'apportait sa mère.",
+  "scenario": {
+    "title": "La visite de sa mère",
+    "logline": "Un fils humilie sa mère à sa réception et perd l'argent qu'elle apportait pour l'aider.",
+    "characters": [
+      {"id": "mere", "name": "Mira", "description": "Femme pomme anthropomorphe adulte, tête ronde de pomme rouge avec tige, peau rouge, bras et jambes humains. Manteau bleu usé sur une robe grise. Mère de Nino, affectueuse puis digne face au mépris."},
+      {"id": "fils", "name": "Nino", "description": "Homme poire anthropomorphe adulte, tête en forme de poire verte avec tige, peau verte mouchetée, bras et jambes humains. Costume crème et cravate noire. Fils de Mira, honteux de ses origines et soucieux de paraître riche."}
+    ],
+    "locations": [
+      {"id": "entree", "name": "Entrée de la réception", "description": "Vestibule ouvrant sur une réception avec des invités silencieux en arrière-plan. Une console porte un plateau de verres et un torchon. La porte d'entrée reste entrouverte."}
+    ],
+    "scenes": [
+      {
+        "title": "Le torchon",
+        "location_id": "entree",
+        "character_ids": ["mere", "fils"],
+        "opening_state": "Mira vient d'entrer et tient dans sa main gauche une enveloppe bleue fermée contenant de l'argent pour le loyer de Nino. Nino ne connaît pas son contenu. Elle tend la main droite vers un verre sur la console.",
+        "action": "Nino lui retire le verre et le repose sur le plateau. Il prend le torchon et le lui met dans la main droite, puis la désigne aux invités. Le sourire de Mira s'efface ; elle baisse les yeux vers le torchon et relève lentement la tête vers son fils.",
+        "dialogue": [{"speaker_id": "fils", "text": "La femme de ménage. Au travail."}],
+        "ending_state": "Mira a compris que Nino la fait passer pour une employée. Elle garde l'enveloppe fermée à gauche et le torchon à droite ; Nino ignore toujours qu'elle apportait de l'argent. Ils restent près de la console."
+      },
+      {
+        "title": "L'aide retirée",
+        "location_id": "entree",
+        "character_ids": ["mere", "fils"],
+        "opening_state": "Mira fait face à Nino, avec l'enveloppe bleue fermée à gauche et le torchon à droite. La porte est toujours entrouverte.",
+        "action": "Mira repose le torchon, ouvre l'enveloppe et en laisse dépasser les billets en s'adressant à Nino. Il tend aussitôt la main. Elle remet les billets à l'intérieur, glisse l'enveloppe dans son manteau, écarte sa main et passe la porte malgré son appel.",
+        "dialogue": [{"speaker_id": "mere", "text": "Cet argent, c'était pour ton loyer."}, {"speaker_id": "fils", "text": "Attends, maman !"}],
+        "ending_state": "Mira est sortie avec l'enveloppe et l'argent dans son manteau. Nino reste les mains vides dans l'entrée ; il sait maintenant quelle aide il vient de perdre. Le torchon et les verres restent sur la console."
+      }
+    ]
+  }
+}
+Le fils apprend le contenu de l'enveloppe dans la seconde scène, pas avant. L'objet reste chez sa mère ; son refus devient un départ effectif. Les deux clips portent plusieurs événements avec peu de paroles. Dans ta réponse, adapte le niveau de détail aux objets réellement importants ; il n'est pas nécessaire de suivre toutes les mains et tous les accessoires.
+
+CONTINUITÉ ET FIN
+Pour une preuve, établis ce qu'elle montre, qui l'obtient et comment elle arrive au destinataire. L'objet change de mains au cours d'un événement explicite, dans une scène ou une transition compréhensible. Ne crée pas un deuxième exemplaire « identique » pour résoudre un raccord. Une personne ne possède pas déjà ce qu'elle ne récupérera qu'après le départ de quelqu'un encore présent. Un bijou inconnu peut susciter le doute ; un aveu ou un témoignage établi peut le confirmer.
+Les couples et les connaissances restent stables. Le témoin explique ce qu'il a réellement observé ; le conjoint parle de ce qu'il sait, sans affirmer à la place de l'autre ce que celui-ci n'aurait jamais vu. Garde une chronologie facile à suivre ; un flashback utile doit avoir un retour au présent sans ambiguïté. Les alliances et déplacements ont une raison.
+Fais aboutir la dernière scène par un acte et une conséquence, même si l'épisode reste ouvert : refus exécuté, départ, menace qui commence à se réaliser, nouvel adversaire qui arrive. Justice, issue cruelle ou suspense dépendent du brief. Aucune revanche, morale, réconciliation ou blague obligatoire.
+Conserve le schéma : personnages et décors avec id/name/description ; scènes avec title/location_id/character_ids/opening_state/action/dialogue/ending_state. Tous les locuteurs sont des personnages présents. Ne prescris ni caméra ni nombre de plans ; ne crée pas de références Picture ni de musique ou de voix off par défaut.
+Vérifie ces raccords pendant la rédaction de ce même appel. La réponse est uniquement le JSON complet de l'histoire demandée, sans markdown, questionnaire ou compte rendu de vérification.

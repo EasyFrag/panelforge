@@ -16,6 +16,8 @@ sys.path.insert(0, str(SRC_ROOT))
 from panelforge.infrastructure.combat_preparation import load_combat_revision_policy
 from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
 from panelforge.application.media_analysis import MediaAnalysisService
+from panelforge.application.stories import StoryService
+from panelforge.infrastructure.storage.stories import LocalStoryStore, LocalStoryRecipeStore
 from panelforge.infrastructure.storage.media_analysis import LocalMediaAnalysisStore
 from panelforge.infrastructure.media_analysis_images import MediaAnalysisImages
 from panelforge.application.media_transcription import MediaTranscriptionService
@@ -557,6 +559,14 @@ def build_app(args: argparse.Namespace):
             executable=whisper_root / "faster-whisper-xxl.exe",
             ffmpeg=whisper_root / "ffmpeg.exe", model_directory=whisper_root / "_models")),
     )
+    stories = StoryService(gateway=gateway, store=LocalStoryStore(args.workspace),
+        recipes=LocalStoryRecipeStore(args.workspace, PROJECT_ROOT / "prompt_sources/story.brainrot/1.0.0"),
+        traces=llm_traces, application_outcomes=gateway)
+    from panelforge.application.episodes import EpisodeService
+    from panelforge.infrastructure.storage.episodes import LocalEpisodeStore
+    episodes = EpisodeService(stories=stories, store=LocalEpisodeStore(args.workspace),
+        krea=krea2_assisted, prompt_lab=prompt_lab, composition=prompt_composition,
+        render=h3_render, assets=assets)
     local_gpu_monitor = NvidiaSmiMonitor()
     production_thermal_monitor = CombinedProductionThermalMonitor(
         local=local_gpu_monitor,
@@ -621,6 +631,8 @@ def build_app(args: argparse.Namespace):
         krea2_assisted=krea2_assisted,
         social_lab=social_lab,
         media_analysis=media_analysis,
+        stories=stories,
+        episodes=episodes,
         production=production,
         production_v2=production_v2,
         llm_activity_monitor=gateway,

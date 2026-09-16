@@ -13,8 +13,7 @@
     videoLab: $("#video-lab-workspace"),
     socialLab: $("#social-lab-workspace"),
     mediaAnalysis: $("#media-analysis-workspace"),
-    productionLab: $("#production-lab-workspace"),
-    productionV2Lab: $("#production-v2-lab-workspace"),
+    stories: $("#stories-workspace"),
     recipeBadge: $("#recipe-badge"),
     i2vDirectNewRun: $("#i2vd-topbar-new"),
     ref2vDirectNewRun: $("#ref2vd-topbar-new"),
@@ -30,7 +29,7 @@
     ["krea2-edit-lab", elements.krea2EditLab], ["i2v-direct", elements.i2vDirect],
     ["ref2v-direct", elements.ref2vDirect], ["video-lab", elements.videoLab],
     ["social-lab", elements.socialLab], ["media-analysis", elements.mediaAnalysis],
-    ["production-lab", elements.productionLab], ["production-v2-lab", elements.productionV2Lab],
+    ["stories", elements.stories],
   ]);
   let activeView = null;
 

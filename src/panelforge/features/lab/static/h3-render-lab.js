@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  function mount(prefix, contextEvent, specMode) {
+  function mount(prefix, contextEvent, specMode, options = {}) {
 
   const $ = (id) => document.getElementById(id);
   const activeStatuses = new Set(["queued", "running", "cancel_pending"]);
@@ -368,7 +368,7 @@
     elements.duration.value = String(settings.duration_seconds);
     elements.steps.value = String(settings.steps);
     elements.seed.value = String(settings.seed);
-    elements.seedLock.checked = true;
+    elements.seedLock.checked = options.restoreSetup ? attempt.seed_locked ?? true : true;
     elements.music.value = attempt.music_enabled ? "on" : "off";
     elements.spectrum.checked = Boolean(attempt.spectrum_enabled);
     if (elements.videoLoraProfile) {
@@ -760,6 +760,7 @@
     renderWarnings();
     renderTurns(); renderAttempts(); renderOutput(); renderControls();
     finishRenderProgress(latestAttempt());
+    options.onProjectChange?.(project, state.context);
   }
 
   function renderPreset(disabled) {
@@ -848,7 +849,15 @@
     if (active) setStatus(active.status === "cancel_pending" ? "Annulation…" : "Rendu…", "active");
   }
 
+  let pendingContextSerial = 0;
   async function openContext(detail) {
+    if (options.deferContextChanges) {
+      const serial = ++pendingContextSerial;
+      while (state.busy) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (serial !== pendingContextSerial) return;
+      }
+    }
     state.context = detail;
     if (!detail?.project_id && (!detail?.ready || !detail.session_id || !detail.prompt_revision_id)) {
       rememberRecipe(); ++state.contextToken; ++state.recipeToken; state.recipeLoading = false;
@@ -877,10 +886,12 @@
         hydrateDefaults();
         if (latestAttempt()) await fillSettings(latestAttempt());
         else if (payload.project.adaptation) await fillSettings(payload.project.adaptation.render_setup);
+        if (options.restoreSetup && detail.render_setup) await fillSettings(detail.render_setup);
       }
       if (activeAttempt()) { connectPreview(activeAttempt()); startPolling(); }
     } catch (error) {
       elements.lab.hidden = false; setStatus(error.message, "error");
+      if (options.raiseContextErrors) throw error;
     } finally { if (state.openingKey === key) state.openingKey = ""; renderControls(); }
   }
 
@@ -914,6 +925,7 @@
     state.busy = true; renderControls();
     elements.live.hidden = true; elements.liveEmpty.hidden = false; elements.liveEmpty.textContent = "Connexion à la preview ComfyUI…";
     try {
+      if (options.beforeRender) await options.beforeRender(renderParameters(), state.context);
       const prepared = await request(`/api/h3-render/projects/${encodeURIComponent(projectId())}/attempts`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(renderParameters()),
@@ -1056,8 +1068,15 @@
   if (elements.revisionModel) elements.revisionModel.addEventListener("change", renderControls);
   window.addEventListener(contextEvent, (event) => openContext(event.detail));
   window.addEventListener("beforeunload", () => { stopPolling(); closeSocket(); if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); });
+  return Object.freeze({
+    open: openContext,
+    close: () => openContext(null),
+    parameters: renderParameters,
+    get busy() { return state.busy || state.recipeLoading; },
+  });
   }
 
+  window.PanelForgeH3Render = Object.freeze({ mount });
   mount("h3r", "panelforge:h3-base-context", "h3-base");
   mount("ref2vr", "panelforge:ref2v-context", "ref2va");
 })();

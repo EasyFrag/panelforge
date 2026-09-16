@@ -14,8 +14,10 @@ class ProductionV2UiTest(unittest.TestCase):
         cls.web = (ROOT / "src/panelforge/features/lab/web.py").read_text(encoding="utf-8")
         cls.resources = (ROOT / "src/panelforge/features/lab/static/krea2-resource-ui.js").read_text(encoding="utf-8")
 
-    def test_is_a_dedicated_page_without_replacing_v1(self) -> None:
-        self.assertIn('data-lab-view="production-v2-lab"', self.page)
+    def test_legacy_pages_are_retained_without_navigation_or_bootstrap(self) -> None:
+        self.assertNotIn('data-lab-view="production-v2-lab"', self.page)
+        self.assertNotIn('data-lab-view="production-lab"', self.page)
+        self.assertNotIn('/static/production-v2-lab.js?v=', self.page)
         self.assertIn('id="production-v2-lab-workspace"', self.page)
         self.assertIn('id="production-lab-workspace"', self.page)
         self.assertIn("Validation humaine", self.page)
@@ -196,7 +198,7 @@ class ProductionV2UiTest(unittest.TestCase):
         self.assertIn("feedbackDrafts: new Map()", self.script)
         self.assertIn('textarea[data-candidate-feedback]', self.script)
         self.assertIn("restored.focus({ preventScroll: true })", self.script)
-        self.assertIn("production-v2-lab.js?v=20260903.3", self.page)
+        self.assertNotIn("production-v2-lab.js?v=", self.page)
 
     def test_candidate_preview_height_follows_its_render_ratio(self) -> None:
         self.assertIn("cssAspectRatio(candidate.settings.aspect_ratio)", self.script)
