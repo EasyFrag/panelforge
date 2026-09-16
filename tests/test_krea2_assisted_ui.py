@@ -16,7 +16,11 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260915.1', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260916.1', self.page)
+        self.assertIn('id="krea2-assisted-workflow"', self.page)
+        self.assertIn('workflow: elements.workflow.value', self.script)
+        self.assertIn('Image KREA2 avant Flux', self.script)
+        self.assertIn('Télécharger l’image pré-Flux', self.script)
         self.assertIn('<option value="3.0.0" selected>V3', self.page)
         self.assertIn('id="krea2-assisted-new-preset"', self.page)
         self.assertIn('id="krea2-assisted-preset-dialog"', self.page)
@@ -119,7 +123,12 @@ class Krea2AssistedUiTest(unittest.TestCase):
 
     def test_attempt_cards_summarize_render_settings_and_loras(self):
         self.assertIn("settings.resolution || {}", self.script)
-        self.assertIn("`Modèle · ${compactResourceName(settings.model_id)}", self.script)
+        self.assertIn(
+            '`${workflowSpec(settings.workflow)?.label || "KREA2"} · '
+            '${compactResourceName(settings.model_id)}',
+            self.script,
+        )
+        self.assertIn('${settings.megapixels} MP${finalMp ? " final" : ""}', self.script)
         self.assertIn('"LoRA"} · ${loraSummary}`', self.script)
         self.assertIn("strengthLabel(lora.strength)", self.script)
 

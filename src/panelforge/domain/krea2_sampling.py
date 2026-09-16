@@ -4,6 +4,10 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .krea2_batch import Krea2BatchSettings
+from .krea2_assisted_workflows import (
+    DEFAULT_KREA2_ASSISTED_WORKFLOW,
+    Krea2AssistedWorkflowSelection,
+)
 
 
 SAMPLERS = ("er_sde", "euler_ancestral", "euler", "heun", "dpmpp_2m", "dpmpp_sde")
@@ -56,11 +60,14 @@ class Krea2AssistedSampling:
 @dataclass(frozen=True, slots=True)
 class Krea2AssistedSettings(Krea2BatchSettings):
     sampling: Krea2AssistedSampling = field(default_factory=Krea2AssistedSampling)
+    workflow: Krea2AssistedWorkflowSelection = field(default_factory=lambda: DEFAULT_KREA2_ASSISTED_WORKFLOW)
 
     def __post_init__(self) -> None:
         Krea2BatchSettings.__post_init__(self)
         if not isinstance(self.sampling, Krea2AssistedSampling):
             raise TypeError("sampling must be Krea2AssistedSampling")
+        if not isinstance(self.workflow, Krea2AssistedWorkflowSelection):
+            raise TypeError("workflow must be Krea2AssistedWorkflowSelection")
 
 
 def sampling_for(settings: Krea2BatchSettings) -> Krea2AssistedSampling:
@@ -75,9 +82,17 @@ def as_batch_settings(settings: Krea2BatchSettings) -> Krea2BatchSettings:
     return Krea2BatchSettings(settings.model_name, settings.aspect_ratio, settings.megapixels, settings.loras)
 
 
-def sampling_from_dict(value: dict[str, Any] | None) -> Krea2AssistedSampling:
+def sampling_from_dict(
+    value: dict[str, Any] | None,
+    *,
+    default_preset_id: str = "current",
+) -> Krea2AssistedSampling:
     if value is None:
-        return Krea2AssistedSampling()
+        try:
+            _, first, second = _PRESETS[default_preset_id]
+        except KeyError as error:
+            raise ValueError("Preset de sampling KREA2 Assisted inconnu.") from error
+        return Krea2AssistedSampling(first, second, preset_id=default_preset_id)
     if not isinstance(value, dict) or set(value) != {"first_pass", "second_pass", "preset_id", "version"}:
         raise ValueError("Réglages de sampling KREA2 incomplets ou inconnus.")
     passes = []

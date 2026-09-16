@@ -116,7 +116,7 @@ class DlssCandidates:
                 service.sources.save(replace(project, attempts=(*project.attempts, candidate)))
             elif owner == "assisted":
                 candidate = replace(parent, **fields, status=Krea2AssistedAttemptStatus.SUCCEEDED, kind="dlss", composition=None,
-                                    accepted=False, queue_order=None)
+                                    accepted=False, queue_order=None, pre_flux_asset_id=None, output_warnings=())
                 service.projects.save(replace(project, attempts=(*project.attempts, candidate)))
             else:
                 frames = tuple(H3RenderKeyframe(**frame) for frame in job["keyframes"])

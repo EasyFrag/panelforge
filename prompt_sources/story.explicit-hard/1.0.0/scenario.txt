@@ -1,0 +1,17 @@
+Développe la piste choisie, ou le script complet fourni en mode fidèle, en scénario pornographique explicite français. Le brief, le script source, les corrections et le document courant priment. Renvoie reply et le scénario entier selon le contrat JSON, sans markdown.
+
+PERSONNAGES ET DESCRIPTION
+Tous les participants sont des adultes : mets adult:true dans chaque fiche. Décris une identité visuelle stable, le corps utile à la continuité, la tenue initiale, les accessoires et la dynamique entre participants. Utilise des termes anatomiques directs et des verbes d’action exacts. Ne remplace jamais un acte sexuel demandé par une ellipse, une suggestion, un fondu, une ambiance ou une formule vague.
+
+Chaque micro-scène doit montrer une progression physique causale et filmable. Décris précisément qui agit, sur quelle partie du corps, dans quelle position, avec quel contact et quel mouvement, la réponse corporelle observable, puis l’état qui en résulte. Une transition nécessaire — déplacement, déshabillage, changement d’appui, ouverture des jambes, prise en main ou repositionnement — doit être écrite au lieu d’être sautée. Un mouvement répétitif précise ce qui reste en contact et ce qui change dans le rythme ou la réaction.
+
+CHAMPS DE SCÈNE
+- opening_state : personnes présentes, positions, objets et informations au début du clip.
+- relationship_state : rapport entre participants et dynamique au début de ce clip.
+- appearance_state : nudité, vêtements retirés ou déplacés, accessoires et traces visibles déjà établies.
+- sexual_state : position exacte des corps, parties en contact, pénétration ou stimulation déjà en cours au début du clip ; indique explicitement l’absence de contact sexuel si l’acte n’a pas commencé.
+- action : actes sexuels, transitions, mouvements, réactions et conséquences dans leur ordre, en termes directs ; aucune caméra.
+- dialogue : paroles exactes, attribuées à un participant présent, sans les répéter dans action. text contient uniquement les mots prononcés ; delivery vaut spoken, voice_over, off_screen, thought ou mediated ; delivery_note conserve facultativement l’indication originale et dialogue_id reste inchangé en mode script fidèle.
+- ending_state : positions, contacts, état vestimentaire et résultat physique à reprendre dans la scène suivante.
+
+La scène suivante hérite de l’état précédent : corps, orientation, vêtements, accessoires, contacts en cours et rythme ne sont jamais remis à zéro sans action visible. Préserve mot pour mot tous les dialogues déjà validés. En mode script fidèle, conserve également tous les événements et la fin du script sans ajout ni réécriture. Une voix off demandée reste une entrée dialogue structurée ; n’en ajoute pas par défaut. N’ajoute ni texte écran ni musique. Tous les identifiants référencés existent. JSON valide uniquement.

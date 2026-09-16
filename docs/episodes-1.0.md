@@ -36,6 +36,14 @@ Les nouvelles fiches héritent du checkpoint, des LoRA et du sampling communs.
 et la seed restent propres à chaque fiche. Les fiches v1 qui avaient des
 réglages explicites les conservent comme personnalisations.
 
+Lorsqu’on passe d’un personnage à un autre personnage encore vierge, la nouvelle
+fiche reprend le modèle LLM et tous les réglages image visibles de la précédente :
+workflow, checkpoint, LoRA, preset de rendu, format, mégapixels et seed. Le prompt,
+la description et les images ne sont jamais copiés. Une fiche déjà enregistrée,
+préparée ou illustrée conserve toujours ses propres choix. Le même comportement
+s’applique entre deux décors, sans transmettre les réglages d’un personnage à un
+décor.
+
 Le **preset de rendu** reste distinct du preset de style : Actuel 8+2 er_sde /
 simple, Finition 4 steps 8+4 er_sde / simple, Moody Beta 8+4 euler_ancestral /
 beta. Les anciens réglages personnalisés de sampling sont conservés.
@@ -104,6 +112,9 @@ initiales de Fabrication sont conservées et rendues visibles : audace 2, vie 1,
 caméra 2, mouvements 1, dialogues 0. À 0, seules les répliques du scénario sont
 demandées ; les niveaux vocaux supérieurs gardent la politique des recettes
 existantes. Les répliques validées conservent leur texte et leurs locuteurs.
+Lorsqu'une histoire précise un canal de restitution (voix off, hors champ,
+pensée ou voix transmise), Fabrication l'affiche et le transmet explicitement au
+prompteur REF2V. Cette indication ne pollue pas le texte exact de la réplique.
 Changer un axe rend l’ancienne préparation à actualiser sans en écraser les
 paramètres ; les préparations v1 restent relisibles et reprenables à entrées égales.
 

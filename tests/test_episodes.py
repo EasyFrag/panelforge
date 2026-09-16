@@ -13,6 +13,7 @@ from panelforge.application.prompt_lab import StreamEventKind
 from panelforge.domain.episodes import initial_episode, scene_inputs, fingerprint, style_context
 from panelforge.domain.krea2_sampling import Krea2AssistedSettings, Krea2AssistedSampling
 from panelforge.domain.krea2_batch import Krea2AspectRatio, Krea2LoraSelection
+from panelforge.domain.krea2_assisted_workflows import KREA2_FLUX_KLEIN_WORKFLOW
 from panelforge.domain.krea2_style_presets import Krea2StylePreset
 from panelforge.domain.prompt_composition import CompositionStage
 from panelforge.infrastructure.storage.episodes import LocalEpisodeStore
@@ -27,6 +28,19 @@ SCENARIO = dict(title="La poche", logline="Une accusation démentie par un porte
         opening_state="Le portefeuille dépasse.", action="Victor accuse Lila ; elle indique sa poche.",
         dialogue=[dict(speaker_id="c2", text="Vous avez pris mon portefeuille !"),
                   dict(speaker_id="c1", text="Il dépasse de votre poche.")], ending_state="Victor regarde sa poche.")])
+
+
+class EpisodeDialogueDeliveryTest(unittest.TestCase):
+    def test_scene_inputs_preserve_structured_voice_over(self):
+        story = dict(project_id="story-" + "a" * 32, clip_seconds=10,
+                     document={"scenario": deepcopy(SCENARIO)}, revisions=[{"revision": 1}])
+        story["document"]["scenario"]["scenes"][0]["dialogue"][0].update(
+            dialogue_id="dialogue-1", delivery="voice_over", delivery_note="VOIX OFF")
+        episode = initial_episode(story, "episode-" + "b" * 32)
+        text = scene_inputs(episode, episode["scenes"][0], require_images=False)["source_text"]
+        self.assertIn("Victor — VOIX OFF : « Vous avez pris mon portefeuille ! »", text)
+        self.assertIn("Respecte exactement les modes de restitution indiqués", text)
+        self.assertNotIn("Sans voix off", text)
 
 
 class InlineThread:
@@ -243,7 +257,7 @@ class EpisodeTest(unittest.TestCase):
     def test_shared_defaults_override_only_inheriting_fiches_and_are_snapshotted_at_render(self):
         value = self.create(); identity = value["episode_id"]
         common = dict(model_id="common.safetensors", loras=[dict(name="style.safetensors", strength=0.45)],
-                      sampling=asdict(Krea2AssistedSampling()))
+                      sampling=asdict(Krea2AssistedSampling()), workflow=asdict(KREA2_FLUX_KLEIN_WORKFLOW))
         value = self.service.update_visual(identity, 1, "Style commun", common)
         custom = dict(model_id="custom.safetensors", aspect_ratio=Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
                       megapixels=2.1, loras=[], sampling=asdict(Krea2AssistedSampling()), seed=456)
@@ -261,6 +275,7 @@ class EpisodeTest(unittest.TestCase):
         actual = self.krea.render_calls[0][0]
         self.assertEqual(actual.model_name, "common.safetensors")
         self.assertEqual(actual.loras, (Krea2LoraSelection("style.safetensors", 0.45),))
+        self.assertEqual(actual.workflow, KREA2_FLUX_KLEIN_WORKFLOW)
         record = deepcopy(value["references"][0]["image_runs"][0])
         self.assertEqual(record["seed"], 456)
         value = self.service.update_visual(identity, value["visual_revision"], "Nouveau style", {**common, "loras": []})

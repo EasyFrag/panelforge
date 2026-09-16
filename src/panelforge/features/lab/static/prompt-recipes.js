@@ -85,10 +85,10 @@
     history.addEventListener("click", () => showHistory(`/history/session/${encodeURIComponent(context.sessionId)}`));
   }
   function fillComponents() {
-    const story = packageData?.cookbook_id === "story.brainrot";
+    const story = packageData?.cookbook_id?.startsWith("story.");
     extras.parentElement.hidden = story; preview.hidden = story; history.hidden = story;
     note.placeholder = story ? "Ex. antagonistes plus excessifs" : "Ex. caméra clarifiée";
-    const labels = story ? {"plan.system": "Proposer trois histoires", "writer.system": "Développer le scénario", "revision.system": "Discuter et réviser"} : mainFields;
+    const labels = story ? {"plan.system": "Proposer des histoires", "writer.system": "Développer ou structurer le scénario", "revision.system": "Discuter et réviser"} : mainFields;
     const keys = Object.keys(fields).filter(key => story ? labels[key] : mainFields[key] || extras.checked);
     components.replaceChildren(...keys.map(key => option(key, labels[key] || (key === "camera_contract" ? "Contrat caméra · correctif technique"
       : `${familyLabels[key.split(".")[0]] || key.split(".")[0]} · ${key.split(".").slice(1).join(" · ")}`))));
@@ -101,7 +101,7 @@
       `r${item.revision}${item.revision === packageData.active ? " · active" : ""} · ${item.note}`)));
     revisions.value = String(packageData.revision);
     scope.textContent = `${recipeSelect.selectedOptions[0]?.textContent || ""} · active : r${packageData.active}. Les modifications concernent uniquement cette recette.`;
-    lifecycleNote.textContent = packageData.cookbook_id === "story.brainrot"
+    lifecycleNote.textContent = packageData.cookbook_id.startsWith("story.")
       ? "Chaque nouvel échange utilise les consignes actives. Les scénarios et les échanges déjà enregistrés restent conservés."
       : "Les nouveaux cycles utilisent la révision active. Un Plan déjà commencé conserve ses consignes pour la Rédaction. Relancer une vidéo seule conserve son prompt déjà écrit.";
     fillComponents();
@@ -166,7 +166,8 @@
         const call = record.call, context = record.context;
         const item = node("article", "", "prompt-trace-call");
         const stage = {beat_sheet: "Plan", final_prompt: "Rédaction", render_adjustment: "Ajustement après rendu",
-          story_ideas: "Propositions d’histoires", story_develop: "Scénario", story_revise: "Discussion / révision"}[context.stage] || context.stage;
+          story_ideas: "Propositions d’histoires", story_develop: "Scénario", story_script: "Script fidèle",
+          story_revise: "Discussion / révision"}[context.stage] || context.stage;
         item.append(node("h3", `${stage} · ${context.recipe_revision ? `r${context.recipe_revision}` : "recette historique"}`));
         if (!call) { item.append(node("p", "Appel démarré ; résultat pas encore archivé. Une interruption du service peut laisser cette trace incomplète.")); }
         else {

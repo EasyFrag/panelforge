@@ -28,6 +28,8 @@ Recettes intégrées :
 workflows/character.change_view/qwen-edit-2511-multiple-angles/0.1.0/
 workflows/character.change_view/qwen-edit-2511-multiple-angles/0.2.0/
 workflows/image.generate.t2i/krea2/0.1.0/
+workflows/image.generate.assisted/krea2-sampling/1.0.0/
+workflows/image.generate.assisted/krea2-flux-klein/1.0.0/
 workflows/video.generate.ref2v/minimax-h3-ref2v/0.2.0/
 ```
 
@@ -47,3 +49,11 @@ au run. Son snapshot est nettoyé des branches LoRA et refine prompt du workflow
 d’exploration, conserve le sampling validé à huit steps et produit exactement
 un PNG via le nœud `SaveImage` déclaré dans le manifest. Elle n’expose aucune
 preview intermédiaire.
+
+La famille Assisted `krea2-flux-klein@1.0.0` est une recette complète,
+indépendante de l’overlay `krea2-sampling@1.0.0`. Elle exécute deux passes
+KREA2, enregistre l’image `pre_flux`, puis applique une finition Flux Klein
+fixe. Le checkpoint et jusqu’à dix LoRA KREA2 restent variables dans deux
+loaders chaînés ; les modèles, le LoRA technique et le sampling Flux restent
+recipe-owned. Le réglage MP désigne la sortie finale et dimensionne la première
+passe KREA2 en sens inverse de l’upscale latent ×1,5.

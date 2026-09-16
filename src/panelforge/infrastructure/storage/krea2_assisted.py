@@ -32,6 +32,8 @@ from panelforge.domain.krea2_batch import (
 )
 from panelforge.domain.krea2_lab import Krea2AspectRatio
 from panelforge.domain.krea2_sampling import Krea2AssistedSettings, sampling_for, sampling_from_dict
+from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
+from panelforge.domain.recipes import RecipeRef
 from .krea2_style_presets import preset_dict, load_preset
 
 
@@ -110,7 +112,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
     branches = project.conversation_branches()
     turns = {turn.turn_id: turn for branch in branches for turn in branch.turns}
     return {
-        "schema_version": 9,
+        "schema_version": 10,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "name": project.name,
@@ -160,6 +162,9 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
                 "execution_id": attempt.execution_id,
                 "compiled_workflow_sha256": attempt.compiled_workflow_sha256,
                 "output_asset_id": attempt.output_asset_id,
+                "pre_flux_asset_id": attempt.pre_flux_asset_id,
+                "output_warnings": list(attempt.output_warnings),
+                "workflow": asdict(attempt.workflow) if attempt.workflow else None,
                 "error": attempt.error,
                 "accepted": attempt.accepted,
                 "conversation_branch_id": attempt.conversation_branch_id,
@@ -182,7 +187,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
-    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
+    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}:
         raise ValueError("unsupported KREA2 assisted project schema")
     branch_fields: dict[str, Any] = {}
     if value["schema_version"] >= 4:
@@ -233,6 +238,9 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
                 execution_id=item.get("execution_id"),
                 compiled_workflow_sha256=item.get("compiled_workflow_sha256"),
                 output_asset_id=item.get("output_asset_id"),
+                pre_flux_asset_id=item.get("pre_flux_asset_id"),
+                output_warnings=tuple(item.get("output_warnings", [])),
+                workflow=RecipeRef(**item["workflow"]) if item.get("workflow") else None,
                 error=item.get("error"),
                 accepted=item.get("accepted", False),
                 conversation_branch_id=item.get("conversation_branch_id"),
@@ -257,6 +265,7 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
 def _settings(settings: Krea2BatchSettings) -> dict[str, object]:
     return {
         **({"sampling": asdict(sampling_for(settings))} if isinstance(settings, Krea2AssistedSettings) else {}),
+        **({"workflow": asdict(settings.workflow)} if isinstance(settings, Krea2AssistedSettings) else {}),
         "model_name": settings.model_name,
         "aspect_ratio": settings.aspect_ratio.value,
         "megapixels": settings.megapixels,
@@ -271,6 +280,7 @@ def _load_settings(value: dict[str, Any]) -> Krea2BatchSettings:
     settings_type = Krea2AssistedSettings if "sampling" in value else Krea2BatchSettings
     return settings_type(
         **({"sampling": sampling_from_dict(value["sampling"])} if "sampling" in value else {}),
+        **({"workflow": workflow_selection_from_dict(value.get("workflow"))} if "sampling" in value else {}),
         model_name=value["model_name"],
         aspect_ratio=Krea2AspectRatio(value["aspect_ratio"]),
         megapixels=value["megapixels"],

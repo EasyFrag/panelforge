@@ -7,6 +7,7 @@ from enum import StrEnum
 import re
 
 from .krea2_batch import Krea2BatchSettings, Krea2PromptLanguage
+from .recipes import RecipeRef
 from .krea2_style_presets import Krea2StylePreset, validate_preset_selection
 from .assisted_composition import AssistedComposition
 from .dlss import DlssResult, validate_dlss_attempt, validate_dlss_lineage
@@ -89,6 +90,9 @@ class Krea2AssistedAttempt:
     execution_id: str | None = None
     compiled_workflow_sha256: str | None = None
     output_asset_id: str | None = None
+    pre_flux_asset_id: str | None = None
+    output_warnings: tuple[str, ...] = ()
+    workflow: RecipeRef | None = None
     error: str | None = None
     accepted: bool = False
     # None means a legacy attempt with no recoverable conversation checkpoint.
@@ -133,6 +137,11 @@ class Krea2AssistedAttempt:
             raise ValueError("compiled_workflow_sha256 must be a lowercase SHA-256")
         if self.output_asset_id is not None:
             _text(self.output_asset_id, "output_asset_id")
+        if self.pre_flux_asset_id is not None:
+            _text(self.pre_flux_asset_id, "pre_flux_asset_id")
+        _strings(self.output_warnings, "output_warnings", maximum=8)
+        if self.workflow is not None and not isinstance(self.workflow, RecipeRef):
+            raise TypeError("workflow must be a RecipeRef")
         if self.error is not None:
             _text(self.error, "error")
         if not isinstance(self.accepted, bool):
@@ -159,7 +168,13 @@ class Krea2AssistedAttempt:
             compiled_workflow_sha256=_digest(digest),
         )
 
-    def succeed(self, asset_id: str) -> Krea2AssistedAttempt:
+    def succeed(
+        self,
+        asset_id: str,
+        *,
+        pre_flux_asset_id: str | None = None,
+        warnings: tuple[str, ...] = (),
+    ) -> Krea2AssistedAttempt:
         if self.status not in {
             Krea2AssistedAttemptStatus.RUNNING,
             Krea2AssistedAttemptStatus.CANCEL_PENDING,
@@ -169,6 +184,11 @@ class Krea2AssistedAttempt:
             self,
             status=Krea2AssistedAttemptStatus.SUCCEEDED,
             output_asset_id=_text(asset_id, "asset_id"),
+            pre_flux_asset_id=(
+                _text(pre_flux_asset_id, "pre_flux_asset_id")
+                if pre_flux_asset_id is not None else None
+            ),
+            output_warnings=warnings,
             error=None,
         )
 
@@ -185,6 +205,8 @@ class Krea2AssistedAttempt:
             self,
             status=Krea2AssistedAttemptStatus.FAILED,
             output_asset_id=None,
+            pre_flux_asset_id=None,
+            output_warnings=(),
             error=_text(error, "error"),
         )
 
@@ -214,6 +236,8 @@ class Krea2AssistedAttempt:
             self,
             status=Krea2AssistedAttemptStatus.CANCELLED,
             output_asset_id=None,
+            pre_flux_asset_id=None,
+            output_warnings=(),
             error=None,
         )
 
@@ -234,30 +258,36 @@ class Krea2AssistedAttempt:
                     or self.output_asset_id is None
                     or any(v is not None for v in (self.execution_id, self.compiled_workflow_sha256, self.queue_order, self.error))):
                 raise ValueError("a local composition must be succeeded without execution fields")
+            if self.pre_flux_asset_id is not None or self.workflow is not None or self.output_warnings:
+                raise ValueError("a local composition cannot contain workflow artifacts")
             return
         if self.kind != "generation" or self.composition is not None:
             raise ValueError("invalid assisted attempt kind")
         if self.status is Krea2AssistedAttemptStatus.CREATED:
-            if any((self.execution_id, self.compiled_workflow_sha256, self.output_asset_id, self.error)):
+            if any((self.execution_id, self.compiled_workflow_sha256, self.output_asset_id,
+                    self.pre_flux_asset_id, self.output_warnings, self.error)):
                 raise ValueError("created attempt contains execution fields")
         elif self.status is Krea2AssistedAttemptStatus.QUEUED:
-            if any((self.execution_id, self.compiled_workflow_sha256, self.output_asset_id, self.error)):
+            if any((self.execution_id, self.compiled_workflow_sha256, self.output_asset_id,
+                    self.pre_flux_asset_id, self.output_warnings, self.error)):
                 raise ValueError("queued attempt contains execution fields")
         elif self.status is Krea2AssistedAttemptStatus.SUBMITTING:
-            if self.execution_id is not None or self.output_asset_id is not None or self.compiled_workflow_sha256 is None:
+            if (self.execution_id is not None or self.output_asset_id is not None
+                    or self.pre_flux_asset_id is not None or self.output_warnings
+                    or self.compiled_workflow_sha256 is None):
                 raise ValueError("submitting attempt requires only a compiled workflow")
         elif self.status in {Krea2AssistedAttemptStatus.RUNNING, Krea2AssistedAttemptStatus.CANCEL_PENDING}:
             if self.execution_id is None or self.compiled_workflow_sha256 is None:
                 raise ValueError("active attempt requires execution fields")
-            if self.output_asset_id is not None:
+            if self.output_asset_id is not None or self.pre_flux_asset_id is not None or self.output_warnings:
                 raise ValueError("active attempt cannot contain output")
         elif self.status is Krea2AssistedAttemptStatus.SUCCEEDED:
             if self.execution_id is None or self.compiled_workflow_sha256 is None or self.output_asset_id is None or self.error is not None:
                 raise ValueError("succeeded attempt is incomplete")
         elif self.status is Krea2AssistedAttemptStatus.FAILED:
-            if self.output_asset_id is not None or self.error is None:
+            if self.output_asset_id is not None or self.pre_flux_asset_id is not None or self.output_warnings or self.error is None:
                 raise ValueError("failed attempt requires only an error")
-        elif self.output_asset_id is not None or self.error is not None:
+        elif self.output_asset_id is not None or self.pre_flux_asset_id is not None or self.output_warnings or self.error is not None:
             raise ValueError("cancelled attempt cannot contain output or error")
         if self.accepted and self.status is not Krea2AssistedAttemptStatus.SUCCEEDED:
             raise ValueError("only a succeeded attempt can be accepted")

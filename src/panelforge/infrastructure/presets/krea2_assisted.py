@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from panelforge.domain.krea2_batch import Krea2BatchSettings
 from panelforge.domain.krea2_sampling import Krea2AssistedSampling, sampling_for
+from panelforge.domain.krea2_assisted_workflows import Krea2AssistedWorkflowOutput
 from panelforge.domain.recipes import RecipeRef
 from .krea2_batch import ValidatedKrea2BatchWorkflow, WorkflowBinding
 
@@ -18,6 +19,9 @@ class ValidatedKrea2AssistedWorkflow:
     reference: RecipeRef
     sampling_inputs: Mapping[str, WorkflowBinding]
     supports_sampling: bool = True
+    display_name: str = "KREA2 · deux passes"
+    description: str = "Workflow KREA2 historique, sans finition Flux."
+    default_sampling_preset_id: str = "current"
 
     @property
     def output_node_id(self) -> str:
@@ -30,6 +34,19 @@ class ValidatedKrea2AssistedWorkflow:
     @property
     def output_media_type(self) -> str:
         return self.base.output_media_type
+
+    @property
+    def outputs(self) -> tuple[Krea2AssistedWorkflowOutput, ...]:
+        return (Krea2AssistedWorkflowOutput(
+            role="final",
+            node_id=self.output_node_id,
+            history_field=self.output_history_field,
+            media_type=self.output_media_type,
+        ),)
+
+    @staticmethod
+    def seed_metadata(seed: int) -> dict[str, int]:
+        return {"root": seed, "krea_first": seed, "krea_refine": seed}
 
     def build(self, *, prompt: str, settings: Krea2BatchSettings, seed: int,
               output_prefix: str, sidecar_text: str | None = None) -> dict[str, Any]:

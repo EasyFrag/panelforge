@@ -28,6 +28,9 @@ def browser_fixture():
         const $ = id => document.getElementById(id);
         const elements = {samplingPreset: $('krea2-assisted-sampling-preset'),
           samplingSummary: $('krea2-assisted-sampling-summary'), samplingDetails: $('krea2-assisted-sampling-details'),
+          workflow: Object.assign(document.createElement('select'), {innerHTML:'<option value="krea2-sampling@1.0.0">Current</option>'}),
+          workflowSummary: document.createElement('small'), samplingFirstNote: document.createElement('small'),
+          samplingSecondNote: document.createElement('small'),
           prompt: {value: 'A studio photo'}, seed: {value:'0'}, megapixels: {value:'2.1'},
           model: document.createElement('select'), ratio: document.createElement('select')};
         const ensureMissingOption = (select, value) => {
@@ -35,7 +38,7 @@ def browser_fixture():
             o.value=value; o.textContent=value; select.append(o); }
         };
         const resourceUi = {syncModelPicker: () => {}}, renderLoraStack = () => {};
-        const state = {spec: {sampling: __SPEC__}, project: {project_id:'project',active_branch_id:'main'},
+        const state = {spec: {sampling: __SPEC__, workflows:[{id:'krea2-sampling@1.0.0',recipe_id:'krea2-sampling',description:'Current',default_sampling_preset_id:'current'}]}, project: {project_id:'project',active_branch_id:'main'},
           busy:false, navigationSerial:0, loraSlots:[]};
         __CONTROLS__
         __RESTORE__
@@ -66,8 +69,9 @@ def browser_fixture():
         window.fetch = () => {throw new Error('unexpected network');};
         __ENQUEUE__
         await renderAttempt();
-        check(JSON.stringify(submitted.sampling) === JSON.stringify(manual) && submitted.seed === '0', 'enqueue snapshots both passes and seed zero');
-        const attempt={prompt:'Saved photo', seed:'12', settings:{model_id:'saved-model',aspect_ratio:'9:16',megapixels:1.2,loras:[],sampling:manual}};
+        check(JSON.stringify(submitted.sampling) === JSON.stringify(manual) && submitted.seed === '0'
+          && submitted.workflow === 'krea2-sampling@1.0.0', 'enqueue snapshots family, both passes and seed zero');
+        const attempt={prompt:'Saved photo', seed:'12', settings:{workflow:'krea2-sampling@1.0.0',model_id:'saved-model',aspect_ratio:'9:16',megapixels:1.2,loras:[],sampling:manual}};
         loadSampling(null); loadAttemptSettings(attempt);
         check(JSON.stringify(readSampling()) === JSON.stringify(manual) && elements.seed.value==='12', 'reuse restores sampling');
         restoreRenderState({render_settings:attempt.settings,render_seed:'12',current_prompt:'Saved photo'});

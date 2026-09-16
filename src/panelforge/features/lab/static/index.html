@@ -7,8 +7,8 @@
   <link rel="stylesheet" href="/static/lab.css?v=20260915.1">
   <script src="/static/lab.js?v=20260914.2" defer></script>
   <script src="/static/lab-core.js?v=20260915.2" defer></script>
-  <link rel="stylesheet" href="/static/stories.css?v=20260915.2">
-  <script src="/static/stories.js?v=20260915.3" defer></script>
+  <link rel="stylesheet" href="/static/stories.css?v=20260916.2">
+  <script src="/static/stories.js?v=20260916.6" defer></script>
   <link rel="stylesheet" href="/static/episodes.css?v=20260916.1">
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
   <script src="/static/dlss-lab.js?v=20260914.1" defer></script>
@@ -16,7 +16,7 @@
   <script src="/static/classic-cinematic-controls.js?v=20260910.9" defer></script>
   <script src="/static/combat-controls.js?v=20260910.6" defer></script>
   <script src="/static/sensual-controls.js?v=20260911.1" defer></script>
-  <script src="/static/prompt-recipes.js?v=20260915.1" defer></script>
+  <script src="/static/prompt-recipes.js?v=20260916.1" defer></script>
   <script src="/static/prompt-writer-model.js?v=20260914.1" defer></script>
   <script src="/static/i2v-direct.js?v=20260913.5" defer></script>
   <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
@@ -32,10 +32,10 @@
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260907.8" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260913.1" defer></script>
-  <script src="/static/episodes.js?v=20260916.1" defer></script>
+  <script src="/static/episodes.js?v=20260916.8" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260915.2" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260916.1" defer></script>
   <script src="/static/krea2-batch-lab.js?v=20260907.8" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
@@ -78,7 +78,7 @@
 
   <main id="stories-workspace" hidden>
     <div class="story-heading">
-      <div><small>BRAINROT NARRATIF · 1.0</small><h1>Histoires</h1><p>Une idée, trois pistes, puis une histoire à façonner ensemble.</p></div>
+      <div><small>ATELIER NARRATIF · FAMILLES ISOLÉES</small><h1>Histoires</h1><p>Explore une à trois pistes, ou transforme fidèlement un script complet.</p></div>
       <div class="story-actions"><button id="story-recipes" type="button">Consignes LLM</button><button id="story-fabrication" type="button" hidden>Fabrication</button><button id="story-new" type="button">Nouvelle histoire</button></div>
     </div>
     <div class="story-toolbar">
@@ -88,10 +88,15 @@
           <button id="story-refresh-projects" type="button" title="Actualiser les histoires enregistrées">Actualiser</button></div>
       </div>
       <div class="story-model-control">
-        <label for="story-model">Modèle LLM</label>
-        <div class="story-select-row"><select id="story-model"><option value="">Chargement à l’ouverture…</option></select>
+        <label for="story-architect-model">Architecte · concepts</label>
+        <div class="story-select-row"><select id="story-architect-model"><option value="">Chargement à l’ouverture…</option></select>
           <button id="story-refresh-models" type="button" title="Actualiser les modèles LLM">↻</button></div>
-        <label class="llm-local-toggle"><input id="story-local" type="checkbox" data-llm-local-for="story-model" checked> Local · Unsloth</label>
+        <label class="llm-local-toggle"><input id="story-architect-local" type="checkbox" data-llm-local-for="story-architect-model" checked> Local · Unsloth</label>
+      </div>
+      <div class="story-model-control">
+        <label for="story-writer-model">Rédacteur · scénario et révisions</label>
+        <select id="story-writer-model"><option value="">Chargement à l’ouverture…</option></select>
+        <label class="llm-local-toggle"><input id="story-writer-local" type="checkbox" data-llm-local-for="story-writer-model" checked> Local · Unsloth</label>
       </div>
     </div>
     <p id="story-model-message" class="muted" role="status"></p>
@@ -100,14 +105,19 @@
       <section class="story-panel story-conversation" aria-label="Création et conversation">
         <form id="story-create-form">
           <h2>Point de départ</h2>
+          <label>Famille éditoriale<select id="story-recipe"><option value="story.brainrot@1.0.0">Mélodrame fruits</option><option value="story.sensual-light@1.0.0">Sensuel light</option><option value="story.explicit-hard@1.0.0">Cru ++</option></select></label>
+          <p id="story-recipe-description" class="muted">Fruits anthropomorphes, conflits frontaux et retournements visuels.</p>
+          <label>Mode de départ<select id="story-creation-mode"><option value="ideas">Explorer des propositions</option><option value="script">Suivre fidèlement un script complet</option></select></label>
+          <p id="story-mode-description" class="muted">Le LLM propose plusieurs histoires avant le développement du scénario.</p>
           <label>Nom<input id="story-title" maxlength="160" placeholder="Ex. La reine des faux cadeaux"></label>
-          <label>Ton idée · facultative<textarea id="story-brief" rows="5" maxlength="12000" placeholder="Un patron avocat odieux qui arnaque ses clients… Ou laisse le LLM te surprendre."></textarea></label>
+          <label><span id="story-brief-label">Ton idée · facultative</span><textarea id="story-brief" rows="5" maxlength="12000" placeholder="Un patron avocat odieux qui arnaque ses clients… Ou laisse le LLM te surprendre."></textarea></label>
+          <label id="story-proposal-count-row">Nombre de propositions<select id="story-proposal-count"><option value="1">1 histoire</option><option value="2">2 histoires</option><option value="3" selected>3 histoires</option></select></label>
           <details><summary>Format de l’épisode</summary><div class="story-format">
             <label>Micro-scènes visées<input id="story-scene-count" type="number" min="2" max="12" step="1" value="6" required></label>
             <label>Secondes par clip<input id="story-duration" type="number" min="5" max="15" step="1" value="10" required></label>
           </div><p class="muted">Une micro-scène peut contenir plusieurs événements. La mise en scène reste libre.</p></details>
           <button id="story-create" class="primary" type="submit">Proposer 3 histoires</button>
-          <p class="muted">Conflits simples, personnages excessifs, retournements visuels. Tu peux orienter le ton dans ton idée.</p>
+          <p id="story-create-note" class="muted">Conflits simples, personnages excessifs, retournements visuels. Tu peux orienter le ton dans ton idée.</p>
         </form>
         <div id="story-conversation-panel" hidden>
           <h2>Façonner l’histoire</h2>
@@ -119,23 +129,45 @@
           <div class="story-actions"><button id="story-ideas" type="button">3 nouvelles pistes</button><button id="story-calls" type="button">Échanges LLM</button></div>
           <div id="story-running" hidden><progress aria-label="Écriture en cours"></progress><button id="story-cancel" type="button">Annuler l’échange</button><p class="muted">L’écriture continue si tu changes d’écran ou actualises la page.</p></div>
           <button id="story-retry" type="button" hidden>Réessayer l’échange</button>
-          <details id="story-draft-panel" hidden><summary>Brouillon reçu · non appliqué</summary><pre id="story-draft"></pre></details>
+          <details id="story-live-panel" class="story-live" hidden open>
+            <summary id="story-live-summary">Trace du modèle · en direct</summary>
+            <p id="story-live-empty" class="muted">En attente des premiers tokens du modèle…</p>
+            <section id="story-reasoning-panel" hidden><h3>Plan / raisonnement exposé par le modèle</h3><pre id="story-reasoning"></pre></section>
+            <section id="story-draft-panel" hidden><h3 id="story-draft-title">Réponse JSON en cours</h3><pre id="story-draft"></pre></section>
+          </details>
         </div>
       </section>
       <section class="story-panel story-document" aria-label="Propositions et scénario">
-        <div id="story-empty"><h2>Quelle histoire raconter ?</h2><p>Le LLM proposera trois accroches avec leur conflit, leur escalade et leur fin. Choisis une piste, discute-la, puis développe le scénario.</p></div>
+        <div id="story-empty"><h2 id="story-empty-title">Quelle histoire raconter ?</h2><p id="story-empty-copy">Le LLM proposera les accroches demandées avec leur conflit, leur escalade et leur fin. Choisis une piste, discute-la, puis développe le scénario.</p></div>
         <div id="story-versions-panel" class="story-actions" hidden><label>Versions de l’histoire<select id="story-versions"></select></label><button id="story-restore" type="button">Reprendre cette version</button></div>
         <div id="story-concepts"></div>
         <button id="story-develop" class="primary" type="button" hidden>Développer cette histoire</button>
         <div id="story-scenario" hidden>
           <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary">Valider et préparer la fabrication</button></div>
           <p id="story-logline"></p>
+          <aside id="story-diagnostics" class="story-diagnostics" hidden><strong>Diagnostic sans appel LLM</strong><ul id="story-diagnostic-list"></ul></aside>
           <details><summary>Personnages et décors</summary><div id="story-cast"></div></details>
           <label class="story-check"><input id="story-include-duration" type="checkbox" checked>Inclure la durée dans les intentions copiées</label>
           <div id="story-scenes"></div>
         </div>
       </section>
     </div>
+    <dialog id="story-scene-editor" class="story-scene-editor">
+      <form id="story-scene-form">
+        <div class="story-actions"><h2 id="story-scene-editor-title">Modifier la scène</h2><button id="story-scene-close" type="button">Fermer</button></div>
+        <label>Titre<input id="story-edit-title" maxlength="6000" required></label>
+        <label>Situation initiale<textarea id="story-edit-opening" rows="3" maxlength="6000" required></textarea></label>
+        <label id="story-edit-relationship-row" hidden>Dynamique relationnelle<textarea id="story-edit-relationship" rows="2" maxlength="3000"></textarea></label>
+        <label id="story-edit-appearance-row" hidden>Tenues et continuité visuelle<textarea id="story-edit-appearance" rows="2" maxlength="3000"></textarea></label>
+        <label id="story-edit-sexual-row" hidden>Position et contacts sexuels<textarea id="story-edit-sexual" rows="3" maxlength="3000"></textarea></label>
+        <label>Action<textarea id="story-edit-action" rows="5" maxlength="6000" required></textarea></label>
+        <label>Dialogues · personnage | texte, ou id | personnage | mode | indication | texte<textarea id="story-edit-dialogue" rows="4"></textarea></label>
+        <small>Modes : spoken, voice_over, off_screen, thought, mediated. L’indication conserve la formulation du script, séparément des mots prononcés.</small>
+        <p id="story-edit-speakers" class="muted"></p>
+        <label>État final<textarea id="story-edit-ending" rows="3" maxlength="6000" required></textarea></label>
+        <button class="primary" type="submit">Enregistrer sans appel LLM</button>
+      </form>
+    </dialog>
     <section id="episode-workshop" hidden>
       <div class="episode-bar">
         <button id="episode-back" type="button">← Histoire</button>
@@ -151,6 +183,7 @@
       <section id="episode-references" class="story-panel">
         <div class="episode-bar"><label>Personnage ou décor<select id="episode-reference"></select></label>
           <span id="episode-reference-count" class="muted"></span></div>
+        <p class="muted">Une fiche vierge du même type reprend les derniers réglages LLM et image sélectionnés.</p>
         <details id="episode-visual-panel" class="episode-visual-panel" open><summary>Style et réglages communs à l’épisode</summary>
           <div class="episode-style-grid">
             <div>
@@ -158,7 +191,7 @@
               <div class="story-actions"><button id="episode-apply-preset" type="button">Appliquer le preset</button>
                 <button id="episode-refresh-presets" type="button">Actualiser les presets</button></div>
               <p id="episode-style-preset-note" class="muted"></p>
-              <label>Direction visuelle commune<textarea id="episode-style" rows="2" maxlength="3000" placeholder="Ex. Animation 3D, fruits anthropomorphes, matières détaillées…"></textarea></label>
+              <label>Direction visuelle commune<textarea id="episode-style" rows="2" maxlength="3000" placeholder="Ex. Animation 3D stylisée, lumière chaude, matières détaillées…"></textarea></label>
               <label>Image d’inspiration facultative<input id="episode-style-import" type="file" accept="image/png,image/jpeg,image/webp"></label>
               <div class="story-actions"><button id="episode-style-use-reference" type="button">Utiliser l’image retenue de cette fiche</button>
                 <button id="episode-style-remove" type="button">Retirer l’image de style</button></div>
@@ -167,6 +200,7 @@
             <div><img id="episode-style-preview" alt="Exemple de style commun" hidden><p id="episode-style-image-name" class="muted"></p></div>
           </div>
           <details><summary>Checkpoint, LoRA et preset de rendu communs</summary>
+            <label>Workflow image<select id="episode-common-workflow"></select></label>
             <label>Checkpoint KREA2<select id="episode-common-model"></select></label>
             <div id="episode-common-loras" aria-label="LoRA communes à l’épisode"></div>
             <label>Preset de rendu<select id="episode-common-preset"></select></label>
@@ -189,6 +223,7 @@
               <p id="episode-image-settings-note" class="muted"></p>
               <button id="episode-image-toggle-settings" type="button">Personnaliser cette fiche</button>
               <div id="episode-image-custom" hidden>
+                <label>Workflow image<select id="episode-image-workflow"></select></label>
                 <label>Checkpoint KREA2<select id="episode-image-model"></select></label>
                 <div id="episode-image-loras" aria-label="LoRA de cette fiche"></div>
                 <label>Preset de rendu<select id="episode-image-preset"></select></label>
@@ -584,11 +619,13 @@
         <section class="krea2-edit-settings">
           <h3>Paramètres du prochain rendu</h3>
           <div class="krea2-edit-settings-grid">
+            <label>Workflow<select id="krea2-assisted-workflow"><option value="krea2-sampling@1.0.0">KREA2 · deux passes</option></select></label>
             <label>Checkpoint<select id="krea2-assisted-model"></select></label>
             <label>Ratio<select id="krea2-assisted-ratio"></select></label>
             <label>Mégapixels<input id="krea2-assisted-megapixels" type="number" min="0.5" max="4" step="0.1" value="2.1"></label>
             <label>Seed<input id="krea2-assisted-seed" type="text" inputmode="numeric" pattern="[0-9]+" placeholder="Aléatoire"></label>
           </div>
+          <small id="krea2-assisted-workflow-summary" class="muted">Workflow KREA2 historique, sans finition Flux.</small>
           <div class="krea2-assisted-sampling">
             <label>Preset de rendu
               <select id="krea2-assisted-sampling-preset"><option value="current">Actuel · 8 + 2</option></select>
@@ -603,7 +640,7 @@
                   <label>Sampler<select id="krea2-assisted-first-sampler"><option value="er_sde">er_sde</option></select></label>
                   <label>Scheduler<select id="krea2-assisted-first-scheduler"><option value="simple">simple</option></select></label>
                 </div>
-                <small class="muted">CFG 1,1 · denoise 1,00</small>
+                <small id="krea2-assisted-first-note" class="muted">CFG 1,1 · denoise 1,00</small>
               </fieldset>
               <fieldset>
                 <legend>Passe 2 · finition après agrandissement ×1,5</legend>
@@ -612,7 +649,7 @@
                   <label>Sampler<select id="krea2-assisted-second-sampler"><option value="er_sde">er_sde</option></select></label>
                   <label>Scheduler<select id="krea2-assisted-second-scheduler"><option value="simple">simple</option></select></label>
                 </div>
-                <small class="muted">CFG 1,0 · denoise 0,30</small>
+                <small id="krea2-assisted-second-note" class="muted">CFG 1,0 · denoise 0,30</small>
               </fieldset>
             </details>
           </div>

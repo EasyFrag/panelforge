@@ -11,6 +11,7 @@ import tempfile
 import unicodedata
 
 from panelforge.domain.krea2_assisted import Krea2AssistedAttempt, Krea2AssistedProject
+from panelforge.domain.krea2_sampling import sampling_for
 
 
 class LocalKrea2CreationExporter:
@@ -34,6 +35,13 @@ class LocalKrea2CreationExporter:
             stem += "_" + attempt.dlss.job_id
             _atomic_write(directory / f"{stem}_dlss.json", assets.read_bytes(attempt.dlss.report_asset_id))
         _atomic_write(directory / f"{stem}.png", content)
+        pre_flux_filename = None
+        if attempt.pre_flux_asset_id is not None:
+            pre_flux_asset = assets.get(attempt.pre_flux_asset_id)
+            if pre_flux_asset.media_type != "image/png":
+                raise ValueError("KREA2 pre-Flux exports currently require a PNG")
+            pre_flux_filename = f"{stem}_pre_flux.png"
+            _atomic_write(directory / pre_flux_filename, assets.read_bytes(attempt.pre_flux_asset_id))
         width, height = attempt.settings.resolution
         composition_files = None
         if attempt.composition:
@@ -54,11 +62,17 @@ class LocalKrea2CreationExporter:
             "attempt_id": attempt.attempt_id,
             "kind": attempt.kind,
             "operation": "image.upscale.dlss" if attempt.dlss else "image.compose.mask@1.0.0" if attempt.composition else "image.generate",
+            "workflow": asdict(attempt.workflow) if attempt.workflow else None,
+            "output_warnings": list(attempt.output_warnings),
             "dlss": asdict(attempt.dlss) if attempt.dlss else None,
             "dlss_report_file": f"{stem}_dlss.json" if attempt.dlss else None,
             "composition": asdict(attempt.composition) if attempt.composition else None,
             "composition_files": composition_files,
             "render_settings_are_inherited": bool(attempt.composition or attempt.dlss),
+            "artifacts": {
+                "final": f"{stem}.png",
+                "pre_flux": pre_flux_filename,
+            },
             "output_dimensions": ({"width": attempt.dlss.width, "height": attempt.dlss.height} if attempt.dlss else
                                   {"width": attempt.composition.width, "height": attempt.composition.height} if attempt.composition else {"width": width, "height": height}),
             "prompt": attempt.prompt,
@@ -70,6 +84,7 @@ class LocalKrea2CreationExporter:
                 "megapixels": attempt.settings.megapixels,
                 "resolution": {"width": width, "height": height},
                 "seed": attempt.seed,
+                "sampling": asdict(sampling_for(attempt.settings)),
                 "loras": [
                     {"name": lora.name, "strength": lora.strength}
                     for lora in attempt.settings.loras
@@ -86,6 +101,7 @@ class LocalKrea2CreationExporter:
             "selected": {
                 "attempt_id": attempt.attempt_id,
                 "image": f"{stem}.png",
+                "pre_flux": pre_flux_filename,
                 "sidecar": f"{stem}.txt",
             },
             "published_recipe": (

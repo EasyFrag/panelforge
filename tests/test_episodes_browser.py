@@ -27,6 +27,9 @@ class EpisodesBrowserTest(unittest.TestCase):
         episode["scenes"][1]["render_setup"]["settings"]["duration_seconds"] = 8
         for scene in episode["scenes"]:
             scene.update(resolved_intention=scene_inputs(episode, scene)["source_text"], stale=False, input_error=None)
+        episode["references"][0]["image_asset_id"] = None
+        episode["references"][1]["image_asset_id"] = None
+        episode["references"][0]["krea_project_id"] = "krea2-create-fixture"
         markup = '<main id="stories-workspace"' + (STATIC / "index.html").read_text(encoding="utf8").split('<main id="stories-workspace"', 1)[1].split('</main>', 1)[0] + '</main>'
         setup = "const story=" + json.dumps(story, ensure_ascii=False) + ";let episode=" + json.dumps(episode, ensure_ascii=False) + ";"
         setup += r"""
@@ -46,7 +49,11 @@ class EpisodesBrowserTest(unittest.TestCase):
             if(url==='/api/stories/models')return {models:[{id:episode.scenes[0].plan_model_id,label:'Qwen local',source:'local'},
               {id:episode.scenes[0].writer_model_id,label:'Gemma local',source:'local'}]};
             if(url.startsWith('/api/image-lab/krea2-assisted/spec'))return {render_models:[model,model2],loras:[lora],
-              aspect_ratios:['9:16 (Portrait Widescreen)'],defaults:{aspect_ratio:'9:16 (Portrait Widescreen)'},sampling:{presets:[{id:'current',label:'Actuel',settings:episode.image_defaults.sampling}]}};
+              aspect_ratios:['9:16 (Portrait Widescreen)'],defaults:{aspect_ratio:'9:16 (Portrait Widescreen)'},
+              workflows:[{id:'krea2-sampling@1.0.0',label:'KREA2 · deux passes',default_sampling_preset_id:'current'},
+                {id:'krea2-flux-klein@1.0.0',label:'KREA2 + Flux Klein',default_sampling_preset_id:'current'}],
+              sampling:{presets:[{id:'current',label:'Actuel',settings:episode.image_defaults.sampling},
+                {id:'moody',label:'Moody',settings:{...episode.image_defaults.sampling,preset_id:'moody'}}]}};
             if(url==='/api/image-lab/krea2-assisted/style-presets')return {presets:[stylePreset]};
             if(url.endsWith('/checkpoint-1/preference')){Object.assign(model,body,{category:body.favorite?'favorite_bf16':'bf16'});return {...model};}
             if(url.endsWith('/visual')){episode.style=body.style;episode.image_defaults=body.settings;episode.visual_revision++;return structuredClone(episode);}
@@ -59,7 +66,8 @@ class EpisodesBrowserTest(unittest.TestCase):
             if(refId&&options.method==='PUT'){
               const ref=episode.references.find(r=>r.id===refId);Object.assign(ref,body);ref.revision++;return structuredClone(episode);
             }
-            if(url.endsWith('/project'))return {project:null};
+            if(url.endsWith('/project'))return {project:{attempts:[{attempt_id:'attempt-one',index:1,label:'Essai 1',
+              status:'succeeded',output_asset_id:'image-candidate',accepted:false}]}};
             const sceneId=url.match(/\/scenes\/(scene-\d+)/)?.[1];
             if(sceneId&&options.method==='PUT'){
               const scene=episode.scenes.find(s=>s.id===sceneId);Object.assign(scene,body);scene.revision++;scene.render_revision++;
@@ -81,18 +89,34 @@ class EpisodesBrowserTest(unittest.TestCase):
             await settle();check(!calls.some(c=>c.url.includes('/spec')||c.url.includes('/models')),'catalog stays lazy before fabrication');
             document.getElementById('story-fabrication').click();await settle();await settle();
             check(!get('workshop').hidden,'fabrication opens');check(get('reference').options.length===4,'three characters and decor');
+            let choice=get('image-attempts').querySelector('button[data-image-choice]');
+            check(choice&&choice.textContent==='Utiliser cette image'&&!choice.disabled,'finished image can be selected after opening fabrication');
+            get('back').click();await settle();document.getElementById('story-fabrication').click();await settle();await settle();
+            choice=get('image-attempts').querySelector('button[data-image-choice]');
+            check(choice&&!choice.disabled,'finished image stays selectable after leaving and reopening fabrication');
             const checkpoint=get('common-model').nextElementSibling;
             check(checkpoint.querySelector('.krea2-resource-favorite')&&checkpoint.querySelector('.krea2-resource-info'),'shared checkpoint favorites and info');
             checkpoint.querySelector('.krea2-resource-favorite').click();await settle();
             check(model.favorite&&calls.some(c=>c.url.endsWith('/preference')),'favorite persists through shared catalog endpoint');
+            get('common-workflow').value='krea2-flux-klein@1.0.0';change(get('common-workflow'));get('save-style').click();await settle();
+            check(episode.image_defaults.workflow==='krea2-flux-klein@1.0.0','workflow family is saved with common image settings');
             get('style-preset').value='style-1';get('apply-preset').click();await settle();await settle();
             check(episode.style_preset.revision===1&&!get('style-preview').hidden,'style preset applied and preview shown');
             check(get('common-loras').querySelector('input').value==='0.6','preset lora strength shown');
-            get('image-toggle-settings').click();get('image-model').value='other.safetensors';change(get('image-model'));
+            get('asset-model').value=episode.scenes[0].writer_model_id;get('asset-model').dispatchEvent(new Event('input'));
+            get('image-toggle-settings').click();get('image-workflow').value='krea2-flux-klein@1.0.0';change(get('image-workflow'));
+            get('image-model').value='other.safetensors';change(get('image-model'));
+            get('image-preset').value='moody';get('image-preset').dispatchEvent(new Event('input'));
+            get('image-mp').value='3';get('image-mp').dispatchEvent(new Event('input'));
+            get('image-seed').value='42';get('image-seed').dispatchEvent(new Event('input'));
             get('reference').value='character-2';change(get('reference'));await settle();
             check(episode.references[0].inherit_image_settings===false&&episode.references[0].render_settings.model_id==='other.safetensors','personal checkpoint survives navigation');
-            check(get('image-custom').hidden,'next fiche inherits common settings');
+            check(get('asset-model').value===episode.scenes[0].writer_model_id,'blank next character adopts the previous LLM');
+            check(!get('image-custom').hidden&&get('image-workflow').value==='krea2-flux-klein@1.0.0'&&get('image-model').value==='other.safetensors','blank next character adopts workflow and checkpoint');
+            check(get('image-preset').value==='moody'&&get('image-mp').value==='3'&&get('image-seed').value==='42','blank next character adopts preset, size and seed');
+            check(get('message').textContent.includes('repris'),'copied settings are announced');
             get('reference').value='character-1';change(get('reference'));await settle();
+            check(episode.references[1].model_id===episode.scenes[0].writer_model_id&&episode.references[1].render_settings.sampling.preset_id==='moody','adopted settings persist when leaving the next character');
             check(!get('image-custom').hidden&&get('image-model').value==='other.safetensors','personalized controls restored');
             get('image-toggle-settings').click();get('save-reference').click();await settle();
             check(episode.references[0].inherit_image_settings&&get('image-custom').hidden,'return to common settings persists');

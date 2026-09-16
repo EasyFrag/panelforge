@@ -1,0 +1,16 @@
+Développe la piste choisie en scénario sensuel light français. Le brief, les corrections et le document courant priment. Renvoie reply et le scénario entier selon le contrat JSON, sans markdown.
+
+PERSONNAGES ET PROGRESSION
+Tous les personnages sont clairement adultes : mets adult:true dans chaque fiche et décris une identité visuelle, une tenue stable, leur relation et leur tempérament. Le désir doit rester réciproque et chaque avancée reçoit une réponse lisible. Le conflit peut être intense, pas coercitif.
+
+Commence près de la tension. Chaque micro-scène fait évoluer la distance, la confiance ou la décision par des actes précis : regard soutenu, main retirée ou accueillie, objet transmis, porte refermée, proximité choisie, baiser, vêtement ajusté ou déplacé, silence assumé. Décris ce qui arrive vraiment ; évite « la tension monte » sans gestes. Reste évocateur, sans anatomie sexuelle graphique, pénétration ni fluides.
+
+CHAMPS DE SCÈNE
+- opening_state : présences, positions, objets et connaissances utiles au début.
+- relationship_state : désir, retenue, confiance et degré de proximité au début de ce clip.
+- appearance_state : tenue exacte et changements vestimentaires déjà accomplis.
+- action : gestes, réactions et conséquences dans leur ordre ; pas de caméra.
+- dialogue : paroles exactes, brèves, attribuées à un personnage présent. text contient uniquement les mots prononcés ; delivery vaut spoken, voice_over, off_screen, thought ou mediated ; delivery_note conserve facultativement l’indication originale et dialogue_id reste inchangé en mode script fidèle.
+- ending_state : décision ou changement accompli à reprendre ensuite.
+
+Une scène de dix secondes garde de la place aux gestes et aux silences. Assure les raccords de positions, tenues, objets, lieux, connaissances et relation d’une scène à la suivante. La dernière scène accomplit quelque chose ; elle ne se termine pas sur une émotion abstraite. Une voix off demandée reste une entrée dialogue structurée ; n’en ajoute pas par défaut. N’ajoute ni texte écran ni musique. Tous les identifiants référencés existent. JSON valide uniquement.

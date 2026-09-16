@@ -18,6 +18,13 @@ le schéma et l'interface ne changent pas. Les installations r1/r2 d'origine pas
 à r3 ; une personnalisation ou un retour explicite à une ancienne version est
 conservé. [Détails et essai proposé](diagnostics/stories-editorial-r3-2026-09-15.md).
 
+Trois familles éditoriales indépendantes sont disponibles : **Mélodrame fruits**,
+**Sensuel light** et **Cru ++** (`story.explicit-hard@1.0.0`). Cru ++ possède ses
+propres sources, champs de concepts et archive de révisions. Ses scénarios exigent
+des participants adultes et ajoutent `sexual_state` à chaque micro-scène pour
+conserver précisément positions et contacts déjà établis. Modifier ou activer une
+révision Cru ++ ne change pas les recettes Fruits ou Sensuel light.
+
 ## Parcours
 
 Le sélecteur LLM reprend celui des autres ateliers, avec **Local · Unsloth**.
@@ -27,9 +34,11 @@ manuels Local/Serveur sont mémorisés séparément dans le navigateur. Une hist
 rouverte reprend son modèle enregistré, même si le catalogue arrive plus tard.
 Un modèle absent reste indiqué indisponible ; il n'est pas remplacé silencieusement.
 
-1. Choisir un modèle LLM, donner éventuellement une idée et cliquer sur
-   **Proposer 3 histoires**. Sans idée, la recette propose des conflits simples,
-   antagonistes excessifs, escalades causales et retournements visuels.
+1. Choisir **Explorer des propositions**, demander une, deux ou trois histoires,
+   donner éventuellement une idée puis lancer la proposition. Sans idée, la
+   recette propose des conflits simples, antagonistes excessifs, escalades
+   causales et retournements visuels. Une proposition unique est sélectionnée
+   automatiquement ; avec deux ou trois propositions, le choix reste humain.
 2. Comparer les accroches et ouvrir **Conflit et dénouement**. Choisir une piste
    ou discuter avec le LLM pour ajuster les propositions.
 3. **Développer cette histoire** produit le scénario entier : personnages,
@@ -40,13 +49,27 @@ Un modèle absent reste indiqué indisponible ; il n'est pas remplacé silencieu
    le scénario en texte. Les répliques sont assemblées mot pour mot avec leur
    locuteur. Aucune caméra ni aucun nombre de plans n'est imposé par l'export.
 
+Le mode **Suivre fidèlement un script complet** saute les propositions et appelle
+directement le Rédacteur une seule fois. Le script source prévaut sur le ton par
+défaut de la famille : le LLM le structure en fiches et micro-scènes sans changer
+ses événements, sa fin ou ses dialogues. Pour les scripts au format scénario,
+PanelForge extrait localement les blocs `LOCUTEUR` puis vérifie après l'appel que
+toutes les répliques sont présentes mot pour mot, dans le même ordre, sans ajout.
+Un écart refuse l'application du scénario et conserve le brouillon diagnostic.
+Chaque réplique issue du script reçoit aussi un `dialogue_id` stable. Son texte
+parlé reste seul dans `text` ; le canal (`spoken`, `voice_over`, `off_screen`,
+`thought` ou `mediated`) et l'indication originale sont conservés séparément.
+Les formes usuelles comme `VOIX OFF DE LÉA`, `LÉA (V.O.)`, `TOM [O.S.]` ou
+`TOM — DERRIÈRE LA PORTE` sont ainsi comprises sans autoriser une paraphrase.
+
 Le format initial vise six micro-scènes de dix secondes. Le volet **Format de
 l'épisode** permet de choisir deux à douze scènes et cinq à quinze secondes par
 clip avant création. Ce nombre est une cible d'écriture, pas un quota de plans.
 Le modèle peut proposer un découpage différent ; l'interface affiche toutes les
 scènes reçues. Le contrat accepte au maximum dix-huit micro-scènes.
 
-Il y a un appel pour les propositions, puis un pour le développement, avec les
+Le parcours par propositions utilise un appel d'architecture puis un appel de
+développement. Le parcours script utilise un seul appel de rédaction, avec les
 échanges de discussion/révision à la demande. Aucun appel automatique de réparation
 du JSON, de génération de fiche KREA2 ou de rendu vidéo n'est ajouté.
 Le choix et la création des références visuelles, l'envoi automatique à H3/REF2V,
@@ -71,6 +94,9 @@ la file de clips, DLSS et l'assemblage de l'épisode restent les étapes suivant
   `workspace/prompt_recipes/story.brainrot/1.0.0/`. Une fois la recette initialisée,
   utiliser l'éditeur pour changer la version active, plutôt que modifier les
   sources initiales ou les archives dont les empreintes sont vérifiées.
+- Sources Cru ++ : `prompt_sources/story.explicit-hard/1.0.0/`. Elles sont
+  installées comme une recette séparée et restent éditables/versionnées depuis
+  **Consignes LLM** sans propagation vers les deux autres familles.
 - **Échanges LLM** affiche les demandes système/contexte, réponses et raisonnement
   fourni par le modèle. Les traces utilisent l'archive durable existante,
   associée explicitement à l'identifiant `story-*`, hors journal roulant.

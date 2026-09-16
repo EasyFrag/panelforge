@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from panelforge.domain.krea2_sampling import Krea2AssistedSampling, as_batch_settings, sampling_for
+from panelforge.domain.krea2_sampling import (
+    Krea2AssistedSampling,
+    Krea2AssistedSettings,
+    as_batch_settings,
+    sampling_for,
+)
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass, replace
@@ -31,6 +36,8 @@ from panelforge.domain.krea2_batch import (
 from panelforge.domain.krea2_lab import normalize_krea2_model_name
 from panelforge.domain.krea2_style_presets import Krea2StylePreset
 from panelforge.domain.krea2_lab import Krea2AspectRatio
+from panelforge.domain.krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW
+from panelforge.domain.recipes import RecipeRef
 from panelforge.infrastructure.krea2_batch_recipes import Krea2VisualRecipe
 
 from . import krea2_assisted_v1, krea2_assisted_v2, krea2_assisted_v3
@@ -100,6 +107,7 @@ class Krea2AssistedWorkflow(Protocol):
     output_node_id: str
     output_history_field: str
     output_media_type: str
+    outputs: tuple[object, ...]
 
     def build(
         self,
@@ -156,11 +164,12 @@ class Krea2AssistedService:
         *,
         gateway: MultimodalGateway,
         recipes: Krea2AssistedRecipes,
-        workflow: Krea2AssistedWorkflow,
+        workflow: Krea2AssistedWorkflow | None,
         comfy: Krea2AssistedComfy,
         assets: Krea2AssistedAssets,
         projects: Krea2AssistedStore,
         resources: Krea2AssistedResources,
+        workflows: tuple[Krea2AssistedWorkflow, ...] | None = None,
         exporter: Krea2CreationExporter | None = None,
         presets: Krea2StylePresetStore | None = None,
         application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
@@ -177,7 +186,24 @@ class Krea2AssistedService:
             raise ValueError("timeouts must be positive")
         self.gateway = gateway
         self.recipes = recipes
-        self.workflow = workflow
+        configured_workflows = workflows or ((workflow,) if workflow is not None else ())
+        workflow_map: dict[str, Krea2AssistedWorkflow] = {}
+        for configured in configured_workflows:
+            reference = configured.reference
+            key = f"{getattr(reference, 'recipe_id')}@{getattr(reference, 'version')}"
+            if key in workflow_map:
+                raise ValueError(f"duplicate KREA2 Assisted workflow: {key}")
+            workflow_map[key] = configured
+        default_key = DEFAULT_KREA2_ASSISTED_WORKFLOW.key
+        if workflow_map and default_key not in workflow_map:
+            # Keep isolated fakes and legacy callers usable: their sole workflow
+            # is the default for that service instance.
+            if len(workflow_map) != 1:
+                raise ValueError(f"missing default KREA2 Assisted workflow: {default_key}")
+            default_key = next(iter(workflow_map))
+        self._workflows = workflow_map
+        self._default_workflow_key = default_key
+        self.workflow = workflow_map.get(default_key)
         self.comfy = comfy
         self.assets = assets
         self.projects = projects
@@ -210,6 +236,17 @@ class Krea2AssistedService:
 
     def list_models(self) -> tuple[ModelDescriptor, ...]:
         return self.gateway.list_models()
+
+    def workflow_specs(self) -> tuple[dict[str, object], ...]:
+        return tuple({
+            "id": key,
+            "recipe_id": getattr(value.reference, "recipe_id"),
+            "version": getattr(value.reference, "version"),
+            "label": getattr(value, "display_name", key),
+            "description": getattr(value, "description", ""),
+            "default_sampling_preset_id": getattr(value, "default_sampling_preset_id", "current"),
+            "outputs": [getattr(output, "role", "final") for output in _workflow_outputs(value)],
+        } for key, value in self._workflows.items())
 
     def create_project(
         self,
@@ -453,6 +490,7 @@ class Krea2AssistedService:
         prompt = _bounded_text(prompt, "prompt", 40_000)
         if not isinstance(settings, Krea2BatchSettings):
             raise TypeError("settings must be Krea2BatchSettings")
+        selected_workflow = self._workflow_for_settings(settings) if self._workflows else None
         if enqueue:
             self._validate_render_settings(settings, allow_cached=True)
         chosen_seed = self._seed_factory() if seed is None else seed
@@ -471,6 +509,10 @@ class Krea2AssistedService:
                 conversation_prompt_language=project.prompt_language,
                 conversation_model_id=project.revision_model_id or project.model_id,
                 style_preset=project.style_preset, preset_pending=project.preset_pending,
+                workflow=(
+                    _recipe_ref(selected_workflow.reference)
+                    if selected_workflow is not None else None
+                ),
             )
             if enqueue:
                 attempt = attempt.queue(self._next_queue_order())
@@ -642,12 +684,17 @@ class Krea2AssistedService:
         history_received = False
         output_prefix = f"image/krea2-assisted/{project_id}/{attempt_id}"
         try:
+            workflow_definition = self._workflow_for_attempt(attempt)
             if execution_id is None:
                 self._validate_render_settings(attempt.settings)
-                workflow = self.workflow.build(
+                workflow = workflow_definition.build(
                     prompt=attempt.prompt, settings=attempt.settings, seed=attempt.seed,
                     output_prefix=output_prefix,
-                    sidecar_text=_sidecar(project, attempt, attempt.settings, output_prefix, self.workflow.reference),
+                    sidecar_text=_sidecar(
+                        project, attempt, attempt.settings, output_prefix,
+                        workflow_definition.reference,
+                        getattr(workflow_definition, "seed_metadata", lambda value: {"root": value})(attempt.seed),
+                    ),
                 )
                 digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
                 with self._lock:
@@ -662,23 +709,8 @@ class Krea2AssistedService:
                     self.projects.save(current.replace_attempt(current.attempt(attempt_id).start(execution_id, digest)))
             history = self._wait_history(project_id, attempt_id, execution_id)
             history_received = True
-            output = _extract_output_or_prefix(
-                history,
-                execution_id,
-                self.workflow.output_node_id,
-                self.workflow.output_history_field,
-                output_prefix,
-            )
-            content = self.comfy.download_output(
-                filename=output["filename"],
-                subfolder=output["subfolder"],
-                folder_type=output["type"],
-            )
-            _validate_png(content)
-            asset = self.assets.create(
-                content,
-                media_type=self.workflow.output_media_type,
-                source_run_id=project_id,
+            output_assets, output_warnings = self._import_outputs(
+                workflow_definition, history, execution_id, output_prefix, project_id,
             )
             with self._lock:
                 current = self.projects.get(project_id)
@@ -687,7 +719,11 @@ class Krea2AssistedService:
                     Krea2AssistedAttemptStatus.RUNNING,
                     Krea2AssistedAttemptStatus.CANCEL_PENDING,
                 }:
-                    current = self.projects.save(current.replace_attempt(current_attempt.succeed(asset.asset_id)))
+                    current = self.projects.save(current.replace_attempt(current_attempt.succeed(
+                        output_assets["final"],
+                        pre_flux_asset_id=output_assets.get("pre_flux"),
+                        warnings=output_warnings,
+                    )))
                 return current
         except _RenderTrackingStopped:
             return self.projects.get(project_id)
@@ -1006,25 +1042,15 @@ class Krea2AssistedService:
                 return project
             if terminal == "success":
                 prefix = f"image/krea2-assisted/{project.project_id}/{attempt.attempt_id}"
-                output = _extract_output_or_prefix(
-                    history,
-                    attempt.execution_id,
-                    self.workflow.output_node_id,
-                    self.workflow.output_history_field,
-                    prefix,
+                workflow_definition = self._workflow_for_attempt(attempt)
+                output_assets, output_warnings = self._import_outputs(
+                    workflow_definition, history, attempt.execution_id, prefix, project.project_id,
                 )
-                content = self.comfy.download_output(
-                    filename=output["filename"],
-                    subfolder=output["subfolder"],
-                    folder_type=output["type"],
+                updated = attempt.succeed(
+                    output_assets["final"],
+                    pre_flux_asset_id=output_assets.get("pre_flux"),
+                    warnings=output_warnings,
                 )
-                _validate_png(content)
-                asset = self.assets.create(
-                    content,
-                    media_type=self.workflow.output_media_type,
-                    source_run_id=project.project_id,
-                )
-                updated = attempt.succeed(asset.asset_id)
             elif terminal == "interrupted":
                 updated = attempt.cancel()
             else:
@@ -1034,10 +1060,11 @@ class Krea2AssistedService:
         return self.projects.save(project.replace_attempt(updated))
 
     def _validate_render_settings(self, settings: Krea2BatchSettings, *, allow_cached: bool = False) -> None:
+        workflow = self._workflow_for_settings(settings)
         sampling = sampling_for(settings)
         default_sampling = Krea2AssistedSampling()
         if (sampling.first_pass, sampling.second_pass) != (default_sampling.first_pass, default_sampling.second_pass):
-            if not getattr(self.workflow, "supports_sampling", False):
+            if not getattr(workflow, "supports_sampling", False):
                 raise ValueError("Le workflow Assisted chargé ne prend pas en charge ces réglages de sampling.")
         known = getattr(self.resources, "selection_in_last_inventory", None)
         if allow_cached and callable(known) and known(settings.model_name, tuple(value.name for value in settings.loras)):
@@ -1055,6 +1082,71 @@ class Krea2AssistedService:
         missing = [value.name for value in settings.loras if normalize_krea2_model_name(value.name) not in available]
         if missing:
             raise ValueError("LoRA indisponible pour cet essai : " + ", ".join(missing))
+
+    def _workflow_for_settings(self, settings: Krea2BatchSettings) -> Krea2AssistedWorkflow:
+        if not self._workflows:
+            raise ValueError("Aucun workflow KREA2 Assisted n'est configuré.")
+        key = settings.workflow.key if isinstance(settings, Krea2AssistedSettings) else self._default_workflow_key
+        if key == DEFAULT_KREA2_ASSISTED_WORKFLOW.key and key not in self._workflows:
+            assert self.workflow is not None
+            return self.workflow
+        try:
+            return self._workflows[key]
+        except KeyError as error:
+            raise ValueError(f"Famille de workflow KREA2 Assisted indisponible : {key}") from error
+
+    def _workflow_for_attempt(self, attempt: Krea2AssistedAttempt) -> Krea2AssistedWorkflow:
+        workflow = self._workflow_for_settings(attempt.settings)
+        if attempt.workflow is None:
+            return workflow
+        key = f"{attempt.workflow.recipe_id}@{attempt.workflow.version}"
+        try:
+            workflow = self._workflows[key]
+        except KeyError as error:
+            raise ValueError(f"Workflow historique KREA2 Assisted indisponible : {key}") from error
+        if getattr(workflow.reference, "workflow_sha256") != attempt.workflow.workflow_sha256:
+            raise ValueError(f"Empreinte du workflow historique KREA2 Assisted incompatible : {key}")
+        return workflow
+
+    def _import_outputs(
+        self,
+        workflow: Krea2AssistedWorkflow,
+        history: Mapping[str, Any],
+        execution_id: str,
+        output_prefix: str,
+        project_id: str,
+    ) -> tuple[dict[str, str], tuple[str, ...]]:
+        assets: dict[str, str] = {}
+        warnings: list[str] = []
+        for output_spec in _workflow_outputs(workflow):
+            role = getattr(output_spec, "role", "final")
+            try:
+                output = _extract_output_or_prefix(
+                    history,
+                    execution_id,
+                    getattr(output_spec, "node_id"),
+                    getattr(output_spec, "history_field"),
+                    f"{output_prefix}{getattr(output_spec, 'prefix_suffix', '')}",
+                )
+                content = self.comfy.download_output(
+                    filename=output["filename"],
+                    subfolder=output["subfolder"],
+                    folder_type=output["type"],
+                )
+                _validate_png(content)
+                asset = self.assets.create(
+                    content,
+                    media_type=getattr(output_spec, "media_type"),
+                    source_run_id=project_id,
+                )
+                assets[role] = asset.asset_id
+            except Exception as error:
+                if getattr(output_spec, "required", True):
+                    raise
+                warnings.append(f"Sortie auxiliaire {role} indisponible : {_error(error)}")
+        if "final" not in assets:
+            raise ValueError("Le workflow Assisted n'a produit aucune sortie finale.")
+        return assets, tuple(warnings)
 
     def _model_available(self, name: str) -> bool:
         target = normalize_krea2_model_name(name)
@@ -1226,6 +1318,7 @@ def _sidecar(
     effective_settings: Krea2BatchSettings,
     output_prefix: str,
     reference: object,
+    seeds: Mapping[str, int],
 ) -> str:
     width, height = effective_settings.resolution
     return json.dumps({
@@ -1249,6 +1342,7 @@ def _sidecar(
             "base_width": width,
             "base_height": height,
             "seed": attempt.seed,
+            "seeds": dict(seeds),
             "loras": [
                 {"name": value.name, "strength": value.strength}
                 for value in effective_settings.loras
@@ -1262,6 +1356,40 @@ def _sidecar(
             "sha256": getattr(reference, "workflow_sha256"),
         },
     }, ensure_ascii=False, indent=2) + "\n"
+
+
+def _workflow_outputs(workflow: Krea2AssistedWorkflow) -> tuple[object, ...]:
+    outputs = getattr(workflow, "outputs", None)
+    if isinstance(outputs, tuple) and outputs:
+        return outputs
+    # Compatibility for existing fakes and adapters predating multi-output.
+    return (_LegacyWorkflowOutput(
+        role="final",
+        node_id=workflow.output_node_id,
+        history_field=workflow.output_history_field,
+        media_type=workflow.output_media_type,
+    ),)
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacyWorkflowOutput:
+    role: str
+    node_id: str
+    history_field: str
+    media_type: str
+    prefix_suffix: str = ""
+    required: bool = True
+
+
+def _recipe_ref(value: object) -> RecipeRef:
+    if isinstance(value, RecipeRef):
+        return value
+    return RecipeRef(
+        operation_id=getattr(value, "operation_id"),
+        recipe_id=getattr(value, "recipe_id"),
+        version=getattr(value, "version"),
+        workflow_sha256=getattr(value, "workflow_sha256"),
+    )
 
 
 def _extract_output_or_prefix(

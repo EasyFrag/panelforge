@@ -75,6 +75,10 @@
     ratio: $("krea2-assisted-ratio"),
     megapixels: $("krea2-assisted-megapixels"),
     seed: $("krea2-assisted-seed"),
+    workflow: $("krea2-assisted-workflow"),
+    workflowSummary: $("krea2-assisted-workflow-summary"),
+    samplingFirstNote: $("krea2-assisted-first-note"),
+    samplingSecondNote: $("krea2-assisted-second-note"),
     samplingPreset: $("krea2-assisted-sampling-preset"),
     samplingSummary: $("krea2-assisted-sampling-summary"),
     samplingDetails: $("krea2-assisted-sampling-details"),
@@ -105,6 +109,8 @@
   }));
   let samplingVersion = "1.0.0";
   let samplingCatalogSignature = null;
+  let activeWorkflowId = "krea2-sampling@1.0.0";
+  const workflowSamplingDrafts = new Map();
 
   function defaultSampling() {
     return { preset_id: "current", version: "1.0.0",
@@ -181,6 +187,39 @@
     samplingCatalogSignature = signature;
   }
 
+  function workflowSpec(id = elements.workflow.value) {
+    return (state.spec?.workflows || []).find(item => item.id === id);
+  }
+
+  function updateWorkflowSummary() {
+    const selected = workflowSpec();
+    const flux = selected?.recipe_id === "krea2-flux-klein";
+    elements.workflowSummary.textContent = (selected?.description || "Famille de workflow historique.")
+      + (flux ? " Le sélecteur MP fixe la taille finale ; KREA2 est dimensionné automatiquement." : "");
+    elements.samplingFirstNote.textContent = flux ? "CFG 1,0 · denoise 1,00" : "CFG 1,1 · denoise 1,00";
+    elements.samplingSecondNote.textContent = flux ? "CFG 1,0 · denoise 0,39 · Flux fixe : 5 steps" : "CFG 1,0 · denoise 0,30";
+  }
+
+  function loadWorkflow(value) {
+    const workflowId = value || "krea2-sampling@1.0.0";
+    ensureMissingOption(elements.workflow, workflowId);
+    elements.workflow.value = workflowId;
+    activeWorkflowId = workflowId;
+    updateWorkflowSummary();
+  }
+
+  function configureWorkflows(workflows) {
+    if (!Array.isArray(workflows) || !workflows.length) return;
+    const selected = elements.workflow.value || activeWorkflowId;
+    elements.workflow.replaceChildren();
+    for (const workflow of workflows) {
+      const option = document.createElement("option");
+      option.value = workflow.id; option.textContent = workflow.label;
+      elements.workflow.append(option);
+    }
+    loadWorkflow(workflows.some(item => item.id === selected) ? selected : workflows[0].id);
+  }
+
   function validateSamplingInputs() {
     const invalid = samplingPasses.find(row => !row.steps.checkValidity());
     if (!invalid) return true;
@@ -192,6 +231,17 @@
   elements.samplingPreset.addEventListener("change", () => {
     const preset = state.spec?.sampling?.presets.find(item => item.id === elements.samplingPreset.value);
     if (preset) loadSampling(preset.settings);
+  });
+  elements.workflow.addEventListener("change", () => {
+    workflowSamplingDrafts.set(activeWorkflowId, readSampling());
+    activeWorkflowId = elements.workflow.value;
+    const saved = workflowSamplingDrafts.get(activeWorkflowId);
+    const selected = workflowSpec(activeWorkflowId);
+    const preset = state.spec?.sampling?.presets.find(
+      item => item.id === selected?.default_sampling_preset_id,
+    );
+    loadSampling(saved || preset?.settings || defaultSampling());
+    updateWorkflowSummary();
   });
   for (const row of samplingPasses) {
     for (const [field, control] of Object.entries(row)) {
@@ -257,6 +307,7 @@
   function setBusy(value) {
     state.busy = value;
     const samplingDisabled = value || !state.spec?.sampling;
+    elements.workflow.disabled = value || !(state.spec?.workflows || []).length;
     elements.samplingPreset.disabled = samplingDisabled;
     samplingPasses.forEach(row => Object.values(row).forEach(control => { control.disabled = samplingDisabled; }));
     if (state.spec && !state.spec.sampling) {
@@ -432,6 +483,7 @@
 
   function loadAttemptSettings(attempt) {
     if (!attempt) return;
+    loadWorkflow(attempt.settings.workflow);
     loadSampling(attempt.settings.sampling);
     elements.prompt.value = attempt.prompt;
     elements.model.value = attempt.settings.model_id;
@@ -751,15 +803,30 @@
         pending.textContent = `Essai ${attempt.index} · ${attemptStatus(attempt)}`;
         card.append(pending);
       }
+      if (attempt.pre_flux_url) {
+        const intermediate = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = "Image KREA2 avant Flux";
+        const download = document.createElement("a");
+        download.href = attempt.pre_flux_url;
+        download.download = `krea2-assisted-${attempt.attempt_id}-pre-flux.png`;
+        download.textContent = "Télécharger l’image pré-Flux";
+        intermediate.append(summary, imageFigure(
+          `${attempt.pre_flux_url}?v=${encodeURIComponent(attempt.pre_flux_asset_id)}`,
+          `Essai ${attempt.index} · avant Flux Klein`,
+        ), download);
+        card.append(intermediate);
+      }
       const settings = attempt.settings || {};
       const resolution = settings.resolution || {};
       const resolutionLabel = resolution.width && resolution.height
         ? `${resolution.width}×${resolution.height}`
         : settings.aspect_ratio.split(" ")[0];
       const renderMeta = document.createElement("small");
+      const finalMp = workflowSpec(settings.workflow)?.recipe_id === "krea2-flux-klein";
       renderMeta.textContent = attempt.dlss ? `DLSS · ${attempt.dlss.width}×${attempt.dlss.height} · réglages de génération hérités` : attempt.composition
         ? `Composition locale · ${attempt.output_dimensions.width}×${attempt.output_dimensions.height} · taille de la base`
-        : `Modèle · ${compactResourceName(settings.model_id)} · ${resolutionLabel} · ${settings.megapixels} MP`;
+        : `${workflowSpec(settings.workflow)?.label || "KREA2"} · ${compactResourceName(settings.model_id)} · ${resolutionLabel} · ${settings.megapixels} MP${finalMp ? " final" : ""}`;
       renderMeta.title = `${attempt.composition ? "Génération d’origine\n" : ""}Checkpoint : ${settings.model_id}\nRésolution : ${resolutionLabel} · ${settings.aspect_ratio} · ${settings.megapixels} MP`;
       renderMeta.title += `\nSampling : ${samplingSummary(settings.sampling)}`;
       const loras = settings.loras || [];
@@ -780,6 +847,10 @@
         error.textContent = attempt.error;
         card.append(error);
       }
+      (attempt.output_warnings || []).forEach(message => {
+        const warning = document.createElement("small");
+        warning.className = "muted"; warning.textContent = message; card.append(warning);
+      });
       if (originName) {
         const origin = document.createElement("small");
         origin.textContent = originName;
@@ -880,6 +951,8 @@
     elements.activeRecipe.title = `Recette d’assistance ${recipeVersion}`;
     elements.promptLanguage.value = project.prompt_language || "en";
     if (changed) {
+      workflowSamplingDrafts.clear();
+      activeWorkflowId = "krea2-sampling@1.0.0";
       clearGuidance();
       elements.message.value = "";
       reasoningTrace.reset();
@@ -925,6 +998,7 @@
     );
     if (last) loadAttemptSettings(last);
     else loadSampling(null);
+    if (!last && !project.render_settings) loadWorkflow(null);
     // A newer conversational prompt can exist after the last render.
     elements.prompt.value = project.current_prompt || last?.prompt || "";
   }
@@ -977,6 +1051,7 @@
       prompt: elements.prompt.value.trim(), model_id: elements.model.value,
       aspect_ratio: elements.ratio.value, megapixels: Number(elements.megapixels.value),
       seed: elements.seed.value.trim() || null, loras: selectedLoras(), sampling: readSampling(),
+      workflow: elements.workflow.value,
     } : null;
     stopPolling();
     state.navigationSerial += 1;
@@ -1058,6 +1133,7 @@
     const previousSlots = state.loraSlots.map((slot) => ({ ...slot }));
     state.spec = next;
     configureSampling(next.sampling);
+    configureWorkflows(next.workflows);
     const signature = JSON.stringify([next.render_models, next.loras, next.llm_models]);
     if (state.catalogSignature === signature) { catalogStatus.observe(next); return; }
     const previousRecipe = elements.assistanceRecipe.value || "3.0.0";
@@ -1239,6 +1315,7 @@
           seed: elements.seed.value.trim() || null,
           loras: selectedLoras(),
           sampling: readSampling(),
+          workflow: elements.workflow.value,
         }),
       });
       const attempt = payload.project.attempts.at(-1);
@@ -1419,7 +1496,8 @@
         body: JSON.stringify({ preset_id: presetId, expected_branch_id: state.project.active_branch_id,
           draft: { prompt: elements.prompt.value, model_id: elements.model.value,
             aspect_ratio: elements.ratio.value, megapixels: Number(elements.megapixels.value),
-            seed: elements.seed.value.trim() || null, loras: selectedLoras(), sampling: readSampling() } }),
+            seed: elements.seed.value.trim() || null, loras: selectedLoras(), sampling: readSampling(),
+            workflow: elements.workflow.value } }),
       });
       renderProject(payload.project, { preservePrompt: true });
       restoreRenderState(payload.project);

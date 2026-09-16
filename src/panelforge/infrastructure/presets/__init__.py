@@ -35,6 +35,10 @@ from .krea2_batch import (
     ValidatedKrea2BatchWorkflow,
     load_krea2_batch_workflow,
 )
+from .krea2_flux_klein import (
+    ValidatedKrea2FluxKleinWorkflow,
+    load_krea2_flux_klein_workflow,
+)
 from .krea2_edit import (
     EditBinding,
     ValidatedKrea2EditWorkflow,
@@ -85,7 +89,9 @@ __all__ = [
     "Krea2T2IRecipe",
     "LoraSlotBinding",
     "ValidatedKrea2BatchWorkflow",
+    "ValidatedKrea2FluxKleinWorkflow",
     "load_krea2_batch_workflow",
+    "load_krea2_flux_klein_workflow",
     "EditBinding",
     "ValidatedKrea2EditWorkflow",
     "load_krea2_edit_workflow",

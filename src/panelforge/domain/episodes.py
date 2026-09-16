@@ -3,9 +3,10 @@ from copy import deepcopy
 import hashlib
 import json
 
-from .stories import validate_scenario
+from .stories import dialogue_instruction, story_recipe_selection, validate_scenario
 from .prompt_lab import CreativeFreedomAxes
 from .krea2_sampling import Krea2AssistedSampling
+from .krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW
 from dataclasses import asdict
 
 REF2V_COOKBOOK = ("minimax.h3.ref2v.classic.cinematic.planned", "1.0.0")
@@ -16,8 +17,12 @@ DEFAULT_CREATIVE_AXES = dict(scene_life=1, camera=2, extra_motion=1, dialogue=0)
 
 
 def image_defaults(episode):
-    return deepcopy(episode.get("image_defaults") or dict(
-        model_id=None, loras=[], sampling=asdict(Krea2AssistedSampling())))
+    result = deepcopy(episode.get("image_defaults") or {})
+    result.setdefault("model_id", None)
+    result.setdefault("loras", [])
+    result.setdefault("sampling", asdict(Krea2AssistedSampling()))
+    result.setdefault("workflow", asdict(DEFAULT_KREA2_ASSISTED_WORKFLOW))
+    return result
 
 
 def inherits_images(ref):
@@ -63,12 +68,20 @@ def default_render_setup(duration):
 
 
 def scene_action(scene):
-    return (f"Situation initiale : {scene['opening_state']}\n\n{scene['action']}\n\n"
-            f"À la fin : {scene['ending_state']}")
+    lines = [f"Situation initiale : {scene['opening_state']}"]
+    if scene.get("relationship_state"):
+        lines.append(f"Dynamique relationnelle : {scene['relationship_state']}")
+    if scene.get("appearance_state"):
+        lines.append(f"Continuité des tenues : {scene['appearance_state']}")
+    if scene.get("sexual_state"):
+        lines.append(f"Position et contacts sexuels au début : {scene['sexual_state']}")
+    lines.extend((scene["action"], f"À la fin : {scene['ending_state']}"))
+    return "\n\n".join(lines)
 
 
 def initial_episode(story, identity):
-    scenario = validate_scenario(story["document"]["scenario"])
+    recipe = story_recipe_selection(story.get("recipe"))
+    scenario = validate_scenario(story["document"]["scenario"], recipe["id"], recipe["version"])
     refs, lookup = [], {}
     for kind, collection in (("character", "characters"), ("location", "locations")):
         for index, item in enumerate(scenario[collection]):
@@ -132,14 +145,17 @@ def scene_inputs(episode, scene, *, require_images=True):
     lines.append(scene["intention"])
     if source_scene["dialogue"]:
         lines.append("Répliques françaises exactes, dans cet ordre et avec ces locuteurs :\n" + "\n".join(
-            f"{people[d['speaker_id']]['name']} : « {d['text']} »" for d in source_scene["dialogue"]))
+            dialogue_instruction(d, people[d["speaker_id"]]["name"]) for d in source_scene["dialogue"]))
     elif axes.dialogue < 2:
         lines.append("Aucun dialogue.")
+    requested_delivery = any(line.get("delivery", "spoken") != "spoken" for line in source_scene["dialogue"])
+    delivery_rule = ("Respecte exactement les modes de restitution indiqués et n’ajoute aucune autre voix off, "
+                     if requested_delivery else "Sans voix off, ")
     lines.append("Invente une mise en scène créative, vivante et expressive. Les gestes et réactions accompagnent les paroles. "
                  "Préserve les identités et les objets importants. "
                  + ("Sans dialogue supplémentaire, " if axes.dialogue < 2 else
-                    "Ne remplace ni ne reformule les répliques du scénario. Les ajouts éventuels suivent le niveau Dialogues et réactions choisi. Sans ")
-                 + "voix off, musique ni texte à l’écran.")
+                    "Ne remplace ni ne reformule les répliques du scénario. Les ajouts éventuels suivent le niveau Dialogues et réactions choisi. ")
+                 + delivery_rule + "musique ni texte à l’écran.")
     result = dict(references=selected, source_text="\n\n".join(lines),
         plan_model_id=scene["plan_model_id"], writer_model_id=scene["writer_model_id"],
         shot_count=scene["shot_count"], audacity=scene["audacity"], cookbook=episode["cookbook"])

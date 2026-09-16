@@ -13,7 +13,12 @@ from fastapi.testclient import TestClient
 
 from panelforge.application.prompt_lab import CompletionResult, CompletionStreamEvent, ModelDescriptor, StreamEventKind, StreamPhase
 from panelforge.application.stories import StoryService, StoryConflict
-from panelforge.domain.stories import RECIPE_ID, RECIPE_VERSION, decode_story_json, validate_scenario, scene_intention
+from panelforge.domain.stories import (
+    EXPLICIT_RECIPE_ID, EXPLICIT_RECIPE_VERSION, RECIPE_ID, RECIPE_VERSION,
+    SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION,
+    decode_story_json, extract_script_dialogue_cues, extract_script_dialogues, parse_response, validate_concepts,
+    validate_scenario, validate_script_dialogue_coverage, response_contract, scene_intention,
+)
 from panelforge.features.lab.stories_web import stories_router
 from panelforge.features.lab.prompt_recipes_web import prompt_recipes_router
 from panelforge.infrastructure.storage.stories import LocalStoryStore, LocalStoryRecipeStore
@@ -42,6 +47,7 @@ class Gateway:
         self.release = Event()
         self.release.set()
         self.truncated = False
+        self.reasoning = ""
 
     def list_models(self):
         return [ModelDescriptor("local::fixture", "local", "Modèle de test")]
@@ -52,6 +58,8 @@ class Gateway:
         self.entered.set()
         if not self.release.wait(5):
             raise TimeoutError("Test gateway timed out")
+        if self.reasoning:
+            yield CompletionStreamEvent(StreamEventKind.REASONING, StreamPhase.GENERATING, text=self.reasoning)
         yield CompletionStreamEvent(StreamEventKind.DELTA, StreamPhase.GENERATING, text=raw)
         yield CompletionStreamEvent(StreamEventKind.TRUNCATED if self.truncated else StreamEventKind.COMPLETED,
             StreamPhase.COMPLETED, result=CompletionResult(request.model_id, raw, call_id=f"call-{len(self.requests)}"))
@@ -133,6 +141,125 @@ class StoriesTest(unittest.TestCase):
                        '{"a":1 "b":2}', '{"a":1} commentaire', "{'a':1}"):
             with self.subTest(broken=broken), self.assertRaises(json.JSONDecodeError):
                 decode_story_json(broken)
+
+    def test_story_reply_accepts_144000_characters_and_rejects_more(self):
+        response = deepcopy(IDEAS)
+        response["reply"] = "x" * 144_000
+        reply, document = parse_response(response, "ideas", False)
+        self.assertEqual(len(reply), 144_000)
+        self.assertEqual(len(document["concepts"]), 3)
+        response["reply"] += "x"
+        with self.assertRaisesRegex(ValueError, "maximum 144000"):
+            parse_response(response, "ideas", False)
+
+    def test_story_requests_and_preserves_live_model_reasoning(self):
+        self.gateway.reasoning = "Je pose les enjeux, puis je distingue trois fins."
+        project = self.concepts()
+        self.assertTrue(self.gateway.requests[-1].include_reasoning)
+        self.assertEqual(project["job"]["reasoning"], self.gateway.reasoning)
+        self.assertEqual(project["job"]["draft"], self.gateway.response)
+
+    def test_one_or_two_proposals_use_the_requested_contract_and_one_is_auto_selected(self):
+        for count in (1, 2):
+            with self.subTest(count=count):
+                response = {"reply": "Voici.", "concepts": deepcopy(IDEAS["concepts"][:count])}
+                self.gateway.response = json.dumps(response)
+                project = self.service.create(proposal_count=count)
+                project = self.write(project, "ideas")
+                self.assertEqual(project["job"]["status"], "succeeded")
+                self.assertEqual(len(project["document"]["concepts"]), count)
+                self.assertEqual(project["document"]["selected_id"], "concept-1" if count == 1 else None)
+                request = self.gateway.requests[-1]
+                context = json.loads(request.user_prompt)
+                self.assertEqual(context["proposal_count"], count)
+                self.assertEqual(len(context["response_contract"]["concepts"]), count)
+                self.assertIn(f"exactement {count} proposition", request.system_prompt)
+
+    def test_script_mode_skips_concepts_and_requires_every_source_dialogue_verbatim(self):
+        script = """TITRE : LA REINE\n\nSCÈNE 1 — SUR LA PLACE\n\nREINE\nC’est lui !\n\nLIVREUR — À VOIX BASSE\nMadame… votre nom est ici.\n\nFIN\n"""
+        self.assertEqual(extract_script_dialogues(script), ["C’est lui !", "Madame… votre nom est ici."])
+        self.gateway.response = json.dumps(SCENARIO, ensure_ascii=False)
+        project = self.service.create(brief=script, creation_mode="script",
+            architect_model_id="local::architect", writer_model_id="local::writer")
+        self.service.start(project["project_id"], operation="script", instruction="", model_id=None,
+            expected_version=project["version"], request_id=str(uuid4()))
+        project = self.finish(project)
+        self.assertEqual(project["job"]["status"], "succeeded")
+        self.assertFalse(project["document"]["concepts"])
+        dialogue = project["document"]["scenario"]["scenes"][0]["dialogue"]
+        self.assertEqual([line["text"] for line in dialogue], [line["text"] for line in SCENARIO["scenario"]["scenes"][0]["dialogue"]])
+        self.assertEqual(dialogue[0], {**SCENARIO["scenario"]["scenes"][0]["dialogue"][0],
+                                      "dialogue_id": "dialogue-1", "delivery": "spoken"})
+        self.assertEqual(dialogue[1], {**SCENARIO["scenario"]["scenes"][0]["dialogue"][1],
+                                      "dialogue_id": "dialogue-2", "delivery": "spoken",
+                                      "delivery_note": "À VOIX BASSE"})
+        request = self.gateway.requests[-1]
+        self.assertEqual(request.model_id, "local::writer")
+        self.assertEqual(request.temperature, .35)
+        self.assertIn("MODE SCRIPT FIDÈLE", request.system_prompt)
+        context = json.loads(request.user_prompt)
+        self.assertEqual(context["creation_mode"], "script")
+        self.assertEqual(context["brief"], script.strip())
+        self.assertEqual(context["source_dialogues"][1]["dialogue_id"], "dialogue-2")
+        self.assertEqual(context["source_dialogues"][1]["delivery_note"], "À VOIX BASSE")
+        self.assertIn("dialogues mot pour mot", context["contract_notes"])
+
+        broken = deepcopy(SCENARIO)
+        broken["scenario"]["scenes"][0]["dialogue"].pop()
+        self.gateway.response = json.dumps(broken, ensure_ascii=False)
+        retry = self.service.create(brief=script, creation_mode="script", writer_model_id="local::writer")
+        self.service.start(retry["project_id"], operation="script", instruction="", model_id=None,
+            expected_version=retry["version"], request_id=str(uuid4()))
+        retry = self.finish(retry)
+        self.assertEqual(retry["job"]["status"], "failed")
+        self.assertIn("intégralité des dialogues", retry["job"]["error"])
+        self.assertIsNone(retry["document"]["scenario"])
+
+    def test_script_delivery_notations_are_canonicalized_without_changing_spoken_words(self):
+        script = """SCÈNE 1
+
+LÉA — VOIX OFF
+Je réfléchis.
+
+TOM [O.S.]
+Léa ?
+
+LÉA (V.O.)
+Je réponds.
+
+VOICE OVER DE TOM
+Je conclus.
+
+FIN
+"""
+        cues = extract_script_dialogue_cues(script)
+        self.assertEqual([cue["delivery"] for cue in cues],
+                         ["voice_over", "off_screen", "voice_over", "voice_over"])
+        self.assertEqual([cue["dialogue_id"] for cue in cues],
+                         ["dialogue-1", "dialogue-2", "dialogue-3", "dialogue-4"])
+        scenario = validate_scenario({
+            "title": "Essai", "logline": "Une conversation.",
+            "characters": [{"id": "lea", "name": "LÉA", "description": "Une femme."},
+                           {"id": "tom", "name": "TOM", "description": "Un homme."}],
+            "locations": [{"id": "lieu", "name": "Pièce", "description": "Une pièce."}],
+            "scenes": [{"title": "Conversation", "location_id": "lieu", "character_ids": ["lea", "tom"],
+                "opening_state": "Ils sont séparés.", "action": "Leurs voix se répondent.",
+                "dialogue": [{"speaker_id": "lea", "text": "(Voix off) Je réfléchis."},
+                             {"speaker_id": "tom", "text": "[O.S.] Léa ?"},
+                             {"speaker_id": "lea", "text": "Je réponds."},
+                             {"speaker_id": "tom", "text": "Je conclus."}],
+                "ending_state": "La conversation prend fin."}]})
+        validate_script_dialogue_coverage(script, scenario)
+        dialogue = scenario["scenes"][0]["dialogue"]
+        self.assertEqual([line["text"] for line in dialogue],
+                         ["Je réfléchis.", "Léa ?", "Je réponds.", "Je conclus."])
+        self.assertEqual([line["delivery"] for line in dialogue],
+                         ["voice_over", "off_screen", "voice_over", "voice_over"])
+        self.assertEqual(dialogue[1]["delivery_note"], "O.S.")
+        changed = deepcopy(scenario)
+        changed["scenes"][0]["dialogue"][2]["text"] = "Je ne réponds pas."
+        with self.assertRaisesRegex(ValueError, "intégralité des dialogues"):
+            validate_script_dialogue_coverage(script, changed)
 
     def test_discussion_does_not_replace_document_and_restore_appends_revision(self):
         p = self.scenario()
@@ -293,6 +420,18 @@ class StoriesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.get("../escape")
 
+    def test_structured_scene_edit_is_versioned_without_an_llm_call(self):
+        project = self.scenario()
+        calls = len(self.gateway.requests)
+        source = project["document"]["scenario"]["scenes"][0]
+        changes = {key: deepcopy(source[key]) for key in ("title", "opening_state", "action", "dialogue", "ending_state")}
+        changes["action"] = "La reine déchire l’étiquette ; le livreur ramasse les deux morceaux et les rapproche."
+        edited = self.service.edit_scene(project["project_id"], 0, project["version"], changes)
+        self.assertEqual(len(self.gateway.requests), calls)
+        self.assertEqual(edited["document"]["scenario"]["scenes"][0]["action"], changes["action"])
+        self.assertEqual(edited["revisions"][-1]["label"], "Édition manuelle de la scène 1")
+        self.assertIn("diagnostics", edited)
+
     def test_http_creation_offline_history_and_independent_recipe_catalog(self):
         app = FastAPI()
         app.include_router(stories_router(self.service))
@@ -307,8 +446,99 @@ class StoriesTest(unittest.TestCase):
             package = client.get(f"/api/prompt-recipes/recipe/{RECIPE_ID}/{RECIPE_VERSION}")
             self.assertEqual(package.status_code, 200)
             self.assertEqual(client.post("/api/stories/projects", json={"clip_seconds": True}).status_code, 422)
+            self.assertEqual(client.post("/api/stories/projects", json={"proposal_count": 0}).status_code, 422)
+            self.assertEqual(client.post("/api/stories/projects", json={"creation_mode": "script", "brief": ""}).status_code, 422)
             result = client.post(f"/api/stories/projects/{project['project_id']}/select", json={"concept_id": "missing", "expected_version": 1})
             self.assertEqual(result.status_code, 422)
+
+    def test_sensual_family_has_an_independent_contract_recipe_and_models(self):
+        recipes = LocalStoryRecipeStore(self.temp.name, {
+            (RECIPE_ID, RECIPE_VERSION): ROOT / "prompt_sources/story.brainrot/1.0.0",
+            (SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION): ROOT / "prompt_sources/story.sensual-light/1.0.0",
+            (EXPLICIT_RECIPE_ID, EXPLICIT_RECIPE_VERSION): ROOT / "prompt_sources/story.explicit-hard/1.0.0",
+        })
+        self.service = StoryService(gateway=self.gateway, store=self.store, recipes=recipes)
+        specs = {item["id"]: item for item in self.service.recipe_specs()}
+        self.assertEqual(set(specs), {RECIPE_ID, SENSUAL_RECIPE_ID, EXPLICIT_RECIPE_ID})
+        self.assertIn("sexual_state", {field["id"] for field in specs[EXPLICIT_RECIPE_ID]["scene_fields"]})
+        fruit = recipes.get(RECIPE_ID, RECIPE_VERSION)
+        sensual = recipes.get(SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION)
+        self.assertNotEqual(fruit["fields"], sensual["fields"])
+        changed = {**sensual["fields"], "plan.system": sensual["fields"]["plan.system"] + "\nVariation locale."}
+        recipes.save(SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION, base_revision=1, expected_active=1, fields=changed)
+        self.assertEqual(recipes.get(RECIPE_ID, RECIPE_VERSION)["active"], fruit["active"])
+
+        concepts = [{"id": f"concept-{index}", "title": f"Après minuit {index}", "hook": "Deux collègues prolongent un verre.",
+            "characters_and_dynamic": "Deux adultes attirés l’un par l’autre.", "desire": "Ils veulent cesser de se retenir.",
+            "obstacle": "Ils craignent de compliquer leur travail.", "sensual_escalation": "Leurs mains se frôlent puis restent jointes.",
+            "turning_point": "Elle lui demande de rester.", "ending": "Ils s’embrassent et referment la porte."}
+            for index in range(1, 4)]
+        self.gateway.response = json.dumps({"reply": "Trois pistes.", "concepts": concepts})
+        project = self.service.create(recipe_id=SENSUAL_RECIPE_ID, recipe_version=SENSUAL_RECIPE_VERSION,
+            architect_model_id="local::architect", writer_model_id="local::writer")
+        self.service.start(project["project_id"], operation="ideas", instruction="", model_id=None,
+            expected_version=project["version"], request_id=str(uuid4()))
+        project = self.finish(project)
+        self.assertEqual(self.gateway.requests[-1].model_id, "local::architect")
+        self.assertEqual(self.gateway.requests[-1].trace_context["cookbook_id"], SENSUAL_RECIPE_ID)
+        self.assertEqual(project["document"]["concepts"], validate_concepts(concepts, SENSUAL_RECIPE_ID))
+
+        project = self.service.select(project["project_id"], "concept-1", project["version"])
+        scenario = deepcopy(SCENARIO["scenario"])
+        for character in scenario["characters"]:
+            character["adult"] = True
+        scenario["scenes"][0].update(relationship_state="Ils assument enfin leur attirance réciproque.",
+            appearance_state="Leurs tenues de soirée restent intactes et clairement décrites.")
+        self.gateway.response = json.dumps({"reply": "Voici le scénario.", "scenario": scenario})
+        self.service.start(project["project_id"], operation="develop", instruction="", model_id=None,
+            expected_version=project["version"], request_id=str(uuid4()))
+        project = self.finish(project)
+        self.assertEqual(self.gateway.requests[-1].model_id, "local::writer")
+        self.assertEqual(project["document"]["scenario"]["characters"][0]["adult"], True)
+
+        with self.assertRaisesRegex(ValueError, "adulte"):
+            validate_scenario(SCENARIO["scenario"], SENSUAL_RECIPE_ID)
+
+    def test_explicit_family_is_independent_and_requires_physical_continuity(self):
+        recipes = LocalStoryRecipeStore(self.temp.name, {
+            (RECIPE_ID, RECIPE_VERSION): ROOT / "prompt_sources/story.brainrot/1.0.0",
+            (SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION): ROOT / "prompt_sources/story.sensual-light/1.0.0",
+            (EXPLICIT_RECIPE_ID, EXPLICIT_RECIPE_VERSION): ROOT / "prompt_sources/story.explicit-hard/1.0.0",
+        })
+        self.service = StoryService(gateway=self.gateway, store=self.store, recipes=recipes)
+        fruit = recipes.get(RECIPE_ID, RECIPE_VERSION)
+        sensual = recipes.get(SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION)
+        explicit = recipes.get(EXPLICIT_RECIPE_ID, EXPLICIT_RECIPE_VERSION)
+        self.assertNotEqual(explicit["fields"], fruit["fields"])
+        self.assertNotEqual(explicit["fields"], sensual["fields"])
+        changed = {**explicit["fields"], "writer.system": explicit["fields"]["writer.system"] + "\nVariation Cru locale."}
+        recipes.save(EXPLICIT_RECIPE_ID, EXPLICIT_RECIPE_VERSION, base_revision=1,
+            expected_active=1, fields=changed)
+        self.assertEqual(recipes.get(RECIPE_ID, RECIPE_VERSION)["active"], fruit["active"])
+        self.assertEqual(recipes.get(SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION)["active"], sensual["active"])
+
+        concept = {"id": "concept-1", "title": "Après la fermeture", "hook": "Deux adultes prolongent la nuit.",
+            "participants_and_dynamic": "Deux partenaires adultes.", "explicit_premise": "Un acte sexuel explicite.",
+            "acts_and_progression": "Approche, contact, changement de position et acte principal.",
+            "physical_escalation": "Les mouvements deviennent plus soutenus.",
+            "turning_point": "Ils changent volontairement de position.", "ending": "Ils restent enlacés sur le lit."}
+        self.assertEqual(validate_concepts([concept], EXPLICIT_RECIPE_ID, expected_count=1)[0]["id"], "concept-1")
+
+        scenario = deepcopy(SCENARIO["scenario"])
+        for character in scenario["characters"]:
+            character["adult"] = True
+        scenario["scenes"][0].update(
+            relationship_state="Les deux partenaires adultes poursuivent la scène ensemble.",
+            appearance_state="Leurs vêtements sont retirés et restent au pied du lit.",
+            sexual_state="Ils sont allongés face à face, sans contact sexuel encore établi.")
+        validated = validate_scenario(scenario, EXPLICIT_RECIPE_ID)
+        self.assertEqual(validated["scenes"][0]["sexual_state"], scenario["scenes"][0]["sexual_state"])
+        self.assertIn("Position et contacts sexuels au début", scene_intention(validated, 0, 10))
+        contract = response_contract("develop", False, EXPLICIT_RECIPE_ID, EXPLICIT_RECIPE_VERSION)
+        self.assertIn("sexual_state", contract["scenario"]["scenes"][0])
+        del scenario["scenes"][0]["sexual_state"]
+        with self.assertRaisesRegex(ValueError, "sexual_state"):
+            validate_scenario(scenario, EXPLICIT_RECIPE_ID)
 
 
 if __name__ == "__main__":

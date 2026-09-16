@@ -10,6 +10,7 @@ from panelforge.domain.episodes import (
 )
 from panelforge.domain.krea2_batch import Krea2LoraSelection
 from panelforge.domain.krea2_sampling import sampling_from_dict
+from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
 from panelforge.domain.prompt_composition import CookbookBinding, CompositionStage, PreparationIntent
 from panelforge.domain.prompt_lab import CreativeFreedomAxes, ReferenceUse
 from panelforge.domain.video_preparation import ClassicCinematicSettings
@@ -347,7 +348,8 @@ class EpisodeService:
             if inherits_images(ref) and common["model_id"]:
                 settings = replace(settings, model_name=common["model_id"],
                     loras=tuple(Krea2LoraSelection(**l) for l in common["loras"]),
-                    sampling=sampling_from_dict(common["sampling"]))
+                    sampling=sampling_from_dict(common["sampling"]),
+                    workflow=workflow_selection_from_dict(common.get("workflow")))
             if not ref["prompt"].strip():
                 raise ValueError("Préparez ou écrivez le prompt de la fiche avant de générer l’image.")
             snapshot = deepcopy(ref)

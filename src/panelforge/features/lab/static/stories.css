@@ -21,7 +21,7 @@
 .story-heading p { color: var(--muted); margin-bottom: 0; }
 .story-toolbar { align-items: start; padding: .85rem; border: 1px solid var(--line); border-radius: 12px; margin-bottom: .6rem; }
 .story-project-control { flex: 1 1 280px; min-width: 0; }
-.story-model-control { flex: 1.4 1 350px; min-width: 0; }
+.story-model-control { flex: 1 1 280px; min-width: 0; }
 .story-select-row { display: flex; align-items: center; gap: .65rem; margin-top: .4rem; }
 .story-select-row select { flex: 1; }
 .story-select-row button { flex: none; }
@@ -38,6 +38,11 @@
 #story-running { margin-top: .8rem; }
 #story-running progress { width: 100%; }
 #story-running p { margin: .6rem 0; }
+.story-live { padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 10px; background: #f7f5ef; }
+.story-live section { margin-top: .8rem; }
+.story-live section + section { padding-top: .7rem; border-top: 1px solid var(--line); }
+.story-live h3 { color: var(--muted); }
+.story-live pre { margin: .35rem 0 0; padding: .65rem; border-radius: 8px; background: #ece9e1; }
 #story-empty { min-height: 270px; display: grid; align-content: center; max-width: 520px; margin: auto; color: var(--muted); }
 #story-versions-panel { justify-content: space-between; margin-bottom: 1rem; }
 #story-versions-panel label { flex: 1; }
@@ -57,5 +62,12 @@
 .story-scene { margin-top: .85rem; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; }
 .story-dialogue { padding: .8rem; background: #f0ede6; border-radius: 8px; white-space: pre-wrap; }
 .story-scene p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9rem; }
+.story-diagnostics { margin: 1rem 0; padding: .8rem 1rem; border: 1px solid #d7b36a; border-radius: 10px; background: #fff8e8; }
+.story-diagnostics ul { margin: .5rem 0 0; padding-left: 1.2rem; }
+.story-diagnostics li.warning { color: #8a4b18; }
+.story-scene-editor { width: min(760px, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 1.2rem; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); }
+.story-scene-editor::backdrop { background: rgb(0 0 0 / .45); }
+.story-scene-editor form { display: grid; gap: .8rem; }
+.story-scene-editor .story-actions { justify-content: space-between; }
 @media(max-width: 1250px) { #story-concepts { grid-template-columns: 1fr; }.story-concept details { margin-top: .4rem; } }
 @media(max-width: 850px) { .story-layout { grid-template-columns: 1fr; }#stories-workspace { padding: 1rem; }#story-turns { max-height: 350px; } }

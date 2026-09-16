@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from panelforge.domain.krea2_sampling import Krea2AssistedSampling
+from panelforge.domain.krea2_assisted_workflows import KREA2_FLUX_KLEIN_WORKFLOW
 from panelforge.features.lab.episodes_web import episodes_router
 from panelforge.features.lab.web import Krea2AssistedAttemptBody, H3RenderAttemptBody
 
@@ -24,11 +25,11 @@ class EpisodeWebTest(unittest.TestCase):
 
     def test_common_sampling_and_loras_use_assisted_validation(self):
         settings = dict(model_id="krea.safetensors", loras=[dict(name="style.safetensors", strength=0.65)],
-                        sampling=asdict(Krea2AssistedSampling()))
+                        sampling=asdict(Krea2AssistedSampling()), workflow=KREA2_FLUX_KLEIN_WORKFLOW.key)
         body = dict(expected_revision=1, style="Animation 3D", settings=settings)
         response = self.client.put("/api/episodes/episode-test/visual", json=body)
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["settings"], settings)
+        self.assertEqual(response.json()["settings"], {**settings, "workflow": asdict(KREA2_FLUX_KLEIN_WORKFLOW)})
         for invalid in ({**settings, "surprise": 1},
                         {**settings, "loras": [dict(name="style.safetensors", strength=21)]},
                         {**settings, "sampling": {**settings["sampling"], "preset_id": "moody_beta"}}):

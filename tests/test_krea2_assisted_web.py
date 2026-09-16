@@ -10,6 +10,7 @@ from panelforge.application import ChangeViewRunner, Krea2AssistedService
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
+from panelforge.infrastructure.presets.krea2_assisted import load_krea2_assisted_workflow
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
     load_change_view_preset,
@@ -27,6 +28,7 @@ from panelforge.infrastructure.storage.krea2_style_presets import LocalKrea2Styl
 ROOT = Path(__file__).resolve().parents[1]
 CHANGE_VIEW = ROOT / "workflows" / "character.change_view" / "qwen-edit-2511-multiple-angles" / "0.2.0"
 BATCH_WORKFLOW = ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"
+ASSISTED_WORKFLOW = ROOT / "workflows" / "image.generate.assisted" / "krea2-sampling" / "1.0.0"
 
 
 class UploadOnlyComfy:
@@ -67,11 +69,12 @@ class Krea2AssistedWebTest(unittest.TestCase):
             "recommendations": [],
         })
         self.gateway = Gateway((creation,))
+        base_workflow = load_krea2_batch_workflow(BATCH_WORKFLOW)
         service = Krea2AssistedService(
             gateway=self.gateway,
             presets=LocalKrea2StylePresetStore(root),
             recipes=LocalKrea2VisualRecipeCatalog(ROOT / "krea2_batch_recipes", workspace_root=root),
-            workflow=load_krea2_batch_workflow(BATCH_WORKFLOW),
+            workflow=load_krea2_assisted_workflow(ASSISTED_WORKFLOW, base_workflow),
             comfy=Comfy(),
             assets=assets,
             projects=LocalKrea2AssistedProjectStore(root),
@@ -98,11 +101,8 @@ class Krea2AssistedWebTest(unittest.TestCase):
         from copy import deepcopy
         from itertools import count
         from unittest.mock import patch
-        from panelforge.infrastructure.presets.krea2_assisted import load_krea2_assisted_workflow
         from panelforge.domain.krea2_sampling import sampling_spec
 
-        self.service.workflow = load_krea2_assisted_workflow(
-            ROOT / "workflows/image.generate.assisted/krea2-sampling/1.0.0", self.service.workflow)
         project = self.service.create_project(name="Sampling", intention="Photo", model_id="local")
         numbers = count(1)
         self.service._attempt_id_factory = lambda: f"sampling-{next(numbers)}"

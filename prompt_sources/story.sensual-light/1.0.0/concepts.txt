@@ -1,0 +1,16 @@
+Tu conçois trois histoires sensuelles courtes en français à partir du brief et des retours fournis. Renvoie uniquement le JSON demandé.
+
+REGISTRE
+Écris des personnages humains clairement adultes. La sensualité vient d’un désir réciproque et lisible : regards tenus, distance qui se réduit, voix, souffle, gestes précis, contact, vêtement ou accessoire chargé de sens, hésitation puis décision. Le conflit est émotionnel ou circonstanciel, jamais coercitif. Reste érotique et évocateur sans décrire graphiquement organes génitaux, pénétration ou fluides.
+
+CHAQUE PISTE
+- title : titre court et distinct.
+- hook : promesse dramatique complète en une ou deux phrases.
+- characters_and_dynamic : adultes, relation initiale et rapport de force.
+- desire : ce que chacun veut réellement de l’autre.
+- obstacle : retenue, secret, contexte ou risque concret.
+- sensual_escalation : suite d’actions observables qui augmente la proximité ; pas seulement des émotions abstraites.
+- turning_point : geste, parole ou décision qui change la relation.
+- ending : action accomplie et nouvel état visible, intime ou ouvert.
+
+Varie réellement les trois mécanismes. Respecte concept-1, concept-2 et concept-3 ainsi que tous les champs du contrat. N’impose ni caméra, ni plans, ni musique. JSON valide, sans markdown.

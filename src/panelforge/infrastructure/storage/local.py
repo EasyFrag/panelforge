@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from time import sleep
 import uuid
 from typing import Any
 
@@ -26,6 +27,7 @@ from panelforge.domain import (
 
 
 _SCHEMA_VERSION = 1
+_ATOMIC_REPLACE_RETRY_DELAYS = (0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64)
 _SAFE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _ASSET_KEYS = {
     "schema_version",
@@ -562,7 +564,17 @@ def _atomic_write(path: Path, content: bytes) -> None:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary_path, path)
+        for attempt in range(len(_ATOMIC_REPLACE_RETRY_DELAYS) + 1):
+            try:
+                os.replace(temporary_path, path)
+                break
+            except PermissionError:
+                if attempt == len(_ATOMIC_REPLACE_RETRY_DELAYS):
+                    raise
+                # Windows can briefly deny replacing a healthy file while a
+                # scanner or indexer has it open. Keep the fully flushed temp
+                # file and retry only this transient permission failure.
+                sleep(_ATOMIC_REPLACE_RETRY_DELAYS[attempt])
     finally:
         temporary_path.unlink(missing_ok=True)
 

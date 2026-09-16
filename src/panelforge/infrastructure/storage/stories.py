@@ -5,7 +5,9 @@ from pathlib import Path
 import re
 from threading import RLock
 
-from panelforge.domain.stories import RECIPE_ID, RECIPE_VERSION
+from panelforge.domain.stories import (
+    RECIPE_ID, RECIPE_VERSION, story_recipe_spec,
+)
 from .local import _atomic_write, _json_bytes, _read_json_object
 from .prompt_recipes import LocalPromptRecipeStore
 
@@ -62,24 +64,36 @@ class LocalStoryStore:
 class LocalStoryRecipeStore(LocalPromptRecipeStore):
     """Reuse revision storage without adding a recipe to the H3 catalogs."""
     def __init__(self, workspace_root, defaults_root):
-        super().__init__(workspace_root, None, defaults_root)
+        # A single path remains accepted by tests and old launchers. The
+        # runtime passes a catalog so every family keeps a separate archive.
+        if isinstance(defaults_root, dict):
+            self.defaults_roots = {key: Path(path).resolve() for key, path in defaults_root.items()}
+        else:
+            self.defaults_roots = {(RECIPE_ID, RECIPE_VERSION): Path(defaults_root).resolve()}
+        super().__init__(workspace_root, None, next(iter(self.defaults_roots.values())))
 
     def _directory(self, key, version):
-        if (key, version) != (RECIPE_ID, RECIPE_VERSION):
+        if (key, version) not in self.defaults_roots:
             raise KeyError("Recette d’histoire inconnue.")
         return self.root / key / version
 
     def _defaults(self, key, version):
-        fields = {field: (self.defaults_root / filename).read_text(encoding="utf-8") for field, filename in (
+        root = self.defaults_roots.get((key, version))
+        if root is None:
+            raise KeyError("Recette d’histoire inconnue.")
+        fields = {field: (root / filename).read_text(encoding="utf-8") for field, filename in (
             ("plan.system", "concepts.txt"), ("writer.system", "scenario.txt"), ("revision.system", "revision.txt"))}
         return {**fields, "render.system": "", "camera_contract": ""}, []
 
     def _ensure(self, key, version):
         directory, index = super()._ensure(key, version)
+        if (key, version) != (RECIPE_ID, RECIPE_VERSION):
+            return directory, index
         if index.get("story_editorial_revision") == 3:
             return directory, index
+        root = self.defaults_roots[(key, version)]
         initial, templates = self._defaults(key, version)
-        r2 = {**initial, **{field: (self.defaults_root / "editorial-r2" / filename).read_text(encoding="utf-8")
+        r2 = {**initial, **{field: (root / "editorial-r2" / filename).read_text(encoding="utf-8")
             for field, filename in (("plan.system", "concepts.txt"), ("writer.system", "scenario.txt"), ("revision.system", "revision.txt"))}}
         # Only upgrade untouched factory instructions. Explicit edits or a
         # rollback remain authoritative, including after process restart.
@@ -90,7 +104,7 @@ class LocalStoryRecipeStore(LocalPromptRecipeStore):
         if (index["active"] == 2 and index["last"] == 2
                 and self._read_revision(directory, 1)["fields"] == initial
                 and self._read_revision(directory, 2)["fields"] == r2):
-            fields = {**initial, **{field: (self.defaults_root / "editorial-r3" / filename).read_text(encoding="utf-8")
+            fields = {**initial, **{field: (root / "editorial-r3" / filename).read_text(encoding="utf-8")
                 for field, filename in (("plan.system", "concepts.txt"), ("writer.system", "scenario.txt"), ("revision.system", "revision.txt"))}}
             self._write_revision(directory, 3, fields, templates, "Scènes concrètes : exemples JSON, actes, conséquences et continuité")
             index = {**index, "active": 3, "last": 3}
@@ -99,4 +113,4 @@ class LocalStoryRecipeStore(LocalPromptRecipeStore):
         return directory, index
 
     def list(self):
-        return [dict(id=RECIPE_ID, version=RECIPE_VERSION, label="Histoires · Brainrot narratif")]
+        return [story_recipe_spec(key, version) | {"id": key} for key, version in self.defaults_roots]

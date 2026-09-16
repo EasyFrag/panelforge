@@ -13,6 +13,12 @@
     composition_reference: "Composition", motion_reference: "Mouvement", keyframe_reference: "Keyframe", first_frame: "Première frame", last_frame: "Dernière frame"};
   const statuses = {ready: "Prompt prêt", running: "En cours", succeeded: "Terminé", failed: "Échec", interrupted: "À reprendre",
     queued: "En file", submitting: "Démarrage", cancel_pending: "Annulation", cancelled: "Annulé", created: "Prêt"};
+  const deliveryLabels = {spoken: "", voice_over: "voix off", off_screen: "hors champ",
+    thought: "pensée / voix intérieure", mediated: "voix transmise"};
+  const dialogueLabel = (line, speaker) => {
+    const indication = line.delivery_note || deliveryLabels[line.delivery || "spoken"];
+    return `${speaker}${indication ? ` — ${indication}` : ""} : « ${line.text} »`;
+  };
   const ref = () => state.data?.references.find(r => r.id === state.refId);
   const scene = () => state.data?.scenes.find(s => s.id === state.sceneId);
   const prep = () => scene()?.preparations.find(p => p.id === state.prepId);
@@ -32,7 +38,7 @@
   }
   function show(visible) {
     root.hidden = !visible; document.getElementById("story-writing").hidden = visible;
-    document.querySelector("#stories-workspace .story-model-control").hidden = visible;
+    document.querySelectorAll("#stories-workspace .story-model-control").forEach(control => { control.hidden = visible; });
     if (!visible) { clearTimeout(state.timer); renderer.close(); state.renderContext = ""; }
   }
   async function action(work) {
@@ -47,9 +53,9 @@
     for (const id of ["story-projects", "story-new", "story-fabrication"]) document.getElementById(id).disabled = state.busy;
     document.getElementById("story-validate").disabled = state.busy || !state.story?.document?.scenario
       || ["running", "cancelling"].includes(state.story?.job?.status);
-    for (const id of ["description", "asset-model", "asset-local", "asset-feedback", "asset-text", "image-model", "image-ratio", "image-mp", "image-seed", "image-preset", "image-import", "save-reference", "image-toggle-settings"])
+    for (const id of ["description", "asset-model", "asset-local", "asset-feedback", "asset-text", "image-workflow", "image-model", "image-ratio", "image-mp", "image-seed", "image-preset", "image-import", "save-reference", "image-toggle-settings"])
       el(id).disabled = busyRef || !r;
-    for (const id of ["style", "style-preset", "common-model", "common-preset", "style-import", "save-style", "apply-preset", "refresh-presets"])
+    for (const id of ["style", "style-preset", "common-workflow", "common-model", "common-preset", "style-import", "save-style", "apply-preset", "refresh-presets"])
       el(id).disabled = state.busy || !state.data;
     el("style-use-reference").disabled = state.busy || !r?.image_asset_id;
     el("style-remove").disabled = state.busy || !state.data?.style_image;
@@ -63,6 +69,9 @@
     el("resume").hidden = !s?.preparations.length || !["failed", "interrupted"].includes(s.preparations.at(-1).status) || s.stale;
     el("resume").disabled = busyScene || state.dirtyScene;
     el("scene-calls").hidden = !prep()?.session_id;
+    el("image-attempts").querySelectorAll("button[data-image-choice]").forEach(button => {
+      button.disabled = state.busy || jobRunning(r) || button.dataset.selected === "true";
+    });
     el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = busyScene; });
     drawLoras();
   }
@@ -105,8 +114,17 @@
     if (chosen && ![...select.options].some(o => o.value === chosen)) select.add(new Option("Personnalisé · réglages conservés", chosen));
     select.value = chosen;
   }
+  const workflowKey = value => typeof value === "string" ? value
+    : value?.recipe_id && value?.version ? `${value.recipe_id}@${value.version}` : "krea2-sampling@1.0.0";
+  function drawWorkflow(id, saved) {
+    const select = el(id), workflows = state.catalog?.workflows || [];
+    select.replaceChildren(...workflows.map(workflow => new Option(workflow.label, workflow.id)));
+    const chosen = workflowKey(saved);
+    if (chosen && ![...select.options].some(option => option.value === chosen)) select.add(new Option(`${chosen} · indisponible`, chosen));
+    select.value = chosen;
+  }
   function commonSettings() {
-    return {model_id: el("common-model").value, loras: structuredClone(state.commonLoras),
+    return {workflow: el("common-workflow").value, model_id: el("common-model").value, loras: structuredClone(state.commonLoras),
       sampling: state.catalog?.sampling.presets.find(p => p.id === el("common-preset").value)?.settings || state.commonSampling};
   }
   function drawVisual() {
@@ -115,7 +133,7 @@
       const common = state.data.image_defaults;
       el("style").value = state.data.style; state.commonLoras = structuredClone(common?.loras || []);
       state.commonSampling = common?.sampling;
-      if (state.catalog) { modelPicker("common-model", common?.model_id); drawSampling("common-preset", common?.sampling); }
+      if (state.catalog) { drawWorkflow("common-workflow", common?.workflow); modelPicker("common-model", common?.model_id); drawSampling("common-preset", common?.sampling); }
     }
     const img = state.data.style_image;
     el("style-preview").hidden = !img;
@@ -164,13 +182,15 @@
   function drawImageInheritance() {
     el("image-custom").hidden = state.inheritImages;
     el("image-toggle-settings").textContent = state.inheritImages ? "Personnaliser cette fiche" : "Revenir aux réglages communs";
-    const s = state.inheritImages ? commonSettings() : {model_id: el("image-model").value, loras: state.loras};
+    const s = state.inheritImages ? commonSettings() : {workflow: el("image-workflow").value, model_id: el("image-model").value, loras: state.loras};
     const model = state.catalog?.render_models.find(m => m.comfy_name === s.model_id);
-    el("image-settings-note").textContent = `${state.inheritImages ? "Réglages communs" : "Personnalisé pour cette fiche"} · ${model?.display_name || s.model_id || "Checkpoint à choisir"} · ${s.loras.length} LoRA`;
+    const workflow = state.catalog?.workflows?.find(item => item.id === workflowKey(s.workflow));
+    el("image-settings-note").textContent = `${state.inheritImages ? "Réglages communs" : "Personnalisé pour cette fiche"} · ${workflow?.label || workflowKey(s.workflow)} · ${model?.display_name || s.model_id || "Checkpoint à choisir"} · ${s.loras.length} LoRA`;
   }
   function drawImageSettings(saved) {
     const catalog = state.catalog;
     if (!catalog) return;
+    drawWorkflow("image-workflow", saved?.workflow);
     modelPicker("image-model", saved?.model_id);
     el("image-ratio").replaceChildren(...catalog.aspect_ratios.map(v => new Option(v, v)));
     el("image-ratio").value = saved?.aspect_ratio || (ref()?.kind === "location" ? "16:9 (Landscape Widescreen)" : catalog.defaults.aspect_ratio);
@@ -181,9 +201,31 @@
   }
   function imageSettings() {
     const sampling = state.catalog?.sampling.presets.find(p => p.id === el("image-preset").value)?.settings || state.imageSampling;
-    return {prompt: el("asset-text").value.trim(), model_id: el("image-model").value, aspect_ratio: el("image-ratio").value,
+    return {prompt: el("asset-text").value.trim(), workflow: el("image-workflow").value, model_id: el("image-model").value, aspect_ratio: el("image-ratio").value,
       megapixels: Number(el("image-mp").value), seed: el("image-seed").value.trim() || null,
       loras: structuredClone(state.loras), ...(sampling ? {sampling} : {}), ...(state.inheritImages ? commonSettings() : {})};
+  }
+  function referenceSettingsTemplate() {
+    const r = ref();
+    if (!r) return null;
+    const settings = state.catalog ? imageSettings() : structuredClone(r.render_settings || r.effective_image_settings || {});
+    delete settings.prompt;
+    return {kind: r.kind, model_id: el("asset-model").value || r.model_id,
+      inherit_image_settings: state.inheritImages, render_settings: settings};
+  }
+  function canAdoptReferenceSettings(r, template) {
+    return Boolean(r && template && r.kind === template.kind && r.revision === 1 && !r.prompt
+      && !r.render_settings && !r.krea_project_id && !r.image_asset_id && !(r.images || []).length
+      && !(r.image_runs || []).length && !r.job);
+  }
+  function adoptReferenceSettings(template) {
+    const r = ref();
+    if (!canAdoptReferenceSettings(r, template)) return false;
+    fillModel("asset-model", template.model_id);
+    state.inheritImages = template.inherit_image_settings;
+    drawImageSettings(template.render_settings);
+    state.dirtyRef = true;
+    return true;
   }
   function drawLists() {
     if (!state.data) return;
@@ -209,6 +251,8 @@
       const link = node("a", "Voir l’image de style"); link.href = assetUrl(visual.image.asset_id); link.target = "_blank"; link.rel = "noopener";
       details.append(link);
     }
+    const workflow = state.catalog?.workflows?.find(item => item.id === workflowKey(settings.workflow));
+    details.append(node("p", `Workflow : ${workflow?.label || workflowKey(settings.workflow)}`));
     details.append(node("p", `Checkpoint : ${settings.model_name}`));
     details.append(node("p", `LoRA : ${settings.loras.map(l => `${l.name} (${l.strength})`).join(", ") || "aucune"}`));
     const sampling = settings.sampling;
@@ -245,13 +289,19 @@
         img.src = link.href; img.alt = a.label || "Proposition de référence"; img.loading = "lazy"; link.append(img); card.append(link);
       }
       card.append(node("p", `${a.label || `Essai ${a.index}`} · ${statuses[a.status] || a.status}`));
+      if (a.pre_flux_url) {
+        const preFlux = node("a", "Voir / télécharger la sortie KREA2 avant Flux");
+        preFlux.href = a.pre_flux_url; preFlux.target = "_blank"; preFlux.rel = "noopener"; preFlux.download = "";
+        card.append(preFlux);
+      }
       if (a.error) card.append(node("p", a.error, "error"));
       const record = r.image_runs?.find(run => run.attempt_id === a.attempt_id);
       if (record) card.append(imageRecord(record));
       if (a.output_asset_id) { const b = button(selected ? "Image retenue" : "Utiliser cette image", () => action(async () => {
         const data = await core.request(api(`/references/${r.id}/select`), send("POST", {expected_revision: ref().revision, asset_id: a.output_asset_id}));
         accept(data); message("Référence retenue. Les nouvelles préparations utiliseront cette image.");
-      })); b.disabled = selected || state.busy || jobRunning(r); card.append(b); }
+      })); b.dataset.imageChoice = "true"; b.dataset.selected = String(selected);
+        b.disabled = selected || state.busy || jobRunning(r); card.append(b); }
       return card;
     }));
   }
@@ -284,7 +334,7 @@
       state.bindings = structuredClone(s.references); drawBindings();
     }
     const source = state.data.scenario.scenes[s.index], names = Object.fromEntries(state.data.scenario.characters.map(c => [c.id, c.name]));
-    el("dialogues").textContent = source.dialogue.map(d => `${names[d.speaker_id]} : « ${d.text} »`).join("\n") || "Aucun dialogue.";
+    el("dialogues").textContent = source.dialogue.map(d => dialogueLabel(d, names[d.speaker_id])).join("\n") || "Aucun dialogue.";
     el("resolved-intention").textContent = s.resolved_intention || s.input_error;
     el("scene-state").textContent = s.input_error || (s.stale ? "Les références ou l’intention ont changé. Les anciens prompts et rendus sont conservés ; prépare un nouveau prompt pour appliquer ces changements." : "Les références sont prêtes. Les dialogues sont ajoutés automatiquement.");
     el("prompt-status").textContent = s.job?.error || (jobRunning(s) ? s.job.phase : "");
@@ -473,8 +523,11 @@
   el("versions").addEventListener("change", () => action(async () => { const id = el("versions").value; await saveReference(); await saveScene(); await openEpisode(id); }));
   el("tab-references").addEventListener("click", () => action(() => tab("references")));
   el("tab-scenes").addEventListener("click", () => action(() => tab("scenes")));
-  el("reference").addEventListener("change", () => action(async () => { const id = el("reference").value; await saveReference(); state.refId = id;
-    state.imageProject = null; state.dirtyRef = false; el("asset-feedback").value = ""; drawLists(); drawReference(true); await imageProject(); storeContext(); }));
+  el("reference").addEventListener("change", () => action(async () => { const id = el("reference").value, template = referenceSettingsTemplate();
+    await saveReference(); state.refId = id;
+    state.imageProject = null; state.dirtyRef = false; el("asset-feedback").value = ""; drawLists(); drawReference(true);
+    if (adoptReferenceSettings(template)) message("Réglages LLM et image repris pour cette fiche vierge.");
+    await imageProject(); storeContext(); }));
   el("scene").addEventListener("change", () => action(async () => { const id = el("scene").value; await saveScene(); state.sceneId = id;
     state.prepId = ""; state.dirtyScene = false; drawLists(); drawScene(true); await openRender(); storeContext(); }));
   el("preparation").addEventListener("change", () => action(async () => { state.prepId = el("preparation").value; controls(); await openRender(); }));
@@ -536,7 +589,17 @@
     el(id).addEventListener("input", () => { state.dirtyRef = true; controls(); });
   // The shared checkpoint picker dispatches change rather than input.
   el("image-model").addEventListener("change", () => { state.dirtyRef = true; drawImageInheritance(); controls(); });
+  el("image-workflow").addEventListener("change", () => {
+    const workflow = state.catalog?.workflows?.find(item => item.id === el("image-workflow").value);
+    if (workflow?.default_sampling_preset_id) el("image-preset").value = workflow.default_sampling_preset_id;
+    state.dirtyRef = true; drawImageInheritance(); controls();
+  });
   for (const id of ["style", "common-model", "common-preset"]) el(id).addEventListener(id === "style" ? "input" : "change", commonChanged);
+  el("common-workflow").addEventListener("change", () => {
+    const workflow = state.catalog?.workflows?.find(item => item.id === el("common-workflow").value);
+    if (workflow?.default_sampling_preset_id) el("common-preset").value = workflow.default_sampling_preset_id;
+    commonChanged();
+  });
   function updateAxes() {
     for (const id of ["audacity", ...Object.values(axesIds)]) el(`${id}-value`).value = el(id).value;
   }

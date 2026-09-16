@@ -1,8 +1,10 @@
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -24,6 +26,7 @@ from panelforge.infrastructure.storage import (
     LocalRunStore,
     StorageCorruptionError,
 )
+from panelforge.infrastructure.storage.local import _atomic_write
 
 
 SHA_A = "a" * 64
@@ -64,6 +67,28 @@ def new_run(run_id: str = "run-1") -> RunRecord:
 
 
 class LocalAssetStoreTest(unittest.TestCase):
+    def test_atomic_write_retries_a_transient_permission_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            path.write_bytes(b"old")
+            real_replace = os.replace
+            attempts = []
+
+            def replace(source, target):
+                attempts.append((source, target))
+                if len(attempts) == 1:
+                    raise PermissionError(5, "temporary Windows lock", str(target))
+                real_replace(source, target)
+
+            with patch("panelforge.infrastructure.storage.local.os.replace", side_effect=replace), \
+                    patch("panelforge.infrastructure.storage.local.sleep") as pause:
+                _atomic_write(path, b"new")
+
+            self.assertEqual(path.read_bytes(), b"new")
+            self.assertEqual(len(attempts), 2)
+            pause.assert_called_once_with(0.01)
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
+
     def test_create_get_and_read_bytes_use_expected_layout(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LocalAssetStore(

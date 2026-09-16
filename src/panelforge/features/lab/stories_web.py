@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from panelforge.application.stories import StoryConflict
+from panelforge.domain.stories import RECIPE_ID, RECIPE_VERSION
 
 
 class StoryCreate(BaseModel):
@@ -11,13 +12,19 @@ class StoryCreate(BaseModel):
     brief: str = Field(default="", max_length=12000)
     clip_seconds: int = Field(default=10, ge=5, le=15, strict=True)
     scene_count: int = Field(default=6, ge=2, le=12, strict=True)
+    recipe_id: str = Field(default=RECIPE_ID, min_length=1, max_length=128)
+    recipe_version: str = Field(default=RECIPE_VERSION, min_length=1, max_length=64)
+    architect_model_id: str = Field(default="", max_length=300)
+    writer_model_id: str = Field(default="", max_length=300)
+    creation_mode: str = Field(default="ideas", pattern="^(ideas|script)$")
+    proposal_count: int = Field(default=3, ge=1, le=3, strict=True)
 
 
 class StoryWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operation: str
     instruction: str = Field(default="", max_length=12000)
-    model_id: str = Field(min_length=1, max_length=300)
+    model_id: str | None = Field(default=None, min_length=1, max_length=300)
     expected_version: int = Field(ge=1, strict=True)
     request_id: str = Field(min_length=8, max_length=100)
 
@@ -32,6 +39,28 @@ class StoryRestore(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(ge=1, strict=True)
     expected_version: int = Field(ge=1, strict=True)
+
+
+class StoryDialogue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_id: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1, max_length=1500)
+    dialogue_id: str | None = Field(default=None, min_length=1, max_length=120)
+    delivery: str | None = Field(default=None, pattern="^(spoken|voice_over|off_screen|thought|mediated)$")
+    delivery_note: str | None = Field(default=None, min_length=1, max_length=240)
+
+
+class StorySceneEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1, strict=True)
+    title: str = Field(min_length=1, max_length=6000)
+    opening_state: str = Field(min_length=1, max_length=6000)
+    action: str = Field(min_length=1, max_length=6000)
+    dialogue: list[StoryDialogue] = Field(max_length=10)
+    ending_state: str = Field(min_length=1, max_length=6000)
+    relationship_state: str | None = Field(default=None, min_length=1, max_length=3000)
+    appearance_state: str | None = Field(default=None, min_length=1, max_length=3000)
+    sexual_state: str | None = Field(default=None, min_length=1, max_length=3000)
 
 
 def stories_router(service):
@@ -61,6 +90,10 @@ def stories_router(service):
         except Exception as error:
             raise HTTPException(503, f"Liste des modèles indisponible : {error}") from error
 
+    @router.get("/spec")
+    def spec():
+        return invoke(lambda: {"recipes": current().recipe_specs()})
+
     @router.get("/projects")
     def projects():
         return invoke(lambda: {"projects": current().store.list()})
@@ -84,6 +117,14 @@ def stories_router(service):
     @router.post("/projects/{project_id}/restore")
     def restore(project_id: str, body: StoryRestore):
         return invoke(lambda: current().restore(project_id, **body.model_dump()))
+
+    @router.patch("/projects/{project_id}/scenes/{index}")
+    def edit_scene(project_id: str, index: int, body: StorySceneEdit):
+        values = body.model_dump(exclude_none=True)
+        expected_version = values.pop("expected_version")
+        # Fruit/legacy scenes do not acquire sensual-only empty fields.
+        changes = {key: value for key, value in values.items() if value is not None}
+        return invoke(lambda: current().edit_scene(project_id, index, expected_version, changes))
 
     @router.post("/projects/{project_id}/cancel")
     def cancel(project_id: str):

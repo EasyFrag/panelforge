@@ -67,6 +67,7 @@ from panelforge.infrastructure.storage.prompt_recipes import LocalPromptRecipeSt
 from panelforge.infrastructure.storage.llm_traces import LocalLlmTraceStore
 from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
 from panelforge.infrastructure.presets.krea2_assisted import load_krea2_assisted_workflow
+from panelforge.infrastructure.presets.krea2_flux_klein import load_krea2_flux_klein_workflow
 from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter
 from panelforge.infrastructure.krea2_retouch import PillowRetouchCompositor
 from panelforge.infrastructure.krea2_upscale import PillowUpscaleImages
@@ -410,14 +411,19 @@ def build_app(args: argparse.Namespace):
         run_timeout=getattr(args, "krea2_batch_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
     )
+    krea2_assisted_default_workflow = load_krea2_assisted_workflow(
+        PROJECT_ROOT / "workflows" / "image.generate.assisted" / "krea2-sampling" / "1.0.0",
+        krea2_batch_workflow,
+    )
+    krea2_assisted_flux_workflow = load_krea2_flux_klein_workflow(
+        PROJECT_ROOT / "workflows" / "image.generate.assisted" / "krea2-flux-klein" / "1.0.0",
+    )
     krea2_assisted = Krea2AssistedService(
         gateway=gateway,
         presets=LocalKrea2StylePresetStore(args.workspace),
         recipes=krea2_visual_recipes,
-        workflow=load_krea2_assisted_workflow(
-            PROJECT_ROOT / "workflows" / "image.generate.assisted" / "krea2-sampling" / "1.0.0",
-            krea2_batch_workflow,
-        ),
+        workflow=krea2_assisted_default_workflow,
+        workflows=(krea2_assisted_default_workflow, krea2_assisted_flux_workflow),
         comfy=krea2_assisted_comfy,
         assets=assets,
         projects=krea2_assisted_projects,
@@ -560,7 +566,11 @@ def build_app(args: argparse.Namespace):
             ffmpeg=whisper_root / "ffmpeg.exe", model_directory=whisper_root / "_models")),
     )
     stories = StoryService(gateway=gateway, store=LocalStoryStore(args.workspace),
-        recipes=LocalStoryRecipeStore(args.workspace, PROJECT_ROOT / "prompt_sources/story.brainrot/1.0.0"),
+        recipes=LocalStoryRecipeStore(args.workspace, {
+            ("story.brainrot", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.brainrot/1.0.0",
+            ("story.sensual-light", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.sensual-light/1.0.0",
+            ("story.explicit-hard", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.explicit-hard/1.0.0",
+        }),
         traces=llm_traces, application_outcomes=gateway)
     from panelforge.application.episodes import EpisodeService
     from panelforge.infrastructure.storage.episodes import LocalEpisodeStore

@@ -5,6 +5,7 @@ from __future__ import annotations
 from panelforge.domain.krea2_sampling import (
     Krea2AssistedSettings, sampling_for, sampling_from_dict, sampling_spec,
 )
+from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
 
 from panelforge.domain.change_view_settings import ChangeViewRenderSettings
 
@@ -608,6 +609,7 @@ class Krea2AssistedAttemptBody(BaseModel):
     loras: list[Krea2BatchLoraBody] | None = None
     expected_branch_id: str | None = None
     sampling: dict[str, Any] | None = None
+    workflow: str | None = None
 
 
 class Krea2AssistedBranchBody(BaseModel):
@@ -618,6 +620,22 @@ class Krea2AssistedBranchBody(BaseModel):
     draft: Krea2AssistedAttemptBody | None = None
     prompt_language: str | None = None
     model_id: str | None = None
+
+
+def _krea2_assisted_settings(body: Krea2AssistedAttemptBody) -> Krea2AssistedSettings:
+    workflow = workflow_selection_from_dict(body.workflow)
+    default_sampling = "moody_beta" if workflow.recipe_id == "krea2-flux-klein" else "current"
+    return Krea2AssistedSettings(
+        sampling=sampling_from_dict(body.sampling, default_preset_id=default_sampling),
+        workflow=workflow,
+        model_name=body.model_id,
+        aspect_ratio=Krea2AspectRatio(body.aspect_ratio),
+        megapixels=body.megapixels,
+        loras=tuple(
+            Krea2LoraSelection(name=value.name, strength=value.strength)
+            for value in (body.loras or [])
+        ),
+    )
 
 
 class Krea2StylePresetSaveBody(BaseModel):
@@ -2501,6 +2519,7 @@ def create_app(
         service = _require_krea2_assisted(krea2_assisted)
         return {
             "sampling": sampling_spec(),
+            "workflows": list(service.workflow_specs()),
             "restaging": {"enabled": krea2_edit is not None and any(getattr(w, "requires_subject_reference", False) for w in krea2_edit.workflows),
                           "default_instruction": RESTAGING_INSTRUCTION},
             "assistance_recipes": service.list_assistance_recipes(),
@@ -2591,11 +2610,7 @@ def create_app(
             project = service.apply_style_preset(
                 project_id, body.preset_id, expected_branch_id=body.expected_branch_id,
                 current_prompt=draft.prompt, seed=_parse_json_seed(draft.seed) if draft.seed not in (None, "") else None,
-                settings=Krea2AssistedSettings(
-                    sampling=sampling_from_dict(draft.sampling),
-                    model_name=draft.model_id, aspect_ratio=Krea2AspectRatio(draft.aspect_ratio), megapixels=draft.megapixels,
-                    loras=tuple(Krea2LoraSelection(name=l.name, strength=l.strength) for l in (draft.loras or [])),
-                ),
+                settings=_krea2_assisted_settings(draft),
             )
             return {"project": serialize_krea2_assisted_project(project)}
         except KeyError as error:
@@ -2715,16 +2730,7 @@ def create_app(
                 project_id,
                 expected_branch_id=body.expected_branch_id,
                 prompt=body.prompt,
-                settings=Krea2AssistedSettings(
-                    sampling=sampling_from_dict(body.sampling),
-                    model_name=body.model_id,
-                    aspect_ratio=Krea2AspectRatio(body.aspect_ratio),
-                    megapixels=body.megapixels,
-                    loras=tuple(
-                        Krea2LoraSelection(name=value.name, strength=value.strength)
-                        for value in (body.loras or [])
-                    ),
-                ),
+                settings=_krea2_assisted_settings(body),
                 seed=seed,
                 enqueue=enqueue,
             )
@@ -2786,12 +2792,7 @@ def create_app(
                 branch_id=body.branch_id, attempt_id=body.attempt_id,
                 image_prompt_only=body.image_prompt_only,
                 current_prompt=draft.prompt if draft else None,
-                settings=Krea2AssistedSettings(
-                    sampling=sampling_from_dict(draft.sampling),
-                    model_name=draft.model_id, aspect_ratio=Krea2AspectRatio(draft.aspect_ratio),
-                    megapixels=draft.megapixels,
-                    loras=tuple(Krea2LoraSelection(name=item.name, strength=item.strength) for item in (draft.loras or [])),
-                ) if draft else None,
+                settings=_krea2_assisted_settings(draft) if draft else None,
                 seed=_parse_json_seed(draft.seed) if draft and draft.seed is not None and str(draft.seed).strip() else None,
                 prompt_language=Krea2PromptLanguage(body.prompt_language) if body.prompt_language else None,
                 model_id=body.model_id,
@@ -5319,10 +5320,31 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
                     if attempt.output_asset_id is not None
                     else None
                 ),
+                "pre_flux_asset_id": attempt.pre_flux_asset_id,
+                "pre_flux_url": (
+                    f"/api/assets/{attempt.pre_flux_asset_id}/content"
+                    if attempt.pre_flux_asset_id is not None
+                    else None
+                ),
+                "artifacts": [
+                    *([{"role": "final", "asset_id": attempt.output_asset_id,
+                        "url": f"/api/assets/{attempt.output_asset_id}/content"}]
+                      if attempt.output_asset_id else []),
+                    *([{"role": "pre_flux", "asset_id": attempt.pre_flux_asset_id,
+                        "url": f"/api/assets/{attempt.pre_flux_asset_id}/content"}]
+                      if attempt.pre_flux_asset_id else []),
+                ],
+                "output_warnings": list(attempt.output_warnings),
+                "workflow": asdict(attempt.workflow) if attempt.workflow else None,
                 "error": attempt.error,
                 "accepted": attempt.accepted,
                 "settings": {
                     "sampling": asdict(sampling_for(attempt.settings)),
+                    "workflow": (
+                        attempt.settings.workflow.key
+                        if isinstance(attempt.settings, Krea2AssistedSettings)
+                        else None
+                    ),
                     "model_id": attempt.settings.model_name,
                     "aspect_ratio": attempt.settings.aspect_ratio.value,
                     "megapixels": attempt.settings.megapixels,
@@ -5383,6 +5405,9 @@ def _serialize_krea2_assisted_settings(settings: Krea2BatchSettings | None) -> d
         return None
     return {
         "sampling": asdict(sampling_for(settings)),
+        "workflow": (
+            settings.workflow.key if isinstance(settings, Krea2AssistedSettings) else None
+        ),
         "model_id": settings.model_name, "aspect_ratio": settings.aspect_ratio.value,
         "megapixels": settings.megapixels,
         "loras": [{"name": value.name, "strength": value.strength} for value in settings.loras],

@@ -37,8 +37,9 @@ def prompt_recipes_router(recipes, traces, compositions, renders, *, stories=Non
             raise HTTPException(409, str(error)) from error
 
     def recipe_store(key):
-        from panelforge.domain.stories import RECIPE_ID
-        return require(stories.recipes if key == RECIPE_ID and stories is not None else recipes)
+        if stories is not None and any(item["id"] == key for item in stories.recipes.list()):
+            return stories.recipes
+        return require(recipes)
 
     @router.get("")
     def catalog():

@@ -9,6 +9,7 @@ from panelforge.application.episodes import EpisodeConflict
 from panelforge.domain.episodes import REFERENCE_ROLES
 from panelforge.domain.krea2_batch import Krea2AspectRatio, Krea2LoraSelection
 from panelforge.domain.krea2_sampling import Krea2AssistedSettings, sampling_from_dict
+from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
 from panelforge.domain.video_lab import VideoLabSettings, VideoAspectRatio
 from panelforge.domain.h3_bunny import H3BunnySettings, bunny_geometry
 from panelforge.domain.h3_render import H3VideoLoraStack
@@ -116,9 +117,11 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
 
     def image_settings(raw):
         body = image_body.model_validate(raw)
+        workflow = workflow_selection_from_dict(body.workflow)
+        default_sampling = "moody_beta" if workflow.recipe_id == "krea2-flux-klein" else "current"
         return body, Krea2AssistedSettings(model_name=body.model_id,
             aspect_ratio=Krea2AspectRatio(body.aspect_ratio), megapixels=body.megapixels,
-            sampling=sampling_from_dict(body.sampling),
+            sampling=sampling_from_dict(body.sampling, default_preset_id=default_sampling), workflow=workflow,
             loras=tuple(Krea2LoraSelection(name=l.name, strength=l.strength) for l in (body.loras or [])))
 
     @router.get("/stories/{story_id}")
@@ -140,13 +143,15 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
     @router.put("/{identity}/visual")
     def visual(identity: str, body: VisualBody):
         def save():
-            if set(body.settings) != {"model_id", "loras", "sampling"}:
-                raise ValueError("Les réglages communs attendent checkpoint, LoRA et sampling.")
+            if set(body.settings) not in ({"model_id", "loras", "sampling"},
+                                          {"model_id", "loras", "sampling", "workflow"}):
+                raise ValueError("Les réglages communs attendent workflow, checkpoint, LoRA et sampling.")
             # Reuse the same validation and bounds as KREA2 Assisted.
-            _, validated = image_settings({**body.settings, "prompt": "Réglages communs", "aspect_ratio": Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
+            _, validated = image_settings({**body.settings, "workflow": body.settings.get("workflow"),
+                                           "prompt": "Réglages communs", "aspect_ratio": Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
                                            "megapixels": 2.1})
             settings = dict(model_id=validated.model_name, loras=[asdict(l) for l in validated.loras],
-                            sampling=asdict(validated.sampling))
+                            sampling=asdict(validated.sampling), workflow=asdict(validated.workflow))
             return current().update_visual(identity, body.expected_revision, body.style, settings)
         return invoke(save)
 
