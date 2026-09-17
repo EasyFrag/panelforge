@@ -42,6 +42,12 @@
   const button = (text, action) => { const item = node("button", text); item.type = "button"; item.addEventListener("click", action); return item; };
   const deliveryLabels = {spoken: "", voice_over: "voix off", off_screen: "hors champ",
     thought: "pensée / voix intérieure", mediated: "voix transmise"};
+  const dialogueRegisters = [
+    ["Actuel", "Aucun pilotage ajouté : comportement actuel."],
+    ["Oral direct", "Français quotidien et moins littéraire, sans vulgarité forcée."],
+    ["Cru", "Formulations franches, familières ou vulgaires quand la scène s’y prête."],
+    ["Très cru / argot", "Vocabulaire cru, argot et tournures de rue compatibles avec le personnage."],
+  ];
   function dialogueLabel(line, speaker) {
     const indication = line.delivery_note || deliveryLabels[line.delivery || "spoken"];
     return `${speaker}${indication ? ` — ${indication}` : ""} : « ${line.text} »`;
@@ -54,6 +60,7 @@
   const blocked = () => state.saving || state.loading || running();
   const creationMode = () => el("creation-mode").value === "script" ? "script" : "ideas";
   const proposalCount = () => Math.max(1, Math.min(3, Number(el("proposal-count").value) || 3));
+  const dialogueRegister = () => Math.max(0, Math.min(3, Number(el("dialogue-register").value) || 0));
   const modelSource = id => state.models.find(model => model.id === id)?.source || (id?.startsWith("local::") ? "local" : "server");
   const selectedModel = role => state.models.some(model => model.id === el(`${role}-model`).value) ? el(`${role}-model`).value : "";
   const recipeKey = recipe => `${recipe.id}@${recipe.version}`;
@@ -106,6 +113,14 @@
     el("empty-copy").textContent = script
       ? "Le Rédacteur transformera le script en fiches et micro-scènes sans passer par des propositions intermédiaires."
       : `Le LLM proposera ${count} accroche${count > 1 ? "s" : ""} avec conflit, escalade et fin. ${count > 1 ? "Choisis une piste, discute-la" : "Tu pourras la discuter"}, puis développe le scénario.`;
+    const register = script ? 0 : dialogueRegister(), details = dialogueRegisters[register];
+    el("dialogue-register").disabled = script;
+    el("dialogue-register-row").setAttribute("aria-disabled", String(script));
+    el("dialogue-register-label").textContent = script ? "Script fidèle" : details[0];
+    el("dialogue-register-value").textContent = `${register}/3`;
+    el("dialogue-register-description").textContent = script
+      ? "Désactivé : les dialogues du script restent strictement inchangés."
+      : details[1];
   }
   function controls() {
     const project = state.project, busy = blocked(), doc = project?.document;
@@ -191,6 +206,7 @@
     ++state.token; clearTimeout(state.timer); state.project = null; state.paintKey = ""; state.turnKey = "";
     state.loading = false; storage.set("project", ""); el("projects").value = "";
     el("title").value = ""; el("brief").value = ""; el("creation-mode").value = "ideas"; el("proposal-count").value = "3";
+    el("dialogue-register").value = "0";
     for (const role of roles) preferredModel(role);
     refreshStartMode(); paint(); el("brief").focus();
   }
@@ -206,7 +222,8 @@
     const recipe = currentRecipe();
     const scriptProject = project.creation_mode === "script";
     const projectCount = project.proposal_count || 3;
-    el("project-brief").textContent = `${recipe.label} · ${scriptProject ? "Script fidèle" : `${projectCount} proposition${projectCount > 1 ? "s" : ""}`}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes visées · ${project.clip_seconds} s par clip`;
+    const projectRegister = dialogueRegisters[scriptProject ? 0 : (project.dialogue_register || 0)][0];
+    el("project-brief").textContent = `${recipe.label} · ${scriptProject ? "Script fidèle" : `${projectCount} proposition${projectCount > 1 ? "s" : ""}`} · Dialogues : ${projectRegister}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes visées · ${project.clip_seconds} s par clip`;
     el("ideas").hidden = scriptProject;
     el("ideas").textContent = `${project.proposal_count || 3} nouvelle${(project.proposal_count || 3) > 1 ? "s" : ""} piste${(project.proposal_count || 3) > 1 ? "s" : ""}`;
     const turnKey = `${project.project_id}:${project.turns.length}`;
@@ -401,7 +418,7 @@
       const project = await request("/api/stories/projects", json({title: el("title").value.trim() || "Nouvelle histoire", brief: el("brief").value,
         clip_seconds: Number(el("duration").value), scene_count: Number(el("scene-count").value), recipe_id: recipe.id,
         recipe_version: recipe.version, architect_model_id: selectedModel("architect"), writer_model_id: selectedModel("writer"),
-        creation_mode: mode, proposal_count: proposalCount()}));
+        creation_mode: mode, proposal_count: proposalCount(), dialogue_register: mode === "script" ? 0 : dialogueRegister()}));
       if (token !== state.token) return;
       state.project = project; storage.set("project", project.project_id); state.paintKey = ""; state.turnKey = "";
       el("instruction").value = ""; paint(); await recent(); state.saving = false; await write(mode === "script" ? "script" : "ideas");
@@ -415,6 +432,7 @@
   el("brief").addEventListener("input", controls);
   el("creation-mode").addEventListener("change", () => { refreshStartMode(); controls(); });
   el("proposal-count").addEventListener("change", () => { refreshStartMode(); controls(); });
+  el("dialogue-register").addEventListener("input", refreshStartMode);
   el("recipe").addEventListener("change", paintRecipeDescription);
   for (const role of roles) {
     el(`${role}-model`).addEventListener("change", () => { ++state.modelChoice[role]; state.wantedModel[role] = el(`${role}-model`).value; rememberModel(role); controls(); });

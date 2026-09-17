@@ -54,7 +54,8 @@ def validate_prose(value: str, header: str) -> None:
         raise ValueError("Une coupe doit être un plan compté, pas une instruction dans une phase continue.")
 
 
-def compile_sequence(plan, writer, context: dict, *, check_count, validate_final, encode_context, action_field: str) -> tuple[str, str]:
+def compile_sequence(plan, writer, context: dict, *, check_count, validate_final, encode_context,
+                     action_field: str, normalize_final=None) -> tuple[str, str]:
     check_count(plan.shots, context)
     if len(writer.shots) != len(plan.shots):
         raise ValueError("Le rédacteur doit conserver tous les plans approuvés.")
@@ -97,6 +98,8 @@ def compile_sequence(plan, writer, context: dict, *, check_count, validate_final
     context.update(compiled_header=header, shot_starts_ms=starts, cameras=cameras,
         locked_speech=list(plan.spoken_lines), cinematic_protected=protected,
         camera_phase_counts=[len(s.phases) for s in plan.shots])
+    if normalize_final is not None:
+        output = normalize_final(output, context)
     validate_final(output, context)
     context["chosen_speech"] = [line for _, line in speech_lines(output)]
     saved = plan.model_dump(mode="json")

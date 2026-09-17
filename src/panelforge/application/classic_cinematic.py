@@ -16,6 +16,7 @@ from . import cinematic_core_v1 as core
 from .minimax_h3_protocol import extract_compiled_camera_clauses, compile_dialogue_tag, normalize_dialogue_language_tags
 from .revised_documents import strip_markdown_fence
 from .vocal_policy import speech_lines, validate_speech
+from .vocal_delivery import normalize_voiceovers
 
 VERSION = "1.0.0"
 PLAN_CONTRACT = "minimax.h3.classic.cinematic_planned_v1"
@@ -287,7 +288,19 @@ def _compile(plan: Plan, writer: Writer, context: dict) -> tuple[str, str]:
     plan = Plan.model_validate(_normalize_speech(plan.model_dump(mode="json"), languages))
     writer = Writer.model_validate(_normalize_speech(writer.model_dump(mode="json"), languages))
     return core.compile_sequence(plan, writer, context, check_count=check_count,
-        validate_final=validate_final, encode_context=encode_context, action_field="actions")
+        validate_final=validate_final, encode_context=encode_context, action_field="actions",
+        normalize_final=_normalize_vocal_delivery)
+
+
+def _normalize_vocal_delivery(content: str, context: dict) -> str:
+    result = normalize_voiceovers(content, context.get("source_text", ""))
+    if result.applied or result.warnings:
+        context["vocal_normalization"] = dict(
+            version="1.0.0", applied=result.applied, warnings=list(result.warnings),
+            speaker_ids=[dict(speaker=speaker, speaker_id=speaker_id)
+                         for speaker, speaker_id in result.speaker_ids],
+        )
+    return result.content
 
 
 def prompt_errors(content: str, mode: str) -> tuple[str, ...]:

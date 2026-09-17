@@ -62,6 +62,26 @@ parlé reste seul dans `text` ; le canal (`spoken`, `voice_over`, `off_screen`,
 Les formes usuelles comme `VOIX OFF DE LÉA`, `LÉA (V.O.)`, `TOM [O.S.]` ou
 `TOM — DERRIÈRE LA PORTE` sont ainsi comprises sans autoriser une paraphrase.
 
+Un curseur **Vocabulaire des dialogues** est disponible pour les trois familles
+Fruits, Sensuel light et Cru ++. Son niveau est enregistré avec l’histoire :
+
+- `0 · Actuel` n’ajoute aucune consigne ni donnée au prochain appel LLM et garde
+  donc strictement le comportement antérieur ;
+- `1 · Oral direct` vise un français quotidien, moins littéraire ;
+- `2 · Cru` autorise les formulations franches, familières ou vulgaires adaptées
+  au personnage et au contexte, par exemple « ça pue » plutôt que l’euphémisme
+  « ça sent mauvais » ;
+- `3 · Très cru / argot` pousse davantage l’argot et les tournures de rue ou
+  internet, sans les imposer à chaque personnage ni à chaque réplique.
+
+Le réglage ne change pas le registre des actions ou de la narration et n’est pas
+un quota de jurons. Il est ajouté uniquement aux appels qui développent ou
+révisent un scénario ; les propositions restent légères. En révision, les
+dialogues déjà validés ne sont pas reformulés sauf demande explicite. Le mode
+Script fidèle force le niveau `0`, désactive le curseur et continue de protéger
+chaque réplique mot pour mot. La densité de dialogue reste inchangée : aucun
+curseur de densité n’est inclus dans cette version.
+
 Le format initial vise six micro-scènes de dix secondes. Le volet **Format de
 l'épisode** permet de choisir deux à douze scènes et cinq à quinze secondes par
 clip avant création. Ce nombre est une cible d'écriture, pas un quota de plans.

@@ -30,6 +30,10 @@
 .story-panel { min-width: 0; padding: 1.15rem; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
 .story-conversation form > label, .story-conversation form > button { margin: .8rem 0; }
 .story-conversation form > button { width: 100%; }
+#story-dialogue-register-row { padding: .65rem; border: 1px solid var(--line); border-radius: 10px; }
+#stories-workspace #story-dialogue-register { padding: 0; border: 0; background: transparent; }
+#story-dialogue-register-value { justify-self: end; color: var(--green); font-weight: 750; }
+#story-dialogue-register-row[aria-disabled="true"] { opacity: .65; }
 .story-format { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin: .9rem 0; }
 #story-turns { max-height: 48vh; overflow: auto; scroll-behavior: smooth; margin-top: 1rem; }
 .story-turn { padding: .7rem; margin: .6rem 0; border-radius: 10px; background: #f0ede6; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .85rem; }

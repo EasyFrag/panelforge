@@ -175,6 +175,27 @@ class StoriesTest(unittest.TestCase):
                 self.assertEqual(len(context["response_contract"]["concepts"]), count)
                 self.assertIn(f"exactement {count} proposition", request.system_prompt)
 
+    def test_dialogue_register_is_opt_in_and_script_fidelity_forces_current_behavior(self):
+        current = self.service.create()
+        current_request = self.service._request({**current, "model_id": "local::fixture",
+            "job": {"operation": "ideas", "request_id": "fixture-request"}}, self.recipes.get(RECIPE_ID, RECIPE_VERSION))
+        self.assertEqual(current["dialogue_register"], 0)
+        self.assertNotIn("dialogue_register", json.loads(current_request.user_prompt))
+        self.assertNotIn("REGISTRE DES DIALOGUES", current_request.system_prompt)
+
+        project = self.service.create(dialogue_register=2)
+        project = self.write(project, "ideas")
+        project = self.service.select(project["project_id"], "concept-1", project["version"])
+        self.gateway.response = json.dumps(SCENARIO)
+        project = self.write(project, "develop")
+        request = self.gateway.requests[-1]
+        self.assertEqual(json.loads(request.user_prompt)["dialogue_register"], 2)
+        self.assertIn("REGISTRE DES DIALOGUES — CRU", request.system_prompt)
+        self.assertIn("ça pue", request.system_prompt)
+
+        script = self.service.create(brief="LÉA\nBonjour.\n", creation_mode="script", dialogue_register=3)
+        self.assertEqual(script["dialogue_register"], 0)
+
     def test_script_mode_skips_concepts_and_requires_every_source_dialogue_verbatim(self):
         script = """TITRE : LA REINE\n\nSCÈNE 1 — SUR LA PLACE\n\nREINE\nC’est lui !\n\nLIVREUR — À VOIX BASSE\nMadame… votre nom est ici.\n\nFIN\n"""
         self.assertEqual(extract_script_dialogues(script), ["C’est lui !", "Madame… votre nom est ici."])
@@ -447,6 +468,7 @@ FIN
             self.assertEqual(package.status_code, 200)
             self.assertEqual(client.post("/api/stories/projects", json={"clip_seconds": True}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"proposal_count": 0}).status_code, 422)
+            self.assertEqual(client.post("/api/stories/projects", json={"dialogue_register": 4}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"creation_mode": "script", "brief": ""}).status_code, 422)
             result = client.post(f"/api/stories/projects/{project['project_id']}/select", json={"concept_id": "missing", "expected_version": 1})
             self.assertEqual(result.status_code, 422)

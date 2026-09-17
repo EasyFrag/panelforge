@@ -27,6 +27,7 @@ class StoriesBrowserTest(unittest.TestCase):
               const body=JSON.parse(options.body);creates.push(body);project={project_id:'story-cccccccccccccccccccccccccccccccc',
                 title:body.title,version:1,brief:body.brief,scene_count:body.scene_count,clip_seconds:body.clip_seconds,
                 creation_mode:body.creation_mode,proposal_count:body.proposal_count,recipe:{id:body.recipe_id,version:body.recipe_version},
+                dialogue_register:body.dialogue_register,
                 architect_model_id:body.architect_model_id,writer_model_id:body.writer_model_id,model_id:body.writer_model_id,
                 document:{concepts:[],selected_id:null,scenario:null},turns:[],job:null,revisions:[],diagnostics:[]};
               return new Response(JSON.stringify(project),{status:201});}
@@ -45,6 +46,8 @@ class StoriesBrowserTest(unittest.TestCase):
             const count=document.getElementById('story-proposal-count'),mode=document.getElementById('story-creation-mode');
             count.value='1';change(count);
             check(document.getElementById('story-create').textContent==='Proposer 1 histoire','one-story label');
+            const register=document.getElementById('story-dialogue-register');register.value='3';register.dispatchEvent(new Event('input',{bubbles:true}));
+            check(document.getElementById('story-dialogue-register-label').textContent==='Très cru / argot','register label');
             mode.value='script';change(mode);
             const brief=document.getElementById('story-brief');
             check(document.getElementById('story-proposal-count-row').hidden,'count hidden in script mode');
@@ -55,6 +58,7 @@ class StoriesBrowserTest(unittest.TestCase):
             document.getElementById('story-create-form').requestSubmit();await settle();
             check(creates.length===1&&creates[0].creation_mode==='script','script mode persisted');
             check(creates[0].proposal_count===1,'selected count persisted without affecting script');
+            check(register.disabled&&creates[0].dialogue_register===0,'faithful script disables register');
             check(writes.length===1&&writes[0].operation==='script','script skips idea generation');
             document.querySelector('#result').textContent='PASS';
           }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}})();

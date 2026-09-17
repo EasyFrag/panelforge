@@ -19,6 +19,26 @@ _MAX_LIVE_DRAFT_CHARS = 240_000
 _MAX_LIVE_REASONING_CHARS = 144_000
 _LIVE_SAVE_INTERVAL_SECONDS = 1.5
 
+_DIALOGUE_REGISTER_POLICIES = {
+    1: (
+        "REGISTRE DES DIALOGUES — ORAL DIRECT. Dans les dialogues nouvellement écrits, emploie un français "
+        "oral, quotidien et moins littéraire lorsque le personnage et la situation s’y prêtent. Garde les actions "
+        "et la narration dans leur registre actuel. Ne force pas cette couleur dans chaque réplique."
+    ),
+    2: (
+        "REGISTRE DES DIALOGUES — CRU. Dans les dialogues nouvellement écrits, préfère des formulations franches, "
+        "familières ou vulgaires lorsque le personnage et la situation s’y prêtent : par exemple « ça pue » plutôt "
+        "que l’euphémisme « ça sent mauvais ». Garde les actions et la narration dans leur registre actuel. "
+        "La vulgarité reste naturelle, intelligible et propre à chaque personnage ; ce n’est pas un quota."
+    ),
+    3: (
+        "REGISTRE DES DIALOGUES — TRÈS CRU / ARGOT. Dans les dialogues nouvellement écrits, autorise fortement le "
+        "vocabulaire cru, l’argot et les tournures de rue ou internet compatibles avec le personnage — par exemple "
+        "« ça schlingue » ou « wesh » — sans transformer automatiquement tous les personnages en caricatures. "
+        "Garde les actions et la narration dans leur registre actuel ; ce n’est pas un quota."
+    ),
+}
+
 
 class StoryConflict(ValueError):
     pass
@@ -49,6 +69,7 @@ class StoryService:
         project.setdefault("writer_model_id", legacy_model)
         project.setdefault("creation_mode", "ideas")
         project.setdefault("proposal_count", 3)
+        project.setdefault("dialogue_register", 0)
         project.setdefault("diagnostics", story_diagnostics(project.get("document", {}).get("scenario"),
             clip_seconds=project.get("clip_seconds", 10), target_scene_count=project.get("scene_count", 6),
             recipe_id=recipe["id"]))
@@ -63,7 +84,8 @@ class StoryService:
 
     def create(self, *, title="Nouvelle histoire", brief="", clip_seconds=10, scene_count=6,
                recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION,
-               architect_model_id="", writer_model_id="", creation_mode="ideas", proposal_count=3):
+               architect_model_id="", writer_model_id="", creation_mode="ideas", proposal_count=3,
+               dialogue_register=0):
         if not isinstance(title, str) or not title.strip() or len(title) > 160:
             raise ValueError("Donnez un nom à cette histoire (160 caractères maximum).")
         if not isinstance(brief, str) or len(brief) > 12000:
@@ -74,8 +96,12 @@ class StoryService:
             raise ValueError("Mode de création inconnu.")
         if type(proposal_count) is not int or not 1 <= proposal_count <= 3:
             raise ValueError("Choisissez entre 1 et 3 propositions.")
+        if type(dialogue_register) is not int or not 0 <= dialogue_register <= 3:
+            raise ValueError("Le registre des dialogues doit être compris entre 0 et 3.")
         if creation_mode == "script" and not brief.strip():
             raise ValueError("Collez un script complet à suivre.")
+        if creation_mode == "script":
+            dialogue_register = 0
         recipe = story_recipe_selection({"id": recipe_id, "version": recipe_version})
         if not any((item["id"], item["version"]) == (recipe["id"], recipe["version"])
                    for item in self.recipes.list()):
@@ -87,7 +113,7 @@ class StoryService:
             clip_seconds=clip_seconds, scene_count=scene_count, document=dict(concepts=[], selected_id=None, scenario=None),
             revisions=[], turns=[], job=None, model_id=writer_model_id.strip(), recipe=recipe,
             architect_model_id=architect_model_id.strip(), writer_model_id=writer_model_id.strip(), diagnostics=[],
-            creation_mode=creation_mode, proposal_count=proposal_count))
+            creation_mode=creation_mode, proposal_count=proposal_count, dialogue_register=dialogue_register))
 
     def get(self, project_id):
         with self._lock:
@@ -291,6 +317,15 @@ class StoryService:
             system_prompt += (f"\n\nCONTRAT DE CE PROJET : le document contient exactement {count} proposition"
                               f"{'s' if count > 1 else ''}, identifiée{'s' if count > 1 else ''} de concept-1"
                               f"{' à concept-' + str(count) if count > 1 else ''}. Conserve cette quantité.")
+        dialogue_register = project.get("dialogue_register", 0)
+        if operation in {"develop", "revise"} and dialogue_register:
+            context["dialogue_register"] = dialogue_register
+            system_prompt += "\n\n" + _DIALOGUE_REGISTER_POLICIES[dialogue_register]
+            if operation == "revise":
+                system_prompt += (
+                    " Les dialogues déjà validés restent inchangés sauf si la demande de révision vise explicitement "
+                    "leur formulation ; applique surtout ce registre aux nouvelles répliques."
+                )
         return CompletionRequest(model_id=project["model_id"], system_prompt=system_prompt,
             user_prompt=json.dumps(context, ensure_ascii=False), temperature=.8 if operation == "ideas" else (.35 if operation == "script" else .65),
             max_tokens=24000, include_reasoning=True,

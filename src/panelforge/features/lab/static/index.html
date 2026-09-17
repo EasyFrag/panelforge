@@ -7,8 +7,8 @@
   <link rel="stylesheet" href="/static/lab.css?v=20260915.1">
   <script src="/static/lab.js?v=20260914.2" defer></script>
   <script src="/static/lab-core.js?v=20260915.2" defer></script>
-  <link rel="stylesheet" href="/static/stories.css?v=20260916.2">
-  <script src="/static/stories.js?v=20260916.6" defer></script>
+  <link rel="stylesheet" href="/static/stories.css?v=20260917.1">
+  <script src="/static/stories.js?v=20260917.1" defer></script>
   <link rel="stylesheet" href="/static/episodes.css?v=20260916.1">
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
   <script src="/static/dlss-lab.js?v=20260914.1" defer></script>
@@ -109,6 +109,7 @@
           <p id="story-recipe-description" class="muted">Fruits anthropomorphes, conflits frontaux et retournements visuels.</p>
           <label>Mode de départ<select id="story-creation-mode"><option value="ideas">Explorer des propositions</option><option value="script">Suivre fidèlement un script complet</option></select></label>
           <p id="story-mode-description" class="muted">Le LLM propose plusieurs histoires avant le développement du scénario.</p>
+          <label id="story-dialogue-register-row"><span>Vocabulaire des dialogues · <strong id="story-dialogue-register-label">Actuel</strong></span><input id="story-dialogue-register" type="range" min="0" max="3" step="1" value="0"><output id="story-dialogue-register-value">0/3</output><small id="story-dialogue-register-description" class="muted">Aucun pilotage ajouté : comportement actuel.</small></label>
           <label>Nom<input id="story-title" maxlength="160" placeholder="Ex. La reine des faux cadeaux"></label>
           <label><span id="story-brief-label">Ton idée · facultative</span><textarea id="story-brief" rows="5" maxlength="12000" placeholder="Un patron avocat odieux qui arnaque ses clients… Ou laisse le LLM te surprendre."></textarea></label>
           <label id="story-proposal-count-row">Nombre de propositions<select id="story-proposal-count"><option value="1">1 histoire</option><option value="2">2 histoires</option><option value="3" selected>3 histoires</option></select></label>
