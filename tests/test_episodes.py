@@ -14,6 +14,8 @@ from panelforge.domain.episodes import initial_episode, scene_inputs, fingerprin
 from panelforge.domain.krea2_sampling import Krea2AssistedSettings, Krea2AssistedSampling
 from panelforge.domain.krea2_batch import Krea2AspectRatio, Krea2LoraSelection
 from panelforge.domain.krea2_assisted_workflows import KREA2_FLUX_KLEIN_WORKFLOW
+from panelforge.domain.krea2_assisted import Krea2AssistedAttemptStatus
+from panelforge.domain.production import ThermalPolicy
 from panelforge.domain.krea2_style_presets import Krea2StylePreset
 from panelforge.domain.prompt_composition import CompositionStage
 from panelforge.infrastructure.storage.episodes import LocalEpisodeStore
@@ -109,7 +111,9 @@ class FakeKrea:
     def prepare_attempt(self, identity, *, prompt, settings, seed, enqueue):
         project = self.values[identity]
         self.render_calls.append((settings, seed, enqueue))
-        project.attempts.append(NS(attempt_id=f"image-attempt-{len(self.render_calls)}", seed=seed or 123, output_asset_id=None))
+        project.attempts.append(NS(attempt_id=f"image-attempt-{len(self.render_calls)}", seed=seed or 123,
+            output_asset_id=f"batch-output-{len(self.render_calls)}", status=Krea2AssistedAttemptStatus.SUCCEEDED, error=None))
+        project.attempt = lambda attempt_id: next(value for value in project.attempts if value.attempt_id == attempt_id)
         return project
     def start_render_worker(self): pass
 
@@ -119,7 +123,8 @@ class EpisodeTest(unittest.TestCase):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
-        self.stories = StoryService(gateway=None, recipes=None, store=LocalStoryStore(root))
+        recipes = NS(list=lambda: [dict(id="story.brainrot", version="1.0.0")])
+        self.stories = StoryService(gateway=None, recipes=recipes, store=LocalStoryStore(root))
         story = self.stories.create(title="Test")
         story["document"]["scenario"] = deepcopy(SCENARIO)
         story["revisions"] = [dict(revision=1, document=deepcopy(story["document"]))]
@@ -159,6 +164,32 @@ class EpisodeTest(unittest.TestCase):
         view = self.service.get(first["episode_id"])
         self.assertTrue(view["story_changed"])
         self.assertEqual(view["scenario"]["title"], "La poche")
+
+    def test_reference_batch_snapshots_two_profiles_and_stops_for_human_review(self):
+        value = self.create(); identity = value["episode_id"]
+        first = value["references"][0]
+        value = self.service.import_image(identity, first["id"], first["revision"], b"old", "image/png", "old.png")
+        character = Krea2AssistedSettings("characters.safetensors", Krea2AspectRatio.PORTRAIT_WIDESCREEN, 2.1,
+            workflow=KREA2_FLUX_KLEIN_WORKFLOW)
+        location = Krea2AssistedSettings("sets.safetensors", Krea2AspectRatio.WIDESCREEN, 2.1)
+        profiles = {
+            "character": dict(model_id="local::character-llm", settings=character, seed=11),
+            "location": dict(model_id="local::set-llm", settings=location, seed=22),
+        }
+        value = self.service.start_reference_batch(identity, expected_visual_revision=value["visual_revision"],
+            request_id="reference-batch-request", reference_ids=["character-1", "location-1"],
+            profiles=profiles, thermal=ThermalPolicy(pause_when_unavailable=False, cooldown_seconds=0))
+        batch = value["reference_batch"]
+        self.assertEqual(batch["status"], "waiting_review")
+        self.assertEqual([item["status"] for item in batch["items"]], ["ready_for_review", "ready_for_review"])
+        self.assertEqual(batch["items"][0]["initial_asset_id"], value["references"][0]["image_asset_id"])
+        self.assertEqual([call[0].model_name for call in self.krea.render_calls],
+                         ["characters.safetensors", "sets.safetensors"])
+        self.assertEqual(value["reference_profiles"]["character"]["render_settings"]["workflow"]["recipe_id"],
+                         "krea2-flux-klein")
+        self.assertEqual(value["references"][0]["model_id"], "local::character-llm")
+        self.assertEqual(value["references"][-1]["model_id"], "local::set-llm")
+        self.assertEqual(len(self.krea.calls), 2)
 
     def test_reordering_keeps_named_dialogue_and_all_four_images(self):
         value = self.ready(); scene = value["scenes"][0]

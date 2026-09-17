@@ -13,6 +13,7 @@ from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_d
 from panelforge.domain.video_lab import VideoLabSettings, VideoAspectRatio
 from panelforge.domain.h3_bunny import H3BunnySettings, bunny_geometry
 from panelforge.domain.h3_render import H3VideoLoraStack
+from panelforge.domain.production import ThermalPolicy
 
 
 class StrictBody(BaseModel):
@@ -95,6 +96,28 @@ class StylePresetBody(RevisionBody):
 
 class StyleImageBody(RevisionBody):
     reference_id: str | None = Field(default=None, max_length=80)
+
+
+class ReferenceBatchProfileBody(StrictBody):
+    model_id: str = Field(min_length=1, max_length=300)
+    settings: dict
+
+
+class ReferenceBatchThermalBody(StrictBody):
+    stop_temperature_c: float = Field(default=85.0, ge=30, le=110, allow_inf_nan=False)
+    resume_temperature_c: float = Field(default=40.0, ge=15, le=109, allow_inf_nan=False)
+    cooldown_seconds: int = Field(default=120, ge=0, le=86400, strict=True)
+    monitor_local: bool = True
+    monitor_remote: bool = True
+    pause_when_unavailable: bool = False
+
+
+class ReferenceBatchBody(StrictBody):
+    expected_visual_revision: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=8, max_length=100)
+    reference_ids: list[str] = Field(min_length=1)
+    profiles: dict[str, ReferenceBatchProfileBody]
+    thermal: ReferenceBatchThermalBody = Field(default_factory=ReferenceBatchThermalBody)
 
 
 def episodes_router(service, *, serialize_image_project, validate_image, image_body, render_body):
@@ -215,6 +238,30 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
             return current().render_reference(identity, ref_id, body.expected_revision, body.request_id, settings, seed,
                                               expected_visual_revision=body.expected_visual_revision)
         return invoke(start)
+
+    @router.post("/{identity}/reference-batches", status_code=202)
+    def start_reference_batch(identity: str, body: ReferenceBatchBody):
+        def start():
+            if set(body.profiles) != {"character", "location"}:
+                raise ValueError("Configurez exactement un profil Personnages et un profil Décors.")
+            profiles = {}
+            for kind, profile in body.profiles.items():
+                allowed = {"workflow", "model_id", "aspect_ratio", "megapixels", "seed", "loras", "sampling"}
+                unexpected = set(profile.settings) - allowed
+                if unexpected:
+                    raise ValueError(f"Réglage de profil inattendu : {sorted(unexpected)[0]}.")
+                parsed, settings = image_settings({**profile.settings, "prompt": f"Profil {kind}"})
+                seed = int(parsed.seed) if parsed.seed is not None and str(parsed.seed).strip() else None
+                profiles[kind] = dict(model_id=profile.model_id, settings=settings, seed=seed)
+            return current().start_reference_batch(identity,
+                expected_visual_revision=body.expected_visual_revision,
+                request_id=body.request_id, reference_ids=body.reference_ids,
+                profiles=profiles, thermal=ThermalPolicy(**body.thermal.model_dump()))
+        return invoke(start)
+
+    @router.post("/{identity}/reference-batches/{batch_id}/cancel", status_code=202)
+    def cancel_reference_batch(identity: str, batch_id: str):
+        return invoke(lambda: current().cancel_reference_batch(identity, batch_id))
 
     @router.post("/{identity}/references/{ref_id}/select")
     def select_image(identity: str, ref_id: str, body: ImageBody):

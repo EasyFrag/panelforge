@@ -26,6 +26,9 @@ from panelforge.domain.character import (
     ShotSize,
 )
 from panelforge.domain.change_view_settings import ChangeViewRenderSettings
+from panelforge.domain.production import ComputeResource, ProductionWorkload
+
+from .machine_work import MachineWorkCoordinator
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -167,6 +170,7 @@ class ChangeViewRunner:
         run_id_factory: Callable[[], str] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        work_coordinator: MachineWorkCoordinator | None = None,
     ) -> None:
         if run_timeout <= 0:
             raise ValueError("run_timeout must be greater than zero")
@@ -183,6 +187,7 @@ class ChangeViewRunner:
         )
         self._monotonic = monotonic
         self._sleep = sleep
+        self.work_coordinator = work_coordinator
 
     def prepare(self, request: ChangeViewRunRequest) -> RunRecord:
         """Validate and persist a created run before background execution."""
@@ -237,6 +242,17 @@ class ChangeViewRunner:
 
     def execute(self, run_id: str) -> RunRecord:
         """Execute one previously prepared run and persist every transition."""
+        if self.work_coordinator is None:
+            return self._execute_owned(run_id)
+        with self.work_coordinator.lease(
+            f"change-view-{run_id}",
+            ComputeResource.REMOTE_GPU,
+            ProductionWorkload.IMAGE_RENDER,
+            "Changer la vue",
+        ):
+            return self._execute_owned(run_id)
+
+    def _execute_owned(self, run_id: str) -> RunRecord:
         run = self.runs.get(run_id)
         if run.status is not RunStatus.CREATED:
             raise ValueError(f"run {run_id!r} is not ready for execution")

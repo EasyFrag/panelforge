@@ -9,7 +9,7 @@
   <script src="/static/lab-core.js?v=20260915.2" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260917.1">
   <script src="/static/stories.js?v=20260917.1" defer></script>
-  <link rel="stylesheet" href="/static/episodes.css?v=20260916.1">
+  <link rel="stylesheet" href="/static/episodes.css?v=20260917.1">
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
   <script src="/static/dlss-lab.js?v=20260914.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
@@ -32,7 +32,7 @@
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260907.8" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260913.1" defer></script>
-  <script src="/static/episodes.js?v=20260916.8" defer></script>
+  <script src="/static/episodes.js?v=20260917.1" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260916.1" defer></script>
@@ -182,6 +182,47 @@
         <button id="episode-tab-scenes" type="button" aria-pressed="false">2 · Scènes</button>
       </nav>
       <section id="episode-references" class="story-panel">
+        <details id="episode-batch-panel" class="episode-batch-panel" open>
+          <summary>Générer tous les personnages et décors</summary>
+          <p class="muted">Les prompts sont rédigés un par un sur la machine locale. Chaque image rejoint la file distante dès que son prompt est prêt. La vidéo reste verrouillée jusqu’à ta validation humaine.</p>
+          <div class="episode-batch-profiles">
+            <fieldset data-batch-kind="character"><legend>Profil Personnages</legend>
+              <label>LLM<select id="episode-batch-character-llm"></select></label>
+              <label>Workflow KREA2<select id="episode-batch-character-workflow"></select></label>
+              <label>Checkpoint<select id="episode-batch-character-model"></select></label>
+              <div id="episode-batch-character-loras" aria-label="LoRA du profil Personnages"></div>
+              <div class="episode-grid"><label>Preset de rendu<select id="episode-batch-character-preset"></select></label>
+                <label>Format<select id="episode-batch-character-ratio"></select></label>
+                <label>Mégapixels<input id="episode-batch-character-mp" type="number" min="0.5" max="4" step="0.1" value="2.1"></label>
+                <label>Seed · vide = aléatoire<input id="episode-batch-character-seed" inputmode="numeric"></label></div>
+            </fieldset>
+            <fieldset data-batch-kind="location"><legend>Profil Décors</legend>
+              <label>LLM<select id="episode-batch-location-llm"></select></label>
+              <label>Workflow KREA2<select id="episode-batch-location-workflow"></select></label>
+              <label>Checkpoint<select id="episode-batch-location-model"></select></label>
+              <div id="episode-batch-location-loras" aria-label="LoRA du profil Décors"></div>
+              <div class="episode-grid"><label>Preset de rendu<select id="episode-batch-location-preset"></select></label>
+                <label>Format<select id="episode-batch-location-ratio"></select></label>
+                <label>Mégapixels<input id="episode-batch-location-mp" type="number" min="0.5" max="4" step="0.1" value="2.1"></label>
+                <label>Seed · vide = aléatoire<input id="episode-batch-location-seed" inputmode="numeric"></label></div>
+            </fieldset>
+          </div>
+          <details class="episode-batch-thermal"><summary>Protection thermique</summary>
+            <div class="episode-grid"><label>Ne pas démarrer à partir de °C<input id="episode-batch-stop-temp" type="number" min="30" max="110" step="1" value="85"></label>
+              <label>Autoriser sous °C<input id="episode-batch-resume-temp" type="number" min="15" max="109" step="1" value="40"></label>
+              <label>Stabilisation en secondes<input id="episode-batch-cooldown" type="number" min="0" max="86400" step="1" value="120"></label></div>
+            <p id="episode-batch-machines" class="muted"></p>
+          </details>
+          <div id="episode-batch-selection" class="episode-batch-selection"></div>
+          <div id="episode-batch-progress" class="episode-batch-progress" hidden>
+            <label>Prompts <progress id="episode-batch-prompt-progress" max="1" value="0"></progress><span id="episode-batch-prompt-count"></span></label>
+            <label>Images <progress id="episode-batch-image-progress" max="1" value="0"></progress><span id="episode-batch-image-count"></span></label>
+            <label>Validations <progress id="episode-batch-validation-progress" max="1" value="0"></progress><span id="episode-batch-validation-count"></span></label>
+          </div>
+          <div class="story-actions"><button id="episode-batch-start" type="button" class="primary">Lancer les références sélectionnées</button>
+            <button id="episode-batch-cancel" type="button" hidden>Annuler le lot</button><span id="episode-batch-status" role="status"></span></div>
+          <div id="episode-batch-results" class="episode-batch-results"></div>
+        </details>
         <div class="episode-bar"><label>Personnage ou décor<select id="episode-reference"></select></label>
           <span id="episode-reference-count" class="muted"></span></div>
         <p class="muted">Une fiche vierge du même type reprend les derniers réglages LLM et image sélectionnés.</p>

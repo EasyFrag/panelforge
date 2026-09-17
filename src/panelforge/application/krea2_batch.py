@@ -28,6 +28,10 @@ from panelforge.domain.krea2_batch import (
 )
 from panelforge.domain.krea2_lab import Krea2AspectRatio, normalize_krea2_model_name
 from panelforge.infrastructure.krea2_batch_recipes import Krea2VisualRecipe
+from panelforge.domain.production import ComputeResource, ProductionWorkload
+
+from .machine_work import MachineWorkCoordinator
+from .production_resources import ResourceWaitCancelled
 
 from .prompt_lab import (
     CompletionRequest,
@@ -134,6 +138,7 @@ class Krea2BatchService:
         seed_factory: Callable[[], int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        work_coordinator: MachineWorkCoordinator | None = None,
     ) -> None:
         self.gateway = gateway
         self.recipes = recipes
@@ -151,6 +156,7 @@ class Krea2BatchService:
         )
         self._monotonic = monotonic
         self._sleep = sleep
+        self.work_coordinator = work_coordinator
         self._lock = RLock()
         self._claimed: set[str] = set()
 
@@ -246,6 +252,22 @@ class Krea2BatchService:
             return self.batches.save(batch.start_rendering())
 
     def render(self, batch_id: str) -> Krea2Batch:
+        if self.work_coordinator is None:
+            return self._render_owned(batch_id)
+        try:
+            with self.work_coordinator.lease(
+                f"krea2-batch-{batch_id}",
+                ComputeResource.REMOTE_GPU,
+                ProductionWorkload.IMAGE_RENDER,
+                "KREA2 Batch",
+                cancelled=lambda: self.batches.get(batch_id).status
+                is Krea2BatchStatus.CANCELLED,
+            ):
+                return self._render_owned(batch_id)
+        except ResourceWaitCancelled:
+            return self.batches.get(batch_id)
+
+    def _render_owned(self, batch_id: str) -> Krea2Batch:
         with self._lock:
             batch = self.batches.get(batch_id)
             if batch.status is Krea2BatchStatus.CANCELLED:

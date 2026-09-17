@@ -107,6 +107,7 @@ def initial_episode(story, identity):
         story_revision=story["revisions"][-1]["revision"], source_hash=fingerprint(scenario),
         scenario=deepcopy(scenario), references=refs, scenes=scenes, style="", visual_revision=1,
         style_image=None, style_preset=None, image_defaults=image_defaults({}),
+        reference_profiles={}, reference_batch=None,
         cookbook=dict(id=REF2V_COOKBOOK[0], version=REF2V_COOKBOOK[1]))
 
 

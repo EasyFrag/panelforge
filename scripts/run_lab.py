@@ -37,6 +37,7 @@ from panelforge.application import (
     PromptLabService,
     ProductionService,
     ProductionV2Service,
+    MachineWorkCoordinator,
     SocialLabService,
     VideoLabRunner,
 )
@@ -47,6 +48,7 @@ from panelforge.infrastructure.llm import (
     LoggedMultimodalGateway,
     OpenAICompatibleGateway,
     RoutedMultimodalGateway,
+    CoordinatedMultimodalGateway,
 )
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
@@ -331,6 +333,15 @@ def build_app(args: argparse.Namespace):
         client_id=f"panelforge-production-monitor-{uuid4().hex}",
         timeout=args.runtime_timeout,
     )
+    local_gpu_monitor = NvidiaSmiMonitor()
+    production_thermal_monitor = CombinedProductionThermalMonitor(
+        local=local_gpu_monitor,
+        remote=CrystoolsRemoteGpuMonitor(production_monitor_comfy.websocket_url),
+    )
+    machine_work = MachineWorkCoordinator(
+        thermal_monitor=production_thermal_monitor,
+        monitor_interval=max(0.2, args.poll_interval),
+    )
     runner = ChangeViewRunner(
         recipe=recipe,
         comfy=comfy,
@@ -338,6 +349,7 @@ def build_app(args: argparse.Namespace):
         runs=runs,
         run_timeout=args.run_timeout,
         poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
     )
     video_lab = VideoLabRunner(
         recipe=video_recipe,
@@ -346,6 +358,7 @@ def build_app(args: argparse.Namespace):
         runs=video_runs,
         run_timeout=args.video_run_timeout,
         poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
     )
     krea2_lab = Krea2LabRunner(
         recipe=krea2_recipe,
@@ -354,6 +367,7 @@ def build_app(args: argparse.Namespace):
         runs=krea2_runs,
         run_timeout=args.krea2_run_timeout,
         poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
     )
     routed_gateway = RoutedMultimodalGateway(
         {
@@ -377,7 +391,7 @@ def build_app(args: argparse.Namespace):
         }
     )
     gateway = LoggedMultimodalGateway(
-        routed_gateway,
+        CoordinatedMultimodalGateway(routed_gateway, machine_work),
         llm_calls,
         trace_store=llm_traces,
     )
@@ -410,6 +424,7 @@ def build_app(args: argparse.Namespace):
         application_outcomes=gateway,
         run_timeout=getattr(args, "krea2_batch_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
     )
     krea2_assisted_default_workflow = load_krea2_assisted_workflow(
         PROJECT_ROOT / "workflows" / "image.generate.assisted" / "krea2-sampling" / "1.0.0",
@@ -438,6 +453,7 @@ def build_app(args: argparse.Namespace):
         application_outcomes=gateway,
         run_timeout=getattr(args, "krea2_assisted_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
     )
     krea2_edit = Krea2EditService(
         retouch_compositor=PillowRetouchCompositor(),
@@ -463,6 +479,7 @@ def build_app(args: argparse.Namespace):
         application_outcomes=gateway,
         run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
     )
     prompt_lab = PromptLabService(
         gateway=gateway,
@@ -524,6 +541,7 @@ def build_app(args: argparse.Namespace):
         application_outcomes=gateway,
         run_timeout=getattr(args, "h3_render_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
     )
     def resolve_social_source_prompt(video_asset):
         for project in h3_render_projects.list(10_000):
@@ -576,12 +594,7 @@ def build_app(args: argparse.Namespace):
     from panelforge.infrastructure.storage.episodes import LocalEpisodeStore
     episodes = EpisodeService(stories=stories, store=LocalEpisodeStore(args.workspace),
         krea=krea2_assisted, prompt_lab=prompt_lab, composition=prompt_composition,
-        render=h3_render, assets=assets)
-    local_gpu_monitor = NvidiaSmiMonitor()
-    production_thermal_monitor = CombinedProductionThermalMonitor(
-        local=local_gpu_monitor,
-        remote=CrystoolsRemoteGpuMonitor(production_monitor_comfy.websocket_url),
-    )
+        render=h3_render, assets=assets, work_coordinator=machine_work)
     production_lora_memory = LocalProductionLoraMemory(args.workspace)
     production = ProductionService(
         gateway=gateway,
@@ -623,6 +636,7 @@ def build_app(args: argparse.Namespace):
             "video": DlssWorkflow(PROJECT_ROOT / "workflows/video.upscale/dlss/0.1.0"),
             "video-smooth": DlssWorkflow(PROJECT_ROOT / "workflows/video.upscale/dlss-smooth/0.1.0"),
         },
+        work_coordinator=machine_work,
     )
     return create_app(
         runner,

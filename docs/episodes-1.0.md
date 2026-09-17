@@ -1,4 +1,4 @@
-# Fabrication d’épisode · 1.1
+# Fabrication d’épisode · 1.2
 
 Depuis Histoires, développer un scénario puis **Valider et préparer la
 fabrication**. Cette action ne lance aucun modèle : elle conserve une copie du
@@ -75,6 +75,34 @@ ne sont pas remplacés. Enregistrer la fiche conserve description, modèle LLM,
 prompt et réglages ; les actions de génération et changements de fiche enregistrent
 aussi les modifications avant de continuer.
 
+### Production en lot des références
+
+**Générer tous les personnages et décors** ajoute un premier niveau
+d’automatisation, limité aux références visuelles. Avant le lancement, deux profils
+indépendants permettent de choisir pour les personnages et les décors : le LLM,
+la famille de workflow (`KREA2 · deux passes` ou `KREA2 + Flux Klein`), le
+checkpoint, les LoRA, le preset de sampling, le format, les mégapixels et la seed.
+La liste récapitulative affiche ces choix pour chaque fiche et permet d’exclure une
+référence du lot.
+
+Les prompts sont produits strictement un par un. Dès que le prompt d’une fiche est
+prêt, son rendu rejoint la file KREA2 ; le LLM peut alors préparer la fiche suivante
+sans attendre l’image. Des barres distinctes suivent prompts, images et validations,
+et chaque résultat intermédiaire peut être ouvert ou retenu. Le lot s’arrête à
+**Validation humaine requise** : aucune préparation ou vidéo n’est lancée tant que
+les références ne sont pas validées. Un ancien choix d’image ne valide pas
+automatiquement une nouvelle génération.
+
+PanelForge possède deux files physiques indépendantes : tous les appels LLM et
+DLSS partagent la machine locale ; KREA2, H3/REF2V, Video Lab et les autres appels
+ComfyUI distants partagent le serveur distant. Une seule tâche s’exécute par
+machine, tandis que les deux machines peuvent travailler en parallèle. La place
+distante reste réservée jusqu’à la fin réelle du rendu, pas seulement jusqu’à sa
+soumission à ComfyUI. Les seuils de blocage avant démarrage, reprise et
+stabilisation thermique sont configurables avant le lot. Une tâche Comfy déjà en
+cours n’est pas interrompue au milieu de son rendu. DLSS reste une finition vidéo explicite et n’est pas
+planifié par ce lot de références.
+
 ## Scènes
 
 Un menu présente chaque micro-scène, sa durée et son état. Les personnages de
@@ -138,19 +166,21 @@ KREA2, sessions REF2V, traces LLM et vidéos restent dans leurs stockages exista
 Écritures atomiques, contrôles de révision, déduplication des demandes de traitement
 et détection d’une préparation interrompue après redémarrage.
 
-Tests préparés pour l’utilisateur :
+Tests ciblés :
 
 ```powershell
-python -m unittest tests.test_episodes tests.test_episodes_web tests.test_episodes_browser
+python -m unittest tests.test_machine_work tests.test_episodes tests.test_episodes_browser
 ```
 
-Ils utilisent des services/API simulés ; aucun appel LLM ni rendu réel. Ils n’ont
-pas été exécutés pendant l’implémentation, conformément à AGENTS.md. Contrôles
-effectués : AST Python, compilation syntaxique JS, liaisons et unicité des IDs HTML,
-vérification des imports et des contrats, `git diff --check`.
+Ils utilisent des services simulés ; aucun appel LLM ni rendu réel. Les suites
+ciblées du coordinateur, de Fabrication et de tous les services Comfy raccordés
+ont été exécutées pendant l’implémentation. Contrôles effectués : compilation
+Python, liaisons HTML, imports, contrats et `git diff --check`. Node.js n’est pas
+installé dans cet environnement, donc la syntaxe JavaScript n’a pas été vérifiée
+avec `node --check`.
 
 Pour charger cette version, redémarrer le Lab une fois les travaux en cours
 terminés, puis recharger la page. Aucun service n’a été redémarré automatiquement.
-L’import d’un scénario depuis Video Lab, le lancement de tout l’épisode en lot et
-son assemblage restent hors de cette première version. P1 I2V et P2 analyse vidéo
-adaptative conservent leur place au backlog.
+L’import d’un scénario depuis Video Lab, la préparation/réalisation automatique des
+clips, DLSS automatique et l’assemblage restent hors de cette version. P1 I2V et
+P2 analyse vidéo adaptative conservent leur place au backlog.

@@ -12,6 +12,9 @@ import time
 import uuid
 
 from panelforge.domain.dlss import DlssSettings
+from panelforge.domain.production import ComputeResource, ProductionWorkload
+
+from .production_resources import ResourceWaitCancelled
 
 
 ACTIVE = {"queued", "starting", "submitting", "running", "receiving", "importing"}
@@ -23,12 +26,14 @@ class DlssCancelled(Exception):
 
 class DlssService:
     def __init__(self, *, jobs, runtime, comfy, assets, media, workflows, candidates, progress=None,
-                 video_exporter=None, outputs=None, run_timeout=7200, poll_interval=1):
+                 video_exporter=None, outputs=None, run_timeout=7200, poll_interval=1,
+                 work_coordinator=None):
         self.jobs, self.runtime, self.comfy = jobs, runtime, comfy
         self.assets, self.media, self.workflows, self.candidates = assets, media, workflows, candidates
         self.run_timeout, self.poll_interval = run_timeout, poll_interval
         self.progress, self.video_exporter = progress, video_exporter
         self.outputs = outputs
+        self.work_coordinator = work_coordinator
         self._lock = RLock()
         self._worker = None
         self._export_worker = None
@@ -233,6 +238,21 @@ class DlssService:
             pass
 
     def _execute(self, job):
+        if self.work_coordinator is not None:
+            try:
+                with self.work_coordinator.lease(
+                    f"dlss:{job['job_id']}",
+                    ComputeResource.LOCAL_GPU,
+                    ProductionWorkload.DLSS,
+                    "DLSS vidéo" if job["snapshot"]["media_type"].startswith("video") else "DLSS image",
+                    cancelled=lambda: self.jobs.get(job["job_id"]).get("cancel_requested", False),
+                ):
+                    return self._execute_owned(job)
+            except ResourceWaitCancelled:
+                return None
+        return self._execute_owned(job)
+
+    def _execute_owned(self, job):
         try:
             if job["endpoint"] != self.comfy.base_url:
                 raise ValueError("La tâche appartient à une autre instance Comfy locale. Rétablis son adresse avant de reprendre.")

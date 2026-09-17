@@ -3,6 +3,7 @@
 from .logged import LlmActiveCall, LoggedMultimodalGateway
 from .llama_swap_admin import LlamaSwapAdminClient
 from .openai_compatible import OpenAICompatibleGateway
+from .coordinated import CoordinatedMultimodalGateway
 from .routed import (
     DEFAULT_LLM_SOURCE,
     LOCAL_LLM_SOURCE,
@@ -16,6 +17,7 @@ __all__ = [
     "LoggedMultimodalGateway",
     "LlmActiveCall",
     "OpenAICompatibleGateway",
+    "CoordinatedMultimodalGateway",
     "DEFAULT_LLM_SOURCE",
     "LOCAL_LLM_SOURCE",
     "RoutedMultimodalGateway",

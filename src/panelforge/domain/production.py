@@ -72,6 +72,7 @@ class ProductionWorkload(StrEnum):
     IMAGE_RENDER = "image_render"
     VIDEO_RENDER = "video_render"
     VIDEO_COOLDOWN = "video_cooldown"
+    DLSS = "dlss"
 
 
 class ComputeResourceState(StrEnum):

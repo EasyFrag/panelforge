@@ -92,8 +92,10 @@ Le parcours par propositions utilise un appel d'architecture puis un appel de
 développement. Le parcours script utilise un seul appel de rédaction, avec les
 échanges de discussion/révision à la demande. Aucun appel automatique de réparation
 du JSON, de génération de fiche KREA2 ou de rendu vidéo n'est ajouté.
-Le choix et la création des références visuelles, l'envoi automatique à H3/REF2V,
-la file de clips, DLSS et l'assemblage de l'épisode restent les étapes suivantes.
+Après validation du scénario, Fabrication permet désormais de préparer puis rendre
+les personnages et décors en lot, avec profils Personnages/Décors distincts et
+validation humaine de chaque image. L'envoi automatique de toutes les scènes à
+H3/REF2V, la file de clips, DLSS vidéo et l'assemblage restent les étapes suivantes.
 
 ## Persistance et consignes
 

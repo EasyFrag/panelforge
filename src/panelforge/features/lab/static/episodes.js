@@ -6,6 +6,8 @@
   const state = { story: null, data: null, list: [], refId: "", sceneId: "", prepId: "", tab: "references",
     models: [], catalog: null, imageProject: null, busy: false, token: 0, timer: null,
     dirtyRef: false, dirtyScene: false, dirtyCommon: false, inheritImages: true, loras: [], commonLoras: [], presets: [],
+    batchProfiles: {character: {loras: [], sampling: null}, location: {loras: [], sampling: null}},
+    batchSelection: new Set(), batchProfileKey: "", batchThermalKey: "",
     renderContext: "", renderSaves: Promise.resolve(), renderRevision: new Map() };
   const axesIds = {scene_life: "creative-scene-life", camera: "creative-camera", extra_motion: "creative-extra-motion", dialogue: "creative-dialogue"};
   const initialAxes = {scene_life: 1, camera: 2, extra_motion: 1, dialogue: 0};
@@ -28,6 +30,7 @@
   const button = (text, action) => { const b = node("button", text); b.type = "button"; b.addEventListener("click", action); return b; };
   const assetUrl = id => `/api/assets/${encodeURIComponent(id)}/content`;
   const jobRunning = item => item?.job?.status === "running";
+  const batchRunning = () => ["running", "rendering", "cancelling"].includes(state.data?.reference_batch?.status);
   const imageRunning = () => state.imageProject?.attempts.some(a => ["queued", "submitting", "running", "cancel_pending"].includes(a.status));
   const knownModel = id => state.models.some(m => m.id === id);
   const memo = { get(key) { try { return localStorage.getItem(`panelforge.episodes.${key}`); } catch (_) { return null; } },
@@ -73,7 +76,12 @@
       button.disabled = state.busy || jobRunning(r) || button.dataset.selected === "true";
     });
     el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = busyScene; });
+    el("batch-panel").querySelectorAll("select,input").forEach(n => { n.disabled = state.busy || batchRunning(); });
+    el("batch-start").disabled = state.busy || batchRunning() || !state.catalog || !state.models.length || !state.batchSelection.size;
+    el("batch-cancel").hidden = !batchRunning();
+    el("batch-cancel").disabled = state.busy || state.data?.reference_batch?.status === "cancelling";
     drawLoras();
+    drawBatchLoras();
   }
   function fillModel(id, value) {
     const select = el(id);
@@ -90,11 +98,12 @@
       fillModel("asset-model", state.dirtyRef ? el("asset-model").value : ref()?.model_id);
       fillModel("plan-model", state.dirtyScene ? el("plan-model").value : scene()?.plan_model_id);
       fillModel("writer-model", state.dirtyScene ? el("writer-model").value : scene()?.writer_model_id);
+      hydrateBatchProfiles(true);
     }
     if (results[0].status === "fulfilled") {
       const current = state.dirtyRef ? imageSettings() : ref()?.effective_image_settings;
       state.catalog = results[0].value;
-      drawVisual(); drawImageSettings(current);
+      drawVisual(); drawImageSettings(current); hydrateBatchProfiles(true);
     }
     if (results[2].status === "fulfilled") { state.presets = results[2].value.presets; drawStylePresets(); }
     el("catalog-message").textContent = results.filter(r => r.status === "rejected").map(r => r.reason.message).join(" · ") || "Catalogue chargé.";
@@ -163,13 +172,118 @@
         }});
     }
   }
+  function drawBatchLoras() {
+    for (const kind of ["character", "location"]) {
+      const profile = state.batchProfiles[kind];
+      resources.renderLoraStack(el(`batch-${kind}-loras`), {resources: state.catalog?.loras || [], selections: profile.loras, maximum: 10,
+        minimumStrength: -20, maximumStrength: 20, draggable: true, disabled: state.busy || batchRunning() || !state.catalog,
+        updatePreference, refreshResource, onChange(values) { profile.loras = values; drawBatch(); }});
+    }
+  }
+  function batchSettings(kind) {
+    const profile = state.batchProfiles[kind], prefix = `batch-${kind}`;
+    const sampling = state.catalog?.sampling.presets.find(p => p.id === el(`${prefix}-preset`).value)?.settings || profile.sampling;
+    return {workflow: el(`${prefix}-workflow`).value, model_id: el(`${prefix}-model`).value,
+      aspect_ratio: el(`${prefix}-ratio`).value, megapixels: Number(el(`${prefix}-mp`).value),
+      seed: el(`${prefix}-seed`).value.trim() || null, loras: structuredClone(profile.loras), ...(sampling ? {sampling} : {})};
+  }
+  function hydrateBatchProfiles(force = false) {
+    if (!state.data || !state.catalog || !state.models.length) return;
+    const key = `${state.data.episode_id}:${JSON.stringify(state.data.reference_profiles || {})}`;
+    if (!force && state.batchProfileKey === key) return;
+    for (const kind of ["character", "location"]) {
+      const stored = state.data.reference_profiles?.[kind];
+      const sample = state.data.references.find(item => item.kind === kind);
+      const settings = stored?.render_settings || sample?.effective_image_settings || state.data.image_defaults || {};
+      const prefix = `batch-${kind}`;
+      fillModel(`${prefix}-llm`, stored?.model_id || sample?.model_id);
+      drawWorkflow(`${prefix}-workflow`, settings.workflow);
+      modelPicker(`${prefix}-model`, settings.model_id);
+      drawSampling(`${prefix}-preset`, settings.sampling);
+      el(`${prefix}-ratio`).replaceChildren(...state.catalog.aspect_ratios.map(value => new Option(value, value)));
+      const fallbackRatio = kind === "location" ? "16:9 (Landscape Widescreen)" : state.catalog.defaults.aspect_ratio;
+      el(`${prefix}-ratio`).value = settings.aspect_ratio || fallbackRatio;
+      if (!el(`${prefix}-ratio`).value) el(`${prefix}-ratio`).value = state.catalog.defaults.aspect_ratio;
+      el(`${prefix}-mp`).value = String(settings.megapixels ?? 2.1);
+      el(`${prefix}-seed`).value = settings.seed ?? "";
+      state.batchProfiles[kind] = {loras: structuredClone(settings.loras || []), sampling: settings.sampling};
+    }
+    state.batchProfileKey = key;
+    const thermal = state.data.reference_batch?.thermal || state.data.machine_work?.policy;
+    const thermalKey = `${state.data.episode_id}:${JSON.stringify(thermal || {})}`;
+    if (thermal && (force || state.batchThermalKey !== thermalKey)) {
+      el("batch-stop-temp").value = String(thermal.stop_temperature_c ?? 85);
+      el("batch-resume-temp").value = String(thermal.resume_temperature_c ?? 40);
+      el("batch-cooldown").value = String(thermal.cooldown_seconds ?? 120);
+      state.batchThermalKey = thermalKey;
+    }
+    drawBatchLoras(); drawBatch();
+  }
+  function batchProfileSummary(kind) {
+    if (!state.catalog || !state.models.length) return "Catalogue en cours de chargement";
+    const prefix = `batch-${kind}`, workflowId = el(`${prefix}-workflow`).value, modelId = el(`${prefix}-model`).value;
+    const workflow = state.catalog.workflows.find(item => item.id === workflowId);
+    const model = state.catalog.render_models.find(item => item.comfy_name === modelId);
+    const llm = state.models.find(item => item.id === el(`${prefix}-llm`).value);
+    const preset = state.catalog.sampling.presets.find(item => item.id === el(`${prefix}-preset`).value);
+    return `${llm?.label || llm?.display_name || el(`${prefix}-llm`).value} · ${workflow?.label || workflowId} · ${model?.display_name || modelId} · ${preset?.label || el(`${prefix}-preset`).value}`;
+  }
+  function drawBatch() {
+    if (!state.data) return;
+    const active = batchRunning(), batch = state.data.reference_batch;
+    const selectedItems = new Map((batch?.items || []).map(item => [item.reference_id, item]));
+    el("batch-selection").replaceChildren(...state.data.references.map(reference => {
+      const label = node("label"), checkbox = document.createElement("input"); checkbox.type = "checkbox";
+      checkbox.checked = active ? selectedItems.has(reference.id) : state.batchSelection.has(reference.id);
+      checkbox.disabled = active; checkbox.addEventListener("change", () => {
+        if (checkbox.checked) state.batchSelection.add(reference.id); else state.batchSelection.delete(reference.id);
+        controls();
+      });
+      label.append(checkbox, node("b", `${reference.kind === "character" ? "Personnage" : "Décor"} · ${reference.name}`),
+        node("span", batchProfileSummary(reference.kind), "muted"));
+      return label;
+    }));
+    const machine = state.data.machine_work?.machines || {};
+    const machineText = key => { const value = machine[key]; if (!value) return `${key} indisponible`;
+      return `${key === "local_gpu" ? "Local" : "Distant"} : ${value.state}${value.temperature_c == null ? "" : ` · ${value.temperature_c.toFixed(0)} °C`}${value.operation ? ` · ${value.operation}` : ""}`; };
+    el("batch-machines").textContent = `${machineText("local_gpu")} · ${machineText("remote_gpu")}`;
+    el("batch-progress").hidden = !batch;
+    el("batch-status").textContent = batch ? `${batch.phase}${batch.error ? ` · ${batch.error}` : ""}` : "Vérifie les deux profils avant de lancer.";
+    if (!batch) { el("batch-results").replaceChildren(); controls(); return; }
+    const items = batch.items || [], total = Math.max(1, items.length);
+    const promptDone = items.filter(item => !["pending", "prompting"].includes(item.status)).length;
+    const imageDone = items.filter(item => ["ready_for_review", "validated", "failed"].includes(item.status)).length;
+    const validated = items.filter(item => item.status === "validated").length;
+    for (const [id, value, text] of [["prompt", promptDone, `${promptDone} / ${items.length}`], ["image", imageDone, `${imageDone} / ${items.length}`], ["validation", validated, `${validated} / ${items.length}`]]) {
+      el(`batch-${id}-progress`).max = total; el(`batch-${id}-progress`).value = value; el(`batch-${id}-count`).textContent = text;
+    }
+    el("batch-results").replaceChildren(...items.map(item => {
+      const card = node("article", "", "episode-batch-result");
+      card.append(node("b", `${item.kind === "character" ? "Personnage" : "Décor"} · ${item.name}`));
+      if (item.output_asset_id) { const image = document.createElement("img"); image.src = assetUrl(item.output_asset_id); image.alt = item.name; card.append(image); }
+      card.append(node("p", item.phase || item.status), node("p", item.error || "", item.error ? "error" : "muted"));
+      const actions = node("div", "", "story-actions");
+      actions.append(button("Ouvrir la fiche", () => action(async () => {
+        await saveReference(); state.refId = item.reference_id; state.imageProject = null; state.dirtyRef = false;
+        drawLists(); drawReference(true); await imageProject();
+      })));
+      if (item.output_asset_id && item.status !== "validated") actions.append(button("Valider cette image", () => action(async () => {
+        const reference = state.data.references.find(value => value.id === item.reference_id);
+        accept(await core.request(api(`/references/${reference.id}/select`), send("POST", {expected_revision: reference.revision, asset_id: item.output_asset_id})));
+      })));
+      card.append(actions); return card;
+    }));
+    controls();
+  }
   async function changeResource(resource, suffix, body) {
     try {
       const updated = await core.request(`/api/image-lab/krea2-batch/resources/${encodeURIComponent(resource.resource_id)}/${suffix}`,
         body ? send("POST", body) : {method: "POST"});
       for (const item of [...(state.catalog?.render_models || []), ...(state.catalog?.loras || [])])
         if (item.resource_id === updated.resource_id) Object.assign(item, updated);
-      modelPicker("common-model", el("common-model").value); modelPicker("image-model", el("image-model").value); drawLoras();
+      modelPicker("common-model", el("common-model").value); modelPicker("image-model", el("image-model").value);
+      for (const kind of ["character", "location"]) modelPicker(`batch-${kind}-model`, el(`batch-${kind}-model`).value);
+      drawLoras(); drawBatchLoras();
       return updated;
     } catch (error) { message(error.message, true); return false; }
   }
@@ -357,7 +471,7 @@
     state.data = data;
     for (const s of data.scenes) { const key = `${data.episode_id}:${s.id}`;
       state.renderRevision.set(key, Math.max(s.render_revision, state.renderRevision.get(key) || 0)); }
-    drawLists(); drawVisual(); drawReference(); drawScene(); controls();
+    drawLists(); drawVisual(); drawReference(); drawScene(); hydrateBatchProfiles(); drawBatch(); controls();
   }
   async function imageProject() {
     const r = ref(), id = state.data?.episode_id; if (!r) return;
@@ -372,7 +486,7 @@
   function schedule() {
     clearTimeout(state.timer);
     if (root.hidden || !state.data || document.getElementById("stories-workspace").hidden) return;
-    const running = [...state.data.references, ...state.data.scenes].some(jobRunning) || imageRunning();
+    const running = [...state.data.references, ...state.data.scenes].some(jobRunning) || imageRunning() || batchRunning();
     if (!running) return;
     const token = state.token;
     state.timer = setTimeout(async () => { try { if (!state.busy) await refresh(); } catch (error) { message(error.message, true); }
@@ -393,6 +507,27 @@
       inherit_image_settings: state.inheritImages,
       render_settings: state.catalog && imageSettings().model_id && el("image-ratio").value ? imageSettings() : r.render_settings};
     const data = await core.request(api(`/references/${r.id}`), send("PUT", payload)); state.dirtyRef = false; accept(data);
+  }
+  async function startReferenceBatch() {
+    await saveReference();
+    const stop = Number(el("batch-stop-temp").value), resume = Number(el("batch-resume-temp").value);
+    if (!(resume < stop)) throw new Error("La température de reprise doit être inférieure au seuil de pause.");
+    const profiles = {};
+    for (const kind of ["character", "location"]) {
+      const prefix = `batch-${kind}`;
+      if (!knownModel(el(`${prefix}-llm`).value)) throw new Error(`Choisis un LLM disponible pour le profil ${kind === "character" ? "Personnages" : "Décors"}.`);
+      if (!(state.catalog?.render_models || []).some(model => model.comfy_name === el(`${prefix}-model`).value))
+        throw new Error(`Choisis un checkpoint disponible pour le profil ${kind === "character" ? "Personnages" : "Décors"}.`);
+      profiles[kind] = {model_id: el(`${prefix}-llm`).value, settings: batchSettings(kind)};
+    }
+    const data = await core.request(api("/reference-batches"), send("POST", {
+      expected_visual_revision: state.data.visual_revision, request_id: crypto.randomUUID(),
+      reference_ids: [...state.batchSelection], profiles,
+      thermal: {stop_temperature_c: stop, resume_temperature_c: resume,
+        cooldown_seconds: Number(el("batch-cooldown").value), monitor_local: true,
+        monitor_remote: true, pause_when_unavailable: false},
+    }));
+    accept(data); el("batch-panel").open = true;
   }
   async function saveScene() {
     if (!state.dirtyScene) return;
@@ -489,6 +624,8 @@
     const token = ++state.token; clearTimeout(state.timer);
     const data = await core.request(api("", id)); if (token !== state.token) return;
     state.dirtyRef = state.dirtyScene = state.dirtyCommon = false; state.data = data; state.imageProject = null; state.prepId = "";
+    state.batchProfileKey = ""; state.batchThermalKey = "";
+    state.batchSelection = new Set(data.references.filter(reference => !reference.image_asset_id).map(reference => reference.id));
     el("style-preset").value = "";
     state.refId = data.references.some(r => r.id === saved?.ref) ? saved.ref : data.references[0].id;
     state.sceneId = data.scenes.some(s => s.id === saved?.scene) ? saved.scene : data.scenes[0].id;
@@ -585,6 +722,21 @@
   el("prompt-recipes").addEventListener("click", () => window.PanelForgePromptRecipes.open({key: "minimax.h3.ref2v.classic.cinematic.planned", version: "1.0.0"}));
   el("image-calls").addEventListener("click", () => window.PanelForgePromptRecipes.showHistory(api(`/references/${ref().id}/calls`)));
   el("image-open").addEventListener("click", () => window.PanelForgeKrea2AssistedLab?.open(ref().krea_project_id));
+  el("batch-start").addEventListener("click", () => action(startReferenceBatch));
+  el("batch-cancel").addEventListener("click", () => action(async () => {
+    const batch = state.data.reference_batch; if (!batch) return;
+    accept(await core.request(api(`/reference-batches/${encodeURIComponent(batch.batch_id)}/cancel`), {method: "POST"}));
+  }));
+  for (const kind of ["character", "location"]) {
+    const prefix = `batch-${kind}`;
+    for (const id of ["llm", "model", "preset", "ratio", "mp", "seed"])
+      el(`${prefix}-${id}`).addEventListener(id === "model" || id === "preset" ? "change" : "input", () => { drawBatch(); controls(); });
+    el(`${prefix}-workflow`).addEventListener("change", () => {
+      const workflow = state.catalog?.workflows?.find(item => item.id === el(`${prefix}-workflow`).value);
+      if (workflow?.default_sampling_preset_id) el(`${prefix}-preset`).value = workflow.default_sampling_preset_id;
+      drawBatch(); controls();
+    });
+  }
   for (const id of ["description", "asset-model", "asset-local", "asset-text", "image-model", "image-ratio", "image-mp", "image-seed", "image-preset"])
     el(id).addEventListener("input", () => { state.dirtyRef = true; controls(); });
   // The shared checkpoint picker dispatches change rather than input.

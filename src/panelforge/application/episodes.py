@@ -2,6 +2,7 @@
 from copy import deepcopy
 from dataclasses import asdict, replace
 from threading import RLock, Thread
+import time
 from uuid import uuid4
 
 from panelforge.domain.episodes import (
@@ -14,6 +15,8 @@ from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_d
 from panelforge.domain.prompt_composition import CookbookBinding, CompositionStage, PreparationIntent
 from panelforge.domain.prompt_lab import CreativeFreedomAxes, ReferenceUse
 from panelforge.domain.video_preparation import ClassicCinematicSettings
+from panelforge.domain.krea2_assisted import Krea2AssistedAttemptStatus
+from panelforge.domain.production import ThermalPolicy
 from .prompt_lab import NewReference, StreamEventKind
 
 
@@ -22,10 +25,13 @@ class EpisodeConflict(ValueError):
 
 
 class EpisodeService:
-    def __init__(self, *, stories, store, krea, prompt_lab, composition, render, assets):
+    def __init__(self, *, stories, store, krea, prompt_lab, composition, render, assets,
+                 work_coordinator=None, sleep=time.sleep):
         self.stories, self.store, self.krea = stories, store, krea
         self.prompt_lab, self.composition, self.render, self.assets = prompt_lab, composition, render, assets
+        self.work_coordinator, self._sleep = work_coordinator, sleep
         self._lock, self._active = RLock(), set()
+        self._active_batches = set()
 
     def create(self, story_id, expected_version):
         with self._lock:
@@ -45,6 +51,8 @@ class EpisodeService:
     def get(self, identity):
         with self._lock:
             value = self.store.get(identity)
+            value.setdefault("reference_profiles", {})
+            value.setdefault("reference_batch", None)
             interrupted = False
             for collection in ("references", "scenes"):
                 for item in value[collection]:
@@ -56,10 +64,19 @@ class EpisodeService:
                         interrupted = True
             if interrupted:
                 value = self.store.save(value)
+            batch = value.get("reference_batch")
+            if batch and batch.get("status") in {"running", "rendering", "cancelling"} and identity not in self._active_batches:
+                batch.update(status="interrupted", phase="Traitement interrompu", error="Le serveur a redémarré pendant la production en lot.")
+                value = self.store.save(value)
+            value = self._reconcile_reference_batch(value)
         view = deepcopy(value)
         view.setdefault("visual_revision", 1)
         view.setdefault("style_image", None)
         view.setdefault("style_preset", None)
+        view.setdefault("reference_profiles", {})
+        view.setdefault("reference_batch", None)
+        if self.work_coordinator is not None:
+            view["machine_work"] = self.work_coordinator.public_status()
         view["image_defaults"] = image_defaults(value)
         for ref in view["references"]:
             ref["inherit_image_settings"] = inherits_images(ref)
@@ -95,6 +112,59 @@ class EpisodeService:
                 except (KeyError, FileNotFoundError):
                     scene["video_status"] = None
         return view
+
+    def _reconcile_reference_batch(self, value):
+        batch = value.get("reference_batch")
+        if not batch:
+            return value
+        changed = False
+        refs = {ref["id"]: ref for ref in value["references"]}
+        for item in batch.get("items", []):
+            ref = refs.get(item["reference_id"])
+            if ref is None:
+                continue
+            output_id = item.get("output_asset_id")
+            selected_asset = ref.get("image_asset_id")
+            selection_changed = selected_asset and (
+                selected_asset == output_id or selected_asset != item.get("initial_asset_id")
+            )
+            if selection_changed and item.get("status") in {"ready_for_review", "validated"}:
+                selected = selected_asset
+                if item.get("status") != "validated" or item.get("selected_asset_id") != selected:
+                    item.update(status="validated", selected_asset_id=selected)
+                    changed = True
+            elif item.get("attempt_id") and ref.get("krea_project_id"):
+                try:
+                    attempt = self.krea.projects.get(ref["krea_project_id"]).attempt(item["attempt_id"])
+                except (KeyError, FileNotFoundError, ValueError):
+                    continue
+                if attempt.status is Krea2AssistedAttemptStatus.SUCCEEDED:
+                    if item.get("status") not in {"ready_for_review", "validated"} or output_id != attempt.output_asset_id:
+                        item.update(status="ready_for_review", phase="Image prête à valider",
+                                    output_asset_id=attempt.output_asset_id, error=None)
+                        changed = True
+                elif attempt.status in {Krea2AssistedAttemptStatus.FAILED, Krea2AssistedAttemptStatus.CANCELLED}:
+                    if item.get("status") != "failed":
+                        item.update(status="failed", phase="Échec", error=attempt.error or "Le rendu a échoué.")
+                        changed = True
+                elif attempt.status in {Krea2AssistedAttemptStatus.SUBMITTING, Krea2AssistedAttemptStatus.RUNNING,
+                                        Krea2AssistedAttemptStatus.CANCEL_PENDING}:
+                    if item.get("status") != "rendering":
+                        item.update(status="rendering", phase="Rendu KREA2 en cours")
+                        changed = True
+        statuses = {item.get("status") for item in batch.get("items", [])}
+        active = statuses & {"pending", "prompting", "prompt_ready", "queued_render", "rendering"}
+        if not active and batch.get("status") in {"running", "rendering", "waiting_review"}:
+            target = "completed" if statuses <= {"validated", "skipped"} else (
+                "failed" if statuses <= {"failed", "skipped"} else "waiting_review")
+            phase = {"completed": "Toutes les références sont validées",
+                     "failed": "Aucune image à valider", "waiting_review": "Validation humaine requise"}[target]
+            if batch.get("status") != target or batch.get("phase") != phase:
+                batch.update(status=target, phase=phase)
+                changed = True
+        if changed:
+            return self.store.save(value)
+        return value
 
     @staticmethod
     def _item(value, collection, item_id):
@@ -373,6 +443,192 @@ class EpisodeService:
                 self._change(key, lambda r: r.update(revision=r["revision"] + 1))
             self._launch(identity, "references", ref_id, request_id, work)
         return self.get(identity)
+
+    @staticmethod
+    def _batch_render_settings(settings, seed):
+        return dict(
+            workflow=asdict(settings.workflow), model_id=settings.model_name,
+            aspect_ratio=settings.aspect_ratio.value, megapixels=settings.megapixels,
+            seed=str(seed) if seed is not None else None,
+            loras=[asdict(value) for value in settings.loras],
+            sampling=asdict(settings.sampling),
+        )
+
+    def start_reference_batch(self, identity, *, expected_visual_revision, request_id,
+                              reference_ids, profiles, thermal):
+        """Pipeline one LLM call at a time while KREA2 drains independently."""
+        policy = thermal if isinstance(thermal, ThermalPolicy) else ThermalPolicy(**thermal)
+        with self._lock:
+            value = self.store.get(identity)
+            existing = value.get("reference_batch")
+            if existing and existing.get("request_id") == request_id:
+                return self.get(identity)
+            if existing and existing.get("status") in {"running", "rendering", "cancelling"}:
+                raise EpisodeConflict("Une production de références est déjà en cours.")
+            if value.get("visual_revision", 1) != expected_visual_revision:
+                raise EpisodeConflict("Le style ou les réglages ont changé. Actualisez avant le lancement en lot.")
+            selected = []
+            seen = set()
+            for ref_id in reference_ids:
+                if ref_id in seen:
+                    raise ValueError("Une fiche ne peut apparaître qu’une fois dans le lot.")
+                seen.add(ref_id)
+                ref = self._item(value, "references", ref_id)
+                profile = profiles.get(ref["kind"])
+                if profile is None:
+                    raise ValueError(f"Le profil {ref['kind']} est manquant.")
+                public_settings = self._batch_render_settings(profile["settings"], profile.get("seed"))
+                ref.update(model_id=profile["model_id"], render_settings=deepcopy(public_settings),
+                           inherit_image_settings=False, revision=ref["revision"] + 1)
+                selected.append(ref)
+            if not selected:
+                raise ValueError("Choisissez au moins un personnage ou un décor.")
+            public_profiles = {
+                kind: dict(model_id=profile["model_id"],
+                           render_settings=self._batch_render_settings(profile["settings"], profile.get("seed")))
+                for kind, profile in profiles.items()
+            }
+            batch_id = f"reference-batch-{uuid4().hex}"
+            value["reference_profiles"] = deepcopy(public_profiles)
+            value["reference_batch"] = dict(
+                batch_id=batch_id, request_id=request_id, status="running", phase="Préparation des prompts",
+                error=None, cancel_requested=False, profiles=deepcopy(public_profiles), thermal=asdict(policy),
+                items=[dict(reference_id=ref["id"], name=ref["name"], kind=ref["kind"],
+                            status="pending", phase="En attente", error=None, attempt_id=None,
+                            output_asset_id=None, selected_asset_id=None,
+                            initial_asset_id=ref.get("image_asset_id")) for ref in selected],
+            )
+            self._active_batches.add(identity)
+            self.store.save(value)
+            if self.work_coordinator is not None:
+                self.work_coordinator.configure(policy)
+            try:
+                Thread(target=self._reference_batch_worker,
+                       args=(identity, batch_id, deepcopy(profiles)), daemon=True,
+                       name=f"episode-reference-batch-{identity}").start()
+            except BaseException:
+                self._active_batches.discard(identity)
+                raise
+        return self.get(identity)
+
+    def cancel_reference_batch(self, identity, batch_id):
+        attempts = []
+        with self._lock:
+            value = self.store.get(identity)
+            batch = value.get("reference_batch")
+            if not batch or batch.get("batch_id") != batch_id:
+                raise KeyError("Production de références introuvable.")
+            if batch.get("status") not in {"running", "rendering", "cancelling"}:
+                return self.get(identity)
+            batch.update(cancel_requested=True, status="cancelling", phase="Annulation demandée")
+            refs = {ref["id"]: ref for ref in value["references"]}
+            for item in batch["items"]:
+                ref = refs.get(item["reference_id"])
+                if item.get("attempt_id") and ref and ref.get("krea_project_id"):
+                    attempts.append((ref["krea_project_id"], item["attempt_id"]))
+            self.store.save(value)
+        for project_id, attempt_id in attempts:
+            try:
+                self.krea.cancel_attempt(project_id, attempt_id)
+            except (KeyError, FileNotFoundError, ValueError):
+                pass
+        return self.get(identity)
+
+    def _batch_change(self, identity, batch_id, change):
+        with self._lock:
+            value = self.store.get(identity)
+            batch = value.get("reference_batch")
+            if not batch or batch.get("batch_id") != batch_id:
+                raise EpisodeConflict("La production en lot a été remplacée.")
+            change(value, batch)
+            self.store.save(value)
+
+    def _batch_cancelled(self, identity, batch_id):
+        with self._lock:
+            value = self.store.get(identity)
+            batch = value.get("reference_batch")
+            return not batch or batch.get("batch_id") != batch_id or batch.get("cancel_requested", False)
+
+    def _batch_item(self, batch, reference_id):
+        return next(item for item in batch["items"] if item["reference_id"] == reference_id)
+
+    def _wait_reference_job(self, identity, ref_id, batch_id):
+        while True:
+            if self._batch_cancelled(identity, batch_id):
+                return None
+            with self._lock:
+                ref = self._item(self.store.get(identity), "references", ref_id)
+            job = ref.get("job") or {}
+            if job.get("status") != "running":
+                return job
+            self._sleep(0.1)
+
+    def _reference_batch_worker(self, identity, batch_id, profiles):
+        try:
+            batch = self.store.get(identity)["reference_batch"]
+            for original in batch["items"]:
+                ref_id = original["reference_id"]
+                if self._batch_cancelled(identity, batch_id):
+                    break
+                self._batch_change(identity, batch_id, lambda _value, current, ref_id=ref_id:
+                    self._batch_item(current, ref_id).update(status="prompting", phase="Rédaction LLM", error=None))
+                current = self._item(self.store.get(identity), "references", ref_id)
+                try:
+                    self.prepare_reference(identity, ref_id, current["revision"],
+                        f"{batch_id}-prompt-{ref_id}", "",
+                        expected_visual_revision=self.store.get(identity).get("visual_revision", 1))
+                    job = self._wait_reference_job(identity, ref_id, batch_id)
+                    if job is None:
+                        break
+                    if job.get("status") != "succeeded":
+                        raise ValueError(job.get("error") or "La rédaction du prompt a échoué.")
+                    self._batch_change(identity, batch_id, lambda _value, current, ref_id=ref_id:
+                        self._batch_item(current, ref_id).update(status="prompt_ready", phase="Prompt prêt", error=None))
+                    current = self._item(self.store.get(identity), "references", ref_id)
+                    profile = profiles[current["kind"]]
+                    self.render_reference(identity, ref_id, current["revision"],
+                        f"{batch_id}-render-{ref_id}", profile["settings"], profile.get("seed"),
+                        expected_visual_revision=self.store.get(identity).get("visual_revision", 1))
+                    job = self._wait_reference_job(identity, ref_id, batch_id)
+                    if job is None:
+                        break
+                    if job.get("status") != "succeeded":
+                        raise ValueError(job.get("error") or "La mise en file du rendu a échoué.")
+                    current = self._item(self.store.get(identity), "references", ref_id)
+                    attempt_id = current.get("image_runs", [])[-1]["attempt_id"]
+                    self._batch_change(identity, batch_id, lambda _value, active, ref_id=ref_id, attempt_id=attempt_id:
+                        self._batch_item(active, ref_id).update(status="queued_render", phase="Rendu KREA2 en file",
+                                                               attempt_id=attempt_id, error=None))
+                except Exception as error:
+                    self._batch_change(identity, batch_id, lambda _value, current, ref_id=ref_id, error=error:
+                        self._batch_item(current, ref_id).update(status="failed", phase="Échec", error=str(error)))
+            if self._batch_cancelled(identity, batch_id):
+                self._batch_change(identity, batch_id, lambda _value, current:
+                    current.update(status="cancelled", phase="Annulé", error=None))
+                return
+            self._batch_change(identity, batch_id, lambda _value, current:
+                current.update(status="rendering", phase="Rendus KREA2 en cours"))
+            while True:
+                with self._lock:
+                    value = self.store.get(identity)
+                    value = self._reconcile_reference_batch(value)
+                    current = value["reference_batch"]
+                if current.get("status") not in {"running", "rendering"}:
+                    return
+                if self._batch_cancelled(identity, batch_id):
+                    self._batch_change(identity, batch_id, lambda _value, active:
+                        active.update(status="cancelled", phase="Annulé", error=None))
+                    return
+                self._sleep(0.5)
+        except Exception as error:
+            try:
+                self._batch_change(identity, batch_id, lambda _value, current:
+                    current.update(status="failed", phase="Échec du lot", error=str(error)))
+            except (EpisodeConflict, FileNotFoundError):
+                pass
+        finally:
+            with self._lock:
+                self._active_batches.discard(identity)
 
     def prepare_scene(self, identity, scene_id, expected_revision, request_id, resume=False):
         with self._lock:

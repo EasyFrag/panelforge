@@ -40,5 +40,21 @@
 #episode-workshop .creative-axes-heading { flex-wrap: wrap; }
 #episode-workshop .creative-axes-summary { text-align: left; }
 #episode-image-settings-note { overflow-wrap: anywhere; }
+.episode-batch-panel { margin: 0 0 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: #fbfaf6; }
+.episode-batch-panel > summary { font-weight: 700; cursor: pointer; }
+.episode-batch-profiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.episode-batch-profiles fieldset { min-width: 0; padding: .9rem; border: 1px solid var(--line); border-radius: 10px; }
+.episode-batch-profiles label { display: block; margin: .55rem 0; }
+.episode-batch-thermal { margin: .8rem 0; }
+.episode-batch-selection { display: grid; gap: .45rem; margin: .9rem 0; }
+.episode-batch-selection label { display: grid; grid-template-columns: auto minmax(120px, .8fr) minmax(0, 2fr); align-items: center; gap: .7rem; padding: .55rem; border-bottom: 1px solid var(--line); }
+.episode-batch-selection input { width: auto; }
+.episode-batch-progress { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem; margin: .9rem 0; }
+.episode-batch-progress label { display: grid; gap: .25rem; }
+.episode-batch-progress progress { width: 100%; }
+.episode-batch-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: .7rem; margin-top: 1rem; }
+.episode-batch-result { padding: .65rem; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.episode-batch-result img { width: 100%; height: 150px; object-fit: contain; border-radius: 7px; background: #f0ede6; }
+.episode-batch-result p { margin: .35rem 0; font-size: .82rem; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .episode-style-grid { grid-template-columns: 1fr; } }
-@media (max-width: 850px) { .episode-asset-grid, .episode-grid { grid-template-columns: 1fr; } }
+@media (max-width: 850px) { .episode-asset-grid, .episode-grid, .episode-batch-profiles, .episode-batch-progress { grid-template-columns: 1fr; } }

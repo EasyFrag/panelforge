@@ -38,9 +38,11 @@ from panelforge.domain.krea2_style_presets import Krea2StylePreset
 from panelforge.domain.krea2_lab import Krea2AspectRatio
 from panelforge.domain.krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW
 from panelforge.domain.recipes import RecipeRef
+from panelforge.domain.production import ComputeResource, ProductionWorkload
 from panelforge.infrastructure.krea2_batch_recipes import Krea2VisualRecipe
 
 from . import krea2_assisted_v1, krea2_assisted_v2, krea2_assisted_v3
+from .production_resources import ResourceWaitCancelled
 from .prompt_lab import (
     CompletionRequest,
     ImageInput,
@@ -181,6 +183,7 @@ class Krea2AssistedService:
         seed_factory: Callable[[], int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        work_coordinator=None,
     ) -> None:
         if run_timeout <= 0 or poll_interval <= 0:
             raise ValueError("timeouts must be positive")
@@ -221,6 +224,7 @@ class Krea2AssistedService:
         )
         self._monotonic = monotonic
         self._sleep = sleep
+        self.work_coordinator = work_coordinator
         self._lock = RLock()
         self._claimed: set[tuple[str, str]] = set()
         self._chatting: set[str] = set()
@@ -668,6 +672,22 @@ class Krea2AssistedService:
         return self.projects.get(project_id)
 
     def _execute_render(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
+        if self.work_coordinator is not None:
+            try:
+                with self.work_coordinator.lease(
+                    f"krea2:{project_id}:{attempt_id}",
+                    ComputeResource.REMOTE_GPU,
+                    ProductionWorkload.IMAGE_RENDER,
+                    "KREA2",
+                    cancelled=lambda: self.projects.get(project_id).attempt(attempt_id).status
+                    not in _RENDER_PENDING,
+                ):
+                    return self._execute_render_owned(project_id, attempt_id)
+            except ResourceWaitCancelled:
+                return self.projects.get(project_id)
+        return self._execute_render_owned(project_id, attempt_id)
+
+    def _execute_render_owned(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
         key = (project_id, attempt_id)
         with self._lock:
             project = self.projects.get(project_id)

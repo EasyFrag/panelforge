@@ -18,6 +18,9 @@ from panelforge.domain import (
     VideoLabRunStatus,
     VideoLabSettings,
 )
+from panelforge.domain.production import ComputeResource, ProductionWorkload
+
+from .production_resources import ResourceWaitCancelled
 
 
 class UploadedImage(Protocol):
@@ -179,6 +182,7 @@ class VideoLabRunner:
         seed_factory: Callable[[], int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        work_coordinator=None,
     ) -> None:
         if run_timeout <= 0:
             raise ValueError("run_timeout must be greater than zero")
@@ -196,6 +200,7 @@ class VideoLabRunner:
         self._seed_factory = seed_factory or (lambda: secrets.randbits(64))
         self._monotonic = monotonic
         self._sleep = sleep
+        self.work_coordinator = work_coordinator
         self._state_lock = RLock()
         self._claimed: set[str] = set()
 
@@ -266,6 +271,22 @@ class VideoLabRunner:
 
     def execute(self, run_id: str) -> VideoLabRun:
         """Execute a queued render; terminal errors remain visible in history."""
+        if self.work_coordinator is not None:
+            try:
+                with self.work_coordinator.lease(
+                    f"video-lab:{run_id}",
+                    ComputeResource.REMOTE_GPU,
+                    ProductionWorkload.VIDEO_RENDER,
+                    "Video Lab",
+                    cancelled=lambda: self.runs.get(run_id).status
+                    is not VideoLabRunStatus.QUEUED,
+                ):
+                    return self._execute_owned(run_id)
+            except ResourceWaitCancelled:
+                return self.runs.get(run_id)
+        return self._execute_owned(run_id)
+
+    def _execute_owned(self, run_id: str) -> VideoLabRun:
         with self._state_lock:
             run = self.runs.get(run_id)
             if run.status is VideoLabRunStatus.CANCELLED:

@@ -59,6 +59,7 @@ from .production_resources import (
     ResourceWaitCancelled,
     llm_compute_resource,
 )
+from .machine_work import MachineWorkCoordinator
 from .minimax_h3_protocol import (
     H3IssueSeverity,
     H3ProtocolIssue,
@@ -159,6 +160,7 @@ __all__ = [
     "ResourceOwner",
     "ResourceRequirement",
     "ResourceWaitCancelled",
+    "MachineWorkCoordinator",
     "StreamEventKind",
     "StreamPhase",
     "SUPER_FAST_REF2V_COOKBOOK_ID",

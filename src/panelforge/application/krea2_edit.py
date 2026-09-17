@@ -34,6 +34,7 @@ from panelforge.domain.krea2_edit import (
 )
 from panelforge.domain.firered_edit import FireRedEditSettings
 from panelforge.domain.krea2_lab import Krea2AspectRatio
+from panelforge.domain.production import ComputeResource, ProductionWorkload
 from panelforge.domain.edit_settings import EditSettings, edit_engine, edit_settings_record, edit_output_dimensions
 from .image_edit import EditWorkflow, EditImages
 
@@ -53,6 +54,8 @@ from . import firered_edit_assistance
 from . import krea2_restage
 from .krea2_retouch import RetouchCompositor
 from . import krea2_edit_upscale as enhancement
+from .machine_work import MachineWorkCoordinator
+from .production_resources import ResourceWaitCancelled
 from panelforge.domain.krea2_edit import validate_retouch_harmonization
 
 
@@ -190,6 +193,7 @@ class Krea2EditService:
         seed_factory: Callable[[], int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        work_coordinator: MachineWorkCoordinator | None = None,
     ) -> None:
         if run_timeout <= 0 or poll_interval <= 0:
             raise ValueError("timeouts must be positive")
@@ -222,6 +226,7 @@ class Krea2EditService:
         self._seed_factory = seed_factory or (lambda: secrets.randbits(64))
         self._monotonic = monotonic
         self._sleep = sleep
+        self.work_coordinator = work_coordinator
         self._lock = RLock()
         self._claimed: set[tuple[str, str]] = set()
 
@@ -1029,6 +1034,23 @@ class Krea2EditService:
             return self.sources.save(source.replace_attempt(attempt))
 
     def execute_attempt(self, source_id: str, attempt_id: str) -> Krea2EditSource:
+        if self.work_coordinator is None:
+            return self._execute_attempt_owned(source_id, attempt_id)
+        try:
+            with self.work_coordinator.lease(
+                f"krea2-edit-{source_id}-{attempt_id}",
+                ComputeResource.REMOTE_GPU,
+                ProductionWorkload.IMAGE_RENDER,
+                "KREA2 Edit",
+                cancelled=lambda: _attempt(
+                    self.sources.get(source_id), attempt_id
+                ).status is Krea2EditAttemptStatus.CANCELLED,
+            ):
+                return self._execute_attempt_owned(source_id, attempt_id)
+        except ResourceWaitCancelled:
+            return self.sources.get(source_id)
+
+    def _execute_attempt_owned(self, source_id: str, attempt_id: str) -> Krea2EditSource:
         key = (source_id, attempt_id)
         with self._lock:
             source = self.sources.get(source_id)

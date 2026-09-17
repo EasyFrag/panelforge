@@ -45,6 +45,7 @@ from panelforge.domain.minimax_h3 import (
     H3CameraSpeed,
 )
 from panelforge.domain.video_lab import VIDEO_FPS, VideoLabSettings
+from panelforge.domain.production import ComputeResource, ProductionWorkload
 
 from .minimax_h3_protocol import (
     H3IssueSeverity,
@@ -53,6 +54,7 @@ from .minimax_h3_protocol import (
     extract_compiled_camera_clauses,
     lint_h3_prompt,
 )
+from .production_resources import ResourceWaitCancelled
 from .direct_ref2v_prompt import lint_direct_ref2v_prompt
 from .vocal_policy import vocal_policy, validate_vocal_level, validate_revision_speech
 from .prompt_lab import (
@@ -285,6 +287,7 @@ class H3RenderService:
         seed_factory: Callable[[], int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        work_coordinator=None,
     ) -> None:
         if run_timeout <= 0 or poll_interval <= 0:
             raise ValueError("timeouts must be positive")
@@ -312,6 +315,7 @@ class H3RenderService:
         self._seed_factory = seed_factory or (lambda: secrets.randbits(64))
         self._monotonic = monotonic
         self._sleep = sleep
+        self.work_coordinator = work_coordinator
         self._lock = RLock()
         self._claimed: set[tuple[str, str]] = set()
         self._list_video_loras = list_video_loras or (lambda: self.comfy.list_lora_models())
@@ -833,6 +837,22 @@ class H3RenderService:
             return self.projects.save(project.replace_attempt(project.attempt(attempt_id).queue()))
 
     def execute_attempt(self, project_id: str, attempt_id: str) -> H3RenderProject:
+        if self.work_coordinator is not None:
+            try:
+                with self.work_coordinator.lease(
+                    f"h3:{project_id}:{attempt_id}",
+                    ComputeResource.REMOTE_GPU,
+                    ProductionWorkload.VIDEO_RENDER,
+                    "H3 / REF2V",
+                    cancelled=lambda: self.projects.get(project_id).attempt(attempt_id).status
+                    is not H3RenderAttemptStatus.QUEUED,
+                ):
+                    return self._execute_attempt_owned(project_id, attempt_id)
+            except ResourceWaitCancelled:
+                return self.projects.get(project_id)
+        return self._execute_attempt_owned(project_id, attempt_id)
+
+    def _execute_attempt_owned(self, project_id: str, attempt_id: str) -> H3RenderProject:
         key = (project_id, attempt_id)
         with self._lock:
             project = self.projects.get(project_id)

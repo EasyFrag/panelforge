@@ -19,6 +19,10 @@ from panelforge.domain.krea2_lab import (
     normalize_krea2_model_name,
 )
 from panelforge.domain.recipes import RecipeRef
+from panelforge.domain.production import ComputeResource, ProductionWorkload
+
+from .machine_work import MachineWorkCoordinator
+from .production_resources import ResourceWaitCancelled
 
 
 class Krea2ComfyGateway(Protocol):
@@ -164,6 +168,7 @@ class Krea2LabRunner:
         seed_factory: Callable[[], int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        work_coordinator: MachineWorkCoordinator | None = None,
     ) -> None:
         if run_timeout <= 0:
             raise ValueError("run_timeout must be greater than zero")
@@ -181,6 +186,7 @@ class Krea2LabRunner:
         self._seed_factory = seed_factory or (lambda: secrets.randbits(64))
         self._monotonic = monotonic
         self._sleep = sleep
+        self.work_coordinator = work_coordinator
         self._state_lock = RLock()
         self._claimed: set[str] = set()
 
@@ -253,6 +259,22 @@ class Krea2LabRunner:
 
     def execute(self, run_id: str) -> Krea2LabRun:
         """Execute a queued render; terminal errors remain visible in history."""
+        if self.work_coordinator is None:
+            return self._execute_owned(run_id)
+        try:
+            with self.work_coordinator.lease(
+                f"krea2-lab-{run_id}",
+                ComputeResource.REMOTE_GPU,
+                ProductionWorkload.IMAGE_RENDER,
+                "KREA2 Image Lab",
+                cancelled=lambda: self.runs.get(run_id).status
+                is Krea2LabRunStatus.CANCELLED,
+            ):
+                return self._execute_owned(run_id)
+        except ResourceWaitCancelled:
+            return self.runs.get(run_id)
+
+    def _execute_owned(self, run_id: str) -> Krea2LabRun:
         with self._state_lock:
             run = self.runs.get(run_id)
             if run.status is Krea2LabRunStatus.CANCELLED:
