@@ -149,6 +149,7 @@ class ImageCatalogBrowserTest(unittest.TestCase):
           window.addEventListener('unhandledrejection',event=>fixtureErrors.push(String(event.reason)));
           window.PanelForgeAssistedRestaging={create:()=>({saving:false,close(){}})};
           let releaseCatalog, releaseSlowProject, delayCatalog=true, brokenPaint=false;
+          let specCalls=0, presetCalls=0, historyCalls=0;
           const originalUi=window.PanelForgeKrea2ResourceUi;
           window.PanelForgeKrea2ResourceUi={...originalUi,renderModelPicker(...args){
             if(brokenPaint)throw new Error('fixture repaint failure');
@@ -158,17 +159,17 @@ class ImageCatalogBrowserTest(unittest.TestCase):
             attempts:[],turns:[],current_prompt:'Saved '+id,render_seed:'123',
             render_settings:{model_id:'Krea2/base',aspect_ratio:'9:16',megapixels:.8,loras:[]}});
           const spec={render_models:[{resource_id:'base',comfy_name:'Krea2/base',kind:'model',category:'unknown',display_name:'Base'}],
-            loras:[],llm_models:[{id:'fixture-llm',label:'Fixture'}],aspect_ratios:['9:16'],defaults:{aspect_ratio:'9:16',megapixels:.8},
+            loras:[],llm_models:[{id:'local::unsloth/gemma-4-31b-it-qat-GGUF',label:'unsloth/gemma-4-31b-it-qat-GGUF',source:'local'}],aspect_ratios:['9:16'],defaults:{aspect_ratio:'9:16',megapixels:.8},
             assistance_recipes:[{version:'3.0.0',label:'V3'}],catalog_status:{resources:{ready:true},llm:{ready:true}}};
           const reply=value=>({ok:true,json:async()=>value});
           window.fetch=async(url,options={})=>{
             if(options.method && options.method!=='GET')throw new Error('No writes or generations in this fixture');
-            if(url.includes('/spec'))return delayCatalog?new Promise(resolve=>{releaseCatalog=()=>resolve(reply(spec));}):reply(spec);
-            if(url.includes('/projects?'))return reply({projects:[project('First'),project('Slow'),project('Last')]});
+            if(url.includes('/spec')){specCalls+=1;return delayCatalog?new Promise(resolve=>{releaseCatalog=()=>resolve(reply(spec));}):reply(spec);}
+            if(url.includes('/projects?')){historyCalls+=1;return reply({projects:[project('First'),project('Slow'),project('Last')]});}
             if(url.endsWith('/projects/Slow'))return new Promise(resolve=>{releaseSlowProject=()=>resolve(reply({project:project('Slow')}));});
             if(url.includes('/projects/'))return reply({project:project(url.split('/').at(-1))});
             if(url.endsWith('/render-queue'))return reply({items:[]});
-            if(url.endsWith('/style-presets'))return reply({presets:[]});
+            if(url.endsWith('/style-presets')){presetCalls+=1;return reply({presets:[]});}
             throw new Error('Unexpected endpoint '+url);
           };
         """
@@ -182,8 +183,10 @@ class ImageCatalogBrowserTest(unittest.TestCase):
           await until(()=>history.querySelectorAll('button').length===3);
           check(!workspace.querySelector(':scope > .image-catalog-status'),'catalog must not occupy a grid column');
           check(sidebar.contains(workspace.querySelector('.image-catalog-status')),'compact status is inside sidebar');
+          check(!workspace.querySelector('.image-catalog-status button'),'catalog status has no separate refresh button');
+          check(workspace.querySelectorAll('#krea2-assisted-refresh-all').length===1,'one global refresh button is exposed');
           check(!workspace.querySelector('#krea2-assisted-new-project').open,'new-project form does not bury history');
-          check(history.getBoundingClientRect().top < workspace.querySelector('#krea2-assisted-new-project').getBoundingClientRect().top,'recent projects come first');
+          check(workspace.querySelector('#krea2-assisted-new-project').getBoundingClientRect().top < history.getBoundingClientRect().top,'new project comes first');
           history.querySelector('button').click();await until(()=>title()==='First');
           check(Math.abs(sidebar.getBoundingClientRect().top-editor.getBoundingClientRect().top)<2,'editor stays beside sidebar');
           check(editor.getBoundingClientRect().left>sidebar.getBoundingClientRect().left,'editor is in the right column');
@@ -193,10 +196,12 @@ class ImageCatalogBrowserTest(unittest.TestCase):
           check(title()==='Last','late project response never replaces the latest choice');
           // Force a DOM failure after the HTTP response was received, then retry identical metadata.
           brokenPaint=true;delayCatalog=false;releaseCatalog();
+          await until(()=>workspace.querySelector('#krea2-assisted-llm').value==='local::unsloth/gemma-4-31b-it-qat-GGUF');
           await until(()=>workspace.querySelector('.image-catalog-status').textContent.includes('Affichage des modèles interrompu'));
           const prompt=workspace.querySelector('#krea2-assisted-prompt');prompt.value='Unsent draft';
-          brokenPaint=false;workspace.querySelector('.image-catalog-status button').click();
+          brokenPaint=false;workspace.querySelector('#krea2-assisted-refresh-all').click();
           await until(()=>workspace.querySelector('.image-catalog-status').textContent.includes('1 modèles'));
+          await until(()=>specCalls===2 && presetCalls===2 && historyCalls===2);
           check(prompt.value==='Unsent draft' && title()==='Last','retry preserves draft and open project');
           check(!workspace.querySelector('#krea2-assisted-render').disabled,'retry completes control initialization');
           check(fixtureErrors.length===0,'no uncaught UI exception: '+fixtureErrors.join('; '));

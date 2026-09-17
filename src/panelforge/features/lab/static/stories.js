@@ -28,7 +28,18 @@
         {id: "turning_point", label: "Bascule"}, {id: "ending", label: "Fin"}],
       scene_fields: [{id: "relationship_state", label: "Dynamique entre participants"},
         {id: "appearance_state", label: "Nudité, tenues et accessoires"},
-        {id: "sexual_state", label: "Position et contacts sexuels"}]}];
+        {id: "sexual_state", label: "Position et contacts sexuels"}]},
+    {id: "story.silent-cats", version: "1.0.0", label: "Chats de couple · muet",
+      description: "Chats anthropomorphes photoréalistes, comédie de couple tendre et entièrement non verbale.",
+      dialogue_policy: "forbidden",
+      concept_fields: [{id: "title", label: "Titre"}, {id: "hook", label: "Accroche"},
+        {id: "couple_and_dynamic", label: "Le couple et sa dynamique"},
+        {id: "domestic_setup", label: "Situation quotidienne"},
+        {id: "visual_gag", label: "Gag visuel"},
+        {id: "comic_escalation", label: "Escalade comique"},
+        {id: "tender_turn", label: "Bascule tendre"}, {id: "ending", label: "Fin"}],
+      scene_fields: [{id: "relationship_state", label: "Dynamique relationnelle"},
+        {id: "appearance_state", label: "Tenues, pelage et accessoires"}]}];
   const state = {project: null, initialized: false, loading: false, saving: false, models: [], modelsReady: false,
     recipes: fallbackRecipes, wantedModel: {architect: "", writer: ""}, modelChoice: {architect: 0, writer: 0},
     modelError: "", token: 0, timer: null, paintKey: "", turnKey: "", editScene: null};
@@ -69,6 +80,7 @@
     const key = recipe ? recipeKey(recipe) : el("recipe").value;
     return state.recipes.find(item => recipeKey(item) === key) || fallbackRecipes[0];
   };
+  const dialogueForbidden = () => currentRecipe().dialogue_policy === "forbidden";
 
   function showModelMessage() {
     const unavailable = roles.filter(role => !state.models.some(model => modelSource(model.id) === (el(`${role}-local`).checked ? "local" : "server")));
@@ -95,31 +107,38 @@
   }
   function message(text, error = false) { el("message").textContent = text; el("message").classList.toggle("error", error); }
   function refreshStartMode() {
-    const script = creationMode() === "script", count = proposalCount();
+    const script = creationMode() === "script", silent = dialogueForbidden(), count = proposalCount();
     el("proposal-count-row").hidden = script;
     el("brief-label").textContent = script ? "Script complet · obligatoire" : "Ton idée · facultative";
     el("brief").required = script;
     el("brief").placeholder = script
-      ? "Colle ici le script complet avec ses scènes, actions, locuteurs et dialogues…"
+      ? silent ? "Colle ici le script complet de la scène muette, avec ses actions et réactions sans dialogue…"
+      : "Colle ici le script complet avec ses scènes, actions, locuteurs et dialogues…"
+      : silent ? "Deux chats préparent le petit-déjeuner ; l’un cherche un câlin pendant que l’autre veut finir sa recette…"
       : "Un patron avocat odieux qui arnaque ses clients… Ou laisse le LLM te surprendre.";
     el("mode-description").textContent = script
-      ? "Un seul appel au Rédacteur structure le texte en micro-scènes. Les dialogues détectés sont contrôlés mot pour mot."
+      ? silent ? "Un seul appel au Rédacteur regroupe les actions dans le nombre exact de micro-scènes ; le script reste entièrement sans paroles."
+      : "Un seul appel au Rédacteur regroupe le texte dans le nombre exact de micro-scènes. Les dialogues détectés sont contrôlés mot pour mot."
       : "Le LLM propose une à trois histoires avant le développement du scénario.";
     el("create").textContent = script ? "Structurer fidèlement ce script" : `Proposer ${count} histoire${count > 1 ? "s" : ""}`;
     el("create-note").textContent = script
-      ? "Le script prévaut sur le ton par défaut : aucun passage ni dialogue ne doit être réinventé."
+      ? silent ? "Le script est regroupé sans omission ; toute parole, voix off, narration et texte lisible restent interdits."
+      : "Le script est regroupé sans omission dans le nombre choisi : aucun passage ni dialogue ne doit être réinventé."
+      : silent ? "Comédie de couple photoréaliste, tendre et compréhensible uniquement par les gestes."
       : "Conflits simples, personnages excessifs, retournements visuels. Tu peux orienter le ton dans ton idée.";
-    el("empty-title").textContent = script ? "Un script prêt à structurer" : "Quelle histoire raconter ?";
+    el("empty-title").textContent = script ? "Un script prêt à structurer" : silent ? "Quelle scène muette raconter ?" : "Quelle histoire raconter ?";
     el("empty-copy").textContent = script
       ? "Le Rédacteur transformera le script en fiches et micro-scènes sans passer par des propositions intermédiaires."
+      : silent ? `Le LLM proposera ${count} comédie${count > 1 ? "s" : ""} de couple féline${count > 1 ? "s" : ""}, sans aucune parole, puis développera la piste choisie en actions visuelles.`
       : `Le LLM proposera ${count} accroche${count > 1 ? "s" : ""} avec conflit, escalade et fin. ${count > 1 ? "Choisis une piste, discute-la" : "Tu pourras la discuter"}, puis développe le scénario.`;
-    const register = script ? 0 : dialogueRegister(), details = dialogueRegisters[register];
-    el("dialogue-register").disabled = script;
-    el("dialogue-register-row").setAttribute("aria-disabled", String(script));
-    el("dialogue-register-label").textContent = script ? "Script fidèle" : details[0];
-    el("dialogue-register-value").textContent = `${register}/3`;
-    el("dialogue-register-description").textContent = script
-      ? "Désactivé : les dialogues du script restent strictement inchangés."
+    const register = script || silent ? 0 : dialogueRegister(), details = dialogueRegisters[register];
+    el("dialogue-register").disabled = script || silent;
+    el("dialogue-register-row").setAttribute("aria-disabled", String(script || silent));
+    el("dialogue-register-label").textContent = silent ? "Sans paroles" : script ? "Script fidèle" : details[0];
+    el("dialogue-register-value").textContent = silent ? "—" : `${register}/3`;
+    el("dialogue-register-description").textContent = silent
+      ? "Désactivé : dialogue, voix off, narration et texte lisible sont interdits dans cette famille."
+      : script ? "Désactivé : les dialogues du script restent strictement inchangés."
       : details[1];
   }
   function controls() {
@@ -153,6 +172,7 @@
   function paintRecipeDescription() {
     const recipe = currentRecipe();
     el("recipe-description").textContent = recipe.description;
+    if (!state.project) refreshStartMode();
   }
   async function models() {
     el("refresh-models").disabled = true; el("model-message").textContent = "Lecture des modèles…";
@@ -222,8 +242,9 @@
     const recipe = currentRecipe();
     const scriptProject = project.creation_mode === "script";
     const projectCount = project.proposal_count || 3;
-    const projectRegister = dialogueRegisters[scriptProject ? 0 : (project.dialogue_register || 0)][0];
-    el("project-brief").textContent = `${recipe.label} · ${scriptProject ? "Script fidèle" : `${projectCount} proposition${projectCount > 1 ? "s" : ""}`} · Dialogues : ${projectRegister}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes visées · ${project.clip_seconds} s par clip`;
+    const projectRegister = recipe.dialogue_policy === "forbidden" ? "Sans paroles"
+      : dialogueRegisters[scriptProject ? 0 : (project.dialogue_register || 0)][0];
+    el("project-brief").textContent = `${recipe.label} · ${scriptProject ? "Script fidèle" : `${projectCount} proposition${projectCount > 1 ? "s" : ""}`} · Dialogues : ${projectRegister}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes exactes · ${project.clip_seconds} s par clip`;
     el("ideas").hidden = scriptProject;
     el("ideas").textContent = `${project.proposal_count || 3} nouvelle${(project.proposal_count || 3) > 1 ? "s" : ""} piste${(project.proposal_count || 3) > 1 ? "s" : ""}`;
     const turnKey = `${project.project_id}:${project.turns.length}`;
@@ -309,6 +330,8 @@
     el("edit-title").value = scene.title; el("edit-opening").value = scene.opening_state;
     el("edit-action").value = scene.action; el("edit-ending").value = scene.ending_state;
     el("edit-dialogue").value = scene.dialogue.map(dialogueEditorLine).join("\n");
+    const silent = currentRecipe().dialogue_policy === "forbidden";
+    el("edit-dialogue-row").hidden = silent; el("edit-dialogue-help").hidden = silent;
     const sceneFields = new Set(currentRecipe().scene_fields.map(field => field.id));
     for (const field of ["relationship", "appearance", "sexual"]) {
       const enabled = sceneFields.has(`${field}_state`);
@@ -418,7 +441,7 @@
       const project = await request("/api/stories/projects", json({title: el("title").value.trim() || "Nouvelle histoire", brief: el("brief").value,
         clip_seconds: Number(el("duration").value), scene_count: Number(el("scene-count").value), recipe_id: recipe.id,
         recipe_version: recipe.version, architect_model_id: selectedModel("architect"), writer_model_id: selectedModel("writer"),
-        creation_mode: mode, proposal_count: proposalCount(), dialogue_register: mode === "script" ? 0 : dialogueRegister()}));
+        creation_mode: mode, proposal_count: proposalCount(), dialogue_register: mode === "script" || dialogueForbidden() ? 0 : dialogueRegister()}));
       if (token !== state.token) return;
       state.project = project; storage.set("project", project.project_id); state.paintKey = ""; state.turnKey = "";
       el("instruction").value = ""; paint(); await recent(); state.saving = false; await write(mode === "script" ? "script" : "ideas");
@@ -433,7 +456,7 @@
   el("creation-mode").addEventListener("change", () => { refreshStartMode(); controls(); });
   el("proposal-count").addEventListener("change", () => { refreshStartMode(); controls(); });
   el("dialogue-register").addEventListener("input", refreshStartMode);
-  el("recipe").addEventListener("change", paintRecipeDescription);
+  el("recipe").addEventListener("change", () => { paintRecipeDescription(); controls(); });
   for (const role of roles) {
     el(`${role}-model`).addEventListener("change", () => { ++state.modelChoice[role]; state.wantedModel[role] = el(`${role}-model`).value; rememberModel(role); controls(); });
     el(`${role}-local`).addEventListener("change", event => {

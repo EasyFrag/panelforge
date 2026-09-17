@@ -11,7 +11,7 @@ class StoryCreate(BaseModel):
     title: str = Field(default="Nouvelle histoire", min_length=1, max_length=160)
     brief: str = Field(default="", max_length=12000)
     clip_seconds: int = Field(default=10, ge=5, le=15, strict=True)
-    scene_count: int = Field(default=6, ge=2, le=12, strict=True)
+    scene_count: int = Field(default=6, ge=1, le=12, strict=True)
     recipe_id: str = Field(default=RECIPE_ID, min_length=1, max_length=128)
     recipe_version: str = Field(default=RECIPE_VERSION, min_length=1, max_length=64)
     architect_model_id: str = Field(default="", max_length=300)

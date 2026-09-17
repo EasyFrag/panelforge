@@ -16,6 +16,7 @@ from panelforge.application.stories import StoryService, StoryConflict
 from panelforge.domain.stories import (
     EXPLICIT_RECIPE_ID, EXPLICIT_RECIPE_VERSION, RECIPE_ID, RECIPE_VERSION,
     SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION,
+    SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION,
     decode_story_json, extract_script_dialogue_cues, extract_script_dialogues, parse_response, validate_concepts,
     validate_scenario, validate_script_dialogue_coverage, response_contract, scene_intention,
 )
@@ -90,7 +91,7 @@ class StoriesTest(unittest.TestCase):
         return self.finish(project)
 
     def concepts(self):
-        return self.write(self.service.create(brief="Une reine odieuse."), "ideas")
+        return self.write(self.service.create(brief="Une reine odieuse.", scene_count=1), "ideas")
 
     def scenario(self):
         p = self.concepts()
@@ -183,7 +184,7 @@ class StoriesTest(unittest.TestCase):
         self.assertNotIn("dialogue_register", json.loads(current_request.user_prompt))
         self.assertNotIn("REGISTRE DES DIALOGUES", current_request.system_prompt)
 
-        project = self.service.create(dialogue_register=2)
+        project = self.service.create(dialogue_register=2, scene_count=1)
         project = self.write(project, "ideas")
         project = self.service.select(project["project_id"], "concept-1", project["version"])
         self.gateway.response = json.dumps(SCENARIO)
@@ -201,7 +202,7 @@ class StoriesTest(unittest.TestCase):
         self.assertEqual(extract_script_dialogues(script), ["C’est lui !", "Madame… votre nom est ici."])
         self.gateway.response = json.dumps(SCENARIO, ensure_ascii=False)
         project = self.service.create(brief=script, creation_mode="script",
-            architect_model_id="local::architect", writer_model_id="local::writer")
+            architect_model_id="local::architect", writer_model_id="local::writer", scene_count=1)
         self.service.start(project["project_id"], operation="script", instruction="", model_id=None,
             expected_version=project["version"], request_id=str(uuid4()))
         project = self.finish(project)
@@ -228,13 +229,64 @@ class StoriesTest(unittest.TestCase):
         broken = deepcopy(SCENARIO)
         broken["scenario"]["scenes"][0]["dialogue"].pop()
         self.gateway.response = json.dumps(broken, ensure_ascii=False)
-        retry = self.service.create(brief=script, creation_mode="script", writer_model_id="local::writer")
+        retry = self.service.create(brief=script, creation_mode="script", writer_model_id="local::writer", scene_count=1)
         self.service.start(retry["project_id"], operation="script", instruction="", model_id=None,
             expected_version=retry["version"], request_id=str(uuid4()))
         retry = self.finish(retry)
         self.assertEqual(retry["job"]["status"], "failed")
         self.assertIn("intégralité des dialogues", retry["job"]["error"])
         self.assertIsNone(retry["document"]["scenario"])
+
+    def test_selected_scene_count_is_exact_and_script_sections_are_events_to_group(self):
+        brief = """1. Le chat blanc malade
+Le chat blanc reste sous sa couverture.
+2. Le poisson
+Le chat roux lui présente un poisson.
+3. Le poulet
+Le chat roux essaie avec du poulet.
+4. Les billets
+Le chat blanc bondit en voyant l'argent.
+5. Le câlin
+Les chats s'enlacent.
+6. La boutique
+Ils sortent chargés de sacs.
+7. La promenade
+Ils traversent ensemble la galerie commerciale.
+"""
+
+        def response_with_scenes(count):
+            response = deepcopy(SCENARIO)
+            source = response["scenario"]["scenes"][0]
+            source["dialogue"] = []
+            response["scenario"]["scenes"] = []
+            for index in range(count):
+                scene = deepcopy(source)
+                scene["title"] = f"Partie regroupée {index + 1}"
+                scene["action"] = f"Les événements successifs du groupe {index + 1} s'enchaînent clairement."
+                response["scenario"]["scenes"].append(scene)
+            return response
+
+        self.gateway.response = json.dumps(response_with_scenes(3), ensure_ascii=False)
+        project = self.service.create(brief=brief, creation_mode="script", writer_model_id="local::writer",
+            scene_count=3, clip_seconds=10)
+        project = self.write(project, "script")
+        self.assertEqual(project["job"]["status"], "succeeded")
+        self.assertEqual(len(project["document"]["scenario"]["scenes"]), 3)
+        request = self.gateway.requests[-1]
+        context = json.loads(request.user_prompt)
+        self.assertIn("exactement 3 micro-scènes de 10 secondes", context["contract_notes"])
+        self.assertIn("titres, numéros, scènes ou rubriques du brief sont des événements source", context["contract_notes"])
+        self.assertIn("Produis exactement 3 micro-scènes de 10 secondes", request.system_prompt)
+
+        calls = len(self.gateway.requests)
+        self.gateway.response = json.dumps(response_with_scenes(7), ensure_ascii=False)
+        rejected = self.service.create(brief=brief, creation_mode="script", writer_model_id="local::writer",
+            scene_count=3, clip_seconds=10)
+        rejected = self.write(rejected, "script")
+        self.assertEqual(rejected["job"]["status"], "failed")
+        self.assertIn("exactement 3 micro-scènes", rejected["job"]["error"])
+        self.assertIsNone(rejected["document"]["scenario"])
+        self.assertEqual(len(self.gateway.requests), calls + 1)
 
     def test_script_delivery_notations_are_canonicalized_without_changing_spoken_words(self):
         script = """SCÈNE 1
@@ -497,7 +549,7 @@ FIN
             for index in range(1, 4)]
         self.gateway.response = json.dumps({"reply": "Trois pistes.", "concepts": concepts})
         project = self.service.create(recipe_id=SENSUAL_RECIPE_ID, recipe_version=SENSUAL_RECIPE_VERSION,
-            architect_model_id="local::architect", writer_model_id="local::writer")
+            architect_model_id="local::architect", writer_model_id="local::writer", scene_count=1)
         self.service.start(project["project_id"], operation="ideas", instruction="", model_id=None,
             expected_version=project["version"], request_id=str(uuid4()))
         project = self.finish(project)
@@ -561,6 +613,39 @@ FIN
         del scenario["scenes"][0]["sexual_state"]
         with self.assertRaisesRegex(ValueError, "sexual_state"):
             validate_scenario(scenario, EXPLICIT_RECIPE_ID)
+
+    def test_silent_cat_family_is_independent_photorealistic_and_rejects_every_dialogue(self):
+        recipes = LocalStoryRecipeStore(self.temp.name, {
+            (SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION):
+                ROOT / "prompt_sources/story.silent-cats/1.0.0",
+        })
+        service = StoryService(gateway=self.gateway, store=self.store, recipes=recipes)
+        spec = service.recipe_specs()[0]
+        self.assertEqual(spec["id"], SILENT_CATS_RECIPE_ID)
+        self.assertEqual(spec["dialogue_policy"], "forbidden")
+        package = recipes.get(SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION)
+        self.assertIn("photoréalistes", package["fields"]["plan.system"])
+        self.assertIn("dialogue de chaque micro-scène doit être exactement vide", package["fields"]["writer.system"])
+
+        project = service.create(recipe_id=SILENT_CATS_RECIPE_ID,
+            recipe_version=SILENT_CATS_RECIPE_VERSION, dialogue_register=3, scene_count=1, clip_seconds=15)
+        self.assertEqual(project["dialogue_register"], 0)
+        self.assertEqual((project["scene_count"], project["clip_seconds"]), (1, 15))
+        contract = response_contract("develop", False, SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION)
+        self.assertEqual(contract["scenario"]["scenes"][0]["dialogue"], [])
+
+        scenario = deepcopy(SCENARIO["scenario"])
+        scene = scenario["scenes"][0]
+        scene.update(dialogue=[], relationship_state="La chatte reste concentrée tandis que son partenaire cherche son attention.",
+            appearance_state="Leurs pelages et vêtements de cuisine restent inchangés.")
+        validated = validate_scenario(scenario, SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION)
+        intention = scene_intention(validated, 0, 10)
+        self.assertIn("Aucun dialogue.", intention)
+        self.assertIn("Aucune parole, aucun dialogue, aucune voix off et aucune narration.", intention)
+        self.assertNotIn("accompagnent les paroles", intention)
+        scene["dialogue"] = [{"speaker_id": "c1", "text": "Même pas un mot."}]
+        with self.assertRaisesRegex(ValueError, "strictement sans paroles"):
+            validate_scenario(scenario, SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION)
 
 
 if __name__ == "__main__":

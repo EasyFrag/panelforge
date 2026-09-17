@@ -12,6 +12,8 @@ SENSUAL_RECIPE_ID = "story.sensual-light"
 SENSUAL_RECIPE_VERSION = "1.0.0"
 EXPLICIT_RECIPE_ID = "story.explicit-hard"
 EXPLICIT_RECIPE_VERSION = "1.0.0"
+SILENT_CATS_RECIPE_ID = "story.silent-cats"
+SILENT_CATS_RECIPE_VERSION = "1.0.0"
 MAX_STORY_REPLY_CHARS = 144_000
 DIALOGUE_DELIVERIES = frozenset({"spoken", "voice_over", "off_screen", "thought", "mediated"})
 
@@ -49,6 +51,21 @@ _STORY_RECIPES = {
                          ("appearance_state", "Nudité, tenues et accessoires"),
                          ("sexual_state", "Position et contacts sexuels")),
         "adult_required": True,
+    },
+    (SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION): {
+        "id": SILENT_CATS_RECIPE_ID, "version": SILENT_CATS_RECIPE_VERSION,
+        "label": "Chats de couple · muet",
+        "description": "Chats anthropomorphes photoréalistes, comédie de couple tendre et entièrement non verbale.",
+        "concept_fields": (("title", "Titre"), ("hook", "Accroche"),
+            ("couple_and_dynamic", "Le couple et sa dynamique"),
+            ("domestic_setup", "Situation quotidienne"),
+            ("visual_gag", "Gag visuel"),
+            ("comic_escalation", "Escalade comique"),
+            ("tender_turn", "Bascule tendre"), ("ending", "Fin")),
+        "scene_fields": (("relationship_state", "Dynamique relationnelle"),
+                         ("appearance_state", "Tenues, pelage et accessoires")),
+        "adult_required": False,
+        "dialogue_policy": "forbidden",
     },
 }
 CONCEPT_FIELDS = tuple(field for field, _ in _STORY_RECIPES[(RECIPE_ID, RECIPE_VERSION)]["concept_fields"])
@@ -360,12 +377,15 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
             if "delivery_note" in line:
                 record["delivery_note"] = _text(line.get("delivery_note"), "indication de jeu", 240)
             scene["dialogue"].append(record)
+        if recipe_spec.get("dialogue_policy") == "forbidden" and scene["dialogue"]:
+            raise ValueError("Cette famille est strictement sans paroles : dialogue doit rester vide.")
         result["scenes"].append(scene)
     return result
 
 
 def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_id=RECIPE_ID,
-                   recipe_version=RECIPE_VERSION, proposal_count=3, source_script=""):
+                   recipe_version=RECIPE_VERSION, proposal_count=3, source_script="",
+                   target_scene_count=None):
     if not isinstance(value, dict):
         raise ValueError("Le modèle doit renvoyer un objet JSON.")
     reply = _text(value.get("reply"), "réponse", MAX_STORY_REPLY_CHARS)
@@ -378,6 +398,14 @@ def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_i
         raise ValueError(f"Réponse incomplète : reply et {field} sont attendus. Le brouillon reste disponible.")
     document = {field: validate_scenario(value[field], recipe_id, recipe_version) if field == "scenario"
                 else validate_concepts(value[field], recipe_id, recipe_version, proposal_count)}
+    if field == "scenario" and target_scene_count is not None:
+        scenes = document["scenario"]["scenes"]
+        if len(scenes) != target_scene_count:
+            raise ValueError(
+                f"Le scénario doit contenir exactement {target_scene_count} micro-scène"
+                f"{'s' if target_scene_count > 1 else ''}, mais le modèle en a renvoyé {len(scenes)}. "
+                "Le brouillon est conservé pour diagnostic."
+            )
     if operation == "script":
         validate_script_dialogue_coverage(source_script, document["scenario"])
     if "selected_id" in value and value["selected_id"] != selected_id:
@@ -399,10 +427,11 @@ def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_versi
         dialogue = {"speaker_id": "c1", "text": "Réplique exacte, sans guillemets englobants.", "delivery": "spoken"}
         if operation == "script":
             dialogue["dialogue_id"] = "dialogue-1"
+        dialogue_items = [] if recipe_spec.get("dialogue_policy") == "forbidden" else [dialogue]
         scene = {"title": "Enjeu de cette micro-scène", "location_id": "l1", "character_ids": ["c1"],
                  "opening_state": "Situation et objets au début.",
                  "action": "Événements, actions et réactions enchaînés. Aucune caméra imposée.",
-                 "dialogue": [dialogue],
+                 "dialogue": dialogue_items,
                  "ending_state": "Ce qui a changé et doit rester vrai dans la suite."}
         scene_examples = {
             "relationship_state": "Désir, rapport entre participants et degré de proximité à cet instant.",
@@ -505,10 +534,14 @@ def scene_intention(scenario, index, duration=None):
     requested_delivery = any(line.get("delivery", "spoken") != "spoken" for line in scene["dialogue"])
     restrictions = ("Respecte exactement les modes de restitution indiqués et n’ajoute aucune autre voix off. "
                     if requested_delivery else "N’ajoute aucune voix off. ")
+    performance = ("Les gestes et réactions accompagnent les paroles. " if scene["dialogue"] else
+                   "Les gestes, regards, postures et réactions portent toute l’action. ")
+    speech_rule = ("Sans dialogue supplémentaire. " if scene["dialogue"] else
+                   "Aucune parole, aucun dialogue, aucune voix off et aucune narration. ")
     lines += [f"À la fin : {scene['ending_state']}",
-              "Invente une mise en scène créative, vivante et expressive. Les gestes et réactions accompagnent les paroles. "
-              "Préserve les identités, les objets importants et la continuité. Sans dialogue supplémentaire. "
-              + restrictions + "Sans musique ni texte à l’écran."]
+              "Invente une mise en scène créative, vivante et expressive. " + performance +
+              "Préserve les identités, les objets importants et la continuité. " + speech_rule +
+              (restrictions if scene["dialogue"] else "") + "Sans musique ni texte à l’écran."]
     return "\n\n".join(lines)
 
 

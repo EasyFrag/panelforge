@@ -588,6 +588,7 @@ def build_app(args: argparse.Namespace):
             ("story.brainrot", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.brainrot/1.0.0",
             ("story.sensual-light", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.sensual-light/1.0.0",
             ("story.explicit-hard", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.explicit-hard/1.0.0",
+            ("story.silent-cats", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.silent-cats/1.0.0",
         }),
         traces=llm_traces, application_outcomes=gateway)
     from panelforge.application.episodes import EpisodeService

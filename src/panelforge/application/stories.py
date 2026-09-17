@@ -9,7 +9,7 @@ from uuid import uuid4
 from panelforge.domain.stories import (
     RECIPE_ID, RECIPE_VERSION, decode_story_json, extract_script_dialogue_cues, parse_response, response_contract,
     scenario_text, scene_intention, story_diagnostics, story_recipe_selection,
-    story_recipe_specs, validate_scenario,
+    story_recipe_spec, story_recipe_specs, validate_scenario,
 )
 from .prompt_lab import CompletionRequest, StreamEventKind, LlmCallApplicationOutcome, truncated_response_message
 from .revised_documents import strip_markdown_fence
@@ -70,6 +70,8 @@ class StoryService:
         project.setdefault("creation_mode", "ideas")
         project.setdefault("proposal_count", 3)
         project.setdefault("dialogue_register", 0)
+        if story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") == "forbidden":
+            project["dialogue_register"] = 0
         project.setdefault("diagnostics", story_diagnostics(project.get("document", {}).get("scenario"),
             clip_seconds=project.get("clip_seconds", 10), target_scene_count=project.get("scene_count", 6),
             recipe_id=recipe["id"]))
@@ -90,8 +92,8 @@ class StoryService:
             raise ValueError("Donnez un nom à cette histoire (160 caractères maximum).")
         if not isinstance(brief, str) or len(brief) > 12000:
             raise ValueError("Idée trop longue (12 000 caractères maximum).")
-        if type(clip_seconds) is not int or not 5 <= clip_seconds <= 15 or type(scene_count) is not int or not 2 <= scene_count <= 12:
-            raise ValueError("Choisissez 2 à 12 micro-scènes de 5 à 15 secondes.")
+        if type(clip_seconds) is not int or not 5 <= clip_seconds <= 15 or type(scene_count) is not int or not 1 <= scene_count <= 12:
+            raise ValueError("Choisissez 1 à 12 micro-scènes de 5 à 15 secondes.")
         if creation_mode not in {"ideas", "script"}:
             raise ValueError("Mode de création inconnu.")
         if type(proposal_count) is not int or not 1 <= proposal_count <= 3:
@@ -103,6 +105,8 @@ class StoryService:
         if creation_mode == "script":
             dialogue_register = 0
         recipe = story_recipe_selection({"id": recipe_id, "version": recipe_version})
+        if story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") == "forbidden":
+            dialogue_register = 0
         if not any((item["id"], item["version"]) == (recipe["id"], recipe["version"])
                    for item in self.recipes.list()):
             raise ValueError("Cette famille d’histoire n’est pas installée dans ce Lab.")
@@ -274,6 +278,8 @@ class StoryService:
                 except (OSError, ValueError):
                     continue
         count = project["proposal_count"]
+        target_scene_count = project["scene_count"]
+        clip_seconds = project["clip_seconds"]
         source_dialogues = extract_script_dialogue_cues(project["brief"]) if operation == "script" else []
         if operation == "script":
             contract_notes = (
@@ -281,14 +287,25 @@ class StoryService:
                 "Conserver tous ses événements, sa fin et l’intégralité de ses dialogues mot pour mot, dans le même ordre et avec les mêmes locuteurs. "
                 "Chaque entrée source_dialogues possède un dialogue_id autoritaire. Recopier son text sans y ajouter une indication comme (Voix off). "
                 "Stocker séparément le canal dans delivery (spoken, voice_over, off_screen, thought ou mediated) et l’indication originale facultative dans delivery_note. "
-                "Ne rien condenser, paraphraser ou ajouter. Seuls la structuration en fiches et le découpage en micro-scènes sont autorisés ; "
-                "si le format cible est trop court, préserver le script avant le nombre de scènes visé. JSON strict conforme au contrat. "
-                "1–18 scènes, 1–12 personnages, 1–8 décors ; tous les identifiants référencés doivent exister."
+                f"La sortie doit contenir exactement {target_scene_count} micro-scène{'s' if target_scene_count > 1 else ''} "
+                f"de {clip_seconds} secondes. Les titres, numéros, scènes ou rubriques du brief sont des événements source, pas un découpage imposé. "
+                "Regrouper plusieurs événements successifs dans une même micro-scène lorsque nécessaire. Condenser uniquement leur mise en scène et leur description : "
+                "ne supprimer aucun événement, ne paraphraser aucun dialogue et ne changer ni leur ordre ni la fin. "
+                "Ne jamais augmenter le nombre de micro-scènes pour suivre le nombre de rubriques du brief. JSON strict conforme au contrat. "
+                "1–12 personnages, 1–8 décors ; tous les identifiants référencés doivent exister."
+            )
+        elif operation == "develop" or (operation == "revise" and has_scenario):
+            contract_notes = (
+                f"JSON strict conforme au contrat. Tout scenario renvoyé contient exactement {target_scene_count} micro-scène"
+                f"{'s' if target_scene_count > 1 else ''} de {clip_seconds} secondes dans scenario.scenes ; "
+                "1–12 personnages, 1–8 décors. Tous les identifiants référencés doivent exister. "
+                "En révision, discussion_only:true ne modifie rien et ne renvoie pas scenario ; sinon renvoyer le document entier. "
+                "Le document courant et selected_id font foi."
             )
         else:
             contract_notes = (
                 f"JSON strict conforme au contrat. Exactement {count} concept{'s' if count > 1 else ''} ; "
-                "1–18 scènes, 1–12 personnages, 1–8 décors. Tous les identifiants référencés doivent exister. "
+                "1–12 personnages, 1–8 décors. Tous les identifiants référencés doivent exister. "
                 "En révision, discussion_only:true ne modifie rien ; sinon renvoyer le document entier. "
                 "Le document courant et selected_id font foi."
             )
@@ -309,7 +326,9 @@ class StoryService:
             system_prompt += (
                 "\n\nMODE SCRIPT FIDÈLE POUR CET APPEL : le brief contient un script complet. Il est la source narrative autoritaire "
                 "et remplace toute demande de développer une piste ou d’appliquer le ton par défaut. N’omets, ne reformule et n’invente aucun dialogue. "
-                "Préserve mot pour mot tous les dialogues, dans leur ordre, ainsi que les événements et la fin ; transforme uniquement le script en contrat scenario. "
+                f"Produis exactement {target_scene_count} micro-scène{'s' if target_scene_count > 1 else ''} de {clip_seconds} secondes. "
+                "Les sections du script sont des événements à regrouper, pas des micro-scènes obligatoires. Préserve mot pour mot tous les dialogues, "
+                "dans leur ordre, ainsi que chaque événement et la fin ; compresse le découpage et les descriptions plutôt que le contenu. "
                 "Pour chaque source_dialogues, conserve dialogue_id et text. delivery et delivery_note portent les indications de voix off, hors champ, pensée ou média ; "
                 "ces indications ne doivent jamais être ajoutées au début de text."
             )
@@ -317,7 +336,15 @@ class StoryService:
             system_prompt += (f"\n\nCONTRAT DE CE PROJET : le document contient exactement {count} proposition"
                               f"{'s' if count > 1 else ''}, identifiée{'s' if count > 1 else ''} de concept-1"
                               f"{' à concept-' + str(count) if count > 1 else ''}. Conserve cette quantité.")
+        if operation == "develop" or (operation == "revise" and has_scenario):
+            system_prompt += (
+                f"\n\nFORMAT DE L’ÉPISODE : scenario.scenes contient exactement {target_scene_count} micro-scène"
+                f"{'s' if target_scene_count > 1 else ''} de {clip_seconds} secondes. Ce nombre est obligatoire, même si le contenu "
+                "doit être regroupé ou densifié. Une discussion_only peut ne renvoyer aucun scénario."
+            )
         dialogue_register = project.get("dialogue_register", 0)
+        if story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") == "forbidden":
+            dialogue_register = 0
         if operation in {"develop", "revise"} and dialogue_register:
             context["dialogue_register"] = dialogue_register
             system_prompt += "\n\n" + _DIALOGUE_REGISTER_POLICIES[dialogue_register]
@@ -375,7 +402,8 @@ class StoryService:
                     recipe = story_recipe_selection(project["recipe"])
                     reply, document = parse_response(data, project["job"]["operation"], bool(project["document"]["scenario"]),
                         selected_id=project["document"]["selected_id"], recipe_id=recipe["id"], recipe_version=recipe["version"],
-                        proposal_count=project["proposal_count"], source_script=project["brief"])
+                        proposal_count=project["proposal_count"], source_script=project["brief"],
+                        target_scene_count=project["scene_count"])
                     with self._lock:
                         if cancel.is_set():
                             raise StoryCancelled()

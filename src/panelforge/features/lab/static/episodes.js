@@ -730,7 +730,7 @@
   for (const kind of ["character", "location"]) {
     const prefix = `batch-${kind}`;
     for (const id of ["llm", "model", "preset", "ratio", "mp", "seed"])
-      el(`${prefix}-${id}`).addEventListener(id === "model" || id === "preset" ? "change" : "input", () => { drawBatch(); controls(); });
+      el(`${prefix}-${id}`).addEventListener(["llm", "model", "preset"].includes(id) ? "change" : "input", () => { drawBatch(); controls(); });
     el(`${prefix}-workflow`).addEventListener("change", () => {
       const workflow = state.catalog?.workflows?.find(item => item.id === el(`${prefix}-workflow`).value);
       if (workflow?.default_sampling_preset_id) el(`${prefix}-preset`).value = workflow.default_sampling_preset_id;

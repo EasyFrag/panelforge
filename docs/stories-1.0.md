@@ -52,7 +52,9 @@ Un modèle absent reste indiqué indisponible ; il n'est pas remplacé silencieu
 Le mode **Suivre fidèlement un script complet** saute les propositions et appelle
 directement le Rédacteur une seule fois. Le script source prévaut sur le ton par
 défaut de la famille : le LLM le structure en fiches et micro-scènes sans changer
-ses événements, sa fin ou ses dialogues. Pour les scripts au format scénario,
+ses événements, sa fin ou ses dialogues. Le nombre de micro-scènes choisi est
+obligatoire : les titres et sections du script sont des événements source que le
+Rédacteur regroupe si nécessaire, et non un découpage à reproduire. Pour les scripts au format scénario,
 PanelForge extrait localement les blocs `LOCUTEUR` puis vérifie après l'appel que
 toutes les répliques sont présentes mot pour mot, dans le même ordre, sans ajout.
 Un écart refuse l'application du scénario et conserve le brouillon diagnostic.
@@ -82,11 +84,11 @@ Script fidèle force le niveau `0`, désactive le curseur et continue de protég
 chaque réplique mot pour mot. La densité de dialogue reste inchangée : aucun
 curseur de densité n’est inclus dans cette version.
 
-Le format initial vise six micro-scènes de dix secondes. Le volet **Format de
-l'épisode** permet de choisir deux à douze scènes et cinq à quinze secondes par
-clip avant création. Ce nombre est une cible d'écriture, pas un quota de plans.
-Le modèle peut proposer un découpage différent ; l'interface affiche toutes les
-scènes reçues. Le contrat accepte au maximum dix-huit micro-scènes.
+Le format initial utilise six micro-scènes de dix secondes. Le volet **Format de
+l'épisode** permet de choisir une à douze scènes et cinq à quinze secondes par
+clip avant création. Ce nombre est une contrainte exacte de l'écriture, pas un
+quota de plans internes. Une réponse qui contient un autre nombre de micro-scènes
+est refusée sans remplacer la dernière version ; son brouillon reste consultable.
 
 Le parcours par propositions utilise un appel d'architecture puis un appel de
 développement. Le parcours script utilise un seul appel de rédaction, avec les

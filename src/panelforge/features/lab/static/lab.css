@@ -1026,8 +1026,14 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-assisted-controls input, .krea2-assisted-controls select, .krea2-assisted-controls textarea { width: 100%; min-width: 0; }
 .krea2-assisted-controls textarea { color: var(--ink); background: white; }
 .krea2-assisted-history { display: grid; max-height: min(36vh, 320px); overflow-y: auto; gap: .4rem; margin: .55rem 0 0; padding: 0; list-style: none; }
-.krea2-assisted-new-project { margin-top: .8rem; border-top: 1px solid var(--line); padding-top: .7rem; }
+.krea2-assisted-title-actions { display: flex; gap: .45rem; align-items: center; }
+.krea2-assisted-refresh-all { display: grid; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: .32rem; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--green); background: white; }
+.krea2-assisted-refresh-all:hover:not(:disabled) { border-color: var(--green); background: var(--green-soft); }
+.krea2-assisted-refresh-all svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.krea2-assisted-refresh-all.refreshing svg { animation: spin .75s linear infinite; }
+.krea2-assisted-new-project { margin-top: .8rem; padding: .65rem .7rem; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.44); }
 .krea2-assisted-new-project > summary { cursor: pointer; color: var(--green); font-size: .72rem; font-weight: 750; }
+.krea2-assisted-recent-projects { margin-top: .85rem; padding-top: .75rem; border-top: 1px solid var(--line); }
 .krea2-assisted-controls .llm-local-toggle { display: flex; align-items: center; gap: .4rem; }
 .krea2-assisted-controls .llm-local-toggle input { width: auto; }
 .krea2-assisted-history-item { display: grid; grid-template-columns: minmax(0, 1fr) 42px; width: 100%; min-width: 0; gap: .45rem; padding: .45rem; align-items: center; border: 1px solid var(--line); border-radius: 9px; background: white; text-align: left; }

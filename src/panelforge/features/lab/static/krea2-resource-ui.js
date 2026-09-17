@@ -988,7 +988,7 @@
     container.append(modelSection, loraSection);
   }
 
-  function catalogStatus(container, reload, isVisible = () => true) {
+  function catalogStatus(container, reload, isVisible = () => true, { showRefresh = true } = {}) {
     const bar = document.createElement("div");
     bar.className = "image-catalog-status";
     const message = document.createElement("small");
@@ -996,7 +996,8 @@
     const refresh = document.createElement("button");
     refresh.type = "button";
     refresh.textContent = "Actualiser les modèles";
-    bar.append(message, refresh);
+    bar.append(message);
+    if (showRefresh) bar.append(refresh);
     // Never add another grid child to an atelier: it steals the sidebar column.
     const host = container.querySelector("[data-image-catalog-status]")
       || container.querySelector(":scope > .controls") || container;
@@ -1019,7 +1020,7 @@
         else schedule(30000);
       }, delay);
     }
-    refresh.addEventListener("click", () => run(true));
+    if (showRefresh) refresh.addEventListener("click", () => run(true));
     return {
       failed,
       observe(spec) {

@@ -45,6 +45,7 @@
 .episode-batch-profiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
 .episode-batch-profiles fieldset { min-width: 0; padding: .9rem; border: 1px solid var(--line); border-radius: 10px; }
 .episode-batch-profiles label { display: block; margin: .55rem 0; }
+.episode-batch-profiles .llm-local-toggle { display: inline-flex; margin: 0 0 .55rem; }
 .episode-batch-thermal { margin: .8rem 0; }
 .episode-batch-selection { display: grid; gap: .45rem; margin: .9rem 0; }
 .episode-batch-selection label { display: grid; grid-template-columns: auto minmax(120px, .8fr) minmax(0, 2fr); align-items: center; gap: .7rem; padding: .55rem; border-bottom: 1px solid var(--line); }

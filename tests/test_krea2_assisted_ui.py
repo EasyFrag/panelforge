@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260916.1', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260917.2', self.page)
         self.assertIn('id="krea2-assisted-workflow"', self.page)
         self.assertIn('workflow: elements.workflow.value', self.script)
         self.assertIn('Image KREA2 avant Flux', self.script)
@@ -26,6 +26,35 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn('id="krea2-assisted-preset-dialog"', self.page)
         self.assertIn('id="krea2-assisted-preset-note"', self.page)
         self.assertIn('"krea2-assisted-lab"', (STATIC / "lab-core.js").read_text(encoding="utf-8"))
+
+    def test_new_project_precedes_history_stays_collapsed_and_defaults_to_local_gemma(self):
+        new_project = self.page.index('id="krea2-assisted-new-project"')
+        history = self.page.index('class="krea2-assisted-recent-projects"')
+        self.assertLess(new_project, history)
+        details_tag = self.page[self.page.rfind("<details", 0, new_project):self.page.index(">", new_project) + 1]
+        self.assertNotRegex(details_tag, r"\sopen(?:\s|=|>)")
+        self.assertNotIn("!state.projects.length) elements.newProject.open = true", self.script)
+        self.assertIn('const defaultNewProjectLlm = "unsloth/gemma-4-31b-it-qat-GGUF";', self.script)
+        self.assertIn('data-llm-local-for="krea2-assisted-llm" checked', self.page)
+        self.assertIn('model.source === "local"', self.script)
+
+    def test_header_has_one_compact_refresh_for_all_assisted_resources(self):
+        self.assertEqual(self.page.count('id="krea2-assisted-refresh-all"'), 1)
+        self.assertNotIn('id="krea2-assisted-refresh-llms"', self.page)
+        self.assertNotIn('id="krea2-assisted-refresh"', self.page)
+        self.assertIn('title="Tout actualiser"', self.page)
+        self.assertIn('elements.refreshAll.addEventListener("click", refreshAllResources);', self.script)
+        refresh = self.script[
+            self.script.index("async function refreshAllResources") :
+            self.script.index('elements.newForm.addEventListener("submit"')
+        ]
+        self.assertIn('refreshCatalog(true, true)', refresh)
+        self.assertIn('loadPresets()', refresh)
+        self.assertIn('loadHistory()', refresh)
+        self.assertIn('Promise.allSettled', refresh)
+        self.assertIn('classList.add("refreshing")', refresh)
+        self.assertIn('{ showRefresh: false }', self.script)
+        self.assertIn('.krea2-assisted-refresh-all.refreshing svg', self.css)
 
     def test_initial_visible_assisted_view_loads_its_catalog_automatically(self):
         self.assertIn(

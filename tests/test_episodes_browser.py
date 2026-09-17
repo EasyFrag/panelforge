@@ -47,7 +47,8 @@ class EpisodesBrowserTest(unittest.TestCase):
             calls.push({url,options});const body=options.body?JSON.parse(options.body):null;
             if(url.startsWith('/api/episodes/stories/'))return {episodes:[episode]};
             if(url==='/api/stories/models')return {models:[{id:episode.scenes[0].plan_model_id,label:'Qwen local',source:'local'},
-              {id:episode.scenes[0].writer_model_id,label:'Gemma local',source:'local'}]};
+              {id:episode.scenes[0].writer_model_id,label:'Gemma local',source:'local'},
+              {id:'server-qwen',label:'Qwen serveur',source:'server'}]};
             if(url.startsWith('/api/image-lab/krea2-assisted/spec'))return {render_models:[model,model2],loras:[lora],
               aspect_ratios:['9:16 (Portrait Widescreen)'],defaults:{aspect_ratio:'9:16 (Portrait Widescreen)'},
               workflows:[{id:'krea2-sampling@1.0.0',label:'KREA2 · deux passes',default_sampling_preset_id:'current'},
@@ -89,6 +90,14 @@ class EpisodesBrowserTest(unittest.TestCase):
             await settle();check(!calls.some(c=>c.url.includes('/spec')||c.url.includes('/models')),'catalog stays lazy before fabrication');
             document.getElementById('story-fabrication').click();await settle();await settle();
             check(!get('workshop').hidden,'fabrication opens');check(get('reference').options.length===4,'three characters and decor');
+            const characterBatchLlm=get('batch-character-llm'),characterBatchLocal=get('batch-character-local');
+            check(characterBatchLocal.checked&&characterBatchLlm.value===episode.scenes[0].plan_model_id,'batch character profile exposes the available local Unsloth model');
+            check(get('batch-location-local').checked&&get('batch-location-llm').value===episode.scenes[0].plan_model_id,'batch location profile exposes the available local Unsloth model');
+            check(!characterBatchLlm.selectedOptions[0].dataset.missing,'available local model is not marked missing');
+            characterBatchLocal.checked=false;change(characterBatchLocal);
+            check(characterBatchLlm.value==='server-qwen','batch profile can switch to the server catalogue');
+            characterBatchLocal.checked=true;change(characterBatchLocal);
+            check(characterBatchLlm.value===episode.scenes[0].plan_model_id,'batch profile can return to the local catalogue');
             let choice=get('image-attempts').querySelector('button[data-image-choice]');
             check(choice&&choice.textContent==='Utiliser cette image'&&!choice.disabled,'finished image can be selected after opening fabrication');
             get('back').click();await settle();document.getElementById('story-fabrication').click();await settle();await settle();

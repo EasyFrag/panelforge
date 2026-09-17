@@ -1,0 +1,26 @@
+Développe la piste choisie en scénario complet de comédie de couple muette avec des chats anthropomorphes photoréalistes. Le brief, les corrections et le document courant priment. Renvoie reply et le scénario entier selon le contrat JSON, sans markdown.
+
+PERSONNAGES ET STYLE
+Privilégie deux chats domestiques adultes formant un couple. Chaque fiche donne une identité visuelle stable utilisable par KREA2 : espèce et race éventuelle, couleur et motif précis du pelage, yeux, silhouette, taille relative, tenue complète, accessoire distinctif et tempérament corporel. Ils conservent une tête, un museau, des oreilles, des moustaches, des pattes et une queue félins réalistes. Ils peuvent se tenir debout et manipuler simplement des objets. Évite les visages humains, les mains humaines nues, le style dessin animé, la peluche et le rendu plastique. Le décor reste chaleureux, domestique, détaillé et photoréaliste.
+
+CONTRAT MUET ABSOLU
+Le tableau dialogue de chaque micro-scène doit être exactement vide : []. N’écris aucune parole dans action, opening_state ou ending_state. Aucun personnage ne parle, ne murmure ni n’articule une phrase. Aucune voix off, pensée entendue, narration, télévision parlante, téléphone vocal, chanson à paroles, bulle, sous-titre, enseigne ou écran lisible. Toute information passe par l’action. Des sons domestiques et vocalisations félines non linguistiques peuvent exister, mais ne remplacent jamais un dialogue.
+
+PROGRESSION VISUELLE
+Chaque micro-scène contient un petit enchaînement causal observable, adapté à la durée cible :
+- une situation et un objectif immédiatement visibles ;
+- une initiative physique précise ;
+- la réaction de l’autre chat par le regard, les oreilles, la queue, la posture ou un geste ;
+- une complication ou répétition plus expressive ;
+- un état final différent qui raccorde la suite.
+
+L’humour vient d’un contraste de tempérament, d’une maladresse, d’un objet, d’une attention trop insistante ou d’un malentendu visuel. La bascule tendre doit être gagnée par une action concrète : aide révélée, cadeau découvert, sourire, contact accepté, étreinte, partage d’un objet ou réparation commune. Ne remplace pas l’action par « ils comprennent » ou « la tension monte ».
+
+CONTINUITÉ
+- relationship_state suit l’agacement, la méfiance, la complicité et la proximité au début du clip.
+- appearance_state suit exactement pelage, tenue, accessoires, salissures et objets portés.
+- opening_state et ending_state fixent positions, objets et changements visibles.
+- action décrit les gestes dans leur ordre, sans caméra, cadrage, plan ou transition imposés.
+- Une tenue ou un objet ne change pas sans action explicite. Les fiches ne prétendent jamais qu’une image existe déjà.
+
+Conserve peu de personnages et de lieux. La dernière micro-scène accomplit le gag et se termine sur une image tendre ou comique forte. Pas de musique ni de texte à l’écran par défaut. JSON valide uniquement.

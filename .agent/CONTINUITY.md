@@ -2,6 +2,16 @@
 
 ## Goal
 
+- **Rafraîchissement unifié KREA2 Création assistée implémenté le 17 septembre** : remplacer les boutons séparés catalogue, LLM et projets par une seule petite commande animée dans l'en-tête. Elle recharge en parallèle modèles/LoRA KREA2, modèles LLM, presets de style et projets récents tout en conservant le projet, les sélections et les brouillons en cours.
+
+- **Automatisation vidéo Histoires — alignement uniquement le 17 septembre** : préparer une vue unique de toutes les scènes, sur le modèle de la production d'images, avec réglages vidéo communs/personnalisables, génération des prompts puis mise en file des vidéos. Le DLSS reste manuel par scène, disponible après préparation des prompts et rendu vidéo ; aucune implémentation vidéo n'est autorisée dans ce patch.
+
+- **Sélecteurs LLM locaux de la fabrication en lot corrigés le 17 septembre** : les profils Personnages et Décors doivent reprendre le sélecteur classique avec case `Local · Unsloth`, locale cochée par défaut, et permettre la bascule explicite entre catalogues local et serveur sans déclarer à tort un modèle local indisponible.
+
+- **Nombre exact de micro-scènes Histoires autorisé et implémenté le 17 septembre** : le choix 1–12 fait foi pour tout nouveau scénario ou toute révision structurée. En Script fidèle, les rubriques source sont des événements à regrouper dans ce nombre exact sans omettre les actes, la fin ni modifier les dialogues. Une sortie de taille différente est refusée sans second appel et conserve son brouillon ; les histoires existantes ne sont pas migrées automatiquement.
+
+- **Réorganisation KREA2 Création assistée autorisée et implémentée le 17 septembre** : afficher Nouveau projet avant les projets récents tout en le gardant replié au chargement, présélectionner le modèle local `unsloth/gemma-4-31b-it-qat-GGUF` lorsqu'il est disponible et ajouter un rafraîchissement dédié du catalogue LLM sans recharger la page. Les projets existants conservent leur modèle historique.
+
 - **Production en lot des références Histoires et ordonnancement physique autorisés le 17 septembre** : publier d’abord le point voix off/registre, puis ajouter dans Fabrication un lancement groupé configurable des personnages et décors. Deux profils indépendants Personnages/Décors doivent choisir LLM et réglages KREA2 complets, afficher notamment la famille de workflow, pipeliner les prompts séquentiels avec la file image distante et s’arrêter avant toute vidéo pour validation humaine. PanelForge doit garantir un seul appel LLM ou DLSS sur la machine locale et un seul KREA2 ou rendu vidéo sur le serveur distant, les deux machines restant parallèles. DLSS reste une finition vidéo déclenchée après les appels LLM ; seuils thermiques configurables avant lancement.
 
 - **Normalisation prudente des voix off et registre de dialogues Histoires autorisés et implémentés le 17 septembre** : après le Writer Classique, normaliser localement les seules voix off explicitement demandées et reconnues sans ambiguïté pour H3 Base/REF2V, sans nouvel appel ni modification des prompts Plan/Writer. Ajouter aux trois familles Histoires un curseur de vocabulaire 0–3 ; niveau 0 strictement inchangé, script fidèle protégé. Ne pas ajouter de curseur de densité de dialogue dans ce patch.
@@ -111,6 +121,8 @@
 - **Contrainte confirmée par l’utilisateur les 2026-09-10/11, à préserver** : Combat, Classique et Sensuel sont trois familles de préparation indépendantes. Une modification spécifique ne change pas les deux autres. Partager uniquement les améliorations générales via un socle à versions exactes et une adoption explicite examinée ; aucun héritage de « latest » entre familles. Conserver familles, versions et réglages jusque dans les révisions conversationnelles, conversions et continuations. Application/file/rendu restent communs.
 
 ## Current state
+
+- **Le nombre de micro-scènes est maintenant contractuel** : l'appel Writer reçoit deux consignes cohérentes avec `target_scene_count`, les sections d'un script doivent être regroupées, et `parse_response` rejette transactionnellement tout `scenario.scenes` d'une autre taille. L'interface parle de `Nombre exact`, le cache passe à `stories.js?v=20260917.3`, et les anciens documents restent lisibles/éditables sans normalisation destructive. 56 tests Histoires/Fabrication/API/navigateur passent ; aucun LLM ou rendu réel n'a été lancé.
 
 - **Références en lot Fabrication 1.2 et coordinateur global implémentés sur `feature/vocal-normalizer-dialogue-register`** : le panneau Histoires configure séparément Personnages et Décors (LLM, `KREA2 · deux passes` ou `KREA2 + Flux Klein`, checkpoint, LoRA, sampling, ratio, MP, seed), sélectionne les fiches, affiche le profil effectif sur chaque ligne, trois progressions et les images intermédiaires. Le worker prépare un seul prompt à la fois, met immédiatement son image dans la file Assisted puis poursuit le prompt suivant ; il termine sur une validation humaine et ne lance aucune vidéo ni DLSS. Les profils, le lot et ses seuils thermiques sont persistés dans l’épisode, les lots interrompus sont signalés et une ancienne image retenue ne valide pas une nouvelle sortie. Un `MachineWorkCoordinator` FIFO commun réserve jusqu’au terminal la machine locale pour tous les LLM/DLSS et le serveur distant pour KREA2 simple/batch/Assisted/Edit/changement de vue, Video Lab et H3/REF2V ; les deux ressources restent indépendantes. Le snapshot pré-patch est publié au commit `ada89e6`, branche/tag `snapshots/stories-vocal-2026-09-17`. Compilation et `git diff --check` réussis ; 178 tests ciblés passent. La suite globale expérimentale exécute 1346 tests mais conserve 39 échecs et 33 erreurs hors de ce patch (principalement anciens contrats H3/Combat et assertions de fixtures) ; aucun appel LLM, rendu, DLSS ou service réel n’a été lancé.
 
@@ -876,6 +888,8 @@
 - Architecture proposée pour le rendu intégré H3 Base : un projet enfant persistant sous la composition, initialisé avec le prompt final et ses frames, porte des révisions de prompt de rendu, une conversation dédiée et des essais vidéo. Chaque tour d'édition reste un seul appel LLM direct depuis le prompt courant, sans Brief ni Plan, et ne modifie jamais la composition approuvée. Chaque essai conserve prompt effectif, réglages, seed, mode musique, run ComfyUI, MP4 et keyframes ; un essai sélectionné devient feedback visuel du tour suivant. `Music Off` force seulement la copie de rendu de `non_diegetic_music` à `N/A`, sans retirer dialogues ni sons diégétiques et sans réécrire le prompt canonique.
 
 ## Next steps
+
+- **Vérifier la compression exacte sur le script des chats** : redémarrer le Lab, faire Ctrl+F5 pour charger `stories.js?v=20260917.3`, choisir `Chats de couple · muet`, Script fidèle, 3 micro-scènes de 10 s, puis recoller les sept événements. Attendu : exactement trois scènes regroupées (maladie/offres, billets/câlin, boutique/promenade), aucun dialogue. Si le LLM ignore encore la quantité, le job doit échouer avec le brouillon conservé plutôt qu'appliquer sept scènes.
 
 - **Essai utilisateur Fabrication 1.2** : redémarrer le Lab et faire Ctrl+F5, ouvrir Histoires → Fabrication, vérifier les deux profils et les libellés de workflow, lancer deux ou trois références et confirmer qu’un seul prompt LLM tourne à la fois tandis que KREA2 distant peut rendre en parallèle. Retenir chaque image puis seulement passer aux scènes. Observer les états Local/Distant et tester des seuils thermiques prudents. La prochaine automatisation éventuelle commence après cette validation humaine et doit ordonnancer prompts de scènes, vidéos, DLSS vidéo final puis assemblage ; elle n’est pas incluse ici.
 
@@ -3405,3 +3419,111 @@
 - Worktree actif : `D:\Code\localQ\.panelpatch`, très sale avec des changements utilisateur accumulés. Ne rien reset/revert et garder les diffs petits.
 - Des tests verts ne garantissent ni un asset JS rafraîchi dans le navigateur ni le comportement d’un flux Comfy réel.
 - La séparation mémoire esthétique/narrative par branche est une intention forte, mais son interface et sa persistance ne sont pas encore entièrement spécifiées.
+
+## Patch 2026-09-17 — famille Histoires « Chats de couple · muet »
+
+### Works
+- La vidéo de référence `Download(25).mp4` a été auditée : environ 15 s, format vertical, un couple de chats anthropomorphes réalistes dans une cuisine, gag d’attention insistante puis étreinte tendre, sans narration nécessaire.
+- La famille indépendante `story.silent-cats@1.0.0` possède ses propres concepts, scénario et révision. Elle cible deux chats adultes photoréalistes, une situation domestique, une escalade gestuelle et une bascule tendre.
+- Le silence est contractuel : `dialogue_policy=forbidden`, exemple de contrat avec `dialogue: []`, registre de dialogue forcé à 0 et rejet backend de toute réplique. Les intentions sans réplique demandent explicitement zéro parole, voix off ou narration.
+- L’interface affiche `Chats de couple · muet`, adapte les aides, désactive le curseur de vocabulaire et masque les dialogues dans l’éditeur de scène. Les histoires d’une seule micro-scène de 5 à 15 s sont désormais autorisées pour reproduire le format court de la référence.
+- La recette est enregistrée séparément dans le lanceur et reste éditable depuis `Consignes LLM` sans modifier Fruits, Sensuel light ou Cru ++.
+- Validation ciblée : compilation Python, `git diff --check` et 55 tests Histoires/Fabrication/API/navigateur passent.
+
+### Broken / missing
+- Aucun appel LLM réel, rendu KREA2 ou rendu H3 n’a encore qualifié le photoréalisme, la stabilité des deux chats et l’absence effective de voix sur le moteur vidéo.
+- La suite complète du worktree n’est pas verte indépendamment de cette surface : 1 223 tests donnent 36 échecs et 44 erreurs, principalement dans les contrats H3/combat/rendu. Les 55 tests couvrant les fichiers modifiés sont verts.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et générer une proposition `Chats de couple · muet` avec 1 micro-scène de 15 s.
+2. Fabriquer les deux fiches chats et le décor avec un checkpoint/réglage KREA2 photoréaliste, puis vérifier que les identités restent nettement distinctes.
+3. Rendre la scène en vidéo et vérifier l’absence de parole/voix off ainsi que la lisibilité du gag uniquement par les gestes.
+
+### Risks / open questions
+- Le style photoréaliste est imposé éditorialement dans les descriptions, mais le résultat dépend encore du checkpoint, du preset et des LoRA KREA2 choisis dans Fabrication.
+- Les vocalisations félines non linguistiques sont autorisées par la recette ; si H3 les transforme en parole ou en chant, il faudra durcir le compilateur vidéo après un smoke réel.
+
+## Patch 2026-09-17 — accueil de KREA2 Création assistée
+
+### Works
+- `Nouveau projet` est maintenant le premier bloc de la colonne, avant `Projets récents`, et reste volontairement replié au premier affichage même lorsque l'historique est vide.
+- Le nouveau projet sélectionne en priorité la variante locale `unsloth/gemma-4-31b-it-qat-GGUF` lorsqu'elle existe. Une sélection manuelle reste stable pendant les rafraîchissements ; après création, le formulaire suivant revient au défaut.
+- Un bouton `Actualiser` voisin du sélecteur relance le catalogue sans recharger la page. Il respecte le rafraîchissement asynchrone du backend, affiche l'état en cours puis le résultat au prochain polling et ne remplace pas les modèles historiques des projets ouverts.
+- Les versions de cache CSS/JS ont été relevées. Validation ciblée : `git diff --check` sans erreur et 36 tests KREA2 Assisted UI/domaine/API/sampling/navigation réelle passent.
+
+### Broken / missing
+- Aucun smoke dans le Lab réel n'a été fait contre l'instance Unsloth ; si Gemma n'est pas publié dans son inventaire, le sélecteur conserve le premier modèle local disponible.
+- Deux tests KREA2 Assisted plus larges restent rouges pour des raisons hors patch : la fixture navigateur DLSS ne déclare pas `jobs`, et un test V2 attend `glass_model` au-delà de la limite actuelle de 12 checkpoints du catalogue de test.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et forcer un rechargement navigateur pour prendre les nouveaux assets.
+2. Ouvrir `Nouveau projet`, vérifier Gemma local par défaut, puis tester `Actualiser` pendant que l'inventaire Unsloth est disponible.
+3. Créer puis rouvrir un projet utilisant un autre modèle afin de confirmer que son choix historique reste inchangé.
+
+### Risks / open questions
+- Le bouton dédié utilise aujourd'hui le rafraîchissement de catalogue commun du backend : les inventaires image et LLM sont rescannés en arrière-plan, même si seul le retour LLM est mis en avant dans ce formulaire.
+
+## Patch 2026-09-17 — nombre exact de micro-scènes Histoires
+
+### Works
+- Le nombre choisi dans `Format de l'épisode` est désormais une contrainte exacte pour les développements, Scripts fidèles et révisions qui renvoient un scénario. Une réponse `discussion_only` reste autorisée sans scénario.
+- En Script fidèle, le contrat demande explicitement de traiter titres, numéros et rubriques comme des événements source à regrouper. Il autorise la condensation du découpage et des descriptions, mais interdit l'omission d'un événement, la modification de l'ordre/de la fin et la paraphrase des dialogues.
+- Le validateur refuse une taille différente avant toute application du document. Il ne lance aucun appel de réparation : la version précédente reste intacte et le brouillon fautif demeure disponible.
+- L'interface affiche `Nombre exact de micro-scènes`, explique le regroupement et marque les projets avec `micro-scènes exactes`. Documentation et cache `stories.js?v=20260917.3` sont actualisés.
+- Une régression reproduit le brief des sept événements de chats avec une cible de trois : trois scènes sont acceptées, sept sont refusées. Validation : 56 tests Histoires/Fabrication/API/navigateur passent et `git diff --check` ne signale aucune erreur.
+
+### Broken / missing
+- Aucun appel au modèle réel n'a encore confirmé que Gemma regroupe spontanément les sept événements en trois dès le premier essai. S'il ignore le contrat, PanelForge refuse proprement la sortie au lieu de relancer automatiquement.
+- Le contrôle garantit le nombre de scènes, pas la présence sémantique de chaque événement non dialogué ; cette fidélité reste une instruction au Writer et doit être vérifiée lors du smoke.
+
+### Next steps (max 3)
+1. Relancer exactement le brief des chats avec 3 × 10 s et vérifier le regroupement attendu.
+2. Contrôler qu'aucun des sept événements n'a disparu et que la troisième scène raccorde naturellement boutique et galerie.
+3. Si Gemma échoue souvent malgré le contrat, discuter d'une correction explicite par l'utilisateur ou d'un retry optionnel, sans l'ajouter silencieusement.
+
+### Risks / open questions
+- Un script contenant beaucoup de dialogues peut tenir structurellement dans le nombre demandé tout en étant trop dense pour la durée. Le diagnostic de densité reste non bloquant afin que le choix utilisateur continue de faire foi.
+- Une ancienne histoire dont le document contient plus de scènes que sa cible reste lisible et modifiable manuellement. Sa prochaine révision structurée devra en revanche revenir au nombre exact enregistré.
+
+## Patch 2026-09-17 — sélecteurs LLM locaux de la fabrication en lot
+
+### Works
+- Les profils `Personnages` et `Décors` affichent désormais chacun le sélecteur LLM classique avec une case `Local · Unsloth`, cochée par défaut.
+- Le composant partagé filtre le catalogue selon cette case : cochée, il expose les modèles `local::`; décochée, il expose les modèles serveur. Le modèle local mémorisé n'est donc plus marqué indisponible simplement parce que le panneau filtrait implicitement le mauvais catalogue.
+- La bascule déclenche aussi la mise à jour des contrôles et du résumé de lot. Les versions de cache `episodes.css` et `episodes.js` passent à `20260917.2`.
+- Validation ciblée : 56 tests Histoires/Fabrication/API/navigateur passent, dont une régression navigateur Local → serveur → Local pour les deux profils. `git diff --check` ne signale aucune erreur de contenu.
+
+### Broken / missing
+- Aucun smoke n'a encore interrogé l'instance Unsloth réelle. Si le catalogue local est réellement vide après rechargement, le problème restant sera la découverte `/api/stories/models`, distincte du filtrage d'interface corrigé ici.
+- Une suite élargie incluant `tests.test_lab_web` conserve quatre échecs hors périmètre sur des attentes H3/Ref2V déjà désynchronisées avec les scripts actuels.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et forcer un rechargement navigateur pour charger `episodes.js/css?v=20260917.2`.
+2. Ouvrir `Histoires → Fabrication`, vérifier Unsloth dans les deux profils puis décocher/recocher `Local · Unsloth`.
+3. Si aucun modèle local n'apparaît, examiner alors la réponse réelle de `/api/stories/models` et la disponibilité du serveur Unsloth.
+
+### Risks / open questions
+- Le choix local est initial au chargement, mais chaque profil conserve ensuite indépendamment son modèle sélectionné dans l'état de l'histoire.
+
+## Patch 2026-09-17 — rafraîchissement unifié de KREA2 Création assistée
+
+### Works
+- Une seule commande compacte `Tout actualiser` apparaît dans l'en-tête de Création assistée. Son icône à deux flèches tourne pendant la requête et expose un libellé accessible.
+- Elle lance en parallèle le rescan forcé des modèles/LoRA KREA2 et des LLM, le rechargement des presets de style et celui des projets récents. Les trois anciens boutons séparés ont été retirés.
+- Le statut compact du catalogue reste visible sans bouton propre. Un échec partiel indique la ressource concernée sans masquer les autres résultats.
+- Le rafraîchissement conserve le projet ouvert, le prompt non enregistré, les sélections de modèles et les presets encore disponibles. Les caches passent à `lab.css?v=20260917.2` et `krea2-assisted-lab.js?v=20260917.2`.
+- Validation ciblée : les 21 tests statiques KREA2 Assisted plus la régression navigateur réelle du rafraîchissement unifié passent ; les tests API KREA2 Assisted et le contrat principal de la page Lab passent également. `git diff --check` ne relève aucune erreur de contenu.
+
+### Broken / missing
+- Aucun smoke n'a encore été fait dans le navigateur utilisateur contre les catalogues et presets réels.
+- Le test navigateur indépendant de fermeture d'une fiche de ressource pendant son chargement reste intermittent : Chromium conserve parfois brièvement l'ancien dialogue fermé dans le DOM. Cet échec préexistant ne touche pas le rafraîchissement unifié ; la régression navigateur de Création assistée est verte.
+- L'automatisation vidéo Histoires n'est pas commencée dans ce patch.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge, faire un rechargement forcé et vérifier le bouton tournant dans l'en-tête avec les quatre familles de données réelles.
+2. Concevoir l'écran vidéo Histoires autour d'une liste complète de cartes de scènes, avec profil commun, surcharge par scène, état du prompt, rendu et résultat intermédiaire.
+3. Verrouiller les transitions et files : prompts LLM séquentiels, vidéos distantes ordonnancées, validation humaine, puis DLSS manuel par scène sans lancer de nouveau LLM.
+
+### Risks / open questions
+- Le rescan des catalogues peut continuer côté serveur après la réponse initiale ; le message compact indique alors l'actualisation en arrière-plan même si l'animation du clic est terminée.
+- Pour la vidéo Histoires, il faudra décider si le bouton de génération globale s'arrête après tous les prompts ou peut aussi remplir automatiquement la file vidéo après une validation humaine globale.

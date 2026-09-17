@@ -21,6 +21,7 @@
     intention: $("krea2-assisted-intention"),
     reference: $("krea2-assisted-reference"),
     llm: $("krea2-assisted-llm"),
+    refreshAll: $("krea2-assisted-refresh-all"),
     assistanceRecipe: $("krea2-assisted-assistance-recipe"),
     activeRecipe: $("krea2-assisted-active-recipe"),
     newPreset: $("krea2-assisted-new-preset"),
@@ -40,7 +41,6 @@
     revisionLlm: $("krea2-assisted-revision-llm"),
     create: $("krea2-assisted-create"),
     newMessage: $("krea2-assisted-new-message"),
-    refresh: $("krea2-assisted-refresh"),
     history: $("krea2-assisted-history"),
     historyEmpty: $("krea2-assisted-history-empty"),
     editor: $("krea2-assisted-editor"),
@@ -255,6 +255,7 @@
 
   const resourceUi = window.PanelForgeKrea2ResourceUi;
   const core = window.PanelForgeLabCore;
+  const defaultNewProjectLlm = "unsloth/gemma-4-31b-it-qat-GGUF";
   const state = {
     initialized: false,
     initializing: null,
@@ -274,6 +275,8 @@
     presets: [],
     presetSource: null,
     renderQueue: { items: [], error: null },
+    newProjectLlmTouched: false,
+    refreshingAll: false,
   };
   const reasoningTrace = core && typeof core.createReasoningTrace === "function"
     ? core.createReasoningTrace({
@@ -313,10 +316,13 @@
     if (state.spec && !state.spec.sampling) {
       elements.samplingSummary.textContent = "Réglages actuels · redémarrez le Lab pour activer les presets.";
     }
-    const llmReady = Boolean(state.spec?.llm_models?.length);
+    const llmReady = Boolean(state.spec?.llm_models?.length && elements.llm.value);
     const modelsReady = Boolean(state.spec?.render_models?.some(m => m.comfy_name === elements.model.value));
     const lorasReady = state.loraSlots.every(slot => !slot.name || state.spec?.loras?.some(lora => lora.comfy_name === slot.name));
     elements.create.disabled = value || !llmReady;
+    elements.llm.disabled = value;
+    elements.refreshAll.disabled = value || state.refreshingAll;
+    window.PanelForgeModelPicker.setDisabled(elements.llm, value);
     elements.chat.disabled = value || !state.project || !llmReady;
     elements.recipeChat.disabled = value || !state.project || !llmReady;
     elements.revisionLlm.disabled = value || !state.project;
@@ -358,14 +364,30 @@
       || null;
   }
 
+  function preferredNewProjectLlm(models) {
+    const expected = defaultNewProjectLlm.toLowerCase();
+    const matching = (models || []).filter((model) => {
+      const id = String(model.id || "").replace(/^local::/i, "").toLowerCase();
+      return id === expected;
+    });
+    return matching.find((model) => model.source === "local" || String(model.id || "").startsWith("local::"))
+      || matching[0]
+      || null;
+  }
+
   function fillOptions() {
     const previousLlm = elements.llm.value;
+    const defaultLlm = preferredNewProjectLlm(state.spec.llm_models || []);
+    const selectedLlm = state.newProjectLlmTouched && previousLlm
+      ? previousLlm : (defaultLlm?.id || previousLlm);
     window.PanelForgeModelPicker.populate(
       elements.llm,
       state.spec.llm_models || [],
-      previousLlm,
+      selectedLlm,
     );
-    if (previousLlm) window.PanelForgeModelPicker.select(elements.llm, previousLlm, "modèle indisponible");
+    if (state.newProjectLlmTouched && previousLlm) {
+      window.PanelForgeModelPicker.select(elements.llm, previousLlm, "modèle indisponible");
+    }
     const previousRevisionLlm = elements.revisionLlm.value;
     window.PanelForgeModelPicker.populate(
       elements.revisionLlm,
@@ -1107,7 +1129,7 @@
   }
 
   const catalogStatus = resourceUi.catalogStatus(elements.workspace,
-    force => refreshCatalog(true, force), () => !elements.workspace.hidden);
+    force => refreshCatalog(true, force), () => !elements.workspace.hidden, { showRefresh: false });
   let catalogRequest = null;
   async function refreshCatalog(preserve = true, force = false) {
     if (catalogRequest) return force ? catalogRequest.then(() => refreshCatalog(preserve, true)) : catalogRequest;
@@ -1125,7 +1147,11 @@
         throw new Error("Réponse de catalogue invalide.");
       }
     } catch (error) { error.catalogPhase = "request"; throw error; }
-    if (state.busy && state.spec) { catalogStatus.observe(next); catalogStatus.retry(); return; }
+    if (state.busy && state.spec) {
+      catalogStatus.observe(next);
+      catalogStatus.retry();
+      return;
+    }
     // Capture at application time: a user may have navigated during the request.
     preserve = preserve || Boolean(state.project);
     const previousModel = preserve ? elements.model.value : "";
@@ -1135,7 +1161,10 @@
     configureSampling(next.sampling);
     configureWorkflows(next.workflows);
     const signature = JSON.stringify([next.render_models, next.loras, next.llm_models]);
-    if (state.catalogSignature === signature) { catalogStatus.observe(next); return; }
+    if (state.catalogSignature === signature && !force) {
+      catalogStatus.observe(next);
+      return;
+    }
     const previousRecipe = elements.assistanceRecipe.value || "3.0.0";
     elements.assistanceRecipe.replaceChildren();
     for (const recipe of state.spec.assistance_recipes || []) {
@@ -1179,7 +1208,6 @@
       const payload = await request("/api/image-lab/krea2-assisted/projects?limit=30");
       state.projects = payload.projects || [];
       renderHistory();
-      if (elements.newProject && !state.projects.length) elements.newProject.open = true;
       if (!state.projectRequest) setHistoryMessage();
     } catch (error) {
       if (!state.projectRequest) setHistoryMessage(`Projets indisponibles : ${error.message}`, true);
@@ -1239,6 +1267,9 @@
       if (elements.newPreset.value) data.set("style_preset_id", elements.newPreset.value);
       if (elements.reference.files[0]) data.set("reference", elements.reference.files[0]);
       const payload = await request("/api/image-lab/krea2-assisted/projects", { method: "POST", body: data });
+      state.newProjectLlmTouched = false;
+      const defaultLlm = preferredNewProjectLlm(state.spec?.llm_models || []);
+      if (defaultLlm) window.PanelForgeModelPicker.select(elements.llm, defaultLlm.id);
       clearGuidance();
       renderProject(payload.project);
       await loadHistory();
@@ -1555,7 +1586,38 @@
     return state.initializing;
   }
 
+  async function refreshAllResources() {
+    if (state.busy || state.refreshingAll) return;
+    state.refreshingAll = true;
+    elements.refreshAll.classList.add("refreshing");
+    elements.refreshAll.setAttribute("aria-busy", "true");
+    setBusy(state.busy);
+    setNewMessage("Actualisation des modèles, presets et projets…", false);
+    const tasks = [
+      ["catalogues KREA2 et LLM", refreshCatalog(true, true)],
+      ["presets", loadPresets()],
+      ["projets récents", loadHistory()],
+    ];
+    const results = await Promise.allSettled(tasks.map(([, promise]) => promise));
+    const failures = results.flatMap((result, index) => result.status === "rejected"
+      ? [`${tasks[index][0]} : ${result.reason.message}`] : []);
+    if (failures.length) {
+      setNewMessage(`Actualisation partielle · ${failures.join(" · ")}`);
+    } else {
+      const pending = Object.values(state.spec?.catalog_status || {}).some(status => status.refreshing);
+      setNewMessage(pending
+        ? "Presets et projets actualisés · catalogues en cours d’actualisation en arrière-plan…"
+        : "Modèles, presets et projets récents actualisés.", false);
+    }
+    state.refreshingAll = false;
+    elements.refreshAll.classList.remove("refreshing");
+    elements.refreshAll.setAttribute("aria-busy", "false");
+    setBusy(state.busy);
+  }
+
   elements.newForm.addEventListener("submit", createProject);
+  elements.llm.addEventListener("change", () => { state.newProjectLlmTouched = true; setBusy(state.busy); });
+  elements.refreshAll.addEventListener("click", refreshAllResources);
   elements.model.addEventListener("change", () => setBusy(state.busy));
   elements.newPreset.addEventListener("change", () => {
     const preset = state.presets.find((p) => p.preset_id === elements.newPreset.value);
@@ -1576,7 +1638,6 @@
   });
   elements.presetForm.addEventListener("submit", savePreset);
   $("krea2-assisted-preset-close").addEventListener("click", () => elements.presetDialog.close());
-  elements.refresh.addEventListener("click", () => loadHistory().catch(() => {}));
   elements.chat.addEventListener("click", () => sendChat("creation"));
   elements.recipeChat.addEventListener("click", () => sendChat("recipe"));
   elements.guidanceFile.addEventListener("change", selectGuidanceFile);
