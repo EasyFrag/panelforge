@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from dataclasses import asdict
 from panelforge.domain.h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
-from panelforge.domain.h3_render import H3RenderSetup
+from panelforge.domain.h3_render import H3RenderSetup, h3_upscale_plan
 from panelforge.application.h3_ref2v_conversion import H3Ref2VConversionService
 from .media_analysis_web import media_analysis_router
 import hashlib
@@ -722,6 +722,7 @@ class H3RenderAttemptBody(BaseModel):
     spectrum_enabled: bool = False
     video_lora: H3VideoLoraBody | None = None
     initial_megapixels: float = Field(default=0.2, ge=0.1, le=16, allow_inf_nan=False, strict=True)
+    force_upscale: bool = Field(default=False, strict=True)
     recipe_id: str | None = None
     recipe_version: str | None = None
     bunny: H3BunnyBody | None = None
@@ -3701,6 +3702,7 @@ def create_app(
                 "workflow_sha256": recipe.reference.workflow_sha256,
                 "status": recipe.status,
             },
+            "supports_upscale_bypass": getattr(recipe, "supports_upscale_bypass", False),
             "presets": presets,
             "defaults": presets[0],
             "aspect_ratios": [ratio.value for ratio in VideoAspectRatio],
@@ -3803,6 +3805,7 @@ def create_app(
                 music_enabled=body.music_enabled, spectrum_enabled=body.spectrum_enabled,
                 video_lora=H3VideoLoraSelection(**body.video_lora.model_dump()) if body.video_lora else None,
                 recipe=destination.reference, bunny=bunny, checkpoint=body.checkpoint,
+                force_upscale=body.force_upscale,
                 video_loras=H3VideoLoraStack.from_dict(body.video_loras.model_dump()) if body.video_loras else None,
                 model_loading=service.resolve_model_loading(destination, H3RenderInputMode.REF2VA, body.checkpoint)
                     if body.checkpoint is not None or getattr(destination, "supports_checkpoint_selection", False) else None)
@@ -3880,6 +3883,7 @@ def create_app(
                 music_enabled=body.music_enabled,
                 spectrum_enabled=body.spectrum_enabled,
                 initial_megapixels=body.initial_megapixels,
+                force_upscale=body.force_upscale,
                 recipe_id=body.recipe_id,
                 recipe_version=body.recipe_version,
                 bunny=H3BunnySettings(**body.bunny.model_dump()) if body.bunny else None,
@@ -4729,6 +4733,18 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
     attempts = []
     for attempt in project.attempts:
         geometry = bunny_geometry(attempt.settings, attempt.initial_megapixels) if attempt.bunny else None
+        upscale = None if attempt.bunny else h3_upscale_plan(
+            attempt.settings,
+            attempt.initial_megapixels,
+            force_upscale=attempt.force_upscale,
+        )
+        effective_resolution = (
+            geometry["width"], geometry["height"]
+        ) if geometry else (
+            upscale["initial_resolution"]
+            if attempt.upscale_bypassed
+            else upscale["target_resolution"]
+        )
         settings = {
             "aspect_ratio": attempt.settings.aspect_ratio.value,
             "megapixels": attempt.settings.megapixels,
@@ -4738,8 +4754,12 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
             "seed": str(attempt.settings.seed),
             "seed_locked": attempt.settings.seed_locked,
             "resolution": {
-                "width": geometry["width"] if geometry else attempt.settings.resolution[0],
-                "height": geometry["height"] if geometry else attempt.settings.resolution[1],
+                "width": effective_resolution[0],
+                "height": effective_resolution[1],
+            },
+            "requested_resolution": {
+                "width": attempt.settings.resolution[0],
+                "height": attempt.settings.resolution[1],
             },
             "frames": attempt.settings.frame_count,
         }
@@ -4751,6 +4771,8 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
             "video_loras": asdict(attempt.video_loras) if attempt.video_loras is not None else None,
             "model_loading": asdict(attempt.model_loading) if attempt.model_loading else None,
             "initial_megapixels": attempt.initial_megapixels,
+            "force_upscale": attempt.force_upscale,
+            "upscale_bypassed": attempt.upscale_bypassed,
             "bunny_geometry": geometry,
             "attempt_id": attempt.attempt_id,
             "index": attempt.index,
@@ -6213,6 +6235,8 @@ def _serialize_production_video_attempt(
         "selected": selected,
         "music_enabled": attempt.music_enabled,
         "initial_megapixels": attempt.initial_megapixels,
+        "force_upscale": attempt.force_upscale,
+        "upscale_bypassed": attempt.upscale_bypassed,
         "spectrum_enabled": attempt.spectrum_enabled,
         "video_lora": ({
             "name": attempt.video_lora.name,

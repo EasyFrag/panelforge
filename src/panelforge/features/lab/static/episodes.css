@@ -22,6 +22,13 @@
 .episode-reference-card .story-actions { margin-top: .5rem; }
 #episode-dialogues { white-space: pre-wrap; line-height: 1.6; }
 #episode-scenes .h3-render-lab { margin-top: .8rem; }
+#episode-scenes .h3-render-setup-only .h3-render-heading,
+#episode-scenes .h3-render-setup-only .h3-render-prompt,
+#episode-scenes .h3-render-setup-only .h3-render-actions,
+#episode-scenes .h3-render-setup-only .render-progress-panel,
+#episode-scenes .h3-render-setup-only .h3-render-preview-grid,
+#episode-scenes .h3-render-setup-only .h3-render-conversation,
+#episode-scenes .h3-render-setup-only .h3-render-history { display: none; }
 #episode-workshop .h3-render-settings input[type=checkbox] { width: auto; }
 #episode-render-host { min-width: 0; }
 .episode-visual-panel { padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: var(--green-soft); }
@@ -46,6 +53,7 @@
 .episode-batch-profiles fieldset { min-width: 0; padding: .9rem; border: 1px solid var(--line); border-radius: 10px; }
 .episode-batch-profiles label { display: block; margin: .55rem 0; }
 .episode-batch-profiles .llm-local-toggle { display: inline-flex; margin: 0 0 .55rem; }
+.episode-batch-custom { margin: .7rem 0; padding: .7rem; border-left: 3px solid var(--green); background: var(--green-soft); }
 .episode-batch-thermal { margin: .8rem 0; }
 .episode-batch-selection { display: grid; gap: .45rem; margin: .9rem 0; }
 .episode-batch-selection label { display: grid; grid-template-columns: auto minmax(120px, .8fr) minmax(0, 2fr); align-items: center; gap: .7rem; padding: .55rem; border-bottom: 1px solid var(--line); }
@@ -57,5 +65,27 @@
 .episode-batch-result { padding: .65rem; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
 .episode-batch-result img { width: 100%; height: 150px; object-fit: contain; border-radius: 7px; background: #f0ede6; }
 .episode-batch-result p { margin: .35rem 0; font-size: .82rem; overflow-wrap: anywhere; }
+.episode-video-overview { margin-bottom: 1rem; }
+.episode-video-overview h2 { margin: 0 0 .25rem; }
+.episode-video-overview .episode-bar { align-items: center; justify-content: space-between; }
+.episode-video-progress { display: grid; gap: .7rem; margin: .8rem 0; }
+.episode-video-progress progress { width: 100%; }
+.episode-video-lanes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.episode-video-lanes section { display: grid; grid-template-columns: auto minmax(100px, 1fr); align-items: center; gap: .35rem .7rem; padding: .65rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.episode-video-lanes section span { grid-column: 1 / -1; min-height: 1.2em; font-size: .82rem; overflow-wrap: anywhere; }
+.episode-video-cooldown { display: inline-flex; align-items: center; gap: .4rem; width: fit-content; margin: .5rem 0; font-size: .85rem; }
+.episode-video-cooldown input { width: 5.5rem; }
+.episode-video-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .8rem; }
+.episode-video-card { min-width: 0; padding: .75rem; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.episode-video-card.selected { border: 2px solid var(--green); }
+.episode-video-card.processing { border-color: var(--green); animation: episode-video-pulse 1.8s ease-in-out infinite; }
+.episode-video-live::before { content: "● "; color: var(--green); }
+@keyframes episode-video-pulse { 50% { box-shadow: 0 0 0 4px rgba(20, 119, 91, .14); } }
+@media (prefers-reduced-motion: reduce) { .episode-video-card.processing { animation: none; } }
+.episode-video-card-heading { display: grid; gap: .2rem; }
+.episode-video-card p { margin: .45rem 0; font-size: .82rem; overflow-wrap: anywhere; }
+.episode-video-card video { display: block; width: 100%; max-height: 280px; border-radius: 8px; background: #111; }
+.episode-video-settings-mode { justify-content: space-between; align-items: center; }
+.episode-video-settings-mode p { flex: 1 1 360px; }
 @media (max-width: 600px) { .episode-style-grid { grid-template-columns: 1fr; } }
-@media (max-width: 850px) { .episode-asset-grid, .episode-grid, .episode-batch-profiles, .episode-batch-progress { grid-template-columns: 1fr; } }
+@media (max-width: 850px) { .episode-asset-grid, .episode-grid, .episode-batch-profiles, .episode-batch-progress, .episode-video-progress, .episode-video-lanes { grid-template-columns: 1fr; } }

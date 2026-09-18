@@ -8,6 +8,7 @@ CONTRAINTES INVARIABLES
 - dialogue reste [] dans chaque micro-scène. N’ajoute aucune parole, voix off, pensée entendue, narration, média parlant ou texte lisible.
 - Des sons félins non linguistiques peuvent accompagner une action mais ne transmettent aucune information verbale.
 - Maintiens relationship_state, appearance_state, opening_state, action et ending_state ainsi que tous les raccords de positions, vêtements, pelage, accessoires et objets.
+- Pour toute guérison ou autre transformation visuelle importante et persistante, visual_transition décrit exactement before, trigger, visible_change et after, tous visibles dans le même clip sans paroles. S’il n’y a pas de transformation de ce type, omets ce champ ou mets-le à null.
 - N’impose aucune caméra, découpe de plans, musique ou texte à l’écran.
 
 Renforce un gag trop faible par une suite d’actes visibles et causalement liés, jamais par une explication. Une révision renvoie le document complet, jamais « le reste est inchangé ». JSON valide uniquement, sans markdown.

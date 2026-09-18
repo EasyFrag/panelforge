@@ -13,6 +13,17 @@ from panelforge.domain.episodes import initial_episode, scene_inputs
 class EpisodesBrowserTest(unittest.TestCase):
     run_browser = MediaAnalysisBrowserTest.run_browser
 
+    def test_video_overview_reports_prompt_and_video_progress_separately(self):
+        script = (STATIC / "episodes.js").read_text(encoding="utf8")
+        style = (STATIC / "episodes.css").read_text(encoding="utf8")
+        overview = script.split("  function drawVideoOverview() {", 1)[1].split("  function imageRecord(", 1)[0]
+        self.assertIn('Prompts ${promptReady}/${chainItems.length}', overview)
+        self.assertIn(r'Vid\u00e9os ${videoDone}/${chainItems.length}', overview)
+        self.assertIn('item?.status === "prompt_failed" ? "Prompt : \\u00e9chec"', script)
+        self.assertIn('if (refs.media.dataset.assetId !== assetId)', script)
+        self.assertNotIn('el("video-cards").replaceChildren', overview)
+        self.assertIn('episode-video-card.processing', style)
+
     def test_scene_navigation_preserves_edits_and_passes_bunny_defaults(self):
         browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
         if not browsers:
@@ -98,6 +109,11 @@ class EpisodesBrowserTest(unittest.TestCase):
             check(characterBatchLlm.value==='server-qwen','batch profile can switch to the server catalogue');
             characterBatchLocal.checked=true;change(characterBatchLocal);
             check(characterBatchLlm.value===episode.scenes[0].plan_model_id,'batch profile can return to the local catalogue');
+            check(document.querySelectorAll('#episode-visual-panel').length===1&&get('batch-character-custom').hidden,'one common visual block and inherited KREA2 profile');
+            get('batch-character-toggle').click();
+            check(!get('batch-character-custom').hidden&&get('batch-character-summary').textContent.includes('personnalisé'),'character profile can be customized explicitly');
+            get('batch-character-toggle').click();
+            check(get('batch-character-custom').hidden&&get('batch-character-summary').textContent.includes('commun'),'character profile can return to common settings');
             let choice=get('image-attempts').querySelector('button[data-image-choice]');
             check(choice&&choice.textContent==='Utiliser cette image'&&!choice.disabled,'finished image can be selected after opening fabrication');
             get('back').click();await settle();document.getElementById('story-fabrication').click();await settle();await settle();

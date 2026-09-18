@@ -10,6 +10,7 @@
     lab: $(`${prefix}-lab`), status: $(`${prefix}-status`), warnings: $(`${prefix}-warnings`),
     prompt: $(`${prefix}-prompt`), ratio: $(`${prefix}-ratio`), megapixels: $(`${prefix}-megapixels`),
     initialMegapixels: $(`${prefix}-initial-megapixels`),
+    forceUpscale: $(`${prefix}-force-upscale`),
     recipe: $(`${prefix}-render-recipe`), bunnyControls: $(`${prefix}-bunny-controls`),
     preset: $(`${prefix}-preset`), presetSummary: $(`${prefix}-preset-summary`),
     loraEnabled: $(`${prefix}-lora-enabled`), loraSummary: $(`${prefix}-lora-summary`),
@@ -79,7 +80,7 @@
 
   const recipeKey = (recipe) => recipe ? `${recipe.recipe_id || recipe.id}@${recipe.version}` : state.defaultRecipeKey;
   const bunnyActive = () => Boolean(state.spec?.bunny);
-  const draftFields = ["ratio", "megapixels", "initialMegapixels", "duration", "steps", "seed", "seedLock", "music", "spectrum",
+  const draftFields = ["ratio", "megapixels", "initialMegapixels", "forceUpscale", "duration", "steps", "seed", "seedLock", "music", "spectrum",
     "videoLoraProfile", "videoLoraModel", "videoLoraStrength", "videoLoraClip", "bunnyTurbo", "bunnyBase", "bunnyCoarse", "bunnyRefine", "bunnyPreview", "bunnySecond"];
   function captureControls(fields = draftFields) {
     return Object.fromEntries(fields.filter(k => elements[k]).map(k => [k,
@@ -107,6 +108,38 @@
     }
     elements.videoLoraModel.value = name || "";
   }
+  function resolutionOnGrid(megapixels) {
+    const [rw, rh] = elements.ratio.value.split(" ")[0].split(":").map(Number);
+    const scale = Math.sqrt(megapixels * 1024 * 1024 / (rw * rh));
+    const round = value => value % 1 === 0.5
+      ? (Math.floor(value) % 2 === 0 ? Math.floor(value) : Math.ceil(value))
+      : Math.round(value);
+    return [round(rw * scale / 32) * 32, round(rh * scale / 32) * 32];
+  }
+  function upscaleState() {
+    const supported = Boolean(state.spec?.supports_upscale_bypass) && !bunnyActive();
+    const initial = Number(elements.initialMegapixels?.value), target = Number(elements.megapixels?.value);
+    if (!supported || !Number.isFinite(initial) || !Number.isFinite(target)) {
+      return { supported, same: false, lower: false };
+    }
+    const initialSize = resolutionOnGrid(initial), targetSize = resolutionOnGrid(target);
+    const initialPixels = initialSize[0] * initialSize[1], targetPixels = targetSize[0] * targetSize[1];
+    return { supported, same: initialSize[0] === targetSize[0] && initialSize[1] === targetSize[1],
+      lower: targetPixels < initialPixels, initialSize, targetSize };
+  }
+  function syncUpscale() {
+    if (!elements.forceUpscale) return;
+    const value = upscaleState(), label = elements.forceUpscale.closest("label");
+    label.hidden = !value.supported;
+    const note = label.querySelector("[data-upscale-note]");
+    if (!value.supported) { elements.forceUpscale.checked = false; return; }
+    if (!value.same) elements.forceUpscale.checked = false;
+    if (note) note.textContent = value.lower
+      ? "Cible plus petite : sortie directe \u00e0 la r\u00e9solution initiale."
+      : value.same
+        ? (elements.forceUpscale.checked ? "Upscale + finition forc\u00e9s pour ce test." : "Bypass automatique ; cochez pour comparer l\u2019ancienne finition.")
+        : "Upscale + finition actifs automatiquement.";
+  }
   function syncBunny() {
     if (!elements.bunnyControls) return;
     const enabled = bunnyActive();
@@ -125,6 +158,7 @@
       if (note) note.textContent = state.spec?.limits?.initial_megapixels ? "" : "Fixé à 0,2 MP par cette recette";
     }
     state.bunnyError = "";
+    syncUpscale();
     if (!enabled) return;
     if (elements.bunnyTurboNote) elements.bunnyTurboNote.textContent = elements.bunnyTurbo.checked
       ? `Turbo supplémentaire actif${state.spec.bunny.turbo_strength != null ? ` · force ${Number(state.spec.bunny.turbo_strength).toFixed(2)}` : ""}. Décochez si votre checkpoint intègre déjà Turbo. Les steps restent indépendants.`
@@ -136,14 +170,7 @@
       state.bunnyError = "Steps : base 2–100, première passe inférieure à la base, seconde passe 3–5, total ≤ 100.";
     }
     const initial = Number(elements.initialMegapixels.value), target = Number(elements.megapixels.value);
-    const [rw, rh] = elements.ratio.value.split(" ")[0].split(":").map(Number);
-    // ResolutionSelector uses Python round; preserve half-to-even at the grid boundary.
-    const round = x => x % 1 === 0.5 ? (Math.floor(x) % 2 === 0 ? Math.floor(x) : Math.ceil(x)) : Math.round(x);
-    const size = mp => {
-      const scale = Math.sqrt(mp * 1024 * 1024 / (rw * rh));
-      return [round(rw * scale / 32) * 32, round(rh * scale / 32) * 32];
-    };
-    const [w, h] = size(initial), [tw, th] = size(target), ratio = w / h;
+    const [w, h] = resolutionOnGrid(initial), [tw, th] = resolutionOnGrid(target), ratio = w / h;
     const iw = Math.sqrt(tw * th * ratio), ih = iw / ratio;
     const candidates = [];
     for (const cw of new Set([Math.floor(iw / 32) * 32, Math.ceil(iw / 32) * 32])) {
@@ -288,6 +315,7 @@
       elements.initialMegapixels.value = String(defaults.initial_megapixels ?? 0.2);
       elements.initialMegapixels.closest("label").hidden = false;
     }
+    if (elements.forceUpscale) elements.forceUpscale.checked = false;
     elements.duration.value = String(inferredDuration(state.project?.current_prompt, defaults.duration_seconds));
     elements.steps.value = String(defaults.steps);
     elements.seed.value = randomSeed();
@@ -365,6 +393,7 @@
     elements.ratio.value = settings.aspect_ratio;
     elements.megapixels.value = String(settings.megapixels);
     if (elements.initialMegapixels) elements.initialMegapixels.value = String(attempt.initial_megapixels ?? 0.2);
+    if (elements.forceUpscale) elements.forceUpscale.checked = Boolean(attempt.force_upscale);
     elements.duration.value = String(settings.duration_seconds);
     elements.steps.value = String(settings.steps);
     elements.seed.value = String(settings.seed);
@@ -585,8 +614,9 @@
       const b = attempt.bunny, g = attempt.bunny_geometry;
       return `BUNNY ${attempt.recipe.version} · ${s.aspect_ratio.split(" ")[0]} · ${attempt.initial_megapixels} MP → ${s.megapixels} MP${g ? ` · ${g.width} × ${g.height} · ×${g.scale.toFixed(3)}` : ""} · ${s.duration_seconds} s · Turbo ${b.turbo_enabled ? "ON" : "OFF"} · ${b.base_steps}/${b.coarse_steps}/${b.refine_steps} steps · seed ${s.seed}${attempt.video_loras ? lora : attempt.video_lora ? ` · ${attempt.video_lora.name} · forces ${attempt.video_lora.strength}/${b.lora_second_strength}` : " · Aucun LoRA"}`;
     }
-    const initial = ` · ${attempt.initial_megapixels ?? 0.2} MP avant upscale`;
-    return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP sortie${initial} · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"} · Spectrum ${attempt.spectrum_enabled ? "ON" : "OFF"}${lora}`;
+    const initial = ` · ${attempt.initial_megapixels ?? 0.2} MP initiaux`;
+    const upscale = attempt.upscale_bypassed ? " · upscale bypass\u00e9" : attempt.force_upscale ? " · upscale forc\u00e9" : " · upscale actif";
+    return `${s.aspect_ratio.split(" ")[0]} · ${s.megapixels} MP demand\u00e9s${initial}${upscale} · ${s.duration_seconds} s · ${s.steps} steps · seed ${s.seed} · musique ${attempt.music_enabled ? "ON" : "OFF"} · Spectrum ${attempt.spectrum_enabled ? "ON" : "OFF"}${lora}`;
   }
 
   window.addEventListener("panelforge:dlss-complete", async event => {
@@ -831,6 +861,10 @@
     }
     for (const field of [elements.prompt, elements.ratio, elements.megapixels, elements.duration, elements.steps, elements.seed, elements.seedLock, elements.music, elements.spectrum]) field.disabled = disabled;
     if (elements.initialMegapixels) elements.initialMegapixels.disabled = disabled || !state.spec?.limits?.initial_megapixels;
+    if (elements.forceUpscale) {
+      const upscale = upscaleState();
+      elements.forceUpscale.disabled = disabled || !upscale.supported || !upscale.same;
+    }
     for (const field of [elements.videoLoraProfile, elements.videoLoraModel, elements.videoLoraStrength, elements.videoLoraClip]) {
       if (field) field.disabled = disabled || (field !== elements.videoLoraProfile && elements.videoLoraProfile.value !== "lora");
     }
@@ -851,6 +885,7 @@
 
   let pendingContextSerial = 0;
   async function openContext(detail) {
+    elements.lab.classList.remove("h3-render-setup-only");
     if (options.deferContextChanges) {
       const serial = ++pendingContextSerial;
       while (state.busy) {
@@ -895,6 +930,31 @@
     } finally { if (state.openingKey === key) state.openingKey = ""; renderControls(); }
   }
 
+  async function openSetup(detail) {
+    const key = `setup:${detail?.episode_id || ""}:${detail?.scene_id || ""}`;
+    const contextToken = ++state.contextToken;
+    ++state.recipeToken; state.recipeLoading = false; state.context = detail; state.project = null;
+    stopPolling(); closeSocket(); stopRenderProgressClock();
+    state.openingKey = key; elements.lab.classList.add("h3-render-setup-only"); elements.lab.hidden = false;
+    try {
+      if (!state.defaultRecipeKey) {
+        state.spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}`);
+        state.defaultRecipeKey = recipeKey(state.spec.recipe); state.specCache.set(state.defaultRecipeKey, state.spec);
+      } else state.spec = state.specCache.get(state.defaultRecipeKey);
+      if (contextToken !== state.contextToken) return;
+      hydrateDefaults({ renderOnly: true });
+      if (detail?.render_setup) await fillSettings(detail.render_setup);
+      elements.prompt.value = "";
+      setStatus("Réglages communs", "success");
+    } catch (error) {
+      setStatus(error.message, "error");
+      if (options.raiseContextErrors) throw error;
+    } finally {
+      if (state.openingKey === key) state.openingKey = "";
+      renderControls();
+    }
+  }
+
   function renderParameters() {
     return {
           recipe_id: state.spec.recipe.id, recipe_version: state.spec.recipe.version,
@@ -908,6 +968,7 @@
           megapixels: Number(elements.megapixels.value), duration_seconds: Number(elements.duration.value),
           ...(elements.initialMegapixels && state.spec?.limits?.initial_megapixels
             ? { initial_megapixels: Number(elements.initialMegapixels.value) } : {}),
+          force_upscale: Boolean(elements.forceUpscale?.checked),
           steps: Number(elements.steps.value), seed: elements.seedLock.checked ? elements.seed.value.trim() : null,
           seed_locked: elements.seedLock.checked, music_enabled: elements.music.value === "on",
           spectrum_enabled: bunnyActive() ? false : elements.spectrum.checked,
@@ -1051,6 +1112,7 @@
   for (const field of [elements.ratio, elements.initialMegapixels, elements.megapixels, elements.bunnyBase, elements.bunnyCoarse, elements.bunnyRefine, elements.bunnySecond]) {
     if (field) field.addEventListener("input", () => { syncBunny(); renderControls(); });
   }
+  elements.forceUpscale?.addEventListener("change", () => { syncUpscale(); renderControls(); });
   elements.cancel.addEventListener("click", cancelAttempt);
   elements.refine.addEventListener("click", refinePrompt);
   if (elements.revisionRetry) elements.revisionRetry.addEventListener("click", retryRejectedRevision);
@@ -1070,6 +1132,7 @@
   window.addEventListener("beforeunload", () => { stopPolling(); closeSocket(); if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); });
   return Object.freeze({
     open: openContext,
+    openSetup,
     close: () => openContext(null),
     parameters: renderParameters,
     get busy() { return state.busy || state.recipeLoading; },

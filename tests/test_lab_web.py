@@ -406,7 +406,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="h3r-spectrum" type="checkbox"', page.text)
         self.assertIn('id="ref2vr-spectrum" type="checkbox"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260915.1', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260918.1', page.text)
         self.assertIn('id="h3r-render-progress"', page.text)
         self.assertIn('id="ref2vr-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', render_script.text)

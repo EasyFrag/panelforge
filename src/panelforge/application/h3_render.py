@@ -5,7 +5,7 @@ from __future__ import annotations
 from panelforge.domain.video_preparation import VideoPreparationRef
 from .combat_preparation import CombatRevisionPolicy
 from .prompt_recipes import PromptRecipeStore
-from panelforge.domain.h3_render import validate_h3_initial_megapixels
+from panelforge.domain.h3_render import h3_upscale_plan, validate_h3_initial_megapixels
 from panelforge.domain.h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
 
 from collections import Counter
@@ -193,6 +193,8 @@ class H3RenderRecipe(Protocol):
     def supports_video_lora(self) -> bool: ...
     @property
     def supports_initial_megapixels(self) -> bool: ...
+    @property
+    def supports_upscale_bypass(self) -> bool: ...
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]: ...
     def build_workflow(
         self,
@@ -207,6 +209,7 @@ class H3RenderRecipe(Protocol):
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
+        force_upscale: bool = False,
     ) -> dict[str, Any]: ...
 
 
@@ -233,6 +236,8 @@ class Ref2VRenderRecipe(Protocol):
     def supports_video_lora(self) -> bool: ...
     @property
     def supports_initial_megapixels(self) -> bool: ...
+    @property
+    def supports_upscale_bypass(self) -> bool: ...
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]: ...
     def build_workflow(
         self,
@@ -245,6 +250,7 @@ class Ref2VRenderRecipe(Protocol):
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
+        force_upscale: bool = False,
     ) -> dict[str, Any]: ...
 
 
@@ -731,6 +737,7 @@ class H3RenderService:
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
+        force_upscale: bool = False,
         recipe_id: str | None = None,
         recipe_version: str | None = None,
         bunny: H3BunnySettings | None = None,
@@ -751,6 +758,8 @@ class H3RenderService:
             raise TypeError("music_enabled must be a boolean")
         if not isinstance(spectrum_enabled, bool):
             raise TypeError("spectrum_enabled must be a boolean")
+        if type(force_upscale) is not bool:
+            raise TypeError("force_upscale must be a boolean")
         if video_lora is not None and not isinstance(video_lora, H3VideoLoraSelection):
             raise TypeError("video_lora must be an H3VideoLoraSelection or None")
         with self._lock:
@@ -765,12 +774,26 @@ class H3RenderService:
                     raise TypeError("Réglages BUNNY invalides.")
                 settings = replace(settings, steps=bunny.coarse_steps + bunny.refine_steps)
                 bunny_geometry(settings, initial_megapixels)
+                if force_upscale:
+                    raise ValueError("BUNNY does not support forced upscale.")
                 if spectrum_enabled or (video_lora and video_lora.clip_last_layer is not None):
                     raise ValueError("BUNNY ne prend pas en charge Spectrum ou CLIP Last Layer.")
             elif bunny is not None:
                 raise ValueError("Les réglages BUNNY ne s’appliquent pas à la recette actuelle.")
             if initial_megapixels != 0.2 and not getattr(recipe, "supports_initial_megapixels", False):
                 raise ValueError("Ce workflow fixe la génération initiale à 0,2 MP.")
+            if force_upscale and not getattr(recipe, "supports_upscale_bypass", False):
+                raise ValueError("This historical workflow does not support the upscale A/B test.")
+            upscale_bypassed = False
+            if recipe.reference.recipe_id != BUNNY_RECIPE_ID:
+                upscale_bypassed = bool(
+                    getattr(recipe, "supports_upscale_bypass", False)
+                    and h3_upscale_plan(
+                        settings,
+                        initial_megapixels,
+                        force_upscale=force_upscale,
+                    )["bypassed"]
+                )
             prompt = canonicalize_h3_revision(project.current_prompt, prompt, project.input_mode, combat_sequence=project.combat_settings is not None, combat_version=project.preparation.version,
                 classic_cinematic=project.preparation.is_classic_cinematic, sensual_cinematic=project.preparation.is_sensual)
             duration_ms = round(settings.effective_duration_seconds * 1000)
@@ -802,6 +825,8 @@ class H3RenderService:
                 bunny=bunny,
                 checkpoint=checkpoint,
                 model_loading=model_loading,
+                force_upscale=force_upscale,
+                upscale_bypassed=upscale_bypassed,
                 warnings=(duration_warning,) if duration_warning else (),
             )
             if self.llm_traces is not None:
@@ -836,7 +861,21 @@ class H3RenderService:
             project = self.projects.get(project_id)
             return self.projects.save(project.replace_attempt(project.attempt(attempt_id).queue()))
 
-    def execute_attempt(self, project_id: str, attempt_id: str) -> H3RenderProject:
+    def execute_attempt(
+        self,
+        project_id: str,
+        attempt_id: str,
+        *,
+        post_cooldown_seconds: float = 0,
+        on_cooldown_started: Callable[[float], None] | None = None,
+        on_cooldown_finished: Callable[[], None] | None = None,
+    ) -> H3RenderProject:
+        if (
+            isinstance(post_cooldown_seconds, bool)
+            or not isinstance(post_cooldown_seconds, (int, float))
+            or post_cooldown_seconds < 0
+        ):
+            raise ValueError("post_cooldown_seconds must be non-negative")
         if self.work_coordinator is not None:
             try:
                 with self.work_coordinator.lease(
@@ -847,7 +886,17 @@ class H3RenderService:
                     cancelled=lambda: self.projects.get(project_id).attempt(attempt_id).status
                     is not H3RenderAttemptStatus.QUEUED,
                 ):
-                    return self._execute_attempt_owned(project_id, attempt_id)
+                    project = self._execute_attempt_owned(project_id, attempt_id)
+                    attempt = project.attempt(attempt_id)
+                    if post_cooldown_seconds and attempt.execution_id is not None:
+                        self.work_coordinator.cooldown_while_owned(
+                            ComputeResource.REMOTE_GPU,
+                            post_cooldown_seconds,
+                            "Refroidissement entre vidéos",
+                            on_started=on_cooldown_started,
+                            on_finished=on_cooldown_finished,
+                        )
+                    return project
             except ResourceWaitCancelled:
                 return self.projects.get(project_id)
         return self._execute_attempt_owned(project_id, attempt_id)
@@ -871,6 +920,8 @@ class H3RenderService:
             extra = {"bunny": attempt.bunny, "initial_megapixels": attempt.initial_megapixels} if attempt.bunny else {}
             if getattr(recipe, "supports_initial_megapixels", False):
                 extra["initial_megapixels"] = attempt.initial_megapixels
+            if getattr(recipe, "supports_upscale_bypass", False):
+                extra["force_upscale"] = attempt.force_upscale
             if getattr(recipe, "supports_checkpoint_selection", False):
                 loading = self.resolve_model_loading(recipe, project.input_mode, attempt.checkpoint)
                 if attempt.model_loading is not None and loading != attempt.model_loading:
@@ -1822,6 +1873,8 @@ def _attempt_context(attempt: H3RenderAttempt | None) -> str:
                       if attempt.video_loras is None else {})} if attempt.bunny else None),
         "prompt_used": attempt.effective_prompt,
         "initial_megapixels": attempt.initial_megapixels,
+        "force_upscale": attempt.force_upscale,
+        "upscale_bypassed": attempt.upscale_bypassed,
         "aspect_ratio": attempt.settings.aspect_ratio.value,
         "megapixels": attempt.settings.megapixels,
         "duration_seconds": attempt.settings.duration_seconds,

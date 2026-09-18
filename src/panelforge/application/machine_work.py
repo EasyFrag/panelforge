@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import asdict
+import math
 from threading import RLock
 import time
 from typing import Callable, Iterator
@@ -46,6 +47,12 @@ class MachineWorkCoordinator:
         self._thermal_state: dict[ComputeResource, str | None] = {
             resource: None for resource in ComputeResource
         }
+        self._fixed_cooldown_until: dict[ComputeResource, float | None] = {
+            resource: None for resource in ComputeResource
+        }
+        self._fixed_cooldown_operation: dict[ComputeResource, str | None] = {
+            resource: None for resource in ComputeResource
+        }
 
     def configure(self, policy: ThermalPolicy) -> ThermalPolicy:
         if not isinstance(policy, ThermalPolicy):
@@ -83,6 +90,44 @@ class MachineWorkCoordinator:
         ):
             self._wait_until_safe(resource, cancelled=cancelled, on_thermal=on_thermal)
             yield
+
+    def cooldown_while_owned(
+        self,
+        resource: ComputeResource,
+        seconds: float,
+        operation: str,
+        *,
+        on_started: Callable[[float], None] | None = None,
+        on_finished: Callable[[], None] | None = None,
+    ) -> None:
+        """Keep an already-owned machine idle for a fixed inter-job pause."""
+        if not isinstance(resource, ComputeResource):
+            raise TypeError("resource must be a ComputeResource")
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds < 0:
+            raise ValueError("cooldown seconds must be a non-negative finite number")
+        if not isinstance(operation, str) or not operation.strip():
+            raise ValueError("cooldown operation must not be empty")
+        if seconds == 0:
+            return
+        deadline = self._monotonic() + float(seconds)
+        with self._lock:
+            self._fixed_cooldown_until[resource] = deadline
+            self._fixed_cooldown_operation[resource] = operation.strip()
+        if on_started is not None:
+            on_started(float(seconds))
+        try:
+            while True:
+                remaining = deadline - self._monotonic()
+                if remaining <= 0:
+                    return
+                self._sleep(min(self.monitor_interval, remaining))
+        finally:
+            with self._lock:
+                if self._fixed_cooldown_until[resource] == deadline:
+                    self._fixed_cooldown_until[resource] = None
+                    self._fixed_cooldown_operation[resource] = None
+            if on_finished is not None:
+                on_finished()
 
     def _wait_until_safe(
         self,
@@ -137,8 +182,15 @@ class MachineWorkCoordinator:
             temperature = self._temperature(snapshot, resource) if snapshot is not None else None
             with self._lock:
                 thermal_state = self._thermal_state[resource]
+                fixed_deadline = self._fixed_cooldown_until[resource]
+                fixed_operation = self._fixed_cooldown_operation[resource]
+            fixed_remaining = (
+                max(0, math.ceil(fixed_deadline - self._monotonic()))
+                if fixed_deadline is not None
+                else 0
+            )
             state = (
-                ComputeResourceState.COOLING.value if thermal_state else
+                ComputeResourceState.COOLING.value if thermal_state or fixed_remaining else
                 ComputeResourceState.BUSY.value if owner is not None else
                 ComputeResourceState.HOT.value if temperature is not None and temperature >= policy.stop_temperature_c else
                 ComputeResourceState.UNAVAILABLE.value if snapshot is not None and temperature is None else
@@ -148,8 +200,9 @@ class MachineWorkCoordinator:
                 "state": state,
                 "temperature_c": temperature,
                 "owner_id": owner.job_id if owner else None,
-                "operation": owner.requirement.operation if owner else None,
+                "operation": fixed_operation if fixed_remaining else owner.requirement.operation if owner else None,
                 "workload": owner.requirement.workload.value if owner else None,
+                "cooldown_remaining_seconds": fixed_remaining,
             }
         return {"policy": asdict(policy), "machines": machines}
 

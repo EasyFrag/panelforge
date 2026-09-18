@@ -13,6 +13,48 @@ class Monitor:
 
 
 class MachineWorkCoordinatorTest(unittest.TestCase):
+    def test_fixed_cooldown_keeps_remote_lane_reserved_and_reports_countdown(self):
+        now = [100.0]
+        observed = []
+
+        def monotonic():
+            return now[0]
+
+        def sleep(seconds):
+            observed.append(coordinator.public_status()["machines"]["remote_gpu"])
+            now[0] += seconds
+
+        coordinator = MachineWorkCoordinator(
+            monitor_interval=1,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+        started, finished = [], []
+        with coordinator.lease(
+            "video-1",
+            ComputeResource.REMOTE_GPU,
+            ProductionWorkload.VIDEO_RENDER,
+            "H3",
+        ):
+            coordinator.cooldown_while_owned(
+                ComputeResource.REMOTE_GPU,
+                3,
+                "Refroidissement entre vidéos",
+                on_started=started.append,
+                on_finished=lambda: finished.append(True),
+            )
+            inside = coordinator.public_status()["machines"]["remote_gpu"]
+            self.assertEqual(inside["state"], "busy")
+        after = coordinator.public_status()["machines"]["remote_gpu"]
+
+        self.assertEqual(started, [3.0])
+        self.assertEqual(finished, [True])
+        self.assertEqual([item["cooldown_remaining_seconds"] for item in observed], [3, 2, 1])
+        self.assertTrue(all(item["state"] == "cooling" for item in observed))
+        self.assertTrue(all(item["operation"] == "Refroidissement entre vidéos" for item in observed))
+        self.assertTrue(all(item["owner_id"] == "video-1" for item in observed))
+        self.assertEqual(after["state"], "idle")
+
     def test_same_machine_is_exclusive_while_other_machine_can_run(self):
         coordinator = MachineWorkCoordinator(monitor_interval=.01)
         local_entered, release_local, second_entered, remote_entered = Event(), Event(), Event(), Event()

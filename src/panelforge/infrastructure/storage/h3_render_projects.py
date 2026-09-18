@@ -125,7 +125,7 @@ class LocalH3RenderProjectStore:
 
 def _serialize(project: H3RenderProject) -> dict[str, object]:
     return {
-        "schema_version": 14,
+        "schema_version": 15,
         "preparation": project.preparation.as_dict(),
         "cinematic_settings": project.cinematic_settings.as_dict() if project.cinematic_settings else None,
         "sensual_settings": project.sensual_settings.as_dict() if project.sensual_settings else None,
@@ -200,6 +200,8 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
         },
         "music_enabled": attempt.music_enabled,
         "initial_megapixels": attempt.initial_megapixels,
+        "force_upscale": attempt.force_upscale,
+        "upscale_bypassed": attempt.upscale_bypassed,
         "spectrum_enabled": attempt.spectrum_enabled,
         "video_lora": (
             {
@@ -230,7 +232,7 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> H3RenderProject:
-    if type(value.get("schema_version")) is not int or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}:
+    if type(value.get("schema_version")) is not int or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}:
         raise ValueError("unsupported H3 render project schema")
     return H3RenderProject(
         preparation=VideoPreparationRef.from_dict(value["preparation"]) if value["schema_version"] >= 7 else VideoPreparationRef(),
@@ -311,6 +313,8 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
         ),
         music_enabled=value["music_enabled"],
         initial_megapixels=value.get("initial_megapixels", 0.2),
+        force_upscale=value.get("force_upscale", False),
+        upscale_bypassed=value.get("upscale_bypassed", False),
         spectrum_enabled=value.get("spectrum_enabled", False),
         video_lora=(
             H3VideoLoraSelection(

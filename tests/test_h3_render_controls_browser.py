@@ -31,7 +31,7 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
           const state = {busy: false, project: {project_id: 'test', current_prompt: 'integrated_multimodal_description:\nThe target video lasts 12.5 seconds.\n[Shot 1] A gesture lasts 2 seconds.', attempts: []},
             spec: {defaults: {aspect_ratio: '9:16 (Portrait Widescreen)', megapixels: 0.2, initial_megapixels: 0.2,
               duration_seconds: 6, steps: 25, seed_locked: true}, aspect_ratios: ['9:16 (Portrait Widescreen)'], limits: {initial_megapixels: {minimum: 0.1}}}};
-          const specMode = 'h3-base'; let nextSeed = 100;
+          const specMode = 'h3-base'; const options = {}; let nextSeed = 100;
           const loraEditor = null, checkpointPicker = null;
           const randomSeed = () => String(++nextSeed);
           const renderWarnings = () => {}, renderControls = () => {}, connectPreview = () => {}, startPolling = () => {};
@@ -65,7 +65,7 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
           check(elements.megapixels.value === '0.2', 'initial resolution does not force output');
           elements.megapixels.value = '1.2';
           await renderAttempt(); await renderAttempt();
-          check(!failure && sent.length === 2, 'render controls prepare attempts');
+          check(!failure && sent.length === 2, `render controls prepare attempts: ${failure}`);
           check(sent.every(body => body.duration_seconds === 12.5), 'inferred duration reaches the render request');
           check(sent.every(body => body.initial_megapixels === 0.6 && body.megapixels === 1.2 && body.seed === seed && body.seed_locked), 'both resolutions and identical seed sent on repeated renders');
           check(elements.seed.value === seed, 'locked seed unchanged after render');

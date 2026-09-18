@@ -6,9 +6,10 @@
   const state = { story: null, data: null, list: [], refId: "", sceneId: "", prepId: "", tab: "references",
     models: [], catalog: null, imageProject: null, busy: false, token: 0, timer: null,
     dirtyRef: false, dirtyScene: false, dirtyCommon: false, inheritImages: true, loras: [], commonLoras: [], presets: [],
-    batchProfiles: {character: {loras: [], sampling: null}, location: {loras: [], sampling: null}},
+    batchProfiles: {character: {loras: [], sampling: null, inheritTechnical: true}, location: {loras: [], sampling: null, inheritTechnical: true}},
     batchSelection: new Set(), batchProfileKey: "", batchThermalKey: "",
-    renderContext: "", renderSaves: Promise.resolve(), renderRevision: new Map() };
+    renderContext: "", renderSaves: Promise.resolve(), renderRevision: new Map(), dlssPanels: new Map(),
+    videoCards: new Map(), cooldownTicker: null };
   const axesIds = {scene_life: "creative-scene-life", camera: "creative-camera", extra_motion: "creative-extra-motion", dialogue: "creative-dialogue"};
   const initialAxes = {scene_life: 1, camera: 2, extra_motion: 1, dialogue: 0};
   const roles = {subject_reference: "Sujet / identité", environment_reference: "Décor", style_reference: "Style",
@@ -31,6 +32,7 @@
   const assetUrl = id => `/api/assets/${encodeURIComponent(id)}/content`;
   const jobRunning = item => item?.job?.status === "running";
   const batchRunning = () => ["running", "rendering", "cancelling"].includes(state.data?.reference_batch?.status);
+  const videoChainRunning = () => ["running", "pausing"].includes(state.data?.video_chain?.status);
   const imageRunning = () => state.imageProject?.attempts.some(a => ["queued", "submitting", "running", "cancel_pending"].includes(a.status));
   const knownModel = id => state.models.some(m => m.id === id);
   const memo = { get(key) { try { return localStorage.getItem(`panelforge.episodes.${key}`); } catch (_) { return null; } },
@@ -77,9 +79,18 @@
     });
     el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = busyScene; });
     el("batch-panel").querySelectorAll("select,input").forEach(n => { n.disabled = state.busy || batchRunning(); });
+    for (const kind of ["character", "location"]) el(`batch-${kind}-toggle`).disabled = state.busy || batchRunning();
     el("batch-start").disabled = state.busy || batchRunning() || !state.catalog || !state.models.length || !state.batchSelection.size;
     el("batch-cancel").hidden = !batchRunning();
     el("batch-cancel").disabled = state.busy || state.data?.reference_batch?.status === "cancelling";
+    const chain = state.data?.video_chain, chainStatus = chain?.status;
+    el("video-start").disabled = state.busy || videoChainRunning() || !state.data?.scenes?.length;
+    el("video-cooldown").disabled = state.busy || videoChainRunning();
+    el("video-pause").hidden = chainStatus !== "running";
+    el("video-pause").disabled = state.busy;
+    el("video-resume").hidden = !["paused", "interrupted", "failed", "completed_with_errors"].includes(chainStatus);
+    el("video-resume").disabled = state.busy;
+    el("video-settings-toggle").disabled = state.busy || videoChainRunning() || !s;
     drawLoras();
     drawBatchLoras();
   }
@@ -182,10 +193,12 @@
   }
   function batchSettings(kind) {
     const profile = state.batchProfiles[kind], prefix = `batch-${kind}`;
-    const sampling = state.catalog?.sampling.presets.find(p => p.id === el(`${prefix}-preset`).value)?.settings || profile.sampling;
-    return {workflow: el(`${prefix}-workflow`).value, model_id: el(`${prefix}-model`).value,
+    const customSampling = state.catalog?.sampling.presets.find(p => p.id === el(`${prefix}-preset`).value)?.settings || profile.sampling;
+    const technical = profile.inheritTechnical ? commonSettings() : {workflow: el(`${prefix}-workflow`).value,
+      model_id: el(`${prefix}-model`).value, loras: structuredClone(profile.loras), sampling: customSampling};
+    return {...technical,
       aspect_ratio: el(`${prefix}-ratio`).value, megapixels: Number(el(`${prefix}-mp`).value),
-      seed: el(`${prefix}-seed`).value.trim() || null, loras: structuredClone(profile.loras), ...(sampling ? {sampling} : {})};
+      seed: el(`${prefix}-seed`).value.trim() || null};
   }
   function hydrateBatchProfiles(force = false) {
     if (!state.data || !state.catalog || !state.models.length) return;
@@ -194,6 +207,9 @@
     for (const kind of ["character", "location"]) {
       const stored = state.data.reference_profiles?.[kind];
       const sample = state.data.references.find(item => item.kind === kind);
+      // Old saved profiles had no inheritance flag: keep them customized so a
+      // newly selected preset never replaces their checkpoint/LoRA silently.
+      const inheritTechnical = stored ? Boolean(stored.inherit_technical) : true;
       const settings = stored?.render_settings || sample?.effective_image_settings || state.data.image_defaults || {};
       const prefix = `batch-${kind}`;
       fillModel(`${prefix}-llm`, stored?.model_id || sample?.model_id);
@@ -206,7 +222,7 @@
       if (!el(`${prefix}-ratio`).value) el(`${prefix}-ratio`).value = state.catalog.defaults.aspect_ratio;
       el(`${prefix}-mp`).value = String(settings.megapixels ?? 2.1);
       el(`${prefix}-seed`).value = settings.seed ?? "";
-      state.batchProfiles[kind] = {loras: structuredClone(settings.loras || []), sampling: settings.sampling};
+      state.batchProfiles[kind] = {loras: structuredClone(settings.loras || []), sampling: settings.sampling, inheritTechnical};
     }
     state.batchProfileKey = key;
     const thermal = state.data.reference_batch?.thermal || state.data.machine_work?.policy;
@@ -221,16 +237,22 @@
   }
   function batchProfileSummary(kind) {
     if (!state.catalog || !state.models.length) return "Catalogue en cours de chargement";
-    const prefix = `batch-${kind}`, workflowId = el(`${prefix}-workflow`).value, modelId = el(`${prefix}-model`).value;
+    const prefix = `batch-${kind}`, settings = batchSettings(kind), workflowId = workflowKey(settings.workflow), modelId = settings.model_id;
     const workflow = state.catalog.workflows.find(item => item.id === workflowId);
     const model = state.catalog.render_models.find(item => item.comfy_name === modelId);
     const llm = state.models.find(item => item.id === el(`${prefix}-llm`).value);
-    const preset = state.catalog.sampling.presets.find(item => item.id === el(`${prefix}-preset`).value);
-    return `${llm?.label || llm?.display_name || el(`${prefix}-llm`).value} · ${workflow?.label || workflowId} · ${model?.display_name || modelId} · ${preset?.label || el(`${prefix}-preset`).value}`;
+    const preset = state.catalog.sampling.presets.find(item => item.id === settings.sampling?.preset_id);
+    return `${llm?.label || llm?.display_name || el(`${prefix}-llm`).value} · ${state.batchProfiles[kind].inheritTechnical ? "KREA2 commun" : "KREA2 personnalisé"} · ${workflow?.label || workflowId} · ${model?.display_name || modelId} · ${preset?.label || settings.sampling?.preset_id || "sampling conservé"}`;
   }
   function drawBatch() {
     if (!state.data) return;
     const active = batchRunning(), batch = state.data.reference_batch;
+    for (const kind of ["character", "location"]) {
+      const inherited = state.batchProfiles[kind].inheritTechnical;
+      el(`batch-${kind}-custom`).hidden = inherited;
+      el(`batch-${kind}-toggle`).textContent = inherited ? "Personnaliser les réglages KREA2" : "Revenir aux réglages communs";
+      el(`batch-${kind}-summary`).textContent = batchProfileSummary(kind);
+    }
     const selectedItems = new Map((batch?.items || []).map(item => [item.reference_id, item]));
     el("batch-selection").replaceChildren(...state.data.references.map(reference => {
       const label = node("label"), checkbox = document.createElement("input"); checkbox.type = "checkbox";
@@ -291,7 +313,7 @@
   const refreshResource = resource => changeResource(resource, "refresh");
   function commonChanged() {
     state.dirtyCommon = true; el("visual-status").textContent = "Modifications à enregistrer";
-    drawImageInheritance(); controls();
+    drawImageInheritance(); drawBatch(); controls();
   }
   function drawImageInheritance() {
     el("image-custom").hidden = state.inheritImages;
@@ -353,6 +375,127 @@
     el("scene").replaceChildren(...state.data.scenes.map(s => new Option(`${s.index + 1} · ${s.title} · ${s.duration} s · ${
       s.stale ? "À actualiser" : statuses[s.video_status] || (jobRunning(s) ? "Prompt en cours" : statuses[s.preparations.at(-1)?.status]) || "À préparer"}`, s.id)));
     el("scene").value = state.sceneId;
+  }
+  function createVideoCard(sceneId) {
+    const card = node("article", "", "episode-video-card");
+    card.dataset.sceneId = sceneId;
+    const heading = node("div", "", "episode-video-card-heading");
+    const title = node("b"), meta = node("span", "", "muted");
+    heading.append(title, meta);
+    const promptStatus = node("p", "", "muted"), videoStatus = node("p", "", "muted");
+    const error = node("p", "", "error"); error.hidden = true;
+    const media = node("div", "", "episode-video-media");
+    const dlss = node("div", "", "episode-video-dlss");
+    const actions = node("div", "", "story-actions");
+    const open = button("Ouvrir la sc\u00e8ne", () => action(async () => {
+      const sceneId = card.dataset.sceneId;
+      if (sceneId === state.sceneId) return;
+      await saveScene(); state.sceneId = sceneId; state.prepId = ""; state.dirtyScene = false;
+      drawLists(); drawScene(true); drawVideoOverview(); await openRender(); storeContext();
+    }));
+    actions.append(open);
+    card.append(heading, promptStatus, videoStatus, error, media, dlss, actions);
+    card._refs = {title, meta, promptStatus, videoStatus, error, media, dlss, actions, open};
+    return card;
+  }
+  function cooldownRemaining(chain) {
+    const deadline = Date.parse(chain?.cooldown_until || "");
+    const persisted = Number.isFinite(deadline) ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : 0;
+    const machine = Number(state.data?.machine_work?.machines?.remote_gpu?.cooldown_remaining_seconds || 0);
+    return Math.max(persisted, machine);
+  }
+  function updateVideoCard(card, value, item) {
+    const refs = card._refs, attempt = value.video_attempt;
+    const processing = ["prompting", "rendering"].includes(item?.status);
+    card.className = `episode-video-card${value.id === state.sceneId ? " selected" : ""}${processing ? " processing" : ""}`;
+    if (processing) card.setAttribute("aria-busy", "true"); else card.removeAttribute("aria-busy");
+    refs.title.textContent = `${value.index + 1} \u00b7 ${value.title}`;
+    refs.meta.textContent = `${value.duration} s \u00b7 ${value.inherit_video_settings ? "r\u00e9glages communs" : "personnalis\u00e9s"}`;
+    const promptText = item?.status === "prompt_failed" ? "Prompt : \u00e9chec"
+      : item && !["pending", "prompting"].includes(item.status) ? "Prompt : pr\u00eat"
+      : jobRunning(value) || item?.status === "prompting" ? "Prompt : r\u00e9daction en cours"
+      : `Prompt : ${statuses[value.preparations.at(-1)?.status] || "\u00e0 pr\u00e9parer"}`;
+    const videoByStatus = {pending: "en attente du prompt", prompting: "en attente du prompt",
+      prompt_ready: "pr\u00eate \u00e0 d\u00e9marrer", rendering: "en file sur le GPU", succeeded: "termin\u00e9e", video_failed: "\u00e9chec"};
+    let videoText = videoByStatus[item?.status] || statuses[value.video_status] || "\u00e0 g\u00e9n\u00e9rer";
+    if (item?.status === "rendering" && attempt?.status === "running") videoText = "rendu en cours";
+    else if (item?.status === "rendering" && attempt?.status === "cancel_pending") videoText = "annulation en cours";
+    refs.promptStatus.textContent = promptText;
+    refs.videoStatus.textContent = `Vid\u00e9o : ${videoText}`;
+    refs.promptStatus.className = `${item?.status === "prompt_failed" ? "error" : "muted"}${item?.status === "prompting" ? " episode-video-live" : ""}`;
+    refs.videoStatus.className = `${item?.status === "video_failed" ? "error" : "muted"}${item?.status === "rendering" ? " episode-video-live" : ""}`;
+    refs.error.hidden = !item?.error; refs.error.textContent = item?.error || "";
+    const assetId = attempt?.output_asset_id || "";
+    if (refs.media.dataset.assetId !== assetId) {
+      refs.media.dataset.assetId = assetId;
+      refs.media.replaceChildren();
+      if (assetId) {
+        const video = document.createElement("video"); video.controls = true; video.playsInline = true;
+        video.preload = "metadata"; video.src = assetUrl(assetId); refs.media.append(video);
+      }
+    }
+    refs.open.textContent = value.id === state.sceneId ? "Sc\u00e8ne ouverte" : "Ouvrir la sc\u00e8ne";
+    refs.open.disabled = value.id === state.sceneId;
+    const dlssKey = value.dlss_ready && attempt ? attempt.attempt_id : "";
+    if (refs.dlss.dataset.attemptId !== dlssKey) {
+      refs.dlss.dataset.attemptId = dlssKey;
+      refs.dlss.replaceChildren();
+      if (dlssKey && window.PanelForgeDlss) {
+        const target = {owner: "ref2v", ownerId: value.preparations.at(-1)?.render_project_id,
+          attempt: {...attempt, output_url: assetUrl(attempt.output_asset_id)}};
+        let tracked = state.dlssPanels.get(value.id);
+        if (!tracked || tracked.attemptId !== attempt.attempt_id) {
+          tracked = {attemptId: attempt.attempt_id, panel: window.PanelForgeDlss.inlineStatus(target)};
+          state.dlssPanels.set(value.id, tracked);
+        }
+        refs.dlss.append(window.PanelForgeDlss.button(target), tracked.panel);
+      }
+    }
+  }
+  function drawVideoOverview() {
+    if (!state.data) return;
+    const chain = state.data.video_chain, chainItems = chain?.items || [];
+    const items = new Map(chainItems.map(item => [item.scene_id, item]));
+    const total = chainItems.length || state.data.scenes.length || 1;
+    const promptReadyStates = new Set(["prompt_ready", "rendering", "succeeded", "video_failed"]);
+    const promptReady = chainItems.filter(item => promptReadyStates.has(item.status)).length;
+    const videoDone = chainItems.filter(item => item.status === "succeeded").length;
+    el("video-progress").hidden = !chain;
+    el("video-prompt-progress-bar").max = total; el("video-prompt-progress-bar").value = promptReady;
+    el("video-progress-bar").max = total; el("video-progress-bar").value = videoDone;
+    if (chain) {
+      const prompting = chainItems.find(item => item.status === "prompting");
+      const rendering = chainItems.find(item => item.status === "rendering");
+      const cooling = cooldownRemaining(chain);
+      const promptNext = chainItems.find(item => item.status === "pending");
+      el("video-prompt-lane").textContent = prompting
+        ? `R\u00e9daction \u00b7 ${prompting.index + 1} \u00b7 ${prompting.title}`
+        : promptReady === chainItems.length ? "Tous les prompts sont pr\u00eats"
+        : chain.status === "paused" ? "En pause"
+        : promptNext ? `Prochain \u00b7 ${promptNext.index + 1} \u00b7 ${promptNext.title}` : "En attente";
+      const cooled = chainItems.find(item => item.scene_id === chain.cooldown_scene_id);
+      el("video-render-lane").textContent = cooling
+        ? `Refroidissement apr\u00e8s ${cooled ? `${cooled.index + 1} \u00b7 ${cooled.title}` : "la vid\u00e9o"} \u00b7 ${cooling} s`
+        : rendering ? `${rendering.index + 1} \u00b7 ${rendering.title} \u00b7 ${state.data.scenes.find(value => value.id === rendering.scene_id)?.video_attempt?.status === "running" ? "rendu en cours" : "en attente du GPU"}`
+        : videoDone === chainItems.length ? "Toutes les vid\u00e9os sont termin\u00e9es" : chain.status === "paused" ? "En pause" : "En attente";
+      const promptFailed = chainItems.filter(item => item.status === "prompt_failed").length;
+      const videoFailed = chainItems.filter(item => item.status === "video_failed").length;
+      const pause = chain.status === "pausing"
+        ? "Pause demand\u00e9e : les t\u00e2ches nomm\u00e9es ci-dessus terminent ; aucune nouvelle t\u00e2che ne d\u00e9marrera."
+        : chain.status === "paused" ? "Cha\u00eene en pause. Reprenez-la pour lancer la prochaine t\u00e2che." : chain.phase;
+      el("video-chain-phase").textContent = `${pause} \u00b7 Prompts ${promptReady}/${chainItems.length} \u00b7 Vid\u00e9os ${videoDone}/${chainItems.length}`
+        + (promptFailed ? ` \u00b7 ${promptFailed} erreur(s) prompt` : "")
+        + (videoFailed ? ` \u00b7 ${videoFailed} erreur(s) vid\u00e9o` : "") + (chain.error ? ` \u00b7 ${chain.error}` : "");
+      if (document.activeElement !== el("video-cooldown")) el("video-cooldown").value = String(chain.inter_video_cooldown_seconds || 30);
+    }
+    const container = el("video-cards"), valid = new Set(state.data.scenes.map(value => value.id));
+    for (const [sceneId, card] of state.videoCards) if (!valid.has(sceneId)) { card.remove(); state.videoCards.delete(sceneId); }
+    for (const value of state.data.scenes) {
+      let card = state.videoCards.get(value.id);
+      if (!card) { card = createVideoCard(value.id); state.videoCards.set(value.id, card); container.append(card); }
+      updateVideoCard(card, value, items.get(value.id));
+    }
+    controls();
   }
   function imageRecord(record) {
     const details = node("details"), visual = record.prompt_style, settings = record.settings;
@@ -455,23 +598,31 @@
     el("preparation-label").hidden = !s.preparations.length;
     el("preparation").replaceChildren(...[...s.preparations].reverse().map((p, index) => new Option(`Préparation ${s.preparations.length - index} · ${statuses[p.status] || p.status}`, p.id)));
     if (!s.preparations.some(p => p.id === state.prepId)) state.prepId = s.preparations.at(-1)?.id || "";
-    el("preparation").value = state.prepId; controls();
+    el("preparation").value = state.prepId;
+    el("video-settings-note").textContent = s.inherit_video_settings
+      ? "Cette scène utilise les réglages vidéo communs. Sa durée et sa seed restent propres à la scène."
+      : "Cette scène possède ses propres réglages vidéo et ne sera pas modifiée par les réglages communs.";
+    el("video-settings-toggle").textContent = s.inherit_video_settings ? "Personnaliser cette scène" : "Revenir aux réglages communs";
+    controls();
   }
   function accept(data) {
     // A poll may have started just before a settings save completed. Keep the
     // newer local snapshot until the next response includes its revision.
     if (state.data?.episode_id === data.episode_id && state.data.visual_revision > (data.visual_revision || 1))
       for (const key of ["style", "style_image", "style_preset", "image_defaults", "visual_revision"]) data[key] = structuredClone(state.data[key]);
+    if (state.data?.episode_id === data.episode_id && state.data.video_revision > (data.video_revision || 1))
+      for (const key of ["video_defaults", "video_revision"]) data[key] = structuredClone(state.data[key]);
     if (state.data?.episode_id === data.episode_id) for (const s of data.scenes) {
       const local = state.data.scenes.find(old => old.id === s.id);
       if (local && local.render_revision > s.render_revision) {
-        s.render_setup = structuredClone(local.render_setup); s.render_revision = local.render_revision;
+        s.render_setup = structuredClone(local.render_setup); s.effective_render_setup = structuredClone(local.effective_render_setup);
+        s.inherit_video_settings = local.inherit_video_settings; s.render_revision = local.render_revision;
       }
     }
     state.data = data;
     for (const s of data.scenes) { const key = `${data.episode_id}:${s.id}`;
       state.renderRevision.set(key, Math.max(s.render_revision, state.renderRevision.get(key) || 0)); }
-    drawLists(); drawVisual(); drawReference(); drawScene(); hydrateBatchProfiles(); drawBatch(); controls();
+    drawLists(); drawVisual(); drawReference(); drawScene(); hydrateBatchProfiles(); drawBatch(); drawVideoOverview(); controls();
   }
   async function imageProject() {
     const r = ref(), id = state.data?.episode_id; if (!r) return;
@@ -486,7 +637,7 @@
   function schedule() {
     clearTimeout(state.timer);
     if (root.hidden || !state.data || document.getElementById("stories-workspace").hidden) return;
-    const running = [...state.data.references, ...state.data.scenes].some(jobRunning) || imageRunning() || batchRunning();
+    const running = [...state.data.references, ...state.data.scenes].some(jobRunning) || imageRunning() || batchRunning() || videoChainRunning();
     if (!running) return;
     const token = state.token;
     state.timer = setTimeout(async () => { try { if (!state.busy) await refresh(); } catch (error) { message(error.message, true); }
@@ -516,9 +667,11 @@
     for (const kind of ["character", "location"]) {
       const prefix = `batch-${kind}`;
       if (!knownModel(el(`${prefix}-llm`).value)) throw new Error(`Choisis un LLM disponible pour le profil ${kind === "character" ? "Personnages" : "Décors"}.`);
-      if (!(state.catalog?.render_models || []).some(model => model.comfy_name === el(`${prefix}-model`).value))
+      const settings = batchSettings(kind);
+      if (!(state.catalog?.render_models || []).some(model => model.comfy_name === settings.model_id))
         throw new Error(`Choisis un checkpoint disponible pour le profil ${kind === "character" ? "Personnages" : "Décors"}.`);
-      profiles[kind] = {model_id: el(`${prefix}-llm`).value, settings: batchSettings(kind)};
+      profiles[kind] = {model_id: el(`${prefix}-llm`).value, settings,
+        inherit_technical: state.batchProfiles[kind].inheritTechnical};
     }
     const data = await core.request(api("/reference-batches"), send("POST", {
       expected_visual_revision: state.data.visual_revision, request_id: crypto.randomUUID(),
@@ -550,29 +703,48 @@
     raiseContextErrors: true,
     beforeRender: (parameters, context) => saveVideo(parameters, context),
     onProjectChange(project, context) { if (context?.episode_id !== state.data?.episode_id) return;
-      const s = state.data.scenes.find(s => s.id === context.scene_id); if (s) { s.video_status = project.attempts.at(-1)?.status; drawLists(); } },
+      const s = state.data.scenes.find(s => s.id === context.scene_id); if (s) { s.video_status = project.attempts.at(-1)?.status; drawLists(); drawVideoOverview(); } },
   });
+  function videoSetup(parameters) {
+    return {recipe: {id: parameters.recipe_id, version: parameters.recipe_version},
+      checkpoint: parameters.checkpoint, initial_megapixels: parameters.initial_megapixels,
+      settings: {aspect_ratio: parameters.aspect_ratio, megapixels: parameters.megapixels,
+        duration_seconds: parameters.duration_seconds, steps: parameters.steps, seed: parameters.seed || 0},
+      seed_locked: parameters.seed_locked, music_enabled: parameters.music_enabled, spectrum_enabled: parameters.spectrum_enabled,
+      force_upscale: parameters.force_upscale,
+      bunny: parameters.bunny, video_loras: parameters.video_loras, video_lora: parameters.video_lora};
+  }
   function saveVideo(parameters, context) {
     if (!context?.episode_id) return Promise.resolve();
     const key = `${context.episode_id}:${context.scene_id}`;
     const task = state.renderSaves.catch(() => {}).then(async () => {
       el("render-save").textContent = "Enregistrement des réglages vidéo…";
-      const result = await core.request(api(`/scenes/${context.scene_id}/render-setup`, context.episode_id), send("PUT", {
-        expected_revision: state.renderRevision.get(key), parameters}));
-      state.renderRevision.set(key, result.render_revision);
-      if (context.episode_id === state.data?.episode_id) {
-        const s = state.data.scenes.find(s => s.id === context.scene_id);
-        if (s) {
-          s.render_revision = result.render_revision;
-          s.render_setup = {recipe: {id: parameters.recipe_id, version: parameters.recipe_version},
-            checkpoint: parameters.checkpoint, initial_megapixels: parameters.initial_megapixels,
-            settings: {aspect_ratio: parameters.aspect_ratio, megapixels: parameters.megapixels,
-              duration_seconds: parameters.duration_seconds, steps: parameters.steps, seed: parameters.seed || 0},
-            seed_locked: parameters.seed_locked, music_enabled: parameters.music_enabled, spectrum_enabled: parameters.spectrum_enabled,
-            bunny: parameters.bunny, video_loras: parameters.video_loras, video_lora: parameters.video_lora};
+      const selected = context.episode_id === state.data?.episode_id
+        ? state.data.scenes.find(value => value.id === context.scene_id) : null;
+      const setup = videoSetup(parameters);
+      if (selected?.inherit_video_settings) {
+        const result = await core.request(api("/video-defaults", context.episode_id), send("PUT", {
+          expected_video_revision: state.data.video_revision, parameters}));
+        state.data.video_revision = result.video_revision; state.data.video_defaults = structuredClone(setup);
+        for (const value of state.data.scenes.filter(value => value.inherit_video_settings)) {
+          const inherited = structuredClone(setup), seed = value.effective_render_setup?.settings?.seed ?? value.render_setup?.settings?.seed ?? 0;
+          inherited.settings.duration_seconds = value.duration; inherited.settings.seed = seed;
+          value.render_setup = inherited; value.effective_render_setup = structuredClone(inherited);
+          value.render_revision = result.render_revisions[value.id] || value.render_revision;
+          state.renderRevision.set(`${context.episode_id}:${value.id}`, value.render_revision);
         }
+        el("render-save").textContent = "Réglages vidéo communs enregistrés.";
+      } else {
+        const result = await core.request(api(`/scenes/${context.scene_id}/render-setup`, context.episode_id), send("PUT", {
+          expected_revision: state.renderRevision.get(key), parameters}));
+        state.renderRevision.set(key, result.render_revision);
+        if (selected) {
+          selected.render_revision = result.render_revision; selected.render_setup = structuredClone(setup);
+          selected.effective_render_setup = structuredClone(setup); selected.inherit_video_settings = false;
+        }
+        el("render-save").textContent = "Réglages vidéo enregistrés pour cette scène.";
       }
-      el("render-save").textContent = "Réglages vidéo enregistrés pour cette scène.";
+      drawVideoOverview();
     });
     state.renderSaves = task; return task;
   }
@@ -601,15 +773,18 @@
   }
   async function openRender() {
     const p = prep(), s = scene();
-    const key = p?.render_project_id || "";
+    const key = p?.render_project_id || `setup:${s?.id || ""}`;
     if (key === state.renderContext) return;
     await flushRender();
     state.renderContext = key; el("render-save").textContent = "";
-    if (!key) { state.activeRender = null; await renderer.close(); return; }
-    const setup = p.id === s.preparations.at(-1)?.id ? s.render_setup : p.render_setup;
+    if (!s) { state.activeRender = null; await renderer.close(); return; }
+    const setup = p && p.id !== s.preparations.at(-1)?.id ? p.render_setup : (s.effective_render_setup || s.render_setup);
     const context = {project_id: key, episode_id: state.data.episode_id, scene_id: s.id, render_setup: setup};
     state.activeRender = context;
-    try { await renderer.open(context); }
+    if (!p?.render_project_id && !renderer.openSetup) {
+      state.activeRender = null; state.renderContext = ""; await renderer.close(); return;
+    }
+    try { if (p?.render_project_id) await renderer.open(context); else await renderer.openSetup({...context, project_id: null}); }
     catch (error) { state.renderContext = ""; throw error; }
   }
   async function tab(name) {
@@ -624,6 +799,8 @@
     const token = ++state.token; clearTimeout(state.timer);
     const data = await core.request(api("", id)); if (token !== state.token) return;
     state.dirtyRef = state.dirtyScene = state.dirtyCommon = false; state.data = data; state.imageProject = null; state.prepId = "";
+    state.dlssPanels.clear();
+    state.videoCards.clear(); el("video-cards").replaceChildren();
     state.batchProfileKey = ""; state.batchThermalKey = "";
     state.batchSelection = new Set(data.references.filter(reference => !reference.image_asset_id).map(reference => reference.id));
     el("style-preset").value = "";
@@ -715,6 +892,30 @@
     accept(await core.request(api(`/scenes/${s.id}/prompt`), send("POST", {expected_revision: s.revision, request_id: crypto.randomUUID(), resume})));
     state.prepId = scene().preparations.at(-1).id; drawScene(); await openRender();
   }
+  async function startVideoChain() {
+    await saveScene(); await flushRender();
+    const data = await core.request(api("/video-chain"), send("POST", {
+      expected_video_revision: state.data.video_revision, request_id: crypto.randomUUID(),
+      scene_ids: state.data.scenes.map(value => value.id),
+      inter_video_cooldown_seconds: Number(el("video-cooldown").value),
+    }));
+    accept(data); message("Chaîne lancée. Tu peux la mettre en pause après les tâches déjà en cours.");
+  }
+  async function pauseVideoChain() {
+    const chain = state.data.video_chain; if (!chain) return;
+    accept(await core.request(api(`/video-chains/${encodeURIComponent(chain.chain_id)}/pause`), {method: "POST"}));
+  }
+  async function resumeVideoChain() {
+    const chain = state.data.video_chain; if (!chain) return;
+    accept(await core.request(api(`/video-chains/${encodeURIComponent(chain.chain_id)}/resume`), {method: "POST"}));
+  }
+  async function toggleVideoInheritance() {
+    await flushRender(); const s = scene();
+    const data = await core.request(api(`/scenes/${s.id}/render-inheritance`), send("PUT", {
+      expected_revision: s.render_revision, inherit: !s.inherit_video_settings,
+    }));
+    state.renderContext = ""; accept(data); await openRender();
+  }
   el("prepare").addEventListener("click", () => action(() => prepareScene(false)));
   el("resume").addEventListener("click", () => action(() => prepareScene(true)));
   el("refresh-catalog").addEventListener("click", () => action(() => catalog(true)));
@@ -727,6 +928,10 @@
     const batch = state.data.reference_batch; if (!batch) return;
     accept(await core.request(api(`/reference-batches/${encodeURIComponent(batch.batch_id)}/cancel`), {method: "POST"}));
   }));
+  el("video-start").addEventListener("click", () => action(startVideoChain));
+  el("video-pause").addEventListener("click", () => action(pauseVideoChain));
+  el("video-resume").addEventListener("click", () => action(resumeVideoChain));
+  el("video-settings-toggle").addEventListener("click", () => action(toggleVideoInheritance));
   for (const kind of ["character", "location"]) {
     const prefix = `batch-${kind}`;
     for (const id of ["llm", "model", "preset", "ratio", "mp", "seed"])
@@ -734,6 +939,11 @@
     el(`${prefix}-workflow`).addEventListener("change", () => {
       const workflow = state.catalog?.workflows?.find(item => item.id === el(`${prefix}-workflow`).value);
       if (workflow?.default_sampling_preset_id) el(`${prefix}-preset`).value = workflow.default_sampling_preset_id;
+      drawBatch(); controls();
+    });
+    el(`${prefix}-toggle`).addEventListener("click", () => {
+      const profile = state.batchProfiles[kind];
+      profile.inheritTechnical = !profile.inheritTechnical;
       drawBatch(); controls();
     });
   }
@@ -760,6 +970,9 @@
   window.addEventListener("panelforge:story", event => storyChanged(event.detail).catch(error => message(error.message, true)));
   new MutationObserver(() => { if (!document.getElementById("stories-workspace").hidden) schedule(); else clearTimeout(state.timer); })
     .observe(document.getElementById("stories-workspace"), {attributes: true, attributeFilter: ["hidden"]});
-  window.addEventListener("beforeunload", () => { clearTimeout(state.timer); clearTimeout(renderSaveTimer); });
+  state.cooldownTicker = setInterval(() => {
+    if (state.data?.video_chain && cooldownRemaining(state.data.video_chain) > 0) drawVideoOverview();
+  }, 1000);
+  window.addEventListener("beforeunload", () => { clearTimeout(state.timer); clearTimeout(renderSaveTimer); clearInterval(state.cooldownTicker); });
   storyChanged(window.PanelForgeStories?.current()).catch(error => message(error.message, true));
 })();

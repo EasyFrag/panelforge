@@ -101,6 +101,7 @@ class StyleImageBody(RevisionBody):
 class ReferenceBatchProfileBody(StrictBody):
     model_id: str = Field(min_length=1, max_length=300)
     settings: dict
+    inherit_technical: bool = Field(default=False, strict=True)
 
 
 class ReferenceBatchThermalBody(StrictBody):
@@ -118,6 +119,22 @@ class ReferenceBatchBody(StrictBody):
     reference_ids: list[str] = Field(min_length=1)
     profiles: dict[str, ReferenceBatchProfileBody]
     thermal: ReferenceBatchThermalBody = Field(default_factory=ReferenceBatchThermalBody)
+
+
+class VideoDefaultsBody(StrictBody):
+    expected_video_revision: int = Field(ge=1, strict=True)
+    parameters: dict
+
+
+class VideoInheritanceBody(RevisionBody):
+    inherit: bool = Field(strict=True)
+
+
+class VideoChainBody(StrictBody):
+    expected_video_revision: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=8, max_length=100)
+    scene_ids: list[str] = Field(min_length=1)
+    inter_video_cooldown_seconds: int = Field(default=30, ge=1, le=3600, strict=True)
 
 
 def episodes_router(service, *, serialize_image_project, validate_image, image_body, render_body):
@@ -146,6 +163,26 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
             aspect_ratio=Krea2AspectRatio(body.aspect_ratio), megapixels=body.megapixels,
             sampling=sampling_from_dict(body.sampling, default_preset_id=default_sampling), workflow=workflow,
             loras=tuple(Krea2LoraSelection(name=l.name, strength=l.strength) for l in (body.loras or [])))
+
+    def video_setup(raw):
+        p = render_body.model_validate(raw)
+        settings = VideoLabSettings(aspect_ratio=VideoAspectRatio(p.aspect_ratio), megapixels=p.megapixels,
+            duration_seconds=p.duration_seconds, steps=p.steps, seed=int(p.seed) if p.seed is not None and str(p.seed).strip() else 0,
+            seed_locked=p.seed_locked)
+        if p.bunny:
+            H3BunnySettings(**p.bunny.model_dump())
+            bunny_geometry(settings, p.initial_megapixels)
+        stack = H3VideoLoraStack.from_dict(p.video_loras.model_dump() if p.video_loras else None)
+        if stack:
+            stack.validate_mode(p.bunny is not None)
+        return dict(recipe=dict(id=p.recipe_id, version=p.recipe_version), checkpoint=p.checkpoint,
+            settings=dict(aspect_ratio=p.aspect_ratio, megapixels=p.megapixels,
+                duration_seconds=p.duration_seconds, steps=p.steps, seed=p.seed or 0),
+            seed_locked=p.seed_locked, initial_megapixels=p.initial_megapixels, music_enabled=p.music_enabled,
+            spectrum_enabled=p.spectrum_enabled, force_upscale=p.force_upscale,
+            bunny=p.bunny.model_dump() if p.bunny else None,
+            video_loras=p.video_loras.model_dump() if p.video_loras else None,
+            video_lora=p.video_lora.model_dump() if p.video_lora else None)
 
     @router.get("/stories/{story_id}")
     def list_episodes(story_id: str):
@@ -252,7 +289,8 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
                     raise ValueError(f"Réglage de profil inattendu : {sorted(unexpected)[0]}.")
                 parsed, settings = image_settings({**profile.settings, "prompt": f"Profil {kind}"})
                 seed = int(parsed.seed) if parsed.seed is not None and str(parsed.seed).strip() else None
-                profiles[kind] = dict(model_id=profile.model_id, settings=settings, seed=seed)
+                profiles[kind] = dict(model_id=profile.model_id, settings=settings, seed=seed,
+                                      inherit_technical=profile.inherit_technical)
             return current().start_reference_batch(identity,
                 expected_visual_revision=body.expected_visual_revision,
                 request_id=body.request_id, reference_ids=body.reference_ids,
@@ -296,25 +334,32 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
 
     @router.put("/{identity}/scenes/{scene_id}/render-setup")
     def save_render(identity: str, scene_id: str, body: RenderSetupBody):
-        def save():
-            p = render_body.model_validate(body.parameters)
-            settings = VideoLabSettings(aspect_ratio=VideoAspectRatio(p.aspect_ratio), megapixels=p.megapixels,
-                duration_seconds=p.duration_seconds, steps=p.steps, seed=int(p.seed) if p.seed is not None and str(p.seed).strip() else 0,
-                seed_locked=p.seed_locked)
-            if p.bunny:
-                H3BunnySettings(**p.bunny.model_dump())
-                bunny_geometry(settings, p.initial_megapixels)
-            stack = H3VideoLoraStack.from_dict(p.video_loras.model_dump() if p.video_loras else None)
-            if stack:
-                stack.validate_mode(p.bunny is not None)
-            setup = dict(recipe=dict(id=p.recipe_id, version=p.recipe_version), checkpoint=p.checkpoint,
-                settings=dict(aspect_ratio=p.aspect_ratio, megapixels=p.megapixels,
-                    duration_seconds=p.duration_seconds, steps=p.steps, seed=p.seed or 0),
-                seed_locked=p.seed_locked, initial_megapixels=p.initial_megapixels, music_enabled=p.music_enabled,
-                spectrum_enabled=p.spectrum_enabled, bunny=p.bunny.model_dump() if p.bunny else None,
-                video_loras=p.video_loras.model_dump() if p.video_loras else None,
-                video_lora=p.video_lora.model_dump() if p.video_lora else None)
-            return current().save_render_setup(identity, scene_id, body.expected_revision, setup)
-        return invoke(save)
+        return invoke(lambda: current().save_render_setup(identity, scene_id, body.expected_revision,
+                                                          video_setup(body.parameters)))
+
+    @router.put("/{identity}/video-defaults")
+    def save_video_defaults(identity: str, body: VideoDefaultsBody):
+        return invoke(lambda: current().save_video_defaults(identity, body.expected_video_revision,
+                                                            video_setup(body.parameters)))
+
+    @router.put("/{identity}/scenes/{scene_id}/render-inheritance")
+    def video_inheritance(identity: str, scene_id: str, body: VideoInheritanceBody):
+        return invoke(lambda: current().set_scene_video_inheritance(identity, scene_id,
+                                                                    body.expected_revision, body.inherit))
+
+    @router.post("/{identity}/video-chain", status_code=202)
+    def start_video_chain(identity: str, body: VideoChainBody):
+        return invoke(lambda: current().start_video_chain(identity,
+            expected_video_revision=body.expected_video_revision, request_id=body.request_id,
+            scene_ids=body.scene_ids,
+            inter_video_cooldown_seconds=body.inter_video_cooldown_seconds))
+
+    @router.post("/{identity}/video-chains/{chain_id}/pause", status_code=202)
+    def pause_video_chain(identity: str, chain_id: str):
+        return invoke(lambda: current().pause_video_chain(identity, chain_id))
+
+    @router.post("/{identity}/video-chains/{chain_id}/resume", status_code=202)
+    def resume_video_chain(identity: str, chain_id: str):
+        return invoke(lambda: current().resume_video_chain(identity, chain_id))
 
     return router

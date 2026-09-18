@@ -18,7 +18,7 @@ from panelforge.domain import (
     VideoAspectRatio,
     VideoLabSettings,
 )
-from panelforge.domain.h3_render import validate_h3_initial_megapixels
+from panelforge.domain.h3_render import h3_upscale_plan, validate_h3_initial_megapixels
 from .render_progress import (
     RenderProgressProfile,
     validate_render_progress_profile,
@@ -73,6 +73,12 @@ class VideoOutputBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class UpscaleBypassBinding:
+    source: NodeOutputBinding
+    targets: tuple[WorkflowInputBinding, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class VideoLabPreset:
     preset_id: str
     label: str
@@ -107,6 +113,7 @@ class ValidatedVideoLabWorkflow:
     video_lora_overlay: VideoLoraOverlayBinding | None
     reference_images: tuple[ReferenceImageBinding, ...]
     output_video: VideoOutputBinding
+    upscale_bypass: UpscaleBypassBinding | None
     progress_profile: RenderProgressProfile | None
     presets: Mapping[str, VideoLabPreset]
     _workflow_json: bytes = field(repr=False)
@@ -166,6 +173,10 @@ class VideoLabPresetRecipe:
     def supports_initial_megapixels(self) -> bool:
         return "initial_megapixels" in self.preset.inputs
 
+    @property
+    def supports_upscale_bypass(self) -> bool:
+        return self.preset.upscale_bypass is not None
+
     def build_workflow(
         self,
         *,
@@ -176,6 +187,7 @@ class VideoLabPresetRecipe:
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
+        force_upscale: bool = False,
     ) -> dict[str, Any]:
         return build_video_lab_workflow(
             self.preset,
@@ -186,6 +198,7 @@ class VideoLabPresetRecipe:
             spectrum_enabled=spectrum_enabled,
             video_lora=video_lora,
             initial_megapixels=initial_megapixels,
+            force_upscale=force_upscale,
         )
 
 
@@ -236,6 +249,10 @@ class Ref2VH3RenderPresetRecipe:
     def supports_initial_megapixels(self) -> bool:
         return self.recipe.supports_initial_megapixels
 
+    @property
+    def supports_upscale_bypass(self) -> bool:
+        return self.recipe.supports_upscale_bypass
+
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]:
         if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= self.maximum_keyframes:
             raise ValueError("invalid Ref2V keyframe count")
@@ -252,6 +269,7 @@ class Ref2VH3RenderPresetRecipe:
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
+        force_upscale: bool = False,
     ) -> dict[str, Any]:
         if not self.minimum_reference_images <= len(source_images) <= self.maximum_reference_images:
             raise ValueError(
@@ -269,6 +287,7 @@ class Ref2VH3RenderPresetRecipe:
             spectrum_enabled=spectrum_enabled,
             video_lora=video_lora,
             initial_megapixels=initial_megapixels,
+            force_upscale=force_upscale,
         )
         binding = self.recipe.preset.reference_images[-1]
         template = self.recipe.preset.workflow[binding.load_node_id]
@@ -393,7 +412,7 @@ def validate_video_lab_workflow(
         "output_filename_prefix",
     }
     optional_inputs = {"spectrum_enabled", "initial_megapixels"}
-    optional_bindings = {"video_lora_overlay"}
+    optional_bindings = {"video_lora_overlay", "upscale_bypass"}
     required_binding_keys = required_inputs | {"reference_images", "output_video"}
     expected_binding_keys = required_binding_keys | optional_inputs | optional_bindings
     binding_keys = set(bindings)
@@ -442,6 +461,11 @@ def validate_video_lab_workflow(
             "output_video.history_field",
         ),
     )
+    upscale_bypass = (
+        _upscale_bypass_binding(bindings["upscale_bypass"], nodes)
+        if "upscale_bypass" in bindings
+        else None
+    )
 
     _validate_assertions(manifest.get("workflow_assertions"), nodes)
     _validate_no_orphans(nodes, output.node_id)
@@ -470,6 +494,7 @@ def validate_video_lab_workflow(
         video_lora_overlay=video_lora_overlay,
         reference_images=references,
         output_video=output,
+        upscale_bypass=upscale_bypass,
         progress_profile=progress_profile,
         presets=MappingProxyType(presets),
         _workflow_json=serialized,
@@ -486,6 +511,7 @@ def build_video_lab_workflow(
     spectrum_enabled: bool = False,
     video_lora: H3VideoLoraSelection | None = None,
     initial_megapixels: float = 0.2,
+    force_upscale: bool = False,
 ) -> dict[str, Any]:
     """Compile an isolated workflow and prune unused reference slots."""
     validate_h3_initial_megapixels(initial_megapixels)
@@ -499,6 +525,13 @@ def build_video_lab_workflow(
         raise TypeError("spectrum_enabled must be a boolean")
     if video_lora is not None and not isinstance(video_lora, H3VideoLoraSelection):
         raise TypeError("video_lora must be an H3VideoLoraSelection or None")
+    plan = h3_upscale_plan(
+        settings,
+        initial_megapixels,
+        force_upscale=force_upscale,
+    )
+    if force_upscale and preset.upscale_bypass is None:
+        raise ValueError("Cette recette historique ne prend pas en charge le test A/B de l’upscale.")
     if not 1 <= len(source_images) <= 3:
         raise ValueError("source_images must contain between 1 and 3 images")
     for source_image in source_images:
@@ -540,7 +573,34 @@ def build_video_lab_workflow(
         if preset.video_lora_overlay is None:
             raise ValueError("this Ref2V workflow does not support video LoRAs")
         _apply_video_lora(workflow, preset.video_lora_overlay, video_lora)
+    if preset.upscale_bypass is not None and plan["bypassed"]:
+        _apply_upscale_bypass(workflow, preset.upscale_bypass)
+        _prune_to_outputs(workflow, (preset.output_video.node_id,))
     return workflow
+
+
+def _apply_upscale_bypass(
+    workflow: dict[str, Any],
+    binding: UpscaleBypassBinding,
+) -> None:
+    source = [binding.source.node_id, binding.source.output_index]
+    for target in binding.targets:
+        workflow[target.node_id]["inputs"][target.input_name] = list(source)
+
+
+def _prune_to_outputs(workflow: dict[str, Any], output_node_ids: tuple[str, ...]) -> None:
+    reachable: set[str] = set()
+    pending = list(output_node_ids)
+    while pending:
+        node_id = pending.pop()
+        if node_id in reachable:
+            continue
+        reachable.add(node_id)
+        node = _object(workflow.get(node_id), f"workflow node {node_id}")
+        pending.extend(_node_dependencies(node.get("inputs"), workflow) - reachable)
+    for node_id in tuple(workflow):
+        if node_id not in reachable:
+            workflow.pop(node_id)
 
 
 def _apply_video_lora(
@@ -680,6 +740,28 @@ def _video_lora_overlay_binding(
         model_target=model_target,
         clip_targets=clip_targets,
     )
+
+
+def _upscale_bypass_binding(
+    value: Any,
+    workflow: Mapping[str, Any],
+) -> UpscaleBypassBinding:
+    label = "bindings.upscale_bypass"
+    config = _object(value, label)
+    source_config = _object(config.get("source"), f"{label}.source")
+    node_id = _text(source_config.get("node_id"), f"{label}.source.node_id")
+    if node_id not in workflow:
+        raise VideoPresetValidationError("upscale bypass source node is missing")
+    output_index = source_config.get("output_index")
+    if isinstance(output_index, bool) or not isinstance(output_index, int) or output_index < 0:
+        raise VideoPresetValidationError(
+            "bindings.upscale_bypass.source.output_index must be a non-negative integer"
+        )
+    source = NodeOutputBinding(node_id=node_id, output_index=output_index)
+    targets = _input_bindings(config.get("targets"), workflow, f"{label}.targets")
+    if any(target.node_id == source.node_id for target in targets):
+        raise VideoPresetValidationError("upscale bypass cannot rewire its own source")
+    return UpscaleBypassBinding(source=source, targets=targets)
 
 
 def _reference_binding(

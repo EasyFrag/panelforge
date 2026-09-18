@@ -21,8 +21,23 @@ class EpisodeWebTest(unittest.TestCase):
         def batch(identity, **values):
             self.calls.append((identity, values))
             return {"batch_id": "reference-batch-test"}
+        def video_defaults(identity, revision, setup):
+            self.calls.append(("video-defaults", identity, revision, setup))
+            return {"video_revision": revision + 1, "render_revisions": {}}
+        def inheritance(identity, scene_id, revision, inherit):
+            self.calls.append(("inheritance", identity, scene_id, revision, inherit))
+            return {"episode_id": identity}
+        def chain(identity, **values):
+            self.calls.append(("video-chain", identity, values))
+            return {"video_chain": {"status": "running"}}
+        def pause(identity, chain_id):
+            self.calls.append(("pause", identity, chain_id)); return {"video_chain": {"status": "pausing"}}
+        def resume(identity, chain_id):
+            self.calls.append(("resume", identity, chain_id)); return {"video_chain": {"status": "running"}}
         app = FastAPI()
-        app.include_router(episodes_router(NS(update_visual=visual, start_reference_batch=batch), serialize_image_project=lambda p: p,
+        app.include_router(episodes_router(NS(update_visual=visual, start_reference_batch=batch,
+            save_video_defaults=video_defaults, set_scene_video_inheritance=inheritance, start_video_chain=chain,
+            pause_video_chain=pause, resume_video_chain=resume), serialize_image_project=lambda p: p,
             validate_image=lambda content: "image/png", image_body=Krea2AssistedAttemptBody, render_body=H3RenderAttemptBody))
         self.client = TestClient(app)
 
@@ -59,7 +74,7 @@ class EpisodeWebTest(unittest.TestCase):
             "expected_visual_revision": 3, "request_id": "batch-request-123",
             "reference_ids": ["character-1", "location-1"],
             "profiles": {
-                "character": {"model_id": "local::gemma", "settings": settings},
+                "character": {"model_id": "local::gemma", "settings": settings, "inherit_technical": True},
                 "location": {"model_id": "local::qwen", "settings": {**settings, "workflow": "krea2-sampling@1.0.0"}},
             },
             "thermal": {"stop_temperature_c": 82, "resume_temperature_c": 44,
@@ -71,6 +86,7 @@ class EpisodeWebTest(unittest.TestCase):
         self.assertEqual(identity, "episode-test")
         self.assertEqual(values["profiles"]["character"]["settings"].workflow,
                          KREA2_FLUX_KLEIN_WORKFLOW)
+        self.assertTrue(values["profiles"]["character"]["inherit_technical"])
         self.assertEqual(values["profiles"]["location"]["model_id"], "local::qwen")
         self.assertEqual(values["thermal"].cooldown_seconds, 30)
 
@@ -89,6 +105,43 @@ class EpisodeWebTest(unittest.TestCase):
             },
         })
         self.assertEqual(unexpected.status_code, 422, unexpected.text)
+
+    def test_video_defaults_inheritance_and_chain_use_explicit_revisions(self):
+        parameters = dict(prompt="", aspect_ratio="9:16 (Portrait Widescreen)", megapixels=0.9,
+            duration_seconds=10, steps=9, seed="42", seed_locked=True, music_enabled=False,
+            spectrum_enabled=False, initial_megapixels=0.9, recipe_id="minimax-h3-bunny",
+            recipe_version="0.1.3", checkpoint=None,
+            bunny=dict(turbo_enabled=True, base_steps=9, coarse_steps=4, refine_steps=5,
+                       lora_second_strength=0.2, preview_enabled=True),
+            video_loras=dict(version="0.2.0", enabled=True, clip_last_layer=None, entries=[]),
+            video_lora=None)
+        response = self.client.put("/api/episodes/episode-test/video-defaults", json={
+            "expected_video_revision": 4, "parameters": parameters})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.calls[-1][2], 4)
+        self.assertEqual(self.calls[-1][3]["settings"]["seed"], "42")
+
+        response = self.client.put("/api/episodes/episode-test/scenes/scene-1/render-inheritance",
+            json={"expected_revision": 7, "inherit": False})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.calls[-1], ("inheritance", "episode-test", "scene-1", 7, False))
+
+        response = self.client.post("/api/episodes/episode-test/video-chain", json={
+            "expected_video_revision": 4, "request_id": "video-chain-request", "scene_ids": ["scene-1", "scene-2"],
+            "inter_video_cooldown_seconds": 45})
+        self.assertEqual(response.status_code, 202, response.text)
+        self.assertEqual(self.calls[-1][2]["scene_ids"], ["scene-1", "scene-2"])
+        self.assertEqual(self.calls[-1][2]["inter_video_cooldown_seconds"], 45)
+        invalid = self.client.post("/api/episodes/episode-test/video-chain", json={
+            "expected_video_revision": 4, "request_id": "video-chain-invalid", "scene_ids": ["scene-1"],
+            "inter_video_cooldown_seconds": True})
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+        response = self.client.post("/api/episodes/episode-test/video-chains/chain-1/pause")
+        self.assertEqual(response.status_code, 202, response.text)
+        self.assertEqual(self.calls[-1], ("pause", "episode-test", "chain-1"))
+        response = self.client.post("/api/episodes/episode-test/video-chains/chain-1/resume")
+        self.assertEqual(response.status_code, 202, response.text)
+        self.assertEqual(self.calls[-1], ("resume", "episode-test", "chain-1"))
 
 
 if __name__ == "__main__":

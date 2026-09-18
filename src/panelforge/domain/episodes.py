@@ -3,7 +3,11 @@ from copy import deepcopy
 import hashlib
 import json
 
-from .stories import dialogue_instruction, story_recipe_selection, validate_scenario
+from .stories import (
+    DEFAULT_DIALOGUE_LANGUAGE, SILENT_CATS_RECIPE_ID, dialogue_instruction,
+    dialogue_language_label, dialogue_language_selection, story_recipe_selection,
+    validate_scenario, visual_transition_instruction,
+)
 from .prompt_lab import CreativeFreedomAxes
 from .krea2_sampling import Krea2AssistedSampling
 from .krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW
@@ -59,12 +63,38 @@ def default_render_setup(duration):
     return dict(recipe={"id": "minimax-h3-bunny", "version": "0.1.3"},
         settings=dict(aspect_ratio="9:16 (Portrait Widescreen)", megapixels=0.9,
                       duration_seconds=duration, steps=9, seed=0),
-        initial_megapixels=0.9, checkpoint=None, music_enabled=False, spectrum_enabled=False,
+        seed_locked=True, initial_megapixels=0.9, checkpoint=None, music_enabled=False, spectrum_enabled=False,
+        force_upscale=False,
         bunny=dict(turbo_enabled=True, base_steps=9, coarse_steps=4, refine_steps=5,
                    lora_second_strength=0.2, preview_enabled=True),
         video_loras=dict(version="0.2.0", enabled=True, clip_last_layer=None, entries=[
             dict(name="minmax_nsfw/Motion_Repair.safetensors", strength=0.6,
                  second_strength=0.2, enabled=True)]))
+
+
+def video_defaults(episode):
+    value = episode.get("video_defaults")
+    if value:
+        return deepcopy(value)
+    scenes = episode.get("scenes") or []
+    duration = scenes[0].get("duration", 10) if scenes else 10
+    return deepcopy(scenes[0].get("render_setup") if scenes else None) or default_render_setup(duration)
+
+
+def inherits_video_settings(scene):
+    return scene.get("inherit_video_settings", True)
+
+
+def effective_video_setup(episode, scene):
+    setup = deepcopy(scene.get("render_setup") or default_render_setup(scene["duration"]))
+    if not inherits_video_settings(scene):
+        return setup
+    seed = setup.get("settings", {}).get("seed", 0)
+    setup = video_defaults(episode)
+    setup.setdefault("settings", {})
+    setup["settings"]["duration_seconds"] = scene["duration"]
+    setup["settings"]["seed"] = seed
+    return setup
 
 
 def scene_action(scene):
@@ -101,13 +131,17 @@ def initial_episode(story, identity):
             duration=story["clip_seconds"], intention=scene_action(scene), references=bindings,
             plan_model_id=DEFAULT_PLAN_MODEL, writer_model_id=DEFAULT_WRITER_MODEL,
             shot_count=None, audacity=2, creative_axes=deepcopy(DEFAULT_CREATIVE_AXES), preparations=[], render_revision=1,
-            render_setup=default_render_setup(story["clip_seconds"])))
+            render_setup=default_render_setup(story["clip_seconds"]), inherit_video_settings=True))
         scenes[-1]["render_setup"]["settings"]["seed"] = int(fingerprint([identity, index])[:12], 16)
     return dict(episode_id=identity, story_id=story["project_id"], title=scenario["title"],
         story_revision=story["revisions"][-1]["revision"], source_hash=fingerprint(scenario),
-        scenario=deepcopy(scenario), references=refs, scenes=scenes, style="", visual_revision=1,
+        story_recipe=deepcopy(recipe), dialogue_language=dialogue_language_selection(
+            story.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)),
+        scenario=deepcopy(scenario), references=refs, scenes=scenes,
+        style="", visual_revision=1,
         style_image=None, style_preset=None, image_defaults=image_defaults({}),
         reference_profiles={}, reference_batch=None,
+        video_defaults=default_render_setup(story["clip_seconds"]), video_revision=1, video_chain=None,
         cookbook=dict(id=REF2V_COOKBOOK[0], version=REF2V_COOKBOOK[1]))
 
 
@@ -144,8 +178,17 @@ def scene_inputs(episode, scene, *, require_images=True):
     if not any(r["kind"] == "location" and r["source_id"] == location["id"] for r in selected):
         lines.append(f"Décor : {location['name']}. {location['description']}")
     lines.append(scene["intention"])
+    transition = visual_transition_instruction(source_scene,
+        silent=(episode.get("story_recipe") or {}).get("id") == SILENT_CATS_RECIPE_ID)
+    if transition:
+        lines.append(transition)
     if source_scene["dialogue"]:
-        lines.append("Répliques françaises exactes, dans cet ordre et avec ces locuteurs :\n" + "\n".join(
+        language = dialogue_language_selection(episode.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE))
+        lines.append(
+            f"Langue parlée obligatoire : {dialogue_language_label(language)}. Dans le Plan REF2V, chaque entrée "
+            f"spoken_languages correspondant à ces répliques contient exactement {language} ; conserve leurs mots sans traduction."
+        )
+        lines.append("Répliques exactes, dans cet ordre et avec ces locuteurs :\n" + "\n".join(
             dialogue_instruction(d, people[d["speaker_id"]]["name"]) for d in source_scene["dialogue"]))
     elif axes.dialogue < 2:
         lines.append("Aucun dialogue.")

@@ -32,6 +32,37 @@ def validate_h3_initial_megapixels(value: float) -> None:
         raise ValueError("Les MP avant upscale doivent utiliser un pas de 0,1.")
 
 
+def h3_upscale_plan(
+    settings: VideoLabSettings,
+    initial_megapixels: float,
+    *,
+    force_upscale: bool = False,
+) -> dict[str, object]:
+    """Resolve the effective H3 output branch on the shared 32-pixel grid."""
+    if not isinstance(settings, VideoLabSettings):
+        raise TypeError("settings must be VideoLabSettings")
+    validate_h3_initial_megapixels(initial_megapixels)
+    if type(force_upscale) is not bool:
+        raise TypeError("force_upscale must be a boolean")
+    initial_resolution = replace(settings, megapixels=initial_megapixels).resolution
+    target_resolution = settings.resolution
+    initial_pixels = initial_resolution[0] * initial_resolution[1]
+    target_pixels = target_resolution[0] * target_resolution[1]
+    if force_upscale and target_resolution != initial_resolution:
+        raise ValueError(
+            "L’upscale ne peut être forcé que lorsque les résolutions initiale et cible sont égales."
+        )
+    bypassed = target_pixels <= initial_pixels and not force_upscale
+    return {
+        "initial_resolution": initial_resolution,
+        "target_resolution": target_resolution,
+        "effective_resolution": initial_resolution if bypassed else target_resolution,
+        "same_resolution": target_resolution == initial_resolution,
+        "target_is_lower": target_pixels < initial_pixels,
+        "bypassed": bypassed,
+    }
+
+
 class H3RenderInputMode(StrEnum):
     T2VA = "t2va"
     I2VA = "i2va"
@@ -265,6 +296,8 @@ class H3RenderAttempt:
     checkpoint: str | None = None
     model_loading: H3ModelLoading | None = None
     video_loras: H3VideoLoraStack | None = None
+    force_upscale: bool = False
+    upscale_bypassed: bool = False
 
     def __post_init__(self) -> None:
         validate_h3_model_selection(self.checkpoint, self.model_loading)
@@ -294,6 +327,22 @@ class H3RenderAttempt:
             raise TypeError("music_enabled must be a boolean")
         if not isinstance(self.spectrum_enabled, bool):
             raise TypeError("spectrum_enabled must be a boolean")
+        if type(self.force_upscale) is not bool:
+            raise TypeError("force_upscale must be a boolean")
+        if type(self.upscale_bypassed) is not bool:
+            raise TypeError("upscale_bypassed must be a boolean")
+        if self.force_upscale and self.upscale_bypassed:
+            raise ValueError("forced upscale and bypass cannot both be active")
+        if is_bunny and self.force_upscale:
+            raise ValueError("BUNNY ne prend pas en charge le forçage de l’upscale.")
+        if is_bunny and self.upscale_bypassed:
+            raise ValueError("BUNNY does not use the automatic upscale bypass")
+        if not is_bunny:
+            h3_upscale_plan(
+                self.settings,
+                self.initial_megapixels,
+                force_upscale=self.force_upscale,
+            )
         if self.video_lora is not None and not isinstance(
             self.video_lora, H3VideoLoraSelection
         ):
@@ -439,6 +488,7 @@ class H3RenderSetup:
     checkpoint: str | None = None
     model_loading: H3ModelLoading | None = None
     video_loras: H3VideoLoraStack | None = None
+    force_upscale: bool = False
 
     def __post_init__(self) -> None:
         validate_h3_model_selection(self.checkpoint, self.model_loading)
@@ -448,6 +498,8 @@ class H3RenderSetup:
         validate_h3_initial_megapixels(self.initial_megapixels)
         if type(self.music_enabled) is not bool or type(self.spectrum_enabled) is not bool:
             raise TypeError("render switches must be booleans")
+        if type(self.force_upscale) is not bool:
+            raise TypeError("force_upscale must be a boolean")
         if self.video_lora is not None and not isinstance(self.video_lora, H3VideoLoraSelection):
             raise TypeError("invalid video LoRA")
         if (self.recipe.recipe_id == BUNNY_RECIPE_ID) != (self.bunny is not None):
@@ -460,6 +512,14 @@ class H3RenderSetup:
             bunny_geometry(self.settings, self.initial_megapixels)
             if self.spectrum_enabled or (self.video_lora and self.video_lora.clip_last_layer is not None):
                 raise ValueError("BUNNY does not support Spectrum or CLIP last layer")
+            if self.force_upscale:
+                raise ValueError("BUNNY does not support forced upscale")
+        else:
+            h3_upscale_plan(
+                self.settings,
+                self.initial_megapixels,
+                force_upscale=self.force_upscale,
+            )
 
 
 @dataclass(frozen=True, slots=True)

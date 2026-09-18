@@ -16,6 +16,9 @@ Chaque micro-scène contient un petit enchaînement causal observable, adapté �
 
 L’humour vient d’un contraste de tempérament, d’une maladresse, d’un objet, d’une attention trop insistante ou d’un malentendu visuel. La bascule tendre doit être gagnée par une action concrète : aide révélée, cadeau découvert, sourire, contact accepté, étreinte, partage d’un objet ou réparation commune. Ne remplace pas l’action par « ils comprennent » ou « la tension monte ».
 
+TRANSFORMATIONS D’ÉTAT
+Lorsqu’une micro-scène contient une guérison ou un autre changement important et persistant d’état physique, d’objet, de tenue ou de salissure, renseigne visual_transition avec exactement before, trigger, visible_change et after. Les quatre temps doivent être observables dans le même clip et compris sans paroles. Ne commence pas directement après le changement. Mets visual_transition à null ou omets-le si la scène ne contient aucune transformation de ce type.
+
 CONTINUITÉ
 - relationship_state suit l’agacement, la méfiance, la complicité et la proximité au début du clip.
 - appearance_state suit exactement pelage, tenue, accessoires, salissures et objets portés.

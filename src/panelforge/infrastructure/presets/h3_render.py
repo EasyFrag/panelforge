@@ -14,6 +14,7 @@ from panelforge.domain.h3_render import (
     H3_VIDEO_LORA_OVERLAY_VERSION,
     H3RenderInputMode,
     H3VideoLoraSelection,
+    h3_upscale_plan,
     validate_h3_initial_megapixels,
 )
 from panelforge.domain.recipes import RecipeRef
@@ -81,6 +82,12 @@ class KeyframeBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class UpscaleBypassBinding:
+    source: NodeOutputBinding
+    targets: tuple[InputBinding, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class H3RenderPreset:
     preset_id: str
     label: str
@@ -107,6 +114,7 @@ class ValidatedH3RenderWorkflow:
     last_frame: FrameBinding
     output_video: OutputBinding
     keyframes: KeyframeBinding
+    upscale_bypass: UpscaleBypassBinding | None
     video_lora_overlay: VideoLoraOverlayBinding | None
     progress_profile: RenderProgressProfile | None
     presets: Mapping[str, H3RenderPreset]
@@ -173,6 +181,10 @@ class H3RenderPresetRecipe:
     def supports_initial_megapixels(self) -> bool:
         return "initial_megapixels" in self.preset.scalar_inputs
 
+    @property
+    def supports_upscale_bypass(self) -> bool:
+        return self.preset.upscale_bypass is not None
+
     def keyframe_output_nodes(self, count: int) -> tuple[str, ...]:
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise ValueError("keyframe count must be a non-negative integer")
@@ -196,6 +208,7 @@ class H3RenderPresetRecipe:
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
+        force_upscale: bool = False,
     ) -> dict[str, Any]:
         return build_h3_render_workflow(
             self.preset,
@@ -209,6 +222,7 @@ class H3RenderPresetRecipe:
             spectrum_enabled=spectrum_enabled,
             video_lora=video_lora,
             initial_megapixels=initial_megapixels,
+            force_upscale=force_upscale,
         )
 
 
@@ -300,6 +314,11 @@ def validate_h3_render_workflow(
         margin_ms=_positive_integer(keyframes.get("margin_ms"), "keyframes.margin_ms"),
         maximum=_positive_integer(keyframes.get("maximum"), "keyframes.maximum"),
     )
+    upscale_bypass = (
+        _upscale_bypass_binding(bindings.get("upscale_bypass"), nodes)
+        if "upscale_bypass" in bindings
+        else None
+    )
     video_lora_overlay = (
         _video_lora_overlay_binding(bindings.get("video_lora_overlay"), nodes)
         if "video_lora_overlay" in bindings
@@ -326,6 +345,7 @@ def validate_h3_render_workflow(
         last_frame=last,
         output_video=output,
         keyframes=keyframe_binding,
+        upscale_bypass=upscale_bypass,
         video_lora_overlay=video_lora_overlay,
         progress_profile=progress_profile,
         presets=MappingProxyType(presets),
@@ -346,6 +366,7 @@ def build_h3_render_workflow(
     spectrum_enabled: bool = False,
     video_lora: H3VideoLoraSelection | None = None,
     initial_megapixels: float = 0.2,
+    force_upscale: bool = False,
 ) -> dict[str, Any]:
     validate_h3_initial_megapixels(initial_megapixels)
     if "initial_megapixels" not in preset.scalar_inputs and initial_megapixels != 0.2:
@@ -378,6 +399,13 @@ def build_h3_render_workflow(
         raise ValueError("keyframe indices must be non-negative integers")
     if video_lora is not None and not isinstance(video_lora, H3VideoLoraSelection):
         raise TypeError("video_lora must be an H3VideoLoraSelection or None")
+    plan = h3_upscale_plan(
+        settings,
+        initial_megapixels,
+        force_upscale=force_upscale,
+    )
+    if force_upscale and preset.upscale_bypass is None:
+        raise ValueError("Cette recette historique ne prend pas en charge le test A/B de l’upscale.")
 
     workflow = preset.workflow
     scalar_values: Mapping[str, object] = {
@@ -410,6 +438,8 @@ def build_h3_render_workflow(
         if preset.video_lora_overlay is None:
             raise ValueError("this H3 render workflow does not support video LoRAs")
         _apply_video_lora(workflow, preset.video_lora_overlay, video_lora)
+    if preset.upscale_bypass is not None and plan["bypassed"]:
+        _apply_upscale_bypass(workflow, preset.upscale_bypass)
     for index, frame_index in enumerate(keyframe_indices):
         selector_id = str(preset.keyframes.selector_node_base + index)
         save_id = str(preset.keyframes.save_node_base + index)
@@ -430,7 +460,41 @@ def build_h3_render_workflow(
             "class_type": "SaveImage",
             "_meta": {"title": f"Save PanelForge keyframe {index + 1}"},
         }
+    if preset.upscale_bypass is not None and plan["bypassed"]:
+        _prune_to_outputs(
+            workflow,
+            (preset.output_video.node_id,) + tuple(
+                str(preset.keyframes.save_node_base + index)
+                for index in range(len(keyframe_indices))
+            ),
+        )
     return workflow
+
+
+def _apply_upscale_bypass(
+    workflow: dict[str, Any],
+    binding: UpscaleBypassBinding,
+) -> None:
+    source = [binding.source.node_id, binding.source.output_index]
+    for target in binding.targets:
+        workflow[target.node_id]["inputs"][target.input_name] = list(source)
+
+
+def _prune_to_outputs(workflow: dict[str, Any], output_node_ids: tuple[str, ...]) -> None:
+    reachable: set[str] = set()
+    pending = list(output_node_ids)
+    while pending:
+        node_id = pending.pop()
+        if node_id in reachable:
+            continue
+        reachable.add(node_id)
+        node = workflow.get(node_id)
+        if not isinstance(node, Mapping):
+            raise H3RenderPresetValidationError(f"workflow output node {node_id!r} is missing")
+        pending.extend(_node_dependencies(node.get("inputs"), workflow) - reachable)
+    for node_id in tuple(workflow):
+        if node_id not in reachable:
+            workflow.pop(node_id)
 
 
 def _apply_video_lora(
@@ -585,6 +649,48 @@ def _video_lora_overlay_binding(
         model_target=model_target,
         clip_targets=clip_targets,
     )
+
+
+def _upscale_bypass_binding(
+    value: Any,
+    workflow: Mapping[str, Any],
+) -> UpscaleBypassBinding:
+    label = "bindings.upscale_bypass"
+    config = _object(value, label)
+    source_config = _object(config.get("source"), f"{label}.source")
+    source_node_id = _text(source_config.get("node_id"), f"{label}.source.node_id")
+    if source_node_id not in workflow:
+        raise H3RenderPresetValidationError("upscale bypass source node is missing")
+    source = NodeOutputBinding(
+        source_node_id,
+        _non_negative_integer(
+            source_config.get("output_index"),
+            f"{label}.source.output_index",
+        ),
+    )
+    targets = _input_bindings(config.get("targets"), workflow, f"{label}.targets")
+    if any(target.node_id == source.node_id for target in targets):
+        raise H3RenderPresetValidationError("upscale bypass cannot rewire its own source")
+    return UpscaleBypassBinding(source=source, targets=targets)
+
+
+def _node_dependencies(value: Any, workflow: Mapping[str, Any]) -> set[str]:
+    dependencies: set[str] = set()
+    if (
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and value[0] in workflow
+        and isinstance(value[1], int)
+    ):
+        dependencies.add(value[0])
+    elif isinstance(value, Mapping):
+        for nested in value.values():
+            dependencies.update(_node_dependencies(nested, workflow))
+    elif isinstance(value, list):
+        for nested in value:
+            dependencies.update(_node_dependencies(nested, workflow))
+    return dependencies
 
 
 def _input_binding(value: Any, workflow: Mapping[str, Any], label: str, *, require_input: bool = True) -> InputBinding:

@@ -89,7 +89,11 @@ _DIRECTIVE_ID = re.compile(r"camera_[1-9]\d{0,2}")
 _CAMERA_TERMS = re.compile(
     r"(?i)\b(?:camera|zoom(?:s|ed|ing)?|push(?:es|ed|ing)?|"
     r"pull(?:s|ed|ing)?|pan(?:s|ned|ning)?|truck(?:s|ed|ing)?|"
-    r"tilt(?:s|ed|ing)?|pedestal(?:s|ed|ing)?|arc(?:s|ed|ing)?|"
+    # ``tilted`` is often a subject pose ("a tilted head"), not a second
+    # camera movement.  Keep rejecting active tilt instructions and a past
+    # tilt followed by a camera direction, while allowing that adjective.
+    r"tilt(?:s|ing)?|tilted(?=\s+(?:up|down|left|right|clockwise|counterclockwise)\b)|"
+    r"pedestal(?:s|ed|ing)?|arc(?:s|ed|ing)?|"
     r"track(?:s|ed|ing)?|shake(?:s|n|ing)?|pov|point[- ]of[- ]view|"
     r"roll(?:s|ed|ing)?|doll(?:y|ies|ied|ying)|orbit(?:s|ed|ing)?|"
     r"crane(?:s|d|ing)?|handheld)\b"

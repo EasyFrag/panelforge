@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from panelforge.application.stories import StoryConflict
-from panelforge.domain.stories import RECIPE_ID, RECIPE_VERSION
+from panelforge.domain.stories import DEFAULT_DIALOGUE_LANGUAGE, RECIPE_ID, RECIPE_VERSION
 
 
 class StoryCreate(BaseModel):
@@ -19,6 +19,8 @@ class StoryCreate(BaseModel):
     creation_mode: str = Field(default="ideas", pattern="^(ideas|script)$")
     proposal_count: int = Field(default=3, ge=1, le=3, strict=True)
     dialogue_register: int = Field(default=0, ge=0, le=3, strict=True)
+    dialogue_language: str = Field(default=DEFAULT_DIALOGUE_LANGUAGE,
+        pattern="^(French|English|Korean|Japanese|Russian)$")
 
 
 class StoryWrite(BaseModel):
@@ -51,6 +53,14 @@ class StoryDialogue(BaseModel):
     delivery_note: str | None = Field(default=None, min_length=1, max_length=240)
 
 
+class StoryVisualTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    before: str = Field(min_length=1, max_length=1500)
+    trigger: str = Field(min_length=1, max_length=1500)
+    visible_change: str = Field(min_length=1, max_length=1500)
+    after: str = Field(min_length=1, max_length=1500)
+
+
 class StorySceneEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1, strict=True)
@@ -62,6 +72,7 @@ class StorySceneEdit(BaseModel):
     relationship_state: str | None = Field(default=None, min_length=1, max_length=3000)
     appearance_state: str | None = Field(default=None, min_length=1, max_length=3000)
     sexual_state: str | None = Field(default=None, min_length=1, max_length=3000)
+    visual_transition: StoryVisualTransition | None = None
 
 
 def stories_router(service):

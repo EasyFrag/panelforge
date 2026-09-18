@@ -7,7 +7,9 @@ from time import monotonic
 from uuid import uuid4
 
 from panelforge.domain.stories import (
-    RECIPE_ID, RECIPE_VERSION, decode_story_json, extract_script_dialogue_cues, parse_response, response_contract,
+    DEFAULT_DIALOGUE_LANGUAGE, RECIPE_ID, RECIPE_VERSION, SILENT_CATS_RECIPE_ID,
+    decode_story_json, dialogue_language_label, dialogue_language_selection,
+    extract_script_dialogue_cues, parse_response, response_contract,
     scenario_text, scene_intention, story_diagnostics, story_recipe_selection,
     story_recipe_spec, story_recipe_specs, validate_scenario,
 )
@@ -21,23 +23,55 @@ _LIVE_SAVE_INTERVAL_SECONDS = 1.5
 
 _DIALOGUE_REGISTER_POLICIES = {
     1: (
-        "REGISTRE DES DIALOGUES — ORAL DIRECT. Dans les dialogues nouvellement écrits, emploie un français "
-        "oral, quotidien et moins littéraire lorsque le personnage et la situation s’y prêtent. Garde les actions "
+        "REGISTRE DES DIALOGUES — ORAL DIRECT. Dans les dialogues nouvellement écrits, emploie la langue cible "
+        "de façon orale, quotidienne et moins littéraire lorsque le personnage et la situation s’y prêtent. Garde les actions "
         "et la narration dans leur registre actuel. Ne force pas cette couleur dans chaque réplique."
     ),
     2: (
-        "REGISTRE DES DIALOGUES — CRU. Dans les dialogues nouvellement écrits, préfère des formulations franches, "
-        "familières ou vulgaires lorsque le personnage et la situation s’y prêtent : par exemple « ça pue » plutôt "
-        "que l’euphémisme « ça sent mauvais ». Garde les actions et la narration dans leur registre actuel. "
+        "REGISTRE DES DIALOGUES — CRU. Dans les dialogues nouvellement écrits, préfère dans la langue cible des formulations "
+        "franches, familières ou vulgaires lorsque le personnage et la situation s’y prêtent. Garde les actions et la narration dans leur registre actuel. "
         "La vulgarité reste naturelle, intelligible et propre à chaque personnage ; ce n’est pas un quota."
     ),
     3: (
         "REGISTRE DES DIALOGUES — TRÈS CRU / ARGOT. Dans les dialogues nouvellement écrits, autorise fortement le "
-        "vocabulaire cru, l’argot et les tournures de rue ou internet compatibles avec le personnage — par exemple "
-        "« ça schlingue » ou « wesh » — sans transformer automatiquement tous les personnages en caricatures. "
+        "vocabulaire cru, l’argot et les tournures de rue ou internet naturels dans la langue cible et compatibles avec le personnage, "
+        "sans traduire littéralement un argot français et sans transformer automatiquement tous les personnages en caricatures. "
         "Garde les actions et la narration dans leur registre actuel ; ce n’est pas un quota."
     ),
 }
+
+
+def _dialogue_language_policy(language, *, script=False, revising=False):
+    canonical = dialogue_language_selection(language)
+    label = dialogue_language_label(canonical)
+    if script:
+        return (
+            f"LANGUE PARLÉE — {label} (identifiant H3 : {canonical}). Le sélecteur déclare la langue réellement "
+            "écrite dans le script : ne traduis, ne translittère et ne reformule aucune réplique. Les descriptions, "
+            "la narration éditoriale et reply restent en français."
+        )
+    policy = (
+        f"LANGUE PARLÉE — {label} (identifiant H3 : {canonical}). Écris uniquement le champ text de toute nouvelle "
+        f"réplique en {label}. Les descriptions, les actions, les autres champs narratifs et reply restent en français. "
+        "Cette règle remplace, pour dialogue.text seulement, toute consigne éditoriale antérieure disant que le scénario "
+        "ou les paroles sont en français. N’ajoute ni traduction parallèle ni translittération."
+    )
+    if revising:
+        policy += (
+            " Les répliques déjà validées restent inchangées sauf demande explicite de reformulation ; toute réplique "
+            "nouvelle ou explicitement réécrite utilise cette langue."
+        )
+    return policy
+
+
+def _dialogue_register_policy(level, language):
+    policy = _DIALOGUE_REGISTER_POLICIES[level]
+    if language == "French":
+        if level == 2:
+            policy += " En français, préfère par exemple « ça pue » à « cela sent mauvais » lorsque le personnage s’y prête."
+        elif level == 3:
+            policy += " En français, des formulations comme « ça schlingue » ou « wesh » sont permises si elles correspondent au personnage."
+    return policy
 
 
 class StoryConflict(ValueError):
@@ -70,8 +104,11 @@ class StoryService:
         project.setdefault("creation_mode", "ideas")
         project.setdefault("proposal_count", 3)
         project.setdefault("dialogue_register", 0)
+        project.setdefault("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)
+        project["dialogue_language"] = dialogue_language_selection(project["dialogue_language"])
         if story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") == "forbidden":
             project["dialogue_register"] = 0
+            project["dialogue_language"] = DEFAULT_DIALOGUE_LANGUAGE
         project.setdefault("diagnostics", story_diagnostics(project.get("document", {}).get("scenario"),
             clip_seconds=project.get("clip_seconds", 10), target_scene_count=project.get("scene_count", 6),
             recipe_id=recipe["id"]))
@@ -87,7 +124,7 @@ class StoryService:
     def create(self, *, title="Nouvelle histoire", brief="", clip_seconds=10, scene_count=6,
                recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION,
                architect_model_id="", writer_model_id="", creation_mode="ideas", proposal_count=3,
-               dialogue_register=0):
+               dialogue_register=0, dialogue_language=DEFAULT_DIALOGUE_LANGUAGE):
         if not isinstance(title, str) or not title.strip() or len(title) > 160:
             raise ValueError("Donnez un nom à cette histoire (160 caractères maximum).")
         if not isinstance(brief, str) or len(brief) > 12000:
@@ -100,6 +137,7 @@ class StoryService:
             raise ValueError("Choisissez entre 1 et 3 propositions.")
         if type(dialogue_register) is not int or not 0 <= dialogue_register <= 3:
             raise ValueError("Le registre des dialogues doit être compris entre 0 et 3.")
+        dialogue_language = dialogue_language_selection(dialogue_language)
         if creation_mode == "script" and not brief.strip():
             raise ValueError("Collez un script complet à suivre.")
         if creation_mode == "script":
@@ -107,6 +145,7 @@ class StoryService:
         recipe = story_recipe_selection({"id": recipe_id, "version": recipe_version})
         if story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") == "forbidden":
             dialogue_register = 0
+            dialogue_language = DEFAULT_DIALOGUE_LANGUAGE
         if not any((item["id"], item["version"]) == (recipe["id"], recipe["version"])
                    for item in self.recipes.list()):
             raise ValueError("Cette famille d’histoire n’est pas installée dans ce Lab.")
@@ -117,7 +156,8 @@ class StoryService:
             clip_seconds=clip_seconds, scene_count=scene_count, document=dict(concepts=[], selected_id=None, scenario=None),
             revisions=[], turns=[], job=None, model_id=writer_model_id.strip(), recipe=recipe,
             architect_model_id=architect_model_id.strip(), writer_model_id=writer_model_id.strip(), diagnostics=[],
-            creation_mode=creation_mode, proposal_count=proposal_count, dialogue_register=dialogue_register))
+            creation_mode=creation_mode, proposal_count=proposal_count, dialogue_register=dialogue_register,
+            dialogue_language=dialogue_language))
 
     def get(self, project_id):
         with self._lock:
@@ -169,10 +209,19 @@ class StoryService:
             if type(index) is not int or not 0 <= index < len(scenario["scenes"]):
                 raise ValueError("Micro-scène introuvable.")
             allowed = {"title", "opening_state", "action", "dialogue", "ending_state",
-                       "relationship_state", "appearance_state", "sexual_state"}
+                       "relationship_state", "appearance_state", "sexual_state", "visual_transition"}
             if not isinstance(changes, dict) or not changes or set(changes) - allowed:
                 raise ValueError("Champs de micro-scène inconnus.")
-            scenario["scenes"][index].update(deepcopy(changes))
+            current_scene = scenario["scenes"][index]
+            transition_became_stale = (
+                "visual_transition" not in changes
+                and "visual_transition" in current_scene
+                and any(field in changes and changes[field] != current_scene[field]
+                        for field in ("opening_state", "action", "ending_state"))
+            )
+            if transition_became_stale:
+                current_scene.pop("visual_transition")
+            current_scene.update(deepcopy(changes))
             recipe = story_recipe_selection(project["recipe"])
             project["document"]["scenario"] = validate_scenario(scenario, recipe["id"], recipe["version"])
             self._snapshot(project, f"Édition manuelle de la scène {index + 1}")
@@ -315,6 +364,11 @@ class StoryService:
             conversation=conversation, recent_concepts_to_avoid=seen[:24],
             response_contract=response_contract(operation, has_scenario, recipe["id"], recipe["version"], count),
             contract_notes=contract_notes)
+        dialogue_allowed = story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") != "forbidden"
+        dialogue_language = dialogue_language_selection(project.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE))
+        if dialogue_allowed:
+            context["dialogue_language"] = dialogue_language
+            context["dialogue_language_label"] = dialogue_language_label(dialogue_language)
         if source_dialogues:
             context["source_dialogues"] = source_dialogues
         system_prompt = package["fields"][field]
@@ -342,12 +396,34 @@ class StoryService:
                 f"{'s' if target_scene_count > 1 else ''} de {clip_seconds} secondes. Ce nombre est obligatoire, même si le contenu "
                 "doit être regroupé ou densifié. Une discussion_only peut ne renvoyer aucun scénario."
             )
+        if operation in {"develop", "script"} or (operation == "revise" and has_scenario):
+            system_prompt += (
+                "\n\nTRANSITIONS VISUELLES : visual_transition est optionnel. Mets-le à null ou omets-le lorsqu’il n’y a "
+                "aucune transformation visuelle importante et persistante dans la micro-scène. Sinon renvoie exactement "
+                "{before, trigger, visible_change, after} : le même clip doit rendre visibles l’état initial, le déclencheur, "
+                "le changement observable puis l’état final, sans commencer après la transformation."
+            )
+            if operation == "script":
+                system_prompt += (
+                    " En mode Script fidèle, ne renseigne visual_transition que si cette transformation est explicitement "
+                    "racontée par le script ; n’invente ni déclencheur ni résultat."
+                )
+            if recipe["id"] == SILENT_CATS_RECIPE_ID:
+                system_prompt += (
+                    " Dans cette famille muette, visual_transition est obligatoire pour toute guérison ou autre changement "
+                    "important d’état physique, d’objet, de tenue ou de salissure, et doit rester compréhensible sans paroles."
+                )
+        if dialogue_allowed:
+            system_prompt += "\n\n" + _dialogue_language_policy(
+                dialogue_language, script=operation == "script",
+                revising=operation == "revise" and has_scenario,
+            )
         dialogue_register = project.get("dialogue_register", 0)
         if story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") == "forbidden":
             dialogue_register = 0
         if operation in {"develop", "revise"} and dialogue_register:
             context["dialogue_register"] = dialogue_register
-            system_prompt += "\n\n" + _DIALOGUE_REGISTER_POLICIES[dialogue_register]
+            system_prompt += "\n\n" + _dialogue_register_policy(dialogue_register, dialogue_language)
             if operation == "revise":
                 system_prompt += (
                     " Les dialogues déjà validés restent inchangés sauf si la demande de révision vise explicitement "
@@ -464,4 +540,8 @@ class StoryService:
         if not scenario:
             raise ValueError("Développez d’abord le scénario.")
         duration = project["clip_seconds"] if include_duration else None
-        return dict(text=scenario_text(scenario, duration), intentions=[scene_intention(scenario, i, duration) for i in range(len(scenario["scenes"]))])
+        recipe_id = story_recipe_selection(project.get("recipe"))["id"]
+        dialogue_language = project.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)
+        return dict(text=scenario_text(scenario, duration, recipe_id, dialogue_language),
+                    intentions=[scene_intention(scenario, i, duration, recipe_id, dialogue_language)
+                                for i in range(len(scenario["scenes"]))])

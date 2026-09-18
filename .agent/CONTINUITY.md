@@ -2,9 +2,25 @@
 
 ## Goal
 
+- **Bypass upscale H3/REF2V, repos vidéo Histoires et monitoring stable implémentés le 18 septembre** : les recettes courantes H3 Base `0.1.7` et REF2V `0.2.5` décodent directement la première passe lorsque la cible effective est égale ou inférieure aux MP initiaux ; une cible inférieure sort à la résolution initiale. Le test A/B peut forcer l’ancienne branche uniquement à dimensions égales. La chaîne Histoires réserve le GPU distant pendant un repos configurable de 30 s entre vidéos, puis applique le garde thermique. Le suivi sépare LLM/GPU, nomme les scènes et ne recrée plus les lecteurs vidéo pendant le polling. BUNNY et recettes historiques restent inchangés.
+
+- **Langue parlée Histoires autorisée et implémentée le 18 septembre** : proposer Français, English, Coréen, Japonais ou Russe au niveau du projet, conserver Français par défaut, ne jamais traduire automatiquement un Script fidèle et transmettre le nom canonique de la langue à la préparation vidéo Histoires sans appel LLM supplémentaire ni modification des ateliers H3/REF2V directs.
+
+- **Diagnostic REF2V classique / Spectrum du 18 septembre — sans correctif PanelForge** : REF2V `minimax-h3-ref2v@0.2.4` fonctionne avec Spectrum désactivé. Les essais avec Spectrum actif échouent dans l’ancien wrapper `ComfyUI-Spectrum-MiniMax-H3` après le changement de signature `FinalLayer.forward` de ComfyUI 0.36.0. Mettre à jour Spectrum vers `v0.2.21` ou plus récent et redémarrer ComfyUI ; en attendant, laisser Spectrum désactivé.
+
+- **Transitions visuelles Histoires autorisées et implémentées le 18 septembre** : marquer uniquement les transformations d’état importantes avec un contrat `before → trigger → visible_change → after`, puis le compiler dans Fabrication. Renforcer la lisibilité sans paroles pour les chats muets, conserver les autres scènes inchangées, protéger Script fidèle contre l’invention et ne modifier ni H3 Direct ni REF2V Direct.
+
+- **Recherche du 17 septembre — lisibilité narrative et contrôle spatial Ref2V, sans implémentation** : auditer la scène 2 du run chats puis confronter les pistes first frame, référence de pose, multi-références et image de composition aux guides MiniMax H3 et retours communautaires. Rester sur le contrôle général de continuité, d'anatomie et de proximité ; ne pas concevoir de prompting pornographique explicite.
+
+- **Correctifs du premier run vidéo Histoires autorisés et implémentés le 17 septembre** : ne plus confondre une pose de sujet telle que `tilted head` avec un mouvement caméra, sans relâcher le rejet des véritables commandes concurrentes. Rendre l'état global de la chaîne lisible en séparant prompts et vidéos, sans doublons de statut, et signaler visuellement les tâches actives.
+
+- **Grand patch Fabrication images + vidéos autorisé et implémenté le 17 septembre** : rationaliser le style et les réglages KREA2 autour d’un bloc commun, avec héritage par défaut et personnalisations Personnages/Décors explicites qui ne sont jamais écrasées silencieusement. Ajouter dans Histoires une vue de toutes les scènes, des réglages vidéo communs ou propres à une scène, une chaîne prompts → vidéos sans validation intermédiaire, pause après les tâches en cours/reprise, puis DLSS manuel par scène uniquement lorsque tous les prompts sont terminés. Ne pas exposer de file technique à l’utilisateur.
+
+- **Snapshot GitHub préalable publié le 17 septembre** : commit `44a9b7f`, branche `snapshots/stories-pre-video-2026-09-17` et tag `snapshot-stories-pre-video-2026-09-17` sur `EasyFrag/panelforge`, avant le grand patch vidéo.
+
 - **Rafraîchissement unifié KREA2 Création assistée implémenté le 17 septembre** : remplacer les boutons séparés catalogue, LLM et projets par une seule petite commande animée dans l'en-tête. Elle recharge en parallèle modèles/LoRA KREA2, modèles LLM, presets de style et projets récents tout en conservant le projet, les sélections et les brouillons en cours.
 
-- **Automatisation vidéo Histoires — alignement uniquement le 17 septembre** : préparer une vue unique de toutes les scènes, sur le modèle de la production d'images, avec réglages vidéo communs/personnalisables, génération des prompts puis mise en file des vidéos. Le DLSS reste manuel par scène, disponible après préparation des prompts et rendu vidéo ; aucune implémentation vidéo n'est autorisée dans ce patch.
+- **Automatisation vidéo Histoires — implémentée le 17 septembre** : vue unique de toutes les scènes, réglages vidéo communs/personnalisables, génération ordonnée des prompts puis des vidéos, pause coopérative et reprise. Le DLSS reste manuel par scène et n’est déverrouillé qu’après préparation de tous les prompts et réussite de la vidéo concernée.
 
 - **Sélecteurs LLM locaux de la fabrication en lot corrigés le 17 septembre** : les profils Personnages et Décors doivent reprendre le sélecteur classique avec case `Local · Unsloth`, locale cochée par défaut, et permettre la bascule explicite entre catalogues local et serveur sans déclarer à tort un modèle local indisponible.
 
@@ -121,6 +137,14 @@
 - **Contrainte confirmée par l’utilisateur les 2026-09-10/11, à préserver** : Combat, Classique et Sensuel sont trois familles de préparation indépendantes. Une modification spécifique ne change pas les deux autres. Partager uniquement les améliorations générales via un socle à versions exactes et une adoption explicite examinée ; aucun héritage de « latest » entre familles. Conserver familles, versions et réglages jusque dans les révisions conversationnelles, conversions et continuations. Application/file/rendu restent communs.
 
 ## Current state
+
+- **Langue parlée Histoires raccordée localement** : le nouveau projet choisit Français, English, 한국어, 日本語 ou Русский à côté du registre. Le choix est persisté avec l’histoire ; les anciennes histoires et fabrications utilisent Français. Les descriptions et `reply` restent en français, tandis que `dialogue.text` suit la langue choisie. Script fidèle conserve chaque mot et affiche qu’aucune traduction n’est faite. Chats muets désactive le sélecteur et normalise la valeur technique sur Français. Fabrication recopie la langue dans son snapshot et demande au Plan REF2V la valeur canonique correspondante dans `spoken_languages`, sans modifier H3 Direct/REF2V Direct et sans appel supplémentaire. Cache Stories `20260918.1`. Régressions Python/API/navigateur préparées ; AST Python et `git diff --check` réussis, tests non lancés conformément aux instructions du dépôt.
+
+- **Diagnostic du run `Le Remède Miracle` et recherche Ref2V terminés** : les quatre keyframes de la scène 2 confirment que Blanc paraît déjà alerte dès l'ouverture. Le prompt déplace la compresse du front vers l'avant-bras, omet la couverture verte et conserve la compresse dans l'état final ; il anime donc argent → excitation → câlin, pas une guérison visible. La scène 3 est jugée réussie par l'utilisateur. Le guide officiel H3 distingue identité de sujet, image-ancre et storyboard de composition, et permet plusieurs assets pour un même sujet. Les retours communautaires signalent ordre/rôles explicites, positions gauche/droite et `ref_image_size=max` pour limiter le mélange ; l'instance Comfy expose bien `match|max`. Pour deux personnages proches, les retours Flux privilégient une composition commune puis inpainting/passes séparées. Le mélange I2V + références existe via conditionnements expérimentaux ; le support H3 Fun ControlNet proposé dans ComfyUI PR 15860 a été fermé, donc ne constitue pas une base stable. Aucun code ni donnée d'exécution modifié.
+
+- **Faux positif `tilted head` et suivi vidéo corrigés localement** : le contrat caméra accepte désormais le participe `tilted` comme adjectif de pose, mais rejette toujours `tilting down`, `tilted down`, les mentions de caméra et les autres mouvements cachés. L'écran Histoires calcule séparément les prompts prêts/en cours/en erreur et les vidéos terminées/en cours/en erreur/bloquées ; les cartes n'affichent plus `Échec du prompt · Échec du prompt` ni `Prompt prêt · Prompt prêt`, et une tâche active porte `aria-busy` avec une pulsation respectant `prefers-reduced-motion`. Cache Episodes `20260917.4`. Vérification : 45 tests ciblés MiniMax H3/Episodes/API/navigateur passent et `git diff --check` est propre. Le run observé n'avait pas planté : scène 2 terminée, scène 3 réellement active dans ComfyUI, une tâche distante en cours et aucune en attente au moment du diagnostic.
+
+- **Fabrication rationalisée et chaîne vidéo Histoires implémentées localement sur `feature/vocal-normalizer-dialogue-register`** : la direction artistique, l’image d’inspiration, le workflow, checkpoint, LoRA et sampling KREA2 vivent dans un seul bloc commun au lot. Personnages et Décors héritent par défaut, gardent format/MP/seed et LLM propres, et n’exposent leurs réglages techniques qu’après `Personnaliser`; les profils historiques restent personnalisés afin qu’un preset ne les écrase pas. Côté vidéo, chaque scène hérite d’un profil commun en conservant durée/seed, peut figer sa propre copie, et apparaît dans une carte avec prompt, rendu et résultat. La chaîne persiste son snapshot, prépare un prompt à la fois, chevauche la rédaction suivante avec la vidéo distante en cours, ordonne les départs H3/REF2V, s’arrête après les tâches actives à la demande et reprend sans refaire les réussites. Le DLSS reste manuel et n’est exposé qu’après tous les prompts et la réussite de la scène. Le renderer partagé a uniquement reçu un mode optionnel `openSetup` sans projet, utilisé par Histoires ; les parcours H3/REF2V directs gardent leur ouverture normale. Validation ciblée : 27 tests Episodes/API/navigateur passent et `git diff --check` est propre. Suite globale : 1 229 tests, 35 échecs et 44 erreurs sur les contrats H3/Combat/fixtures déjà désynchronisés hors de ce patch. Aucun LLM, rendu, DLSS ou service réel n’a été lancé.
 
 - **Le nombre de micro-scènes est maintenant contractuel** : l'appel Writer reçoit deux consignes cohérentes avec `target_scene_count`, les sections d'un script doivent être regroupées, et `parse_response` rejette transactionnellement tout `scenario.scenes` d'une autre taille. L'interface parle de `Nombre exact`, le cache passe à `stories.js?v=20260917.3`, et les anciens documents restent lisibles/éditables sans normalisation destructive. 56 tests Histoires/Fabrication/API/navigateur passent ; aucun LLM ou rendu réel n'a été lancé.
 
@@ -889,9 +913,11 @@
 
 ## Next steps
 
+- **Smoke du grand patch Fabrication** : redémarrer depuis `D:\Code\panelforge-krea2-flux`, faire `Ctrl+F5` pour charger `episodes.js/css?v=20260917.3` et `h3-render-lab.js?v=20260917.1`. Vérifier qu’un preset commun pilote les deux profils hérités, qu’une personnalisation Personnages reste intacte après changement de preset, puis ouvrir Scènes, régler le profil vidéo commun avant tout prompt et lancer `Prompts + vidéos`. Tester `Pause après les tâches en cours`, `Reprendre`, les cartes/results et le déverrouillage DLSS final.
+
 - **Vérifier la compression exacte sur le script des chats** : redémarrer le Lab, faire Ctrl+F5 pour charger `stories.js?v=20260917.3`, choisir `Chats de couple · muet`, Script fidèle, 3 micro-scènes de 10 s, puis recoller les sept événements. Attendu : exactement trois scènes regroupées (maladie/offres, billets/câlin, boutique/promenade), aucun dialogue. Si le LLM ignore encore la quantité, le job doit échouer avec le brouillon conservé plutôt qu'appliquer sept scènes.
 
-- **Essai utilisateur Fabrication 1.2** : redémarrer le Lab et faire Ctrl+F5, ouvrir Histoires → Fabrication, vérifier les deux profils et les libellés de workflow, lancer deux ou trois références et confirmer qu’un seul prompt LLM tourne à la fois tandis que KREA2 distant peut rendre en parallèle. Retenir chaque image puis seulement passer aux scènes. Observer les états Local/Distant et tester des seuils thermiques prudents. La prochaine automatisation éventuelle commence après cette validation humaine et doit ordonnancer prompts de scènes, vidéos, DLSS vidéo final puis assemblage ; elle n’est pas incluse ici.
+- **Essai utilisateur Fabrication 1.2** : ouvrir Histoires → Fabrication, vérifier les deux profils et les libellés de workflow, lancer deux ou trois références et confirmer qu’un seul prompt LLM tourne à la fois tandis que KREA2 distant peut rendre en parallèle. Retenir chaque image, observer les états Local/Distant et tester des seuils thermiques prudents avant la chaîne vidéo. L’assemblage final reste hors périmètre.
 
 - **Essai utilisateur voix off / registre** : redémarrer le Lab depuis `D:\Code\panelforge-krea2-flux`, puis faire Ctrl+F5 pour charger `stories.js/css?v=20260917.1`. Créer une histoire à registre 0 puis 2 ou 3 et comparer uniquement le vocabulaire des dialogues ; vérifier que Script fidèle grise le curseur et conserve chaque mot. Dans Fabrication, repréparer une scène avec `VOIX OFF` via Classique 1.0 et vérifier dans le prompt final la forme `(Sx) says in an off-screen voiceover` suivie de la consigne de lèvres fermées ; une réplique `DERRIÈRE LA PORTE` doit rester hors champ. Le futur curseur de densité doit être discuté séparément après ces essais.
 
@@ -3527,3 +3553,201 @@
 ### Risks / open questions
 - Le rescan des catalogues peut continuer côté serveur après la réponse initiale ; le message compact indique alors l'actualisation en arrière-plan même si l'animation du clic est terminée.
 - Pour la vidéo Histoires, il faudra décider si le bouton de génération globale s'arrête après tous les prompts ou peut aussi remplir automatiquement la file vidéo après une validation humaine globale.
+
+## Patch 2026-09-17 — réglages communs lean et chaîne vidéo Histoires
+
+### Works
+- Snapshot préalable publié : `44a9b7f`, branche et tag `snapshot-stories-pre-video-2026-09-17`.
+- Un seul bloc Direction artistique + KREA2 pilote style, image d’inspiration, workflow, checkpoint, LoRA et sampling. Les profils Personnages/Décors héritent explicitement ou conservent une personnalisation isolée ; format, MP, seed et LLM restent par profil.
+- Les anciens profils sans marqueur d’héritage sont traités comme personnalisés. Un changement ou une réapplication de preset ne les écrase donc pas.
+- Les réglages vidéo possèdent une révision commune et une copie effective par scène. Durée et seed restent propres à la scène ; la personnalisation coupe l’héritage et le retour aux réglages communs est explicite.
+- Le renderer REF2V peut ouvrir ses seuls contrôles de réglage avant qu’un projet/prompt existe. Cette capacité est optionnelle et utilisée seulement dans Fabrication.
+- La vue Scènes affiche toutes les micro-scènes, leur état de prompt/rendu, la vidéo produite, l’accès à l’éditeur détaillé et le DLSS manuel lorsqu’il est éligible.
+- La chaîne prépare les prompts séquentiellement, laisse le rendu distant précédent progresser pendant le prompt suivant, ne démarre qu’une vidéo à la fois, et persiste erreurs, résultats, pause coopérative et reprise. Aucun écran de queue technique n’est ajouté.
+- Validation : 27 tests ciblés verts, compilation Python et `git diff --check` réussis. La suite complète exécute 1 229 tests avec 35 échecs et 44 erreurs hors périmètre déjà présents dans les contrats H3/Combat et fixtures historiques.
+
+### Broken / missing
+- Aucun smoke réel n’a encore validé les appels Unsloth, les rendus KREA2/H3, l’attente thermique, la pause pendant une vraie génération ou le lancement DLSS depuis une carte.
+- L’assemblage des scènes, les transitions et l’export d’un épisode complet restent hors périmètre.
+- Node.js n’est pas installé ; la syntaxe JS est couverte par les tests navigateur ciblés, pas par `node --check`.
+
+### Next steps (max 3)
+1. Redémarrer, faire `Ctrl+F5`, puis tester héritage commun et profil personnalisé avec un preset réel.
+2. Sur un épisode court de deux ou trois scènes, régler le profil vidéo avant les prompts, lancer la chaîne, demander une pause puis reprendre et vérifier les vidéos sur les cartes.
+3. Une fois tous les prompts et rendus terminés, lancer manuellement un DLSS depuis une carte et confirmer qu’aucun nouvel appel LLM ne démarre.
+
+### Risks / open questions
+- Une interruption de processus est récupérable par `Reprendre`, mais un rendu ComfyUI distant encore actif au redémarrage doit être réconcilié par le projet H3 avant de relancer afin d’éviter un doublon ; à vérifier au smoke réel.
+- La vue globale affiche l’état de production sans exposer la file interne, conformément au choix UX. Les priorités entre une action manuelle hors Histoires et la chaîne restent celles du coordinateur global FIFO.
+
+## Patch 2026-09-17 — faux positif caméra et lisibilité de la chaîne
+
+### Works
+- `toward Roux's sly tilted head` est valide : `tilted` peut décrire une pose de sujet. Les mouvements cachés `tilting down` et `tilted down` restent rejetés, de même que les mentions explicites de caméra.
+- Le résumé global sépare désormais les compteurs Prompts et Vidéos et qualifie la chaîne active, en pause, interrompue ou terminée.
+- Les cartes distinguent prompt prêt, vidéo en attente, rendu en cours, vidéo terminée et erreurs sans répéter le même libellé. Une tâche en cours est animée et porte `aria-busy`; l'animation est coupée si le navigateur demande moins de mouvement.
+- Les assets Episodes utilisent la révision de cache `20260917.4`.
+- Validation : 45 tests ciblés passent et `git diff --check` ne relève aucune erreur de contenu.
+
+### Broken / missing
+- Le processus PanelForge déjà lancé doit être redémarré pour charger le nouveau validateur Python ; un `Ctrl+F5` est ensuite nécessaire pour les nouveaux JS/CSS.
+- Le run actuellement enregistré conserve normalement l'ancien échec de scène 1 jusqu'à l'action `Reprendre la chaîne`.
+
+### Next steps (max 3)
+1. Laisser finir le rendu H3 déjà actif avant de redémarrer PanelForge.
+2. Redémarrer, faire `Ctrl+F5`, puis reprendre la chaîne : les scènes 2 et 3 réussies doivent être ignorées et seule la scène 1 retentée.
+3. Vérifier que le résumé affiche simultanément les compteurs prompts et vidéos pendant ce retry.
+
+## Patch 2026-09-18 — transformations visuelles conditionnelles Histoires
+
+### Works
+- Le scénario accepte un `visual_transition` strictement optionnel avec quatre étapes : `before`, `trigger`, `visible_change`, `after`. Un objet incomplet est rejeté ; une scène sans transformation conserve exactement son ancien document et son ancien prompt de fabrication.
+- Les appels Writer/Révision apprennent à n’utiliser ce champ que pour un changement visuel important et persistant. Script fidèle interdit d’inventer un déclencheur ou un résultat absent de la source.
+- Une édition manuelle qui change réellement l’état initial, l’action ou l’état final retire l’ancien marqueur plutôt que de conserver silencieusement une transition devenue incohérente.
+- La famille Chats muets exige ce contrat pour une guérison ou un changement important d’état physique, d’objet, de tenue ou de salissure. Le prompt Fabrication rappelle que les quatre temps doivent être compris sans parole, narration ni texte écran.
+- La compilation se fait seulement dans l’atelier Histoires et son export ; H3 Direct et REF2V Direct ne passent pas par ce chemin et restent inchangés.
+- Validation : 56 tests Histoires/Fabrication/API/navigateur passent, compilation Python et `git diff --check` réussissent.
+
+### Broken / missing
+- Les scénarios déjà enregistrés ne sont pas réécrits automatiquement. Pour profiter du nouveau contrat, il faut demander une révision ou générer une nouvelle histoire, puis créer une nouvelle fabrication si le scénario a changé.
+- Aucun rendu H3 réel n’a encore vérifié la guérison du chat avec les quatre temps visuels.
+- La suite complète reste rouge hors de cette surface : 1 358 tests exécutés, 40 échecs et 33 erreurs dans les contrats/fixtures H3, Combat et historiques déjà désynchronisés ; les tests ciblés modifiés restent verts.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis générer ou réviser la scène du chat malade.
+2. Vérifier dans le prompt résolu de Fabrication la présence du bloc `TRANSITION VISUELLE À MONTRER DANS CE CLIP` uniquement sur la scène de guérison.
+3. Rendre quelques seeds et comparer la lisibilité de l’état malade initial, du déclencheur et de l’état final guéri.
+
+### Risks / open questions
+- Le champ améliore le contrat narratif mais ne rend pas H3 déterministe ; un état initial très bref peut encore nécessiter un ajustement de l’action ou un autre seed.
+
+## Diagnostic 2026-09-18 — REF2V classique et Spectrum
+
+### Works
+- Les données du run montrent trois échecs récents `minimax-h3-ref2v@0.2.4` avec `spectrum_enabled=true`, tous sur `FinalLayer.forward() missing sigma, sample_sigmas, shifts`.
+- Le nouvel essai du même projet, même recette et même checkpoint avec `spectrum_enabled=false` démarre normalement ; l’utilisateur confirme que le rendu sans Spectrum fonctionne.
+- Le workflow PanelForge transmet correctement le booléen au nœud `SpectrumApplyMiniMaxH3`. La panne se situe dans le wrapper Spectrum chargé par ComfyUI 0.36.0, pas dans le workflow REF2V classique ni dans le prompting Histoires.
+- La release officielle Spectrum `v0.2.21` annonce précisément la compatibilité avec le nouveau contrat PDD et la correction de cette exception.
+
+### Broken / missing
+- La version réellement chargée du custom node Spectrum sur le serveur n’est pas exposée par PanelForge. Le traceback prouve néanmoins que son ancien chemin à quatre arguments est encore exécuté.
+- Aucun correctif applicatif n’a été appliqué. Spectrum reste opt-in et désactivé par défaut.
+
+### Next steps (max 3)
+1. Continuer les rendus REF2V classique avec Spectrum désactivé.
+2. Mettre à jour `ComfyUI-Spectrum-MiniMax-H3` vers `v0.2.21` ou plus récent, puis redémarrer complètement ComfyUI.
+3. Faire un essai court avec Spectrum réactivé ; si l’erreur persiste, vérifier que ComfyUI charge bien les fichiers du nouveau commit et qu’aucune seconde copie du custom node n’existe.
+
+## Patch 2026-09-18 — langue parlée des dialogues Histoires
+
+### Works
+- Le formulaire Nouvelle histoire propose `French`, `English`, `Korean`, `Japanese` et `Russian`, avec libellés lisibles et Français sélectionné par défaut. La langue et le registre restent deux axes indépendants.
+- Le projet persiste `dialogue_language`. Les histoires historiques sans ce champ sont normalisées sur `French`; la famille Chats muets désactive visuellement le choix et conserve une valeur technique neutre `French`.
+- Les appels d’écriture reçoivent la langue cible sans appel supplémentaire. Seul `dialogue.text` change de langue ; descriptions, actions, autres champs narratifs et `reply` restent en français. Les registres 1–3 demandent un oral/argot naturel dans la langue cible plutôt qu’une traduction littérale des exemples français.
+- Script fidèle déclare la langue réellement présente, conserve les paroles mot pour mot et interdit traduction, translittération et reformulation. Le registre reste forcé à zéro comme auparavant.
+- Les exports d’intentions affichent la langue parlée. Une Fabrication nouvelle la copie dans son snapshot ; la préparation de chaque scène impose ensuite le nom canonique dans `spoken_languages` afin que le compilateur Classique produise la balise H3 correspondante. Les ateliers H3 Direct et REF2V Direct ne sont pas modifiés.
+- Le cache `stories.js` passe à `20260918.1`. Des régressions couvrent persistance, validation API, héritage Français, Script fidèle, Chats muets, interface et propagation coréenne vers Fabrication. Vérifications effectuées : parsing AST Python et `git diff --check`; aucune génération, aucun service et aucun test automatisé lancé.
+
+### Broken / missing
+- La qualité de prononciation et de synchronisation pour le coréen, le japonais et le russe n’a pas encore été qualifiée sur un rendu H3 réel.
+- La V1 est volontairement monolingue par histoire : aucune surcharge par scène ou par réplique et aucune traduction automatique d’un scénario existant.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` afin de charger `stories.js?v=20260918.1`.
+2. Créer une courte histoire dans une langue non française et vérifier que les descriptions restent françaises tandis que toutes les répliques utilisent la langue choisie.
+3. Ouvrir sa Fabrication et contrôler dans le prompt préparé la balise finale `<d>[Korean|Japanese|Russian|English] …</d>` correspondant au choix avant de lancer un rendu court.
+
+### Risks / open questions
+- H3 peut varier en qualité selon la langue et la voix ; le contrat garantit la langue déclarée dans le prompt, pas la qualité acoustique du moteur.
+- Un utilisateur qui colle un script français tout en sélectionnant Japonais obtient volontairement un contrat incohérent plutôt qu’une traduction silencieuse. L’aide UI demande de sélectionner la langue réellement écrite ; une future détection pourrait rester un warning non bloquant.
+
+## Audit 2026-09-18 — passe d’upscale H3 et dernier run Histoires
+
+### Works
+- Les recettes courantes H3 Base `minimax-h3-latent-speed@0.1.6` et REF2V `minimax-h3-ref2v@0.2.4` suivent toutes deux : diffusion principale, upscale latent 3D, raffinement de trois étapes, puis décodage.
+- Le nœud officiel `MinimaxH3LatentUpscaler3D` retourne l’entrée inchangée à une échelle effective de 1,0 ; avec le même ratio et les mêmes dimensions alignées, l’upscale seul est donc bien inutile.
+- Le raffinement qui suit reste néanmoins une vraie seconde diffusion. Court-circuiter toute la branche à MP égaux accélérera le rendu mais pourra changer le résultat ; cela mérite un A/B avant d’en faire le défaut.
+- Sur la dernière histoire `story-31c126346a544990a5fc781f3cae9d60`, l’appel Ideas Qwen a duré 186,0 s avec 60 167 caractères de raisonnement pour 2 239 caractères de réponse. Le développement Gemma a duré 69,8 s avec 3 419 caractères de raisonnement pour 5 651 caractères de réponse.
+- Le long raisonnement Qwen boucle surtout sur le choix de l’antagoniste et de la fin. La sortie est valide, mais une partie de la fin longuement arbitrée est abandonnée par le Writer ; le coût supplémentaire n’est donc pas proportionnel au gain observé.
+
+### Broken / missing
+- Les graphes publiés ne possèdent pas encore de chemin de décodage direct depuis la première passe ; aucun bypass n’a été implémenté.
+- Le contrôle actuel accepte des MP finaux inférieurs aux MP initiaux hors BUNNY, alors que l’upscaler officiel refuse une échelle effective inférieure à 1,0.
+- Le scénario final a trois avertissements de densité de dialogue (29, 27 et 40 mots pour 10 s) et sa dernière scène finit surtout sur un état émotionnel, alors que la recette demande une conséquence accomplie.
+
+### Next steps (max 3)
+1. Comparer quelques seeds à MP initial = MP final avec et sans la branche upscale + raffinement pour mesurer qualité, temps et cohérence.
+2. Si le bypass est retenu, comparer les dimensions effectives alignées à 32 pixels, décoder directement la première passe à égalité et rejeter une cible réellement inférieure.
+3. Tester un profil Ideas plus court sur le même brief (budget de raisonnement ou modèle Architecte plus sobre) avant de modifier les plafonds globaux.
+
+## Alignement 2026-09-18 — bypass upscale et garde thermique vidéo
+
+### Works
+- Décision proposée pour A/B : lorsque la résolution cible effective est égale ou inférieure à la résolution initiale, décoder directement la première passe ; lorsque la cible est supérieure, conserver upscale latent + raffinement. Une cible inférieure bypassée sort donc à la résolution initiale et n’effectue pas de downscale.
+- Un contrôle temporaire `Forcer l’upscale` doit permettre de rejouer l’ancienne branche à dimensions égales avec le même seed. Sous la résolution initiale, le vrai upscaler ne peut pas être forcé car son contrat interdit une échelle inférieure à 1,0.
+- Les vidéos Histoires utilisent bien `H3RenderService.execute_attempt`, qui prend un lease `REMOTE_GPU` auprès du coordinateur commun avant de soumettre le workflow ComfyUI.
+- La politique active observée via l’API est `stop=85 °C`, `resume=40 °C`, `cooldown=120 s`, surveillance distante active. Le H3 en cours était à 81 °C : sous 85 °C, son départ immédiat est conforme à la politique actuelle.
+
+### Broken / missing
+- Le garde thermique est un seuil d’urgence, pas un refroidissement systématique entre rendus : si le job suivant acquiert la machine à 84 °C, il part immédiatement. Le délai de 120 s ne s’applique qu’après franchissement de 85 °C, une fois la température redescendue à 40 °C.
+- La chaîne vidéo Histoires ne possède ni réglages thermiques ni snapshot propre. Elle réutilise la politique globale du coordinateur, actuellement configurée depuis le lot d’images de référence ou initialisée par défaut ; ce couplage est peu visible et surprenant.
+- Les décisions thermiques ne sont pas historisées par job. On peut confirmer le chemin de code et la politique live, mais pas reconstruire après coup la température exacte à l’instant où chaque vidéo a démarré.
+
+### Next steps (max 3)
+1. Valider la sémantique thermique souhaitée : simple seuil d’urgence, ou refroidissement obligatoire entre deux vidéos distantes.
+2. Au prochain patch, persister et afficher la politique thermique propre à la chaîne vidéo, avec un état explicite `Refroidissement` lorsqu’elle attend.
+3. Implémenter le bypass et le contrôle A/B dans de nouvelles versions de recettes H3 Base et REF2V, sans modifier les manifests publiés.
+
+## Proposition 2026-09-18 — upscale auto, repos vidéo et monitoring Histoires
+
+### Goal
+- Livrer un patch cohérent couvrant : bypass de la branche upscale lorsque la cible effective n’est pas supérieure, pause distante obligatoire de 30 s entre deux vidéos, et monitoring Histoires lisible sans interrompre la lecture des résultats.
+
+### Proposed behavior
+- H3 Base courant et REF2V courant : cible effective supérieure => upscale + finition ; cible égale ou inférieure => décodage de la première passe. Une cible inférieure produit la résolution initiale, sans downscale. BUNNY reste hors périmètre.
+- Une case temporaire partagée `Forcer l’upscale · test A/B` réactive l’ancienne branche à dimensions égales. Elle est persistée avec l’essai, visible dans son résumé et désactivée sous la résolution initiale.
+- La chaîne Histoires stocke `inter_video_cooldown_seconds=30`. Après une vidéo réellement exécutée et avant la suivante, le serveur distant reste réservé mais inactif pendant 30 s ; les appels LLM locaux peuvent continuer.
+- Le repos fixe précède le garde thermique existant. Après les 30 s, si le seuil thermique est atteint, l’attente thermique se prolonge selon `stop/resume/stabilisation`.
+- Le monitoring expose deux voies distinctes : `LLM local` avec le nom de la scène promptée et `GPU distant` avec la scène rendue, en refroidissement ou en attente. Deux progressions remplacent le compteur global ambigu : prompts prêts et vidéos terminées.
+- Les cartes conservent deux états indépendants, Prompt et Vidéo. Une pause demandée nomme les tâches qui terminent et ce qui ne démarrera pas.
+
+### UX / technical findings
+- Le polling actuel tourne toutes les deux secondes et `drawVideoOverview()` appelle `replaceChildren()` sur toutes les cartes. Chaque rafraîchissement détruit puis recrée les éléments `<video>`, ce qui interrompt la lecture.
+- Le patch proposé réconcilie les cartes par `scene_id`, conserve le même lecteur tant que son `asset_id` ne change pas et met à jour seulement textes, badges, compteurs et nouveaux médias.
+- Le compte à rebours repose sur un `cooldown_until` serveur persisté ; l’UI le rafraîchit chaque seconde localement et le recale sur le polling. Pause/reprise et rechargement ne réinitialisent donc pas artificiellement les 30 s.
+
+### Implementation slices
+1. Nouvelles versions des manifests H3 Base/REF2V et décision de branche testée sur les dimensions effectives alignées ; propagation/persistance du booléen A/B dans le composant H3 partagé et les essais.
+2. Contrat de chaîne vidéo enrichi (`prompt_status`, `video_status`, scène active, cooldown configuré et échéance), réservation distante de 30 s entre rendus et état public avec temps restant.
+3. Monitoring DOM stable, deux voies actives, deux barres de progression, badges par scène, pause explicite et tests navigateur prouvant qu’un polling ne remplace pas un lecteur en cours.
+
+### Open points
+- Le repos obligatoire ne retarde pas la fin après la dernière vidéo : il s’applique seulement lorsqu’une vidéo suivante existe.
+- Une erreur avant toute exécution Comfy ne déclenche pas le repos ; une tentative ayant réellement occupé le GPU le déclenche même si elle termine en échec.
+
+## Patch 2026-09-18 — bypass upscale, repos distant et monitoring Histoires
+
+### Works
+- Nouvelles recettes courantes et isolées : H3 Base `minimax-h3-latent-speed@0.1.7` et REF2V `minimax-h3-ref2v@0.2.5`. Les versions `0.1.6` et `0.2.4` restent rouvrables comme historiques.
+- La décision compare les dimensions effectives sur la grille 32 px. Une cible supérieure conserve upscale latent + raffinement ; une cible égale ou inférieure reconnecte les décodeurs à la première diffusion et élague réellement les nœuds inutiles du graphe. Une cible inférieure sort à la résolution initiale, sans downscale.
+- Le contrôle temporaire `Forcer l’upscale` est commun à H3 et REF2V, persiste avec l’essai et réactive l’ancien chemin uniquement à dimensions égales. Il reste caché pour BUNNY et les recettes historiques.
+- La chaîne vidéo Histoires persiste un repos configurable de 1 à 3 600 s, 30 s par défaut. Après un rendu et avant le suivant, le lease `REMOTE_GPU` reste détenu pendant le compte à rebours ; les traitements locaux peuvent continuer. Le garde thermique normal est ensuite évalué à l’acquisition suivante.
+- Le statut machine expose l’opération de refroidissement et les secondes restantes. La chaîne persiste aussi `cooldown_until` et la scène concernée afin que l’interface puisse afficher un timer fiable.
+- Le monitoring Histoires affiche deux voies et deux progressions distinctes : prompt/LLM local et rendu/GPU distant. Chaque voie nomme la scène active, distingue file/rendu/refroidissement et explique la pause coopérative.
+- Les cartes vidéo sont maintenant réconciliées par `scene_id`. Le lecteur n’est remplacé que si son `asset_id` change ; un polling de statut n’interrompt plus la lecture.
+- Documentation : `docs/h3-upscale-bypass-and-story-cooldown.md`. Cache frontend H3/Episodes passé à `20260918.1`.
+- Validation : compilation Python, `git diff --check` et 82 tests ciblés verts. La suite complète exécute 1 365 tests et reste rouge avec 47 échecs et 33 erreurs sur les contrats/fixtures historiques déjà désynchronisés ; aucun échec n’apparaît dans la surface ciblée de ce patch.
+
+### Broken / missing
+- Aucun rendu ComfyUI réel n’a encore comparé visuellement le bypass et la finition forcée avec une même seed.
+- Le monitoring conserve volontairement le statut de chaîne compact existant et en dérive les deux voies ; il n’ajoute pas deux machines d’état persistées indépendantes par scène.
+- Le contrôle A/B est temporaire et devra être retiré après qualification visuelle.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge et faire `Ctrl+F5` pour charger les assets `20260918.1` et les recettes courantes `0.1.7` / `0.2.5`.
+2. À MP initiaux = MP cible, comparer deux rendus avec la même seed, bypass par défaut puis `Forcer l’upscale`, et relever temps/qualité.
+3. Lancer au moins deux scènes Histoires et vérifier le timer de 30 s, le nom des scènes dans les deux voies et la lecture continue d’une vidéo pendant le polling.
+
+### Risks / open questions
+- Le bypass retire aussi les trois étapes de finition ; le gain de temps est certain au niveau du graphe, mais son effet visuel dépendra des contenus et checkpoints.
+- Une tentative ayant réellement été soumise déclenche le repos même si ComfyUI finit en échec, choix conservateur pour le matériel.

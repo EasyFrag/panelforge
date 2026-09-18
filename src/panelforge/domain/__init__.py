@@ -71,6 +71,7 @@ from .h3_render import (
     H3RenderTurnRole,
     H3VideoLoraSelection,
     canonical_h3_video_lora_name,
+    h3_upscale_plan,
 )
 from .social_lab import (
     SocialChannelProfile,

@@ -16,6 +16,15 @@ SILENT_CATS_RECIPE_ID = "story.silent-cats"
 SILENT_CATS_RECIPE_VERSION = "1.0.0"
 MAX_STORY_REPLY_CHARS = 144_000
 DIALOGUE_DELIVERIES = frozenset({"spoken", "voice_over", "off_screen", "thought", "mediated"})
+DEFAULT_DIALOGUE_LANGUAGE = "French"
+DIALOGUE_LANGUAGES = {
+    "French": "Français",
+    "English": "English",
+    "Korean": "한국어 · Coréen",
+    "Japanese": "日本語 · Japonais",
+    "Russian": "Русский · Russe",
+}
+VISUAL_TRANSITION_FIELDS = ("before", "trigger", "visible_change", "after")
 
 _STORY_RECIPES = {
     (RECIPE_ID, RECIPE_VERSION): {
@@ -69,6 +78,16 @@ _STORY_RECIPES = {
     },
 }
 CONCEPT_FIELDS = tuple(field for field, _ in _STORY_RECIPES[(RECIPE_ID, RECIPE_VERSION)]["concept_fields"])
+
+
+def dialogue_language_selection(value=DEFAULT_DIALOGUE_LANGUAGE):
+    if not isinstance(value, str) or value not in DIALOGUE_LANGUAGES:
+        raise ValueError("Langue parlée inconnue.")
+    return value
+
+
+def dialogue_language_label(value=DEFAULT_DIALOGUE_LANGUAGE):
+    return DIALOGUE_LANGUAGES[dialogue_language_selection(value)]
 
 
 def story_recipe_spec(recipe_id=RECIPE_ID, version=RECIPE_VERSION):
@@ -148,6 +167,17 @@ def _items(value, name, minimum, maximum):
     if not isinstance(value, list) or not minimum <= len(value) <= maximum:
         raise ValueError(f"{name} : entre {minimum} et {maximum} éléments attendus.")
     return value
+
+
+def _visual_transition(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != set(VISUAL_TRANSITION_FIELDS):
+        raise ValueError(
+            "visual_transition doit contenir exactement before, trigger, visible_change et after."
+        )
+    return {field: _text(value.get(field), f"visual_transition.{field}", 1500)
+            for field in VISUAL_TRANSITION_FIELDS}
 
 
 def validate_concepts(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION, expected_count=3):
@@ -357,6 +387,9 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
                  ("title", "location_id", "action", "opening_state", "ending_state")}
         for field in scene_extensions:
             scene[field] = _text(item.get(field), field, 3000)
+        transition = _visual_transition(item.get("visual_transition"))
+        if transition is not None:
+            scene["visual_transition"] = transition
         ids = _items(item.get("character_ids"), "Personnages de la scène", 1, 12)
         if any(not isinstance(character, str) or character not in characters for character in ids) or len(set(ids)) != len(ids):
             raise ValueError("Une scène utilise un personnage inconnu ou en double.")
@@ -432,7 +465,8 @@ def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_versi
                  "opening_state": "Situation et objets au début.",
                  "action": "Événements, actions et réactions enchaînés. Aucune caméra imposée.",
                  "dialogue": dialogue_items,
-                 "ending_state": "Ce qui a changé et doit rester vrai dans la suite."}
+                 "ending_state": "Ce qui a changé et doit rester vrai dans la suite.",
+                 "visual_transition": None}
         scene_examples = {
             "relationship_state": "Désir, rapport entre participants et degré de proximité à cet instant.",
             "appearance_state": "Tenues, nudité, vêtements déplacés et accessoires, sans ambiguïté de continuité.",
@@ -510,7 +544,25 @@ def dialogue_instruction(line, speaker):
     return f"{label} : « {line['text']} »"
 
 
-def scene_intention(scenario, index, duration=None):
+def visual_transition_instruction(scene, *, silent=False):
+    transition = scene.get("visual_transition")
+    if not transition:
+        return None
+    lines = [
+        "TRANSITION VISUELLE À MONTRER DANS CE CLIP :",
+        f"Avant visible : {transition['before']}",
+        f"Déclencheur : {transition['trigger']}",
+        f"Changement observable : {transition['visible_change']}",
+        f"Après visible : {transition['after']}",
+        "Montre ces quatre temps dans cet ordre, sans commencer après le changement ni sauter directement au résultat.",
+    ]
+    if silent:
+        lines.append("La transformation doit être comprise sans parole, narration ni texte à l’écran.")
+    return "\n".join(lines)
+
+
+def scene_intention(scenario, index, duration=None, recipe_id=RECIPE_ID,
+                    dialogue_language=DEFAULT_DIALOGUE_LANGUAGE):
     scene = scenario["scenes"][index]
     people = {character["id"]: character for character in scenario["characters"]}
     location = next(location for location in scenario["locations"] if location["id"] == scene["location_id"])
@@ -526,7 +578,14 @@ def scene_intention(scenario, index, duration=None):
     if scene.get("sexual_state"):
         lines.append(f"Position et contacts sexuels au début : {scene['sexual_state']}")
     lines.append(scene["action"])
+    transition = visual_transition_instruction(
+        scene, silent=recipe_id == SILENT_CATS_RECIPE_ID
+    )
+    if transition:
+        lines.append(transition)
     if scene["dialogue"]:
+        language = dialogue_language_selection(dialogue_language)
+        lines.append(f"Langue parlée des dialogues : {dialogue_language_label(language)}.")
         lines.append("Répliques à prononcer exactement, en respectant cet ordre et ces locuteurs :\n" + "\n".join(
             dialogue_instruction(line, people[line["speaker_id"]]["name"]) for line in scene["dialogue"]))
     else:
@@ -545,7 +604,9 @@ def scene_intention(scenario, index, duration=None):
     return "\n\n".join(lines)
 
 
-def scenario_text(scenario, duration):
+def scenario_text(scenario, duration, recipe_id=RECIPE_ID,
+                  dialogue_language=DEFAULT_DIALOGUE_LANGUAGE):
     return f"{scenario['title']}\n\n{scenario['logline']}\n\n" + "\n\n".join(
-        f"MICRO-SCÈNE {index + 1} — {scene['title']}\n\n{scene_intention(scenario, index, duration)}"
+        f"MICRO-SCÈNE {index + 1} — {scene['title']}\n\n"
+        f"{scene_intention(scenario, index, duration, recipe_id, dialogue_language)}"
         for index, scene in enumerate(scenario["scenes"]))

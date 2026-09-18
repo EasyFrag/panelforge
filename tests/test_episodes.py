@@ -11,10 +11,12 @@ from panelforge.application.episodes import EpisodeConflict, EpisodeService
 from panelforge.application.stories import StoryService
 from panelforge.application.prompt_lab import StreamEventKind
 from panelforge.domain.episodes import initial_episode, scene_inputs, fingerprint, style_context
+from panelforge.domain.stories import SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION
 from panelforge.domain.krea2_sampling import Krea2AssistedSettings, Krea2AssistedSampling
 from panelforge.domain.krea2_batch import Krea2AspectRatio, Krea2LoraSelection
 from panelforge.domain.krea2_assisted_workflows import KREA2_FLUX_KLEIN_WORKFLOW
 from panelforge.domain.krea2_assisted import Krea2AssistedAttemptStatus
+from panelforge.domain.h3_render import H3RenderAttemptStatus
 from panelforge.domain.production import ThermalPolicy
 from panelforge.domain.krea2_style_presets import Krea2StylePreset
 from panelforge.domain.prompt_composition import CompositionStage
@@ -43,6 +45,45 @@ class EpisodeDialogueDeliveryTest(unittest.TestCase):
         self.assertIn("Victor — VOIX OFF : « Vous avez pris mon portefeuille ! »", text)
         self.assertIn("Respecte exactement les modes de restitution indiqués", text)
         self.assertNotIn("Sans voix off", text)
+
+    def test_scene_inputs_carry_the_story_language_to_the_ref2v_plan(self):
+        scenario = deepcopy(SCENARIO)
+        scenario["scenes"][0]["dialogue"][0]["text"] = "제 지갑을 가져갔어요!"
+        scenario["scenes"][0]["dialogue"][1]["text"] = "주머니에서 보여요."
+        story = dict(project_id="story-" + "a" * 32, clip_seconds=10, dialogue_language="Korean",
+                     document={"scenario": scenario}, revisions=[{"revision": 1}])
+        episode = initial_episode(story, "episode-" + "b" * 32)
+        text = scene_inputs(episode, episode["scenes"][0], require_images=False)["source_text"]
+        self.assertEqual(episode["dialogue_language"], "Korean")
+        self.assertIn("Langue parlée obligatoire : 한국어 · Coréen", text)
+        self.assertIn("spoken_languages correspondant à ces répliques contient exactement Korean", text)
+        self.assertIn("Victor : « 제 지갑을 가져갔어요! »", text)
+
+    def test_story_visual_transition_is_conditional_and_stronger_for_silent_cats(self):
+        plain_story = dict(project_id="story-" + "a" * 32, clip_seconds=10,
+            document={"scenario": deepcopy(SCENARIO)}, revisions=[{"revision": 1}])
+        plain_episode = initial_episode(plain_story, "episode-" + "b" * 32)
+        plain_text = scene_inputs(plain_episode, plain_episode["scenes"][0], require_images=False)["source_text"]
+        self.assertNotIn("TRANSITION VISUELLE", plain_text)
+
+        cats_story = deepcopy(plain_story)
+        cats_story["recipe"] = {"id": SILENT_CATS_RECIPE_ID, "version": SILENT_CATS_RECIPE_VERSION}
+        scene = cats_story["document"]["scenario"]["scenes"][0]
+        scene.update(dialogue=[],
+            relationship_state="Le chat roux tente de rassurer le chat blanc.",
+            appearance_state="Le chat blanc porte une compresse et reste sous une couverture verte.",
+            visual_transition={
+                "before": "Le chat blanc est tassé sous la couverture, compresse sur le front.",
+                "trigger": "Le chat roux lui montre une liasse de billets.",
+                "visible_change": "Le chat blanc se redresse, écarquille les yeux et enlève la compresse.",
+                "after": "Le chat blanc se tient debout, souriant et alerte, sans compresse.",
+            })
+        cats_episode = initial_episode(cats_story, "episode-" + "c" * 32)
+        text = scene_inputs(cats_episode, cats_episode["scenes"][0], require_images=False)["source_text"]
+        self.assertEqual(cats_episode["story_recipe"]["id"], SILENT_CATS_RECIPE_ID)
+        self.assertIn("TRANSITION VISUELLE À MONTRER DANS CE CLIP", text)
+        self.assertIn("Changement observable : Le chat blanc se redresse", text)
+        self.assertIn("La transformation doit être comprise sans parole", text)
 
 
 class InlineThread:
@@ -133,13 +174,28 @@ class EpisodeTest(unittest.TestCase):
         self.composition = FakeComposition(self.prompt)
         self.rendered = {}
         def create_render(session_id):
-            project = NS(project_id=f"render-{session_id}", attempts=[])
+            project = NS(project_id=f"render-{session_id}", attempts=[], current_prompt="Generated video prompt")
+            project.attempt = lambda attempt_id: next(value for value in project.attempts if value.attempt_id == attempt_id)
             self.rendered[project.project_id] = project
             return project
+        def prepare_render(identity, **values):
+            project = self.rendered[identity]
+            attempt = NS(attempt_id=f"video-attempt-{len(project.attempts) + 1}", index=len(project.attempts) + 1,
+                status=H3RenderAttemptStatus.CREATED, output_asset_id=None, error=None, dlss=None, **values)
+            project.attempts.append(attempt)
+            return project
+        def queue_render(identity, attempt_id):
+            self.rendered[identity].attempt(attempt_id).status = H3RenderAttemptStatus.QUEUED
+        def execute_render(identity, attempt_id):
+            attempt = self.rendered[identity].attempt(attempt_id)
+            attempt.status = H3RenderAttemptStatus.SUCCEEDED
+            attempt.output_asset_id = f"video-output-{attempt_id}"
         self.krea = FakeKrea()
         self.service = EpisodeService(stories=self.stories, store=LocalEpisodeStore(root),
             krea=self.krea, prompt_lab=self.prompt,
             composition=self.composition, render=NS(get_or_create_from_session=create_render,
+                prepare_attempt=prepare_render, queue_attempt=queue_render, execute_attempt=execute_render,
+                new_seed=lambda: 987654321,
                 projects=NS(get=lambda key: self.rendered[key])), assets=self.assets)
         self.thread = patch("panelforge.application.episodes.Thread", InlineThread)
         self.thread.start(); self.addCleanup(self.thread.stop)
@@ -220,6 +276,71 @@ class EpisodeTest(unittest.TestCase):
         self.assertEqual(setup["recipe"], {"id": "minimax-h3-bunny", "version": "0.1.3"})
         self.assertEqual([l["name"] for l in setup["video_loras"]["entries"]], ["minmax_nsfw/Motion_Repair.safetensors"])
         self.assertEqual(setup["settings"]["duration_seconds"], 10)
+
+    def test_video_defaults_are_inherited_until_a_scene_is_customized(self):
+        value = self.create(); identity = value["episode_id"]
+        common = deepcopy(value["video_defaults"]); common["settings"]["megapixels"] = 1.4
+        revisions = self.service.save_video_defaults(identity, value["video_revision"], common)
+        value = self.service.get(identity); scene = value["scenes"][0]
+        self.assertEqual(scene["effective_render_setup"]["settings"]["megapixels"], 1.4)
+        self.assertEqual(scene["effective_render_setup"]["settings"]["duration_seconds"], scene["duration"])
+        self.assertEqual(scene["render_revision"], revisions["render_revisions"][scene["id"]])
+
+        value = self.service.set_scene_video_inheritance(identity, scene["id"], scene["render_revision"], False)
+        scene = value["scenes"][0]; custom = deepcopy(scene["effective_render_setup"])
+        custom["settings"]["megapixels"] = 2.2
+        self.service.save_render_setup(identity, scene["id"], scene["render_revision"], custom)
+        latest = self.service.get(identity); next_common = deepcopy(latest["video_defaults"])
+        next_common["settings"]["megapixels"] = 0.8
+        self.service.save_video_defaults(identity, latest["video_revision"], next_common)
+        scene = self.service.get(identity)["scenes"][0]
+        self.assertFalse(scene["inherit_video_settings"])
+        self.assertEqual(scene["effective_render_setup"]["settings"]["megapixels"], 2.2)
+
+    def test_video_chain_prepares_prompt_renders_and_unlocks_manual_dlss(self):
+        value = self.ready(); identity = value["episode_id"]
+        result = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],
+            request_id="video-chain-request", scene_ids=["scene-1"])
+        self.assertEqual(result["video_chain"]["status"], "completed")
+        self.assertEqual(result["video_chain"]["inter_video_cooldown_seconds"], 30)
+        self.assertEqual(result["video_chain"]["items"][0]["status"], "succeeded")
+        self.assertTrue(result["video_chain"]["prompts_complete"])
+        self.assertTrue(result["scenes"][0]["dlss_ready"])
+        self.assertEqual(result["scenes"][0]["video_status"], "succeeded")
+
+    def test_video_chain_reserves_the_remote_lane_for_default_cooldown_between_scenes(self):
+        second = deepcopy(self.story["document"]["scenario"]["scenes"][0])
+        second["title"] = "Le dénouement"
+        self.story["document"]["scenario"]["scenes"].append(second)
+        self.story = self.stories.store.save(self.story)
+        value = self.ready(); identity = value["episode_id"]
+        original = self.service.render.execute_attempt
+        cooldowns, snapshots = [], []
+
+        def execute(project_id, attempt_id, *, post_cooldown_seconds=0,
+                    on_cooldown_started=None, on_cooldown_finished=None):
+            original(project_id, attempt_id)
+            cooldowns.append(post_cooldown_seconds)
+            if post_cooldown_seconds:
+                on_cooldown_started(post_cooldown_seconds)
+                chain = self.service.store.get(identity)["video_chain"]
+                snapshots.append((chain["cooldown_scene_id"], chain["cooldown_until"]))
+                on_cooldown_finished()
+
+        self.service.render.execute_attempt = execute
+        self.service.render.work_coordinator = object()
+        result = self.service.start_video_chain(
+            identity,
+            expected_video_revision=value["video_revision"],
+            request_id="video-chain-cooldown",
+            scene_ids=["scene-1", "scene-2"],
+        )
+
+        self.assertEqual(cooldowns, [30, 0])
+        self.assertEqual(snapshots[0][0], "scene-1")
+        self.assertTrue(snapshots[0][1].endswith("Z"))
+        self.assertIsNone(result["video_chain"]["cooldown_until"])
+        self.assertEqual(result["video_chain"]["status"], "completed")
 
     def test_failed_writer_resumes_without_regenerating_accepted_plan(self):
         value = self.ready(); identity = value["episode_id"]

@@ -64,17 +64,27 @@ parlé reste seul dans `text` ; le canal (`spoken`, `voice_over`, `off_screen`,
 Les formes usuelles comme `VOIX OFF DE LÉA`, `LÉA (V.O.)`, `TOM [O.S.]` ou
 `TOM — DERRIÈRE LA PORTE` sont ainsi comprises sans autoriser une paraphrase.
 
+Le sélecteur **Langue parlée** fixe une langue unique pour les dialogues de
+l’histoire : Français par défaut, English, 한국어, 日本語 ou Русский. Les nouveaux
+`dialogue.text` suivent ce choix ; les descriptions, actions et réponses de
+l’atelier restent en français. En Script fidèle, ce réglage déclare la langue
+réellement présente et ne déclenche aucune traduction ou translittération. Une
+Fabrication conserve cette valeur dans son snapshot et transmet son identifiant
+canonique (`French`, `English`, `Korean`, `Japanese` ou `Russian`) au Plan REF2V,
+sans appel LLM supplémentaire. La famille Chats muets désactive le sélecteur.
+
 Un curseur **Vocabulaire des dialogues** est disponible pour les trois familles
 Fruits, Sensuel light et Cru ++. Son niveau est enregistré avec l’histoire :
 
 - `0 · Actuel` n’ajoute aucune consigne ni donnée au prochain appel LLM et garde
   donc strictement le comportement antérieur ;
-- `1 · Oral direct` vise un français quotidien, moins littéraire ;
+- `1 · Oral direct` vise une langue quotidienne, moins littéraire ;
 - `2 · Cru` autorise les formulations franches, familières ou vulgaires adaptées
-  au personnage et au contexte, par exemple « ça pue » plutôt que l’euphémisme
-  « ça sent mauvais » ;
+  au personnage et au contexte ; en français, par exemple « ça pue » plutôt que
+  l’euphémisme « ça sent mauvais » ;
 - `3 · Très cru / argot` pousse davantage l’argot et les tournures de rue ou
-  internet, sans les imposer à chaque personnage ni à chaque réplique.
+  internet naturels dans la langue choisie, sans traduction littérale de l’argot
+  français et sans les imposer à chaque personnage ni à chaque réplique.
 
 Le réglage ne change pas le registre des actions ou de la narration et n’est pas
 un quota de jurons. Il est ajouté uniquement aux appels qui développent ou

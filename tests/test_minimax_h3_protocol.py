@@ -164,6 +164,7 @@ class MiniMaxH3ProtocolTest(unittest.TestCase):
             "ending on the open doorway",
             "framing both subjects",
             "until the subject reaches the bed",
+            "toward Roux's sly tilted head",
         ):
             with self.subTest(target=target):
                 H3CameraDirective(
@@ -174,6 +175,7 @@ class MiniMaxH3ProtocolTest(unittest.TestCase):
 
         for target in (
             "following her while tilting down",
+            "following her while tilted down",
             "revealing the doorway as the lens is zooming in",
             "maintaining the framing while panning right",
         ):

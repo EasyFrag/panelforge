@@ -8,8 +8,8 @@
   <script src="/static/lab.js?v=20260914.2" defer></script>
   <script src="/static/lab-core.js?v=20260915.2" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260917.1">
-  <script src="/static/stories.js?v=20260917.3" defer></script>
-  <link rel="stylesheet" href="/static/episodes.css?v=20260917.2">
+  <script src="/static/stories.js?v=20260918.1" defer></script>
+  <link rel="stylesheet" href="/static/episodes.css?v=20260918.1">
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
   <script src="/static/dlss-lab.js?v=20260914.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
@@ -22,7 +22,7 @@
   <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260915.1" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260918.1" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
   <script src="/static/video-lab.js?v=20260907.8" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
@@ -32,7 +32,7 @@
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
   <script src="/static/krea2-image-lab.js?v=20260907.8" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260913.1" defer></script>
-  <script src="/static/episodes.js?v=20260917.2" defer></script>
+  <script src="/static/episodes.js?v=20260918.1" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260917.2" defer></script>
@@ -109,6 +109,7 @@
           <p id="story-recipe-description" class="muted">Fruits anthropomorphes, conflits frontaux et retournements visuels.</p>
           <label>Mode de départ<select id="story-creation-mode"><option value="ideas">Explorer des propositions</option><option value="script">Suivre fidèlement un script complet</option></select></label>
           <p id="story-mode-description" class="muted">Le LLM propose plusieurs histoires avant le développement du scénario.</p>
+          <label id="story-dialogue-language-row">Langue parlée<select id="story-dialogue-language"><option value="French" selected>Français</option><option value="English">English</option><option value="Korean">한국어 · Coréen</option><option value="Japanese">日本語 · Japonais</option><option value="Russian">Русский · Russe</option></select><small id="story-dialogue-language-description" class="muted">Les dialogues sont écrits dans cette langue ; les descriptions restent en français.</small></label>
           <label id="story-dialogue-register-row"><span>Vocabulaire des dialogues · <strong id="story-dialogue-register-label">Actuel</strong></span><input id="story-dialogue-register" type="range" min="0" max="3" step="1" value="0"><output id="story-dialogue-register-value">0/3</output><small id="story-dialogue-register-description" class="muted">Aucun pilotage ajouté : comportement actuel.</small></label>
           <label>Nom<input id="story-title" maxlength="160" placeholder="Ex. La reine des faux cadeaux"></label>
           <label><span id="story-brief-label">Ton idée · facultative</span><textarea id="story-brief" rows="5" maxlength="12000" placeholder="Un patron avocat odieux qui arnaque ses clients… Ou laisse le LLM te surprendre."></textarea></label>
@@ -185,26 +186,58 @@
         <details id="episode-batch-panel" class="episode-batch-panel" open>
           <summary>Générer tous les personnages et décors</summary>
           <p class="muted">Les prompts sont rédigés un par un sur la machine locale. Chaque image rejoint la file distante dès que son prompt est prêt. La vidéo reste verrouillée jusqu’à ta validation humaine.</p>
+          <details id="episode-visual-panel" class="episode-visual-panel" open><summary>Direction artistique et réglages KREA2 communs</summary>
+            <div class="episode-style-grid">
+              <div>
+                <label>Preset artistique KREA2 Assisted<select id="episode-style-preset"><option value="">Style personnalisé</option></select></label>
+                <div class="story-actions"><button id="episode-apply-preset" type="button">Appliquer le preset</button>
+                  <button id="episode-refresh-presets" type="button">Actualiser les presets</button></div>
+                <p id="episode-style-preset-note" class="muted"></p>
+                <label>Direction visuelle commune<textarea id="episode-style" rows="2" maxlength="3000" placeholder="Ex. Animation 3D stylisée, lumière chaude, matières détaillées…"></textarea></label>
+                <label>Image d’inspiration facultative<input id="episode-style-import" type="file" accept="image/png,image/jpeg,image/webp"></label>
+                <div class="story-actions"><button id="episode-style-use-reference" type="button">Utiliser l’image retenue de cette fiche</button>
+                  <button id="episode-style-remove" type="button">Retirer l’image de style</button></div>
+                <small>L’image et la direction artistique guident tous les prompts. Le sujet propre à chaque fiche reste inchangé.</small>
+              </div>
+              <div><img id="episode-style-preview" alt="Exemple de style commun" hidden><p id="episode-style-image-name" class="muted"></p></div>
+            </div>
+            <details open><summary>Workflow, checkpoint, LoRA et sampling communs</summary>
+              <label>Workflow image<select id="episode-common-workflow"></select></label>
+              <label>Checkpoint KREA2<select id="episode-common-model"></select></label>
+              <div id="episode-common-loras" aria-label="LoRA communes à l’épisode"></div>
+              <label>Profil de sampling<select id="episode-common-preset"></select></label>
+              <p class="muted">Le preset artistique initialise son checkpoint et ses LoRA. Les profils qui héritent suivent ces valeurs ; un profil personnalisé n’est jamais écrasé silencieusement. Format, mégapixels et seed restent propres à chaque profil.</p>
+            </details>
+            <div class="story-actions"><button id="episode-save-style" type="button">Enregistrer les réglages communs</button><span id="episode-visual-status" role="status" class="muted"></span></div>
+          </details>
           <div class="episode-batch-profiles">
             <fieldset data-batch-kind="character"><legend>Profil Personnages</legend>
               <label>LLM<select id="episode-batch-character-llm"></select></label>
               <label class="llm-local-toggle"><input id="episode-batch-character-local" type="checkbox" data-llm-local-for="episode-batch-character-llm" checked> Local · Unsloth</label>
-              <label>Workflow KREA2<select id="episode-batch-character-workflow"></select></label>
-              <label>Checkpoint<select id="episode-batch-character-model"></select></label>
-              <div id="episode-batch-character-loras" aria-label="LoRA du profil Personnages"></div>
-              <div class="episode-grid"><label>Preset de rendu<select id="episode-batch-character-preset"></select></label>
-                <label>Format<select id="episode-batch-character-ratio"></select></label>
+              <p id="episode-batch-character-summary" class="muted"></p>
+              <button id="episode-batch-character-toggle" type="button">Personnaliser les réglages KREA2</button>
+              <div id="episode-batch-character-custom" class="episode-batch-custom" hidden>
+                <label>Workflow KREA2<select id="episode-batch-character-workflow"></select></label>
+                <label>Checkpoint<select id="episode-batch-character-model"></select></label>
+                <div id="episode-batch-character-loras" aria-label="LoRA du profil Personnages"></div>
+                <label>Profil de sampling<select id="episode-batch-character-preset"></select></label>
+              </div>
+              <div class="episode-grid"><label>Format<select id="episode-batch-character-ratio"></select></label>
                 <label>Mégapixels<input id="episode-batch-character-mp" type="number" min="0.5" max="4" step="0.1" value="2.1"></label>
                 <label>Seed · vide = aléatoire<input id="episode-batch-character-seed" inputmode="numeric"></label></div>
             </fieldset>
             <fieldset data-batch-kind="location"><legend>Profil Décors</legend>
               <label>LLM<select id="episode-batch-location-llm"></select></label>
               <label class="llm-local-toggle"><input id="episode-batch-location-local" type="checkbox" data-llm-local-for="episode-batch-location-llm" checked> Local · Unsloth</label>
-              <label>Workflow KREA2<select id="episode-batch-location-workflow"></select></label>
-              <label>Checkpoint<select id="episode-batch-location-model"></select></label>
-              <div id="episode-batch-location-loras" aria-label="LoRA du profil Décors"></div>
-              <div class="episode-grid"><label>Preset de rendu<select id="episode-batch-location-preset"></select></label>
-                <label>Format<select id="episode-batch-location-ratio"></select></label>
+              <p id="episode-batch-location-summary" class="muted"></p>
+              <button id="episode-batch-location-toggle" type="button">Personnaliser les réglages KREA2</button>
+              <div id="episode-batch-location-custom" class="episode-batch-custom" hidden>
+                <label>Workflow KREA2<select id="episode-batch-location-workflow"></select></label>
+                <label>Checkpoint<select id="episode-batch-location-model"></select></label>
+                <div id="episode-batch-location-loras" aria-label="LoRA du profil Décors"></div>
+                <label>Profil de sampling<select id="episode-batch-location-preset"></select></label>
+              </div>
+              <div class="episode-grid"><label>Format<select id="episode-batch-location-ratio"></select></label>
                 <label>Mégapixels<input id="episode-batch-location-mp" type="number" min="0.5" max="4" step="0.1" value="2.1"></label>
                 <label>Seed · vide = aléatoire<input id="episode-batch-location-seed" inputmode="numeric"></label></div>
             </fieldset>
@@ -228,31 +261,6 @@
         <div class="episode-bar"><label>Personnage ou décor<select id="episode-reference"></select></label>
           <span id="episode-reference-count" class="muted"></span></div>
         <p class="muted">Une fiche vierge du même type reprend les derniers réglages LLM et image sélectionnés.</p>
-        <details id="episode-visual-panel" class="episode-visual-panel" open><summary>Style et réglages communs à l’épisode</summary>
-          <div class="episode-style-grid">
-            <div>
-              <label>Preset de style KREA2 Assisted<select id="episode-style-preset"><option value="">Style personnalisé</option></select></label>
-              <div class="story-actions"><button id="episode-apply-preset" type="button">Appliquer le preset</button>
-                <button id="episode-refresh-presets" type="button">Actualiser les presets</button></div>
-              <p id="episode-style-preset-note" class="muted"></p>
-              <label>Direction visuelle commune<textarea id="episode-style" rows="2" maxlength="3000" placeholder="Ex. Animation 3D stylisée, lumière chaude, matières détaillées…"></textarea></label>
-              <label>Image d’inspiration facultative<input id="episode-style-import" type="file" accept="image/png,image/jpeg,image/webp"></label>
-              <div class="story-actions"><button id="episode-style-use-reference" type="button">Utiliser l’image retenue de cette fiche</button>
-                <button id="episode-style-remove" type="button">Retirer l’image de style</button></div>
-              <small>Le LLM reprend la palette, les matières et la stylisation. Le personnage et le décor restent ceux de chaque fiche.</small>
-            </div>
-            <div><img id="episode-style-preview" alt="Exemple de style commun" hidden><p id="episode-style-image-name" class="muted"></p></div>
-          </div>
-          <details><summary>Checkpoint, LoRA et preset de rendu communs</summary>
-            <label>Workflow image<select id="episode-common-workflow"></select></label>
-            <label>Checkpoint KREA2<select id="episode-common-model"></select></label>
-            <div id="episode-common-loras" aria-label="LoRA communes à l’épisode"></div>
-            <label>Preset de rendu<select id="episode-common-preset"></select></label>
-            <p class="muted">Le preset de style applique son checkpoint et ses LoRA. Le preset de rendu règle les deux passes. Le format et la seed restent propres à chaque fiche.</p>
-          </details>
-          <div class="story-actions"><button id="episode-save-style" type="button">Enregistrer les réglages communs</button><span id="episode-visual-status" role="status" class="muted"></span></div>
-          <p class="muted">Ces choix s’appliquent aux prochaines préparations. Les images déjà retenues sont conservées.</p>
-        </details>
         <div class="episode-asset-grid">
           <div>
             <label>Description de la fiche<textarea id="episode-description" rows="4" maxlength="6000"></textarea></label>
@@ -292,6 +300,22 @@
         </div>
       </section>
       <section id="episode-scenes" hidden>
+        <div class="story-panel episode-video-overview">
+          <div class="episode-bar"><div><h2>Prompts et vidéos de l’épisode</h2>
+            <p class="muted">Toutes les scènes restent visibles. Les prompts sont rédigés un par un ; les vidéos démarrent automatiquement sur le serveur distant.</p></div>
+            <div class="story-actions"><button id="episode-video-start" type="button" class="primary">Lancer prompts + vidéos</button>
+              <button id="episode-video-pause" type="button" hidden>Pause après les tâches en cours</button>
+              <button id="episode-video-resume" type="button" hidden>Reprendre la chaîne</button></div></div>
+          <label class="episode-video-cooldown">Repos entre vid&eacute;os<input id="episode-video-cooldown" type="number" min="1" max="3600" step="1" value="30"> s</label>
+          <div id="episode-video-progress" class="episode-video-progress" hidden>
+            <div class="episode-video-lanes">
+              <section><b>LLM local</b><progress id="episode-video-prompt-progress-bar" max="1" value="0"></progress><span id="episode-video-prompt-lane">En attente</span></section>
+              <section><b>GPU distant</b><progress id="episode-video-progress-bar" max="1" value="0"></progress><span id="episode-video-render-lane">En attente</span></section>
+            </div>
+            <span id="episode-video-chain-phase" role="status"></span>
+          </div>
+          <div id="episode-video-cards" class="episode-video-cards"></div>
+        </div>
         <div class="story-panel">
           <div class="episode-bar"><label>Micro-scène<select id="episode-scene"></select></label>
             <label>Durée en secondes<input id="episode-duration" type="number" min="5" max="15" step="0.1"></label></div>
@@ -327,6 +351,8 @@
           <p id="episode-prompt-status" role="status"></p>
           <label id="episode-preparation-label" hidden>Préparations conservées<select id="episode-preparation"></select></label>
         </div>
+        <div class="episode-bar episode-video-settings-mode"><p id="episode-video-settings-note" class="muted"></p>
+          <button id="episode-video-settings-toggle" type="button">Personnaliser cette scène</button></div>
         <p id="episode-render-save" class="muted" role="status"></p>
         <div id="episode-render-host"></div>
       </section>
@@ -1451,6 +1477,7 @@
                 <label class="h3-render-music"><span>Musique</span><select id="h3r-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
 
               </div>
+              <label class="h3-render-feature-toggle"><span>Test A/B</span><span><input id="h3r-force-upscale" type="checkbox"> Forcer l&rsquo;upscale</span><small data-upscale-note></small></label>
               <details class="h3-video-lora h3-render-fold" aria-label="Profil LoRA video H3">
                 <summary id="h3r-lora-summary">LoRA · aucun actif</summary>
                 <label class="h3-lora-enable"><input id="h3r-lora-enabled" type="checkbox"> Activer les LoRA</label>
@@ -1845,6 +1872,7 @@
                 <label class="h3-render-music"><span>Musique</span><select id="ref2vr-music"><option value="off" selected>OFF · N/A</option><option value="on">ON · prompt</option></select></label>
 
               </div>
+              <label class="h3-render-feature-toggle"><span>Test A/B</span><span><input id="ref2vr-force-upscale" type="checkbox"> Forcer l&rsquo;upscale</span><small data-upscale-note></small></label>
               <details class="h3-video-lora h3-render-fold" aria-label="Profil LoRA video Ref2V">
                 <summary id="ref2vr-lora-summary">LoRA · aucun actif</summary>
                 <label class="h3-lora-enable"><input id="ref2vr-lora-enabled" type="checkbox"> Activer les LoRA</label>

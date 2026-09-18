@@ -106,12 +106,15 @@ class StoriesTest(unittest.TestCase):
         context = json.loads(self.gateway.requests[1].user_prompt)
         self.assertEqual(context["current_document"]["selected_id"], "concept-2")
         self.assertEqual(context["clip_seconds"], 10)
+        self.assertIsNone(context["response_contract"]["scenario"]["scenes"][0]["visual_transition"])
+        self.assertIn("visual_transition est optionnel", self.gateway.requests[1].system_prompt)
         self.assertFalse(self.gateway.requests[1].images)
         reopened = LocalStoryStore(self.temp.name).get(p["project_id"])
         self.assertEqual(reopened["document"], p["document"])
         export = self.service.export(p["project_id"])
         self.assertIn("Durée cible : 10 secondes.", export["intentions"][0])
         self.assertIn("Livreur : « Madame… votre nom est ici. »", export["intentions"][0])
+        self.assertNotIn("TRANSITION VISUELLE", export["intentions"][0])
         self.assertNotIn("Durée cible", self.service.export(p["project_id"], include_duration=False)["intentions"][0])
         self.assertNotIn("Picture", export["text"])
 
@@ -197,6 +200,33 @@ class StoriesTest(unittest.TestCase):
         script = self.service.create(brief="LÉA\nBonjour.\n", creation_mode="script", dialogue_register=3)
         self.assertEqual(script["dialogue_register"], 0)
 
+    def test_dialogue_language_is_persisted_and_guides_new_lines_without_translating_scripts(self):
+        project = self.service.create(dialogue_language="Japanese")
+        self.assertEqual(project["dialogue_language"], "Japanese")
+        request = self.service._request({**project, "model_id": "local::fixture",
+            "job": {"operation": "ideas", "request_id": "fixture-request"}},
+            self.recipes.get(RECIPE_ID, RECIPE_VERSION))
+        context = json.loads(request.user_prompt)
+        self.assertEqual(context["dialogue_language"], "Japanese")
+        self.assertEqual(context["dialogue_language_label"], "日本語 · Japonais")
+        self.assertIn("LANGUE PARLÉE — 日本語 · Japonais", request.system_prompt)
+        self.assertIn("uniquement le champ text", request.system_prompt)
+        self.assertIn("reply restent en français", request.system_prompt)
+
+        script = self.service.create(brief="ユキ\n始めましょう。\n", creation_mode="script",
+            dialogue_language="Japanese", writer_model_id="local::fixture")
+        script_request = self.service._request({**script, "model_id": "local::fixture",
+            "job": {"operation": "script", "request_id": "fixture-script"}},
+            self.recipes.get(RECIPE_ID, RECIPE_VERSION))
+        self.assertIn("ne traduis, ne translittère et ne reformule aucune réplique", script_request.system_prompt)
+        self.assertEqual(json.loads(script_request.user_prompt)["dialogue_language"], "Japanese")
+
+        legacy = deepcopy(project)
+        legacy.pop("dialogue_language")
+        self.assertEqual(self.service._normalize(legacy)["dialogue_language"], "French")
+        with self.assertRaisesRegex(ValueError, "Langue parlée inconnue"):
+            self.service.create(dialogue_language="Italian")
+
     def test_script_mode_skips_concepts_and_requires_every_source_dialogue_verbatim(self):
         script = """TITRE : LA REINE\n\nSCÈNE 1 — SUR LA PLACE\n\nREINE\nC’est lui !\n\nLIVREUR — À VOIX BASSE\nMadame… votre nom est ici.\n\nFIN\n"""
         self.assertEqual(extract_script_dialogues(script), ["C’est lui !", "Madame… votre nom est ici."])
@@ -277,6 +307,7 @@ Ils traversent ensemble la galerie commerciale.
         self.assertIn("exactement 3 micro-scènes de 10 secondes", context["contract_notes"])
         self.assertIn("titres, numéros, scènes ou rubriques du brief sont des événements source", context["contract_notes"])
         self.assertIn("Produis exactement 3 micro-scènes de 10 secondes", request.system_prompt)
+        self.assertIn("n’invente ni déclencheur ni résultat", request.system_prompt)
 
         calls = len(self.gateway.requests)
         self.gateway.response = json.dumps(response_with_scenes(7), ensure_ascii=False)
@@ -495,6 +526,13 @@ FIN
 
     def test_structured_scene_edit_is_versioned_without_an_llm_call(self):
         project = self.scenario()
+        project["document"]["scenario"]["scenes"][0]["visual_transition"] = {
+            "before": "L’étiquette est cachée.",
+            "trigger": "Le livreur retourne le colis.",
+            "visible_change": "Le nom de la reine apparaît.",
+            "after": "L’étiquette désigne visiblement la reine.",
+        }
+        project = self.store.save(project)
         calls = len(self.gateway.requests)
         source = project["document"]["scenario"]["scenes"][0]
         changes = {key: deepcopy(source[key]) for key in ("title", "opening_state", "action", "dialogue", "ending_state")}
@@ -502,6 +540,7 @@ FIN
         edited = self.service.edit_scene(project["project_id"], 0, project["version"], changes)
         self.assertEqual(len(self.gateway.requests), calls)
         self.assertEqual(edited["document"]["scenario"]["scenes"][0]["action"], changes["action"])
+        self.assertNotIn("visual_transition", edited["document"]["scenario"]["scenes"][0])
         self.assertEqual(edited["revisions"][-1]["label"], "Édition manuelle de la scène 1")
         self.assertIn("diagnostics", edited)
 
@@ -521,6 +560,7 @@ FIN
             self.assertEqual(client.post("/api/stories/projects", json={"clip_seconds": True}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"proposal_count": 0}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"dialogue_register": 4}).status_code, 422)
+            self.assertEqual(client.post("/api/stories/projects", json={"dialogue_language": "Italian"}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"creation_mode": "script", "brief": ""}).status_code, 422)
             result = client.post(f"/api/stories/projects/{project['project_id']}/select", json={"concept_id": "missing", "expected_version": 1})
             self.assertEqual(result.status_code, 422)
@@ -628,8 +668,10 @@ FIN
         self.assertIn("dialogue de chaque micro-scène doit être exactement vide", package["fields"]["writer.system"])
 
         project = service.create(recipe_id=SILENT_CATS_RECIPE_ID,
-            recipe_version=SILENT_CATS_RECIPE_VERSION, dialogue_register=3, scene_count=1, clip_seconds=15)
+            recipe_version=SILENT_CATS_RECIPE_VERSION, dialogue_register=3, dialogue_language="Japanese",
+            scene_count=1, clip_seconds=15)
         self.assertEqual(project["dialogue_register"], 0)
+        self.assertEqual(project["dialogue_language"], "French")
         self.assertEqual((project["scene_count"], project["clip_seconds"]), (1, 15))
         contract = response_contract("develop", False, SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION)
         self.assertEqual(contract["scenario"]["scenes"][0]["dialogue"], [])
@@ -637,12 +679,24 @@ FIN
         scenario = deepcopy(SCENARIO["scenario"])
         scene = scenario["scenes"][0]
         scene.update(dialogue=[], relationship_state="La chatte reste concentrée tandis que son partenaire cherche son attention.",
-            appearance_state="Leurs pelages et vêtements de cuisine restent inchangés.")
+            appearance_state="Leurs pelages et vêtements de cuisine restent inchangés.",
+            visual_transition={
+                "before": "Le chat blanc reste tassé sous la couverture, yeux mi-clos, compresse sur le front.",
+                "trigger": "Le chat roux lui tend les billets.",
+                "visible_change": "Le chat blanc se redresse, ouvre grand les yeux et retire sa compresse.",
+                "after": "Il se tient debout, alerte et souriant, sans compresse ni couverture.",
+            })
         validated = validate_scenario(scenario, SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION)
-        intention = scene_intention(validated, 0, 10)
+        intention = scene_intention(validated, 0, 10, SILENT_CATS_RECIPE_ID)
         self.assertIn("Aucun dialogue.", intention)
         self.assertIn("Aucune parole, aucun dialogue, aucune voix off et aucune narration.", intention)
         self.assertNotIn("accompagnent les paroles", intention)
+        self.assertIn("Avant visible : Le chat blanc reste tassé", intention)
+        self.assertIn("La transformation doit être comprise sans parole", intention)
+        broken_transition = deepcopy(scenario)
+        broken_transition["scenes"][0]["visual_transition"].pop("after")
+        with self.assertRaisesRegex(ValueError, "exactement before, trigger, visible_change et after"):
+            validate_scenario(broken_transition, SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION)
         scene["dialogue"] = [{"speaker_id": "c1", "text": "Même pas un mot."}]
         with self.assertRaisesRegex(ValueError, "strictement sans paroles"):
             validate_scenario(scenario, SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION)

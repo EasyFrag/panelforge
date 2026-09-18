@@ -1,6 +1,7 @@
 """Coordinate existing KREA2 Assisted and REF2V services for a validated story."""
 from copy import deepcopy
 from dataclasses import asdict, replace
+from datetime import UTC, datetime, timedelta
 from threading import RLock, Thread
 import time
 from uuid import uuid4
@@ -8,15 +9,22 @@ from uuid import uuid4
 from panelforge.domain.episodes import (
     REF2V_PROFILE, REFERENCE_ROLES, DEFAULT_CREATIVE_AXES, fingerprint, initial_episode, scene_inputs,
     effective_image_settings, image_defaults, inherits_images, style_context,
+    effective_video_setup, inherits_video_settings, video_defaults,
 )
 from panelforge.domain.krea2_batch import Krea2LoraSelection
 from panelforge.domain.krea2_sampling import sampling_from_dict
 from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
 from panelforge.domain.prompt_composition import CookbookBinding, CompositionStage, PreparationIntent
 from panelforge.domain.prompt_lab import CreativeFreedomAxes, ReferenceUse
+from panelforge.domain.stories import DEFAULT_DIALOGUE_LANGUAGE
 from panelforge.domain.video_preparation import ClassicCinematicSettings
 from panelforge.domain.krea2_assisted import Krea2AssistedAttemptStatus
 from panelforge.domain.production import ThermalPolicy
+from panelforge.domain.video_lab import VideoLabSettings, VideoAspectRatio
+from panelforge.domain.h3_bunny import H3BunnySettings
+from panelforge.domain.h3_render import (
+    H3RenderAttemptStatus, H3VideoLoraSelection, H3VideoLoraStack,
+)
 from .prompt_lab import NewReference, StreamEventKind
 
 
@@ -32,6 +40,7 @@ class EpisodeService:
         self.work_coordinator, self._sleep = work_coordinator, sleep
         self._lock, self._active = RLock(), set()
         self._active_batches = set()
+        self._active_video_chains = set()
 
     def create(self, story_id, expected_version):
         with self._lock:
@@ -53,6 +62,10 @@ class EpisodeService:
             value = self.store.get(identity)
             value.setdefault("reference_profiles", {})
             value.setdefault("reference_batch", None)
+            value.setdefault("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)
+            value.setdefault("video_defaults", video_defaults(value))
+            value.setdefault("video_revision", 1)
+            value.setdefault("video_chain", None)
             interrupted = False
             for collection in ("references", "scenes"):
                 for item in value[collection]:
@@ -69,12 +82,28 @@ class EpisodeService:
                 batch.update(status="interrupted", phase="Traitement interrompu", error="Le serveur a redémarré pendant la production en lot.")
                 value = self.store.save(value)
             value = self._reconcile_reference_batch(value)
+            chain = value.get("video_chain")
+            if chain:
+                chain.setdefault("inter_video_cooldown_seconds", 30)
+                chain.setdefault("cooldown_until", None)
+                chain.setdefault("cooldown_scene_id", None)
+            if chain and chain.get("status") in {"running", "pausing"} and identity not in self._active_video_chains:
+                chain.update(status="interrupted", phase="Chaîne interrompue", error="Le serveur a redémarré pendant la production vidéo.")
+                value = self.store.save(value)
+            if chain and chain.get("status") == "interrupted" and (chain.get("cooldown_until") or chain.get("cooldown_scene_id")):
+                chain.update(cooldown_until=None, cooldown_scene_id=None)
+                value = self.store.save(value)
+            value = self._reconcile_video_chain(value)
         view = deepcopy(value)
         view.setdefault("visual_revision", 1)
         view.setdefault("style_image", None)
         view.setdefault("style_preset", None)
         view.setdefault("reference_profiles", {})
         view.setdefault("reference_batch", None)
+        view.setdefault("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)
+        view.setdefault("video_defaults", video_defaults(value))
+        view.setdefault("video_revision", 1)
+        view.setdefault("video_chain", None)
         if self.work_coordinator is not None:
             view["machine_work"] = self.work_coordinator.public_status()
         view["image_defaults"] = image_defaults(value)
@@ -95,6 +124,8 @@ class EpisodeService:
         except FileNotFoundError:
             view["story_changed"] = True
         for scene in view["scenes"]:
+            scene["inherit_video_settings"] = inherits_video_settings(scene)
+            scene["effective_render_setup"] = effective_video_setup(value, scene)
             try:
                 inputs = scene_inputs(value, scene)
                 scene["resolved_intention"] = inputs["source_text"]
@@ -108,9 +139,25 @@ class EpisodeService:
             if project_id:
                 try:
                     project = self.render.projects.get(project_id)
-                    scene["video_status"] = project.attempts[-1].status.value if project.attempts else None
+                    attempts = [attempt for attempt in project.attempts if getattr(attempt, "dlss", None) is None]
+                    latest = attempts[-1] if attempts else None
+                    scene["video_status"] = latest.status.value if latest else None
+                    scene["video_attempt"] = (dict(attempt_id=latest.attempt_id, index=latest.index,
+                        status=latest.status.value, output_asset_id=getattr(latest, "output_asset_id", None),
+                        error=getattr(latest, "error", None), label=f"Scène {scene['index'] + 1} · {scene['title']}") if latest else None)
                 except (KeyError, FileNotFoundError):
                     scene["video_status"] = None
+                    scene["video_attempt"] = None
+            else:
+                scene["video_attempt"] = None
+        chain = view.get("video_chain")
+        prompts_complete = bool(chain and chain.get("items") and all(
+            item.get("status") in {"prompt_ready", "rendering", "succeeded", "video_failed"}
+            for item in chain["items"]))
+        if chain is not None:
+            chain["prompts_complete"] = prompts_complete
+        for scene in view["scenes"]:
+            scene["dlss_ready"] = bool(prompts_complete and scene.get("video_status") == "succeeded")
         return view
 
     def _reconcile_reference_batch(self, value):
@@ -166,6 +213,41 @@ class EpisodeService:
             return self.store.save(value)
         return value
 
+    def _reconcile_video_chain(self, value):
+        chain = value.get("video_chain")
+        if not chain:
+            return value
+        changed = False
+        scenes = {scene["id"]: scene for scene in value["scenes"]}
+        for item in chain.get("items", []):
+            scene = scenes.get(item.get("scene_id"))
+            attempt_id = item.get("attempt_id")
+            project_id = item.get("render_project_id")
+            if scene is None or not attempt_id or not project_id:
+                continue
+            try:
+                attempt = self.render.projects.get(project_id).attempt(attempt_id)
+            except (KeyError, FileNotFoundError, ValueError):
+                continue
+            if attempt.status is H3RenderAttemptStatus.SUCCEEDED and item.get("status") != "succeeded":
+                item.update(status="succeeded", phase="Vidéo terminée", error=None,
+                            output_asset_id=attempt.output_asset_id)
+                changed = True
+            elif attempt.status in {H3RenderAttemptStatus.FAILED, H3RenderAttemptStatus.CANCELLED} and item.get("status") != "video_failed":
+                item.update(status="video_failed", phase="Échec vidéo",
+                            error=attempt.error or "Le rendu vidéo a échoué.")
+                changed = True
+            elif attempt.status is H3RenderAttemptStatus.CREATED and item.get("status") != "prompt_ready":
+                item.update(status="prompt_ready", phase="Prompt prêt · vidéo à démarrer")
+                changed = True
+            elif attempt.status in {H3RenderAttemptStatus.QUEUED, H3RenderAttemptStatus.RUNNING,
+                                    H3RenderAttemptStatus.CANCEL_PENDING} and item.get("status") != "rendering":
+                item.update(status="rendering", phase="Rendu vidéo en cours")
+                changed = True
+        if changed:
+            return self.store.save(value)
+        return value
+
     @staticmethod
     def _item(value, collection, item_id):
         item = next((r for r in value[collection] if r["id"] == item_id), None)
@@ -215,9 +297,40 @@ class EpisodeService:
             if scene["render_revision"] != expected_revision:
                 raise EpisodeConflict("Les réglages vidéo ont changé dans un autre onglet. Rechargez la scène.")
             scene["render_setup"] = deepcopy(setup)
+            scene["inherit_video_settings"] = False
             scene["render_revision"] += 1
             self.store.save(value)
             return {"render_revision": scene["render_revision"]}
+
+    def save_video_defaults(self, identity, expected_revision, setup):
+        with self._lock:
+            value = self.store.get(identity)
+            if value.get("video_revision", 1) != expected_revision:
+                raise EpisodeConflict("Les réglages vidéo communs ont changé. Rechargez la fabrication.")
+            value["video_defaults"] = deepcopy(setup)
+            value["video_revision"] = expected_revision + 1
+            revisions = {}
+            for scene in value["scenes"]:
+                if not inherits_video_settings(scene):
+                    continue
+                scene["render_setup"] = effective_video_setup(value, scene)
+                scene["render_revision"] += 1
+                revisions[scene["id"]] = scene["render_revision"]
+            self.store.save(value)
+            return {"video_revision": value["video_revision"], "render_revisions": revisions}
+
+    def set_scene_video_inheritance(self, identity, scene_id, expected_revision, inherit):
+        with self._lock:
+            value = self.store.get(identity)
+            scene = self._item(value, "scenes", scene_id)
+            if scene["render_revision"] != expected_revision:
+                raise EpisodeConflict("Les réglages vidéo ont changé dans un autre onglet. Rechargez la scène.")
+            current = effective_video_setup(value, scene)
+            scene["inherit_video_settings"] = bool(inherit)
+            scene["render_setup"] = effective_video_setup(value, scene) if inherit else current
+            scene["render_revision"] += 1
+            self.store.save(value)
+        return self.get(identity)
 
     def set_style(self, identity, style, expected_style):
         with self._lock:
@@ -485,6 +598,7 @@ class EpisodeService:
                 raise ValueError("Choisissez au moins un personnage ou un décor.")
             public_profiles = {
                 kind: dict(model_id=profile["model_id"],
+                           inherit_technical=bool(profile.get("inherit_technical", False)),
                            render_settings=self._batch_render_settings(profile["settings"], profile.get("seed")))
                 for kind, profile in profiles.items()
             }
@@ -630,6 +744,352 @@ class EpisodeService:
             with self._lock:
                 self._active_batches.discard(identity)
 
+    def start_video_chain(
+        self,
+        identity,
+        *,
+        expected_video_revision,
+        request_id,
+        scene_ids,
+        inter_video_cooldown_seconds=30,
+    ):
+        if (
+            type(inter_video_cooldown_seconds) is not int
+            or not 1 <= inter_video_cooldown_seconds <= 3600
+        ):
+            raise ValueError("inter_video_cooldown_seconds must be between 1 and 3600")
+        with self._lock:
+            value = self.store.get(identity)
+            existing = value.get("video_chain")
+            if existing and existing.get("request_id") == request_id:
+                return self.get(identity)
+            if existing and existing.get("status") in {"running", "pausing"}:
+                raise EpisodeConflict("Une chaîne vidéo est déjà en cours.")
+            if value.get("video_revision", 1) != expected_video_revision:
+                raise EpisodeConflict("Les réglages vidéo communs ont changé. Rechargez avant le lancement.")
+            chosen = []
+            seen = set()
+            for scene_id in scene_ids:
+                if scene_id in seen:
+                    raise ValueError("Une scène ne peut apparaître qu’une fois dans la chaîne.")
+                seen.add(scene_id)
+                scene = self._item(value, "scenes", scene_id)
+                if (scene.get("job") or {}).get("status") == "running":
+                    raise EpisodeConflict(f"Le prompt de la scène {scene['index'] + 1} est déjà en cours.")
+                scene_inputs(value, scene)
+                chosen.append(scene)
+            if not chosen:
+                raise ValueError("Choisissez au moins une scène.")
+            chain_id = f"video-chain-{uuid4().hex}"
+            value["video_chain"] = dict(chain_id=chain_id, request_id=request_id, status="running",
+                phase="Préparation des prompts", error=None, pause_requested=False,
+                inter_video_cooldown_seconds=inter_video_cooldown_seconds,
+                cooldown_until=None, cooldown_scene_id=None,
+                items=[dict(scene_id=scene["id"], index=scene["index"], title=scene["title"],
+                    status="pending", phase="En attente", error=None, preparation_id=None,
+                    render_project_id=None, attempt_id=None, output_asset_id=None,
+                    render_setup=effective_video_setup(value, scene)) for scene in chosen])
+            self.store.save(value)
+            self._active_video_chains.add(identity)
+            try:
+                Thread(target=self._video_chain_worker, args=(identity, chain_id), daemon=True,
+                       name=f"episode-video-chain-{identity}").start()
+            except BaseException:
+                self._active_video_chains.discard(identity)
+                raise
+        return self.get(identity)
+
+    def pause_video_chain(self, identity, chain_id):
+        with self._lock:
+            value = self.store.get(identity)
+            chain = value.get("video_chain")
+            if not chain or chain.get("chain_id") != chain_id:
+                raise KeyError("Chaîne vidéo introuvable.")
+            if chain.get("status") == "running":
+                chain.update(status="pausing", phase="Pause après les tâches en cours", pause_requested=True)
+                self.store.save(value)
+        return self.get(identity)
+
+    def resume_video_chain(self, identity, chain_id):
+        with self._lock:
+            value = self.store.get(identity)
+            chain = value.get("video_chain")
+            if not chain or chain.get("chain_id") != chain_id:
+                raise KeyError("Chaîne vidéo introuvable.")
+            if chain.get("status") in {"running", "pausing"}:
+                return self.get(identity)
+            if identity in self._active_video_chains:
+                raise EpisodeConflict("La chaîne vidéo termine encore une tâche.")
+            chain.update(status="running", phase="Reprise de la chaîne", error=None, pause_requested=False)
+            for item in chain.get("items", []):
+                if item.get("status") == "prompt_failed":
+                    item.update(status="pending", phase="À reprendre", error=None)
+                elif item.get("status") == "video_failed":
+                    item.update(status="prompt_ready", phase="Prompt prêt · vidéo à reprendre", error=None,
+                                attempt_id=None, output_asset_id=None)
+            self.store.save(value)
+            self._active_video_chains.add(identity)
+            try:
+                Thread(target=self._video_chain_worker, args=(identity, chain_id), daemon=True,
+                       name=f"episode-video-chain-{identity}").start()
+            except BaseException:
+                self._active_video_chains.discard(identity)
+                raise
+        return self.get(identity)
+
+    def _video_chain_change(self, identity, chain_id, change):
+        with self._lock:
+            value = self.store.get(identity)
+            chain = value.get("video_chain")
+            if not chain or chain.get("chain_id") != chain_id:
+                raise EpisodeConflict("La chaîne vidéo a été remplacée.")
+            change(value, chain)
+            self.store.save(value)
+
+    def _video_chain_snapshot(self, identity, chain_id):
+        with self._lock:
+            value = self.store.get(identity)
+            chain = value.get("video_chain")
+            if not chain or chain.get("chain_id") != chain_id:
+                raise EpisodeConflict("La chaîne vidéo a été remplacée.")
+            return deepcopy(value), deepcopy(chain)
+
+    def _video_chain_paused(self, identity, chain_id):
+        _value, chain = self._video_chain_snapshot(identity, chain_id)
+        return bool(chain.get("pause_requested"))
+
+    def _video_item(self, chain, scene_id):
+        return next(item for item in chain["items"] if item["scene_id"] == scene_id)
+
+    def _wait_scene_job(self, identity, scene_id, chain_id):
+        while True:
+            with self._lock:
+                scene = self._item(self.store.get(identity), "scenes", scene_id)
+            job = scene.get("job") or {}
+            if job.get("status") != "running":
+                return deepcopy(scene), deepcopy(job)
+            self._sleep(0.1)
+
+    def _prepare_chain_prompt(self, identity, chain_id, scene_id):
+        with self._lock:
+            value = self.store.get(identity)
+            scene = self._item(value, "scenes", scene_id)
+            inputs_hash = fingerprint(scene_inputs(value, scene))
+            latest = scene["preparations"][-1] if scene["preparations"] else None
+            if latest and latest.get("status") == "ready" and latest.get("input_hash") == inputs_hash:
+                return latest
+            resume = bool(latest and latest.get("input_hash") == inputs_hash
+                          and latest.get("status") in {"failed", "interrupted"})
+            revision = scene["revision"]
+        self._video_chain_change(identity, chain_id, lambda _value, chain:
+            self._video_item(chain, scene_id).update(status="prompting", phase="Rédaction du prompt", error=None))
+        self.prepare_scene(identity, scene_id, revision, f"{chain_id}-prompt-{scene_id}", resume=resume)
+        scene, job = self._wait_scene_job(identity, scene_id, chain_id)
+        latest = scene["preparations"][-1] if scene["preparations"] else None
+        if job.get("status") != "succeeded" or not latest or latest.get("status") != "ready":
+            raise ValueError(job.get("error") or "La préparation du prompt a échoué.")
+        return latest
+
+    def _video_attempt_settings(self, setup):
+        raw = setup["settings"]
+        bunny = H3BunnySettings(**setup["bunny"]) if setup.get("bunny") else None
+        video_loras = H3VideoLoraStack.from_dict(setup.get("video_loras")) if setup.get("video_loras") else None
+        video_lora = H3VideoLoraSelection(**setup["video_lora"]) if setup.get("video_lora") else None
+        # Historical episode setups already stored a deterministic per-scene
+        # seed before this flag existed; preserve their former reuse behavior.
+        seed_locked = bool(setup.get("seed_locked", True))
+        seed = int(raw.get("seed") or 0) if seed_locked else self.render.new_seed()
+        settings = VideoLabSettings(aspect_ratio=VideoAspectRatio(raw["aspect_ratio"]),
+            megapixels=raw["megapixels"], duration_seconds=raw["duration_seconds"],
+            steps=raw["steps"], seed=seed, seed_locked=seed_locked)
+        return settings, bunny, video_loras, video_lora
+
+    def _start_chain_video(
+        self,
+        identity,
+        chain_id,
+        scene_id,
+        preparation,
+        setup,
+        *,
+        cooldown_after,
+    ):
+        project_id = preparation["render_project_id"]
+        project = self.render.projects.get(project_id)
+        item = self._video_item(self._video_chain_snapshot(identity, chain_id)[1], scene_id)
+        attempt = None
+        if item.get("attempt_id"):
+            try:
+                candidate = project.attempt(item["attempt_id"])
+                if candidate.status in {H3RenderAttemptStatus.CREATED, H3RenderAttemptStatus.QUEUED,
+                                         H3RenderAttemptStatus.RUNNING, H3RenderAttemptStatus.CANCEL_PENDING,
+                                         H3RenderAttemptStatus.SUCCEEDED}:
+                    attempt = candidate
+            except (KeyError, ValueError):
+                pass
+        if attempt is None:
+            settings, bunny, video_loras, video_lora = self._video_attempt_settings(setup)
+            project = self.render.prepare_attempt(project_id, prompt=project.current_prompt, settings=settings,
+                music_enabled=bool(setup.get("music_enabled", False)),
+                spectrum_enabled=bool(setup.get("spectrum_enabled", False)),
+                initial_megapixels=setup.get("initial_megapixels", 0.2),
+                force_upscale=bool(setup.get("force_upscale", False)),
+                recipe_id=setup["recipe"]["id"], recipe_version=setup["recipe"]["version"],
+                bunny=bunny, checkpoint=setup.get("checkpoint"), video_loras=video_loras,
+                video_lora=video_lora)
+            attempt = project.attempts[-1]
+            self._video_chain_change(identity, chain_id, lambda _value, chain:
+                self._video_item(chain, scene_id).update(render_project_id=project_id,
+                    attempt_id=attempt.attempt_id, status="prompt_ready", phase="Prompt prêt"))
+        if attempt.status is not H3RenderAttemptStatus.CREATED:
+            self._video_chain_change(identity, chain_id, lambda _value, chain:
+                self._video_item(chain, scene_id).update(status="rendering", phase="Rendu vidéo en cours", error=None))
+            return project_id, attempt.attempt_id, scene_id
+        while True:
+            if self._video_chain_paused(identity, chain_id):
+                return None
+            try:
+                self.render.queue_attempt(project_id, attempt.attempt_id)
+                break
+            except ValueError as error:
+                if "déjà actif" not in str(error):
+                    raise
+                self._sleep(0.5)
+        self._video_chain_change(identity, chain_id, lambda _value, chain:
+            self._video_item(chain, scene_id).update(status="rendering", phase="Rendu vidéo en cours", error=None))
+        Thread(target=self._execute_chain_attempt,
+               args=(identity, chain_id, scene_id, project_id, attempt.attempt_id, cooldown_after), daemon=True,
+               name=f"episode-video-{scene_id}").start()
+        return project_id, attempt.attempt_id, scene_id
+
+    def _execute_chain_attempt(
+        self,
+        identity,
+        chain_id,
+        scene_id,
+        project_id,
+        attempt_id,
+        cooldown_after,
+    ):
+        coordinator = getattr(self.render, "work_coordinator", None)
+        if not cooldown_after or coordinator is None:
+            self.render.execute_attempt(project_id, attempt_id)
+            return
+
+        def started(seconds):
+            deadline = datetime.now(UTC) + timedelta(seconds=seconds)
+            try:
+                self._video_chain_change(identity, chain_id, lambda _value, chain:
+                    chain.update(cooldown_until=deadline.isoformat().replace("+00:00", "Z"),
+                                 cooldown_scene_id=scene_id))
+            except (EpisodeConflict, FileNotFoundError):
+                pass
+
+        def finished():
+            try:
+                self._video_chain_change(identity, chain_id, lambda _value, chain:
+                    chain.update(cooldown_until=None, cooldown_scene_id=None)
+                    if chain.get("cooldown_scene_id") == scene_id else None)
+            except (EpisodeConflict, FileNotFoundError):
+                pass
+
+        self.render.execute_attempt(
+            project_id,
+            attempt_id,
+            post_cooldown_seconds=cooldown_after,
+            on_cooldown_started=started,
+            on_cooldown_finished=finished,
+        )
+
+    def _wait_chain_video(self, identity, chain_id, active):
+        if active is None:
+            return
+        project_id, attempt_id, scene_id = active
+        while True:
+            attempt = self.render.projects.get(project_id).attempt(attempt_id)
+            if attempt.status not in {H3RenderAttemptStatus.CREATED, H3RenderAttemptStatus.QUEUED,
+                                      H3RenderAttemptStatus.RUNNING, H3RenderAttemptStatus.CANCEL_PENDING}:
+                break
+            self._sleep(0.2)
+        if attempt.status is H3RenderAttemptStatus.SUCCEEDED:
+            self._video_chain_change(identity, chain_id, lambda _value, chain:
+                self._video_item(chain, scene_id).update(status="succeeded", phase="Vidéo terminée",
+                    output_asset_id=attempt.output_asset_id, error=None))
+        else:
+            self._video_chain_change(identity, chain_id, lambda _value, chain:
+                self._video_item(chain, scene_id).update(status="video_failed", phase="Échec vidéo",
+                    error=attempt.error or "Le rendu vidéo a échoué."))
+
+    def _pause_video_chain_now(self, identity, chain_id):
+        self._video_chain_change(identity, chain_id, lambda _value, chain:
+            chain.update(status="paused", phase="Chaîne en pause", pause_requested=False, error=None))
+
+    def _video_chain_worker(self, identity, chain_id):
+        active_video = None
+        try:
+            _value, initial = self._video_chain_snapshot(identity, chain_id)
+            for position, original in enumerate(initial["items"]):
+                scene_id = original["scene_id"]
+                _value, current_chain = self._video_chain_snapshot(identity, chain_id)
+                current = self._video_item(current_chain, scene_id)
+                if current.get("status") == "succeeded":
+                    continue
+                if self._video_chain_paused(identity, chain_id):
+                    self._wait_chain_video(identity, chain_id, active_video)
+                    self._pause_video_chain_now(identity, chain_id)
+                    return
+                try:
+                    preparation = self._prepare_chain_prompt(identity, chain_id, scene_id)
+                    self._video_chain_change(identity, chain_id, lambda _value, chain:
+                        self._video_item(chain, scene_id).update(status="prompt_ready", phase="Prompt prêt",
+                            preparation_id=preparation["id"], render_project_id=preparation["render_project_id"], error=None))
+                except Exception as error:
+                    self._video_chain_change(identity, chain_id, lambda _value, chain, error=error:
+                        self._video_item(chain, scene_id).update(status="prompt_failed", phase="Échec du prompt", error=str(error)))
+                    continue
+                self._wait_chain_video(identity, chain_id, active_video)
+                active_video = None
+                if self._video_chain_paused(identity, chain_id):
+                    self._pause_video_chain_now(identity, chain_id)
+                    return
+                try:
+                    value, refreshed_chain = self._video_chain_snapshot(identity, chain_id)
+                    refreshed = self._video_item(refreshed_chain, scene_id)
+                    later = initial["items"][position + 1:]
+                    cooldown_after = (
+                        refreshed_chain.get("inter_video_cooldown_seconds", 30)
+                        if any(
+                            self._video_item(refreshed_chain, item["scene_id"]).get("status") != "succeeded"
+                            for item in later
+                        )
+                        else 0
+                    )
+                    active_video = self._start_chain_video(identity, chain_id, scene_id, preparation,
+                        refreshed.get("render_setup") or effective_video_setup(value, self._item(value, "scenes", scene_id)),
+                        cooldown_after=cooldown_after)
+                except Exception as error:
+                    self._video_chain_change(identity, chain_id, lambda _value, chain, error=error:
+                        self._video_item(chain, scene_id).update(status="video_failed", phase="Échec vidéo", error=str(error)))
+            self._wait_chain_video(identity, chain_id, active_video)
+            if self._video_chain_paused(identity, chain_id):
+                self._pause_video_chain_now(identity, chain_id)
+                return
+            _value, chain = self._video_chain_snapshot(identity, chain_id)
+            failed = any(item["status"] in {"prompt_failed", "video_failed"} for item in chain["items"])
+            self._video_chain_change(identity, chain_id, lambda _value, current:
+                current.update(status="completed_with_errors" if failed else "completed",
+                    phase="Chaîne terminée avec des erreurs" if failed else "Toutes les vidéos sont terminées",
+                    error=None, pause_requested=False))
+        except Exception as error:
+            try:
+                self._video_chain_change(identity, chain_id, lambda _value, chain:
+                    chain.update(status="failed", phase="Échec de la chaîne", error=str(error), pause_requested=False))
+            except EpisodeConflict:
+                pass
+        finally:
+            with self._lock:
+                self._active_video_chains.discard(identity)
+
     def prepare_scene(self, identity, scene_id, expected_revision, request_id, resume=False):
         with self._lock:
             value = self.store.get(identity)
@@ -650,7 +1110,7 @@ class EpisodeService:
             else:
                 preparation = dict(id=f"prep-{uuid4().hex}", inputs=inputs, input_hash=fingerprint(inputs),
                     session_id=None, render_project_id=None, status="running", error=None,
-                    render_setup=deepcopy(scene["render_setup"]))
+                    render_setup=effective_video_setup(value, scene))
                 scene["preparations"].append(preparation)
             self.store.save(value)
             saved = deepcopy(preparation)

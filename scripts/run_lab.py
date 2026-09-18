@@ -128,7 +128,7 @@ VIDEO_PRESET_DIRECTORY = (
     / "minimax-h3-ref2v"
     / "0.2.1"
 )
-REF2V_RENDER_WORKFLOW_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.4"
+REF2V_RENDER_WORKFLOW_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.5"
 HISTORICAL_REF2V_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.0"
 KREA2_PRESET_DIRECTORY = (
     PROJECT_ROOT
@@ -142,7 +142,7 @@ H3_RENDER_WORKFLOW_DIRECTORY = (
     / "workflows"
     / "video.generate.h3-base"
     / "minimax-h3-latent-speed"
-    / "0.1.6"
+    / "0.1.7"
 )
 KREA2_BATCH_WORKFLOW_DIRECTORY = (
     PROJECT_ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"
@@ -520,11 +520,13 @@ def build_app(args: argparse.Namespace):
             BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.0"),
         ),
         historical_h3_workflows=(
+            MultiLoraH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.6")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.6"),
             MultiLoraH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.5")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.5"),
             CheckpointH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.4")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.4"),
             H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.3")),
         ),
         historical_ref2v_workflows=(
+            MultiLoraH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.4"))), REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.4"),
             MultiLoraH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.3"))), REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.3"),
             CheckpointH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(VIDEO_PRESET_DIRECTORY.parent / "0.2.2"))), VIDEO_PRESET_DIRECTORY.parent / "0.2.2"),
             *(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(VIDEO_PRESET_DIRECTORY.parent / version)))

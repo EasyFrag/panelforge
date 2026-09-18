@@ -27,7 +27,7 @@ class StoriesBrowserTest(unittest.TestCase):
               const body=JSON.parse(options.body);creates.push(body);project={project_id:'story-cccccccccccccccccccccccccccccccc',
                 title:body.title,version:1,brief:body.brief,scene_count:body.scene_count,clip_seconds:body.clip_seconds,
                 creation_mode:body.creation_mode,proposal_count:body.proposal_count,recipe:{id:body.recipe_id,version:body.recipe_version},
-                dialogue_register:body.dialogue_register,
+                dialogue_register:body.dialogue_register,dialogue_language:body.dialogue_language,
                 architect_model_id:body.architect_model_id,writer_model_id:body.writer_model_id,model_id:body.writer_model_id,
                 document:{concepts:[],selected_id:null,scenario:null},turns:[],job:null,revisions:[],diagnostics:[]};
               return new Response(JSON.stringify(project),{status:201});}
@@ -47,9 +47,13 @@ class StoriesBrowserTest(unittest.TestCase):
             check([...recipes.options].some(option=>option.textContent==='Chats de couple · muet'),'silent cat family available');
             recipes.value='story.silent-cats@1.0.0';change(recipes);
             check(document.getElementById('story-dialogue-register').disabled,'silent family disables dialogue register');
+            check(document.getElementById('story-dialogue-language').disabled,'silent family disables spoken language');
             check(document.getElementById('story-dialogue-register-label').textContent==='Sans paroles','silent policy visible');
             recipes.value='story.brainrot@1.0.0';change(recipes);
             const count=document.getElementById('story-proposal-count'),mode=document.getElementById('story-creation-mode');
+            const language=document.getElementById('story-dialogue-language');
+            check(!language.disabled&&language.value==='French','French is the compatible default');
+            language.value='Japanese';change(language);
             count.value='1';change(count);
             check(document.getElementById('story-create').textContent==='Proposer 1 histoire','one-story label');
             const register=document.getElementById('story-dialogue-register');register.value='3';register.dispatchEvent(new Event('input',{bubbles:true}));
@@ -59,6 +63,8 @@ class StoriesBrowserTest(unittest.TestCase):
             const sceneCount=document.getElementById('story-scene-count');sceneCount.value='3';
             check(sceneCount.closest('label').textContent.includes('Nombre exact de micro-scènes'),'scene count is presented as exact');
             check(document.getElementById('story-proposal-count-row').hidden,'count hidden in script mode');
+            check(!language.disabled,'faithful script still declares its actual language');
+            check(document.getElementById('story-dialogue-language-description').textContent.includes('n’est pas traduit'),'script translation policy visible');
             check(brief.required,'script is required');
             check(document.getElementById('story-mode-description').textContent.includes('nombre exact'),'script explains grouping into the exact count');
             check(document.getElementById('story-create').disabled,'blank script blocks creation');
@@ -69,6 +75,7 @@ class StoriesBrowserTest(unittest.TestCase):
             check(creates[0].scene_count===3,'exact selected scene count persisted');
             check(creates[0].proposal_count===1,'selected count persisted without affecting script');
             check(register.disabled&&creates[0].dialogue_register===0,'faithful script disables register');
+            check(creates[0].dialogue_language==='Japanese','spoken language persisted');
             check(writes.length===1&&writes[0].operation==='script','script skips idea generation');
             document.querySelector('#result').textContent='PASS';
           }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}})();
