@@ -248,6 +248,8 @@ class VideoPreparationRecipesTest(unittest.TestCase):
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["schema_version"] = 2
             raw.pop("preparation_intent")
+            raw.pop("writer_model_id")
+            raw.pop("prompt_variants")
             path.write_text(json.dumps(raw), encoding="utf-8")
             self.assertEqual(service.get(session.session_id), original)
             self.assertIsNone(service.get(session.session_id).preparation_intent)

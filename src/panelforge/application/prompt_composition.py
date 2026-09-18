@@ -17,6 +17,7 @@ from .h3_multishot_preparation import (
     align_state_multishot_duration,
 )
 from . import combat_sequence, classic_cinematic, sensual_cinematic
+from .dialogue_placeholders import DialoguePlaceholders
 from .prompt_recipes import PromptRecipeStore
 
 from .vocal_policy import vocal_level, vocal_policy, speech_lines, validate_speech
@@ -32,6 +33,7 @@ from panelforge.domain import (
     CookbookRef,
     H3CameraDirective,
     PromptComposition,
+    PromptLanguageVariant,
     PromptLabSession,
     PromptSessionMode,
     ReferenceEvidencePolicy,
@@ -685,6 +687,137 @@ class PromptCompositionService:
     def get(self, source_session_id: str) -> PromptComposition:
         return self.compositions.get(source_session_id)
 
+    def stream_generate_chinese_variant(
+        self,
+        source_session_id: str,
+        model_id: str | None = None,
+        *,
+        include_reasoning: bool = False,
+    ) -> Iterator[CompositionStreamEvent]:
+        """Transcompile one accepted direct H3 prompt without replacing English."""
+
+        session = self.sessions.get(source_session_id)
+        composition = self.compositions.get(source_session_id)
+        cookbook = self._validated_cookbook(session, composition)
+        if cookbook.target_mode not in {"fl2va_direct", "ref2v_direct"}:
+            raise ValueError("La variante chinoise est limitée à H3 Base et REF2V directs.")
+        expected = self._expected_sources(
+            session, composition, CompositionStage.FINAL_PROMPT
+        )
+        final = _approved_stage(
+            composition, CompositionStage.FINAL_PROMPT, expected
+        )
+        selected_model = (model_id or composition.writer_model_id or session.model_id).strip()
+        if not selected_model:
+            raise ValueError("Choisissez un modèle pour la variante chinoise.")
+        plan = composition.beat_sheet.active_revision
+        placeholders = DialoguePlaceholders.from_lines(
+            text for _, text in speech_lines(final.content)
+        )
+        system_prompt = _CHINESE_VARIANT_SYSTEM + placeholders.instruction
+        user_prompt = placeholders.protect("\n\n".join((
+            "APPROVED PLAN (semantic control source; it is not the output):\n"
+            + (plan.content if plan is not None else "N/A"),
+            "ACCEPTED ENGLISH H3 PROMPT (the sole structural source):\n"
+            + final.content,
+            "Return only the transcompiled H3 prompt, without Markdown fences or commentary.",
+        )))
+        request = CompletionRequest(
+            model_id=selected_model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            images=(),
+            temperature=0.1,
+            max_tokens=262_144,
+            operation_id=(
+                f"{cookbook.reference.cookbook_id}@{cookbook.reference.version}"
+                ".final_prompt.zh.transcompile"
+            ),
+            include_reasoning=include_reasoning,
+            trace_context={
+                "session_id": source_session_id,
+                "source_prompt_revision_id": final.revision_id,
+                "language": "zh",
+            },
+        )
+
+        def events() -> Iterator[CompositionStreamEvent]:
+            terminal = False
+            for event in self.gateway.stream(request):
+                if event.kind is StreamEventKind.COMPLETED:
+                    if event.result is None:
+                        raise ValueError("stream completed without a result")
+                    try:
+                        candidate = _strip_fence(
+                            placeholders.restore(event.result.content)
+                        )
+                        _validate_chinese_prompt_variant(final.content, candidate)
+                        current = self.compositions.get(source_session_id)
+                        if (
+                            current.final_prompt.active_revision_id
+                            != final.revision_id
+                        ):
+                            raise ValueError(
+                                "Le prompt anglais a changé pendant la transcompilation."
+                            )
+                        variant = PromptLanguageVariant(
+                            variant_id=f"prompt-zh-{uuid4().hex}",
+                            source_revision_id=final.revision_id,
+                            language="zh",
+                            content=candidate,
+                            model_id=selected_model,
+                            llm_call_id=event.result.call_id,
+                        )
+                        completed = self.compositions.save_if_current(
+                            current, current.add_prompt_variant(variant)
+                        )
+                    except Exception as error:
+                        self._report_application_outcome(
+                            event.result.call_id,
+                            LlmCallApplicationOutcome.REJECTED,
+                            error,
+                        )
+                        raise
+                    self._report_application_outcome(
+                        event.result.call_id,
+                        LlmCallApplicationOutcome.ACCEPTED,
+                    )
+                    terminal = True
+                    yield CompositionStreamEvent(
+                        kind=StreamEventKind.COMPLETED,
+                        phase=StreamPhase.COMPLETED,
+                        text=candidate,
+                        progress=1.0,
+                        composition=completed,
+                        finish_reason=event.result.finish_reason,
+                        max_tokens=request.max_tokens,
+                        document_stage=CompositionStage.FINAL_PROMPT,
+                    )
+                elif event.kind is StreamEventKind.TRUNCATED:
+                    terminal = True
+                    yield CompositionStreamEvent(
+                        kind=StreamEventKind.TRUNCATED,
+                        phase=StreamPhase.TRUNCATED,
+                        text=event.result.content if event.result else event.text,
+                        finish_reason=(
+                            event.result.finish_reason if event.result else None
+                        ),
+                        max_tokens=request.max_tokens,
+                        document_stage=CompositionStage.FINAL_PROMPT,
+                    )
+                else:
+                    yield CompositionStreamEvent(
+                        kind=event.kind,
+                        phase=event.phase,
+                        text=event.text,
+                        progress=event.progress,
+                        document_stage=CompositionStage.FINAL_PROMPT,
+                    )
+            if not terminal:
+                raise ValueError("model stream ended before completion")
+
+        return events()
+
     def preview_request(self, source_session_id: str, stage: CompositionStage) -> CompletionRequest:
         """Assemble the next request without executing or changing the preparation."""
         return self._request(source_session_id, stage, instruction=None)[4]
@@ -838,11 +971,14 @@ class PromptCompositionService:
         )
         result = self.gateway.complete(request)
         try:
+            result_content = _dialogue_placeholders_for(
+                session, composition, cookbook, stage, prefix
+            ).restore(result.content)
             content, compiler_context = _compile_content_with_context(
                 cookbook,
                 stage,
                 prefix,
-                result.content,
+                result_content,
                 source_text=preparation_source(session, composition).source_text,
                 dialogue_source_text=_dialogue_source(
                     cookbook,
@@ -1184,6 +1320,15 @@ class PromptCompositionService:
             operation_id="ref2v.super_fast.prompt_direct.generate",
             include_reasoning=include_reasoning,
         )
+        request = _protect_dialogue_request(
+            request,
+            _dialogue_placeholders_for(
+                session,
+                composition,
+                cookbook,
+                CompositionStage.FINAL_PROMPT,
+            ),
+        )
         return session, composition, cookbook, expected, request
 
     def _complete_super_fast_direct(
@@ -1210,7 +1355,12 @@ class PromptCompositionService:
             current_session,
             current,
             cookbook,
-            result_content,
+            _dialogue_placeholders_for(
+                current_session,
+                current,
+                cookbook,
+                CompositionStage.FINAL_PROMPT,
+            ).restore(result_content),
         )
         completed = self._persist_if_current(
             current_session,
@@ -1266,6 +1416,12 @@ class PromptCompositionService:
         expected: tuple[str, ...],
         result_content: str,
     ) -> PromptComposition:
+        result_content = _dialogue_placeholders_for(
+            initial_session,
+            initial_composition,
+            cookbook,
+            CompositionStage.BEAT_SHEET,
+        ).restore(result_content)
         plan_content, _ = _compile_content_with_context(
             cookbook,
             CompositionStage.BEAT_SHEET,
@@ -1498,13 +1654,16 @@ class PromptCompositionService:
         )
         result = self.gateway.complete(request)
         try:
-            revised = result.content
+            placeholders = _dialogue_placeholders_for(
+                session, composition, cookbook, stage, prefix, instruction
+            )
+            revised = placeholders.restore(result.content)
             if cookbook.output_contract not in {_SUPER_FAST_REF2V_DIRECT_CONTRACT, DIRECT_PROMPT_CONTRACT, *_SEQUENCE_CONTRACTS}:
                 revised = _revision_document_contract(
                     cookbook,
                     stage,
                     compiler_context=prefix or None,
-                ).extract(result.content)
+                ).extract(revised)
             content, compiler_context = _compile_content_with_context(
                 cookbook,
                 stage,
@@ -1653,6 +1812,15 @@ class PromptCompositionService:
             max_tokens=262_144,
             operation_id="action_plan.reconcile",
             include_reasoning=include_reasoning,
+        )
+        request = _protect_dialogue_request(
+            request,
+            _dialogue_placeholders_for(
+                session,
+                composition,
+                cookbook,
+                CompositionStage.BEAT_SHEET,
+            ),
         )
         audit_instruction = json.dumps(
             {
@@ -1830,6 +1998,15 @@ class PromptCompositionService:
             max_tokens=262_144,
             operation_id="action_plan.reconcile",
             include_reasoning=include_reasoning,
+        )
+        request = _protect_dialogue_request(
+            request,
+            _dialogue_placeholders_for(
+                session,
+                composition,
+                cookbook,
+                CompositionStage.BEAT_SHEET,
+            ),
         )
         audit_instruction = json.dumps(
             {
@@ -2259,7 +2436,17 @@ class PromptCompositionService:
             ),
             include_reasoning=include_reasoning,
         )
-        return session, composition, cookbook, expected, request, prefix
+        placeholders = _dialogue_placeholders_for(
+            session, composition, cookbook, stage, prefix, instruction
+        )
+        return (
+            session,
+            composition,
+            cookbook,
+            expected,
+            _protect_dialogue_request(request, placeholders),
+            prefix,
+        )
 
     def _sequence_request(self, session, composition, cookbook, stage, expected, instruction, include_reasoning):
         from .prompt_recipes import EDITABLE_KEYS
@@ -2348,6 +2535,10 @@ class PromptCompositionService:
         system += "\n" + creative_audacity_policy(source.creative_audacity, preparation=session.preparation)
         system += _vocal_stage_policy(session, composition, cookbook, stage)
         model_id = (composition.writer_model_id or session.model_id) if writer else session.model_id
+        prefix = handler.encode_context(context)
+        placeholders = _dialogue_placeholders_for(
+            session, composition, cookbook, stage, prefix, instruction
+        )
         request = CompletionRequest(model_id=model_id, system_prompt=system, user_prompt=user,
             images=self._direct_reference_images(session, composition, include_source_filenames=False) if not writer else (),
             temperature=0.3 if stage is CompositionStage.BEAT_SHEET else 0.2, max_tokens=262_144,
@@ -2358,7 +2549,7 @@ class PromptCompositionService:
                 "recipe_revision": package["revision"] if package else None,
                 "source_ids": list(expected), "revision_requested": bool(instruction),
                 "reference_asset_ids": [reference.asset_id for reference in session.references]})
-        return session, composition, cookbook, expected, request, handler.encode_context(context)
+        return session, composition, cookbook, expected, _protect_dialogue_request(request, placeholders), prefix
 
     def _direct_reference_images(
         self,
@@ -3213,6 +3404,14 @@ class PromptCompositionService:
         document_stage: CompositionStage | None = None,
     ) -> Iterator[CompositionStreamEvent]:
         terminal = False
+        placeholders = _dialogue_placeholders_for(
+            initial_session,
+            initial_composition,
+            cookbook,
+            stage,
+            prefix,
+            instruction,
+        )
         if prefix and cookbook.output_contract not in {DIRECT_PROMPT_CONTRACT, MULTISHOT_DIRECT_CONTRACT} and not _is_hidden_compiler_context(prefix):
             yield CompositionStreamEvent(
                 kind=StreamEventKind.DELTA,
@@ -3224,7 +3423,7 @@ class PromptCompositionService:
                 if event.result is None:
                     raise ValueError("stream completed without a result")
                 try:
-                    result_content = event.result.content
+                    result_content = placeholders.restore(event.result.content)
                     if (
                         origin is RevisionOrigin.REWRITE
                         and extract_revision
@@ -4414,6 +4613,94 @@ def _dialogue_source(cookbook: PromptCookbookPort, brief) -> str:
         brief.content
         if cookbook.output_contract in _FL2VA_ANIMAL_INTERVIEW_CONTRACTS
         else brief.source_text
+    )
+
+
+_CHINESE_VARIANT_SYSTEM = """MINIMAX H3 CHINESE TRANSCOMPILER 1.0
+Create an experimental Simplified-Chinese rendering variant from an already accepted English MiniMax H3 prompt. The approved Plan is semantic control only; do not rewrite the story or invent events.
+
+Translate only descriptive prose into concise, natural Simplified Chinese. Preserve the exact document topology and order. Keep section names, [Shot N] markers, timestamps, <Picture N>/<Subject N>/<Audio N>/<Video N> references, speaker identifiers such as (S1), dialogue tags and language labels, XML-like tags, technical placeholders, proper names, reference assignments, numbers and explicit duration unchanged. Dialogue payloads represented by __PF_SPEECH_ tokens are opaque and must remain exact. Do not translate, transliterate, censor, soften, expand or reorder them. Do not add a bilingual duplicate, explanation, Markdown fence, new shot, new dialogue, new reference or new camera event.
+"""
+
+
+def _variant_structure(content: str) -> dict[str, tuple[str, ...]]:
+    return {
+        "sections": tuple(re.findall(r"(?m)^([a-z][a-z0-9_]*):\s*$", content)),
+        "shots": tuple(re.findall(r"\[Shot\s+\d+\]", content)),
+        "timecodes": tuple(re.findall(r"\b\d{2}:\d{2}\.\d{3}\b", content)),
+        "references": tuple(re.findall(
+            r"<(?:Picture|Subject|Audio|Video)\s+\d+>", content
+        )),
+        "speakers": tuple(re.findall(r"\(S\d+\)", content)),
+        "placeholders": tuple(re.findall(r"\[\[[^\]\n]+\]\]", content)),
+    }
+
+
+def _validate_chinese_prompt_variant(english: str, candidate: str) -> None:
+    if not candidate.strip():
+        raise ValueError("La variante chinoise est vide.")
+    if not re.search(r"[\u3400-\u4dbf\u4e00-\u9fff]", candidate):
+        raise ValueError("La variante ne contient pas de prose chinoise.")
+    expected = _variant_structure(english)
+    actual = _variant_structure(candidate)
+    labels = {
+        "sections": "les sections",
+        "shots": "les plans",
+        "timecodes": "les timecodes",
+        "references": "les références",
+        "speakers": "les identifiants vocaux",
+        "placeholders": "les marqueurs techniques",
+    }
+    for key, value in expected.items():
+        if actual[key] != value:
+            raise ValueError(
+                f"La variante chinoise doit conserver exactement {labels[key]}."
+            )
+    if speech_lines(candidate) != speech_lines(english):
+        raise ValueError(
+            "La variante chinoise doit conserver exactement les dialogues et leurs langues."
+        )
+
+
+def _dialogue_placeholders_for(
+    session: PromptLabSession,
+    composition: PromptComposition,
+    cookbook: PromptCookbookPort,
+    stage: CompositionStage,
+    compiler_context: str = "",
+    instruction: str | None = None,
+) -> DialoguePlaceholders:
+    """Resolve the exact speech ledger used by one model-facing stage."""
+
+    lines: list[str] = []
+    if cookbook.output_contract in _SEQUENCE_CONTRACTS and compiler_context:
+        context = _sequence_handler(cookbook).decode_context(compiler_context)
+        lines.extend(context.get("locked_speech", context.get("dialogues", ())))
+        plan = context.get("plan")
+        if isinstance(plan, dict):
+            lines.extend(plan.get("spoken_lines", ()))
+    else:
+        source = preparation_source(session, composition)
+        if getattr(cookbook, "vocal_policy_version", None):
+            lines.extend(extract_explicit_dialogues(source.source_text))
+            lines.extend(getattr(source, "vocal_dialogues", ()))
+        else:
+            lines.extend(extract_explicit_dialogues(_dialogue_source(cookbook, source)))
+    if instruction:
+        lines.extend(extract_explicit_dialogues(instruction))
+    return DialoguePlaceholders.from_lines(lines)
+
+
+def _protect_dialogue_request(
+    request: CompletionRequest,
+    placeholders: DialoguePlaceholders,
+) -> CompletionRequest:
+    if not placeholders.active:
+        return request
+    return replace(
+        request,
+        system_prompt=request.system_prompt + placeholders.instruction,
+        user_prompt=placeholders.protect(request.user_prompt),
     )
 
 

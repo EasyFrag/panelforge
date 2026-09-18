@@ -133,6 +133,10 @@
     output: elements.reasoningOutput,
     empty: elements.reasoningEmpty,
   });
+  const chineseVariant = window.PanelForgeChinesePromptVariant.create({
+    prefix: "ref2vd", state, core, render,
+    setComposition: value => { state.composition = value; },
+  });
 
   function stage(name) {
     return {
@@ -409,6 +413,7 @@
     const payload = await core.request("/api/prompt-lab/models");
     window.PanelForgeModelPicker.populate(elements.model, payload.models || [], selected);
     writerModels.populate(payload.models || []);
+    chineseVariant.populate(payload.models || []);
     render();
   }
 
@@ -892,7 +897,7 @@
 
   function interactionLocked() {
     return state.busy || state.quickRunning || state.superFastRunning || state.compoundRunning
-      || state.writerSaving || Boolean(state.openingSessionId);
+      || state.writerSaving || chineseVariant.busy() || Boolean(state.openingSessionId);
   }
 
   function currentBriefInputs() {
@@ -1220,6 +1225,7 @@
     elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
     if (!session) {
       elements.promptReferences.hidden = true;
+      chineseVariant.draw({ locked, ready: false });
       window.dispatchEvent(new CustomEvent("panelforge:ref2v-context", {
         detail: { session_id: null, prompt_revision_id: null, ready: false },
       }));
@@ -1282,10 +1288,14 @@
     setChip(elements.chips.prompt, promptState.ready, promptPrerequisite && !promptState.ready);
     elements.copyPrompt.disabled = locked || !promptState.ready;
     renderPromptReferences(prompt);
+    chineseVariant.draw({ locked, ready: promptState.ready });
+    const promptSelection = chineseVariant.selection();
     window.dispatchEvent(new CustomEvent("panelforge:ref2v-context", {
       detail: {
         session_id: session.id,
-        prompt_revision_id: prompt ? prompt.active_revision_id : null,
+        prompt_revision_id: prompt ? promptSelection.renderRevisionId : null,
+        prompt_language: promptSelection.language,
+        prompt_variant_id: promptSelection.variantId,
         ready: Boolean(generatedDocument(prompt) && !promptState.draft),
       },
     }));

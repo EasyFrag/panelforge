@@ -108,6 +108,32 @@ class CompositionRevision:
 
 
 @dataclass(frozen=True, slots=True)
+class PromptLanguageVariant:
+    """One optional language variant derived from an accepted final prompt."""
+
+    variant_id: str
+    source_revision_id: str
+    language: str
+    content: str
+    model_id: str
+    llm_call_id: str | None = None
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.variant_id, "variant_id"),
+            (self.source_revision_id, "source_revision_id"),
+            (self.language, "language"),
+            (self.content, "content"),
+            (self.model_id, "model_id"),
+        ):
+            _require_text(value, name)
+        if self.language != "zh":
+            raise ValueError("only the experimental zh prompt variant is supported")
+        if self.llm_call_id is not None:
+            _require_text(self.llm_call_id, "llm_call_id")
+
+
+@dataclass(frozen=True, slots=True)
 class StageDocument:
     stage: CompositionStage
     revisions: tuple[CompositionRevision, ...] = ()
@@ -194,6 +220,37 @@ class PromptComposition:
     final_prompt: StageDocument = StageDocument(CompositionStage.FINAL_PROMPT)
     preparation_intent: PreparationIntent | None = None
     writer_model_id: str | None = None
+    prompt_variants: tuple[PromptLanguageVariant, ...] = ()
+
+    def prompt_variant(
+        self,
+        source_revision_id: str,
+        language: str,
+    ) -> PromptLanguageVariant | None:
+        return next(
+            (
+                variant
+                for variant in reversed(self.prompt_variants)
+                if variant.source_revision_id == source_revision_id
+                and variant.language == language
+            ),
+            None,
+        )
+
+    def add_prompt_variant(
+        self,
+        variant: PromptLanguageVariant,
+    ) -> PromptComposition:
+        if not isinstance(variant, PromptLanguageVariant):
+            raise TypeError("variant must be a PromptLanguageVariant")
+        if any(item.variant_id == variant.variant_id for item in self.prompt_variants):
+            raise ValueError("variant_id already exists")
+        if not any(
+            revision.revision_id == variant.source_revision_id
+            for revision in self.final_prompt.revisions
+        ):
+            raise ValueError("prompt variant source revision does not exist")
+        return replace(self, prompt_variants=(*self.prompt_variants, variant))
 
     def document(self, stage: CompositionStage) -> StageDocument:
         if stage is CompositionStage.REFERENCE_PLAN:
@@ -248,6 +305,20 @@ class PromptComposition:
         ):
             if not isinstance(document, StageDocument) or document.stage is not stage:
                 raise ValueError(f"invalid document for stage {stage.value}")
+        if not isinstance(self.prompt_variants, tuple):
+            raise TypeError("prompt_variants must be a tuple")
+        variant_ids: set[str] = set()
+        final_revision_ids = {
+            revision.revision_id for revision in self.final_prompt.revisions
+        }
+        for variant in self.prompt_variants:
+            if not isinstance(variant, PromptLanguageVariant):
+                raise TypeError("prompt_variants must contain PromptLanguageVariant values")
+            if variant.variant_id in variant_ids:
+                raise ValueError("prompt variants must have unique IDs")
+            if variant.source_revision_id not in final_revision_ids:
+                raise ValueError("prompt variant source revision does not exist")
+            variant_ids.add(variant.variant_id)
 
 
 def _require_text(value: object, name: str) -> str:

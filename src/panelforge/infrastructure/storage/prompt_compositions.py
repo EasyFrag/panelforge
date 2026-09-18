@@ -13,6 +13,7 @@ from panelforge.domain import (
     CookbookBinding,
     CookbookRef,
     PromptComposition,
+    PromptLanguageVariant,
     RevisionOrigin,
     StageDocument,
 )
@@ -32,7 +33,7 @@ from .local import (
 )
 
 
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 7
 _COMPOSITION_KEYS = {
     "schema_version",
     "created_at",
@@ -67,6 +68,14 @@ _REVISION_KEYS_V1 = {
 }
 _REVISION_KEYS_V2 = {*_REVISION_KEYS_V1, "compiler_context"}
 _REVISION_KEYS_V6 = {*_REVISION_KEYS_V2, "llm_call_id", "prompt_recipe_revision"}
+_VARIANT_KEYS_V7 = {
+    "variant_id",
+    "source_revision_id",
+    "language",
+    "content",
+    "model_id",
+    "llm_call_id",
+}
 
 
 class LocalPromptCompositionStore:
@@ -174,9 +183,11 @@ class LocalPromptCompositionStore:
     ) -> tuple[PromptComposition, str, str]:
         _require_regular_file(path)
         data = _read_json_object(path)
-        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") in {3, 4, 5, 6} else set())
-        if data.get("schema_version") in {5, 6}:
+        expected_keys = _COMPOSITION_KEYS | ({"preparation_intent"} if data.get("schema_version") in {3, 4, 5, 6, 7} else set())
+        if data.get("schema_version") in {5, 6, 7}:
             expected_keys |= {"writer_model_id"}
+        if data.get("schema_version") == 7:
+            expected_keys |= {"prompt_variants"}
         if set(data) != expected_keys:
             raise StorageCorruptionError(
                 "invalid prompt composition fields for "
@@ -185,7 +196,7 @@ class LocalPromptCompositionStore:
         schema_version = data.get("schema_version")
         if (
             isinstance(schema_version, bool)
-            or schema_version not in {1, 2, 3, 4, 5, _SCHEMA_VERSION}
+            or schema_version not in {1, 2, 3, 4, 5, 6, _SCHEMA_VERSION}
         ):
             raise StorageCorruptionError(
                 "unsupported prompt composition schema for "
@@ -235,6 +246,17 @@ def _composition_to_dict(
         "source_session_id": composition.source_session_id,
         "preparation_intent": intent_to_dict(composition.preparation_intent),
         "writer_model_id": composition.writer_model_id,
+        "prompt_variants": [
+            {
+                "variant_id": variant.variant_id,
+                "source_revision_id": variant.source_revision_id,
+                "language": variant.language,
+                "content": variant.content,
+                "model_id": variant.model_id,
+                "llm_call_id": variant.llm_call_id,
+            }
+            for variant in composition.prompt_variants
+        ],
         "cookbook": {
             "cookbook_id": composition.cookbook.cookbook_id,
             "version": composition.cookbook.version,
@@ -300,6 +322,14 @@ def _composition_from_dict(
             )
         )
 
+    raw_variants = _require_list(data.get("prompt_variants", []), "prompt_variants")
+    variants: list[PromptLanguageVariant] = []
+    for raw_variant in raw_variants:
+        variant = _require_object(raw_variant, "prompt_variant")
+        if set(variant) != _VARIANT_KEYS_V7:
+            raise ValueError("prompt variant contains invalid fields")
+        variants.append(PromptLanguageVariant(**variant))
+
     return PromptComposition(
         source_session_id=data["source_session_id"],
         preparation_intent=intent_from_dict(data.get("preparation_intent")),
@@ -326,6 +356,7 @@ def _composition_from_dict(
             CompositionStage.FINAL_PROMPT,
             schema_version=schema_version,
         ),
+        prompt_variants=tuple(variants),
     )
 
 

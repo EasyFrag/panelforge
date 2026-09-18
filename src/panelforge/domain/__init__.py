@@ -109,6 +109,7 @@ from .prompt_composition import (
     CompositionStage,
     CookbookBinding,
     CookbookRef,
+    PromptLanguageVariant,
     PromptComposition,
     StageDocument,
 )
@@ -221,6 +222,7 @@ __all__ = [
     "PromptPolicy",
     "PromptLabSession",
     "PromptComposition",
+    "PromptLanguageVariant",
     "PromptReference",
     "ProductionConfig",
     "ProductionCandidateAssessment",

@@ -2,6 +2,8 @@
 
 ## Goal
 
+- **Variante chinoise H3 et insertion déterministe des dialogues autorisées et implémentées le 18 septembre** : conserver le prompt anglais comme canon, proposer à la demande dans H3 Base et REF2V Direct une transcompilation chinoise issue du Plan accepté et du prompt final anglais, puis ouvrir un atelier de rendu distinct pour l’A/B. Pendant Plan, Writer, révision et arbitrage, remplacer les paroles imposées par des jetons opaques et réinsérer localement les textes originaux avant compilation/validation afin qu’aucun LLM ne puisse les traduire ou les paraphraser.
+
 - **Snapshot GitHub pré-variante chinoise demandé le 18 septembre** : publier l’état courant après les correctifs de reprise Histoires, de refroidissement distant, de suivi global et de navigation. La future transcompilation chinoise reste hors de ce snapshot et sera d’abord limitée à H3 Base et REF2V Direct ; Histoires ne l’adoptera qu’après qualification A/B.
 
 - **Suites d’histoires cumulatives autorisées et implémentées le 18 septembre** : ajouter un mode « Continuer une histoire » valable pour toutes les familles. Conserver les épisodes anciens sous forme de mémoire cumulative et le dernier épisode sous forme détaillée, sans appel LLM supplémentaire. Chaque piste doit expliciter `reprise du canon → nouvel obstacle → conséquence préparée`, puis le Rédacteur met la mémoire à jour après le nouvel épisode. Permettre de préparer directement l’épisode suivant depuis un scénario terminé.
@@ -3846,3 +3848,24 @@
 ### Open points
 - Ne pas implémenter avant validation du périmètre UI : génération à la demande par scène, sélection de variante au rendu et comparaison à seed/références/réglages identiques.
 - Décider si le transcompilateur reçoit le plan de scène complet ou un extrait déterministe compact ; le prompt anglais demeure dans tous les cas la source de forme et le plan une source de contrôle seulement.
+
+## Patch 2026-09-18 — variante chinoise H3 et paroles déterministes
+
+### Works
+- H3 Base et REF2V Direct affichent un bloc optionnel `Variante chinoise · expérimental` après le prompt final. La transcompilation est un troisième appel explicite et configurable ; elle reçoit le Plan accepté et le prompt anglais final, sans image.
+- Le prompt anglais reste canonique et inchangé. La variante chinoise est persistée à côté de sa révision source, puis choisie explicitement pour le rendu. Anglais et chinois ouvrent deux projets H3 distincts, ce qui permet un A/B sans collision d’historique.
+- Le validateur chinois exige de la prose chinoise et conserve exactement sections, plans, timecodes, références, identifiants vocaux, marqueurs techniques et dialogues. Une sortie qui modifie la structure ou les paroles est rejetée sans remplacer l’anglais.
+- Le modèle de transcompilation reprend par défaut le Writer final quand il est disponible ; il reste sélectionnable dans le catalogue LLM normal. Une nouvelle révision anglaise remet volontairement la sélection sur English.
+- Les paroles imposées sont remplacées par des jetons opaques avant chaque appel Plan/Writer, révision et arbitrage, puis réinsérées localement avant compilation et validation. Le chemin Super Fast historique applique aussi la restauration. Le rejet observé sur la réplique coréenne est couvert par un test de non-exposition au modèle et de restitution exacte.
+- Persistance `prompt_compositions` passée au schéma 7 avec lecture intacte des schémas 1 à 6. La traçabilité des appels de préparation d’un rendu chinois remonte à la révision anglaise source.
+- Validation : compilation Python, `git diff --check`, 164 tests ciblés verts, dont transport HTTP et Chromium. Suite complète : 1 394 tests exécutés, 43 échecs et 32 erreurs historiques hors surface (contre 47/33 consignés précédemment) ; aucune régression dans les tests ciblés de ce patch.
+
+### Broken / missing
+- La variante chinoise n’est volontairement pas exposée dans Histoires à ce stade.
+- Aucun rendu ComfyUI réel n’a encore comparé anglais et chinois à seed, références et réglages identiques.
+- Les deltas d’une transcompilation en cours peuvent afficher brièvement les jetons opaques ; le texte final validé et persisté contient toujours les paroles restaurées.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` afin de charger `chinese-prompt-variant.js?v=20260918.1`, les scripts directs `20260918.2`, H3 Render `20260918.3` et le CSS `20260918.4`.
+2. Sur une même scène, générer la variante chinoise puis rendre English et 中文 avec la même seed et les mêmes réglages.
+3. Vérifier sur un prompt comportant une réplique non anglaise que Plan, prompt final anglais et variante chinoise conservent exactement les caractères originaux.

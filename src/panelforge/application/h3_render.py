@@ -364,18 +364,38 @@ class H3RenderService:
     ) -> H3RenderRevisionVersion:
         return cls.revision_versions_for_mode(input_mode, preparation)[0]
 
-    def get_or_create_from_session(self, session_id: str) -> H3RenderProject:
+    def get_or_create_from_session(
+        self,
+        session_id: str,
+        *,
+        prompt_language: str = "en",
+    ) -> H3RenderProject:
         session = self.sessions.get(session_id)
         composition = self.compositions.get(session_id)
         final = composition.document(CompositionStage.FINAL_PROMPT).active_revision
         if final is None:
             raise ValueError("generate an H3 prompt before opening the render project")
+        if prompt_language not in {"en", "zh"}:
+            raise ValueError("prompt_language must be en or zh")
+        variant = (
+            composition.prompt_variant(final.revision_id, "zh")
+            if prompt_language == "zh"
+            else None
+        )
+        if prompt_language == "zh" and variant is None:
+            raise ValueError("Générez d'abord la variante chinoise de ce prompt.")
+        prompt_content = variant.content if variant is not None else final.content
+        source_prompt_id = (
+            f"zh:{final.revision_id}:{variant.variant_id}"
+            if variant is not None
+            else final.revision_id
+        )
         with self._lock:
             ref2v_classic = (
                 session.profile_id == "minimax.h3.ref2v.classic.cinematic"
                 and session.session_mode.value == "direct_multimodal"
             )
-            existing = self.projects.find_source_revision(session_id, final.revision_id)
+            existing = self.projects.find_source_revision(session_id, source_prompt_id)
             if existing is not None and not (
                 ref2v_classic and existing.input_mode is not H3RenderInputMode.REF2VA
             ):
@@ -436,17 +456,17 @@ class H3RenderService:
             plan = composition.document(CompositionStage.BEAT_SHEET).active_revision
             cuts = extract_plan_cut_times_ms(plan.content if plan is not None else "")
             if not cuts:
-                cuts = extract_prompt_cut_times_ms(final.content)
+                cuts = extract_prompt_cut_times_ms(prompt_content)
             warnings: list[str] = []
-            if "[Shot 2]" in final.content and not cuts:
+            if "[Shot 2]" in prompt_content and not cuts:
                 warnings.append("Les coupures du prompt ne sont pas horodatées ; les keyframes seront réparties régulièrement.")
             project = H3RenderProject(
                 project_id=self._project_id_factory(),
                 source_session_id=session_id,
-                source_prompt_revision_id=final.revision_id,
+                source_prompt_revision_id=source_prompt_id,
                 model_id=session.model_id,
                 input_mode=mode,
-                current_prompt=final.content,
+                current_prompt=prompt_content,
                 planned_cut_times_ms=cuts,
                 first_frame_asset_id=first.asset_id if first else None,
                 first_frame_label=first.label if first else None,

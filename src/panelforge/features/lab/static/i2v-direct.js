@@ -149,6 +149,10 @@
     output: elements.reasoningOutput,
     empty: elements.reasoningEmpty,
   });
+  const chineseVariant = window.PanelForgeChinesePromptVariant.create({
+    prefix: "i2vd", state, core, render,
+    setComposition: value => { state.composition = value; },
+  });
 
   function stage(name) {
     return {
@@ -408,6 +412,7 @@
       if (!models.length) throw new Error("llama.swap ne publie actuellement aucun modèle.");
       window.PanelForgeModelPicker.populate(elements.model, models, selected);
       writerModels.populate(models);
+      chineseVariant.populate(models);
       render();
     } catch (error) {
       if (requestId === state.modelRequestId && !hadModels) {
@@ -926,7 +931,7 @@
 
   function interactionLocked() {
     return state.busy || state.quickRunning || state.compoundRunning
-      || state.writerSaving || Boolean(state.openingSessionId);
+      || state.writerSaving || chineseVariant.busy() || Boolean(state.openingSessionId);
   }
 
   function currentBriefInputs() {
@@ -1109,6 +1114,7 @@
     elements.forkSession.disabled = locked || Boolean(state.openingSessionId) || !session;
     if (!session) {
       elements.promptReferences.hidden = true;
+      chineseVariant.draw({ locked, ready: false });
       emitH3RenderContext(null, null, false);
       return;
     }
@@ -1161,6 +1167,7 @@
     setChip(elements.chips.prompt, promptState.ready, (preparationSteps() === 1 ? briefState.ready : planState.ready) && !promptState.ready);
     elements.copyPrompt.disabled = locked || !promptState.ready;
     renderPromptReferences(prompt);
+    chineseVariant.draw({ locked, ready: promptState.ready });
     emitH3RenderContext(
       session,
       prompt,
@@ -1169,10 +1176,13 @@
   }
 
   function emitH3RenderContext(session, prompt, ready) {
+    const selection = chineseVariant.selection();
     window.dispatchEvent(new CustomEvent("panelforge:h3-base-context", {
       detail: {
         session_id: session ? session.id : null,
-        prompt_revision_id: prompt ? prompt.active_revision_id : null,
+        prompt_revision_id: prompt ? selection.renderRevisionId : null,
+        prompt_language: selection.language,
+        prompt_variant_id: selection.variantId,
         ready: Boolean(ready),
       },
     }));

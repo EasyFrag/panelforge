@@ -433,6 +433,10 @@ class CompositionWriterModelBody(BaseModel):
     expected_writer_model_id: str | None
 
 
+class ChinesePromptVariantBody(BaseModel):
+    model_id: str | None = None
+
+
 class PlanArbitrationBody(BaseModel):
     decisions: dict[str, str]
     instruction: str | None = None
@@ -3883,10 +3887,18 @@ def create_app(
         "/api/h3-render/projects/from-session/{session_id}",
         status_code=status.HTTP_201_CREATED,
     )
-    def create_h3_render_project(session_id: str) -> dict[str, object]:
+    def create_h3_render_project(
+        session_id: str,
+        prompt_language: str = "en",
+    ) -> dict[str, object]:
         service = _require_h3_render(h3_render)
         try:
-            return {"project": serialize_h3_render_project(service.get_or_create_from_session(session_id))}
+            return {"project": serialize_h3_render_project(
+                service.get_or_create_from_session(
+                    session_id,
+                    prompt_language=prompt_language,
+                )
+            )}
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="H3 prompt session not found") from error
         except (TypeError, ValueError) as error:
@@ -4550,6 +4562,24 @@ def create_app(
             expected_writer_model_id=body.expected_writer_model_id,
         ))
 
+    @app.post(
+        "/api/prompt-lab/sessions/{session_id}/composition/final-prompt/variants/zh/stream"
+    )
+    def stream_chinese_prompt_variant(
+        session_id: str,
+        body: ChinesePromptVariantBody,
+        include_reasoning: bool = False,
+    ) -> StreamingResponse:
+        service = _require_prompt_composition(prompt_composition)
+        return _composition_stream_action(
+            service,
+            lambda: service.stream_generate_chinese_variant(
+                session_id,
+                body.model_id,
+                include_reasoning=include_reasoning,
+            ),
+        )
+
     @app.post("/api/prompt-lab/sessions/{session_id}/super-fast/stream")
     def stream_super_fast_ref2v(
         session_id: str,
@@ -4965,6 +4995,9 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
         "project_id": project.project_id,
         "source_session_id": project.source_session_id,
         "source_prompt_revision_id": project.source_prompt_revision_id,
+        "prompt_language": (
+            "zh" if project.source_prompt_revision_id.startswith("zh:") else "en"
+        ),
         "model_id": project.model_id,
         "revision_model_id": project.revision_model_id,
         "input_mode": project.input_mode.value,
@@ -6767,6 +6800,18 @@ def serialize_prompt_composition(
         "picture_mapping": [
             {"reference_id": reference_id, "picture_number": picture_number}
             for reference_id, picture_number in composition_picture_mapping(composition)
+        ],
+        "prompt_variants": [
+            {
+                "id": variant.variant_id,
+                "variant_id": variant.variant_id,
+                "source_revision_id": variant.source_revision_id,
+                "language": variant.language,
+                "content": variant.content,
+                "model_id": variant.model_id,
+                "llm_call_id": variant.llm_call_id,
+            }
+            for variant in composition.prompt_variants
         ],
         "documents": documents,
     }

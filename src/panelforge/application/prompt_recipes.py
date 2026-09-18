@@ -24,7 +24,8 @@ def preparation_call_ids(composition, revision_id):
     used, visited = set(), set()
 
     def visit(identity):
-        identity = identity.split(":", 1)[-1]
+        parts = identity.split(":")
+        identity = parts[1] if len(parts) >= 2 and parts[0] == "zh" else parts[-1]
         if identity in visited or identity not in revisions:
             return
         visited.add(identity)

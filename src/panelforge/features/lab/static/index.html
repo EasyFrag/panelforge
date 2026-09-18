@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260918.3">
+  <link rel="stylesheet" href="/static/lab.css?v=20260918.4">
   <script src="/static/lab.js?v=20260918.3" defer></script>
   <script src="/static/work-queue.js?v=20260918.4" defer></script>
   <script src="/static/lab-core.js?v=20260918.1" defer></script>
@@ -19,14 +19,15 @@
   <script src="/static/sensual-controls.js?v=20260911.1" defer></script>
   <script src="/static/prompt-recipes.js?v=20260916.1" defer></script>
   <script src="/static/prompt-writer-model.js?v=20260918.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260918.1" defer></script>
+  <script src="/static/chinese-prompt-variant.js?v=20260918.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260918.2" defer></script>
   <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260918.2" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260918.3" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260918.1" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260918.2" defer></script>
   <script src="/static/media-analysis-media.js?v=20260910.11" defer></script>
   <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
@@ -1434,6 +1435,18 @@
             <textarea id="i2vd-prompt-content" class="cookbook-stage-output final-prompt-output" rows="26" placeholder="Le prompt T2VA, I2VA, L2VA ou FL2VA compilé apparaîtra ici."></textarea>
             <div id="i2vd-prompt-lint" class="prompt-lint"><small>Le mode d’entrée et la grammaire H3 seront contrôlés après génération.</small></div>
             <section id="i2vd-prompt-references" class="prompt-reference-copy" aria-label="Noms des images de référence" hidden></section>
+            <details id="i2vd-chinese-panel" class="prompt-language-variant" hidden>
+              <summary>Variante chinoise <span class="experimental">expérimental</span></summary>
+              <p>Un appel supplémentaire reçoit le Plan validé et le prompt anglais. L’anglais reste canonique ; dialogues, balises, références et timecodes sont verrouillés.</p>
+              <div class="prompt-language-variant-controls">
+                <label>Prompt envoyé à H3<select id="i2vd-prompt-language"><option value="en">English · canonique</option><option value="zh" disabled>中文 · variante</option></select></label>
+                <label>LLM de transcompilation<select id="i2vd-chinese-model"></select></label>
+                <button id="i2vd-generate-chinese" type="button">Générer la variante chinoise</button>
+                <button id="i2vd-copy-chinese" type="button" disabled>Copier 中文</button>
+              </div>
+              <p id="i2vd-chinese-status" class="message" aria-live="polite"></p>
+              <textarea id="i2vd-chinese-content" rows="18" readonly hidden></textarea>
+            </details>
             <div class="rewrite-box"><label for="i2vd-prompt-instruction">Demander une modification ciblée</label><div><input id="i2vd-prompt-instruction" type="text" placeholder="Ex. Garde les actions mais rends le mouvement de caméra plus discret." disabled><button id="i2vd-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
             <section id="h3r-lab" class="h3-render-lab" hidden>
               <div class="h3-render-heading">
@@ -1829,6 +1842,18 @@
             <textarea id="ref2vd-prompt-content" class="cookbook-stage-output final-prompt-output" rows="26" placeholder="Le prompt Ref2V compilé apparaîtra ici."></textarea>
             <div id="ref2vd-prompt-lint" class="prompt-lint"><small>Le mapping Picture N et la grammaire H3 seront contrôlés après génération.</small></div>
             <section id="ref2vd-prompt-references" class="prompt-reference-copy" aria-label="Noms des images de référence" hidden></section>
+            <details id="ref2vd-chinese-panel" class="prompt-language-variant" hidden>
+              <summary>Variante chinoise <span class="experimental">expérimental</span></summary>
+              <p>Un appel supplémentaire reçoit le Plan validé et le prompt anglais. L’anglais reste canonique ; dialogues, balises, références et timecodes sont verrouillés.</p>
+              <div class="prompt-language-variant-controls">
+                <label>Prompt envoyé à H3<select id="ref2vd-prompt-language"><option value="en">English · canonique</option><option value="zh" disabled>中文 · variante</option></select></label>
+                <label>LLM de transcompilation<select id="ref2vd-chinese-model"></select></label>
+                <button id="ref2vd-generate-chinese" type="button">Générer la variante chinoise</button>
+                <button id="ref2vd-copy-chinese" type="button" disabled>Copier 中文</button>
+              </div>
+              <p id="ref2vd-chinese-status" class="message" aria-live="polite"></p>
+              <textarea id="ref2vd-chinese-content" rows="18" readonly hidden></textarea>
+            </details>
             <div class="rewrite-box"><label for="ref2vd-prompt-instruction">Demander une modification ciblée</label><div><input id="ref2vd-prompt-instruction" type="text" placeholder="Ex. Garde la chorégraphie mais rends la prose plus fluide." disabled><button id="ref2vd-rewrite-prompt" type="button" disabled>Proposer</button></div></div>
             <section id="ref2vr-lab" class="h3-render-lab" hidden>
               <div class="h3-render-heading">

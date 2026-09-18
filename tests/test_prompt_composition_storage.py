@@ -12,6 +12,7 @@ from panelforge.domain import (
     CookbookBinding,
     CookbookRef,
     PromptComposition,
+    PromptLanguageVariant,
     RevisionOrigin,
     StageDocument,
 )
@@ -151,7 +152,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
                 / "composition.json"
             )
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 6)
+            self.assertEqual(raw["schema_version"], 7)
             self.assertEqual(raw["created_at"], "2026-08-08T10:00:00Z")
             self.assertEqual(raw["updated_at"], "2026-08-08T10:01:00Z")
             self.assertEqual(raw["bindings"][0]["slot_id"], "fighter_a")
@@ -182,6 +183,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
             raw["schema_version"] = 1
             raw.pop("preparation_intent")
             raw.pop("writer_model_id")
+            raw.pop("prompt_variants")
             for document_name in (
                 "reference_plan",
                 "beat_sheet",
@@ -203,7 +205,7 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
 
             store.save(loaded)
             migrated = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(migrated["schema_version"], 6)
+            self.assertEqual(migrated["schema_version"], 7)
             self.assertIsNone(
                 migrated["final_prompt"]["revisions"][0]["compiler_context"]
             )
@@ -247,9 +249,32 @@ class LocalPromptCompositionStoreTest(unittest.TestCase):
                 raw["schema_version"] = 1
                 raw.pop("preparation_intent")
                 raw.pop("writer_model_id")
+                raw.pop("prompt_variants")
                 path.write_text(json.dumps(raw), encoding="utf-8")
                 with self.assertRaisesRegex(StorageCorruptionError, "metadata"):
                     store.get(composition.source_session_id)
+
+    def test_chinese_variants_round_trip_without_replacing_english(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalPromptCompositionStore(directory)
+            composition = sample_composition()
+            variant = PromptLanguageVariant(
+                variant_id="prompt-zh-1",
+                source_revision_id="final-prompt-1",
+                language="zh",
+                content="subject_definitions:\n一个主体。",
+                model_id="local::gemma",
+                llm_call_id="llm-1",
+            )
+            stored = composition.add_prompt_variant(variant)
+            store.create(stored)
+
+            reopened = store.get(composition.source_session_id)
+
+            self.assertEqual(reopened.final_prompt, composition.final_prompt)
+            self.assertEqual(
+                reopened.prompt_variant("final-prompt-1", "zh"), variant
+            )
 
     def test_rejects_traversal_and_corrupt_identity(self):
         with tempfile.TemporaryDirectory() as directory:

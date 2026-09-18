@@ -913,7 +913,7 @@
       if (contextToken !== state.contextToken) return;
       const payload = detail.project_id
         ? await request(`/api/h3-render/projects/${encodeURIComponent(detail.project_id)}`)
-        : await request(`/api/h3-render/projects/from-session/${encodeURIComponent(detail.session_id)}`, { method: "POST" });
+        : await request(`/api/h3-render/projects/from-session/${encodeURIComponent(detail.session_id)}?prompt_language=${encodeURIComponent(detail.prompt_language || "en")}`, { method: "POST" });
       if (contextToken !== state.contextToken) return;
       const changed = state.project?.project_id !== payload.project.project_id;
       renderProject(payload.project);

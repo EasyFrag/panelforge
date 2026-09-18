@@ -176,12 +176,13 @@ class PromptWriterModelTest(unittest.TestCase):
             service, _, session, composition = classic_service(directory)
             path = Path(directory) / "prompt_compositions" / session.session_id / "composition.json"
             original = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(original["schema_version"], 6)
+            self.assertEqual(original["schema_version"], 7)
             for version in (1, 2, 3, 4):
                 with self.subTest(version=version):
                     raw = deepcopy(original)
                     raw["schema_version"] = version
                     raw.pop("writer_model_id")
+                    raw.pop("prompt_variants")
                     if version < 3:
                         raw.pop("preparation_intent")
                     path.write_text(json.dumps(raw), encoding="utf-8")
