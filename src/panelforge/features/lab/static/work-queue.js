@@ -55,10 +55,15 @@
     <details class="work-queue-history"><summary>Derniers traitements</summary><div data-history></div></details>`;
   document.body.append(dialog);
 
-  const floating = document.createElement("details");
+  const floating = document.createElement("aside");
   floating.className = "work-queue-background";
-  floating.hidden = true;
-  floating.innerHTML = `<summary data-summary>Traitements</summary><div data-compact></div><button type="button" data-open>Ouvrir le suivi complet</button>`;
+  floating.innerHTML = `
+    <div class="work-queue-compact-head">
+      <strong>Traitements</strong>
+      <button type="button" data-open>Détails</button>
+    </div>
+    <div class="work-queue-compact-lanes" data-compact></div>
+    <div data-notices></div>`;
   document.body.append(floating);
 
   const form = dialog.querySelector("[data-settings-form]");
@@ -67,11 +72,18 @@
 
   const activityName = activity => activity?.operation || labels[activity?.workload] || "Traitement";
   const percent = activity => activity?.progress == null ? null : Math.round(Number(activity.progress) * 100);
-  const stateLabel = machine => machine?.paused ? "File suspendue"
-    : machine?.state === "cooling" ? `Refroidissement${machine.cooldown_remaining_seconds ? ` · ${machine.cooldown_remaining_seconds} s` : ""}`
-    : machine?.state === "hot" ? "Température trop élevée"
-    : machine?.state === "unavailable" ? "Télémétrie indisponible"
-    : machine?.active ? activityName(machine.active) : "Disponible";
+  const stateLabel = machine => machine?.state === "cooling" ? "Cooldown"
+    : machine?.active || machine?.state === "busy" ? "Working"
+    : machine?.paused ? "Paused"
+    : machine?.state === "hot" ? "Hot"
+    : machine?.state === "unavailable" ? "Unavailable"
+    : Number(machine?.queue_count || 0) > 0 ? "Working" : "Ready";
+
+  const stateTone = machine => machine?.state === "cooling" ? "cooling"
+    : machine?.active || machine?.state === "busy" ? "busy"
+    : machine?.paused ? "paused"
+    : machine?.state === "hot" || machine?.state === "unavailable" ? "unavailable"
+    : Number(machine?.queue_count || 0) > 0 ? "busy" : "idle";
 
   function activityView(activity, {queued = false} = {}) {
     const item = document.createElement("article");
@@ -102,7 +114,7 @@
     const heading = document.createElement("h3");
     heading.textContent = labels[resource];
     const badge = document.createElement("span");
-    badge.className = `work-queue-state ${machine?.state || "idle"}`;
+    badge.className = `work-queue-state ${stateTone(machine)}`;
     badge.textContent = stateLabel(machine);
     head.append(heading, badge);
     section.append(head);
@@ -110,15 +122,19 @@
     else {
       const empty = document.createElement("p");
       empty.className = "muted";
-      empty.textContent = machine?.paused ? "Les nouvelles tâches attendent la reprise." : "Aucun traitement en cours.";
+      empty.textContent = machine?.paused ? "Les nouvelles tâches attendent la reprise."
+        : machine?.queue_count ? "Le prochain traitement attend son admission." : "Aucun traitement en cours.";
       section.append(empty);
     }
     const queue = machine?.queue || [];
-    if (queue.length) {
-      const title = document.createElement("h4");
-      title.textContent = `À venir · ${queue.length}`;
-      section.append(title, ...queue.map(value => activityView(value, {queued: true})));
-    }
+    const title = document.createElement("h4");
+    title.textContent = `À venir · ${Number(machine?.queue_count || queue.length || 0)}`;
+    section.append(title);
+    if (queue.length) section.append(...queue.map(value => activityView(value, {queued: true})));
+    else section.append(Object.assign(document.createElement("p"), {
+      className: "muted work-queue-empty",
+      textContent: "Aucun traitement en attente.",
+    }));
     const action = document.createElement("button");
     action.type = "button";
     action.dataset.resource = resource;
@@ -126,6 +142,57 @@
     action.textContent = machine?.paused ? "Reprendre la file" : "Pause après le traitement en cours";
     section.append(action);
     return section;
+  }
+
+  function compactLaneView(resource, machine) {
+    const lane = document.createElement("section");
+    const tone = stateTone(machine);
+    lane.className = `work-queue-compact-lane ${tone}`;
+    lane.dataset.resource = resource;
+
+    const head = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = resource === "local_gpu" ? "Local" : "Serveur";
+    const badge = document.createElement("span");
+    badge.className = `work-queue-state ${tone}`;
+    badge.textContent = stateLabel(machine);
+    const waiting = document.createElement("small");
+    const queueCount = Number(machine?.queue_count || 0);
+    waiting.textContent = `${queueCount} en attente`;
+    head.append(name, badge, waiting);
+
+    const operation = document.createElement("p");
+    if (machine?.state === "cooling") {
+      const remaining = Number(machine?.cooldown_remaining_seconds || 0);
+      operation.textContent = `${machine?.operation || "Refroidissement de la machine"}${remaining ? ` · ${remaining} s` : ""}`;
+    } else if (machine?.active) {
+      operation.textContent = `${activityName(machine.active)}${machine.active.stage ? ` · ${machine.active.stage}` : ""}`;
+    } else if (machine?.paused) {
+      operation.textContent = "Les nouveaux traitements attendent la reprise.";
+    } else if (tone === "unavailable") {
+      operation.textContent = "La machine ou sa télémétrie ne répond pas.";
+    } else if (queueCount > 0) {
+      operation.textContent = machine?.queue?.[0]
+        ? `Prochain · ${activityName(machine.queue[0])}`
+        : "Admission du prochain traitement…";
+    } else {
+      operation.textContent = "Aucun traitement en cours.";
+    }
+
+    const meter = document.createElement("div");
+    meter.className = "work-queue-compact-progress";
+    const progress = document.createElement("progress");
+    progress.max = 1;
+    const value = percent(machine?.active);
+    if (tone === "busy" && value == null) progress.removeAttribute("value");
+    else progress.value = value == null ? 0 : Math.max(0, Math.min(1, Number(machine.active.progress)));
+    const progressLabel = document.createElement("span");
+    progressLabel.textContent = tone === "busy" ? (value == null ? "—" : `${value} %`)
+      : tone === "cooling" ? (machine?.cooldown_remaining_seconds ? `${machine.cooldown_remaining_seconds} s` : "—")
+      : "0 %";
+    meter.append(progress, progressLabel);
+    lane.append(head, operation, meter);
+    return lane;
   }
 
   function syncSettings(settings) {
@@ -145,9 +212,12 @@
 
   function render() {
     if (!status?.machines) {
-      floating.hidden = !notices.length;
-      floating.querySelector("[data-summary]").textContent = notices.length ? "Traitements · attention requise" : "Traitements";
-      floating.querySelector("[data-compact]").replaceChildren(...notices.map(noticeView));
+      const unavailable = {state: "unavailable", active: null, queue_count: 0, queue: []};
+      floating.querySelector("[data-compact]").replaceChildren(
+        compactLaneView("local_gpu", unavailable),
+        compactLaneView("remote_gpu", unavailable),
+      );
+      floating.querySelector("[data-notices]").replaceChildren(...notices.map(noticeView));
       return;
     }
     const lanes = dialog.querySelector("[data-lanes]");
@@ -159,29 +229,28 @@
     const history = dialog.querySelector("[data-history]");
     const recent = status.recent || [];
     history.replaceChildren(...recent.slice(0, 12).map(value => {
-      const row = document.createElement("p");
-      row.textContent = `${labels[value.resource] || value.resource} · ${activityName(value)} · ${value.status === "completed" ? "terminé" : value.status}`;
+      const row = document.createElement("article");
+      row.className = `work-queue-history-row ${value.status || ""}`;
+      const summary = document.createElement("p");
+      const statusLabel = value.status === "completed" ? "terminé"
+        : value.status === "failed" ? "échec"
+        : value.status === "cancelled" ? "annulé" : value.status;
+      summary.textContent = `${labels[value.resource] || value.resource} · ${activityName(value)} · ${statusLabel}`;
+      row.append(summary);
+      if (value.error) {
+        const detail = document.createElement("small");
+        detail.textContent = `${value.error_type ? `${value.error_type} · ` : ""}${value.error}`;
+        row.append(detail);
+      }
       return row;
     }));
     if (!recent.length) history.append(Object.assign(document.createElement("p"), {textContent: "Aucun traitement récent."}));
-
-    const machines = Object.values(status.machines);
-    const visible = notices.length || machines.some(machine => machine.active || machine.queue_count || machine.paused);
-    floating.hidden = !visible;
-    const summaries = machines.filter(machine => machine.active || machine.queue_count || machine.paused).map(machine => {
-      const name = machine === status.machines.local_gpu ? "Local" : "Serveur";
-      const value = percent(machine.active);
-      return `${name} · ${stateLabel(machine)}${value == null ? "" : ` · ${value} %`}${machine.queue_count ? ` · +${machine.queue_count}` : ""}`;
-    });
-    floating.querySelector("[data-summary]").textContent = notices.length
-      ? `Traitements · ${notices.length} alerte${notices.length > 1 ? "s" : ""}`
-      : `Traitements · ${summaries.join(" / ")}`;
     const compact = floating.querySelector("[data-compact]");
-    compact.replaceChildren(...notices.map(noticeView), ...machines.filter(machine => machine.active || machine.queue_count).map(machine => {
-      const row = document.createElement("p");
-      row.textContent = `${machine === status.machines.local_gpu ? "Local" : "Serveur"} · ${stateLabel(machine)}${machine.queue_count ? ` · ${machine.queue_count} à venir` : ""}`;
-      return row;
-    }));
+    compact.replaceChildren(
+      compactLaneView("local_gpu", status.machines.local_gpu),
+      compactLaneView("remote_gpu", status.machines.remote_gpu),
+    );
+    floating.querySelector("[data-notices]").replaceChildren(...notices.map(noticeView));
   }
 
   function noticeView(value) {
@@ -282,6 +351,34 @@
     status = event.detail;
     render();
   });
+  window.addEventListener("panelforge:render-progress", event => {
+    const data = event.detail;
+    const machine = status?.machines?.remote_gpu;
+    const active = machine?.active;
+    const value = Number(data?.percent);
+    if (!active || !Number.isFinite(value) || value < 0 || value > 100) return;
+    if (active.execution_id && data.prompt_id && active.execution_id !== data.prompt_id) return;
+    const progress = Math.max(Number(active.progress || 0), value / 100);
+    const current = Number(data.current_step);
+    const total = Number(data.total_steps);
+    const step = Number.isFinite(current) && Number.isFinite(total) && total > 0
+      ? ` · étape ${Math.round(current)}/${Math.round(total)}` : "";
+    status = {
+      ...status,
+      machines: {
+        ...status.machines,
+        remote_gpu: {
+          ...machine,
+          active: {
+            ...active,
+            progress,
+            stage: `${data.phase_label || active.stage || "Rendu H3"}${step}`,
+          },
+        },
+      },
+    };
+    render();
+  });
   document.addEventListener("DOMContentLoaded", () => {
     const monitor = document.getElementById("runtime-monitor");
     if (!monitor) return;
@@ -294,9 +391,14 @@
         event.preventDefault(); open();
       }
     });
+    request("/api/work-scheduler/status").then(value => {
+      status = value;
+      render();
+    }).catch(() => render());
   });
   window.PanelForgeWorkQueue = Object.freeze({
     open,
     notice,
   });
+  render();
 })();

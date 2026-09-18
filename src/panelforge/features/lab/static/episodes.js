@@ -32,7 +32,10 @@
   const assetUrl = id => `/api/assets/${encodeURIComponent(id)}/content`;
   const jobRunning = item => item?.job?.status === "running";
   const batchRunning = () => ["running", "rendering", "cancelling"].includes(state.data?.reference_batch?.status);
-  const videoChainRunning = () => ["running", "pausing"].includes(state.data?.video_chain?.status);
+  const videoRecoveryRunning = () => state.data?.scenes?.some(value => jobRunning(value)
+    || ["queued", "running", "cancel_pending"].includes(value.video_status));
+  const videoChainRunning = () => ["running", "pausing"].includes(state.data?.video_chain?.status)
+    || videoRecoveryRunning();
   const imageRunning = () => state.imageProject?.attempts.some(a => ["queued", "submitting", "running", "cancel_pending"].includes(a.status));
   const knownModel = id => state.models.some(m => m.id === id);
   const memo = { get(key) { try { return localStorage.getItem(`panelforge.episodes.${key}`); } catch (_) { return null; } },
@@ -88,7 +91,10 @@
     el("video-pause").hidden = chainStatus !== "running";
     el("video-pause").disabled = state.busy;
     el("video-resume").hidden = !["paused", "interrupted", "failed", "completed_with_errors"].includes(chainStatus);
-    el("video-resume").disabled = state.busy;
+    const incomplete = chain?.items?.filter(item => item.status !== "succeeded").length || 0;
+    el("video-resume").textContent = chainStatus === "completed_with_errors"
+      ? `Relancer les scènes incomplètes${incomplete ? ` (${incomplete})` : ""}` : "Reprendre la chaîne";
+    el("video-resume").disabled = state.busy || videoRecoveryRunning();
     el("video-settings-toggle").disabled = state.busy || videoChainRunning() || !s;
     drawLoras();
     drawBatchLoras();

@@ -20,6 +20,8 @@ class EpisodesBrowserTest(unittest.TestCase):
         self.assertIn('Prompts ${promptReady}/${chainItems.length}', overview)
         self.assertIn(r'Vid\u00e9os ${videoDone}/${chainItems.length}', overview)
         self.assertIn('item?.status === "prompt_failed" ? "Prompt : \\u00e9chec"', script)
+        self.assertIn('Relancer les sc\u00e8nes incompl\u00e8tes', script)
+        self.assertIn('videoRecoveryRunning()', script)
         self.assertIn('if (refs.media.dataset.assetId !== assetId)', script)
         self.assertNotIn('el("video-cards").replaceChildren', overview)
         self.assertIn('episode-video-card.processing', style)

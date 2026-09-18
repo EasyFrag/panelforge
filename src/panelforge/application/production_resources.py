@@ -36,10 +36,11 @@ class ResourceOwner:
     requirement: ResourceRequirement
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _ResourceWaiter:
     token: object
     owner: ResourceOwner
+    claimed: bool = False
 
 
 class ResourceLeaseManager:
@@ -83,6 +84,50 @@ class ResourceLeaseManager:
                 self._paused.discard(resource)
             self._condition.notify_all()
 
+    def reserve(self, job_id: str, requirement: ResourceRequirement) -> None:
+        """Place a durable in-process ticket in the lane before its worker starts."""
+        if not isinstance(job_id, str) or not job_id.strip():
+            raise ValueError("job_id must not be empty")
+        if not isinstance(requirement, ResourceRequirement):
+            raise TypeError("requirement must be a ResourceRequirement")
+        with self._condition:
+            current = next(
+                (owner for owner in self._owners.values() if owner.job_id == job_id),
+                None,
+            )
+            if current is not None:
+                if current.requirement != requirement:
+                    raise ValueError("job_id already uses another resource requirement")
+                return
+            existing = next(
+                (
+                    waiter
+                    for waiters in self._waiters.values()
+                    for waiter in waiters
+                    if waiter.owner.job_id == job_id
+                ),
+                None,
+            )
+            if existing is not None:
+                if existing.owner.requirement != requirement:
+                    raise ValueError("job_id already uses another resource requirement")
+                return
+            self._waiters[requirement.resource].append(
+                _ResourceWaiter(object(), ResourceOwner(job_id, requirement))
+            )
+            self._condition.notify_all()
+
+    def cancel_reservation(self, job_id: str) -> bool:
+        """Remove a ticket that has not yet entered ``lease``."""
+        with self._condition:
+            for waiters in self._waiters.values():
+                for waiter in tuple(waiters):
+                    if waiter.owner.job_id == job_id and not waiter.claimed:
+                        waiters.remove(waiter)
+                        self._condition.notify_all()
+                        return True
+        return False
+
     @contextmanager
     def lease(
         self,
@@ -93,18 +138,37 @@ class ResourceLeaseManager:
         on_wait: Callable[[], None] | None = None,
         on_acquired: Callable[[], None] | None = None,
     ) -> Iterator[None]:
-        token = object()
         resource = requirement.resource
-        waiter = _ResourceWaiter(token, ResourceOwner(job_id, requirement))
         announced = False
         acquired = False
         with self._condition:
-            self._waiters[resource].append(waiter)
+            waiter = next(
+                (
+                    value
+                    for values in self._waiters.values()
+                    for value in values
+                    if value.owner.job_id == job_id
+                ),
+                None,
+            )
+            if waiter is not None:
+                if waiter.owner.requirement != requirement:
+                    raise ValueError("job_id already uses another resource requirement")
+                if waiter.claimed:
+                    raise ValueError("job_id is already waiting for a resource")
+                waiter.claimed = True
+            else:
+                waiter = _ResourceWaiter(
+                    object(),
+                    ResourceOwner(job_id, requirement),
+                    claimed=True,
+                )
+                self._waiters[resource].append(waiter)
             try:
                 while (
                     resource in self._owners
                     or resource in self._paused
-                    or self._waiters[resource][0].token is not token
+                    or self._waiters[resource][0].token is not waiter.token
                 ):
                     if cancelled():
                         raise ResourceWaitCancelled()

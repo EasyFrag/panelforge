@@ -3,7 +3,13 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from panelforge.application.machine_work import MachineWorkCoordinator
-from panelforge.application.prompt_lab import CompletionRequest, CompletionResult
+from panelforge.application.prompt_lab import (
+    CompletionRequest,
+    CompletionResult,
+    CompletionStreamEvent,
+    StreamEventKind,
+    StreamPhase,
+)
 from panelforge.domain.production import (
     ComputeResource,
     ProductionWorkload,
@@ -125,6 +131,55 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         for thread in (first, second, third): thread.join(2)
         self.assertEqual(order, ["first", "second", "third"])
 
+    def test_prequeued_jobs_are_visible_and_keep_their_reserved_order(self):
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        for name in ("first", "second"):
+            coordinator.enqueue(
+                name,
+                ComputeResource.REMOTE_GPU,
+                ProductionWorkload.IMAGE_RENDER,
+                f"KREA2 {name}",
+            )
+        queued = coordinator.public_status()["machines"]["remote_gpu"]
+        self.assertEqual(queued["queue_count"], 2)
+        self.assertEqual([value["id"] for value in queued["queue"]], ["first", "second"])
+
+        order = []
+        second_entered = Event()
+
+        def work(name):
+            with coordinator.lease(
+                name,
+                ComputeResource.REMOTE_GPU,
+                ProductionWorkload.IMAGE_RENDER,
+                f"KREA2 {name}",
+            ):
+                order.append(name)
+                if name == "second":
+                    second_entered.set()
+
+        second = Thread(target=work, args=("second",))
+        first = Thread(target=work, args=("first",))
+        second.start()
+        self.assertFalse(second_entered.wait(.05))
+        first.start()
+        self.assertTrue(second_entered.wait(2))
+        first.join(2); second.join(2)
+        self.assertEqual(order, ["first", "second"])
+
+    def test_prequeued_job_can_be_cancelled_before_its_worker_starts(self):
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        coordinator.enqueue(
+            "queued",
+            ComputeResource.LOCAL_GPU,
+            ProductionWorkload.LLM,
+            "Prompt",
+        )
+        self.assertTrue(coordinator.cancel_queued("queued"))
+        machine = coordinator.public_status()["machines"]["local_gpu"]
+        self.assertEqual(machine["queue_count"], 0)
+        self.assertEqual(coordinator.public_status()["recent"][0]["status"], "cancelled")
+
     def test_public_status_exposes_active_job_and_described_fifo(self):
         coordinator = MachineWorkCoordinator(monitor_interval=.01)
         release, first_entered, second_waiting = Event(), Event(), Event()
@@ -202,6 +257,48 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         self.assertEqual([value["cooldown_remaining_seconds"] for value in observed], [30, 20, 10])
         self.assertTrue(all(value["state"] == "cooling" for value in observed))
 
+    def test_queued_video_cannot_enter_before_the_previous_completion_is_recorded(self):
+        now, observed = [100.0], []
+        first_entered, second_waiting, second_entered, release = Event(), Event(), Event(), Event()
+
+        def monotonic(): return now[0]
+        def sleep(seconds):
+            observed.append(coordinator.public_status()["machines"]["remote_gpu"])
+            now[0] += seconds
+
+        coordinator = MachineWorkCoordinator(
+            settings=WorkSchedulerSettings(
+                thermal=ThermalPolicy(pause_when_unavailable=False),
+                remote_video_cooldown_seconds=30,
+            ),
+            monitor_interval=10,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+
+        def first():
+            with coordinator.lease("video-1", ComputeResource.REMOTE_GPU,
+                    ProductionWorkload.VIDEO_RENDER, "H3 scène 1"):
+                first_entered.set()
+                release.wait(2)
+
+        def second():
+            with coordinator.lease("video-2", ComputeResource.REMOTE_GPU,
+                    ProductionWorkload.VIDEO_RENDER, "H3 scène 2",
+                    on_wait=second_waiting.set):
+                second_entered.set()
+
+        first_thread, second_thread = Thread(target=first), Thread(target=second)
+        first_thread.start(); self.assertTrue(first_entered.wait(2))
+        second_thread.start()
+        self.assertTrue(second_waiting.wait(2))
+        release.set()
+        first_thread.join(2); second_thread.join(2)
+
+        self.assertTrue(second_entered.is_set())
+        self.assertEqual([value["cooldown_remaining_seconds"] for value in observed], [30, 20, 10])
+        self.assertTrue(all(value["state"] == "cooling" for value in observed))
+
     def test_global_settings_are_persisted(self):
         with TemporaryDirectory() as directory:
             store = LocalWorkSchedulerSettings(directory)
@@ -237,6 +334,45 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         self.assertFalse(complete_entered.wait(.05))
         release_stream.set(); self.assertTrue(complete_entered.wait(2))
         stream.join(2); complete.join(2)
+
+    def test_closing_llm_stream_after_terminal_event_is_completed_not_failed(self):
+        class Gateway:
+            def list_models(self): return ()
+            def complete(self, _request): raise AssertionError("not used")
+            def stream(self, _request):
+                yield CompletionStreamEvent(
+                    StreamEventKind.COMPLETED,
+                    StreamPhase.COMPLETED,
+                    progress=1.0,
+                )
+                raise AssertionError("the consumer stops at the terminal event")
+
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        gateway = CoordinatedMultimodalGateway(Gateway(), coordinator)
+        stream = gateway.stream(CompletionRequest("model", "system", "user"))
+        self.assertEqual(next(stream).kind, StreamEventKind.COMPLETED)
+        stream.close()
+
+        recent = coordinator.public_status()["recent"]
+        self.assertEqual(len(recent), 1)
+        self.assertEqual(recent[0]["status"], "completed")
+        self.assertNotIn("error", recent[0])
+
+    def test_real_failure_keeps_a_short_error_in_history(self):
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        with self.assertRaisesRegex(RuntimeError, "Comfy hors ligne"):
+            with coordinator.lease(
+                "render-1",
+                ComputeResource.REMOTE_GPU,
+                ProductionWorkload.VIDEO_RENDER,
+                "H3",
+            ):
+                raise RuntimeError("Comfy hors ligne")
+
+        recent = coordinator.public_status()["recent"]
+        self.assertEqual(recent[0]["status"], "failed")
+        self.assertEqual(recent[0]["error_type"], "RuntimeError")
+        self.assertEqual(recent[0]["error"], "Comfy hors ligne")
 
 
 if __name__ == "__main__":

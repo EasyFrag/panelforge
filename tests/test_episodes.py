@@ -308,6 +308,56 @@ class EpisodeTest(unittest.TestCase):
         self.assertTrue(result["scenes"][0]["dlss_ready"])
         self.assertEqual(result["scenes"][0]["video_status"], "succeeded")
 
+    def test_video_chain_resume_retries_only_the_rejected_stage_with_a_new_request(self):
+        value = self.ready(); identity = value["episode_id"]
+        self.composition.fail_writer = True
+        failed = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],
+            request_id="video-chain-retry", scene_ids=["scene-1"])
+
+        self.assertEqual(failed["video_chain"]["status"], "completed_with_errors")
+        self.assertEqual(failed["video_chain"]["items"][0]["status"], "prompt_failed")
+        self.assertEqual([stage for stage, _model in self.composition.calls],
+                         [CompositionStage.BEAT_SHEET, CompositionStage.FINAL_PROMPT])
+
+        resumed = self.service.resume_video_chain(identity, failed["video_chain"]["chain_id"])
+
+        self.assertEqual(resumed["video_chain"]["status"], "completed")
+        self.assertEqual(resumed["video_chain"]["items"][0]["status"], "succeeded")
+        self.assertEqual(len(resumed["scenes"][0]["preparations"]), 1)
+        self.assertEqual([stage for stage, _model in self.composition.calls],
+                         [CompositionStage.BEAT_SHEET, CompositionStage.FINAL_PROMPT,
+                          CompositionStage.FINAL_PROMPT])
+
+    def test_manual_prompt_and_video_retry_reconcile_the_failed_chain_card(self):
+        value = self.ready(); identity = value["episode_id"]
+        self.composition.fail_writer = True
+        failed = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],
+            request_id="video-chain-manual", scene_ids=["scene-1"])
+        scene = failed["scenes"][0]
+
+        corrected = self.service.prepare_scene(
+            identity, scene["id"], scene["revision"], "manual-prompt-retry", resume=True,
+        )
+        item = corrected["video_chain"]["items"][0]
+        self.assertEqual(item["status"], "prompt_ready")
+        self.assertIsNone(item["error"])
+        self.assertEqual(item["preparation_id"], corrected["scenes"][0]["preparations"][-1]["id"])
+
+        project_id = corrected["scenes"][0]["preparations"][-1]["render_project_id"]
+        project = self.service.render.prepare_attempt(project_id, manual=True)
+        attempt = project.attempts[-1]
+        attempt.status = H3RenderAttemptStatus.RUNNING
+        running = self.service.get(identity)
+        self.assertEqual(running["video_chain"]["items"][0]["status"], "rendering")
+        self.assertEqual(running["video_chain"]["phase"], "Relance manuelle en cours")
+
+        attempt.status = H3RenderAttemptStatus.SUCCEEDED
+        attempt.output_asset_id = "manual-video-output"
+        completed = self.service.get(identity)
+        self.assertEqual(completed["video_chain"]["status"], "completed")
+        self.assertEqual(completed["video_chain"]["items"][0]["status"], "succeeded")
+        self.assertTrue(completed["scenes"][0]["dlss_ready"])
+
     def test_video_chain_delegates_inter_video_rest_to_the_global_remote_lane(self):
         second = deepcopy(self.story["document"]["scenario"]["scenes"][0])
         second["title"] = "Le dénouement"

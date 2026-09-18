@@ -10,10 +10,60 @@ from tests.test_media_analysis_browser import MediaAnalysisBrowserTest, STATIC
 class PromptWriterModelBrowserTest(unittest.TestCase):
     run_browser = MediaAnalysisBrowserTest.run_browser
 
-    def test_independent_sources_persistence_retry_and_historical_visibility(self):
+    def browser(self):
         browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
         if not browsers:
             self.skipTest("local Chromium not installed")
+        return browsers[-1]
+
+    def test_h3_and_ref2v_use_the_requested_local_defaults_for_new_runs(self):
+        index = (STATIC / "index.html").read_text(encoding="utf-8")
+        html = '<meta charset="utf-8"><pre id="result">PENDING</pre>'
+        for prefix in ("i2vd", "ref2vd"):
+            controls = re.search(rf'<div id="{prefix}-writer-model-controls".*?</small>\s*</div>', index, re.S)
+            self.assertIsNotNone(controls)
+            html += (
+                f'<section><select id="{prefix}-model"></select>'
+                f'<input type="checkbox" data-llm-local-for="{prefix}-model" checked>'
+                f'{controls.group()}</section>'
+            )
+        picker = (STATIC / "lab.js").read_text(encoding="utf-8").split("const ui = {};")[0]
+        component = (STATIC / "prompt-writer-model.js").read_text(encoding="utf-8")
+        scenario = """
+        (() => { try {
+          const check=(ok,message)=>{if(!ok)throw new Error(message);};
+          const plan='local::unsloth/Qwen3.8-27B-GGUF';
+          const writer='local::unsloth/gemma-4-31B-it-qat-GGUF';
+          const models=[{id:'server-qwen',label:'Server Qwen',source:'server'},
+            {id:plan,label:'unsloth/Qwen3.8-27B-GGUF',source:'local'},
+            {id:writer,label:'unsloth/gemma-4-31B-it-qat-GGUF',source:'local'}];
+          for(const prefix of ['i2vd','ref2vd']){
+            const planner=document.getElementById(prefix+'-model');
+            PanelForgeModelPicker.populate(planner,models,plan);
+            const state={session:null,composition:null,busy:false,writerSaving:false};
+            let controls;
+            controls=PanelForgePromptWriterModel.create({prefix,state,planner,
+              cookbook:()=>({supports_writer_model:true}),request:async()=>{},
+              render:()=>controls.draw(),busy:()=>false,
+              defaultModelId:writer,defaultEnabled:true});
+            controls.populate(models); controls.draw();
+            const host=document.getElementById(prefix+'-writer-model-controls');
+            check(planner.value===plan,'Qwen local must be the planning default');
+            check(host.querySelector('[data-writer="enabled"]').checked,'separate writer must start enabled');
+            check(controls.value()===writer,'Gemma local must be the writer default');
+            check(host.querySelector('[data-llm-local-for]').checked,'writer source must be local');
+            controls.restore(null); controls.draw();
+            check(controls.value()===null,'a historical run with no writer override remains unchanged');
+            controls.resetDefault(); controls.draw();
+            check(controls.value()===writer,'new run restores the requested default');
+          }
+          document.querySelector('#result').textContent='PASS';
+        } catch(error) { document.querySelector('#result').textContent='FAIL: '+error.stack; } })();
+        """
+        self.run_browser(self.browser(), html + '<script>' + picker + '</script><script>' + component + '</script><script>' + scenario + '</script>')
+
+    def test_independent_sources_persistence_retry_and_historical_visibility(self):
+        browser = self.browser()
         index = (STATIC / "index.html").read_text(encoding="utf-8")
         html = '<meta charset="utf-8"><style>' + (STATIC / "lab.css").read_text(encoding="utf-8") + '</style><pre id="result">PENDING</pre>'
         for prefix in ("i2vd", "ref2vd"):
@@ -80,4 +130,4 @@ class PromptWriterModelBrowserTest(unittest.TestCase):
           document.querySelector('#result').textContent='PASS';
         } catch(error) { document.querySelector('#result').textContent='FAIL: '+error.stack; } })();
         """
-        self.run_browser(browsers[-1], html + '<script>' + script + '</script>')
+        self.run_browser(browser, html + '<script>' + script + '</script>')

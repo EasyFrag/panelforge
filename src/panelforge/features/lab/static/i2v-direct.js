@@ -15,6 +15,8 @@
   const animalInterviewCookbookId = "minimax.h3.base.animal-interview";
   const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
   const preferredCookbookKey = "minimax.h3.fl2va.classic.cinematic.planned@1.0.0";
+  const defaultPlanModelId = "local::unsloth/Qwen3.8-27B-GGUF";
+  const defaultWriterModelId = "local::unsloth/gemma-4-31B-it-qat-GGUF";
 
   const state = {
     spec: null,
@@ -271,6 +273,7 @@
     prefix: "i2vd", state, planner: elements.model,
     cookbook: () => activeCookbookSpec() || state.cookbook,
     request: core.request, render, busy: interactionLocked,
+    defaultModelId: defaultWriterModelId, defaultEnabled: true,
   });
   const combatControls = window.PanelForgeCombatControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
   const cinematicControls = window.PanelForgeClassicCinematicControls.create({ prefix: "i2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
@@ -393,7 +396,7 @@
 
   async function loadModels() {
     const requestId = ++state.modelRequestId;
-    const selected = elements.model.value;
+    const selected = elements.model.value || defaultPlanModelId;
     const hadModels = [...elements.model.options].some((option) => option.value);
     elements.refreshModels.disabled = true;
     try {
@@ -678,7 +681,7 @@
       source.brief_variant
       && source.brief_variant.id === creativeBriefVariant.id,
     );
-    elements.quickMode.checked = false;
+    elements.quickMode.checked = true;
     clearStageDrafts();
     showSetupMessage("");
     render();
@@ -1781,7 +1784,7 @@
     combatControls.restore(null);
     cinematicControls.restore(null);
     sensualControls.restore(null);
-    writerModels.restore(null);
+    writerModels.resetDefault();
     state.session = null;
     state.composition = null;
     state.quickRecord = null;
@@ -1793,7 +1796,7 @@
     setCreativeAxes(null, 0);
     setCreativeAudacity(2);
     elements.creativeDirection.checked = false;
-    elements.quickMode.checked = false;
+    elements.quickMode.checked = true;
     clearStageDrafts();
     showSetupMessage("");
     render();

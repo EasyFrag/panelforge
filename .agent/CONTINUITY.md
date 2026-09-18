@@ -2,6 +2,12 @@
 
 ## Goal
 
+- **Snapshot GitHub pré-variante chinoise demandé le 18 septembre** : publier l’état courant après les correctifs de reprise Histoires, de refroidissement distant, de suivi global et de navigation. La future transcompilation chinoise reste hors de ce snapshot et sera d’abord limitée à H3 Base et REF2V Direct ; Histoires ne l’adoptera qu’après qualification A/B.
+
+- **Suites d’histoires cumulatives autorisées et implémentées le 18 septembre** : ajouter un mode « Continuer une histoire » valable pour toutes les familles. Conserver les épisodes anciens sous forme de mémoire cumulative et le dernier épisode sous forme détaillée, sans appel LLM supplémentaire. Chaque piste doit expliciter `reprise du canon → nouvel obstacle → conséquence préparée`, puis le Rédacteur met la mémoire à jour après le nouvel épisode. Permettre de préparer directement l’épisode suivant depuis un scénario terminé.
+
+- **Défauts H3/REF2V et navigation allégée autorisés le 18 septembre** : pour tout nouveau run H3 Base ou REF2V, sélectionner Qwen3.8-27B-GGUF local pour le plan, Gemma-4-31B-it-qat-GGUF local pour le prompt final et activer le mode rapide. Retirer des menus les anciens Générer avec KREA2, Batch de recettes et Générer une vidéo, en conservant les données historiques. Auditer séparément la cohérence du dernier épisode Fruits sans modifier encore les recettes Histoires.
+
 - **Ordonnanceur global PanelForge autorisé et implémenté le 18 septembre** : remplacer les files implicites des moteurs par deux voies FIFO contrôlées avant appel, locale pour LLM/DLSS et distante pour KREA2/vidéo. DLSS ne peut plus concurrencer un LLM local. Le suivi global remplace l'indicateur DLSS, affiche tâche active, progression, attente et prochaines tâches, et centralise les seuils thermiques ainsi que le repos vidéo distant de 30 s.
 
 - **Bypass upscale H3/REF2V, repos vidéo Histoires et monitoring stable implémentés le 18 septembre** : les recettes courantes H3 Base `0.1.7` et REF2V `0.2.5` décodent directement la première passe lorsque la cible effective est égale ou inférieure aux MP initiaux ; une cible inférieure sort à la résolution initiale. Le test A/B peut forcer l’ancienne branche uniquement à dimensions égales. La chaîne Histoires réserve le GPU distant pendant un repos configurable de 30 s entre vidéos, puis applique le garde thermique. Le suivi sépare LLM/GPU, nomme les scènes et ne recrée plus les lecteurs vidéo pendant le polling. BUNNY et recettes historiques restent inchangés.
@@ -139,6 +145,11 @@
 - **Contrainte confirmée par l’utilisateur les 2026-09-10/11, à préserver** : Combat, Classique et Sensuel sont trois familles de préparation indépendantes. Une modification spécifique ne change pas les deux autres. Partager uniquement les améliorations générales via un socle à versions exactes et une adoption explicite examinée ; aucun héritage de « latest » entre familles. Conserver familles, versions et réglages jusque dans les révisions conversationnelles, conversions et continuations. Application/file/rendu restent communs.
 
 ## Current state
+
+- **Mode Suite disponible localement dans Histoires** : le formulaire accepte jusqu’à 60 000 caractères d’historique, l’Architecte produit dans son appel normal une mémoire structurée (`series_summary`, fin récente, faits acquis, états des personnages, fils ouverts, éléments disponibles) et des plans causaux par proposition. Le Rédacteur met cette même mémoire à jour après développement/révision. La mémoire source reste séparée de l’état après épisode afin que de nouvelles propositions repartent du bon point. L’interface l’affiche et « Créer l’épisode suivant » prépare un nouveau projet avec la mémoire cumulative et le dernier scénario détaillé ; un ancien projet sans mémoire transporte une fois son brief antérieur pour amorcer la chaîne. Validation : 35 tests Histoires et 31 tests Episodes passent.
+
+- **Défauts directs et menus nettoyés localement** : H3 Base et REF2V utilisent les deux modèles Unsloth demandés et l'orchestration rapide pour les nouveaux runs ; l'ouverture d'un run historique restaure toujours son choix enregistré. Image Lab n'expose plus que Création assistée, Changer la vue et Modifier avec KREA2. Video Lab n'expose plus que Texte Instagram et Analyser les médias ; l'ancien pont REF2V vers Video Lab est retiré et les anciennes vues mémorisées sont redirigées. Les scripts retirés des menus ne sont plus chargés par la page, mais leurs sources restent dans le dépôt pour une suppression physique ultérieure éventuelle.
+- **Audit de `story-061512992bf4482eb85a7a1d2b943105`** : la suite « L'Addition » conserve bien le conflit et fait évoluer Citron vers l'action, mais elle redécouvre une preuve déjà acquise à la fin de l'épisode 1 et invente successivement un enregistrement audio, une décharge, Kiwi et un remboursement sans préparation causale. Banane filme sans payoff, le sas est déclaré puis inutilisé, et les deux premières scènes dépassent le budget de dialogue. Aucun prompt Histoires n'a été modifié dans ce patch.
 
 - **File globale locale/distante prête sur `feature/vocal-normalizer-dialogue-register`** : `MachineWorkCoordinator` est l'autorité FIFO partagée par LLM, DLSS, KREA2 et vidéo. Les deux machines restent parallèles mais chaque voie est exclusive. Le repos de 30 s entre vidéos est global et s'applique avant la vidéo suivante ; Histoires ne détient plus sa propre pause. L'état public expose tâche active, phase, progression, file, pause, refroidissement et historique. Les paramètres sont persistés dans `workspace/system/work-scheduler.json`. Le moniteur du bandeau et le nouveau panneau **Traitements** pilotent pause/reprise et réglages globaux ; l'ancien panneau flottant DLSS est retiré. Snapshot préalable publié au commit `0ec14f7`, branche/tag `snapshots/pre-global-queue-2026-09-18`. Documentation : `docs/global-work-scheduler.md`. Validation : compilation Python et `git diff --check` verts, 125 tests ciblés verts dont trois fixtures Chromium. La suite complète exécute 1 373 tests et conserve 48 échecs/33 erreurs historiques ou hors surface, sans échec du nouvel ordonnanceur, de DLSS, d'Episodes, H3/REF2V ou KREA2 Assisted ciblés.
 
@@ -916,6 +927,11 @@
 - Architecture proposée pour le rendu intégré H3 Base : un projet enfant persistant sous la composition, initialisé avec le prompt final et ses frames, porte des révisions de prompt de rendu, une conversation dédiée et des essais vidéo. Chaque tour d'édition reste un seul appel LLM direct depuis le prompt courant, sans Brief ni Plan, et ne modifie jamais la composition approuvée. Chaque essai conserve prompt effectif, réglages, seed, mode musique, run ComfyUI, MP4 et keyframes ; un essai sélectionné devient feedback visuel du tour suivant. `Music Off` force seulement la copie de rendu de `non_diegetic_music` à `N/A`, sans retirer dialogues ni sons diégétiques et sans réécrire le prompt canonique.
 
 ## Next steps
+
+- **Smoke Suite d’une histoire** : après redémarrage et `Ctrl+F5`, ouvrir « L’Addition », cliquer « Créer l’épisode suivant », vérifier que le mode Suite contient l’ancien brief plus « L’Addition », puis produire une proposition. Contrôler dans la mémoire affichée que la preuve écrite reste acquise, que l’enregistrement audio inexpliqué n’est pas inventé et que la conséquence finale réutilise un élément préparé.
+
+- **Smoke des nouveaux défauts et menus** : redémarrer PanelForge et faire `Ctrl+F5`, puis ouvrir un nouveau run H3 Base et REF2V. Vérifier Qwen local → Gemma local, mode rapide actif, trois modes Image Lab et deux modes Video Lab. Ouvrir ensuite un ancien run sans writer séparé pour confirmer qu'il reste inchangé.
+- **Suite narrative à discuter** : si le défaut de causalité se répète, ajouter à Histoires un contrat explicite de continuation (`faits acquis`, `état de fin`, `conflit non résolu`, `objets/preuves disponibles`) et une chaîne par épisode `reprise → obstacle → conséquence`, avec avertissement déterministe sur les preuves, objets ou personnages introduits sans préparation. Ne pas intégrer ce changement sur le seul run « L'Addition ».
 
 - **Smoke de la file globale** : redémarrer PanelForge, faire `Ctrl+F5`, ouvrir **Traitements** depuis le moniteur, puis lancer plusieurs prompts, un rendu distant et un DLSS. Vérifier l'ordre FIFO, l'exclusivité LLM/DLSS, l'indépendance locale/distante, le compteur de repos vidéo à 30 s et la persistance des réglages globaux.
 
@@ -3757,3 +3773,76 @@
 ### Risks / open questions
 - Le bypass retire aussi les trois étapes de finition ; le gain de temps est certain au niveau du graphe, mais son effet visuel dépendra des contenus et checkpoints.
 - Une tentative ayant réellement été soumise déclenche le repos même si ComfyUI finit en échec, choix conservateur pour le matériel.
+
+## Patch 2026-09-18 — suivi global permanent et file KREA2 réservée
+
+### Works
+- Le faux `failed` des appels LLM streamés est corrigé à la source : fermer le générateur après un événement terminal `completed` ou `truncated` termine désormais le lease normalement. Une fermeture avant le terminal reste bien un échec/abandon.
+- Les vrais échecs de l’ordonnanceur conservent maintenant le type et un message d’erreur borné dans l’historique ; le dialogue détaillé les affiche sous le traitement concerné.
+- Le popup est permanent et présente exactement deux lignes, `Local` et `Serveur`, avec un badge `Ready`, `Working`, `Cooldown`, `Unavailable` ou `Paused`, une barre de progression, le traitement courant et un compteur `N en attente`, y compris à zéro.
+- La couleur suit le contrat UX : Ready vert, Working orange, Cooldown bleu, Unavailable/Hot rouge et Paused gris. Le dialogue complet conserve les commandes pause/reprise, les prochaines tâches, les réglages et l’historique.
+- Les essais KREA2 Assisted réservent leur ticket dans la FIFO distante dès leur mise en file. Les lots suivants sont donc visibles dans le compteur global avant que leur worker commence, gardent leur ordre face aux autres traitements distants et libèrent leur ticket s’ils sont annulés avant admission.
+- L’identifiant ComfyUI est attaché aux activités H3/KREA2. Le websocket global normalise les événements H3 avec le profil de progression propre à la recette, alimente le coordinateur puis met à jour la barre compacte sans progression fictive.
+- Cache frontend global passé à `20260918.3`. Validation : compilation Python, `git diff --check`, 55 tests ordonnanceur/KREA2/H3/navigateur verts et le test websocket runtime ciblé vert. Une passe élargie a 136 tests verts sur 137 ; le seul échec est le test Retouch historique `test_restart_removes_stage_memory_and_attempts_and_archives_the_old_state`, reproductible seul et sans rapport avec ce patch.
+
+### Broken / missing
+- KREA2 conserve pour l’instant ses jalons applicatifs (préparation, envoi, récupération, import) : contrairement à H3 et DLSS, ses manifests n’exposent pas encore un profil de progression ComfyUI suffisamment fiable pour calculer un pourcentage continu.
+- Les anciennes lignes `failed` déjà présentes en mémoire ne peuvent pas être réinterprétées ; le redémarrage vide cet historique en mémoire et tous les nouveaux appels utilisent la correction.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger les assets `20260918.3`.
+2. Lancer deux images KREA2 Assisted et un H3 : vérifier le compteur distant, l’ordre des libellés puis la progression H3 en direct.
+3. Provoquer si possible une vraie erreur contrôlée et confirmer que son message apparaît dans `Derniers traitements`, sans faux `failed` après une réponse LLM réussie.
+
+### Risks / open questions
+- Une réservation KREA2 `submitting` ambiguë bloque volontairement la voie distante jusqu’à sa réconciliation ou son annulation ; c’est le comportement sûr pour ne pas doubler une soumission ComfyUI inconnue.
+- La progression H3 globale dépend de la connexion websocket du Lab, comme la télémétrie actuelle. Sans navigateur connecté, le statut serveur reste sur les jalons applicatifs mais l’exclusion mutuelle et la FIFO continuent de fonctionner.
+
+## Correctif 2026-09-18 — progression H3 réelle dans le suivi global
+
+### Works
+- Cause confirmée sur un rendu BUNNY réel : ComfyUI adresse les événements `executing`/`progress` au `client_id` ayant soumis le prompt. Le moniteur global utilisait le client `panelforge-runtime-*`, alors que H3 soumet avec `panelforge-h3-render-*` ; il recevait donc la télémétrie Crystools, mais jamais les pas du sampler.
+- `/api/runtime/events` se connecte désormais au canal H3 lorsqu’il existe, avec repli sur le canal runtime générique. La télémétrie Crystools reste disponible car elle est diffusée à tous les clients.
+- Les événements ComfyUI sont normalisés avec le profil versionné de la recette, puis répercutés dans `MachineWorkCoordinator` et dans le popup global. Le libellé indique la phase et le compteur courant, par exemple `Première passe · étape 2/4`, et la barre affiche le pourcentage global de la recette.
+- Le websocket de preview H3/REF2V republie également le même événement navigateur vers le suivi global. Cela couvre les écrans directs sans créer une seconde logique de calcul côté frontend.
+- Sur BUNNY `0.1.3`, `2/4` dans la première passe correspond à environ `24 %` global (plage 5–42 %), puis les phases upscale, seconde passe, décodage et sauvegarde poursuivent la même barre.
+- Cache frontend passé à `work-queue.js?v=20260918.4` et `h3-render-lab.js?v=20260918.2`.
+- Validation : compilation Python et 46 tests ciblés verts (websocket runtime, canal H3 prioritaire, normalisation des deux passes, UI du suivi global, H3). Un test H3 UI historique reste rouge sur l’ancien contrat LoRA `video_lora: elements.videoLoraProfile`, sans rapport avec ce correctif ; le module Video Lab retiré de la navigation garde aussi un ancien test d’endpoint en erreur sur `input_mode`.
+
+### Next steps (max 3)
+1. Laisser finir le rendu actif, puis redémarrer PanelForge et faire `Ctrl+F5` afin de charger le nouveau backend websocket et les assets frontend.
+2. Lancer un H3 ou REF2V et vérifier que la ligne Serveur passe de `Envoi à ComfyUI · 8 %` aux phases et pas réels sans revenir en arrière.
+3. Si une recette tierce reste figée, vérifier son `progress_profile` dans le manifest plutôt que d’ajouter des pourcentages spécifiques dans l’interface.
+
+## Correctif 2026-09-18 — reprise des scènes en erreur et refroidissement sans course
+
+### Works
+- La chaîne Histoires continue après un échec de prompt isolé et termine en `completed_with_errors`, sans bloquer les scènes suivantes.
+- `Relancer les scènes incomplètes` ne rejoue que les scènes en échec. Chaque nouvelle tentative possède un `request_id` distinct, tout en réutilisant une préparation déjà valide et les étapes LLM déjà acceptées.
+- Une relance manuelle du prompt ou de la vidéo est désormais réconciliée avec la carte récapitulative : l’ancienne erreur disparaît, l’état réel (`prompting`, `prompt_ready`, `rendering`, `succeeded`) est repris, et une relance concurrente est refusée.
+- Le refroidissement distant est enregistré avant de libérer la voie physique. Une vidéo déjà en attente dans la FIFO ne peut donc plus acquérir le GPU dans la courte fenêtre où la fin du rendu précédent n’était pas encore visible.
+- Le repos reste volontairement appliqué avant la vidéo suivante. Après la dernière vidéo, l’état redevient `Ready`; si une nouvelle vidéo arrive pendant les 30 secondes restantes, elle attend le reliquat.
+- Cache frontend Episodes passé à `20260918.3`.
+- Validation : compilation Python, `git diff --check` et 86 tests ciblés verts (`machine_work`, `episodes`, navigateur/web Episodes et H3 render).
+
+### Broken / missing
+- Le serveur actuellement lancé doit être redémarré pour réconcilier les anciennes cartes persistées avec les relances manuelles déjà effectuées.
+- La variante chinoise H3 est seulement à l’étude : aucune traduction ou modification du compilateur de prompt n’a été ajoutée dans ce correctif.
+
+### Next steps (max 3)
+1. Laisser terminer les travaux actifs, redémarrer PanelForge puis faire `Ctrl+F5`.
+2. Vérifier que la scène 2 relancée manuellement passe de l’ancienne carte rouge à son état réel, puis tester `Relancer les scènes incomplètes` sur un nouvel échec contrôlé.
+3. Valider l’architecture d’une variante chinoise post-compilation, conservant le prompt anglais et le plan comme sources immuables pour un A/B à seed identique.
+
+## Alignement 2026-09-18 — variante chinoise H3 à expérimenter
+
+### Findings
+- Les guides MiniMax officiels distinguent le format Base/FL2VA à trois sections et le format Ref2VA à six sections. Ils demandent actuellement que les descriptions structurées soient écrites en anglais, en conservant seulement dialogues, paroles et texte visible dans leur langue d’origine.
+- Aucun guide officiel chinois équivalent au guide de prompting H3 n’a été publié. Les retours chinois consultés reprennent majoritairement la structure et les formulations anglaises officielles ; ils ne démontrent pas encore qu’un prompt descriptif chinois surpasse l’anglais.
+- Une variante chinoise doit donc rester expérimentale et optionnelle, sans remplacer le prompt anglais canonique.
+- Pipeline proposé : plan de la scène + prompt anglais accepté → un appel LLM supplémentaire de transcompilation → validation structurelle → stockage côte à côte → choix Anglais/中文 au rendu. Les dialogues, labels, balises, timecodes, noms de sections et relations de références restent verrouillés.
+- Gemma connaît le chinois. Le modèle du prompt final est le meilleur défaut pressenti pour la transcompilation, afin d’éviter un rechargement de modèle et de conserver le même comportement sur les contenus permissifs. Qwen reste une alternative A/B configurable, pas une dépendance de l’architecture.
+
+### Open points
+- Ne pas implémenter avant validation du périmètre UI : génération à la demande par scène, sélection de variante au rendu et comparaison à seed/références/réglages identiques.
+- Décider si le transcompilateur reçoit le plan de scène complet ou un extrait déterministe compact ; le prompt anglais demeure dans tous les cas la source de forme et le plan une source de contrôle seulement.

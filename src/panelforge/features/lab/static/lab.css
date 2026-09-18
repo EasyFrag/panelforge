@@ -1720,8 +1720,10 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .work-queue-lanes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0; }
 .work-queue-lane { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); }
 .work-queue-state { max-width: 62%; padding: .25rem .55rem; border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: .72rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.work-queue-state.busy, .work-queue-state.cooling { color: var(--amber); background: #fff4d6; }
-.work-queue-state.paused, .work-queue-state.hot { color: var(--red); background: #fae5e1; }
+.work-queue-state.busy { color: #915900; background: #fff0cf; }
+.work-queue-state.cooling { color: #17628d; background: #e5f2fb; }
+.work-queue-state.unavailable, .work-queue-state.hot { color: var(--red); background: #fae5e1; }
+.work-queue-state.paused { color: #5f6663; background: #e9ecea; }
 .work-queue-item { margin-top: 12px; padding: 11px; border: 1px solid #bed4ca; border-radius: 10px; background: #f6fbf8; }
 .work-queue-item.queued { border-style: dashed; background: #faf9f5; }
 .work-queue-item > div { display: flex; justify-content: space-between; gap: 10px; }
@@ -1729,7 +1731,8 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .work-queue-item p { margin: 7px 0; color: var(--muted); font-size: .82rem; }
 .work-queue-item progress { width: 100%; height: 13px; accent-color: var(--green); }
 .work-queue-item > span { display: block; margin-top: 3px; color: var(--muted); font-size: .72rem; text-align: right; }
-.work-queue-lane h4 { margin: 16px 0 0; }
+.work-queue-lane h4 { margin: 16px 0 6px; }
+.work-queue-empty { margin: 4px 0; }
 .work-queue-lane > button { margin-top: 14px; }
 .work-queue-settings, .work-queue-history { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .work-queue-settings summary, .work-queue-history summary { cursor: pointer; font-weight: 800; }
@@ -1740,15 +1743,34 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .work-queue-checks label { display: flex; align-items: center; gap: 7px; font-size: .8rem; }
 .work-queue-history [data-history] { max-height: 220px; overflow: auto; }
 .work-queue-history p { margin: 7px 0; font-size: .8rem; }
-.work-queue-background { position: fixed; right: 12px; bottom: 12px; z-index: 36; width: min(460px, calc(100vw - 24px)); padding: 11px 14px; border: 1px solid #84ae9b; border-radius: 12px; background: #faf9f5; box-shadow: 0 4px 18px #0002; }
-.work-queue-background summary { cursor: pointer; color: var(--green); font-size: .8rem; font-weight: 800; }
-.work-queue-background p { margin: 8px 0; font-size: .76rem; }
-.work-queue-background button { margin-top: 6px; }
+.work-queue-history-row { padding: 7px 0; border-bottom: 1px solid var(--line); }
+.work-queue-history-row:last-child { border-bottom: 0; }
+.work-queue-history-row p { margin: 0; }
+.work-queue-history-row small { display: block; margin-top: 4px; color: var(--red); overflow-wrap: anywhere; }
+.work-queue-background { position: fixed; right: 12px; bottom: 12px; z-index: 36; width: min(560px, calc(100vw - 24px)); padding: 10px 12px; border: 1px solid #84ae9b; border-radius: 12px; background: #faf9f5; box-shadow: 0 4px 18px #0002; }
+.work-queue-compact-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; color: var(--green); font-size: .78rem; }
+.work-queue-compact-head button { padding: .28rem .5rem; font-size: .68rem; }
+.work-queue-compact-lanes { display: grid; gap: 7px; }
+.work-queue-compact-lane { padding: 7px 9px; border: 1px solid var(--line); border-left: 4px solid var(--green); border-radius: 8px; background: #fff; }
+.work-queue-compact-lane.busy { border-left-color: #c47b08; }
+.work-queue-compact-lane.cooling { border-left-color: #2584ba; }
+.work-queue-compact-lane.unavailable { border-left-color: var(--red); }
+.work-queue-compact-lane.paused { border-left-color: #777f7b; }
+.work-queue-compact-lane > div:first-child { display: grid; grid-template-columns: 58px minmax(82px, auto) 1fr; align-items: center; gap: 8px; }
+.work-queue-compact-lane > div:first-child > small { color: var(--muted); font-size: .68rem; text-align: right; }
+.work-queue-compact-lane .work-queue-state { max-width: 150px; justify-self: start; }
+.work-queue-compact-lane p { margin: 4px 0; color: var(--ink); font-size: .72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.work-queue-compact-progress { display: grid; grid-template-columns: minmax(0, 1fr) 42px; align-items: center; gap: 8px; }
+.work-queue-compact-progress progress { width: 100%; height: 9px; accent-color: var(--green); }
+.work-queue-compact-lane.busy progress { accent-color: #c47b08; }
+.work-queue-compact-lane.cooling progress { accent-color: #2584ba; }
+.work-queue-compact-progress span { color: var(--muted); font-size: .66rem; text-align: right; }
 .work-queue-background .work-queue-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--red); }
 .work-queue-background .work-queue-notice button { flex: 0 0 auto; margin: 0; padding: .25rem .45rem; }
 
 @media (max-width: 760px) {
   .work-queue-lanes, .work-queue-settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .work-queue-background { right: 6px; bottom: 6px; width: calc(100vw - 12px); }
 }
 .h3-recipe-picker { display: block; max-width: 30rem; margin: 0.8rem 0; }
 .h3-bunny-controls { padding: 0.8rem; border: 1px solid var(--line, #d9d2c6); border-radius: 10px; margin-bottom: 0.8rem; }

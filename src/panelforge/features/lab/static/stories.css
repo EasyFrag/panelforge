@@ -58,6 +58,11 @@
 .story-concept dl { font-size: .8rem; }
 .story-concept dt { font-weight: 750; margin-top: .6rem; }
 .story-concept dd { margin: .25rem 0; line-height: 1.45; }
+.story-continuity { margin: 0 0 1rem; padding: .75rem .9rem; border: 1px solid #aac7bc; border-radius: 10px; background: #f2f8f5; }
+.story-continuity summary { cursor: pointer; font-weight: 750; color: var(--green); }
+.story-continuity h4 { margin: .8rem 0 .25rem; }
+.story-continuity p, .story-continuity ul { margin: .3rem 0; font-size: .86rem; line-height: 1.45; }
+.story-continuity ul { padding-left: 1.2rem; }
 #story-develop { width: 100%; margin-top: 1rem; }
 #story-scenario { margin-top: 1.25rem; }
 #story-scenario .story-actions { justify-content: space-between; }

@@ -9,14 +9,14 @@ from panelforge.domain.stories import DEFAULT_DIALOGUE_LANGUAGE, RECIPE_ID, RECI
 class StoryCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(default="Nouvelle histoire", min_length=1, max_length=160)
-    brief: str = Field(default="", max_length=12000)
+    brief: str = Field(default="", max_length=60000)
     clip_seconds: int = Field(default=10, ge=5, le=15, strict=True)
     scene_count: int = Field(default=6, ge=1, le=12, strict=True)
     recipe_id: str = Field(default=RECIPE_ID, min_length=1, max_length=128)
     recipe_version: str = Field(default=RECIPE_VERSION, min_length=1, max_length=64)
     architect_model_id: str = Field(default="", max_length=300)
     writer_model_id: str = Field(default="", max_length=300)
-    creation_mode: str = Field(default="ideas", pattern="^(ideas|script)$")
+    creation_mode: str = Field(default="ideas", pattern="^(ideas|script|continuation)$")
     proposal_count: int = Field(default=3, ge=1, le=3, strict=True)
     dialogue_register: int = Field(default=0, ge=0, le=3, strict=True)
     dialogue_language: str = Field(default=DEFAULT_DIALOGUE_LANGUAGE,

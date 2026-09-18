@@ -14,12 +14,12 @@ class Krea2BatchUiTest(unittest.TestCase):
         cls.styles = (ROOT / "src/panelforge/features/lab/static/lab.css").read_text(encoding="utf-8")
         cls.navigation = (ROOT / "src/panelforge/features/lab/static/lab-core.js").read_text(encoding="utf-8")
 
-    def test_exposes_recipe_batch_as_third_image_lab_mode(self):
+    def test_retires_recipe_batch_from_image_lab_navigation(self):
         self.assertIn('id="krea2-batch-lab-workspace"', self.page)
-        self.assertIn('data-image-lab-mode="krea2-batch-lab"', self.page)
+        self.assertNotIn('data-image-lab-mode="krea2-batch-lab"', self.page)
         self.assertIn('/static/krea2-resource-ui.js?v=20260913.1', self.page)
-        self.assertIn('/static/krea2-batch-lab.js?v=20260907.8', self.page)
-        self.assertIn('"krea2-batch-lab"', self.navigation)
+        self.assertNotIn('/static/krea2-batch-lab.js?', self.page)
+        self.assertIn('"krea2-batch-lab": "krea2-assisted-lab"', self.navigation)
 
     def test_ui_supports_modern_models_ten_reorderable_loras_and_feedback(self):
         for label in (

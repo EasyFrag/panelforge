@@ -25,6 +25,11 @@ DIALOGUE_LANGUAGES = {
     "Russian": "Русский · Russe",
 }
 VISUAL_TRANSITION_FIELDS = ("before", "trigger", "visible_change", "after")
+CONTINUITY_FIELDS = (
+    "series_summary", "latest_ending", "established_facts", "character_states",
+    "unresolved_threads", "available_elements",
+)
+CONTINUATION_PLAN_FIELDS = ("carry_over", "obstacle", "payoff", "introduced_elements")
 
 _STORY_RECIPES = {
     (RECIPE_ID, RECIPE_VERSION): {
@@ -180,7 +185,41 @@ def _visual_transition(value):
             for field in VISUAL_TRANSITION_FIELDS}
 
 
-def validate_concepts(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION, expected_count=3):
+def validate_story_continuity(value):
+    """Compact cumulative memory shared by successive episodes."""
+    if not isinstance(value, dict) or set(value) != set(CONTINUITY_FIELDS):
+        raise ValueError(
+            "La mémoire de saga doit contenir exactement series_summary, latest_ending, "
+            "established_facts, character_states, unresolved_threads et available_elements."
+        )
+    result = {
+        "series_summary": _text(value.get("series_summary"), "series_summary", 3000),
+        "latest_ending": _text(value.get("latest_ending"), "latest_ending", 1500),
+    }
+    for field, maximum in (("established_facts", 16), ("character_states", 12),
+                           ("unresolved_threads", 10), ("available_elements", 12)):
+        result[field] = [_text(item, field, 500) for item in _items(value.get(field), field, 0, maximum)]
+    return result
+
+
+def _continuation_plan(value):
+    if not isinstance(value, dict) or set(value) != set(CONTINUATION_PLAN_FIELDS):
+        raise ValueError(
+            "continuation_plan doit contenir exactement carry_over, obstacle, payoff et introduced_elements."
+        )
+    return {
+        "carry_over": _text(value.get("carry_over"), "continuation_plan.carry_over", 2000),
+        "obstacle": _text(value.get("obstacle"), "continuation_plan.obstacle", 2000),
+        "payoff": _text(value.get("payoff"), "continuation_plan.payoff", 2000),
+        "introduced_elements": [
+            _text(item, "continuation_plan.introduced_elements", 1000)
+            for item in _items(value.get("introduced_elements"), "introduced_elements", 0, 4)
+        ],
+    }
+
+
+def validate_concepts(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION, expected_count=3,
+                      *, continuation=False):
     if type(expected_count) is not int or not 1 <= expected_count <= 3:
         raise ValueError("Le nombre de propositions doit être compris entre 1 et 3.")
     fields = _recipe_fields(recipe_id, recipe_version)
@@ -191,7 +230,10 @@ def validate_concepts(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION,
         identity = item.get("id", f"concept-{index}")
         if identity != f"concept-{index}":
             raise ValueError("Identifiant de proposition inconnu.")
-        concepts.append(dict(id=identity, **{key: _text(item.get(key), key, 2000) for key in fields}))
+        concept = dict(id=identity, **{key: _text(item.get(key), key, 2000) for key in fields})
+        if continuation:
+            concept["continuation_plan"] = _continuation_plan(item.get("continuation_plan"))
+        concepts.append(concept)
     if len({concept["id"] for concept in concepts}) != expected_count:
         raise ValueError("Identifiants de proposition en double.")
     if len({concept["title"].casefold() for concept in concepts}) != expected_count:
@@ -418,19 +460,23 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
 
 def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_id=RECIPE_ID,
                    recipe_version=RECIPE_VERSION, proposal_count=3, source_script="",
-                   target_scene_count=None):
+                   target_scene_count=None, creation_mode="ideas"):
     if not isinstance(value, dict):
         raise ValueError("Le modèle doit renvoyer un objet JSON.")
     reply = _text(value.get("reply"), "réponse", MAX_STORY_REPLY_CHARS)
     if operation == "revise" and value.get("discussion_only") is True and set(value) == {"reply", "discussion_only"}:
         return reply, None
     field = "scenario" if operation in {"develop", "script"} or (operation == "revise" and has_scenario) else "concepts"
-    required = {"reply", field}
+    continuation = creation_mode == "continuation"
+    required = {"reply", field} | ({"continuity"} if continuation else set())
     extras = {"concepts", "selected_id"} if operation == "revise" and has_scenario else set()
     if not required.issubset(value) or set(value) - required - extras:
         raise ValueError(f"Réponse incomplète : reply et {field} sont attendus. Le brouillon reste disponible.")
     document = {field: validate_scenario(value[field], recipe_id, recipe_version) if field == "scenario"
-                else validate_concepts(value[field], recipe_id, recipe_version, proposal_count)}
+                else validate_concepts(value[field], recipe_id, recipe_version, proposal_count,
+                                       continuation=continuation)}
+    if continuation:
+        document["continuity"] = validate_story_continuity(value["continuity"])
     if field == "scenario" and target_scene_count is not None:
         scenes = document["scenario"]["scenes"]
         if len(scenes) != target_scene_count:
@@ -444,12 +490,15 @@ def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_i
     if "selected_id" in value and value["selected_id"] != selected_id:
         raise ValueError("Une révision ne peut pas choisir une autre histoire à votre place.")
     if field == "scenario" and "concepts" in value:
-        document["concepts"] = validate_concepts(value["concepts"], recipe_id, recipe_version, proposal_count)
+        document["concepts"] = validate_concepts(
+            value["concepts"], recipe_id, recipe_version, proposal_count,
+            continuation=continuation,
+        )
     return reply, document
 
 
 def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION,
-                      proposal_count=3):
+                      proposal_count=3, *, creation_mode="ideas"):
     """An explicit wire example, never a vendor response-format dependency."""
     recipe_spec = _STORY_RECIPES[(recipe_id, recipe_version)]
     adult_required = recipe_spec.get("adult_required", False)
@@ -481,10 +530,28 @@ def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_versi
             "scenes": [scene]}}
     else:
         fields = _recipe_fields(recipe_id, recipe_version)
+        concepts = [{"id": f"concept-{index}", **{field: f"Texte français : {field}" for field in fields}}
+                    for index in range(1, proposal_count + 1)]
+        if creation_mode == "continuation":
+            for concept in concepts:
+                concept["continuation_plan"] = {
+                    "carry_over": "Fait, relation ou preuve déjà établi qui déclenche cette suite.",
+                    "obstacle": "Nouvel obstacle directement causé par la situation héritée.",
+                    "payoff": "Conséquence finale préparée par les scènes précédentes.",
+                    "introduced_elements": [],
+                }
         example = {"reply": (f"Présentation de {proposal_count} proposition"
                              f"{'s' if proposal_count > 1 else ''} et invitation à choisir ou ajuster."),
-                   "concepts": [{"id": f"concept-{index}", **{field: f"Texte français : {field}" for field in fields}}
-                                for index in range(1, proposal_count + 1)]}
+                   "concepts": concepts}
+    if creation_mode == "continuation":
+        example["continuity"] = {
+            "series_summary": "Résumé cumulatif des épisodes antérieurs et du nouvel épisode si celui-ci est développé.",
+            "latest_ending": "État exact à la fin du dernier épisode couvert par cette mémoire.",
+            "established_facts": ["Fait canonique qui ne doit pas être redécouvert ni contredit."],
+            "character_states": ["Personnage : situation, connaissance, relation ou objectif actuel."],
+            "unresolved_threads": ["Conflit ou promesse encore ouvert."],
+            "available_elements": ["Objet, preuve, lieu ou allié déjà introduit et encore mobilisable."],
+        }
     return deepcopy(example)
 
 

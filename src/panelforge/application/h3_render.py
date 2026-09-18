@@ -986,6 +986,8 @@ class H3RenderService:
                         current_attempt.start(execution_id, workflow_digest)
                     )
                 )
+            if self.work_coordinator is not None:
+                self.work_coordinator.report_execution_id(activity_id, execution_id)
             history = self._wait_history(project_id, attempt_id, execution_id)
             if self.work_coordinator is not None:
                 self.work_coordinator.report_progress(activity_id, 0.88, "Récupération de la vidéo")

@@ -38,6 +38,14 @@ SCENARIO = {"reply": "Voici le scénario.", "scenario": {"title": "La reine et l
         "opening_state": "Le colis fermé porte une étiquette.", "action": "La reine montre le livreur. Il retourne le colis et découvre le nom.",
         "dialogue": [{"speaker_id": "c1", "text": "C’est lui !"}, {"speaker_id": "c2", "text": "Madame… votre nom est ici."}],
         "ending_state": "L’étiquette désigne la reine."}]}}
+CONTINUITY_BEFORE = {
+    "series_summary": "Le livreur Citron a découvert que la reine détourne les colis.",
+    "latest_ending": "Citron conserve l’étiquette qui désigne la reine.",
+    "established_facts": ["La reine sait que Citron a découvert le détournement."],
+    "character_states": ["Citron possède la preuve et veut récupérer les colis."],
+    "unresolved_threads": ["Les autres colis n’ont pas encore été retrouvés."],
+    "available_elements": ["L’étiquette portant le nom de la reine."],
+}
 
 
 class Gateway:
@@ -117,6 +125,49 @@ class StoriesTest(unittest.TestCase):
         self.assertNotIn("TRANSITION VISUELLE", export["intentions"][0])
         self.assertNotIn("Durée cible", self.service.export(p["project_id"], include_duration=False)["intentions"][0])
         self.assertNotIn("Picture", export["text"])
+
+    def test_continuation_keeps_cumulative_memory_and_causal_plan_without_an_extra_call(self):
+        concept = deepcopy(IDEAS["concepts"][0])
+        concept["continuation_plan"] = {
+            "carry_over": "Citron utilise l’étiquette déjà découverte.",
+            "obstacle": "La reine tente de faire disparaître les autres colis.",
+            "payoff": "L’étiquette permet de retrouver l’entrepôt et les colis.",
+            "introduced_elements": ["Un registre d’entrepôt montré dès la première scène."],
+        }
+        self.gateway.response = json.dumps({"reply": "Voici une suite.", "concepts": [concept],
+                                            "continuity": CONTINUITY_BEFORE})
+        project = self.service.create(
+            brief="ÉPISODE 1 — Citron découvre l’étiquette.", creation_mode="continuation",
+            proposal_count=1, scene_count=1,
+        )
+        project = self.write(project, "ideas")
+        self.assertEqual(project["document"]["continuity_source"], CONTINUITY_BEFORE)
+        self.assertEqual(project["document"]["continuity"], CONTINUITY_BEFORE)
+        self.assertEqual(project["document"]["selected_id"], "concept-1")
+        first_context = json.loads(self.gateway.requests[0].user_prompt)
+        self.assertEqual(first_context["creation_mode"], "continuation")
+        self.assertIn("continuation_plan", first_context["response_contract"]["concepts"][0])
+        self.assertIn("MODE SUITE D’UNE HISTOIRE", self.gateway.requests[0].system_prompt)
+
+        continuity_after = deepcopy(CONTINUITY_BEFORE)
+        continuity_after.update(
+            series_summary="Citron a utilisé l’étiquette pour retrouver les colis détournés.",
+            latest_ending="Citron récupère les colis ; la reine prend la fuite.",
+            unresolved_threads=["La reine est toujours en fuite."],
+            available_elements=["Le registre d’entrepôt saisi par Citron."],
+        )
+        self.gateway.response = json.dumps({**SCENARIO, "continuity": continuity_after})
+        project = self.write(project, "develop")
+        self.assertEqual(len(self.gateway.requests), 2)
+        self.assertEqual(project["document"]["continuity_source"], CONTINUITY_BEFORE)
+        self.assertEqual(project["document"]["continuity"], continuity_after)
+        second_context = json.loads(self.gateway.requests[1].user_prompt)
+        self.assertEqual(second_context["current_document"]["continuity"], CONTINUITY_BEFORE)
+        self.assertNotIn("continuity_source", second_context["current_document"])
+        self.assertIn("après le nouvel épisode", second_context["contract_notes"])
+
+        with self.assertRaisesRegex(ValueError, "résumé de la saga"):
+            self.service.create(creation_mode="continuation", brief="")
 
     def test_invalid_response_and_truncation_preserve_previous_scenario_and_raw_draft(self):
         p = self.scenario()
@@ -412,7 +463,8 @@ FIN
         updated = self.recipes.save(RECIPE_ID, RECIPE_VERSION, base_revision=old["revision"], expected_active=old["active"], fields=fields)
         self.gateway.response = json.dumps({"reply": "D’accord.", "discussion_only": True})
         p = self.write(p, "revise", "Discutons.")
-        self.assertEqual(self.gateway.requests[-1].system_prompt, fields["revision.system"])
+        self.assertTrue(self.gateway.requests[-1].system_prompt.startswith(fields["revision.system"] + "\n\n"))
+        self.assertIn("LANGUE PARLÉE", self.gateway.requests[-1].system_prompt)
         self.assertEqual(self.gateway.requests[0].trace_context["recipe_revision"], old["revision"])
         self.assertEqual(p["job"]["recipe_revision"], updated["revision"])
         self.recipes.activate(RECIPE_ID, RECIPE_VERSION, old["revision"], updated["active"])

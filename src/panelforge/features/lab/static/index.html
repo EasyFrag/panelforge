@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260918.2">
-  <script src="/static/lab.js?v=20260918.2" defer></script>
-  <script src="/static/work-queue.js?v=20260918.1" defer></script>
-  <script src="/static/lab-core.js?v=20260915.2" defer></script>
-  <link rel="stylesheet" href="/static/stories.css?v=20260917.1">
-  <script src="/static/stories.js?v=20260918.1" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260918.3">
+  <script src="/static/lab.js?v=20260918.3" defer></script>
+  <script src="/static/work-queue.js?v=20260918.4" defer></script>
+  <script src="/static/lab-core.js?v=20260918.1" defer></script>
+  <link rel="stylesheet" href="/static/stories.css?v=20260918.1">
+  <script src="/static/stories.js?v=20260918.2" defer></script>
   <link rel="stylesheet" href="/static/episodes.css?v=20260918.1">
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
   <script src="/static/dlss-lab.js?v=20260918.1" defer></script>
@@ -18,26 +18,23 @@
   <script src="/static/combat-controls.js?v=20260910.6" defer></script>
   <script src="/static/sensual-controls.js?v=20260911.1" defer></script>
   <script src="/static/prompt-recipes.js?v=20260916.1" defer></script>
-  <script src="/static/prompt-writer-model.js?v=20260914.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260913.5" defer></script>
+  <script src="/static/prompt-writer-model.js?v=20260918.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260918.1" defer></script>
   <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260918.1" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260918.2" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
-  <script src="/static/video-lab.js?v=20260907.8" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260913.5" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260918.1" defer></script>
   <script src="/static/media-analysis-media.js?v=20260910.11" defer></script>
   <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
-  <script src="/static/krea2-image-lab.js?v=20260907.8" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260913.1" defer></script>
-  <script src="/static/episodes.js?v=20260918.2" defer></script>
+  <script src="/static/episodes.js?v=20260918.3" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260917.2" defer></script>
-  <script src="/static/krea2-batch-lab.js?v=20260907.8" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
 </head>
@@ -108,7 +105,7 @@
           <h2>Point de départ</h2>
           <label>Famille éditoriale<select id="story-recipe"><option value="story.brainrot@1.0.0">Mélodrame fruits</option><option value="story.sensual-light@1.0.0">Sensuel light</option><option value="story.explicit-hard@1.0.0">Cru ++</option><option value="story.silent-cats@1.0.0">Chats de couple · muet</option></select></label>
           <p id="story-recipe-description" class="muted">Fruits anthropomorphes, conflits frontaux et retournements visuels.</p>
-          <label>Mode de départ<select id="story-creation-mode"><option value="ideas">Explorer des propositions</option><option value="script">Suivre fidèlement un script complet</option></select></label>
+          <label>Mode de départ<select id="story-creation-mode"><option value="ideas">Explorer des propositions</option><option value="continuation">Continuer une histoire</option><option value="script">Suivre fidèlement un script complet</option></select></label>
           <p id="story-mode-description" class="muted">Le LLM propose plusieurs histoires avant le développement du scénario.</p>
           <label id="story-dialogue-language-row">Langue parlée<select id="story-dialogue-language"><option value="French" selected>Français</option><option value="English">English</option><option value="Korean">한국어 · Coréen</option><option value="Japanese">日本語 · Japonais</option><option value="Russian">Русский · Russe</option></select><small id="story-dialogue-language-description" class="muted">Les dialogues sont écrits dans cette langue ; les descriptions restent en français.</small></label>
           <label id="story-dialogue-register-row"><span>Vocabulaire des dialogues · <strong id="story-dialogue-register-label">Actuel</strong></span><input id="story-dialogue-register" type="range" min="0" max="3" step="1" value="0"><output id="story-dialogue-register-value">0/3</output><small id="story-dialogue-register-description" class="muted">Aucun pilotage ajouté : comportement actuel.</small></label>
@@ -143,10 +140,11 @@
       <section class="story-panel story-document" aria-label="Propositions et scénario">
         <div id="story-empty"><h2 id="story-empty-title">Quelle histoire raconter ?</h2><p id="story-empty-copy">Le LLM proposera les accroches demandées avec leur conflit, leur escalade et leur fin. Choisis une piste, discute-la, puis développe le scénario.</p></div>
         <div id="story-versions-panel" class="story-actions" hidden><label>Versions de l’histoire<select id="story-versions"></select></label><button id="story-restore" type="button">Reprendre cette version</button></div>
+        <details id="story-continuity" class="story-continuity" hidden><summary>Mémoire cumulative de la saga</summary><div id="story-continuity-content"></div></details>
         <div id="story-concepts"></div>
         <button id="story-develop" class="primary" type="button" hidden>Développer cette histoire</button>
         <div id="story-scenario" hidden>
-          <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary">Valider et préparer la fabrication</button></div>
+          <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-next-episode" type="button">Créer l’épisode suivant</button><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary">Valider et préparer la fabrication</button></div>
           <p id="story-logline"></p>
           <aside id="story-diagnostics" class="story-diagnostics" hidden><strong>Diagnostic sans appel LLM</strong><ul id="story-diagnostic-list"></ul></aside>
           <details><summary>Personnages et décors</summary><div id="story-cast"></div></details>
@@ -304,7 +302,7 @@
             <p class="muted">Toutes les scènes restent visibles. Les prompts sont rédigés un par un ; les vidéos démarrent automatiquement sur le serveur distant.</p></div>
             <div class="story-actions"><button id="episode-video-start" type="button" class="primary">Lancer prompts + vidéos</button>
               <button id="episode-video-pause" type="button" hidden>Pause après les tâches en cours</button>
-              <button id="episode-video-resume" type="button" hidden>Reprendre la chaîne</button></div></div>
+              <button id="episode-video-resume" type="button" hidden>Relancer les scènes incomplètes</button></div></div>
           <p class="episode-video-cooldown muted">Le repos entre vidéos et la protection thermique suivent les paramètres globaux. <button id="episode-video-global-settings" type="button">Modifier</button></p>
           <div id="episode-video-progress" class="episode-video-progress" hidden>
             <div class="episode-video-lanes">
@@ -362,8 +360,6 @@
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
-      <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
-      <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
     </nav>
     <aside class="controls">
@@ -473,8 +469,6 @@
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
-      <button class="active" type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
-      <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
     </nav>
 
@@ -565,8 +559,6 @@
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button class="active" type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
-      <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
-      <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
     </nav>
 
@@ -798,8 +790,6 @@
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
-      <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
-      <button class="active" type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
     </nav>
 
@@ -923,8 +913,6 @@
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
-      <button type="button" data-image-lab-mode="krea2-image-lab">Générer avec KREA2</button>
-      <button type="button" data-image-lab-mode="krea2-batch-lab">Batch de recettes</button>
       <button class="active" type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
     </nav>
 
@@ -1166,14 +1154,14 @@
           <label class="field-label">Modèle LLM
             <select id="i2vd-model" required><option value="">Chargement…</option></select>
           </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-model"> Local · Unsloth</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-model" checked> Local · Unsloth</label>
           <div id="i2vd-writer-model-controls" class="prompt-writer-model" hidden>
-            <label class="llm-local-toggle"><input type="checkbox" data-writer="enabled"> Utiliser un autre modèle pour le prompt final</label>
+            <label class="llm-local-toggle"><input type="checkbox" data-writer="enabled" checked> Utiliser un autre modèle pour le prompt final</label>
             <div data-writer="fields" hidden>
               <label class="field-label">Modèle du prompt final
                 <select id="i2vd-writer-model"><option value="">Chargement…</option></select>
               </label>
-              <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-writer-model"> Local · Unsloth</label>
+              <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-writer-model" checked> Local · Unsloth</label>
             </div>
             <small data-writer="summary"></small>
             <small data-writer="status" role="status"></small>
@@ -1341,7 +1329,7 @@
         </section>
         <p id="i2vd-setup-message" class="error" role="alert" hidden></p>
         <label class="quick-mode-option">
-          <input id="i2vd-quick-mode" type="checkbox">
+          <input id="i2vd-quick-mode" type="checkbox" checked>
           <span><b>Mode rapide</b><small>Générer et valider automatiquement les étapes de la recette choisie.</small></span>
         </label>
         <label class="debug-reasoning-option">
@@ -1592,14 +1580,14 @@
           <label class="field-label">Modèle LLM
             <select id="ref2vd-model" required><option value="">Chargement…</option></select>
           </label>
-          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-model"> Local · Unsloth</label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-model" checked> Local · Unsloth</label>
           <div id="ref2vd-writer-model-controls" class="prompt-writer-model" hidden>
-            <label class="llm-local-toggle"><input type="checkbox" data-writer="enabled"> Utiliser un autre modèle pour le prompt final</label>
+            <label class="llm-local-toggle"><input type="checkbox" data-writer="enabled" checked> Utiliser un autre modèle pour le prompt final</label>
             <div data-writer="fields" hidden>
               <label class="field-label">Modèle du prompt final
                 <select id="ref2vd-writer-model"><option value="">Chargement…</option></select>
               </label>
-              <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-writer-model"> Local · Unsloth</label>
+              <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-writer-model" checked> Local · Unsloth</label>
             </div>
             <small data-writer="summary"></small>
             <small data-writer="status" role="status"></small>
@@ -1737,10 +1725,10 @@
         <p id="ref2vd-setup-message" class="error" role="alert" hidden></p>
         <label id="ref2vd-execution-mode-control" class="field-label generation-mode-control" for="ref2vd-execution-mode">Orchestration
           <select id="ref2vd-execution-mode">
-            <option value="supervised" selected>Supervisé</option>
-            <option value="quick">Rapide · toutes les étapes</option>
+            <option value="supervised">Supervisé</option>
+            <option value="quick" selected>Rapide · toutes les étapes</option>
           </select>
-          <small id="ref2vd-execution-mode-hint">Étapes manuelles et arbitrages humains.</small>
+          <small id="ref2vd-execution-mode-hint">Toutes les étapes sont générées et validées automatiquement.</small>
         </label>
         <label class="debug-reasoning-option">
           <input id="ref2vd-show-reasoning" type="checkbox">
@@ -1835,7 +1823,7 @@
         <details id="ref2vd-prompt-step" class="cookbook-step" open>
           <summary><span class="cookbook-step-index">3</span><span class="cookbook-step-copy"><b>Prompt MiniMax H3</b><small>Compiler références, plan et caméra canonique.</small></span><span id="ref2vd-prompt-review" class="review-pill pending">Plan requis</span></summary>
           <div class="cookbook-step-body">
-            <div class="analysis-actions"><button id="ref2vd-generate-prompt" class="primary compact" type="button" disabled>Générer le Prompt</button><button id="ref2vd-save-prompt" type="button" disabled>Enregistrer</button><button id="ref2vd-approve-prompt" type="button" disabled>Valider</button><button id="ref2vd-copy-prompt" type="button" disabled>Copier</button><button id="ref2vd-send-video-lab" type="button" disabled>Envoyer au Video Lab</button></div>
+            <div class="analysis-actions"><button id="ref2vd-generate-prompt" class="primary compact" type="button" disabled>Générer le Prompt</button><button id="ref2vd-save-prompt" type="button" disabled>Enregistrer</button><button id="ref2vd-approve-prompt" type="button" disabled>Valider</button><button id="ref2vd-copy-prompt" type="button" disabled>Copier</button></div>
             <div id="ref2vd-prompt-stream-state" class="stream-state" hidden><div><span id="ref2vd-prompt-stream-label">Préparation…</span><output id="ref2vd-prompt-stream-percent"></output></div><progress id="ref2vd-prompt-stream-progress" max="1"></progress></div>
             <p id="ref2vd-prompt-message" class="message" aria-live="polite"></p>
             <textarea id="ref2vd-prompt-content" class="cookbook-stage-output final-prompt-output" rows="26" placeholder="Le prompt Ref2V compilé apparaîtra ici."></textarea>
@@ -1966,8 +1954,7 @@
   <main id="media-analysis-workspace" class="media-analysis-workspace" hidden>
     <nav class="video-lab-modebar" aria-label="Modes Video Lab">
       <button type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
-      <button type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
-      <button type="button" class="active" data-video-lab-mode="media-analysis">Analyser des médias</button>
+      <button type="button" class="active" data-video-lab-mode="media-analysis">Analyser les médias</button>
     </nav>
     <header class="ma-heading"><small>VIDEO LAB · ANALYSE VISUELLE</small><h1>Des images à votre intention</h1>
       <p>Analysez un extrait vidéo ou des images, puis préparez votre scène dans H3 ou REF2V.</p></header>
@@ -2059,8 +2046,7 @@
   <main id="video-lab-workspace" class="video-lab-workspace" hidden>
     <nav class="video-lab-modebar" aria-label="Modes Video Lab">
       <button type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
-      <button class="active" type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
-      <button type="button" data-video-lab-mode="media-analysis">Analyser des médias</button>
+      <button type="button" data-video-lab-mode="media-analysis">Analyser les médias</button>
     </nav>
     <aside class="controls video-lab-controls">
       <div class="title-row">
@@ -2159,8 +2145,7 @@
   <main id="social-lab-workspace" class="social-lab-workspace" hidden>
     <nav class="video-lab-modebar" aria-label="Modes Video Lab">
       <button class="active" type="button" data-video-lab-mode="social-lab">Texte Instagram</button>
-      <button type="button" data-video-lab-mode="video-lab">Générer une vidéo</button>
-      <button type="button" data-video-lab-mode="media-analysis">Analyser des médias</button>
+      <button type="button" data-video-lab-mode="media-analysis">Analyser les médias</button>
     </nav>
 
     <aside class="controls social-lab-controls">

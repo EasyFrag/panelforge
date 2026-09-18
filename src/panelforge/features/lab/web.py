@@ -1736,7 +1736,12 @@ def create_app(
     @app.websocket("/api/runtime/events")
     async def runtime_events(websocket: WebSocket) -> None:
         await websocket.accept()
-        upstream_url = getattr(comfy_runtime, "websocket_url", None)
+        telemetry_url = getattr(comfy_runtime, "websocket_url", None)
+        h3_progress_url = getattr(getattr(h3_render, "comfy", None), "websocket_url", None)
+        # ComfyUI routes sampler progress to the client_id which submitted the
+        # prompt. Crystools telemetry is broadcast, so the H3 client carries both
+        # streams while the generic runtime client only carries telemetry.
+        upstream_url = h3_progress_url or telemetry_url
         if not isinstance(upstream_url, str) or not upstream_url.strip():
             await websocket.send_json(
                 {
@@ -1747,6 +1752,52 @@ def create_app(
             await websocket.close(code=1000)
             return
         connector = runtime_monitor_connector or _connect_video_preview
+
+        def active_render_progress():
+            if machine_work is None or h3_render is None:
+                return None
+            try:
+                remote = machine_work.public_status()["machines"][ComputeResource.REMOTE_GPU.value]
+                owner_id = remote.get("owner_id")
+                if not isinstance(owner_id, str) or not owner_id.startswith("h3:"):
+                    return None
+                _, project_id, attempt_id = owner_id.split(":", 2)
+                project = h3_render.get(project_id)
+                attempt = project.attempt(attempt_id)
+                profile = h3_render.progress_for_attempt(project, attempt)
+                if not isinstance(profile, RenderProgressProfile):
+                    return None
+                return (
+                    owner_id,
+                    profile,
+                    lambda: h3_render.get(project_id).attempt(attempt_id).execution_id,
+                    attempt.settings.steps,
+                )
+            except (KeyError, FileNotFoundError, TypeError, ValueError):
+                return None
+
+        def report_render_progress(owner_id: str, event: dict[str, object]) -> None:
+            if machine_work is None:
+                return
+            data = event.get("data")
+            if not isinstance(data, dict):
+                return
+            percent = data.get("percent")
+            if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+                return
+            stage = str(data.get("phase_label") or "Rendu H3")
+            current = data.get("current_step")
+            total = data.get("total_steps")
+            if (
+                not isinstance(current, bool)
+                and not isinstance(total, bool)
+                and isinstance(current, (int, float))
+                and isinstance(total, (int, float))
+                and total > 0
+            ):
+                stage += f" · étape {int(current)}/{int(total)}"
+            machine_work.report_progress(owner_id, float(percent) / 100, stage)
+
         try:
             async with connector(upstream_url) as upstream:
                 await websocket.send_json(
@@ -1755,7 +1806,12 @@ def create_app(
                         "data": {"status": "connected"},
                     }
                 )
-                await _relay_runtime_monitor(websocket, upstream)
+                await _relay_runtime_monitor(
+                    websocket,
+                    upstream,
+                    progress_tracker_factory=active_render_progress,
+                    progress_reporter=report_render_progress,
+                )
         except WebSocketDisconnect:
             return
         except asyncio.CancelledError:
@@ -5724,10 +5780,18 @@ async def _relay_video_preview(
         task.result()
 
 
-async def _relay_runtime_monitor(websocket: WebSocket, upstream: Any) -> None:
-    """Forward only Crystools telemetry, never ComfyUI prompt events."""
+async def _relay_runtime_monitor(
+    websocket: WebSocket,
+    upstream: Any,
+    *,
+    progress_tracker_factory: Callable[[], tuple[str, RenderProgressProfile, Callable[[], str | None], int | None] | None] | None = None,
+    progress_reporter: Callable[[str, dict[str, object]], None] | None = None,
+) -> None:
+    """Forward telemetry and normalized progress for PanelForge's active H3 job."""
 
     async def forward_upstream() -> None:
+        tracker_key: str | None = None
+        tracker: _RenderProgressTracker | None = None
         while True:
             message = await upstream.recv()
             if not isinstance(message, str):
@@ -5736,11 +5800,33 @@ async def _relay_runtime_monitor(websocket: WebSocket, upstream: Any) -> None:
                 payload = json.loads(message)
             except json.JSONDecodeError:
                 continue
-            if not isinstance(payload, dict) or payload.get("type") != "crystools.monitor":
+            if not isinstance(payload, dict):
                 continue
-            data = payload.get("data")
-            if isinstance(data, dict):
-                await websocket.send_json({"type": "crystools.monitor", "data": data})
+            if payload.get("type") == "crystools.monitor":
+                data = payload.get("data")
+                if isinstance(data, dict):
+                    await websocket.send_json({"type": "crystools.monitor", "data": data})
+                continue
+            if progress_tracker_factory is None:
+                continue
+            candidate = progress_tracker_factory()
+            if candidate is None:
+                tracker_key = None
+                tracker = None
+                continue
+            key, profile, execution_id, configured_steps = candidate
+            if key != tracker_key:
+                tracker_key = key
+                tracker = _RenderProgressTracker(
+                    profile,
+                    execution_id,
+                    configured_steps=configured_steps,
+                )
+            normalized = tracker.consume(payload) if tracker is not None else None
+            if normalized is not None:
+                if progress_reporter is not None and tracker_key is not None:
+                    progress_reporter(tracker_key, normalized)
+                await websocket.send_json(normalized)
 
     async def watch_browser() -> None:
         while True:

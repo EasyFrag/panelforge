@@ -24,7 +24,8 @@ class WorkQueueBrowserTest(unittest.TestCase):
         const settings={thermal:{stop_temperature_c:85,resume_temperature_c:40,cooldown_seconds:120,
           monitor_local:true,monitor_remote:true,pause_when_unavailable:false},
           remote_video_cooldown_seconds:30,pause_after_failure:false,history_limit:30};
-        const status={settings,recent:[],machines:{
+        const status={settings,recent:[{resource:'local_gpu',operation:'Ancien prompt',status:'failed',
+          error_type:'RuntimeError',error:'Serveur LLM indisponible'}],machines:{
           local_gpu:{state:'busy',paused:false,active:{operation:'DLSS vidÃ©o',workload:'dlss',stage:'Upscale',progress:.5},
             queue_count:1,queue:[{position:1,operation:'Prompt scÃ¨ne 2',workload:'llm'}]},
           remote_gpu:{state:'paused',paused:true,active:null,queue_count:1,
@@ -44,11 +45,13 @@ class WorkQueueBrowserTest(unittest.TestCase):
           const until=async fn=>{for(let i=0;i<80&&!fn();i++)await pause();check(fn(),'timed out');};
           const floating=document.querySelector('.work-queue-background');
           check(!floating.hidden&&floating.textContent.includes('DLSS vidÃ©o'),'active local work is visible');
-          check(floating.textContent.includes('50 %')&&floating.querySelectorAll('[data-compact] p').length===2,'progress and queue are visible');
+          check(floating.textContent.includes('Working')&&floating.textContent.includes('50 %'),'working state and progress are visible');
+          check(floating.textContent.includes('1 en attente')&&floating.querySelectorAll('[data-compact] progress').length===2,'both queue meters are visible');
           await window.PanelForgeWorkQueue.open();
           const dialog=document.querySelector('.work-queue-dialog');
           check(dialog.open&&dialog.querySelectorAll('.work-queue-lane').length===2,'both lanes open');
           check(dialog.textContent.includes('Prompt scÃ¨ne 2')&&dialog.textContent.includes('KREA2 Â· LÃ©a'),'upcoming jobs are described');
+          check(dialog.textContent.includes('Serveur LLM indisponible'),'real failure detail is visible');
           dialog.querySelector('[data-resource=local_gpu]').click();
           await until(()=>calls.some(call=>call.url==='/api/work-scheduler/local_gpu/pause'));
           const form=dialog.querySelector('[data-settings-form]');
@@ -59,6 +62,21 @@ class WorkQueueBrowserTest(unittest.TestCase):
           check(saved.remote_video_cooldown_seconds===45&&saved.thermal.stop_temperature_c===85,'global settings are posted');
           window.PanelForgeWorkQueue.notice('Admission DLSS interrompue',{id:'dlss:test'});
           check(floating.textContent.includes('Admission DLSS interrompue'),'client-side admission errors use the global monitor');
+          window.dispatchEvent(new CustomEvent('panelforge:work-scheduler-status',{detail:{...status,machines:{
+            local_gpu:{state:'idle',paused:false,active:null,queue_count:0,queue:[]},
+            remote_gpu:{state:'unavailable',paused:false,active:null,queue_count:0,queue:[]},
+          }}}));
+          check(floating.textContent.includes('Ready')&&floating.textContent.includes('Unavailable'),'idle and unavailable lanes stay visible');
+          check((floating.textContent.match(/0 en attente/g)||[]).length===2,'zero queue counts stay visible');
+          window.dispatchEvent(new CustomEvent('panelforge:work-scheduler-status',{detail:{...status,machines:{
+            ...status.machines,
+            remote_gpu:{state:'busy',paused:false,queue_count:0,queue:[],active:{
+              operation:'H3 scene 1',workload:'video_render',stage:'Envoi a ComfyUI',progress:.08,execution_id:'render-1'}},
+          }}}));
+          window.dispatchEvent(new CustomEvent('panelforge:render-progress',{detail:{
+            prompt_id:'render-1',phase_label:'Premiere passe',percent:23.5,current_step:2,total_steps:4,
+          }}));
+          check(floating.textContent.includes('24 %')&&floating.textContent.includes('\u00e9tape 2/4'),'live H3 steps update the global meter');
           document.getElementById('result').textContent='PASS';
         }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack;}})();
         """

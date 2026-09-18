@@ -20,6 +20,8 @@ from .revised_documents import strip_markdown_fence
 _MAX_LIVE_DRAFT_CHARS = 240_000
 _MAX_LIVE_REASONING_CHARS = 144_000
 _LIVE_SAVE_INTERVAL_SECONDS = 1.5
+_MAX_STANDARD_BRIEF_CHARS = 12_000
+_MAX_CONTINUATION_BRIEF_CHARS = 60_000
 
 _DIALOGUE_REGISTER_POLICIES = {
     1: (
@@ -127,19 +129,24 @@ class StoryService:
                dialogue_register=0, dialogue_language=DEFAULT_DIALOGUE_LANGUAGE):
         if not isinstance(title, str) or not title.strip() or len(title) > 160:
             raise ValueError("Donnez un nom à cette histoire (160 caractères maximum).")
-        if not isinstance(brief, str) or len(brief) > 12000:
-            raise ValueError("Idée trop longue (12 000 caractères maximum).")
+        if not isinstance(brief, str):
+            raise ValueError("Point de départ invalide.")
         if type(clip_seconds) is not int or not 5 <= clip_seconds <= 15 or type(scene_count) is not int or not 1 <= scene_count <= 12:
             raise ValueError("Choisissez 1 à 12 micro-scènes de 5 à 15 secondes.")
-        if creation_mode not in {"ideas", "script"}:
+        if creation_mode not in {"ideas", "script", "continuation"}:
             raise ValueError("Mode de création inconnu.")
+        brief_limit = (_MAX_CONTINUATION_BRIEF_CHARS if creation_mode == "continuation"
+                       else _MAX_STANDARD_BRIEF_CHARS)
+        if len(brief) > brief_limit:
+            raise ValueError(f"Point de départ trop long ({brief_limit:,} caractères maximum).".replace(",", " "))
         if type(proposal_count) is not int or not 1 <= proposal_count <= 3:
             raise ValueError("Choisissez entre 1 et 3 propositions.")
         if type(dialogue_register) is not int or not 0 <= dialogue_register <= 3:
             raise ValueError("Le registre des dialogues doit être compris entre 0 et 3.")
         dialogue_language = dialogue_language_selection(dialogue_language)
-        if creation_mode == "script" and not brief.strip():
-            raise ValueError("Collez un script complet à suivre.")
+        if creation_mode in {"script", "continuation"} and not brief.strip():
+            raise ValueError("Collez un script complet à suivre." if creation_mode == "script"
+                             else "Collez au moins le dernier épisode ou un résumé de la saga à continuer.")
         if creation_mode == "script":
             dialogue_register = 0
         recipe = story_recipe_selection({"id": recipe_id, "version": recipe_version})
@@ -152,8 +159,11 @@ class StoryService:
         for model_id in (architect_model_id, writer_model_id):
             if not isinstance(model_id, str) or len(model_id) > 300:
                 raise ValueError("Identifiant de modèle LLM invalide.")
+        document = dict(concepts=[], selected_id=None, scenario=None)
+        if creation_mode == "continuation":
+            document.update(continuity=None, continuity_source=None)
         return self.store.save(dict(project_id=f"story-{uuid4().hex}", title=title.strip(), brief=brief.strip(),
-            clip_seconds=clip_seconds, scene_count=scene_count, document=dict(concepts=[], selected_id=None, scenario=None),
+            clip_seconds=clip_seconds, scene_count=scene_count, document=document,
             revisions=[], turns=[], job=None, model_id=writer_model_id.strip(), recipe=recipe,
             architect_model_id=architect_model_id.strip(), writer_model_id=writer_model_id.strip(), diagnostics=[],
             creation_mode=creation_mode, proposal_count=proposal_count, dialogue_register=dialogue_register,
@@ -251,7 +261,7 @@ class StoryService:
             if project.get("job", {}) and project["job"]["request_id"] == request_id:
                 return project
             project = self._editable(project_id, expected_version)
-            if operation == "ideas" and project["creation_mode"] != "ideas":
+            if operation == "ideas" and project["creation_mode"] not in {"ideas", "continuation"}:
                 raise ValueError("Ce projet suit un script fourni et ne génère pas de pistes.")
             if operation == "script" and project["creation_mode"] != "script":
                 raise ValueError("Ce projet n’est pas configuré pour suivre un script.")
@@ -308,13 +318,17 @@ class StoryService:
         field = {"ideas": "plan.system", "develop": "writer.system", "script": "writer.system",
                  "revise": "revision.system"}[operation]
         seen = []
-        document = project["document"]
+        document = deepcopy(project["document"])
         conversation = project["turns"][-16:]
         if operation == "ideas":
             # New pitches start from the author's brief and feedback. Previous
             # generated jokes/style are references to avoid, not a fresh brief.
             seen = [{"title": c["title"], "hook": c["hook"]} for c in document["concepts"]]
+            source_continuity = (document.get("continuity_source") or document.get("continuity")
+                                 if project["creation_mode"] == "continuation" else None)
             document = dict(concepts=[], selected_id=None, scenario=None)
+            if source_continuity:
+                document["continuity"] = source_continuity
             conversation = [turn for turn in conversation if turn["role"] == "user"]
             for other in self.store.list(8):
                 if other["project_id"] == project["project_id"]:
@@ -326,10 +340,15 @@ class StoryService:
                     seen.extend({"title": c["title"], "hook": c["hook"]} for c in previous["document"]["concepts"])
                 except (OSError, ValueError):
                     continue
+        elif project["creation_mode"] == "continuation":
+            # continuity_source is retained for alternative pitches and restore,
+            # but the active cumulative memory is sufficient for the LLM.
+            document.pop("continuity_source", None)
         count = project["proposal_count"]
         target_scene_count = project["scene_count"]
         clip_seconds = project["clip_seconds"]
         source_dialogues = extract_script_dialogue_cues(project["brief"]) if operation == "script" else []
+        continuation = project["creation_mode"] == "continuation"
         if operation == "script":
             contract_notes = (
                 "MODE SCRIPT FIDÈLE. Le champ brief est le script source complet et prévaut sur le ton éditorial par défaut. "
@@ -342,6 +361,18 @@ class StoryService:
                 "ne supprimer aucun événement, ne paraphraser aucun dialogue et ne changer ni leur ordre ni la fin. "
                 "Ne jamais augmenter le nombre de micro-scènes pour suivre le nombre de rubriques du brief. JSON strict conforme au contrat. "
                 "1–12 personnages, 1–8 décors ; tous les identifiants référencés doivent exister."
+            )
+        elif continuation:
+            phase = "après le nouvel épisode" if operation == "develop" or has_scenario else "avant le nouvel épisode"
+            contract_notes = (
+                f"MODE SUITE D’UNE HISTOIRE. JSON strict conforme au contrat, y compris continuity qui décrit la saga {phase}. "
+                "Le brief peut contenir plusieurs épisodes : les plus anciens donnent le contexte cumulatif et la fin du dernier "
+                "épisode est le point de départ immédiat. Ne redécouvre pas un fait déjà acquis, ne contredis pas une connaissance "
+                "ou une relation établie et n’invente pas hors champ une nouvelle preuve, un nouvel objet décisif ou une autorité de secours. "
+                "Toute nouveauté indispensable est déclarée dans continuation_plan.introduced_elements puis préparée avant son usage. "
+                "Chaque piste suit une chaîne causale lisible carry_over → obstacle → payoff. Évite d’empiler plusieurs solutions nouvelles. "
+                f"Tout scenario renvoyé contient exactement {target_scene_count} micro-scène"
+                f"{'s' if target_scene_count > 1 else ''} de {clip_seconds} secondes ; 1–12 personnages et 1–8 décors."
             )
         elif operation == "develop" or (operation == "revise" and has_scenario):
             contract_notes = (
@@ -362,7 +393,8 @@ class StoryService:
             brief=project["brief"], clip_seconds=project["clip_seconds"],
             target_scene_count=project["scene_count"], current_document=document,
             conversation=conversation, recent_concepts_to_avoid=seen[:24],
-            response_contract=response_contract(operation, has_scenario, recipe["id"], recipe["version"], count),
+            response_contract=response_contract(operation, has_scenario, recipe["id"], recipe["version"], count,
+                                                creation_mode=project["creation_mode"]),
             contract_notes=contract_notes)
         dialogue_allowed = story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") != "forbidden"
         dialogue_language = dialogue_language_selection(project.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE))
@@ -395,6 +427,18 @@ class StoryService:
                 f"\n\nFORMAT DE L’ÉPISODE : scenario.scenes contient exactement {target_scene_count} micro-scène"
                 f"{'s' if target_scene_count > 1 else ''} de {clip_seconds} secondes. Ce nombre est obligatoire, même si le contenu "
                 "doit être regroupé ou densifié. Une discussion_only peut ne renvoyer aucun scénario."
+            )
+        if continuation:
+            system_prompt += (
+                "\n\nMODE SUITE D’UNE HISTOIRE — MÉMOIRE CUMULATIVE : considère l’intégralité du brief comme le canon de la saga, "
+                "même si le dernier épisode avait lui-même des antécédents. Les épisodes anciens restent un contexte résumé ; l’état final "
+                "du dernier épisode est la frontière de reprise exacte et sa version détaillée prévaut sur un résumé antérieur en cas d’écart. "
+                "continuity doit rester court, cumulatif et exploitable par le prochain "
+                "épisode : faits acquis, états actuels des personnages, conflits ouverts et éléments encore disponibles. "
+                "Pendant les propositions, continuity résume uniquement le passé fourni, jamais les événements spéculatifs des pistes. "
+                "Pendant le développement ou la révision du scénario, mets continuity à jour après les conséquences du nouvel épisode. "
+                "Ne refais pas une révélation déjà vécue. Une résolution doit découler d’un élément déjà établi ou être introduite visiblement "
+                "avant son payoff. continuation_plan rend cette causalité explicite pour chaque proposition."
             )
         if operation in {"develop", "script"} or (operation == "revise" and has_scenario):
             system_prompt += (
@@ -479,12 +523,14 @@ class StoryService:
                     reply, document = parse_response(data, project["job"]["operation"], bool(project["document"]["scenario"]),
                         selected_id=project["document"]["selected_id"], recipe_id=recipe["id"], recipe_version=recipe["version"],
                         proposal_count=project["proposal_count"], source_script=project["brief"],
-                        target_scene_count=project["scene_count"])
+                        target_scene_count=project["scene_count"], creation_mode=project["creation_mode"])
                     with self._lock:
                         if cancel.is_set():
                             raise StoryCancelled()
                         current = self.store.get(project_id)
                         if document:
+                            if current["job"]["operation"] == "ideas" and current["creation_mode"] == "continuation":
+                                document["continuity_source"] = deepcopy(document["continuity"])
                             current["document"].update(document)
                             if "concepts" in document and "scenario" not in document:
                                 current["document"]["scenario"] = None

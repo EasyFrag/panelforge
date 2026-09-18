@@ -116,6 +116,32 @@ class MachineWorkCoordinator:
     def resume(self, resource: ComputeResource) -> None:
         self.leases.set_paused(resource, False)
 
+    def enqueue(
+        self,
+        owner_id: str,
+        resource: ComputeResource,
+        workload: ProductionWorkload,
+        operation: str,
+    ) -> None:
+        """Reserve a FIFO position before an application's worker starts."""
+        requirement = ResourceRequirement(resource, workload, operation)
+        self._register(owner_id, requirement)
+        try:
+            self.leases.reserve(owner_id, requirement)
+        except BaseException:
+            with self._lock:
+                activity = self._activities.get(owner_id)
+                if activity is not None and activity.get("status") == "queued":
+                    self._activities.pop(owner_id, None)
+            raise
+
+    def cancel_queued(self, owner_id: str) -> bool:
+        """Cancel a reservation that has not entered its lease yet."""
+        removed = self.leases.cancel_reservation(owner_id)
+        if removed:
+            self._finish(owner_id, "cancelled")
+        return removed
+
     def report_progress(
         self,
         owner_id: str,
@@ -139,6 +165,11 @@ class MachineWorkCoordinator:
 
     def report_stage(self, owner_id: str, stage: str) -> None:
         self.report_progress(owner_id, None, stage)
+
+    def report_execution_id(self, owner_id: str, execution_id: str) -> None:
+        if not isinstance(execution_id, str) or not execution_id.strip():
+            raise ValueError("execution_id must not be empty")
+        self._update_activity(owner_id, execution_id=execution_id.strip())
 
     @contextmanager
     def lease(
@@ -176,21 +207,26 @@ class MachineWorkCoordinator:
                 self._wait_until_safe(resource, cancelled=cancelled, on_thermal=on_thermal)
                 self._update_activity(owner_id, status="running", stage=operation)
                 started = True
-                yield
+                try:
+                    yield
+                finally:
+                    # Publish the completion time before releasing the physical
+                    # lane. Otherwise the next FIFO owner can enter between the
+                    # lease release and the outer finally block, and miss the
+                    # mandatory inter-video cooldown entirely.
+                    if started:
+                        with self._lock:
+                            self._last_completed[(resource, workload)] = self._monotonic()
         except ResourceWaitCancelled:
             self._finish(owner_id, "cancelled")
             raise
-        except BaseException:
-            self._finish(owner_id, "failed")
+        except BaseException as error:
+            self._finish(owner_id, "failed", error=error)
             if self.settings.pause_after_failure:
                 self.pause(resource)
             raise
         else:
             self._finish(owner_id, "completed")
-        finally:
-            if started:
-                with self._lock:
-                    self._last_completed[(resource, workload)] = self._monotonic()
 
     def cooldown_while_owned(
         self,
@@ -362,6 +398,21 @@ class MachineWorkCoordinator:
             raise ValueError("owner_id must not be empty")
         now = self._timestamp()
         with self._lock:
+            existing = self._activities.get(owner_id)
+            if existing is not None:
+                expected = (
+                    requirement.resource.value,
+                    requirement.workload.value,
+                    requirement.operation,
+                )
+                actual = (
+                    existing.get("resource"),
+                    existing.get("workload"),
+                    existing.get("operation"),
+                )
+                if actual != expected:
+                    raise ValueError("owner_id already uses another resource requirement")
+                return
             self._activities[owner_id] = {
                 "id": owner_id,
                 "resource": requirement.resource.value,
@@ -383,7 +434,13 @@ class MachineWorkCoordinator:
                 return
             activity.update(changes, updated_at=self._timestamp())
 
-    def _finish(self, owner_id: str, status: str) -> None:
+    def _finish(
+        self,
+        owner_id: str,
+        status: str,
+        *,
+        error: BaseException | None = None,
+    ) -> None:
         with self._lock:
             activity = self._activities.pop(owner_id, None)
             if activity is None:
@@ -395,6 +452,10 @@ class MachineWorkCoordinator:
                 finished_at=timestamp,
                 updated_at=timestamp,
             )
+            if error is not None:
+                activity["error_type"] = type(error).__name__
+                message = str(error).strip()
+                activity["error"] = (message or type(error).__name__)[:1000]
             self._recent.append(activity)
             self._recent = self._recent[-self._settings.history_limit:]
 

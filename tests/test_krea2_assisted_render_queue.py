@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from panelforge.application.krea2_assisted import Krea2AssistedService
+from panelforge.application.machine_work import MachineWorkCoordinator
 from panelforge.domain.krea2_assisted import Krea2AssistedAttemptStatus as Status
 from panelforge.domain.krea2_batch import Krea2BatchSettings, Krea2LoraSelection
 from panelforge.domain.krea2_lab import Krea2AspectRatio
@@ -153,6 +154,28 @@ class AssistedRenderQueueTest(unittest.TestCase):
         self.assertEqual(self.service.render_queue()["items"][0]["position"], 1)
         self.service.execute_attempt(self.project.project_id, second.attempt_id)
         self.assertEqual(len(self.comfy.workflows), 1)
+
+    def test_queued_attempts_reserve_visible_global_fifo_positions(self):
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        self.service.work_coordinator = coordinator
+        first = self.prepare()
+        second = self.prepare()
+
+        remote = coordinator.public_status()["machines"]["remote_gpu"]
+        self.assertEqual(remote["queue_count"], 2)
+        self.assertEqual(
+            [value["id"] for value in remote["queue"]],
+            [
+                f"krea2:{self.project.project_id}:{first.attempt_id}",
+                f"krea2:{self.project.project_id}:{second.attempt_id}",
+            ],
+        )
+        self.service.cancel_attempt(self.project.project_id, first.attempt_id)
+        self.assertEqual(
+            coordinator.public_status()["machines"]["remote_gpu"]["queue_count"],
+            1,
+        )
+        self.service.cancel_attempt(self.project.project_id, second.attempt_id)
 
     def test_restart_resumes_existing_remote_id_before_queued_jobs(self):
         first = self.prepare()

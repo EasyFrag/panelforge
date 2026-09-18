@@ -9,6 +9,63 @@ from tests.test_media_analysis_browser import MediaAnalysisBrowserTest, STATIC
 class StoriesBrowserTest(unittest.TestCase):
     run_browser = MediaAnalysisBrowserTest.run_browser
 
+    def test_next_episode_prefills_the_cumulative_memory_and_latest_scenario(self):
+        browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
+        if not browsers:
+            self.skipTest("local Chromium not installed")
+        index = (STATIC / "index.html").read_text(encoding="utf8")
+        markup = '<main id="stories-workspace"' + index.split('<main id="stories-workspace"', 1)[1].split('</main>', 1)[0] + '</main>'
+        setup = r"""
+          localStorage.clear();sessionStorage.clear();
+          const pid='story-continuation-browser-fixture';localStorage.setItem('panelforge.stories.project',pid);
+          const gemma='local::HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP';
+          const memory={series_summary:'Citron a découvert le détournement.',latest_ending:'Citron garde la preuve.',
+            established_facts:['La reine connaît Citron.'],character_states:['Citron possède la preuve.'],
+            unresolved_threads:['Les colis restent cachés.'],available_elements:['Une étiquette signée.']};
+          const scenario={title:'La preuve',logline:'Citron découvre le vol.',
+            characters:[{id:'citron',name:'Citron',description:'Citron anthropomorphe en jogging.'}],
+            locations:[{id:'accueil',name:'Accueil',description:'Comptoir blanc.'}],
+            scenes:[{title:'Découverte',location_id:'accueil',character_ids:['citron'],opening_state:'Citron attend.',
+              action:'Citron retourne le colis et découvre le nom de la reine.',dialogue:[],ending_state:'Citron conserve l’étiquette.'}]};
+          const project={project_id:pid,title:'La preuve',version:3,brief:'Un très ancien épisode qui ne doit pas remplacer la mémoire.',
+            scene_count:3,clip_seconds:10,creation_mode:'continuation',proposal_count:1,dialogue_register:2,dialogue_language:'French',
+            recipe:{id:'story.brainrot',version:'1.0.0'},architect_model_id:gemma,writer_model_id:gemma,model_id:gemma,
+            document:{concepts:[],selected_id:'concept-1',scenario,continuity:memory,continuity_source:memory},
+            turns:[],job:null,revisions:[{revision:1,label:'Scénario',document:{}}],diagnostics:[]};
+          window.fetch=async(url)=>{
+            if(url==='/api/stories/models')return new Response(JSON.stringify({models:[{id:gemma,label:'Gemma',source:'local'}]}));
+            if(url==='/api/stories/spec')return new Response(JSON.stringify({recipes:[]}));
+            if(url==='/api/stories/projects')return new Response(JSON.stringify({projects:[{project_id:pid,title:project.title}]}));
+            if(url==='/api/stories/projects/'+pid)return new Response(JSON.stringify(project));
+            throw new Error('Unexpected network '+url);
+          };
+        """
+        scenario = r"""
+          (async()=>{try{
+            const check=(v,m)=>{if(!v)throw new Error(m);},settle=()=>new Promise(r=>setTimeout(r,50));
+            document.querySelector('[data-lab-view="stories"]').click();await settle();
+            check(!document.getElementById('story-continuity').hidden,'cumulative memory is visible');
+            check(document.getElementById('story-continuity-content').textContent.includes('Les colis restent cachés.'),'open thread displayed');
+            document.getElementById('story-next-episode').click();
+            const brief=document.getElementById('story-brief');
+            check(document.getElementById('story-creation-mode').value==='continuation','next project uses continuation mode');
+            check(brief.value.includes('MÉMOIRE CUMULATIVE VALIDÉE'),'cumulative memory carried forward');
+            check(brief.value.includes('ÉPISODE LE PLUS RÉCENT'),'latest episode remains detailed');
+            check(brief.value.includes('Citron retourne le colis'),'latest action preserved');
+            check(brief.maxLength===60000&&brief.required,'continuation input contract restored');
+            check(document.getElementById('story-scene-count').value==='3','episode format carried forward');
+            document.querySelector('#result').textContent='PASS';
+          }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}})();
+        """
+        html = ('<meta charset="utf-8"><pre id="result">PENDING</pre>'
+                '<button data-lab-view="change-view">Image</button><button data-lab-view="stories">Histoires</button>'
+                '<section id="krea2-assisted-lab-workspace"></section>' + markup
+                + '<script>' + setup + '</script><script>' + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
+                + '</script><script>' + (STATIC / 'lab-core.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'stories.js').read_text(encoding='utf8')
+                + '</script><script>' + scenario + '</script>')
+        self.run_browser(browsers[-1], html)
+
     def test_proposal_selector_and_script_mode_submit_the_right_operation(self):
         browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
         if not browsers:
@@ -58,8 +115,16 @@ class StoriesBrowserTest(unittest.TestCase):
             check(document.getElementById('story-create').textContent==='Proposer 1 histoire','one-story label');
             const register=document.getElementById('story-dialogue-register');register.value='3';register.dispatchEvent(new Event('input',{bubbles:true}));
             check(document.getElementById('story-dialogue-register-label').textContent==='Très cru / argot','register label');
-            mode.value='script';change(mode);
+            mode.value='continuation';change(mode);
             const brief=document.getElementById('story-brief');
+            check(brief.required&&brief.maxLength===60000,'continuation requires a longer saga source');
+            check(document.getElementById('story-create').textContent==='Proposer 1 suite','continuation label');
+            check(document.getElementById('story-mode-description').textContent.includes('mémoire cumulative'),'cumulative memory explained');
+            check(document.getElementById('story-create').disabled,'blank continuation blocks creation');
+            brief.value='ÉPISODE 1 — Citron découvre la preuve.';brief.dispatchEvent(new Event('input',{bubbles:true}));
+            check(!document.getElementById('story-create').disabled,'a previous episode enables continuation');
+            mode.value='script';change(mode);
+            brief.value='';brief.dispatchEvent(new Event('input',{bubbles:true}));
             const sceneCount=document.getElementById('story-scene-count');sceneCount.value='3';
             check(sceneCount.closest('label').textContent.includes('Nombre exact de micro-scènes'),'scene count is presented as exact');
             check(document.getElementById('story-proposal-count-row').hidden,'count hidden in script mode');

@@ -29,8 +29,11 @@ class SocialLabUiTest(unittest.TestCase):
         first_modebar = html.split('class="video-lab-modebar"', 1)[1]
         self.assertLess(
             first_modebar.index('data-video-lab-mode="social-lab"'),
-            first_modebar.index('data-video-lab-mode="video-lab"'),
+            first_modebar.index('data-video-lab-mode="media-analysis"'),
         )
+        self.assertNotIn('data-video-lab-mode="video-lab"', html)
+        self.assertNotIn('/static/video-lab.js?', html)
+        self.assertIn('"video-lab": "social-lab"', core)
         self.assertIn(
             'button.dataset.labView === "video-lab"\n          ? "social-lab"',
             core,

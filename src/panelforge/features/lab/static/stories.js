@@ -71,7 +71,8 @@
   }
   const running = () => ["running", "cancelling"].includes(state.project?.job?.status);
   const blocked = () => state.saving || state.loading || running();
-  const creationMode = () => el("creation-mode").value === "script" ? "script" : "ideas";
+  const creationMode = () => ["script", "continuation"].includes(el("creation-mode").value)
+    ? el("creation-mode").value : "ideas";
   const proposalCount = () => Math.max(1, Math.min(3, Number(el("proposal-count").value) || 3));
   const dialogueRegister = () => Math.max(0, Math.min(3, Number(el("dialogue-register").value) || 0));
   const dialogueLanguage = () => dialogueLanguages[el("dialogue-language").value] ? el("dialogue-language").value : "French";
@@ -110,28 +111,38 @@
   }
   function message(text, error = false) { el("message").textContent = text; el("message").classList.toggle("error", error); }
   function refreshStartMode() {
-    const script = creationMode() === "script", silent = dialogueForbidden(), count = proposalCount();
+    const mode = creationMode(), script = mode === "script", continuation = mode === "continuation";
+    const silent = dialogueForbidden(), count = proposalCount();
     el("proposal-count-row").hidden = script;
-    el("brief-label").textContent = script ? "Script complet · obligatoire" : "Ton idée · facultative";
-    el("brief").required = script;
+    el("brief-label").textContent = script ? "Script complet · obligatoire"
+      : continuation ? "Épisodes précédents ou résumé de la saga · obligatoire" : "Ton idée · facultative";
+    el("brief").required = script || continuation;
+    el("brief").maxLength = continuation ? 60000 : 12000;
     el("brief").placeholder = script
       ? silent ? "Colle ici le script complet de la scène muette, avec ses actions et réactions sans dialogue…"
       : "Colle ici le script complet avec ses scènes, actions, locuteurs et dialogues…"
+      : continuation ? "Colle les épisodes précédents du plus ancien au plus récent, ou leur résumé puis le dernier épisode complet…"
       : silent ? "Deux chats préparent le petit-déjeuner ; l’un cherche un câlin pendant que l’autre veut finir sa recette…"
       : "Un patron avocat odieux qui arnaque ses clients… Ou laisse le LLM te surprendre.";
     el("mode-description").textContent = script
       ? silent ? "Un seul appel au Rédacteur regroupe les actions dans le nombre exact de micro-scènes ; le script reste entièrement sans paroles."
       : "Un seul appel au Rédacteur regroupe le texte dans le nombre exact de micro-scènes. Les dialogues détectés sont contrôlés mot pour mot."
+      : continuation ? "L’Architecte condense toute la saga en mémoire cumulative, puis propose une à trois suites causales sans redécouvrir les faits acquis."
       : "Le LLM propose une à trois histoires avant le développement du scénario.";
-    el("create").textContent = script ? "Structurer fidèlement ce script" : `Proposer ${count} histoire${count > 1 ? "s" : ""}`;
+    el("create").textContent = script ? "Structurer fidèlement ce script"
+      : continuation ? `Proposer ${count} suite${count > 1 ? "s" : ""}`
+      : `Proposer ${count} histoire${count > 1 ? "s" : ""}`;
     el("create-note").textContent = script
       ? silent ? "Le script est regroupé sans omission ; toute parole, voix off, narration et texte lisible restent interdits."
       : "Le script est regroupé sans omission dans le nombre choisi : aucun passage ni dialogue ne doit être réinventé."
+      : continuation ? "Même si le dernier épisode avait déjà un passé, les faits durables et les conflits ouverts restent dans la mémoire de saga, sans appel LLM supplémentaire."
       : silent ? "Comédie de couple photoréaliste, tendre et compréhensible uniquement par les gestes."
       : "Conflits simples, personnages excessifs, retournements visuels. Tu peux orienter le ton dans ton idée.";
-    el("empty-title").textContent = script ? "Un script prêt à structurer" : silent ? "Quelle scène muette raconter ?" : "Quelle histoire raconter ?";
+    el("empty-title").textContent = script ? "Un script prêt à structurer" : continuation ? "Comment poursuivre cette saga ?"
+      : silent ? "Quelle scène muette raconter ?" : "Quelle histoire raconter ?";
     el("empty-copy").textContent = script
       ? "Le Rédacteur transformera le script en fiches et micro-scènes sans passer par des propositions intermédiaires."
+      : continuation ? `Le LLM résumera le canon antérieur puis proposera ${count} continuation${count > 1 ? "s" : ""} fondée${count > 1 ? "s" : ""} sur une reprise, un obstacle et une conséquence préparée.`
       : silent ? `Le LLM proposera ${count} comédie${count > 1 ? "s" : ""} de couple féline${count > 1 ? "s" : ""}, sans aucune parole, puis développera la piste choisie en actions visuelles.`
       : `Le LLM proposera ${count} accroche${count > 1 ? "s" : ""} avec conflit, escalade et fin. ${count > 1 ? "Choisis une piste, discute-la" : "Tu pourras la discuter"}, puis développe le scénario.`;
     const register = script || silent ? 0 : dialogueRegister(), details = dialogueRegisters[register];
@@ -152,9 +163,9 @@
   }
   function controls() {
     const project = state.project, busy = blocked(), doc = project?.document;
-    const scriptStart = creationMode() === "script";
+    const mode = creationMode(), scriptStart = mode === "script", sourceRequired = ["script", "continuation"].includes(mode);
     el("create").disabled = state.saving || !selectedModel("writer") || (!scriptStart && !selectedModel("architect"))
-      || (scriptStart && !el("brief").value.trim());
+      || (sourceRequired && !el("brief").value.trim());
     el("send").disabled = busy || !(doc?.concepts.length || doc?.scenario) || !el("instruction").value.trim() || !selectedModel("writer");
     el("ideas").disabled = busy || !project || !selectedModel("architect");
     el("develop").disabled = busy || !doc?.selected_id || !selectedModel("writer");
@@ -167,6 +178,7 @@
     el("concepts").querySelectorAll("button").forEach(item => { item.disabled = busy || item.dataset.selected === "true"; });
     el("scenes").querySelectorAll("button").forEach(item => { item.disabled = busy; });
     if (el("validate")) el("validate").disabled = busy || !doc?.scenario;
+    if (el("next-episode")) el("next-episode").disabled = busy || !doc?.scenario;
   }
   async function specs() {
     try {
@@ -246,18 +258,24 @@
     el("empty").hidden = !!(doc?.concepts.length || doc?.scenario); el("versions-panel").hidden = !project?.revisions.length;
     el("develop").hidden = !doc?.selected_id; el("scenario").hidden = !doc?.scenario;
     paintRecipeDescription();
-    if (!project) { el("concepts").replaceChildren(); message(""); controls(); return; }
+    if (!project) { el("concepts").replaceChildren(); paintContinuity(null); message(""); controls(); return; }
     el("projects").value = project.project_id;
     const recipe = currentRecipe();
-    const scriptProject = project.creation_mode === "script";
+    const scriptProject = project.creation_mode === "script", continuationProject = project.creation_mode === "continuation";
     const projectCount = project.proposal_count || 3;
     const projectRegister = recipe.dialogue_policy === "forbidden" ? "Sans paroles"
       : dialogueRegisters[scriptProject ? 0 : (project.dialogue_register || 0)][0];
     const projectLanguage = recipe.dialogue_policy === "forbidden" ? "Sans paroles"
       : dialogueLanguages[project.dialogue_language || "French"] || dialogueLanguages.French;
-    el("project-brief").textContent = `${recipe.label} · ${scriptProject ? "Script fidèle" : `${projectCount} proposition${projectCount > 1 ? "s" : ""}`} · Dialogues : ${projectLanguage} · ${projectRegister}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes exactes · ${project.clip_seconds} s par clip`;
+    paintContinuity(doc?.continuity || doc?.continuity_source);
+    const startLabel = scriptProject ? "Script fidèle" : continuationProject
+      ? `${projectCount} proposition${projectCount > 1 ? "s" : ""} de suite`
+      : `${projectCount} proposition${projectCount > 1 ? "s" : ""}`;
+    el("project-brief").textContent = `${recipe.label} · ${startLabel} · Dialogues : ${projectLanguage} · ${projectRegister}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes exactes · ${project.clip_seconds} s par clip`;
     el("ideas").hidden = scriptProject;
-    el("ideas").textContent = `${project.proposal_count || 3} nouvelle${(project.proposal_count || 3) > 1 ? "s" : ""} piste${(project.proposal_count || 3) > 1 ? "s" : ""}`;
+    el("ideas").textContent = continuationProject
+      ? `${project.proposal_count || 3} nouvelle${(project.proposal_count || 3) > 1 ? "s" : ""} suite${(project.proposal_count || 3) > 1 ? "s" : ""}`
+      : `${project.proposal_count || 3} nouvelle${(project.proposal_count || 3) > 1 ? "s" : ""} piste${(project.proposal_count || 3) > 1 ? "s" : ""}`;
     const turnKey = `${project.project_id}:${project.turns.length}`;
     if (state.turnKey !== turnKey) {
       state.turnKey = turnKey;
@@ -276,6 +294,7 @@
     const job = project.job;
     if (job) message(job.error || job.phase || "", !!job.error);
     else message(scriptProject ? "Script enregistré. Tu peux lancer sa structuration fidèle."
+      : continuationProject ? "Historique enregistré. L’Architecte peut maintenant construire la mémoire de saga et les suites."
       : `Histoire enregistrée. Tu peux demander ${projectCount} proposition${projectCount > 1 ? "s" : ""}.`);
     const reasoning = job?.reasoning || "", draft = job?.draft || "", live = running();
     const showTrace = live || !!reasoning || !!draft;
@@ -301,6 +320,13 @@
       card.append(node("small", chosen ? "HISTOIRE CHOISIE" : `PISTE ${index + 1}`), node("h3", concept.title), node("p", concept.hook));
       const details = node("details"); details.append(node("summary", "Détails de la piste"));
       const list = node("dl"); fields.forEach(field => list.append(node("dt", field.label), node("dd", concept[field.id] || "—")));
+      if (concept.continuation_plan) {
+        const plan = concept.continuation_plan;
+        list.append(node("dt", "Reprise du canon"), node("dd", plan.carry_over),
+          node("dt", "Nouvel obstacle"), node("dd", plan.obstacle),
+          node("dt", "Conséquence préparée"), node("dd", plan.payoff),
+          node("dt", "Éléments nouveaux annoncés"), node("dd", plan.introduced_elements.length ? plan.introduced_elements.join(" · ") : "Aucun"));
+      }
       details.append(list); card.append(details);
       const choose = button(chosen ? "Sélectionnée" : "Choisir cette histoire", () => mutate("select", {concept_id: concept.id}));
       choose.dataset.selected = String(chosen); choose.setAttribute("aria-pressed", String(chosen)); card.append(choose);
@@ -334,6 +360,51 @@
       states.append(node("p", `Fin : ${scene.ending_state}`)); card.append(states);
       return card;
     }));
+  }
+
+  function paintContinuity(memory) {
+    el("continuity").hidden = !memory;
+    if (!memory) { el("continuity-content").replaceChildren(); return; }
+    const content = document.createDocumentFragment();
+    content.append(node("p", memory.series_summary), node("h4", "Dernier état connu"), node("p", memory.latest_ending));
+    for (const [field, label] of [["established_facts", "Faits acquis"], ["character_states", "État des personnages"],
+      ["unresolved_threads", "Fils encore ouverts"], ["available_elements", "Éléments encore mobilisables"]]) {
+      content.append(node("h4", label));
+      const list = node("ul");
+      const items = memory[field] || [];
+      if (items.length) items.forEach(item => list.append(node("li", item)));
+      else list.append(node("li", "Aucun."));
+      content.append(list);
+    }
+    el("continuity-content").replaceChildren(content);
+  }
+
+  function continuationSource(project) {
+    const scenario = project.document?.scenario, memory = project.document?.continuity;
+    const latest = JSON.stringify(scenario, null, 2);
+    let history = memory ? `MÉMOIRE CUMULATIVE VALIDÉE\n${JSON.stringify(memory, null, 2)}`
+      : `HISTORIQUE ANTÉRIEUR FOURNI AU PROJET PRÉCÉDENT\n${project.brief || "Aucun résumé disponible."}`;
+    const suffix = `\n\nRÈGLE DE PRIORITÉ — en cas d’écart, l’épisode détaillé ci-dessous prévaut sur la mémoire résumée.\n\nÉPISODE LE PLUS RÉCENT — SOURCE DÉTAILLÉE\n${latest}`;
+    const maximum = 60000, available = maximum - suffix.length;
+    if (history.length > available) history = `[… historique ancien tronqué pour respecter la limite …]\n${history.slice(-Math.max(0, available - 64))}`;
+    return (history + suffix).slice(0, maximum);
+  }
+
+  function prepareNextEpisode() {
+    const source = state.project;
+    if (!source?.document?.scenario || blocked()) return;
+    const values = {recipe: recipeKey(source.recipe), title: `${source.title} · suite`, brief: continuationSource(source),
+      scenes: source.scene_count, duration: source.clip_seconds, proposals: source.proposal_count || 1,
+      register: source.dialogue_register || 0, language: source.dialogue_language || "French",
+      architect: el("architect-model").value, writer: el("writer-model").value};
+    newProject();
+    el("recipe").value = values.recipe; el("creation-mode").value = "continuation";
+    el("title").value = values.title; el("brief").value = values.brief;
+    el("scene-count").value = values.scenes; el("duration").value = values.duration;
+    el("proposal-count").value = values.proposals; el("dialogue-register").value = values.register;
+    el("dialogue-language").value = values.language;
+    chooseModel("architect", values.architect); chooseModel("writer", values.writer);
+    paintRecipeDescription(); refreshStartMode(); paint(); el("brief").focus();
   }
   function openSceneEditor(index) {
     const scenario = state.project?.document?.scenario, scene = scenario?.scenes[index]; if (!scene) return;
@@ -444,8 +515,8 @@
   el("create-form").addEventListener("submit", async event => {
     event.preventDefault();
     const mode = creationMode();
-    if (state.saving || !selectedModel("writer") || (mode === "ideas" && !selectedModel("architect"))
-        || (mode === "script" && !el("brief").value.trim())) return;
+    if (state.saving || !selectedModel("writer") || (mode !== "script" && !selectedModel("architect"))
+        || (["script", "continuation"].includes(mode) && !el("brief").value.trim())) return;
     state.saving = true; controls(); const token = ++state.token;
     try {
       const recipe = currentRecipe();
@@ -492,6 +563,7 @@
     catch (error) { message(error.message, true); }
   });
   el("export").addEventListener("click", () => exportScenario("download"));
+  el("next-episode").addEventListener("click", prepareNextEpisode);
   el("recipes").addEventListener("click", () => { const recipe = currentRecipe(); window.PanelForgePromptRecipes?.open({key: recipe.id, version: recipe.version}); });
   el("calls").addEventListener("click", () => { if (state.project) window.PanelForgePromptRecipes?.showHistory(path(state.project.project_id, "/calls")); });
   new MutationObserver(activate).observe(root, {attributes: true, attributeFilter: ["hidden"]});

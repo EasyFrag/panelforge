@@ -32,8 +32,14 @@
     ["stories", elements.stories],
   ]);
   let activeView = null;
+  const retiredViewFallbacks = Object.freeze({
+    "krea2-image-lab": "krea2-assisted-lab",
+    "krea2-batch-lab": "krea2-assisted-lab",
+    "video-lab": "social-lab",
+  });
 
   function switchView(view) {
+    view = retiredViewFallbacks[view] || view;
     if (!workspaces.get(view)) return false;
     activeView = view;
     const imageLabActive = [

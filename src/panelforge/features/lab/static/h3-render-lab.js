@@ -536,6 +536,7 @@
         if (payload.type === "panelforge_render_progress") {
           state.renderProgressData = data;
           paintRenderProgress();
+          window.dispatchEvent(new CustomEvent("panelforge:render-progress", {detail: data}));
         } else if (payload.type === "kj_preview_override" && data.image) base64Preview(data.image, data.mime);
         else if (payload.type === "preview" && (data.preview_url || data.url || data.data_url)) {
           elements.live.src = data.preview_url || data.url || data.data_url;

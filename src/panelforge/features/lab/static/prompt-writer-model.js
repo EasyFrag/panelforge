@@ -2,7 +2,10 @@
   "use strict";
 
   // Capability is supplied by the backend's exact cookbook allowlist.
-  function create({ prefix, state, planner, cookbook, request, render, busy }) {
+  function create({
+    prefix, state, planner, cookbook, request, render, busy,
+    defaultModelId = null, defaultEnabled = false,
+  }) {
     const host = document.getElementById(`${prefix}-writer-model-controls`);
     const enabled = host.querySelector('[data-writer="enabled"]');
     const fields = host.querySelector('[data-writer="fields"]');
@@ -17,8 +20,9 @@
       const reference = state.composition?.cookbook || cookbook();
       window.PanelForgePromptRecipes?.open({key: reference?.id, version: reference?.version, sessionId: state.session?.id});
     });
-    let selected = null;
+    let selected = defaultEnabled ? defaultModelId : null;
     let saving = null;
+    enabled.checked = Boolean(selected);
 
     function supported() {
       return Boolean(state.composition
@@ -30,6 +34,13 @@
       enabled.checked = Boolean(selected);
       status.textContent = "";
       if (selected) picker.select(model, selected, "modèle enregistré, absent du catalogue");
+    }
+
+    function resetDefault() {
+      selected = defaultEnabled ? defaultModelId : null;
+      enabled.checked = Boolean(selected);
+      status.textContent = "";
+      if (selected) picker.select(model, selected, "modèle par défaut, absent du catalogue");
     }
 
     function value() {
@@ -114,7 +125,7 @@
       render();
       save().catch((error) => { status.textContent = error.message; });
     });
-    return { restore, populate, draw, value, save };
+    return { restore, resetDefault, populate, draw, value, save };
   }
 
   window.PanelForgePromptWriterModel = Object.freeze({ create });

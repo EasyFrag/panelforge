@@ -15,14 +15,13 @@ class Krea2ImageLabUiTest(unittest.TestCase):
         cls.script = (STATIC_ROOT / "krea2-image-lab.js").read_text(encoding="utf-8")
         cls.styles = (STATIC_ROOT / "lab.css").read_text(encoding="utf-8")
 
-    def test_exposes_krea2_as_a_mode_inside_image_lab(self):
-        self.assertIn('/static/krea2-image-lab.js?v=20260907.8', self.page)
+    def test_retires_the_old_krea2_generator_from_image_lab_navigation(self):
+        self.assertNotIn('/static/krea2-image-lab.js?', self.page)
         self.assertIn('data-image-lab-mode="change-view"', self.page)
-        self.assertIn('data-image-lab-mode="krea2-image-lab"', self.page)
+        self.assertNotIn('data-image-lab-mode="krea2-image-lab"', self.page)
         self.assertIn('id="krea2-image-lab-workspace"', self.page)
         self.assertIn('krea2ImageLab: $("#krea2-image-lab-workspace")', self.navigation)
-        self.assertIn('elements.krea2ImageLab, view === "krea2-image-lab"', self.navigation)
-        self.assertIn('imageLabActive ? "change-view" : view', self.navigation)
+        self.assertIn('"krea2-image-lab": "krea2-assisted-lab"', self.navigation)
         self.assertIn(".image-lab-modebar", self.styles)
         ids = re.findall(r'\bid="([^"]+)"', self.page)
         self.assertEqual(len(ids), len(set(ids)), "HTML IDs must remain unique")
@@ -55,7 +54,7 @@ class Krea2ImageLabUiTest(unittest.TestCase):
         self.assertNotIn("preview", self.script.lower())
 
     def test_final_png_is_contained_without_being_stretched(self):
-        self.assertIn('/static/lab.css?v=20260913.4', self.page)
+        self.assertIn('/static/lab.css?v=20260918.3', self.page)
         self.assertIn(".krea2-image-lab-output { width: min(100%, 760px)", self.styles)
         self.assertIn("min-height: clamp(300px, 42vw, 600px)", self.styles)
         self.assertIn(

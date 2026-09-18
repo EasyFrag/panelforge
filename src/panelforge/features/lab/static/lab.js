@@ -414,8 +414,15 @@ function connectRuntimeMonitor() {
   socket.addEventListener("message", (event) => {
     let payload;
     try { payload = JSON.parse(event.data); } catch (_) { return; }
-    if (payload.type !== "crystools.monitor" || !payload.data) return;
-    renderCrystools(payload.data);
+    if (payload.type === "crystools.monitor" && payload.data) {
+      renderCrystools(payload.data);
+      return;
+    }
+    if (payload.type === "panelforge_render_progress" && payload.data) {
+      window.dispatchEvent(new CustomEvent("panelforge:render-progress", {
+        detail: payload.data,
+      }));
+    }
   });
   socket.addEventListener("close", () => {
     if (state.runtimeSocket === socket) state.runtimeSocket = null;

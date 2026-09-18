@@ -220,9 +220,64 @@ class EpisodeService:
         scenes = {scene["id"]: scene for scene in value["scenes"]}
         for item in chain.get("items", []):
             scene = scenes.get(item.get("scene_id"))
-            attempt_id = item.get("attempt_id")
+            if scene is None:
+                continue
+            latest = scene.get("preparations", [])[-1] if scene.get("preparations") else None
+            latest_is_current = False
+            if latest is not None:
+                try:
+                    latest_is_current = latest.get("input_hash") == fingerprint(scene_inputs(value, scene))
+                except ValueError:
+                    latest_is_current = False
+            recoverable = item.get("status") in {
+                "prompt_failed", "prompting", "prompt_ready", "video_failed",
+            }
+            if recoverable and latest_is_current:
+                latest_status = latest.get("status")
+                if latest_status == "running" and item.get("status") == "prompt_failed":
+                    item.update(status="prompting", phase="Rédaction du prompt", error=None)
+                    changed = True
+                elif latest_status in {"failed", "interrupted"} and item.get("status") == "prompting":
+                    interrupted = latest_status == "interrupted"
+                    item.update(status="prompt_failed",
+                                phase="Prompt interrompu" if interrupted else "Échec du prompt",
+                                error=latest.get("error") or (
+                                    "La préparation du prompt a été interrompue."
+                                    if interrupted else "La préparation du prompt a échoué."
+                                ))
+                    changed = True
+                elif latest_status == "ready" and (
+                    item.get("status") in {"prompt_failed", "prompting"}
+                    or item.get("preparation_id") != latest.get("id")
+                ):
+                    item.update(status="prompt_ready", phase="Prompt corrigé · vidéo à démarrer",
+                                error=None, preparation_id=latest.get("id"),
+                                render_project_id=latest.get("render_project_id"),
+                                attempt_id=None, output_asset_id=None)
+                    changed = True
+
             project_id = item.get("render_project_id")
-            if scene is None or not attempt_id or not project_id:
+            attempt_id = item.get("attempt_id")
+            if recoverable and latest_is_current and latest and latest.get("status") == "ready" and project_id:
+                try:
+                    project = self.render.projects.get(project_id)
+                    attempts = [candidate for candidate in project.attempts
+                                if getattr(candidate, "dlss", None) is None]
+                    candidate = attempts[-1] if attempts else None
+                except (KeyError, FileNotFoundError, ValueError):
+                    candidate = None
+                if candidate is not None and (
+                    not attempt_id
+                    or (
+                        item.get("status") in {"prompt_ready", "video_failed"}
+                        and candidate.attempt_id != attempt_id
+                    )
+                ):
+                    item.update(attempt_id=candidate.attempt_id, output_asset_id=None)
+                    attempt_id = candidate.attempt_id
+                    changed = True
+
+            if not attempt_id or not project_id:
                 continue
             try:
                 attempt = self.render.projects.get(project_id).attempt(attempt_id)
@@ -243,6 +298,21 @@ class EpisodeService:
                                     H3RenderAttemptStatus.CANCEL_PENDING} and item.get("status") != "rendering":
                 item.update(status="rendering", phase="Rendu vidéo en cours")
                 changed = True
+        if chain.get("status") in {"completed", "completed_with_errors"}:
+            statuses = {item.get("status") for item in chain.get("items", [])}
+            if statuses and statuses == {"succeeded"}:
+                if chain.get("status") != "completed" or chain.get("phase") != "Toutes les vidéos sont terminées":
+                    chain.update(status="completed", phase="Toutes les vidéos sont terminées", error=None)
+                    changed = True
+            elif statuses & {"prompting", "rendering"}:
+                if chain.get("phase") != "Relance manuelle en cours":
+                    chain.update(status="completed_with_errors", phase="Relance manuelle en cours", error=None)
+                    changed = True
+            elif "prompt_ready" in statuses:
+                phase = "Correction prête · relance des scènes incomplètes disponible"
+                if chain.get("status") != "completed_with_errors" or chain.get("phase") != phase:
+                    chain.update(status="completed_with_errors", phase=phase, error=None)
+                    changed = True
         if changed:
             return self.store.save(value)
         return value
@@ -790,7 +860,7 @@ class EpisodeService:
                 cooldown_until=None, cooldown_scene_id=None,
                 items=[dict(scene_id=scene["id"], index=scene["index"], title=scene["title"],
                     status="pending", phase="En attente", error=None, preparation_id=None,
-                    render_project_id=None, attempt_id=None, output_asset_id=None,
+                    render_project_id=None, attempt_id=None, output_asset_id=None, prompt_attempt=0,
                     render_setup=effective_video_setup(value, scene)) for scene in chosen])
             self.store.save(value)
             self._active_video_chains.add(identity)
@@ -816,6 +886,7 @@ class EpisodeService:
     def resume_video_chain(self, identity, chain_id):
         with self._lock:
             value = self.store.get(identity)
+            value = self._reconcile_video_chain(value)
             chain = value.get("video_chain")
             if not chain or chain.get("chain_id") != chain_id:
                 raise KeyError("Chaîne vidéo introuvable.")
@@ -823,10 +894,13 @@ class EpisodeService:
                 return self.get(identity)
             if identity in self._active_video_chains:
                 raise EpisodeConflict("La chaîne vidéo termine encore une tâche.")
+            if any(item.get("status") in {"prompting", "rendering"} for item in chain.get("items", [])):
+                raise EpisodeConflict("Une relance manuelle est déjà en cours pour cette chaîne.")
             chain.update(status="running", phase="Reprise de la chaîne", error=None, pause_requested=False)
             for item in chain.get("items", []):
                 if item.get("status") == "prompt_failed":
-                    item.update(status="pending", phase="À reprendre", error=None)
+                    item.update(status="pending", phase="À reprendre", error=None,
+                                prompt_attempt=int(item.get("prompt_attempt", 0)) + 1)
                 elif item.get("status") == "video_failed":
                     item.update(status="prompt_ready", phase="Prompt prêt · vidéo à reprendre", error=None,
                                 attempt_id=None, output_asset_id=None)
@@ -877,6 +951,10 @@ class EpisodeService:
         with self._lock:
             value = self.store.get(identity)
             scene = self._item(value, "scenes", scene_id)
+            chain = value.get("video_chain")
+            if not chain or chain.get("chain_id") != chain_id:
+                raise EpisodeConflict("La chaîne vidéo a été remplacée.")
+            item = self._video_item(chain, scene_id)
             inputs_hash = fingerprint(scene_inputs(value, scene))
             latest = scene["preparations"][-1] if scene["preparations"] else None
             if latest and latest.get("status") == "ready" and latest.get("input_hash") == inputs_hash:
@@ -884,9 +962,11 @@ class EpisodeService:
             resume = bool(latest and latest.get("input_hash") == inputs_hash
                           and latest.get("status") in {"failed", "interrupted"})
             revision = scene["revision"]
+            prompt_attempt = int(item.get("prompt_attempt", 0))
         self._video_chain_change(identity, chain_id, lambda _value, chain:
             self._video_item(chain, scene_id).update(status="prompting", phase="Rédaction du prompt", error=None))
-        self.prepare_scene(identity, scene_id, revision, f"{chain_id}-prompt-{scene_id}", resume=resume)
+        self.prepare_scene(identity, scene_id, revision,
+                           f"{chain_id}-prompt-{scene_id}-{prompt_attempt}", resume=resume)
         scene, job = self._wait_scene_job(identity, scene_id, chain_id)
         latest = scene["preparations"][-1] if scene["preparations"] else None
         if job.get("status") != "succeeded" or not latest or latest.get("status") != "ready":

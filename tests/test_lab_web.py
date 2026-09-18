@@ -231,8 +231,8 @@ class LabWebTest(unittest.TestCase):
             page.text.index('id="release-llm-vram"'),
             page.text.index('id="release-comfy-vram"'),
         )
-        self.assertIn("/static/lab.js?v=20260918.2", page.text)
-        self.assertIn("/static/work-queue.js?v=20260918.1", page.text)
+        self.assertIn("/static/lab.js?v=20260918.3", page.text)
+        self.assertIn("/static/work-queue.js?v=20260918.4", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
@@ -258,9 +258,9 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260917.2", page.text)
-        self.assertIn("/static/prompt-writer-model.js?v=20260914.1", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260913.5", page.text)
+        self.assertIn("/static/lab.css?v=20260918.3", page.text)
+        self.assertIn("/static/prompt-writer-model.js?v=20260918.1", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260918.1", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         core_script = self.client.get("/static/lab-core.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -294,7 +294,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(core_script.status_code, 200)
-        self.assertIn("/static/lab-core.js?v=20260915.2", page.text)
+        self.assertIn("/static/lab-core.js?v=20260918.1", page.text)
         self.assertIn("function errorDetailMessage(detail)", core_script.text)
         self.assertIn('item.loc.filter((part) => part !== "body")', core_script.text)
         self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
@@ -358,7 +358,7 @@ class LabWebTest(unittest.TestCase):
         page = self.client.get("/")
         script = self.client.get("/static/lab.js")
 
-        self.assertEqual(page.text.count('data-llm-local-for="'), 14)
+        self.assertEqual(page.text.count('data-llm-local-for="'), 24)
         for select_id in (
             "krea2-assisted-llm",
             "krea2-batch-llm",
@@ -381,7 +381,7 @@ class LabWebTest(unittest.TestCase):
             )
         self.assertIn('new Set(["local"])', script.text)
         self.assertNotIn('model.id.startsWith("vllm::")', script.text)
-        self.assertEqual(page.text.count("Local · Unsloth"), 14)
+        self.assertEqual(page.text.count("Local · Unsloth"), 21)
         self.assertIn("Aucun modèle local disponible", script.text)
 
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
@@ -412,10 +412,11 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="h3r-spectrum" type="checkbox"', page.text)
         self.assertIn('id="ref2vr-spectrum" type="checkbox"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260918.1', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260918.2', page.text)
         self.assertIn('id="h3r-render-progress"', page.text)
         self.assertIn('id="ref2vr-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', render_script.text)
+        self.assertIn('new CustomEvent("panelforge:render-progress"', render_script.text)
         production_script = self.client.get("/static/production-lab.js")
         self.assertIn('id="production-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', production_script.text)
@@ -427,8 +428,9 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vr-video-lora-profile"', page.text)
         self.assertIn('id="ref2vr-video-lora-model"', page.text)
         self.assertIn('id="ref2vr-video-lora-strength"', page.text)
-        self.assertIn('video_lora: elements.videoLoraProfile', render_script.text)
-        self.assertIn('spectrum_enabled: elements.spectrum.checked', render_script.text)
+        self.assertIn('...(loraEditor?.supported ? { video_loras: loraEditor.value } : {})', render_script.text)
+        self.assertIn('video_lora: !loraEditor?.supported && elements.videoLoraProfile?.value === "lora"', render_script.text)
+        self.assertIn('spectrum_enabled: bunnyActive() ? false : elements.spectrum.checked', render_script.text)
         self.assertIn('elements.spectrum.checked = false', render_script.text)
         self.assertIn('id="h3r-revision-version"', page.text)
         self.assertIn('id="h3r-revision-model"', page.text)
@@ -457,7 +459,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("core.createLlmOutcomeTone()", render_script.text)
         self.assertIn("outcomeTone.success()", render_script.text)
         self.assertIn("outcomeTone.failure()", render_script.text)
-        self.assertIn('/static/i2v-direct.js?v=20260913.5', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260918.1', page.text)
         self.assertIn('/static/sensual-controls.js?v=20260911.1', page.text)
         self.assertIn('id="i2vd-animal-interview-fields"', page.text)
         self.assertEqual(page.text.count('class="field-label animal-interview-primary-field"'), 2)
@@ -523,7 +525,7 @@ class LabWebTest(unittest.TestCase):
             core_script.text,
         )
 
-    def test_serves_video_lab_and_ref2v_prefill_bridge(self):
+    def test_retires_video_generator_navigation_and_ref2v_bridge(self):
         page = self.client.get("/")
         script = self.client.get("/static/video-lab.js")
         ref2v_script = self.client.get("/static/ref2v-direct.js")
@@ -547,7 +549,8 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('value="2:3 (Portrait Photo)"', page.text)
         self.assertIn('min="5" max="15"', page.text)
         self.assertIn('Modifier la durée ne réécrit pas les timestamps du prompt.', page.text)
-        self.assertIn('/static/video-lab.js?v=20260907.8', page.text)
+        self.assertNotIn('/static/video-lab.js?', page.text)
+        self.assertNotIn('data-video-lab-mode="video-lab"', page.text)
         self.assertIn('type === "panelforge_render_progress"', script.text)
 
         self.assertIn('request("/api/video-lab/runs"', script.text)
@@ -580,12 +583,11 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('eventExecutionId !== activeExecutionId', script.text)
         self.assertIn('cancel_pending: "Annulation à confirmer"', script.text)
 
-        self.assertIn('id="ref2vd-send-video-lab"', page.text)
-        self.assertIn('window.PanelForgeVideoLab.prefill({', ref2v_script.text)
-        self.assertIn('prompt: visiblePrompt', ref2v_script.text)
-        self.assertIn('duration_seconds: planDurationSeconds', ref2v_script.text)
-        self.assertIn('!prompt.active_revision_id', ref2v_script.text)
+        self.assertNotIn('id="ref2vd-send-video-lab"', page.text)
+        self.assertNotIn('window.PanelForgeVideoLab.prefill({', ref2v_script.text)
+        self.assertNotIn('function planDurationSeconds', ref2v_script.text)
         self.assertIn('videoLab: $("#video-lab-workspace")', navigation.text)
+        self.assertIn('"video-lab": "social-lab"', navigation.text)
         self.assertIn('PanelForgeLabNavigation', navigation.text)
 
     def test_asset_content_supports_full_and_partial_byte_reads(self):
@@ -649,7 +651,7 @@ class LabWebTest(unittest.TestCase):
                 page.text,
             )
             self.assertIn(f'id="{prefix}-creative-audacity-value">2</output>', page.text)
-        self.assertEqual(page.text.count("L’audace fixe l’objectif de nouveauté"), 2)
+        self.assertEqual(page.text.count("L’audace fixe l’objectif de nouveauté"), 3)
         self.assertIn('id="h3r-revision-audacity-value">0/3</output>', page.text)
         self.assertIn('id="ref2vr-revision-audacity-value">0/3</output>', page.text)
 
@@ -672,12 +674,12 @@ class LabWebTest(unittest.TestCase):
 
         self.assertEqual(quick.status_code, 200)
         self.assertIn('/static/quick-pipeline.js?v=20260905.1', page.text)
-        self.assertIn('id="i2vd-quick-mode" type="checkbox"', page.text)
+        self.assertIn('id="i2vd-quick-mode" type="checkbox" checked', page.text)
         self.assertIn('id="ref2vd-execution-mode"', page.text)
         self.assertIn('id="ref2vd-execution-mode-control"', page.text)
         self.assertIn('>Orchestration', page.text)
-        self.assertIn('<option value="supervised" selected>', page.text)
-        self.assertIn('<option value="quick">', page.text)
+        self.assertIn('<option value="supervised">', page.text)
+        self.assertIn('<option value="quick" selected>', page.text)
         self.assertIn('Rapide · toutes les étapes', page.text)
         self.assertNotIn('<option value="super_fast">', page.text)
         for prefix in ("i2vd", "ref2vd"):
@@ -731,7 +733,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('const superFastCookbookVersion = "0.2.0"', ref2v.text)
         self.assertIn("elements.steps.plan.hidden = superFast", ref2v.text)
         self.assertIn(
-            "const promptPrerequisite = directSuperFast ? briefState.ready : planState.ready",
+            "const promptPrerequisite = directSuperFast || preparationSteps() === 1 ? briefState.ready : planState.ready",
             ref2v.text,
         )
         super_fast_body = ref2v.text.split("async function runSuperFastMode()", 1)[1].split(
@@ -995,6 +997,27 @@ class LabWebTest(unittest.TestCase):
             self.runtime_connector.urls,
             [self.comfy_runtime.websocket_url],
         )
+
+    def test_runtime_websocket_prefers_the_h3_client_channel_for_render_progress(self):
+        h3_websocket_url = "ws://gpu.test:8188/ws?clientId=h3-render"
+        h3_render = SimpleNamespace(
+            comfy=SimpleNamespace(websocket_url=h3_websocket_url),
+        )
+        connector = FakeRuntimeConnector()
+        app = create_app(
+            self.runner,
+            h3_render=h3_render,
+            comfy_runtime=self.comfy_runtime,
+            runtime_monitor_connector=connector,
+        )
+
+        with TestClient(app) as client:
+            with client.websocket_connect("/api/runtime/events") as websocket:
+                websocket.receive_json()
+                websocket.receive_json()
+                websocket.close()
+
+        self.assertEqual(connector.urls, [h3_websocket_url])
 
     def test_preview_uses_the_protected_angle_grammar(self):
         response = self.client.post(

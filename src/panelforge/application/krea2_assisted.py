@@ -525,6 +525,7 @@ class Krea2AssistedService:
                 render_settings=settings, render_seed=chosen_seed,
             ))
             if enqueue:
+                self._enqueue_render(saved, attempt)
                 self._render_wake.set()
             return saved
 
@@ -574,8 +575,23 @@ class Krea2AssistedService:
                 return project  # A repeated /start never duplicates a submission.
             self._validate_render_settings(attempt.settings, allow_cached=True)
             saved = self.projects.save(project.replace_attempt(attempt.queue(self._next_queue_order())))
+            self._enqueue_render(saved, saved.attempt(attempt_id))
             self._render_wake.set()
             return saved
+
+    def _enqueue_render(
+        self,
+        project: Krea2AssistedProject,
+        attempt: Krea2AssistedAttempt,
+    ) -> None:
+        if self.work_coordinator is None:
+            return
+        self.work_coordinator.enqueue(
+            f"krea2:{project.project_id}:{attempt.attempt_id}",
+            ComputeResource.REMOTE_GPU,
+            ProductionWorkload.IMAGE_RENDER,
+            f"KREA2 · {project.name}"[:200],
+        )
 
     def _next_queue_order(self) -> int:
         # A durable global order, independent of project edits and branch navigation.
@@ -611,6 +627,8 @@ class Krea2AssistedService:
 
     def start_render_worker(self) -> None:
         with self._lock:
+            for project, attempt in self._pending_renders():
+                self._enqueue_render(project, attempt)
             if self._render_worker is None or not self._render_worker.is_alive():
                 self._render_stop.clear()
                 self._render_worker = Thread(target=self._render_loop, name="krea2-assisted-render-queue", daemon=True)
@@ -733,6 +751,8 @@ class Krea2AssistedService:
                 with self._lock:
                     current = self.projects.get(project_id)
                     self.projects.save(current.replace_attempt(current.attempt(attempt_id).start(execution_id, digest)))
+            if self.work_coordinator is not None:
+                self.work_coordinator.report_execution_id(activity_id, execution_id)
             history = self._wait_history(project_id, attempt_id, execution_id)
             if self.work_coordinator is not None:
                 self.work_coordinator.report_progress(activity_id, 0.88, "Récupération de l’image")
@@ -792,6 +812,8 @@ class Krea2AssistedService:
                     raise ValueError("Envoi à ComfyUI en cours. Attendez sa confirmation avant d’annuler.")
                 # Explicitly release an ambiguous dispatch; no unknown remote ID is interrupted.
                 saved = self.projects.save(project.replace_attempt(attempt.cancel()))
+                if self.work_coordinator is not None:
+                    self.work_coordinator.cancel_queued(f"krea2:{project_id}:{attempt_id}")
                 self._render_wake.set()
                 return saved
             if attempt.status in {
@@ -799,6 +821,8 @@ class Krea2AssistedService:
                 Krea2AssistedAttemptStatus.QUEUED,
             }:
                 saved = self.projects.save(project.replace_attempt(attempt.cancel()))
+                if self.work_coordinator is not None:
+                    self.work_coordinator.cancel_queued(f"krea2:{project_id}:{attempt_id}")
                 self._render_wake.set()
                 return saved
             if attempt.status not in {

@@ -14,6 +14,8 @@
   const superFastCookbookVersion = "0.2.0";
   const preferredCookbookValue = "minimax.h3.ref2v.classic.cinematic.planned@1.0.0";
   const creativeBriefVariant = { id: "creative-direction", version: "0.2.0" };
+  const defaultPlanModelId = "local::unsloth/Qwen3.8-27B-GGUF";
+  const defaultWriterModelId = "local::unsloth/gemma-4-31B-it-qat-GGUF";
   const roleOptions = [
     ["first_frame", "Première frame exacte", "first_frame", "État visible complet à 0,00 s : sujets, pose, cadrage, perspective, décor, lumière et composition."],
     ["subject_reference", "Sujet / identité", "subject", "Identité, apparence stable et attributs explicitement attribués."],
@@ -112,7 +114,6 @@
     plan: stage("plan"),
     prompt: stage("prompt"),
     copyPrompt: $("#ref2vd-copy-prompt"),
-    sendVideoLab: $("#ref2vd-send-video-lab"),
     promptReferences: $("#ref2vd-prompt-references"),
     arbitrations: $("#ref2vd-arbitrations"),
     arbitrationList: $("#ref2vd-arbitration-list"),
@@ -261,6 +262,7 @@
     prefix: "ref2vd", state, planner: elements.model,
     cookbook: () => activeCookbookSpec() || state.cookbook,
     request: core.request, render, busy: interactionLocked,
+    defaultModelId: defaultWriterModelId, defaultEnabled: true,
   });
   const combatControls = window.PanelForgeCombatControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
   const cinematicControls = window.PanelForgeClassicCinematicControls.create({ prefix: "ref2vd", state, elements, recipes: directCookbooks, render, busy: interactionLocked, steps: preparationSteps });
@@ -403,7 +405,7 @@
   }
 
   async function loadModels() {
-    const selected = elements.model.value;
+    const selected = elements.model.value || defaultPlanModelId;
     const payload = await core.request("/api/prompt-lab/models");
     window.PanelForgeModelPicker.populate(elements.model, payload.models || [], selected);
     writerModels.populate(payload.models || []);
@@ -558,7 +560,7 @@
       source.brief_variant
       && source.brief_variant.id === creativeBriefVariant.id,
     );
-    elements.executionMode.value = "supervised";
+    elements.executionMode.value = "quick";
     clearStageDrafts();
     showSetupMessage("");
     renderDraftReferences();
@@ -1279,8 +1281,6 @@
     if (!directSuperFast) setChip(elements.chips.plan, planState.ready, briefState.ready && !planState.ready);
     setChip(elements.chips.prompt, promptState.ready, promptPrerequisite && !promptState.ready);
     elements.copyPrompt.disabled = locked || !promptState.ready;
-    elements.sendVideoLab.disabled = locked || !prompt
-      || !prompt.active_revision_id || !elements.prompt.content.value.trim();
     renderPromptReferences(prompt);
     window.dispatchEvent(new CustomEvent("panelforge:ref2v-context", {
       detail: {
@@ -1373,51 +1373,6 @@
     const number = finiteNumber(value);
     if (number === null) return null;
     return unit === "seconds" ? Math.round(number * 1000) : Math.round(number);
-  }
-
-  function planDurationSeconds(documentState) {
-    if (!documentState || !documentState.active_content) return null;
-    let plan = null;
-    try { plan = JSON.parse(documentState.active_content); } catch (_) { return null; }
-    const derived = plan.derived_timing || {};
-    const directMilliseconds = finiteNumber(derived.duration_ms, plan.duration_ms);
-    if (directMilliseconds !== null) return directMilliseconds / 1000;
-    const directSeconds = finiteNumber(derived.duration_seconds, plan.duration_seconds);
-    if (directSeconds !== null) return directSeconds;
-    const hold = finiteNumber(plan.final_state && plan.final_state.final_hold_ms) || 0;
-    if (Array.isArray(plan.shots) && plan.shots.length) {
-      const durations = plan.shots.map((shot) => finiteNumber(shot && shot.duration_ms));
-      if (durations.every((duration) => duration !== null)) {
-        return (durations.reduce((total, duration) => total + duration, 0) + hold) / 1000;
-      }
-    }
-    if (Array.isArray(plan.beats) && plan.beats.length) {
-      const lastEnd = Math.max(...plan.beats.map((beat) => finiteNumber(beat && beat.end_ms) || 0));
-      if (lastEnd > 0) return (lastEnd + hold) / 1000;
-    }
-    return null;
-  }
-
-  function sendToVideoLab() {
-    const documents = state.composition ? state.composition.documents || {} : {};
-    const prompt = documents.final_prompt || null;
-    const visiblePrompt = elements.prompt.content.value.trim();
-    if (!state.session || !prompt || !prompt.active_revision_id || !visiblePrompt) return;
-    if (!window.PanelForgeVideoLab) {
-      elements.prompt.message.textContent = "Video Lab n’est pas disponible.";
-      return;
-    }
-    window.PanelForgeVideoLab.prefill({
-      source: "ref2v",
-      references: state.session.references.slice(0, 3).map((reference) => ({
-        asset_id: reference.asset_id,
-        content_url: reference.content_url,
-        label: reference.label,
-      })),
-      prompt: visiblePrompt,
-      duration_seconds: planDurationSeconds(documents.beat_sheet || null)
-        || Number(visiblePrompt.match(/one continuous ([\d.]+)-second shot/i)?.[1]) || null,
-    });
   }
 
   function shotTiming(shots) {
@@ -2080,7 +2035,7 @@
     combatControls.restore(null);
     cinematicControls.restore(null);
     sensualControls.restore(null);
-    writerModels.restore(null);
+    writerModels.resetDefault();
     state.cookbook = isSuperFastReference(preservedCookbook)
       ? superFastCookbookSpec()
       : preservedCookbook && directCookbooks().find(
@@ -2097,7 +2052,7 @@
     setCreativeAxes(null, 0);
     setCreativeAudacity(2);
     elements.creativeDirection.checked = false;
-    elements.executionMode.value = "supervised";
+    elements.executionMode.value = "quick";
     clearStageDrafts();
     render();
   }
@@ -2231,8 +2186,6 @@
       elements.prompt.message.textContent = "Utilisez Ctrl+C pour copier le prompt.";
     }
   });
-  elements.sendVideoLab.addEventListener("click", sendToVideoLab);
-
   updateCreativeAxes();
   setCreativeAudacity(2);
   renderRoleHelp();

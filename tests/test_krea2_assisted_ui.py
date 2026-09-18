@@ -74,8 +74,6 @@ class Krea2AssistedUiTest(unittest.TestCase):
         expected = [
             "krea2-assisted-lab",
             "change-view",
-            "krea2-image-lab",
-            "krea2-batch-lab",
             "krea2-edit-lab",
         ]
         modebars = re.findall(
