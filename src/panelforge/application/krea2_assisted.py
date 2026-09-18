@@ -674,11 +674,12 @@ class Krea2AssistedService:
     def _execute_render(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
         if self.work_coordinator is not None:
             try:
+                project_name = self.projects.get(project_id).name
                 with self.work_coordinator.lease(
                     f"krea2:{project_id}:{attempt_id}",
                     ComputeResource.REMOTE_GPU,
                     ProductionWorkload.IMAGE_RENDER,
-                    "KREA2",
+                    f"KREA2 · {project_name}"[:200],
                     cancelled=lambda: self.projects.get(project_id).attempt(attempt_id).status
                     not in _RENDER_PENDING,
                 ):
@@ -689,6 +690,9 @@ class Krea2AssistedService:
 
     def _execute_render_owned(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
         key = (project_id, attempt_id)
+        activity_id = f"krea2:{project_id}:{attempt_id}"
+        if self.work_coordinator is not None:
+            self.work_coordinator.report_progress(activity_id, 0.02, "Préparation du workflow KREA2")
         with self._lock:
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
@@ -717,6 +721,8 @@ class Krea2AssistedService:
                     ),
                 )
                 digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
+                if self.work_coordinator is not None:
+                    self.work_coordinator.report_progress(activity_id, 0.08, "Envoi à ComfyUI")
                 with self._lock:
                     current = self.projects.get(project_id)
                     current_attempt = current.attempt(attempt_id)
@@ -728,10 +734,14 @@ class Krea2AssistedService:
                     current = self.projects.get(project_id)
                     self.projects.save(current.replace_attempt(current.attempt(attempt_id).start(execution_id, digest)))
             history = self._wait_history(project_id, attempt_id, execution_id)
+            if self.work_coordinator is not None:
+                self.work_coordinator.report_progress(activity_id, 0.88, "Récupération de l’image")
             history_received = True
             output_assets, output_warnings = self._import_outputs(
                 workflow_definition, history, execution_id, output_prefix, project_id,
             )
+            if self.work_coordinator is not None:
+                self.work_coordinator.report_progress(activity_id, 0.96, "Import de l’image")
             with self._lock:
                 current = self.projects.get(project_id)
                 current_attempt = current.attempt(attempt_id)
@@ -744,6 +754,8 @@ class Krea2AssistedService:
                         pre_flux_asset_id=output_assets.get("pre_flux"),
                         warnings=output_warnings,
                     )))
+                if self.work_coordinator is not None:
+                    self.work_coordinator.report_progress(activity_id, 1.0, "Image terminée")
                 return current
         except _RenderTrackingStopped:
             return self.projects.get(project_id)

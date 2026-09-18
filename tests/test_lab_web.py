@@ -15,13 +15,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
-from panelforge.application import ChangeViewRunner
+from panelforge.application import ChangeViewRunner, MachineWorkCoordinator
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
     load_change_view_preset,
 )
-from panelforge.infrastructure.storage import LocalAssetStore, LocalRunStore
+from panelforge.infrastructure.storage import (
+    LocalAssetStore,
+    LocalRunStore,
+    LocalWorkSchedulerSettings,
+)
 
 
 PRESET_DIRECTORY = (
@@ -191,6 +195,7 @@ class LabWebTest(unittest.TestCase):
             assets=assets,
             runs=runs,
         )
+        self.runner = runner
         self.client = TestClient(
             create_app(
                 runner,
@@ -226,7 +231,8 @@ class LabWebTest(unittest.TestCase):
             page.text.index('id="release-llm-vram"'),
             page.text.index('id="release-comfy-vram"'),
         )
-        self.assertIn("/static/lab.js?v=20260914.2", page.text)
+        self.assertIn("/static/lab.js?v=20260918.2", page.text)
+        self.assertIn("/static/work-queue.js?v=20260918.1", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
@@ -885,6 +891,34 @@ class LabWebTest(unittest.TestCase):
         self.assertTrue(payload["comfy"]["cleanup_allowed"])
         self.assertEqual(payload["llm"]["running_models"], ["Qwen3.8-27B"])
         self.assertEqual(payload["production_resources"], [])
+
+    def test_global_scheduler_status_settings_and_lane_controls(self):
+        coordinator = MachineWorkCoordinator(
+            settings_store=LocalWorkSchedulerSettings(self.temporary_directory.name)
+        )
+        with TestClient(create_app(self.runner, machine_work=coordinator)) as client:
+            payload = client.get("/api/runtime/status").json()
+            self.assertEqual(payload["work_scheduler"]["machines"]["local_gpu"]["state"], "idle")
+
+            response = client.put("/api/work-scheduler/settings", json={
+                "thermal": {
+                    "stop_temperature_c": 82,
+                    "resume_temperature_c": 45,
+                    "cooldown_seconds": 15,
+                    "monitor_local": True,
+                    "monitor_remote": True,
+                    "pause_when_unavailable": False,
+                },
+                "remote_video_cooldown_seconds": 45,
+                "pause_after_failure": True,
+                "history_limit": 20,
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["remote_video_cooldown_seconds"], 45)
+            paused = client.post("/api/work-scheduler/local_gpu/pause").json()
+            self.assertTrue(paused["machines"]["local_gpu"]["paused"])
+            resumed = client.post("/api/work-scheduler/local_gpu/resume").json()
+            self.assertFalse(resumed["machines"]["local_gpu"]["paused"])
 
     def test_runtime_status_reports_non_production_comfy_and_llm_activity(self):
         self.comfy_runtime.running = (

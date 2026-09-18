@@ -14,6 +14,7 @@ from .social_lab import LocalSocialLabStore
 from .production_jobs import LocalProductionJobStore
 from .production_lora_memory import LocalProductionLoraMemory
 from .production_v2 import LocalProductionV2Store
+from .work_scheduler_settings import LocalWorkSchedulerSettings
 
 __all__ = [
     "LocalAssetStore",
@@ -29,6 +30,7 @@ __all__ = [
     "LocalProductionV2Store",
     "LocalPromptSessionStore",
     "LocalVideoRunStore",
+    "LocalWorkSchedulerSettings",
     "LocalRunStore",
     "StorageCorruptionError",
 ]

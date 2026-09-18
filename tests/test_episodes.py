@@ -186,7 +186,7 @@ class EpisodeTest(unittest.TestCase):
             return project
         def queue_render(identity, attempt_id):
             self.rendered[identity].attempt(attempt_id).status = H3RenderAttemptStatus.QUEUED
-        def execute_render(identity, attempt_id):
+        def execute_render(identity, attempt_id, **_options):
             attempt = self.rendered[identity].attempt(attempt_id)
             attempt.status = H3RenderAttemptStatus.SUCCEEDED
             attempt.output_asset_id = f"video-output-{attempt_id}"
@@ -308,27 +308,24 @@ class EpisodeTest(unittest.TestCase):
         self.assertTrue(result["scenes"][0]["dlss_ready"])
         self.assertEqual(result["scenes"][0]["video_status"], "succeeded")
 
-    def test_video_chain_reserves_the_remote_lane_for_default_cooldown_between_scenes(self):
+    def test_video_chain_delegates_inter_video_rest_to_the_global_remote_lane(self):
         second = deepcopy(self.story["document"]["scenario"]["scenes"][0])
         second["title"] = "Le dénouement"
         self.story["document"]["scenario"]["scenes"].append(second)
         self.story = self.stories.store.save(self.story)
         value = self.ready(); identity = value["episode_id"]
         original = self.service.render.execute_attempt
-        cooldowns, snapshots = [], []
+        calls = []
 
-        def execute(project_id, attempt_id, *, post_cooldown_seconds=0,
-                    on_cooldown_started=None, on_cooldown_finished=None):
+        def execute(project_id, attempt_id, **options):
+            calls.append(options)
             original(project_id, attempt_id)
-            cooldowns.append(post_cooldown_seconds)
-            if post_cooldown_seconds:
-                on_cooldown_started(post_cooldown_seconds)
-                chain = self.service.store.get(identity)["video_chain"]
-                snapshots.append((chain["cooldown_scene_id"], chain["cooldown_until"]))
-                on_cooldown_finished()
 
         self.service.render.execute_attempt = execute
-        self.service.render.work_coordinator = object()
+        self.service.work_coordinator = NS(
+            settings=NS(remote_video_cooldown_seconds=17),
+            public_status=lambda: {},
+        )
         result = self.service.start_video_chain(
             identity,
             expected_video_revision=value["video_revision"],
@@ -336,9 +333,10 @@ class EpisodeTest(unittest.TestCase):
             scene_ids=["scene-1", "scene-2"],
         )
 
-        self.assertEqual(cooldowns, [30, 0])
-        self.assertEqual(snapshots[0][0], "scene-1")
-        self.assertTrue(snapshots[0][1].endswith("Z"))
+        self.assertEqual(result["video_chain"]["inter_video_cooldown_seconds"], 17)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all("post_cooldown_seconds" not in call for call in calls))
+        self.assertTrue(all(call["operation_label"].startswith("H3 / REF2V") for call in calls))
         self.assertIsNone(result["video_chain"]["cooldown_until"])
         self.assertEqual(result["video_chain"]["status"], "completed")
 

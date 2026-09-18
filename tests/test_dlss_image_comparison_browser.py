@@ -10,6 +10,8 @@ class DlssImageComparisonBrowserTest(unittest.TestCase):
     def test_batch_retry_background_comparison_and_explicit_choice(self):
         bootstrap = r"""
         const calls=[], events=[], fakeJobs=[]; let failBatch=true;
+        const queueNotice=document.createElement('details');queueNotice.className='work-queue-background';document.body.append(queueNotice);
+        window.PanelForgeWorkQueue={notice:message=>{queueNotice.textContent=message;queueNotice.hidden=false;}};
         const nativeTimeout=window.setTimeout.bind(window);
         window.setTimeout=(fn,delay,...args)=>nativeTimeout(fn,delay===2500||delay===15000?30:delay,...args);
         const image='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="192"><rect width="128" height="192" fill="teal"/></svg>');
@@ -43,13 +45,13 @@ class DlssImageComparisonBrowserTest(unittest.TestCase):
         (async()=>{try{
           const check=(value,message)=>{if(!value)throw new Error(message);};
           const pause=()=>new Promise(resolve=>nativeTimeout(resolve,20));
-          const until=async fn=>{for(let n=0;n<180&&!fn();n++)await pause();check(fn(),'timed out');};
+          const until=async(fn,label)=>{for(let n=0;n<180&&!fn();n++)await pause();check(fn(),label||'timed out');};
           const api=window.PanelForgeDlss,dialog=document.querySelector('.dlss-dialog'),form=dialog.querySelector('form');
           const start=dialog.querySelector('[data-start]'), mode=dialog.querySelector('[data-image-mode]');
           const source={owner:'assisted',ownerId:'workshop',attempt:{attempt_id:'original',index:3,output_url:image}};
           const prompt=document.createElement('textarea');document.body.append(prompt);prompt.value='Draft preserved';
           const compareButton=api.comparisonButton(source);document.body.append(compareButton);
-          await api.open(source);await until(()=>!start.disabled);
+          await api.open(source);await until(()=>!start.disabled,'initial preview timed out');
           check(mode.value==='single','single mode stays the default');
           mode.value='compare';mode.dispatchEvent(new Event('input',{bubbles:true}));
           check(dialog.querySelectorAll('[data-preset-id]:checked').length===5,'five profiles start selected');
@@ -58,10 +60,10 @@ class DlssImageComparisonBrowserTest(unittest.TestCase):
           check(!calls.some(c=>c.url==='/api/dlss/image-comparisons'),'choosing profiles never submits');
           start.click();check(!dialog.open,'image batch closes immediately for background admission');
           prompt.value='Edited during admission';
-          await until(()=>document.querySelector('.dlss-background').textContent.includes('Interrupted admission'));
-          failBatch=false;await api.open(source);await until(()=>!start.disabled);
+          await until(()=>document.querySelector('.work-queue-background').textContent.includes('Interrupted admission'),'admission error timed out');
+          failBatch=false;await api.open(source);await until(()=>!start.disabled,'retry preview timed out');
           check(mode.value==='compare'&&dialog.querySelectorAll('[data-preset-id]:checked').length===4,'failed launch preserves selection');
-          start.click();await until(()=>fakeJobs.length===4&&!dialog.open);
+          start.click();await until(()=>fakeJobs.length===4&&!dialog.open,'batch retry timed out');
           const posts=calls.filter(c=>c.url==='/api/dlss/image-comparisons');
           check(posts.length===2&&posts[0].body.request_id===posts[1].body.request_id,'retry reuses the same batch id');
           check(posts.every(p=>p.body.settings.size==='1.5'&&!p.body.settings.interpolate),'shared size and image options');
@@ -69,7 +71,7 @@ class DlssImageComparisonBrowserTest(unittest.TestCase):
             job.status=index===3?'failed':'succeeded';job.output_url=index===3?null:image;
             job.candidate_id='candidate-'+index;job.output_metadata={width:128,height:192};
           });
-          await until(()=>!compareButton.hidden&&document.querySelector('.dlss-background').textContent.includes('3/4'));
+          await until(()=>!compareButton.hidden,'comparison availability timed out');
           check(events.length===0&&prompt.value==='Edited during admission','completion never changes the workshop or draft');
           compareButton.click();const comparison=document.querySelector('.dlss-image-compare');
           check(comparison.open,'comparison opens outside the upscale dialog');
@@ -78,14 +80,18 @@ class DlssImageComparisonBrowserTest(unittest.TestCase):
           check(comparison.textContent.includes('3/4'),'series progress is available');
           const zoom=comparison.querySelector('[data-zoom]');zoom.value='3';zoom.dispatchEvent(new Event('input'));
           const views=[...comparison.querySelectorAll('.dlss-compare-viewport')];
-          await pause();views[0].scrollTop=80;
-          await until(()=>Math.abs(views[1].scrollTop-views[0].scrollTop)<2&&views[1].scrollTop>0);
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          for(let n=0;n<20&&views[1].scrollTop===0;n++){
+            views[0].scrollTop=80;views[0].dispatchEvent(new Event('scroll'));
+            await new Promise(resolve=>requestAnimationFrame(resolve));
+          }
+          check(Math.abs(views[1].scrollTop-views[0].scrollTop)<2&&views[1].scrollTop>0,'scroll synchronization timed out');
           const before=views[0].scrollTop;selects[1].value='job-current';selects[1].dispatchEvent(new Event('change'));
           await pause();check(zoom.value==='3'&&Math.abs(views[0].scrollTop-before)<2,'switching keeps zoom and position');
           comparison.querySelectorAll('.dlss-compare-pane > button')[1].click();
           check(events.length===1&&events[0].select_result&&events[0].candidate_id==='candidate-0','exact winner selected explicitly');
           check(!comparison.open,'comparison closes after selection');
-          await api.open({...source,owner:'h3'});await until(()=>!start.disabled);
+          await api.open({...source,owner:'h3'});await until(()=>!start.disabled,'video preview timed out');
           check(dialog.querySelector('.dlss-image-presets').hidden,'no comparison controls for video');
           check(form.elements.namedItem('size').value==='1.724'&&form.elements.namedItem('interpolate').checked,'video defaults unchanged');
           check(calls.filter(c=>c.url==='/api/dlss/image-comparisons').length===2,'no video batch');

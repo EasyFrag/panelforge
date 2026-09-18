@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 import re
-from threading import RLock, Thread
+from threading import Event, RLock, Thread
 import time
 import uuid
 
@@ -155,11 +155,36 @@ class DlssService:
     def _drain(self):
         try:
             with self.jobs.lease("worker"):
+                if self.work_coordinator is None:
+                    while True:
+                        pending = next((j for j in self.jobs.list() if j["status"] in ACTIVE), None)
+                        if pending is None:
+                            return
+                        self._execute(pending)
+                workers = {}
                 while True:
-                    pending = next((j for j in self.jobs.list() if j["status"] in ACTIVE), None)
-                    if pending is None:
+                    pending = [j for j in self.jobs.list() if j["status"] in ACTIVE]
+                    for job in pending:
+                        worker = workers.get(job["job_id"])
+                        if worker is not None:
+                            continue
+                        registered = Event()
+                        worker = Thread(
+                            target=self._execute,
+                            args=(job, registered),
+                            name=f"panelforge-{job['job_id']}",
+                            daemon=True,
+                        )
+                        workers[job["job_id"]] = worker
+                        worker.start()
+                        # Preserve DLSS journal order in the global local FIFO
+                        # before announcing the following job.
+                        registered.wait(timeout=max(2, self.poll_interval * 2))
+                    alive = [worker for worker in workers.values() if worker.is_alive()]
+                    if not alive and (not pending or all(job["job_id"] in workers for job in pending)):
                         break
-                    self._execute(pending)
+                    for worker in alive:
+                        worker.join(timeout=min(0.2, self.poll_interval))
         except BlockingIOError:
             pass  # Another Lab process owns the worker; polling will observe its journal.
 
@@ -168,7 +193,21 @@ class DlssService:
             current = self.jobs.get(job["job_id"])
             current.update(changes)
             job.update(current)
-            return self.jobs.save(job)
+            saved = self.jobs.save(job)
+        if self.work_coordinator is not None and changes.get("status"):
+            stage = {
+                "starting": "Démarrage de Comfy local",
+                "submitting": "Envoi du workflow DLSS",
+                "running": "Traitement DLSS",
+                "receiving": "Récupération du résultat",
+                "importing": "Enregistrement du résultat",
+                "succeeded": "DLSS terminé",
+                "failed": "Échec DLSS",
+                "cancelled": "DLSS annulé",
+            }.get(changes["status"])
+            if stage:
+                self.work_coordinator.report_stage(f"dlss:{job['job_id']}", stage)
+        return saved
 
     def _record_progress(self, job_id, execution_id, progress):
         with self._lock, self.jobs.lease("requests", wait_timeout=5):
@@ -182,6 +221,23 @@ class DlssService:
                 progress = dict(progress, percent=max(previous["percent"], progress.get("percent") or 0))
             current["progress"] = dict(progress, updated_at=datetime.now(timezone.utc).isoformat())
             self.jobs.save(current)
+        if self.work_coordinator is not None:
+            percent = progress.get("percent")
+            stage_index = progress.get("stage_index")
+            stage_count = progress.get("stage_count")
+            normalized = None
+            if (
+                isinstance(stage_index, int)
+                and isinstance(stage_count, int)
+                and stage_count > 0
+            ):
+                stage_progress = 0.0 if percent is None else min(100.0, max(0.0, float(percent))) / 100.0
+                normalized = min(1.0, max(0.0, (stage_index + stage_progress) / stage_count))
+            self.work_coordinator.report_progress(
+                f"dlss:{job_id}",
+                normalized,
+                progress.get("label") or progress.get("stage") or "Traitement DLSS",
+            )
 
     def _succeeded(self, job, candidate_id):
         changes = dict(status="succeeded", candidate_id=candidate_id, error=None,
@@ -237,7 +293,7 @@ class DlssService:
         except BlockingIOError:
             pass
 
-    def _execute(self, job):
+    def _execute(self, job, registered=None):
         if self.work_coordinator is not None:
             try:
                 with self.work_coordinator.lease(
@@ -246,10 +302,17 @@ class DlssService:
                     ProductionWorkload.DLSS,
                     "DLSS vidéo" if job["snapshot"]["media_type"].startswith("video") else "DLSS image",
                     cancelled=lambda: self.jobs.get(job["job_id"]).get("cancel_requested", False),
+                    on_wait=registered.set if registered is not None else None,
+                    on_acquired=registered.set if registered is not None else None,
                 ):
                     return self._execute_owned(job)
             except ResourceWaitCancelled:
                 return None
+            finally:
+                if registered is not None:
+                    registered.set()
+        if registered is not None:
+            registered.set()
         return self._execute_owned(job)
 
     def _execute_owned(self, job):

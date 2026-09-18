@@ -869,6 +869,7 @@ class H3RenderService:
         post_cooldown_seconds: float = 0,
         on_cooldown_started: Callable[[float], None] | None = None,
         on_cooldown_finished: Callable[[], None] | None = None,
+        operation_label: str | None = None,
     ) -> H3RenderProject:
         if (
             isinstance(post_cooldown_seconds, bool)
@@ -882,7 +883,7 @@ class H3RenderService:
                     f"h3:{project_id}:{attempt_id}",
                     ComputeResource.REMOTE_GPU,
                     ProductionWorkload.VIDEO_RENDER,
-                    "H3 / REF2V",
+                    (operation_label or "H3 / REF2V")[:200],
                     cancelled=lambda: self.projects.get(project_id).attempt(attempt_id).status
                     is not H3RenderAttemptStatus.QUEUED,
                 ):
@@ -903,6 +904,9 @@ class H3RenderService:
 
     def _execute_attempt_owned(self, project_id: str, attempt_id: str) -> H3RenderProject:
         key = (project_id, attempt_id)
+        activity_id = f"h3:{project_id}:{attempt_id}"
+        if self.work_coordinator is not None:
+            self.work_coordinator.report_progress(activity_id, 0.02, "Préparation du workflow vidéo")
         with self._lock:
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
@@ -969,6 +973,8 @@ class H3RenderService:
             if attempt.bunny:
                 recipe.validate_dependencies(self.comfy, workflow)
             workflow_digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
+            if self.work_coordinator is not None:
+                self.work_coordinator.report_progress(activity_id, 0.08, "Envoi à ComfyUI")
             with self._lock:
                 current = self.projects.get(project_id)
                 current_attempt = current.attempt(attempt_id)
@@ -981,6 +987,8 @@ class H3RenderService:
                     )
                 )
             history = self._wait_history(project_id, attempt_id, execution_id)
+            if self.work_coordinator is not None:
+                self.work_coordinator.report_progress(activity_id, 0.88, "Récupération de la vidéo")
             output_ref = extract_bound_video(
                 history,
                 node_id=recipe.output_node_id,
@@ -993,6 +1001,8 @@ class H3RenderService:
             )
             _validate_mp4(output_content, output_ref["filename"])
             video_asset = self.assets.create(output_content, media_type="video/mp4", source_run_id=project_id)
+            if self.work_coordinator is not None:
+                self.work_coordinator.report_progress(activity_id, 0.96, "Import de la vidéo")
             keyframes, warnings = self._import_keyframes(history, project_id, attempt)
             with self._lock:
                 current = self.projects.get(project_id)
@@ -1009,6 +1019,8 @@ class H3RenderService:
                     current = self.projects.save(
                         current.replace_attempt(succeeded).use_feedback(attempt_id)
                     )
+                if self.work_coordinator is not None:
+                    self.work_coordinator.report_progress(activity_id, 1.0, "Vidéo terminée")
                 return current
         except Exception as error:
             with self._lock:

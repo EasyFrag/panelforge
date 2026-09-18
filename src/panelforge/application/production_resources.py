@@ -36,6 +36,12 @@ class ResourceOwner:
     requirement: ResourceRequirement
 
 
+@dataclass(frozen=True, slots=True)
+class _ResourceWaiter:
+    token: object
+    owner: ResourceOwner
+
+
 class ResourceLeaseManager:
     """One FIFO, non-preemptive execution slot per physical GPU."""
 
@@ -44,14 +50,38 @@ class ResourceLeaseManager:
             raise ValueError("wait_interval must be positive")
         self._condition = Condition(RLock())
         self._owners: dict[ComputeResource, ResourceOwner] = {}
-        self._waiters: dict[ComputeResource, list[object]] = {
+        self._waiters: dict[ComputeResource, list[_ResourceWaiter]] = {
             resource: [] for resource in ComputeResource
         }
+        self._paused: set[ComputeResource] = set()
         self._wait_interval = wait_interval
 
     def owners(self) -> dict[ComputeResource, ResourceOwner]:
         with self._condition:
             return dict(self._owners)
+
+    def waiters(self) -> dict[ComputeResource, tuple[ResourceOwner, ...]]:
+        with self._condition:
+            return {
+                resource: tuple(waiter.owner for waiter in values)
+                for resource, values in self._waiters.items()
+            }
+
+    def paused(self) -> frozenset[ComputeResource]:
+        with self._condition:
+            return frozenset(self._paused)
+
+    def set_paused(self, resource: ComputeResource, paused: bool) -> None:
+        if not isinstance(resource, ComputeResource):
+            raise TypeError("resource must be a ComputeResource")
+        if not isinstance(paused, bool):
+            raise TypeError("paused must be a boolean")
+        with self._condition:
+            if paused:
+                self._paused.add(resource)
+            else:
+                self._paused.discard(resource)
+            self._condition.notify_all()
 
     @contextmanager
     def lease(
@@ -65,14 +95,16 @@ class ResourceLeaseManager:
     ) -> Iterator[None]:
         token = object()
         resource = requirement.resource
+        waiter = _ResourceWaiter(token, ResourceOwner(job_id, requirement))
         announced = False
         acquired = False
         with self._condition:
-            self._waiters[resource].append(token)
+            self._waiters[resource].append(waiter)
             try:
                 while (
                     resource in self._owners
-                    or self._waiters[resource][0] is not token
+                    or resource in self._paused
+                    or self._waiters[resource][0].token is not token
                 ):
                     if cancelled():
                         raise ResourceWaitCancelled()
@@ -83,11 +115,11 @@ class ResourceLeaseManager:
                 if cancelled():
                     raise ResourceWaitCancelled()
                 self._waiters[resource].pop(0)
-                self._owners[resource] = ResourceOwner(job_id, requirement)
+                self._owners[resource] = waiter.owner
                 acquired = True
             except BaseException:
-                if token in self._waiters[resource]:
-                    self._waiters[resource].remove(token)
+                if waiter in self._waiters[resource]:
+                    self._waiters[resource].remove(waiter)
                 self._condition.notify_all()
                 raise
         try:

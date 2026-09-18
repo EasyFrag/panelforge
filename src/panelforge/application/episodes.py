@@ -1,7 +1,6 @@
 """Coordinate existing KREA2 Assisted and REF2V services for a validated story."""
 from copy import deepcopy
 from dataclasses import asdict, replace
-from datetime import UTC, datetime, timedelta
 from threading import RLock, Thread
 import time
 from uuid import uuid4
@@ -570,7 +569,11 @@ class EpisodeService:
     def start_reference_batch(self, identity, *, expected_visual_revision, request_id,
                               reference_ids, profiles, thermal):
         """Pipeline one LLM call at a time while KREA2 drains independently."""
-        policy = thermal if isinstance(thermal, ThermalPolicy) else ThermalPolicy(**thermal)
+        policy = (
+            self.work_coordinator.policy
+            if self.work_coordinator is not None
+            else thermal if isinstance(thermal, ThermalPolicy) else ThermalPolicy(**thermal)
+        )
         with self._lock:
             value = self.store.get(identity)
             existing = value.get("reference_batch")
@@ -614,8 +617,6 @@ class EpisodeService:
             )
             self._active_batches.add(identity)
             self.store.save(value)
-            if self.work_coordinator is not None:
-                self.work_coordinator.configure(policy)
             try:
                 Thread(target=self._reference_batch_worker,
                        args=(identity, batch_id, deepcopy(profiles)), daemon=True,
@@ -753,11 +754,13 @@ class EpisodeService:
         scene_ids,
         inter_video_cooldown_seconds=30,
     ):
-        if (
+        if self.work_coordinator is not None:
+            inter_video_cooldown_seconds = self.work_coordinator.settings.remote_video_cooldown_seconds
+        elif (
             type(inter_video_cooldown_seconds) is not int
-            or not 1 <= inter_video_cooldown_seconds <= 3600
+            or not 0 <= inter_video_cooldown_seconds <= 3600
         ):
-            raise ValueError("inter_video_cooldown_seconds must be between 1 and 3600")
+            raise ValueError("inter_video_cooldown_seconds must be between 0 and 3600")
         with self._lock:
             value = self.store.get(identity)
             existing = value.get("video_chain")
@@ -971,34 +974,14 @@ class EpisodeService:
         attempt_id,
         cooldown_after,
     ):
-        coordinator = getattr(self.render, "work_coordinator", None)
-        if not cooldown_after or coordinator is None:
-            self.render.execute_attempt(project_id, attempt_id)
-            return
-
-        def started(seconds):
-            deadline = datetime.now(UTC) + timedelta(seconds=seconds)
-            try:
-                self._video_chain_change(identity, chain_id, lambda _value, chain:
-                    chain.update(cooldown_until=deadline.isoformat().replace("+00:00", "Z"),
-                                 cooldown_scene_id=scene_id))
-            except (EpisodeConflict, FileNotFoundError):
-                pass
-
-        def finished():
-            try:
-                self._video_chain_change(identity, chain_id, lambda _value, chain:
-                    chain.update(cooldown_until=None, cooldown_scene_id=None)
-                    if chain.get("cooldown_scene_id") == scene_id else None)
-            except (EpisodeConflict, FileNotFoundError):
-                pass
-
+        # Inter-video rest is now enforced by the global remote lane before the
+        # next video, independently of the workshop that submitted it.
+        value = self.store.get(identity)
+        scene = self._item(value, "scenes", scene_id)
         self.render.execute_attempt(
             project_id,
             attempt_id,
-            post_cooldown_seconds=cooldown_after,
-            on_cooldown_started=started,
-            on_cooldown_finished=finished,
+            operation_label=f"H3 / REF2V · {scene['index'] + 1} · {scene['title']}",
         )
 
     def _wait_chain_video(self, identity, chain_id, active):
@@ -1028,7 +1011,7 @@ class EpisodeService:
         active_video = None
         try:
             _value, initial = self._video_chain_snapshot(identity, chain_id)
-            for position, original in enumerate(initial["items"]):
+            for original in initial["items"]:
                 scene_id = original["scene_id"]
                 _value, current_chain = self._video_chain_snapshot(identity, chain_id)
                 current = self._video_item(current_chain, scene_id)
@@ -1055,18 +1038,9 @@ class EpisodeService:
                 try:
                     value, refreshed_chain = self._video_chain_snapshot(identity, chain_id)
                     refreshed = self._video_item(refreshed_chain, scene_id)
-                    later = initial["items"][position + 1:]
-                    cooldown_after = (
-                        refreshed_chain.get("inter_video_cooldown_seconds", 30)
-                        if any(
-                            self._video_item(refreshed_chain, item["scene_id"]).get("status") != "succeeded"
-                            for item in later
-                        )
-                        else 0
-                    )
                     active_video = self._start_chain_video(identity, chain_id, scene_id, preparation,
                         refreshed.get("render_setup") or effective_video_setup(value, self._item(value, "scenes", scene_id)),
-                        cooldown_after=cooldown_after)
+                        cooldown_after=0)
                 except Exception as error:
                     self._video_chain_change(identity, chain_id, lambda _value, chain, error=error:
                         self._video_item(chain, scene_id).update(status="video_failed", phase="Échec vidéo", error=str(error)))

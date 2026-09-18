@@ -177,7 +177,7 @@ class DlssBrowserTest(unittest.TestCase):
           const third={owner:'h3',ownerId:'third',attempt:original};
           api.open(third);await until(()=>!start.disabled);start.click();
           await until(()=>fakeJobs.length===3&&!dialog.open);
-          check(!document.querySelector('.dlss-background').hidden,'background status survives leaving advanced mode');
+          check(!document.querySelector('.dlss-background'),'legacy DLSS background is replaced by the global queue monitor');
           check(!calls.some(c=>c.url.startsWith('/api/dlss/runtime/')),'no lifecycle operation is triggered by the browser');
           document.getElementById('result').textContent='PASS';
         }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack;}})();

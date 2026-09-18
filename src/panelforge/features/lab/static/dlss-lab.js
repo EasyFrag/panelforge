@@ -86,9 +86,6 @@
   serviceButton.type = "button"; serviceButton.className = "runtime-button"; serviceButton.textContent = "DLSS local";
   document.querySelector(".runtime-maintenance")?.append(serviceButton);
   serviceButton.addEventListener("click", () => open(null));
-  const background = document.createElement("details"); background.className = "dlss-background"; background.hidden = true;
-  const backgroundSummary = document.createElement("summary"), backgroundJobs = document.createElement("div");
-  background.append(backgroundSummary, backgroundJobs); document.body.append(background);
   const settings = () => Object.fromEntries(["size", "style", "codec", "intensity", "tone", "structure", "skin", "detail", "strict_neural", "interpolate", "hdr"].map(name => {
     const element = field(name);
     return [name, element.type === "checkbox" ? element.checked : element.type === "number" ? Number(element.value) : element.value];
@@ -308,23 +305,9 @@
     document.querySelectorAll("[data-dlss-quick]").forEach(button => {
       button.disabled = Boolean(pending.get(button.dataset.dlssQuick)?.sending || jobs.some(j => jobKey(j) === button.dataset.dlssQuick && active.has(j.status)));
     });
-    const working = jobs.filter(j => active.has(j.status) || ["queued", "copying"].includes(j.video_export?.status));
-    const recent = jobs.filter(j => unread.has(j.job_id) && !working.includes(j)).slice(-2);
-    const preparing = [...pending.values()].filter(v => v.sending).length;
     const errors = [...pending.entries()].filter(([, v]) => !v.sending && v.error);
-    background.hidden = !working.length && !recent.length && !preparing && !errors.length;
-    backgroundSummary.textContent = working.length ? `DLSS · ${working.length} tâche(s) · ${jobText(working[0])}`
-      : preparing ? "DLSS · Préparation en arrière-plan" : errors.length ? "DLSS · Erreur au lancement" : "DLSS · Résultat disponible";
-    if (working[0]?.comparison && imageComparison) backgroundSummary.textContent = `DLSS image · ${imageComparison.groupSummary(working[0])} · ${jobText(working[0])}`;
-    backgroundJobs.replaceChildren(...[...working, ...recent].map(j => renderJob(j)));
     for (const [key, value] of errors) {
-      const note = document.createElement("p"); note.textContent = value.error;
-      const dismiss = document.createElement("button"); dismiss.type = "button"; dismiss.textContent = "Masquer cette erreur";
-      dismiss.addEventListener("click", () => { pending.delete(key); updateBackground(); }); backgroundJobs.append(note, dismiss);
-    }
-    if (recent.length) {
-      const dismiss = document.createElement("button"); dismiss.type = "button"; dismiss.textContent = "Masquer les résultats terminés";
-      dismiss.addEventListener("click", () => { recent.forEach(j => unread.delete(j.job_id)); updateBackground(); }); backgroundJobs.append(dismiss);
+      window.PanelForgeWorkQueue?.notice(value.error, {id: `dlss:${key}`});
     }
   }
   function inlineStatus(value) {
@@ -376,7 +359,10 @@
       const count = jobs.filter(j => active.has(j.status)).length; serviceButton.textContent = count ? `DLSS · ${count} tâche${count > 1 ? "s" : ""}` : "DLSS local";
       if (dialog.open) { renderJobs(); runtime(); }
       updateBackground();
-    } catch (error) { if (dialog.open) $("[data-error]").textContent = error.message; backgroundSummary.textContent = "DLSS · Suivi temporairement indisponible"; }
+    } catch (error) {
+      if (dialog.open) $("[data-error]").textContent = error.message;
+      window.PanelForgeWorkQueue?.notice(`Suivi DLSS indisponible : ${error.message}`, {id: "dlss:poll"});
+    }
     polling = false;
     timer = setTimeout(poll, jobs.some(j => active.has(j.status) || ["queued", "copying"].includes(j.video_export?.status)) || dialog.open ? 2500 : 15000);
   }

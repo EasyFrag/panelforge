@@ -85,7 +85,6 @@
     el("batch-cancel").disabled = state.busy || state.data?.reference_batch?.status === "cancelling";
     const chain = state.data?.video_chain, chainStatus = chain?.status;
     el("video-start").disabled = state.busy || videoChainRunning() || !state.data?.scenes?.length;
-    el("video-cooldown").disabled = state.busy || videoChainRunning();
     el("video-pause").hidden = chainStatus !== "running";
     el("video-pause").disabled = state.busy;
     el("video-resume").hidden = !["paused", "interrupted", "failed", "completed_with_errors"].includes(chainStatus);
@@ -225,14 +224,6 @@
       state.batchProfiles[kind] = {loras: structuredClone(settings.loras || []), sampling: settings.sampling, inheritTechnical};
     }
     state.batchProfileKey = key;
-    const thermal = state.data.reference_batch?.thermal || state.data.machine_work?.policy;
-    const thermalKey = `${state.data.episode_id}:${JSON.stringify(thermal || {})}`;
-    if (thermal && (force || state.batchThermalKey !== thermalKey)) {
-      el("batch-stop-temp").value = String(thermal.stop_temperature_c ?? 85);
-      el("batch-resume-temp").value = String(thermal.resume_temperature_c ?? 40);
-      el("batch-cooldown").value = String(thermal.cooldown_seconds ?? 120);
-      state.batchThermalKey = thermalKey;
-    }
     drawBatchLoras(); drawBatch();
   }
   function batchProfileSummary(kind) {
@@ -486,7 +477,6 @@
       el("video-chain-phase").textContent = `${pause} \u00b7 Prompts ${promptReady}/${chainItems.length} \u00b7 Vid\u00e9os ${videoDone}/${chainItems.length}`
         + (promptFailed ? ` \u00b7 ${promptFailed} erreur(s) prompt` : "")
         + (videoFailed ? ` \u00b7 ${videoFailed} erreur(s) vid\u00e9o` : "") + (chain.error ? ` \u00b7 ${chain.error}` : "");
-      if (document.activeElement !== el("video-cooldown")) el("video-cooldown").value = String(chain.inter_video_cooldown_seconds || 30);
     }
     const container = el("video-cards"), valid = new Set(state.data.scenes.map(value => value.id));
     for (const [sceneId, card] of state.videoCards) if (!valid.has(sceneId)) { card.remove(); state.videoCards.delete(sceneId); }
@@ -661,8 +651,6 @@
   }
   async function startReferenceBatch() {
     await saveReference();
-    const stop = Number(el("batch-stop-temp").value), resume = Number(el("batch-resume-temp").value);
-    if (!(resume < stop)) throw new Error("La température de reprise doit être inférieure au seuil de pause.");
     const profiles = {};
     for (const kind of ["character", "location"]) {
       const prefix = `batch-${kind}`;
@@ -676,9 +664,6 @@
     const data = await core.request(api("/reference-batches"), send("POST", {
       expected_visual_revision: state.data.visual_revision, request_id: crypto.randomUUID(),
       reference_ids: [...state.batchSelection], profiles,
-      thermal: {stop_temperature_c: stop, resume_temperature_c: resume,
-        cooldown_seconds: Number(el("batch-cooldown").value), monitor_local: true,
-        monitor_remote: true, pause_when_unavailable: false},
     }));
     accept(data); el("batch-panel").open = true;
   }
@@ -897,7 +882,6 @@
     const data = await core.request(api("/video-chain"), send("POST", {
       expected_video_revision: state.data.video_revision, request_id: crypto.randomUUID(),
       scene_ids: state.data.scenes.map(value => value.id),
-      inter_video_cooldown_seconds: Number(el("video-cooldown").value),
     }));
     accept(data); message("Chaîne lancée. Tu peux la mettre en pause après les tâches déjà en cours.");
   }
@@ -924,11 +908,13 @@
   el("image-calls").addEventListener("click", () => window.PanelForgePromptRecipes.showHistory(api(`/references/${ref().id}/calls`)));
   el("image-open").addEventListener("click", () => window.PanelForgeKrea2AssistedLab?.open(ref().krea_project_id));
   el("batch-start").addEventListener("click", () => action(startReferenceBatch));
+  el("batch-global-settings").addEventListener("click", () => window.PanelForgeWorkQueue?.open());
   el("batch-cancel").addEventListener("click", () => action(async () => {
     const batch = state.data.reference_batch; if (!batch) return;
     accept(await core.request(api(`/reference-batches/${encodeURIComponent(batch.batch_id)}/cancel`), {method: "POST"}));
   }));
   el("video-start").addEventListener("click", () => action(startVideoChain));
+  el("video-global-settings").addEventListener("click", () => window.PanelForgeWorkQueue?.open());
   el("video-pause").addEventListener("click", () => action(pauseVideoChain));
   el("video-resume").addEventListener("click", () => action(resumeVideoChain));
   el("video-settings-toggle").addEventListener("click", () => action(toggleVideoInheritance));

@@ -78,6 +78,7 @@ class ProductionWorkload(StrEnum):
 class ComputeResourceState(StrEnum):
     IDLE = "idle"
     BUSY = "busy"
+    PAUSED = "paused"
     HOT = "hot"
     COOLING = "cooling"
     UNAVAILABLE = "unavailable"
@@ -141,6 +142,34 @@ class ThermalPolicy:
                 raise TypeError(f"{label} must be a boolean")
         if not self.monitor_local and not self.monitor_remote:
             raise ValueError("at least one thermal source must be monitored")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkSchedulerSettings:
+    """Global admission and hardware-protection policy for both machines."""
+
+    thermal: ThermalPolicy = field(default_factory=ThermalPolicy)
+    remote_video_cooldown_seconds: int = 30
+    pause_after_failure: bool = False
+    history_limit: int = 30
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.thermal, ThermalPolicy):
+            raise TypeError("thermal must be a ThermalPolicy")
+        if (
+            isinstance(self.remote_video_cooldown_seconds, bool)
+            or not isinstance(self.remote_video_cooldown_seconds, int)
+            or not 0 <= self.remote_video_cooldown_seconds <= 3_600
+        ):
+            raise ValueError("remote_video_cooldown_seconds must be between 0 and 3600")
+        if not isinstance(self.pause_after_failure, bool):
+            raise TypeError("pause_after_failure must be a boolean")
+        if (
+            isinstance(self.history_limit, bool)
+            or not isinstance(self.history_limit, int)
+            or not 5 <= self.history_limit <= 200
+        ):
+            raise ValueError("history_limit must be between 5 and 200")
 
 
 @dataclass(frozen=True, slots=True)
@@ -516,4 +545,5 @@ __all__ = [
     "ProductionWorkload",
     "ThermalPolicy",
     "ThermalSnapshot",
+    "WorkSchedulerSettings",
 ]

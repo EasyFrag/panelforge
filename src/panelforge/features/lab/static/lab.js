@@ -284,11 +284,18 @@ function renderRuntimeStatus() {
   const localGpu = snapshot && snapshot.local_gpu;
   const comfy = snapshot && snapshot.comfy;
   const llm = snapshot && snapshot.llm;
+  const scheduler = snapshot && snapshot.work_scheduler;
   const productionResources = snapshot && Array.isArray(snapshot.production_resources)
     ? snapshot.production_resources
     : [];
-  const remoteProduction = productionResources.find((item) => item.resource === "remote_gpu");
-  const localProduction = productionResources.find((item) => item.resource === "local_gpu");
+  const schedulerResource = name => {
+    const value = scheduler?.machines?.[name];
+    return value ? {...value, owner_job_id: value.owner_id} : null;
+  };
+  const remoteProduction = schedulerResource("remote_gpu")
+    || productionResources.find((item) => item.resource === "remote_gpu");
+  const localProduction = schedulerResource("local_gpu")
+    || productionResources.find((item) => item.resource === "local_gpu");
   const activeLlmCalls = Array.isArray(llm?.active_calls) ? llm.active_calls : [];
   const comfyOperations = Array.isArray(comfy?.active_operations)
     ? comfy.active_operations
@@ -359,6 +366,9 @@ function renderRuntimeStatus() {
   ui["release-llm-vram"].title = llm?.available
     ? "Décharge les modèles actuellement chargés par llama.swap."
     : "llama.swap indisponible.";
+  window.dispatchEvent(new CustomEvent("panelforge:work-scheduler-status", {
+    detail: scheduler || null,
+  }));
 }
 
 function effectiveRuntimeResource(productionResource, activities) {
@@ -371,14 +381,24 @@ function effectiveRuntimeResource(productionResource, activities) {
 function renderRuntimeResource(element, resource) {
   if (!element) return;
   const busy = Boolean(resource?.owner_job_id || resource?.runtime_busy);
-  const phase = busy && resource.operation ? ` · ${resource.operation}` : "";
-  element.textContent = busy ? `Busy${phase}` : "Idle";
+  const queued = Number(resource?.queue_count || 0);
+  const rawProgress = resource?.active?.progress;
+  const progress = rawProgress == null ? Number.NaN : Number(rawProgress);
+  const percent = Number.isFinite(progress) ? ` · ${Math.round(progress * 100)} %` : "";
+  const waiting = queued ? ` · +${queued}` : "";
+  const cooling = Number(resource?.cooldown_remaining_seconds || 0);
+  if (resource?.paused) element.textContent = `Pause${waiting}`;
+  else if (cooling) element.textContent = `Repos · ${cooling} s${waiting}`;
+  else if (busy) element.textContent = `${resource.operation || "Busy"}${percent}${waiting}`;
+  else element.textContent = queued ? `En attente · ${queued}` : "Idle";
   element.classList.toggle("busy", busy);
-  element.classList.toggle("idle", !busy);
+  element.classList.toggle("idle", !busy && !resource?.paused && !queued);
+  element.classList.toggle("paused", Boolean(resource?.paused));
   element.title = [
-    busy ? "Ressource occupée" : "Ressource disponible",
+    resource?.paused ? "File suspendue" : busy ? "Ressource occupée" : "Ressource disponible",
     resource?.operation,
     resource?.owner_job_id,
+    queued ? `${queued} traitement(s) en attente` : null,
     resource?.error,
   ].filter(Boolean).join(" · ");
 }

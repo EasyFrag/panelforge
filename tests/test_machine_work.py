@@ -1,10 +1,18 @@
 from threading import Event, Lock, Thread
+from tempfile import TemporaryDirectory
 import unittest
 
 from panelforge.application.machine_work import MachineWorkCoordinator
 from panelforge.application.prompt_lab import CompletionRequest, CompletionResult
-from panelforge.domain.production import ComputeResource, ProductionWorkload, ThermalPolicy, ThermalSnapshot
+from panelforge.domain.production import (
+    ComputeResource,
+    ProductionWorkload,
+    ThermalPolicy,
+    ThermalSnapshot,
+    WorkSchedulerSettings,
+)
 from panelforge.infrastructure.llm.coordinated import CoordinatedMultimodalGateway
+from panelforge.infrastructure.storage.work_scheduler_settings import LocalWorkSchedulerSettings
 
 
 class Monitor:
@@ -116,6 +124,98 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         release.set()
         for thread in (first, second, third): thread.join(2)
         self.assertEqual(order, ["first", "second", "third"])
+
+    def test_public_status_exposes_active_job_and_described_fifo(self):
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        release, first_entered, second_waiting = Event(), Event(), Event()
+
+        def first():
+            with coordinator.lease("dlss-1", ComputeResource.LOCAL_GPU,
+                    ProductionWorkload.DLSS, "DLSS vidéo"):
+                first_entered.set(); release.wait(2)
+
+        def second():
+            with coordinator.lease("llm-1", ComputeResource.LOCAL_GPU,
+                    ProductionWorkload.LLM, "Prompt scène 2", on_wait=second_waiting.set):
+                pass
+
+        threads = [Thread(target=first), Thread(target=second)]
+        threads[0].start(); self.assertTrue(first_entered.wait(2))
+        threads[1].start(); self.assertTrue(second_waiting.wait(2))
+        machine = coordinator.public_status()["machines"]["local_gpu"]
+        self.assertEqual(machine["active"]["workload"], "dlss")
+        self.assertEqual(machine["queue_count"], 1)
+        self.assertEqual(machine["queue"][0]["operation"], "Prompt scène 2")
+        self.assertEqual(machine["queue"][0]["position"], 1)
+        release.set()
+        for thread in threads: thread.join(2)
+
+    def test_pause_after_current_holds_fifo_until_resume(self):
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        release, first_entered, second_entered = Event(), Event(), Event()
+
+        def first():
+            with coordinator.lease("first", ComputeResource.REMOTE_GPU,
+                    ProductionWorkload.IMAGE_RENDER, "KREA2"):
+                first_entered.set(); release.wait(2)
+
+        def second():
+            with coordinator.lease("second", ComputeResource.REMOTE_GPU,
+                    ProductionWorkload.VIDEO_RENDER, "H3"):
+                second_entered.set()
+
+        first_thread = Thread(target=first); second_thread = Thread(target=second)
+        first_thread.start(); self.assertTrue(first_entered.wait(2))
+        coordinator.pause(ComputeResource.REMOTE_GPU)
+        second_thread.start(); release.set()
+        self.assertFalse(second_entered.wait(.05))
+        machine = coordinator.public_status()["machines"]["remote_gpu"]
+        self.assertTrue(machine["paused"])
+        self.assertEqual(machine["queue_count"], 1)
+        coordinator.resume(ComputeResource.REMOTE_GPU)
+        self.assertTrue(second_entered.wait(2))
+        first_thread.join(2); second_thread.join(2)
+
+    def test_global_video_cooldown_runs_before_the_next_remote_video(self):
+        now, observed = [100.0], []
+
+        def monotonic(): return now[0]
+        def sleep(seconds):
+            observed.append(coordinator.public_status()["machines"]["remote_gpu"])
+            now[0] += seconds
+
+        coordinator = MachineWorkCoordinator(
+            settings=WorkSchedulerSettings(
+                thermal=ThermalPolicy(pause_when_unavailable=False),
+                remote_video_cooldown_seconds=30,
+            ),
+            monitor_interval=10,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+        with coordinator.lease("video-1", ComputeResource.REMOTE_GPU,
+                ProductionWorkload.VIDEO_RENDER, "H3 scène 1"):
+            pass
+        with coordinator.lease("video-2", ComputeResource.REMOTE_GPU,
+                ProductionWorkload.VIDEO_RENDER, "H3 scène 2"):
+            pass
+        self.assertEqual([value["cooldown_remaining_seconds"] for value in observed], [30, 20, 10])
+        self.assertTrue(all(value["state"] == "cooling" for value in observed))
+
+    def test_global_settings_are_persisted(self):
+        with TemporaryDirectory() as directory:
+            store = LocalWorkSchedulerSettings(directory)
+            coordinator = MachineWorkCoordinator(settings_store=store)
+            settings = WorkSchedulerSettings(
+                thermal=ThermalPolicy(stop_temperature_c=82, resume_temperature_c=45,
+                                      cooldown_seconds=15, pause_when_unavailable=False),
+                remote_video_cooldown_seconds=42,
+                pause_after_failure=True,
+                history_limit=12,
+            )
+            coordinator.update_settings(settings)
+            restored = MachineWorkCoordinator(settings_store=store).settings
+            self.assertEqual(restored, settings)
 
     def test_llm_gateway_holds_local_lane_until_stream_is_consumed(self):
         stream_entered, release_stream, complete_entered = Event(), Event(), Event()

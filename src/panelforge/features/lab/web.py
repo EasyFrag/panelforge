@@ -86,6 +86,7 @@ from panelforge.application import (
     parse_krea2_assisted_recipe_draft,
 )
 from panelforge.domain import (
+    ComputeResource,
     CompositionStage,
     ControlKind,
     CookbookBinding,
@@ -116,6 +117,7 @@ from panelforge.domain import (
     ProductionV2Project,
     ProductionV2ReferenceMode,
     ThermalPolicy,
+    WorkSchedulerSettings,
     ReferenceEvidencePolicy,
     ReferenceUse,
     RunRecord,
@@ -773,6 +775,22 @@ class ProductionVideoReviewBody(BaseModel):
     instruction: str | None = None
 
 
+class WorkSchedulerThermalBody(BaseModel):
+    stop_temperature_c: float = Field(default=85.0, ge=30, le=110, allow_inf_nan=False)
+    resume_temperature_c: float = Field(default=40.0, ge=15, le=109, allow_inf_nan=False)
+    cooldown_seconds: int = Field(default=120, ge=0, le=86_400, strict=True)
+    monitor_local: bool = True
+    monitor_remote: bool = True
+    pause_when_unavailable: bool = False
+
+
+class WorkSchedulerSettingsBody(BaseModel):
+    thermal: WorkSchedulerThermalBody = Field(default_factory=WorkSchedulerThermalBody)
+    remote_video_cooldown_seconds: int = Field(default=30, ge=0, le=3_600, strict=True)
+    pause_after_failure: bool = False
+    history_limit: int = Field(default=30, ge=5, le=200, strict=True)
+
+
 class ProductionV2MemoryProfileBody(BaseModel):
     name: str
 
@@ -875,6 +893,7 @@ def create_app(
     episodes=None,
     production: ProductionService | None = None,
     production_v2: ProductionV2Service | None = None,
+    machine_work=None,
     model_runtime: ModelRuntimeControl | None = None,
     llm_activity_monitor: Any | None = None,
     comfy_runtime: Any | None = None,
@@ -961,7 +980,27 @@ def create_app(
             comfy_runtime=comfy_runtime,
             local_gpu_monitor=local_gpu_monitor,
         )
-        if production is not None:
+        if machine_work is not None:
+            try:
+                scheduler = machine_work.public_status()
+                payload["work_scheduler"] = scheduler
+                payload["production_resources"] = [
+                    {
+                        "resource": resource,
+                        "state": value["state"],
+                        "temperature_c": value["temperature_c"],
+                        "owner_job_id": value["owner_id"],
+                        "operation": value["operation"],
+                        "error": None,
+                        "queue_count": value["queue_count"],
+                        "paused": value["paused"],
+                    }
+                    for resource, value in scheduler["machines"].items()
+                ]
+            except Exception:
+                payload["work_scheduler"] = None
+                payload["production_resources"] = []
+        elif production is not None:
             try:
                 payload["production_resources"] = [
                     serialize_compute_resource_status(value)
@@ -972,6 +1011,54 @@ def create_app(
         else:
             payload["production_resources"] = []
         return payload
+
+    @app.get("/api/work-scheduler/status")
+    def work_scheduler_status() -> dict[str, object]:
+        if machine_work is None:
+            raise HTTPException(status_code=503, detail="Ordonnanceur global indisponible.")
+        return machine_work.public_status()
+
+    @app.get("/api/work-scheduler/settings")
+    def work_scheduler_settings() -> dict[str, object]:
+        if machine_work is None:
+            raise HTTPException(status_code=503, detail="Ordonnanceur global indisponible.")
+        return machine_work.public_status()["settings"]
+
+    @app.put("/api/work-scheduler/settings")
+    def update_work_scheduler_settings(body: WorkSchedulerSettingsBody) -> dict[str, object]:
+        if machine_work is None:
+            raise HTTPException(status_code=503, detail="Ordonnanceur global indisponible.")
+        try:
+            settings = WorkSchedulerSettings(
+                thermal=ThermalPolicy(**body.thermal.model_dump()),
+                remote_video_cooldown_seconds=body.remote_video_cooldown_seconds,
+                pause_after_failure=body.pause_after_failure,
+                history_limit=body.history_limit,
+            )
+            machine_work.update_settings(settings)
+            return machine_work.public_status()["settings"]
+        except (OSError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/work-scheduler/{resource}/pause")
+    def pause_work_scheduler(resource: str) -> dict[str, object]:
+        if machine_work is None:
+            raise HTTPException(status_code=503, detail="Ordonnanceur global indisponible.")
+        try:
+            machine_work.pause(ComputeResource(resource))
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail="Machine inconnue.") from error
+        return machine_work.public_status()
+
+    @app.post("/api/work-scheduler/{resource}/resume")
+    def resume_work_scheduler(resource: str) -> dict[str, object]:
+        if machine_work is None:
+            raise HTTPException(status_code=503, detail="Ordonnanceur global indisponible.")
+        try:
+            machine_work.resume(ComputeResource(resource))
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail="Machine inconnue.") from error
+        return machine_work.public_status()
 
     @app.get("/api/production/spec")
     def production_spec() -> dict[str, object]:

@@ -110,6 +110,7 @@ from panelforge.infrastructure.storage import (
     LocalRunStore,
     LocalSocialLabStore,
     LocalVideoRunStore,
+    LocalWorkSchedulerSettings,
 )
 
 
@@ -340,6 +341,7 @@ def build_app(args: argparse.Namespace):
     )
     machine_work = MachineWorkCoordinator(
         thermal_monitor=production_thermal_monitor,
+        settings_store=LocalWorkSchedulerSettings(args.workspace),
         monitor_interval=max(0.2, args.poll_interval),
     )
     runner = ChangeViewRunner(
@@ -662,6 +664,7 @@ def build_app(args: argparse.Namespace):
         episodes=episodes,
         production=production,
         production_v2=production_v2,
+        machine_work=machine_work,
         llm_activity_monitor=gateway,
         model_runtime=LlamaSwapAdminClient(
             args.llm_base_url,

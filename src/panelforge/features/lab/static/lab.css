@@ -83,7 +83,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .runtime-button { min-height: 32px; padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 8px; color: var(--green); background: var(--panel); font-size: .65rem; font-weight: 800; }
 .runtime-button:hover:not(:disabled) { border-color: var(--green); background: var(--green-soft); }
 .runtime-button:disabled { cursor: not-allowed; opacity: .5; }
-.runtime-monitor { display: grid; gap: .18rem; width: 438px; min-width: 0; padding: .22rem; border: 1px solid var(--line); border-radius: 9px; background: #eeebe4; }
+.runtime-monitor { display: grid; gap: .18rem; width: 438px; min-width: 0; padding: .22rem; border: 1px solid var(--line); border-radius: 9px; background: #eeebe4; cursor: pointer; }
+.runtime-monitor:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .runtime-gpu-row { display: grid; grid-template-columns: 42px minmax(150px, 1fr) 58px minmax(104px, auto); gap: .18rem; min-width: 0; }
 .runtime-gpu-row > span, .runtime-monitor > .runtime-services { min-height: 20px; padding: .2rem .38rem; border-radius: 6px; color: var(--muted); background: var(--panel); font: 750 .56rem/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
 .runtime-gpu-row > .runtime-gpu-label { display: grid; place-items: center; padding-inline: .2rem; color: var(--green); background: transparent; text-transform: uppercase; }
@@ -94,6 +95,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .runtime-gpu-row > .meter-red { --runtime-meter-color: #f3b0a7; color: var(--red); }
 .runtime-gpu-row > .runtime-production-state { overflow: hidden; color: var(--green); font-weight: 850; text-align: center; text-overflow: ellipsis; }
 .runtime-gpu-row > .runtime-production-state.busy { color: var(--amber); background: #fff4d6; }
+.runtime-gpu-row > .runtime-production-state.paused { color: var(--red); background: #fae5e1; }
 .runtime-monitor > .runtime-services { color: var(--amber); background: #fff4d6; overflow: hidden; text-overflow: ellipsis; }
 .runtime-message { max-width: 220px; color: var(--green); font-size: .62rem; font-weight: 700; text-align: right; }
 .runtime-message.failed { color: var(--red); }
@@ -1702,15 +1704,52 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .dlss-variant-picker { width: 100%; margin-bottom: 8px; }
 .dlss-legacy { margin: 8px 0; font-size: .85rem; }
 .dlss-inline { width: 100%; min-width: 0; padding: 6px 0; }
-.dlss-inline[hidden], .dlss-background[hidden] { display: none !important; }
+.dlss-inline[hidden] { display: none !important; }
 .dlss-progress-label { font-weight: 700; margin: 6px 0; }
 .dlss-job progress { display: block; height: 14px; accent-color: #17634f; margin: 10px 0; }
 .dlss-job-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .dlss-job-actions button, .dlss-job-actions a { margin: 0; }
 .dlss-export { font-size: .8rem; overflow-wrap: anywhere; }
-.dlss-background { position: fixed; bottom: 12px; right: 12px; z-index: 35; width: min(410px, calc(100vw - 24px)); padding: 10px 14px; background: #faf9f5; border: 1px solid #a2beb0; border-radius: 12px; box-shadow: 0 3px 14px #0002; }
-.dlss-background summary { cursor: pointer; font-size: .8rem; font-weight: 650; }
-.dlss-background > div { max-height: 45vh; overflow-y: auto; }
+
+/* Global work scheduler: one FIFO lane per physical machine. */
+.work-queue-dialog { width: min(1040px, 95vw); max-height: 92vh; overflow: auto; padding: 22px; border: 1px solid #d8d1c5; border-radius: 16px; background: #faf9f5; color: #14231f; }
+.work-queue-dialog::backdrop { background: #071c18aa; }
+.work-queue-head, .work-queue-lane > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.work-queue-head h2, .work-queue-lane h3 { margin: 0; }
+.work-queue-head small { color: var(--green); font-weight: 800; letter-spacing: .08em; }
+.work-queue-lanes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0; }
+.work-queue-lane { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); }
+.work-queue-state { max-width: 62%; padding: .25rem .55rem; border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: .72rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-queue-state.busy, .work-queue-state.cooling { color: var(--amber); background: #fff4d6; }
+.work-queue-state.paused, .work-queue-state.hot { color: var(--red); background: #fae5e1; }
+.work-queue-item { margin-top: 12px; padding: 11px; border: 1px solid #bed4ca; border-radius: 10px; background: #f6fbf8; }
+.work-queue-item.queued { border-style: dashed; background: #faf9f5; }
+.work-queue-item > div { display: flex; justify-content: space-between; gap: 10px; }
+.work-queue-item strong, .work-queue-item small { overflow-wrap: anywhere; }
+.work-queue-item p { margin: 7px 0; color: var(--muted); font-size: .82rem; }
+.work-queue-item progress { width: 100%; height: 13px; accent-color: var(--green); }
+.work-queue-item > span { display: block; margin-top: 3px; color: var(--muted); font-size: .72rem; text-align: right; }
+.work-queue-lane h4 { margin: 16px 0 0; }
+.work-queue-lane > button { margin-top: 14px; }
+.work-queue-settings, .work-queue-history { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.work-queue-settings summary, .work-queue-history summary { cursor: pointer; font-weight: 800; }
+.work-queue-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 12px; margin: 14px 0; }
+.work-queue-settings-grid label { display: grid; gap: 5px; font-size: .8rem; }
+.work-queue-settings-grid small { color: var(--muted); }
+.work-queue-checks { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 10px 0 16px; }
+.work-queue-checks label { display: flex; align-items: center; gap: 7px; font-size: .8rem; }
+.work-queue-history [data-history] { max-height: 220px; overflow: auto; }
+.work-queue-history p { margin: 7px 0; font-size: .8rem; }
+.work-queue-background { position: fixed; right: 12px; bottom: 12px; z-index: 36; width: min(460px, calc(100vw - 24px)); padding: 11px 14px; border: 1px solid #84ae9b; border-radius: 12px; background: #faf9f5; box-shadow: 0 4px 18px #0002; }
+.work-queue-background summary { cursor: pointer; color: var(--green); font-size: .8rem; font-weight: 800; }
+.work-queue-background p { margin: 8px 0; font-size: .76rem; }
+.work-queue-background button { margin-top: 6px; }
+.work-queue-background .work-queue-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--red); }
+.work-queue-background .work-queue-notice button { flex: 0 0 auto; margin: 0; padding: .25rem .45rem; }
+
+@media (max-width: 760px) {
+  .work-queue-lanes, .work-queue-settings-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .h3-recipe-picker { display: block; max-width: 30rem; margin: 0.8rem 0; }
 .h3-bunny-controls { padding: 0.8rem; border: 1px solid var(--line, #d9d2c6); border-radius: 10px; margin-bottom: 0.8rem; }
 .h3-bunny-controls > small { display: block; overflow-wrap: anywhere; }

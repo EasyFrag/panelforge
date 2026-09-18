@@ -23,7 +23,10 @@ class CoordinatedMultimodalGateway:
             owner, ComputeResource.LOCAL_GPU, ProductionWorkload.LLM,
             request.operation_id or "LLM",
         ):
-            return self._delegate.complete(request)
+            self._coordinator.report_stage(owner, "Génération LLM")
+            result = self._delegate.complete(request)
+            self._coordinator.report_progress(owner, 1.0, "Réponse LLM terminée")
+            return result
 
     def stream(self, request: CompletionRequest) -> Iterator[CompletionStreamEvent]:
         owner = f"llm-{uuid4().hex}"
@@ -31,7 +34,14 @@ class CoordinatedMultimodalGateway:
             owner, ComputeResource.LOCAL_GPU, ProductionWorkload.LLM,
             request.operation_id or "LLM",
         ):
-            yield from self._delegate.stream(request)
+            self._coordinator.report_stage(owner, "Génération LLM")
+            for event in self._delegate.stream(request):
+                self._coordinator.report_progress(
+                    owner,
+                    event.progress,
+                    getattr(event.phase, "value", event.phase) if event.phase else "Génération LLM",
+                )
+                yield event
 
 
 __all__ = ["CoordinatedMultimodalGateway"]

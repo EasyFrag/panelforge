@@ -133,6 +133,7 @@ from .production import (
     ProductionWorkload,
     ThermalPolicy,
     ThermalSnapshot,
+    WorkSchedulerSettings,
 )
 from .production_v2 import (
     ProductionV2Anchor,
@@ -268,6 +269,7 @@ __all__ = [
     "StageDocument",
     "ThermalPolicy",
     "ThermalSnapshot",
+    "WorkSchedulerSettings",
     "VariationMethod",
     "VariationPolicy",
     "VIDEO_FPS",

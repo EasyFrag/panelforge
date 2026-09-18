@@ -178,6 +178,27 @@ class DlssTest(unittest.TestCase):
         self.assertIsNone(result["progress"])
         self.assertIsNotNone(result["finished_at"])
 
+    def test_dlss_phase_progress_is_reported_as_global_queue_progress(self):
+        job = self.queue()
+        job.update(status="running", execution_id="execution")
+        self.jobs.save(job)
+        coordinator = SimpleNamespace(report_progress=Mock())
+        self.service.work_coordinator = coordinator
+
+        self.service._record_progress(job["job_id"], "execution", {
+            "stage": "interpolation",
+            "label": "Fluidification 60 FPS",
+            "stage_index": 1,
+            "stage_count": 3,
+            "percent": 10,
+        })
+
+        coordinator.report_progress.assert_called_once_with(
+            f"dlss:{job['job_id']}",
+            (1 + .1) / 3,
+            "Fluidification 60 FPS",
+        )
+
     def test_assisted_references_the_original_dlss_png_without_a_second_media_file(self):
         directory = self.root / "dlss-output"
         self.comfy.output_root = directory
