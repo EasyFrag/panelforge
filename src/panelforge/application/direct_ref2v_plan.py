@@ -1283,16 +1283,32 @@ _EXPLICIT_DIALOGUE_PATTERNS = (
     re.compile(r'"\s*([^"\r\n]+?)\s*"'),
 )
 
+_EXACT_DIALOGUE_SECTION = re.compile(
+    r"(?im)^[ \t]*Répliques exactes,\s*dans cet ordre et avec ces locuteurs\s*:\s*$"
+)
+
+
+def _explicit_dialogue_scope(source_text: str) -> str:
+    """Prefer PanelForge's explicit speech block over unrelated visual quotes."""
+
+    section = _EXACT_DIALOGUE_SECTION.search(source_text)
+    if section is None:
+        return source_text
+    remainder = source_text[section.end():]
+    boundary = re.search(r"\r?\n[ \t]*\r?\n", remainder)
+    return remainder[:boundary.start()] if boundary else remainder
+
 
 def extract_explicit_dialogues(source_text: str) -> tuple[str, ...]:
     """Extract bounded verbatim quotations without interpreting their meaning."""
 
     if not isinstance(source_text, str):
         raise TypeError("source_text must be text")
+    dialogue_scope = _explicit_dialogue_scope(source_text)
     matches: list[tuple[int, str]] = []
     occupied: list[tuple[int, int]] = []
     for pattern_index, pattern in enumerate(_EXPLICIT_DIALOGUE_PATTERNS):
-        for match in pattern.finditer(source_text):
+        for match in pattern.finditer(dialogue_scope):
             span = match.span()
             if any(span[0] < end and start < span[1] for start, end in occupied):
                 continue
@@ -1303,7 +1319,7 @@ def extract_explicit_dialogues(source_text: str) -> tuple[str, ...]:
                 or _looks_like_structural_quote(text)
                 or (
                     pattern_index == 2
-                    and _straight_quote_looks_like_json(source_text, span)
+                    and _straight_quote_looks_like_json(dialogue_scope, span)
                 )
             ):
                 continue

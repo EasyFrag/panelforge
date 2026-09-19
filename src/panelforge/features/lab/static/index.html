@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260918.4">
+  <link rel="stylesheet" href="/static/lab.css?v=20260919.1">
   <script src="/static/lab.js?v=20260918.3" defer></script>
   <script src="/static/work-queue.js?v=20260918.4" defer></script>
   <script src="/static/lab-core.js?v=20260918.1" defer></script>
-  <link rel="stylesheet" href="/static/stories.css?v=20260918.1">
-  <script src="/static/stories.js?v=20260918.2" defer></script>
-  <link rel="stylesheet" href="/static/episodes.css?v=20260918.1">
+  <link rel="stylesheet" href="/static/stories.css?v=20260919.1">
+  <script src="/static/stories.js?v=20260919.2" defer></script>
+  <link rel="stylesheet" href="/static/episodes.css?v=20260919.1">
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
   <script src="/static/dlss-lab.js?v=20260918.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
@@ -19,23 +19,23 @@
   <script src="/static/sensual-controls.js?v=20260911.1" defer></script>
   <script src="/static/prompt-recipes.js?v=20260916.1" defer></script>
   <script src="/static/prompt-writer-model.js?v=20260918.1" defer></script>
-  <script src="/static/chinese-prompt-variant.js?v=20260918.1" defer></script>
-  <script src="/static/i2v-direct.js?v=20260918.2" defer></script>
+  <script src="/static/chinese-prompt-variant.js?v=20260918.2" defer></script>
+  <script src="/static/i2v-direct.js?v=20260919.1" defer></script>
   <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260918.3" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260919.2" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260918.2" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260919.1" defer></script>
   <script src="/static/media-analysis-media.js?v=20260910.11" defer></script>
   <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
-  <script src="/static/krea2-resource-ui.js?v=20260913.1" defer></script>
-  <script src="/static/episodes.js?v=20260918.3" defer></script>
+  <script src="/static/krea2-resource-ui.js?v=20260919.1" defer></script>
+  <script src="/static/episodes.js?v=20260919.4" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260917.2" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260919.1" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
 </head>
@@ -104,8 +104,13 @@
       <section class="story-panel story-conversation" aria-label="Création et conversation">
         <form id="story-create-form">
           <h2>Point de départ</h2>
+          <fieldset class="story-narrative-switch">
+            <legend>Format narratif</legend>
+            <label><input id="story-format-short" type="radio" name="story-narrative-format" value="short" checked><span><b>Histoire courte</b><small>Le scénario complet tient dans le nombre exact de scènes choisi.</small></span></label>
+            <label><input id="story-format-long" type="radio" name="story-narrative-format" value="long"><span><b>Histoire longue</b><small>Un arc de quatre épisodes, puis chaque épisode est développé séparément.</small></span></label>
+          </fieldset>
           <label>Famille éditoriale<select id="story-recipe"><option value="story.brainrot@1.0.0">Mélodrame fruits</option><option value="story.sensual-light@1.0.0">Sensuel light</option><option value="story.explicit-hard@1.0.0">Cru ++</option><option value="story.silent-cats@1.0.0">Chats de couple · muet</option></select></label>
-          <p id="story-recipe-description" class="muted">Fruits anthropomorphes, conflits frontaux et retournements visuels.</p>
+          <p id="story-recipe-description" class="muted">Fruits anthropomorphes aux noms fruités, mélodrame compréhensible à l’écoute.</p>
           <label>Mode de départ<select id="story-creation-mode"><option value="ideas">Explorer des propositions</option><option value="continuation">Continuer une histoire</option><option value="script">Suivre fidèlement un script complet</option></select></label>
           <p id="story-mode-description" class="muted">Le LLM propose plusieurs histoires avant le développement du scénario.</p>
           <label id="story-dialogue-language-row">Langue parlée<select id="story-dialogue-language"><option value="French" selected>Français</option><option value="English">English</option><option value="Korean">한국어 · Coréen</option><option value="Japanese">日本語 · Japonais</option><option value="Russian">Русский · Russe</option></select><small id="story-dialogue-language-description" class="muted">Les dialogues sont écrits dans cette langue ; les descriptions restent en français.</small></label>
@@ -129,7 +134,10 @@
           </form>
           <div class="story-actions"><button id="story-ideas" type="button">3 nouvelles pistes</button><button id="story-calls" type="button">Échanges LLM</button></div>
           <div id="story-running" hidden><progress aria-label="Écriture en cours"></progress><button id="story-cancel" type="button">Annuler l’échange</button><p class="muted">L’écriture continue si tu changes d’écran ou actualises la page.</p></div>
-          <button id="story-retry" type="button" hidden>Réessayer l’échange</button>
+          <div class="story-actions">
+            <button id="story-revalidate" type="button" hidden>Revalider la réponse reçue</button>
+            <button id="story-retry" type="button" hidden>Relancer le LLM</button>
+          </div>
           <details id="story-live-panel" class="story-live" hidden open>
             <summary id="story-live-summary">Trace du modèle · en direct</summary>
             <p id="story-live-empty" class="muted">En attente des premiers tokens du modèle…</p>
@@ -143,6 +151,12 @@
         <div id="story-versions-panel" class="story-actions" hidden><label>Versions de l’histoire<select id="story-versions"></select></label><button id="story-restore" type="button">Reprendre cette version</button></div>
         <details id="story-continuity" class="story-continuity" hidden><summary>Mémoire cumulative de la saga</summary><div id="story-continuity-content"></div></details>
         <div id="story-concepts"></div>
+        <button id="story-outline" class="primary" type="button" hidden>Construire l’arc en 4 épisodes</button>
+        <section id="story-series" class="story-series" hidden>
+          <header><small>HISTOIRE LONGUE · ARC GLOBAL</small><h2 id="story-series-title"></h2><p id="story-series-premise"></p></header>
+          <details><summary>Trajectoire générale et personnages</summary><p id="story-series-arc"></p><p id="story-series-ending"></p><div id="story-series-characters"></div></details>
+          <div id="story-series-episodes"></div>
+        </section>
         <button id="story-develop" class="primary" type="button" hidden>Développer cette histoire</button>
         <div id="story-scenario" hidden>
           <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-next-episode" type="button">Créer l’épisode suivant</button><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary">Valider et préparer la fabrication</button></div>
@@ -331,11 +345,11 @@
             </div>
             <div class="creative-axes-control" aria-describedby="episode-creative-summary">
               <div class="creative-axes-heading"><b>Liberté créative</b><small>L’audace fixe l’objectif de nouveauté ; les autres axes indiquent où intervenir.</small></div>
-              <label class="creative-audacity-axis"><span>Audace créative<small>Originalité de l’idée-signature</small></span><input id="episode-audacity" type="range" min="0" max="3" step="1" value="2"><output id="episode-audacity-value">2</output></label>
-              <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="episode-creative-scene-life" type="range" min="0" max="3" step="1" value="1"><output id="episode-creative-scene-life-value">1</output></label>
-              <label><span>Caméra<small>Mouvements non demandés</small></span><input id="episode-creative-camera" type="range" min="0" max="3" step="1" value="2"><output id="episode-creative-camera-value">2</output></label>
-              <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="episode-creative-extra-motion" type="range" min="0" max="3" step="1" value="1"><output id="episode-creative-extra-motion-value">1</output></label>
-              <label><span>Dialogues et réactions<small>0 demandés uniquement · 1 réactions · 2 réplique anglaise · 3 bref échange</small></span><input id="episode-creative-dialogue" type="range" min="0" max="3" step="1" value="0"><output id="episode-creative-dialogue-value">0</output></label>
+              <label class="creative-audacity-axis"><span>Audace créative<small>Originalité de l’idée-signature</small></span><input id="episode-audacity" type="range" min="0" max="3" step="1" value="3"><output id="episode-audacity-value">3</output></label>
+              <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="episode-creative-scene-life" type="range" min="0" max="3" step="1" value="3"><output id="episode-creative-scene-life-value">3</output></label>
+              <label><span>Caméra<small>Mouvements non demandés</small></span><input id="episode-creative-camera" type="range" min="0" max="3" step="1" value="3"><output id="episode-creative-camera-value">3</output></label>
+              <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="episode-creative-extra-motion" type="range" min="0" max="3" step="1" value="3"><output id="episode-creative-extra-motion-value">3</output></label>
+              <label><span>Dialogues et réactions<small>0 demandés uniquement · 1 réactions · 2 réplique anglaise · 3 bref échange</small></span><input id="episode-creative-dialogue" type="range" min="0" max="3" step="1" value="1"><output id="episode-creative-dialogue-value">1</output></label>
               <small id="episode-creative-summary" class="creative-axes-summary">0 aucun ajout · 1 subtil si utile · 2 enrichissement net · 3 plusieurs ajouts compatibles</small>
             </div>
             <p class="muted">Les répliques du scénario restent exactes. Dialogues et réactions à 0 conserve uniquement les paroles demandées.</p>
@@ -581,7 +595,11 @@
           <label>Nom<input id="krea2-assisted-name" type="text" maxlength="120" placeholder="Ex. Zodiaque fantastique" required></label>
           <label>Intention (facultative avec une image)<textarea id="krea2-assisted-intention" rows="7" maxlength="12000" placeholder="Décris ton idée, ou ajoute simplement une image de référence…"></textarea></label>
           <label>Image de référence facultative<input id="krea2-assisted-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
-          <label>Preset de style<select id="krea2-assisted-new-preset"><option value="">Sans preset</option></select></label>
+          <div class="krea2-assisted-preset-choice">
+            <label>Preset de style<select id="krea2-assisted-new-preset"><option value="">Sans preset</option></select></label>
+            <label>Langue<select id="krea2-assisted-new-prompt-language" aria-label="Langue initiale du prompt KREA2"><option value="en" selected>English</option><option value="zh">中文</option></select></label>
+            <button class="krea2-assisted-preset-manage" data-krea2-preset-manage type="button">Gérer</button>
+          </div>
           <small id="krea2-assisted-new-preset-note" class="muted"></small>
           <small class="muted">Avec une image seule, le LLM propose un prompt pour en reproduire le sujet, la composition et l’ambiance.</small>
           <label>Recette d’assistance<select id="krea2-assisted-assistance-recipe" required><option value="1.0.0">V1 · classique</option><option value="2.0.0">V2 · sujet et contexte compact · expérimental</option><option value="3.0.0" selected>V3 · corrections visuelles · expérimental</option></select></label>
@@ -614,6 +632,7 @@
           <small id="krea2-assisted-preset-note" class="muted"></small></div>
           <button id="krea2-assisted-reapply-preset" type="button">Réappliquer</button>
           <button id="krea2-assisted-remove-preset" type="button">Retirer</button>
+          <button class="krea2-assisted-preset-manage" data-krea2-preset-manage type="button">Gérer</button>
         </section>
 
         <section class="krea2-assisted-conversation-panel">
@@ -652,6 +671,7 @@
                     <option value="zh">中文</option>
                   </select>
                 </label>
+                <button id="krea2-assisted-convert-language" class="krea2-assisted-convert-language" type="button" hidden>Convertir le prompt</button>
                 <button id="krea2-assisted-chat" class="primary" type="button">Affiner le prompt</button>
                 <button id="krea2-assisted-recipe-chat" type="button">Préparer la recette</button>
               </div>
@@ -775,11 +795,19 @@
       <p id="krea2-assisted-preset-source" class="muted"></p>
       <label>Destination<select id="krea2-assisted-preset-target"><option value="">Nouveau preset</option></select></label>
       <label>Nom<input id="krea2-assisted-preset-name" type="text" maxlength="120" required></label>
+      <label>Catégorie<select id="krea2-assisted-preset-category"><option value="work">Work</option><option value="fun">Fun</option><option value="nsfw">NSFW</option><option value="archive">Archive</option></select></label>
       <small>Le modèle, les LoRA, le prompt et l’image de cet essai seront conservés. La seed sert uniquement à sa provenance.</small>
       <p id="krea2-assisted-preset-error" class="error" role="alert"></p>
       <div class="actions"><button id="krea2-assisted-preset-save" class="primary" type="submit">Enregistrer</button>
       <button id="krea2-assisted-preset-close" type="button">Fermer</button></div>
     </form>
+  </dialog>
+
+  <dialog id="krea2-assisted-preset-manager" class="krea2-preset-dialog krea2-preset-manager" aria-labelledby="krea2-assisted-preset-manager-title">
+    <div class="krea2-preset-manager-head"><div><small>BIBLIOTHÈQUE</small><h2 id="krea2-assisted-preset-manager-title">Presets de style</h2></div><button id="krea2-assisted-preset-manager-close" type="button">Fermer</button></div>
+    <p class="muted">Classez ou supprimez les presets du catalogue. Les projets existants conservent leur copie.</p>
+    <div id="krea2-assisted-preset-manager-list" class="krea2-preset-manager-list"></div>
+    <p id="krea2-assisted-preset-manager-error" class="error" role="alert"></p>
   </dialog>
 
   <dialog id="krea2-assisted-lightbox" class="krea2-edit-lightbox" aria-labelledby="krea2-assisted-lightbox-title">
@@ -1320,11 +1348,11 @@
           </label>
           <div class="creative-axes-control" aria-describedby="i2vd-creative-summary">
             <div class="creative-axes-heading"><b>Liberté créative</b><small>L’audace fixe l’objectif de nouveauté ; les autres axes indiquent où intervenir.</small></div>
-            <label id="i2vd-creative-audacity-control" class="creative-audacity-axis"><span>Audace créative<small>Originalité de l’idée-signature</small></span><input id="i2vd-creative-audacity" type="range" min="0" max="3" step="1" value="2"><output id="i2vd-creative-audacity-value">2</output></label>
-            <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="i2vd-creative-scene-life" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-scene-life-value">0</output></label>
-            <label><span>Caméra<small>Mouvements non demandés</small></span><input id="i2vd-creative-camera" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-camera-value">0</output></label>
-            <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="i2vd-creative-extra-motion" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-extra-motion-value">0</output></label>
-            <label hidden><span>Dialogues et réactions<small>0 demandés uniquement · 1 réactions · 2 réplique anglaise · 3 bref échange</small></span><input id="i2vd-creative-dialogue" type="range" min="0" max="3" step="1" value="0"><output id="i2vd-creative-dialogue-value">0</output></label>
+            <label id="i2vd-creative-audacity-control" class="creative-audacity-axis"><span>Audace créative<small>Originalité de l’idée-signature</small></span><input id="i2vd-creative-audacity" type="range" min="0" max="3" step="1" value="3"><output id="i2vd-creative-audacity-value">3</output></label>
+            <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="i2vd-creative-scene-life" type="range" min="0" max="3" step="1" value="3"><output id="i2vd-creative-scene-life-value">3</output></label>
+            <label><span>Caméra<small>Mouvements non demandés</small></span><input id="i2vd-creative-camera" type="range" min="0" max="3" step="1" value="3"><output id="i2vd-creative-camera-value">3</output></label>
+            <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="i2vd-creative-extra-motion" type="range" min="0" max="3" step="1" value="3"><output id="i2vd-creative-extra-motion-value">3</output></label>
+            <label hidden><span>Dialogues et réactions<small>0 demandés uniquement · 1 réactions · 2 réplique anglaise · 3 bref échange</small></span><input id="i2vd-creative-dialogue" type="range" min="0" max="3" step="1" value="1"><output id="i2vd-creative-dialogue-value">1</output></label>
             <small id="i2vd-creative-summary" class="creative-axes-summary">0 aucun ajout · 1 subtil si utile · 2 enrichissement net · 3 plusieurs ajouts compatibles</small>
           </div>
         </section>
@@ -1440,7 +1468,10 @@
               <p>Un appel supplémentaire reçoit le Plan validé et le prompt anglais. L’anglais reste canonique ; dialogues, balises, références et timecodes sont verrouillés.</p>
               <div class="prompt-language-variant-controls">
                 <label>Prompt envoyé à H3<select id="i2vd-prompt-language"><option value="en">English · canonique</option><option value="zh" disabled>中文 · variante</option></select></label>
-                <label>LLM de transcompilation<select id="i2vd-chinese-model"></select></label>
+                <div class="prompt-language-variant-model">
+                  <label>LLM de transcompilation<select id="i2vd-chinese-model"></select></label>
+                  <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="i2vd-chinese-model" checked> Local · Unsloth</label>
+                </div>
                 <button id="i2vd-generate-chinese" type="button">Générer la variante chinoise</button>
                 <button id="i2vd-copy-chinese" type="button" disabled>Copier 中文</button>
               </div>
@@ -1726,11 +1757,11 @@
           </label>
           <div class="creative-axes-control" aria-describedby="ref2vd-creative-summary">
             <div class="creative-axes-heading"><b>Liberté créative</b><small>L’audace fixe l’objectif de nouveauté ; les autres axes indiquent où intervenir.</small></div>
-            <label id="ref2vd-creative-audacity-control" class="creative-audacity-axis"><span>Audace créative<small>Originalité de l’idée-signature</small></span><input id="ref2vd-creative-audacity" type="range" min="0" max="3" step="1" value="2"><output id="ref2vd-creative-audacity-value">2</output></label>
-            <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="ref2vd-creative-scene-life" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-scene-life-value">0</output></label>
-            <label><span>Caméra<small>Mouvements non demandés</small></span><input id="ref2vd-creative-camera" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-camera-value">0</output></label>
-            <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="ref2vd-creative-extra-motion" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-extra-motion-value">0</output></label>
-            <label hidden><span>Dialogues et réactions<small>0 demandés uniquement · 1 réactions · 2 réplique anglaise · 3 bref échange</small></span><input id="ref2vd-creative-dialogue" type="range" min="0" max="3" step="1" value="0"><output id="ref2vd-creative-dialogue-value">0</output></label>
+            <label id="ref2vd-creative-audacity-control" class="creative-audacity-axis"><span>Audace créative<small>Originalité de l’idée-signature</small></span><input id="ref2vd-creative-audacity" type="range" min="0" max="3" step="1" value="3"><output id="ref2vd-creative-audacity-value">3</output></label>
+            <label><span>Vie de la scène<small>Décor et ambiance</small></span><input id="ref2vd-creative-scene-life" type="range" min="0" max="3" step="1" value="3"><output id="ref2vd-creative-scene-life-value">3</output></label>
+            <label><span>Caméra<small>Mouvements non demandés</small></span><input id="ref2vd-creative-camera" type="range" min="0" max="3" step="1" value="3"><output id="ref2vd-creative-camera-value">3</output></label>
+            <label><span>Mouvements additionnels<small>Sujets et objets secondaires</small></span><input id="ref2vd-creative-extra-motion" type="range" min="0" max="3" step="1" value="3"><output id="ref2vd-creative-extra-motion-value">3</output></label>
+            <label hidden><span>Dialogues et réactions<small>0 demandés uniquement · 1 réactions · 2 réplique anglaise · 3 bref échange</small></span><input id="ref2vd-creative-dialogue" type="range" min="0" max="3" step="1" value="1"><output id="ref2vd-creative-dialogue-value">1</output></label>
             <small id="ref2vd-creative-summary" class="creative-axes-summary">0 aucun ajout · 1 subtil si utile · 2 enrichissement net · 3 plusieurs ajouts compatibles</small>
           </div>
         </section>
@@ -1847,7 +1878,10 @@
               <p>Un appel supplémentaire reçoit le Plan validé et le prompt anglais. L’anglais reste canonique ; dialogues, balises, références et timecodes sont verrouillés.</p>
               <div class="prompt-language-variant-controls">
                 <label>Prompt envoyé à H3<select id="ref2vd-prompt-language"><option value="en">English · canonique</option><option value="zh" disabled>中文 · variante</option></select></label>
-                <label>LLM de transcompilation<select id="ref2vd-chinese-model"></select></label>
+                <div class="prompt-language-variant-model">
+                  <label>LLM de transcompilation<select id="ref2vd-chinese-model"></select></label>
+                  <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="ref2vd-chinese-model" checked> Local · Unsloth</label>
+                </div>
                 <button id="ref2vd-generate-chinese" type="button">Générer la variante chinoise</button>
                 <button id="ref2vd-copy-chinese" type="button" disabled>Copier 中文</button>
               </div>

@@ -32,7 +32,8 @@ def browser_fixture():
           workflowSummary: document.createElement('small'), samplingFirstNote: document.createElement('small'),
           samplingSecondNote: document.createElement('small'),
           prompt: {value: 'A studio photo'}, seed: {value:'0'}, megapixels: {value:'2.1'},
-          model: document.createElement('select'), ratio: document.createElement('select')};
+          model: document.createElement('select'), ratio: document.createElement('select'),
+          promptLanguage: {value:'en'}};
         const ensureMissingOption = (select, value) => {
           if (![...select.options].some(o => o.value === value)) { const o = document.createElement('option');
             o.value=value; o.textContent=value; select.append(o); }

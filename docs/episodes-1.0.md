@@ -75,6 +75,23 @@ ne sont pas remplacés. Enregistrer la fiche conserve description, modèle LLM,
 prompt et réglages ; les actions de génération et changements de fiche enregistrent
 aussi les modifications avant de continuer.
 
+### Reprise du casting entre épisodes
+
+Lorsqu'une fabrication est créée pour l'épisode suivant d'une histoire longue,
+les images de personnages déjà retenues dans les épisodes antérieurs sont
+présélectionnées. Une suite courte créée avec **Créer l'épisode suivant** reprend
+de la même manière le casting de son projet parent. Si cet épisode avait lui-même
+un parent, PanelForge remonte la chaîne jusqu'à la référence disponible la plus
+proche. La correspondance privilégie
+l'identifiant stable dans un arc long et accepte le nom normalisé pour une suite
+historique dont les identifiants locaux auraient changé.
+
+Seule la référence visuelle retenue est reprise, avec sa provenance. Le prompt,
+le modèle LLM, le projet KREA2 et les réglages techniques ne sont pas copiés ; un
+nouveau personnage reste vide. Les décors ne sont pas hérités automatiquement.
+Changer une sélection dans le nouvel épisode ne modifie jamais la fabrication
+précédente.
+
 ### Production en lot des références
 
 **Générer tous les personnages et décors** ajoute un premier niveau
@@ -125,7 +142,7 @@ Valeurs initiales, modifiables par scène :
 - Classique expérimental `minimax.h3.ref2v.classic.cinematic.planned@1.0.0` ;
 - Plan : `local::unsloth/Qwen3.8-27B-GGUF` ;
 - Rédaction : `local::unsloth/gemma-4-31B-it-qat-GGUF` ;
-- plans Auto, audace 2, aucun dialogue inventé ;
+- plans Auto, audace 3, vie/caméra/mouvements à 3 et dialogues/réactions à 1 ;
 - BUNNY `0.1.3`, 9 / 4 / 5 steps, 0,9 MP initial et final, Turbo/preview actifs ;
 - Motion Repair seul actif, forces 0,60 / 0,20 ;
 - durée de la scène et musique désactivée.
@@ -136,8 +153,8 @@ variantes Hauhau peuvent être sélectionnées dans les modèles locaux existant
 La préparation propose les **cinq curseurs indépendants 0–3 de H3/REF2V** :
 audace, vie de la scène, caméra, mouvements additionnels, dialogues et réactions.
 Ils sont persistés et transmis à la préparation REF2V par scène. Les valeurs
-initiales de Fabrication sont conservées et rendues visibles : audace 2, vie 1,
-caméra 2, mouvements 1, dialogues 0. À 0, seules les répliques du scénario sont
+initiales de Fabrication sont conservées et rendues visibles : audace 3, vie 3,
+caméra 3, mouvements 3, dialogues 1. À 0, seules les répliques du scénario sont
 demandées ; les niveaux vocaux supérieurs gardent la politique des recettes
 existantes. Les répliques validées conservent leur texte et leurs locuteurs.
 Lorsqu'une histoire précise un canal de restitution (voix off, hors champ,
@@ -155,8 +172,11 @@ préparation conserve les précédentes et crée une nouvelle session de prompti
 Le panneau vidéo est une instance isolée du composant REF2V existant : recettes,
 checkpoint, LoRA, réglages BUNNY, preview, essais, reprise, ajustement et DLSS. Les
 réglages sont enregistrés par scène après modification et avant un lancement.
-Les essais gardent leurs paramètres effectifs. Le rendu vidéo reste une action
-explicite après la préparation du prompt.
+Les essais gardent leurs paramètres effectifs. Avant même qu'un prompt existe,
+**Générer dès que le prompt est prêt** enregistre les réglages visibles et arme
+une chaîne limitée à la scène. Elle attend un prompt déjà en cours ou le lance,
+puis soumet automatiquement la vidéo. Un échec de prompt annule le rendu et reste
+visible ; aucune vidéo n'est envoyée dans ce cas.
 
 ## Stockage et vérification
 

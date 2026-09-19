@@ -1,7 +1,15 @@
 """Immutable named style examples, independent from published Batch recipes."""
 
 from dataclasses import dataclass
+from enum import StrEnum
 from .krea2_batch import Krea2BatchSettings, Krea2PromptLanguage
+
+
+class Krea2StylePresetCategory(StrEnum):
+    WORK = "work"
+    FUN = "fun"
+    NSFW = "nsfw"
+    ARCHIVE = "archive"
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +24,7 @@ class Krea2StylePreset:
     source_attempt_id: str
     source_seed: int
     prompt_language: Krea2PromptLanguage = Krea2PromptLanguage.ENGLISH
+    category: Krea2StylePresetCategory = Krea2StylePresetCategory.WORK
 
     def __post_init__(self):
         for field, limit in (("preset_id", 128), ("name", 120), ("prompt", 40000),
@@ -29,6 +38,8 @@ class Krea2StylePreset:
             raise TypeError("preset settings must be Krea2BatchSettings")
         if not isinstance(self.prompt_language, Krea2PromptLanguage):
             raise TypeError("invalid preset prompt language")
+        if not isinstance(self.category, Krea2StylePresetCategory):
+            raise TypeError("invalid style preset category")
         if isinstance(self.source_seed, bool) or not isinstance(self.source_seed, int) or not 0 <= self.source_seed <= 2**50:
             raise ValueError("invalid preset source seed")
 

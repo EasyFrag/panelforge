@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260917.2', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260919.1', self.page)
         self.assertIn('id="krea2-assisted-workflow"', self.page)
         self.assertIn('workflow: elements.workflow.value', self.script)
         self.assertIn('Image KREA2 avant Flux', self.script)
@@ -180,12 +180,26 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn("0 à 10 · seuls les emplacements utilisés sont affichés", self.page)
 
     def test_prompt_language_can_switch_between_iterations(self):
+        self.assertIn('id="krea2-assisted-new-prompt-language"', self.page)
         self.assertIn('id="krea2-assisted-prompt-language"', self.page)
         self.assertIn('<option value="en" selected>English</option>', self.page)
         self.assertIn('<option value="zh">中文</option>', self.page)
         self.assertIn('project.prompt_language || "en"', self.script)
         self.assertIn('prompt_language: elements.promptLanguage.value', self.script)
+        self.assertIn('data.set("prompt_language", elements.newPromptLanguage.value)', self.script)
+        self.assertIn('id="krea2-assisted-convert-language"', self.page)
+        self.assertIn('async function convertPromptLanguage()', self.script)
         self.assertIn("elements.promptLanguage.disabled = value || !state.project", self.script)
+
+    def test_style_presets_are_grouped_manageable_and_keep_pinned_project_copies(self):
+        self.assertIn('id="krea2-assisted-preset-manager"', self.page)
+        self.assertIn('id="krea2-assisted-preset-category"', self.page)
+        self.assertEqual(self.page.count('data-krea2-preset-manage'), 2)
+        self.assertIn('["work", "Work"], ["fun", "Fun"], ["nsfw", "NSFW"], ["archive", "Archive"]', self.script)
+        self.assertIn('method: "PATCH"', self.script)
+        self.assertIn('method: "DELETE"', self.script)
+        self.assertIn('copie conservée', self.script)
+        self.assertIn('.krea2-preset-manager-row', self.css)
 
     def test_revision_model_is_independent_and_sent_with_each_chat(self):
         self.assertIn('id="krea2-assisted-revision-llm"', self.page)

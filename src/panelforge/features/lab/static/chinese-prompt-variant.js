@@ -1,6 +1,27 @@
 (() => {
   "use strict";
 
+  const preferredLocalModelId = "local::HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP";
+
+  function preferredModel(models, fallbackId = "") {
+    const available = models || [];
+    const isLocal = item => item.source === "local" || (item.id || "").startsWith("local::");
+    const exact = available.find(item => item.id === preferredLocalModelId);
+    if (exact) return exact.id;
+    const uncensoredGemma = available.find(item => {
+      const text = `${item.id || ""} ${item.label || ""}`.toLowerCase();
+      return isLocal(item) && text.includes("gemma") && text.includes("uncensored");
+    });
+    if (uncensoredGemma) return uncensoredGemma.id;
+    const localGemma = available.find(item => {
+      const text = `${item.id || ""} ${item.label || ""}`.toLowerCase();
+      return isLocal(item) && text.includes("gemma");
+    });
+    if (localGemma) return localGemma.id;
+    if (fallbackId && available.some(item => item.id === fallbackId && isLocal(item))) return fallbackId;
+    return available.find(isLocal)?.id || "";
+  }
+
   function create({ prefix, state, core, render, setComposition }) {
     const byId = suffix => document.getElementById(`${prefix}-${suffix}`);
     const elements = {
@@ -12,6 +33,7 @@
     let running = false;
     let modelIds = new Set();
     let modelChosenByUser = false;
+    let defaultModelId = "";
     let sourceRevisionId = null;
 
     function activePrompt() {
@@ -27,9 +49,11 @@
     }
 
     function populate(models) {
-      const selected = elements.model.value
-        || state.composition?.writer_model_id
-        || "local::unsloth/gemma-4-31B-it-qat-GGUF";
+      const selected = elements.model.value || preferredModel(
+        models,
+        state.composition?.writer_model_id || "",
+      );
+      defaultModelId = selected;
       modelIds = new Set(models.map(item => item.id));
       window.PanelForgeModelPicker.populate(elements.model, models, selected);
       if (!elements.model.value && models[0]) elements.model.value = models[0].id;
@@ -57,8 +81,7 @@
         elements.status.className = "message";
         elements.status.textContent = "";
         if (!modelChosenByUser) {
-          const writerModel = state.composition?.writer_model_id;
-          if (writerModel && modelIds.has(writerModel)) elements.model.value = writerModel;
+          if (defaultModelId && modelIds.has(defaultModelId)) elements.model.value = defaultModelId;
         }
       }
       elements.panel.hidden = !prompt?.active_revision_id;

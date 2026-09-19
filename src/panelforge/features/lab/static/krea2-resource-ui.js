@@ -19,6 +19,7 @@
     nsfw_sliders: "NSFW · Sliders",
     nsfw_details: "NSFW · Details",
     nsfw_poses: "NSFW · Poses",
+    nsfw_persona: "NSFW - Persona",
     unclassified: "Non classés",
   });
   const loraManagerGroups = Object.freeze([
@@ -30,6 +31,7 @@
     ["nsfw_sliders", "NSFW · Sliders"],
     ["nsfw_details", "NSFW · Details"],
     ["nsfw_poses", "NSFW · Poses"],
+    ["nsfw_persona", "NSFW - Persona"],
     ["excluded_krea_edit", "Other · KREA EDIT — ne pas utiliser"],
     ["unclassified", "Non classé"],
   ]);

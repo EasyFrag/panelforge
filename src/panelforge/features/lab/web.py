@@ -6,6 +6,7 @@ from panelforge.domain.krea2_sampling import (
     Krea2AssistedSettings, sampling_for, sampling_from_dict, sampling_spec,
 )
 from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
+from panelforge.domain.krea2_style_presets import Krea2StylePresetCategory
 
 from panelforge.domain.change_view_settings import ChangeViewRenderSettings
 
@@ -340,6 +341,30 @@ class _RenderProgressTracker:
             },
         }
 
+
+def _report_machine_render_progress(machine_work, owner_id: str, event: dict[str, object]) -> None:
+    """Apply normalized H3 progress regardless of which preview relay owns ComfyUI's client channel."""
+    if machine_work is None:
+        return
+    data = event.get("data")
+    if not isinstance(data, dict):
+        return
+    percent = data.get("percent")
+    if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+        return
+    stage = str(data.get("phase_label") or "Rendu H3")
+    current = data.get("current_step")
+    total = data.get("total_steps")
+    if (
+        not isinstance(current, bool)
+        and not isinstance(total, bool)
+        and isinstance(current, (int, float))
+        and isinstance(total, (int, float))
+        and total > 0
+    ):
+        stage += f" · étape {int(current)}/{int(total)}"
+    machine_work.report_progress(owner_id, float(percent) / 100, stage)
+
 _AZIMUTH_LABELS = {
     CameraAzimuth.FRONT: "Face",
     CameraAzimuth.FRONT_RIGHT_QUARTER: "Trois-quarts droit",
@@ -616,6 +641,7 @@ class Krea2AssistedAttemptBody(BaseModel):
     expected_branch_id: str | None = None
     sampling: dict[str, Any] | None = None
     workflow: str | None = None
+    prompt_language: Literal["en", "zh"] | None = None
 
 
 class Krea2AssistedBranchBody(BaseModel):
@@ -650,6 +676,17 @@ class Krea2StylePresetSaveBody(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     preset_id: str | None = None
     expected_revision: int | None = None
+    category: Literal["work", "fun", "nsfw", "archive"] | None = None
+
+
+class Krea2StylePresetUpdateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    category: Literal["work", "fun", "nsfw", "archive"]
+    expected_revision: int = Field(ge=1, strict=True)
+
+
+class Krea2StylePresetDeleteBody(BaseModel):
+    expected_revision: int = Field(ge=1, strict=True)
 
 
 class Krea2StylePresetApplyBody(BaseModel):
@@ -1775,32 +1812,17 @@ def create_app(
                     owner_id,
                     profile,
                     lambda: h3_render.get(project_id).attempt(attempt_id).execution_id,
-                    attempt.settings.steps,
+                    # Spectrum can forecast/skips diffusion evaluations: ComfyUI
+                    # then reports the effective counter (for example 2/4), not
+                    # the configured scheduler count (for example 25). Keeping
+                    # the strict count would discard every useful progress event.
+                    None if attempt.spectrum_enabled else attempt.settings.steps,
                 )
             except (KeyError, FileNotFoundError, TypeError, ValueError):
                 return None
 
         def report_render_progress(owner_id: str, event: dict[str, object]) -> None:
-            if machine_work is None:
-                return
-            data = event.get("data")
-            if not isinstance(data, dict):
-                return
-            percent = data.get("percent")
-            if isinstance(percent, bool) or not isinstance(percent, (int, float)):
-                return
-            stage = str(data.get("phase_label") or "Rendu H3")
-            current = data.get("current_step")
-            total = data.get("total_steps")
-            if (
-                not isinstance(current, bool)
-                and not isinstance(total, bool)
-                and isinstance(current, (int, float))
-                and isinstance(total, (int, float))
-                and total > 0
-            ):
-                stage += f" · étape {int(current)}/{int(total)}"
-            machine_work.report_progress(owner_id, float(percent) / 100, stage)
+            _report_machine_render_progress(machine_work, owner_id, event)
 
         try:
             async with connector(upstream_url) as upstream:
@@ -2705,6 +2727,7 @@ def create_app(
         reference: Annotated[UploadFile | None, File()] = None,
         assistance_recipe_version: Annotated[str, Form()] = "1.0.0",
         style_preset_id: Annotated[str | None, Form()] = None,
+        prompt_language: Annotated[str | None, Form()] = None,
     ) -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
         asset_id = None
@@ -2721,6 +2744,7 @@ def create_app(
                 name=name,
                 intention=intention,
                 model_id=model_id,
+                prompt_language=Krea2PromptLanguage(prompt_language) if prompt_language else None,
                 reference_asset_id=asset_id,
                 reference_filename=(reference.filename if reference is not None else None),
             )
@@ -2743,10 +2767,37 @@ def create_app(
         service = _require_krea2_assisted(krea2_assisted)
         try:
             preset = service.save_style_preset(body.project_id, body.attempt_id, body.name,
-                                              preset_id=body.preset_id, expected_revision=body.expected_revision)
+                                              preset_id=body.preset_id, expected_revision=body.expected_revision,
+                                              category=(Krea2StylePresetCategory(body.category)
+                                                        if body.category is not None else None))
             return {"preset": _serialize_krea2_style_preset(preset)}
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Essai ou preset introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.patch("/api/image-lab/krea2-assisted/style-presets/{preset_id}")
+    def update_krea2_style_preset(preset_id: str, body: Krea2StylePresetUpdateBody) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            preset = service.update_style_preset(
+                preset_id, name=body.name, category=Krea2StylePresetCategory(body.category),
+                expected_revision=body.expected_revision,
+            )
+            return {"preset": _serialize_krea2_style_preset(preset)}
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Preset introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.delete("/api/image-lab/krea2-assisted/style-presets/{preset_id}")
+    def delete_krea2_style_preset(preset_id: str, body: Krea2StylePresetDeleteBody) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            preset = service.delete_style_preset(preset_id, expected_revision=body.expected_revision)
+            return {"deleted": preset_id, "revision": preset.revision}
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Preset introuvable.") from error
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -2881,6 +2932,11 @@ def create_app(
                 settings=_krea2_assisted_settings(body),
                 seed=seed,
                 enqueue=enqueue,
+                prompt_language=(
+                    Krea2PromptLanguage(body.prompt_language)
+                    if body.prompt_language is not None
+                    else None
+                ),
             )
             prepared = perf_counter()
             if enqueue:
@@ -4138,7 +4194,14 @@ def create_app(
                     execution_id=lambda: h3_render.get(project_id)
                     .attempt(attempt_id)
                     .execution_id,
-                    configured_steps=attempt.settings.steps,
+                    configured_steps=(
+                        None if attempt.spectrum_enabled else attempt.settings.steps
+                    ),
+                    progress_reporter=lambda event: _report_machine_render_progress(
+                        machine_work,
+                        f"h3:{project_id}:{attempt_id}",
+                        event,
+                    ),
                 )
         except WebSocketDisconnect:
             return
@@ -5430,6 +5493,7 @@ def _serialize_krea2_style_preset(preset) -> dict[str, object] | None:
         "settings": _serialize_krea2_assisted_settings(preset.settings),
         "source_project_id": preset.source_project_id, "source_attempt_id": preset.source_attempt_id,
         "source_seed": str(preset.source_seed), "prompt_language": preset.prompt_language.value,
+        "category": preset.category.value,
     }
 
 
@@ -5499,6 +5563,7 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
                 "id": attempt.attempt_id,
                 "conversation_branch_id": attempt.conversation_branch_id,
                 "conversation_turn_id": attempt.conversation_turn_id,
+                "prompt_language": attempt.conversation_prompt_language.value,
                 "can_restore_conversation": attempt.conversation_branch_id is not None,
                 "attempt_id": attempt.attempt_id,
                 "index": attempt.index,
@@ -5767,6 +5832,7 @@ async def _relay_video_preview(
     progress_profile: RenderProgressProfile | None = None,
     execution_id: Callable[[], str | None] | None = None,
     configured_steps: int | None = None,
+    progress_reporter: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Forward ComfyUI text/binary events until either peer disconnects."""
 
@@ -5790,6 +5856,8 @@ async def _relay_video_preview(
                     except json.JSONDecodeError:
                         normalized = None
                     if normalized is not None:
+                        if progress_reporter is not None:
+                            progress_reporter(normalized)
                         await websocket.send_json(normalized)
             else:
                 await websocket.send_bytes(bytes(message))

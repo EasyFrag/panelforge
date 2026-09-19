@@ -1,6 +1,124 @@
 # CONTINUITY
 
+## Release 2026-09-19 — PanelForge 1.0.0
+
+### Works
+- Le placeholder historique `0.1.0` du paquet et de `panelforge.__version__` passe à `1.0.0` pour la première version majeure de l'application.
+- La branche de travail est un descendant direct de la branche stable distante : la publication peut donc mettre `master` à jour par fast-forward, sans merge conflict. Le dépôt GitHub utilise `master` comme branche par défaut ; aucune branche `main` concurrente n'est créée.
+- Les recettes, manifests ComfyUI, schémas de stockage et numéros de cache navigateur conservent leurs versions propres. Ils ne sont pas artificiellement renommés `1.0.0` avec l'application.
+- Les notes de version sont dans `docs/releases/1.0.0.md`. La publication cible le tag annoté `v1.0.0` ainsi que les branches distantes `feature/vocal-normalizer-dialogue-register` et `master`.
+
+### Broken / missing
+- GitHub CLI n'est pas installé : la publication utilise Git et un tag distant, sans objet GitHub Release enrichi avec pièces jointes.
+- La suite complète conserve les 38 échecs et 31 erreurs historiques documentés hors des surfaces ciblées ; la version majeure ne prétend pas les masquer.
+
+### Next steps (max 3)
+1. Utiliser `v1.0.0` comme point de retour stable avant les prochaines automatisations.
+2. Continuer le développement sur une branche dédiée après publication plutôt que directement sur `master`.
+3. Résorber progressivement les anciens tests H3/Combat avant une future version corrective.
+
+## Patch 2026-09-19 — arc long plus causal, prompts spécialisés et brouillon revalidable
+
+### Works
+- Le parcours Histoires conserve exactement le même nombre d'appels LLM. Les propositions, l'arc long et le développement d'un épisode ont maintenant des consignes distinctes : le prompt d'arc ne transporte plus les exemples de concepts ni le quota de dialogues par micro-scène.
+- L'Architecte doit calibrer chaque épisode sur `target_scene_count × target_clip_seconds`, montrer tout incident causal qui n'a pas déjà eu lieu, introduire une preuve avant son usage et accomplir visiblement le payoff local. Les beats sont des jalons et ne sont plus présentés comme un découpage mécanique des clips.
+- Le Rédacteur reçoit uniquement la bible compacte, l'épisode sélectionné et la mémoire réelle des épisodes précédents. Il doit réparer une ouverture qui suppose un incident jamais montré, respecter la capacité temporelle et jouer le payoff dans la dernière scène.
+- Une ou deux propositions ne reçoivent plus les anciennes phrases contradictoires imposant trois pistes. Une relance identique après échec ne duplique plus le tour utilisateur dans le contexte.
+- Un brouillon JSON refusé par une règle applicative peut être appliqué avec **Revalider la réponse reçue**, sans nouvel appel LLM. **Relancer le LLM** reste une action séparée.
+- Validation : 35 tests Histoires et 28 tests navigateur/Lab verts. Suite complète : 1 415 tests, avec les 38 échecs et 31 erreurs historiques hors de cette surface, soit les mêmes comptes qu'avant l'ajout des deux nouveaux tests.
+
+### Broken / missing
+- Aucun appel LLM réel n'a été lancé pendant le patch ; l'effet sur la durée du thinking et la cohérence du prochain arc doit être observé sur un nouveau run.
+- La revalidation ne répare pas un JSON incomplet ou sémantiquement toujours invalide : dans ce cas, il faut corriger la règle concernée ou relancer le LLM.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger `stories.js?v=20260919.2`.
+2. Créer un nouvel arc long Fruit avec le même format que le run audité et comparer le thinking, l'ouverture de l'épisode 1 et son payoff local.
+3. Si une réponse complète est rejetée uniquement après une correction locale, utiliser d'abord **Revalider la réponse reçue** au lieu de demander une seconde génération.
+
+## Correctif 2026-09-19 — espèce Fruit non bloquante
+
+### Works
+- Le contrat Fruit ne rejette plus une fiche uniquement parce que son espèce n'emploie pas la formulation stricte `espèce pomme` ou `pomme anthropomorphe`. Le brouillon réel de `L'éclat de Pomitta`, qui dit naturellement `Pomme adulte`, est maintenant accepté.
+- Aucune consigne LLM n'a été modifiée. Lorsque l'espèce est détectée sans ambiguïté, le contrôle existant reliant le nom fruité à cette espèce reste actif.
+- Validation : les 33 tests `tests.test_stories` sont verts et le brouillon persisté de Pomitta passe directement le contrat.
+
+### Broken / missing
+- Une fiche ne nommant pas explicitement l'espèce ne permet plus au validateur local de vérifier que le radical du nom correspond précisément au fruit ; la consigne éditoriale reste responsable de ce cas.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge avant de relancer la création de l'arc de Pomitta.
+2. Vérifier que le nouveau run franchit l'étape d'arc sans l'ancien message sur l'espèce.
+
+## Patch 2026-09-19 — Fruits audio-first et noms fruités
+
+### Works
+- La famille Mélodrame fruits exige désormais, dans ses histoires générées courtes, longues et leurs suites, un nom unique inventé à partir de l'espèce : `Figos/Figette`, `Pomitto/Pomitta`, `Mangotino/Manguette`, `Ananito/Ananette`, etc. Les formes humaines telles que `Nour Myrtille` sont refusées avant persistance du scénario ou de l'arc.
+- Le contrat de rédaction applique un test d'écoute : situation, intention, obstacle, causalité et conséquence doivent être compréhensibles via les dialogues, pensées ou voix off. Chaque micro-scène Fruit contient de une à quatre entrées `dialogue`; un texte écrit indispensable est lu ou reformulé.
+- Le contrôle est déterministe pour les noms et la limite de quatre lignes, en complément de la consigne sémantique donnée à l'Architecte et au Rédacteur. Le brouillon LLM reste conservé lorsqu'une sortie est refusée. Le mode Script fidèle est exempté afin de ne jamais renommer un personnage humain ni altérer un dialogue fourni.
+- Le précédent changement de valeurs par défaut a été resserré : seuls audace, vie de scène, caméra, mouvements additionnels et dialogues/réactions passent à `3/3/3/3/1`. H3 Base et REF2V Direct retrouvent leur recette vidéo historique ; le manifeste BUNNY retrouve ses LoRA Combat + Motion Repair. Dans Histoires, la durée du rendu continue de provenir automatiquement de chaque scène.
+- Validation : 33 tests Histoires, 41 tests Episodes/LoRA et 46 tests navigateur/web/dialogues verts. Les tests H3 BUNNY couvrent aussi la restauration des brouillons après retour aux recettes vidéo historiques. La suite complète exécute 1 413 tests et conserve 38 échecs / 31 erreurs historiques hors de cette surface ; toutes les suites directement touchées restent vertes.
+
+### Broken / missing
+- Le test d'écoute sémantique repose sur la consigne éditoriale ; le validateur local garantit la présence de 1–4 paroles mais ne prétend pas juger automatiquement leur qualité narrative.
+- Aucun appel LLM ni rendu H3 réel n'a été lancé pendant ce patch.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger les valeurs créatives et l'action de rendu armé déjà ajoutées au patch précédent.
+2. Créer une nouvelle histoire Fruit courte puis longue et vérifier que les noms sont immédiatement fruités et que chaque scène reste compréhensible en n'écoutant que les paroles.
+3. Si un nouveau run reste trop elliptique malgré le contrat audio-first, auditer ses quatre paroles par scène avant d'ajouter un évaluateur LLM ou un curseur de densité.
+
+## Patch 2026-09-19 — catalogue Persona, presets classés et KREA2 Assisted bilingue
+
+### Works
+- Le catalogue KREA2 expose une catégorie logique **NSFW - Persona** en bas des catégories métier. Les LoRA du sous-dossier `people` y sont classés sans déplacer aucun fichier. `pussy_helper_v01alpha.safetensors` reste explicitement dans **NSFW · Details** et `lenovo_krea2.safetensors` reste **Non classé**, même s'il se trouve sous `people`.
+- Les presets de style portent désormais une catégorie **Work / Fun / NSFW / Archive**. Les sélecteurs Assisted et Fabrication sont groupés dans cet ordre ; le gestionnaire compact permet de reclasser ou supprimer un preset. Le stockage passe au schéma 2 avec révisions immuables et tombstones de suppression ; le schéma 1 est relu avec `Work` par défaut.
+- Supprimer ou mettre à jour un preset ne modifie jamais sa copie déjà épinglée dans un projet ou un épisode. Un preset retiré reste visible comme copie du projet, mais `Réappliquer` est désactivé puisque sa source catalogue n'existe plus.
+- KREA2 Assisted propose English / 中文 dès le nouveau projet et pendant la conversation. Le preset présélectionne sa langue, l'utilisateur peut l'écraser, les échanges et rendus suivants mémorisent le choix, et aucun appel supplémentaire n'est ajouté au parcours normal. Le bouton de conversion LLM n'apparaît que lorsqu'un prompt courant existe et que la langue sélectionnée diffère de la langue persistée.
+- Validation : compilation Python, `git diff --check` et **140 tests ciblés verts**, dont parcours Chromium Assisted/Fabrication/catalogue. Suite complète : **1 409 tests**, 40 échecs et 32 erreurs historiques hors de cette surface (contre 42/32 consignés avant ce patch) ; tous les tests du patch restent verts.
+
+### Broken / missing
+- Aucun appel LLM ni rendu KREA2 réel n'a été lancé pendant ce patch ; la qualité comparée d'un prompt chinois reste à évaluer sur les modèles de l'utilisateur.
+- La suppression masque le preset du catalogue sans bouton d'annulation. Ses révisions et les copies épinglées sont conservées sur disque, mais une restauration UI n'est pas encore proposée.
+- Le classement Persona est logique et déterministe ; il ne crée ni ne déplace de dossier sur le serveur ComfyUI.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger `lab.css`, `krea2-resource-ui.js`, `episodes.js` et `krea2-assisted-lab.js` datés du 19 septembre.
+2. Ouvrir **Gérer** dans Création assistée, vérifier Work/Fun/NSFW/Archive et confirmer que les LoRA `people` apparaissent dans **NSFW - Persona**, avec Pussy Helper et Lenovo dans leurs catégories prévues.
+3. Tester le même projet en English puis 中文 : échange normal après bascule, conversion explicite du prompt courant, puis deux rendus comparables.
+
+## Patch 2026-09-19 — histoires courtes/longues et casting hérité
+
+### Works
+- Le parcours Histoires propose désormais deux formats isolés. **Histoire courte** conserve les propositions, le script fidèle, les suites cumulatives et le nombre exact de scènes existants. **Histoire longue** ajoute après le choix d'une piste un arc global validé de quatre épisodes autoportants et reliés.
+- Chaque épisode long possède son propre réglage de 1 à 12 micro-scènes et de 5 à 15 secondes par clip. Il est développé séparément ; les actions causales importantes doivent rester visibles et la mémoire compacte des épisodes déjà écrits prévaut sur l'arc prévu, sans appel LLM de résumé supplémentaire.
+- La bible d'arc impose des identifiants et noms stables aux personnages récurrents. Les quatre scénarios restent dans un même projet, mais Fabrication produit une préparation distincte par épisode grâce à une empreinte incluant l'identifiant d'épisode.
+- À la création de la Fabrication suivante, les images de personnages retenues sont présélectionnées depuis le dernier épisode antérieur compatible. Le même héritage fonctionne pour une suite courte créée depuis le bouton dédié via `parent_story_id` et remonte toute la chaîne d'ascendance si un épisode intermédiaire n'a pas de Fabrication. Seules l'image et sa provenance sont reprises : prompts, LLM, projet KREA2, réglages techniques et décors restent indépendants.
+- Validation : compilation Python, `git diff --check` et 95 tests ciblés verts (`stories`, `episodes`, navigateurs, routes web et page Lab), incluant arc exact de quatre épisodes, formats indépendants, mémoire réelle, isolation du mode court et héritage d'images. Suite complète : 1 405 tests exécutés, 42 échecs et 32 erreurs historiques hors de cette surface (contre 43/32 consignés avant ce patch) ; les suites Histoires/Fabrication ciblées restent entièrement vertes.
+
+### Broken / missing
+- Le nombre de quatre épisodes est volontairement fixe dans cette première version ; seule la longueur interne de chaque épisode est configurable.
+- Une histoire longue commence uniquement par les propositions. Le mode Script fidèle et l'ancien mode Suite restent disponibles dans Histoire courte.
+- Aucun appel LLM ni rendu KREA2/H3 réel n'a été lancé pendant ce patch.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger `stories.js`, `stories.css` et `episodes.js` version `20260919.1`.
+2. Tester un arc long avec deux épisodes volontairement courts, puis ouvrir Fabrication sur le second et vérifier que les portraits retenus au premier sont déjà sélectionnés.
+3. Après retour d'usage, décider si le nombre global d'épisodes doit lui aussi devenir configurable ; ne pas le confondre avec le nombre de micro-scènes par épisode.
+
 ## Goal
+
+- **Réglage A/B Unsloth recommandé le 18 septembre, sans modification automatique** : dans Run Settings, remplacer `Context Length: Auto` par `32768` sur le modèle réellement utilisé, conserver `KV q8_0`, MTP 3, un slot, Vision et les arguments de stabilité image `--batch-size 2048 --ubatch-size 1120`, puis recharger le modèle. Ne modifier aucun autre paramètre pendant le premier essai. La capture montre HauhauCS Uncensored, tandis que les trois appels sociaux audités utilisaient `unsloth/gemma-4-31B-it-qat-GGUF` ; le réglage doit être mémorisé séparément pour chacun. Si 32k limite un usage long, tester ensuite 65536 ; viser une estimation GPU inférieure à environ 30–31 Gio et l'absence de mémoire GPU partagée.
+
+- **Audit latence Unsloth du 18 septembre, sans correctif** : les trois demandes `social.instagram.generate@0.1.0` sur `local::unsloth/gemma-4-31B-it-qat-GGUF` ont été correctement sérialisées par la voie locale. Elles ont attendu respectivement 0 s, 80 s et 124 s avant admission, puis occupé la machine 94 s, 60 s et 56 s. Le premier appel inclut environ 14 s de démarrage du serveur et 22 s de chargement du modèle. Chaque appel transmet quatre keyframes et environ 2 156 tokens de prompt ; llama.cpp passe ensuite 46–47 s au prompt multimodal mais seulement 9–10 s à générer environ 900–1 050 tokens, à environ 100 tokens/s. Le processus réserve 31,42 Gio de VRAM dédiée et déborde de 1,77 Gio en mémoire GPU partagée avec `n_ctx_slot=204288`, alors que les requêtes observées utilisent environ 3 200 tokens au total. Un essai identique à 17 h 02 avec le même build llama.cpp `b11027-mix-3e83366` avait pris 12,7 s, dont 4,5 s de prompt eval : la mise à jour seule n'explique donc pas la régression. Priorité proposée avant tout patch PanelForge : tester un contexte Unsloth nettement plus petit / auto-fit, puis distinguer visuellement attente FIFO, chargement et temps avant premier token.
+
+- **Diagnostic de l'alerte DLSS fantôme du 18 septembre, sans correctif** : `dlss-lab.js` interroge `/api/dlss/jobs` dès le chargement puis toutes les 15 secondes même sans tâche DLSS. Une erreur réseau transitoire publie une notice globale persistante `Suivi DLSS indisponible`, qui n'est pas retirée lors du polling réussi suivant. Les endpoints DLSS et ordonnanceur répondent actuellement HTTP 200 ; cette alerte ne signifie pas qu'un DLSS était lancé.
+
+- **Sélecteur local de la variante chinoise corrigé le 18 septembre** : exposer dans H3 Base et REF2V Direct la bascule standard `Local · Unsloth`, cochée par défaut, et présélectionner `HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP` lorsqu'il est disponible.
+
+- **Progression Spectrum H3/REF2V débloquée le 18 septembre** : accepter le compteur d'étapes réellement exécutées par Spectrum (`2/4`, par exemple) au lieu de rejeter tout compteur différent des 25 steps du scheduler. Toute connexion de preview H3 doit également republier la progression dans l'ordonnanceur global, afin que plusieurs onglets ne laissent plus le serveur figé à 8 %.
+
+- **File FIFO des rendus directs H3/REF2V corrigée le 18 septembre** : permettre de lancer un second rendu depuis un autre onglet pendant que le premier tourne. Chaque clic réserve immédiatement sa place dans la voie GPU distante PanelForge ; le worker ne soumet à ComfyUI qu'à son tour. Conserver la détection prudente des anciens jobs distants après redémarrage, rendre le démarrage idempotent et retirer proprement une réservation annulée.
 
 - **Variante chinoise H3 et insertion déterministe des dialogues autorisées et implémentées le 18 septembre** : conserver le prompt anglais comme canon, proposer à la demande dans H3 Base et REF2V Direct une transcompilation chinoise issue du Plan accepté et du prompt final anglais, puis ouvrir un atelier de rendu distinct pour l’A/B. Pendant Plan, Writer, révision et arbitrage, remplacer les paroles imposées par des jetons opaques et réinsérer localement les textes originaux avant compilation/validation afin qu’aucun LLM ne puisse les traduire ou les paraphraser.
 
@@ -3855,7 +3973,7 @@
 - H3 Base et REF2V Direct affichent un bloc optionnel `Variante chinoise · expérimental` après le prompt final. La transcompilation est un troisième appel explicite et configurable ; elle reçoit le Plan accepté et le prompt anglais final, sans image.
 - Le prompt anglais reste canonique et inchangé. La variante chinoise est persistée à côté de sa révision source, puis choisie explicitement pour le rendu. Anglais et chinois ouvrent deux projets H3 distincts, ce qui permet un A/B sans collision d’historique.
 - Le validateur chinois exige de la prose chinoise et conserve exactement sections, plans, timecodes, références, identifiants vocaux, marqueurs techniques et dialogues. Une sortie qui modifie la structure ou les paroles est rejetée sans remplacer l’anglais.
-- Le modèle de transcompilation reprend par défaut le Writer final quand il est disponible ; il reste sélectionnable dans le catalogue LLM normal. Une nouvelle révision anglaise remet volontairement la sélection sur English.
+- Le modèle de transcompilation est sélectionnable dans le catalogue LLM normal. Son défaut a depuis été remplacé par Gemma Uncensored local ; une nouvelle révision anglaise remet volontairement la sélection du prompt sur English.
 - Les paroles imposées sont remplacées par des jetons opaques avant chaque appel Plan/Writer, révision et arbitrage, puis réinsérées localement avant compilation et validation. Le chemin Super Fast historique applique aussi la restauration. Le rejet observé sur la réplique coréenne est couvert par un test de non-exposition au modèle et de restitution exacte.
 - Persistance `prompt_compositions` passée au schéma 7 avec lecture intacte des schémas 1 à 6. La traçabilité des appels de préparation d’un rendu chinois remonte à la révision anglaise source.
 - Validation : compilation Python, `git diff --check`, 164 tests ciblés verts, dont transport HTTP et Chromium. Suite complète : 1 394 tests exécutés, 43 échecs et 32 erreurs historiques hors surface (contre 47/33 consignés précédemment) ; aucune régression dans les tests ciblés de ce patch.
@@ -3869,3 +3987,101 @@
 1. Redémarrer PanelForge puis faire `Ctrl+F5` afin de charger `chinese-prompt-variant.js?v=20260918.1`, les scripts directs `20260918.2`, H3 Render `20260918.3` et le CSS `20260918.4`.
 2. Sur une même scène, générer la variante chinoise puis rendre English et 中文 avec la même seed et les mêmes réglages.
 3. Vérifier sur un prompt comportant une réplique non anglaise que Plan, prompt final anglais et variante chinoise conservent exactement les caractères originaux.
+
+## Correctif 2026-09-18 — file directe H3/REF2V
+
+### Works
+- `queue_attempt` ne rejette plus un rendu uniquement parce qu'un autre H3/REF2V appartenant au processus courant est actif. Il persiste le statut `queued` et réserve immédiatement un ticket FIFO dans `MachineWorkCoordinator`, avant le lancement de la tâche d'arrière-plan.
+- Deux ateliers ou onglets peuvent donc lancer leurs rendus successivement : PanelForge conserve l'ordre des clics, même si le thread du second rendu démarre avant celui du premier. ComfyUI ne reçoit toujours qu'un seul rendu vidéo à la fois.
+- Les exécutions distantes détachées après redémarrage restent bloquantes tant que leur état ComfyUI n'est pas réconcilié. Un double appel `/start` reste idempotent et une annulation en file retire le ticket non réclamé.
+- Histoires transmet le même libellé de scène à la réservation et à l'exécution. L'atelier direct affiche désormais `En attente dans la file…` au lieu de laisser croire que le rendu est déjà en cours.
+- Cache H3 Render passé à `20260918.4`.
+- Validation : compilation Python, `git diff --check` et 94 tests ciblés verts (`h3_render_global_queue`, `machine_work`, récupération H3, H3, Episodes et contrôle navigateur H3).
+
+### Broken / missing
+- Aucun rendu ComfyUI réel n'a été lancé pendant le correctif ; la validation utilise le faux moteur immédiat et vérifie l'ordre exact des soumissions.
+- La suite web générale conserve deux attentes de versions d'assets déjà obsolètes avant ce patch (`lab.css` et ancienne version H3) ; elles ne concernent pas la file de rendu.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger H3 Render `20260918.4`.
+2. Lancer un FL2V, puis un second depuis un autre onglet : le second doit afficher `En attente dans la file…` et apparaître dans la ligne Serveur du suivi global.
+3. Vérifier que le second n'est envoyé à ComfyUI qu'après la fin et le refroidissement éventuel du premier.
+
+## Correctif 2026-09-18 — progression Spectrum et audit réel de la file
+
+### Works
+- Le dernier rendu observé utilisait REF2V `0.2.5`, Spectrum actif, 25 steps configurés et un compteur ComfyUI effectif réduit par Spectrum. Le normaliseur rejetait `2/4` parce qu'il exigeait `x/25`, ce qui laissait l'ordonnanceur à `Envoi à ComfyUI · 8 %`.
+- Pour un essai Spectrum, le nœud de diffusion suivi accepte désormais son compteur effectif tout en conservant les contrôles stricts des autres phases et des rendus non accélérés.
+- La preview H3/REF2V met elle aussi à jour `MachineWorkCoordinator`. Plusieurs onglets peuvent se disputer le canal WebSocket ComfyUI sans que la connexion gagnante prive le suivi global de progression.
+- L'audit du workspace confirme que la file du correctif précédent a fonctionné : un second essai a été réservé à 17:11 pendant le premier rendu, puis annulé à 17:12 avant soumission. L'épisode inspecté avait `video_chain: null` : les essais provenaient des boutons manuels des scènes, pas de `Lancer prompts + vidéos`.
+- Validation : compilation Python, `git diff --check` et 97 tests ciblés verts, y compris `2/4` Spectrum et la remontée d'une preview vers la file globale. Le module Video Lab complet conserve son erreur historique `input_mode` sur un endpoint retiré de la navigation.
+
+### Broken / missing
+- Le processus PanelForge lancé à 17:01 utilise encore le code importé avant ce dernier correctif de progression. La voie distante était redevenue `idle` lors de la vérification finale : le serveur peut maintenant être redémarré sans interrompre ce rendu.
+- Aucun changement de stratégie n'a été appliqué à la chaîne Histoires : le bouton global reste le mécanisme qui crée `video_chain`; les lancements manuels par scène utilisent bien la FIFO globale mais ne créent pas de chaîne d'épisode.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge. Aucun `Ctrl+F5` n'est nécessaire pour ce correctif backend, même s'il reste utile pour le statut `En attente dans la file…` ajouté précédemment.
+2. Relancer un rendu Spectrum et vérifier que `Diffusion principale · étape 1/4`, puis `2/4`, remplace le 8 % figé.
+3. Pour tester l'automatisation Histoires, utiliser `Lancer prompts + vidéos`; pour tester uniquement la FIFO manuelle, lancer deux scènes séparément sans annuler la seconde.
+
+## Correctif 2026-09-18 — LLM local pour la variante chinoise
+
+### Works
+- H3 Base et REF2V Direct affichent désormais la bascule standard `Local · Unsloth` dans leur bloc de variante chinoise. Elle est cochée par défaut, ce qui évite que le picker commun filtre un catalogue local comme s'il s'agissait du catalogue serveur et laisse la liste vide.
+- Le transcompilateur présélectionne exactement `local::HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP` lorsqu'il est disponible. Le repli reste volontairement local : autre Gemma uncensored, Gemma, Writer local ou premier modèle Unsloth ; il ne décoche jamais implicitement la source locale pour choisir un modèle serveur.
+- La bascule reste libre : la décocher affiche les modèles serveur et une sélection explicite de l'utilisateur n'est pas écrasée pendant le run.
+- Cache passé à `chinese-prompt-variant.js?v=20260918.2` et `lab.css?v=20260918.5`.
+- Validation : `git diff --check` et 26 tests UI/web verts, dont le parcours Chromium de génération chinoise avec le modèle local attendu.
+
+### Broken / missing
+- Aucun appel LLM réel n'a été lancé pendant ce correctif ; la disponibilité effective du modèle dépend toujours du catalogue Unsloth au démarrage.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger le nouveau HTML et les assets `20260918.2` / `20260918.5`.
+2. Ouvrir un prompt final dans H3 Base ou REF2V et vérifier que `Local · Unsloth` ainsi que Gemma Uncensored sont déjà sélectionnés.
+3. Générer une variante chinoise et confirmer dans le suivi Local que l'appel utilise bien le modèle HauhauCS choisi.
+
+## Diagnostic 2026-09-18 — REF2V chinois lance l'ancien projet anglais
+
+### Current state
+- La composition `prompt-0ee9a92e3ab64e77b813606598ae950f` contient bien une variante chinoise persistée de 3 728 caractères (`prompt-zh-ce629284263f4820a30cfacfbc101494`).
+- Le backend a correctement créé un projet REF2V chinois isolé, `h3-render-6ec70f08ff324aa5b364e86ea6ab186c`, avec la source synthétique `zh:final_prompt-850fc744a2a447d0a67666f89d99aa56:prompt-zh-ce629284263f4820a30cfacfbc101494`. Ce projet n'a aucun essai.
+- Un essai anglais a aussi été ajouté au projet `h3-render-e03c9b663fce4edea0a204019523d178`, puis annulé. L'utilisateur indique avoir probablement lancé volontairement chinois puis anglais pour comparer : aucun bug de rattachement UI n'est donc retenu sans nouvelle reproduction.
+- Le projet chinois rencontre en plus un second blocage, indépendant : `prepare_attempt()` repasse sa prose dans le validateur cinématique anglais. Les marqueurs `[Shot N]` et les timecodes du prompt inspecté sont corrects, mais les directives telles que `The camera pushes in...` ont été traduites ; `extract_compiled_camera_clauses()` trouve donc zéro phase dans chacun des trois plans et émet `Chaque plan contient une ou deux phases caméra continues.` avant tout envoi à ComfyUI.
+- Conserver les clauses caméra en anglais contournerait le rejet mais dégraderait l'expérience A/B recherchée. Le correctif approprié est une validation de rendu consciente de la variante : comparer la structure chinoise à la révision anglaise canonique (sections, plans, coupures, références, dialogues et durée), sans tenter de reparcourir la prose chinoise avec le lexique caméra anglais.
+
+### Next steps (max 3)
+1. Ne traiter le rattachement UI que si un nouveau lancement reproduit un projet de langue différente de la sélection visible.
+2. Rendre la validation de `prepare_attempt()` consciente du préfixe `zh:`.
+3. Couvrir le lancement chinois par un test service.
+
+## Correctif 2026-09-18 — rendu chinois expérimental sans validation anglophone
+
+### Works
+- `H3RenderService.prepare_attempt()` détecte les projets dont `source_prompt_revision_id` commence par `zh:` et ne leur applique plus `canonicalize_h3_revision()` ni les linters cinématiques anglophones.
+- Le prompt chinois est transmis tel quel au workflow après le seul garde technique générique de taille/type. Les projets anglais, H3 Base comme REF2V, conservent toutes leurs validations actuelles.
+- Le test de variante traduit volontairement les clauses `The camera...` en chinois, ouvre son projet isolé puis prépare un essai avec ce texte exact. Validation : 43 tests `h3_chinese_variant` + `h3_render` verts, compilation Python et `git diff --check` sans erreur.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge pour charger le correctif backend ; aucun `Ctrl+F5` n'est requis.
+2. Relancer le projet chinois existant et vérifier qu'un essai est créé puis envoyé à ComfyUI.
+3. Ne concevoir un validateur chinois qu'après les premiers A/B montrant un gain réel.
+
+## Patch 2026-09-19 — axes créatifs, rendu armé et registre vocal Histoires
+
+### Works
+- Les sélections de recette, checkpoint, LoRA, ratio, MP, musique et durée restent celles propres à chaque atelier avant ce patch. Aucun réglage vidéo global n'est imposé ; Histoires continue notamment à injecter automatiquement la durée de la scène dans son rendu.
+- Les nouvelles préparations utilisent audace/vie/caméra/mouvements `3` et dialogues/réactions `1`. Les modes rapides directs restent présélectionnés.
+- Dans Histoires, le panneau de réglages affiche `Générer dès que le prompt est prêt` même sans prompt. Le clic persiste le snapshot visible et crée une chaîne durable d'une seule scène. Elle peut s'attacher au prompt manuel déjà actif, ou lancer prompt puis vidéo ; un échec du prompt marque la carte et annule toute soumission vidéo.
+- L'audit du run `La métamorphose de Nour` a isolé le faux rejet de paroles : la pancarte « vilain petit caneton » était prise pour une réplique et placée avant les vrais dialogues. Lorsqu'une intention contient le bloc PanelForge `Répliques exactes...`, le registre vocal est maintenant limité à ce bloc ; l'extraction générique reste inchangée pour les ateliers directs.
+- Validation ciblée : contrats dialogue, Episodes/service/UI, H3 Render/BUNNY/LoRA, ateliers directs et web. Les parcours Chromium couvrent le défaut BUNNY et le rendu armé. `git diff --check` est propre. Node.js n'est pas installé ; les parcours Chromium assurent la validation JavaScript exécutée.
+
+### Broken / missing
+- La suite complète du worktree très modifié exécute 1 411 tests mais conserve 37 échecs et 31 erreurs hors surface de ce patch, notamment des contrats Combat/H3 Render et des attentes de versions déjà désynchronisées. Les suites ciblées de cette surface sont vertes.
+- Aucun rendu ComfyUI ou appel LLM réel n'a été lancé pendant ce patch.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger les nouveaux caches H3/REF2V/Episodes.
+2. Reprendre la scène en échec de `La métamorphose de Nour` et confirmer que seules les deux vraies répliques entrent dans le Plan.
+3. Depuis une scène sans prompt, régler BUNNY puis cliquer `Générer dès que le prompt est prêt` et observer la transition prompt → file serveur.

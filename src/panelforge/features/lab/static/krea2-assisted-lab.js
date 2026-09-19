@@ -26,6 +26,7 @@
     activeRecipe: $("krea2-assisted-active-recipe"),
     newPreset: $("krea2-assisted-new-preset"),
     newPresetNote: $("krea2-assisted-new-preset-note"),
+    newPromptLanguage: $("krea2-assisted-new-prompt-language"),
     preset: $("krea2-assisted-preset"),
     presetNote: $("krea2-assisted-preset-note"),
     presetImage: $("krea2-assisted-preset-image"),
@@ -35,9 +36,14 @@
     presetForm: $("krea2-assisted-preset-form"),
     presetName: $("krea2-assisted-preset-name"),
     presetTarget: $("krea2-assisted-preset-target"),
+    presetCategory: $("krea2-assisted-preset-category"),
     presetSource: $("krea2-assisted-preset-source"),
     presetError: $("krea2-assisted-preset-error"),
     presetSave: $("krea2-assisted-preset-save"),
+    presetManager: $("krea2-assisted-preset-manager"),
+    presetManagerList: $("krea2-assisted-preset-manager-list"),
+    presetManagerError: $("krea2-assisted-preset-manager-error"),
+    presetManagerClose: $("krea2-assisted-preset-manager-close"),
     revisionLlm: $("krea2-assisted-revision-llm"),
     create: $("krea2-assisted-create"),
     newMessage: $("krea2-assisted-new-message"),
@@ -65,6 +71,7 @@
     recipeChat: $("krea2-assisted-recipe-chat"),
     showReasoning: $("krea2-assisted-show-reasoning"),
     promptLanguage: $("krea2-assisted-prompt-language"),
+    convertLanguage: $("krea2-assisted-convert-language"),
     reasoning: $("krea2-assisted-reasoning"),
     reasoningLabel: $("krea2-assisted-reasoning-label"),
     reasoningContent: $("krea2-assisted-reasoning-content"),
@@ -256,6 +263,11 @@
   const resourceUi = window.PanelForgeKrea2ResourceUi;
   const core = window.PanelForgeLabCore;
   const defaultNewProjectLlm = "unsloth/gemma-4-31b-it-qat-GGUF";
+  const presetCategories = Object.freeze([
+    ["work", "Work"], ["fun", "Fun"], ["nsfw", "NSFW"], ["archive", "Archive"],
+  ]);
+  const presetCategoryLabels = Object.fromEntries(presetCategories);
+  const presetManageButtons = [...document.querySelectorAll("[data-krea2-preset-manage]")];
   const state = {
     initialized: false,
     initializing: null,
@@ -328,6 +340,8 @@
     elements.revisionLlm.disabled = value || !state.project;
     window.PanelForgeModelPicker.setDisabled(elements.revisionLlm, value || !state.project);
     elements.promptLanguage.disabled = value || !state.project;
+    elements.newPromptLanguage.disabled = value;
+    elements.convertLanguage.disabled = value || !state.project;
     elements.guidanceFile.disabled = value || !state.project;
     elements.guidanceRemove.disabled = value || !state.project;
     elements.render.disabled = value || !state.project || !modelsReady || !lorasReady;
@@ -336,10 +350,14 @@
     elements.branchTree.querySelectorAll("button").forEach((button) => { button.disabled = value; });
     elements.newPreset.disabled = value;
     elements.preset.disabled = value || !state.project;
-    elements.presetReapply.disabled = value || !state.project?.style_preset;
+    elements.presetReapply.disabled = value || !state.project?.style_preset
+      || !state.presets.some((preset) => preset.preset_id === state.project?.style_preset?.preset_id);
     elements.presetRemove.disabled = value || !state.project?.style_preset;
     elements.presetSave.disabled = value;
+    presetManageButtons.forEach((button) => { button.disabled = value; });
+    elements.presetManager.querySelectorAll("button,select").forEach((control) => { control.disabled = value; });
     elements.gallery.querySelectorAll("button").forEach((button) => { button.disabled = value; });
+    updateLanguageControls();
     renderStatus();
     if (!value && state.project && ((state.renderQueue.items || []).length
       || (state.project.attempts || []).some((attempt) => activeStatuses.has(attempt.status)))) schedulePoll();
@@ -355,6 +373,19 @@
   function setMessage(message = "", error = false) {
     elements.messageState.textContent = message;
     elements.messageState.classList.toggle("error", error);
+  }
+
+  function promptLanguageLabel(value) {
+    return value === "zh" ? "中文" : "English";
+  }
+
+  function updateLanguageControls() {
+    const target = elements.promptLanguage.value;
+    const current = state.project?.prompt_language || "en";
+    const canConvert = Boolean(state.project && elements.prompt.value.trim() && target !== current);
+    elements.convertLanguage.hidden = !canConvert;
+    elements.convertLanguage.textContent = `Convertir en ${promptLanguageLabel(target)}`;
+    elements.convertLanguage.disabled = state.busy || !canConvert;
   }
 
   function preferredRenderModel(models) {
@@ -986,6 +1017,7 @@
     }
     if (changed) restoreRenderState(project);
     if (changed || !preservePrompt || !elements.prompt.value.trim()) elements.prompt.value = project.current_prompt || "";
+    updateLanguageControls();
     elements.warnings.replaceChildren();
     (project.warnings || []).forEach((warning) => { const item = document.createElement("p"); item.textContent = warning; elements.warnings.append(item); });
     elements.warnings.hidden = !(project.warnings || []).length;
@@ -1264,6 +1296,7 @@
       data.set("intention", elements.intention.value.trim());
       data.set("model_id", elements.llm.value);
       data.set("assistance_recipe_version", elements.assistanceRecipe.value);
+      data.set("prompt_language", elements.newPromptLanguage.value);
       if (elements.newPreset.value) data.set("style_preset_id", elements.newPreset.value);
       if (elements.reference.files[0]) data.set("reference", elements.reference.files[0]);
       const payload = await request("/api/image-lab/krea2-assisted/projects", { method: "POST", body: data });
@@ -1324,6 +1357,15 @@
     finally { reasoningTrace.finish(); setBusy(false); }
   }
 
+  async function convertPromptLanguage() {
+    if (!state.project || elements.convertLanguage.hidden) return;
+    const target = elements.promptLanguage.value;
+    const instruction = target === "zh"
+      ? "Convertis le prompt KREA2 actuel en chinois simplifié. Conserve strictement le sujet, la composition, les détails visuels et l’intention ; ne propose aucune autre modification."
+      : "Translate the current KREA2 prompt into English. Preserve the subject, composition, visual details and intent exactly; make no other change.";
+    await sendChat("creation", instruction);
+  }
+
   async function renderAttempt() {
     if (!state.project || state.busy) return;
     if (!validateSamplingInputs()) return;
@@ -1347,6 +1389,7 @@
           loras: selectedLoras(),
           sampling: readSampling(),
           workflow: elements.workflow.value,
+          prompt_language: elements.promptLanguage.value,
         }),
       });
       const attempt = payload.project.attempts.at(-1);
@@ -1491,15 +1534,32 @@
     finally { setBusy(false); }
   }
 
+  function fillPresetSelect(select, emptyLabel, selected, pinned = null) {
+    select.replaceChildren(new Option(emptyLabel, ""));
+    for (const [category, label] of presetCategories) {
+      const presets = state.presets.filter((preset) => (preset.category || "work") === category);
+      if (!presets.length) continue;
+      const group = document.createElement("optgroup");
+      group.label = label;
+      presets.forEach((preset) => group.append(new Option(preset.name, preset.preset_id)));
+      select.append(group);
+    }
+    if (pinned && !state.presets.some((preset) => preset.preset_id === pinned.preset_id)) {
+      const group = document.createElement("optgroup");
+      group.label = "Projet actuel";
+      group.append(new Option(`${pinned.name} · copie conservée`, pinned.preset_id));
+      select.append(group);
+    }
+    if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+  }
+
   async function loadPresets() {
     const payload = await request("/api/image-lab/krea2-assisted/style-presets");
     state.presets = payload.presets || [];
-    for (const select of [elements.newPreset, elements.preset]) {
-      const selected = select.value;
-      select.replaceChildren(new Option("Sans preset", ""), ...state.presets.map((p) => new Option(p.name, p.preset_id)));
-      if (state.presets.some((p) => p.preset_id === selected)) select.value = selected;
-    }
+    fillPresetSelect(elements.newPreset, "Sans preset", elements.newPreset.value);
+    fillPresetSelect(elements.preset, "Sans preset", elements.preset.value, state.project?.style_preset);
     renderPresetSelection();
+    if (elements.presetManager.open) renderPresetManager();
   }
 
   function renderPresetSelection() {
@@ -1507,13 +1567,17 @@
     const preset = project?.style_preset;
     elements.presetImage.hidden = !preset;
     if (preset) elements.presetImage.src = preset.image_url;
+    if (preset && ![...elements.preset.options].some((option) => option.value === preset.preset_id)) {
+      fillPresetSelect(elements.preset, "Sans preset", preset.preset_id, preset);
+    }
     elements.preset.value = preset?.preset_id || "";
     const current = state.presets.find((p) => p.preset_id === preset?.preset_id);
-    const update = current && current.revision !== preset.revision ? " Une mise à jour est disponible via Réappliquer." : "";
+    const update = current && current.revision !== preset.revision ? " Une mise à jour est disponible via Réappliquer."
+      : preset && !current ? " Retiré du catalogue ; la copie de ce projet reste utilisable." : "";
     elements.presetNote.textContent = preset
       ? `${preset.name} · ${project.preset_pending ? "inspiration au prochain échange" : "exemple déjà transmis"}.${update}`
       : "La sélection applique le modèle et les LoRA ; le prompt reste inchangé jusqu’au prochain échange.";
-    elements.presetReapply.disabled = state.busy || !preset;
+    elements.presetReapply.disabled = state.busy || !preset || !current;
     elements.presetRemove.disabled = state.busy || !preset;
   }
 
@@ -1546,6 +1610,7 @@
     elements.presetSource.textContent = `${attempt.label || `Essai ${attempt.index}`} · ${attempt.settings.model_id} · ${attempt.settings.loras.length} LoRA${attempt.composition ? " · réglages de la génération d’origine" : ""}`;
     elements.presetTarget.replaceChildren(new Option("Nouveau preset", ""), ...state.presets.map((p) => new Option(`Mettre à jour : ${p.name}`, p.preset_id)));
     elements.presetName.value = state.project.name;
+    elements.presetCategory.value = "work";
     elements.presetError.textContent = "";
     elements.presetSave.textContent = "Enregistrer un nouveau preset";
     elements.presetDialog.showModal();
@@ -1562,13 +1627,80 @@
       const payload = await request("/api/image-lab/krea2-assisted/style-presets", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...state.presetSource, name: elements.presetName.value.trim(),
-          preset_id: target?.preset_id || null, expected_revision: target?.revision || null }),
+          preset_id: target?.preset_id || null, expected_revision: target?.revision || null,
+          category: elements.presetCategory.value }),
       });
       await loadPresets();
       elements.presetDialog.close();
       setMessage(`Preset « ${payload.preset.name} » enregistré. Les projets existants conservent leur version.`);
     } catch (error) { elements.presetError.textContent = error.message; }
     finally { setBusy(false); }
+  }
+
+  function renderPresetManager() {
+    elements.presetManagerList.replaceChildren();
+    if (!state.presets.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted"; empty.textContent = "Aucun preset enregistré.";
+      elements.presetManagerList.append(empty);
+      return;
+    }
+    for (const [category, label] of presetCategories) {
+      const presets = state.presets.filter((preset) => (preset.category || "work") === category);
+      if (!presets.length) continue;
+      const section = document.createElement("section");
+      const title = document.createElement("h3"); title.textContent = label; section.append(title);
+      for (const preset of presets) {
+        const row = document.createElement("article"); row.className = "krea2-preset-manager-row";
+        const image = document.createElement("img"); image.src = preset.image_url; image.alt = ""; row.append(image);
+        const identity = document.createElement("div");
+        const name = document.createElement("b"); name.textContent = preset.name;
+        const meta = document.createElement("small");
+        meta.textContent = `${promptLanguageLabel(preset.prompt_language)} · v${preset.revision} · ${preset.settings.loras.length} LoRA`;
+        identity.append(name, meta); row.append(identity);
+        const categorySelect = document.createElement("select"); categorySelect.setAttribute("aria-label", `Catégorie de ${preset.name}`);
+        presetCategories.forEach(([value, text]) => categorySelect.append(new Option(text, value)));
+        categorySelect.value = preset.category || "work";
+        categorySelect.addEventListener("change", () => updateManagedPreset(preset, categorySelect.value));
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Supprimer";
+        remove.addEventListener("click", () => deleteManagedPreset(preset));
+        row.append(categorySelect, remove); section.append(row);
+      }
+      elements.presetManagerList.append(section);
+    }
+  }
+
+  async function updateManagedPreset(preset, category) {
+    if (state.busy || category === preset.category) return;
+    setBusy(true); elements.presetManagerError.textContent = "";
+    try {
+      await request(`/api/image-lab/krea2-assisted/style-presets/${encodeURIComponent(preset.preset_id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: preset.name, category, expected_revision: preset.revision }),
+      });
+      await loadPresets();
+    } catch (error) { elements.presetManagerError.textContent = error.message; renderPresetManager(); }
+    finally { setBusy(false); }
+  }
+
+  async function deleteManagedPreset(preset) {
+    if (state.busy || !window.confirm(`Supprimer « ${preset.name} » du catalogue ? Les projets existants garderont leur copie.`)) return;
+    setBusy(true); elements.presetManagerError.textContent = "";
+    try {
+      await request(`/api/image-lab/krea2-assisted/style-presets/${encodeURIComponent(preset.preset_id)}`, {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_revision: preset.revision }),
+      });
+      await loadPresets();
+    } catch (error) { elements.presetManagerError.textContent = error.message; }
+    finally { setBusy(false); }
+  }
+
+  function openPresetManager() {
+    if (state.busy) return;
+    elements.presetManagerError.textContent = "";
+    renderPresetManager();
+    elements.presetManager.showModal();
   }
 
   async function initialize() {
@@ -1621,8 +1753,9 @@
   elements.model.addEventListener("change", () => setBusy(state.busy));
   elements.newPreset.addEventListener("change", () => {
     const preset = state.presets.find((p) => p.preset_id === elements.newPreset.value);
+    if (preset) elements.newPromptLanguage.value = preset.prompt_language || "en";
     elements.newPresetNote.textContent = preset
-      ? `${preset.settings.model_id} · ${preset.settings.loras.length} LoRA · exemple au premier échange.` : "";
+      ? `${presetCategoryLabels[preset.category || "work"]} · ${promptLanguageLabel(preset.prompt_language)} · ${preset.settings.model_id} · ${preset.settings.loras.length} LoRA · exemple au premier échange.` : "";
   });
   elements.preset.addEventListener("change", () => applyPreset(elements.preset.value || null));
   elements.presetReapply.addEventListener("click", () => applyPreset(state.project?.style_preset?.preset_id));
@@ -1633,11 +1766,19 @@
   });
   elements.presetTarget.addEventListener("change", () => {
     const preset = state.presets.find((p) => p.preset_id === elements.presetTarget.value);
-    if (preset) elements.presetName.value = preset.name;
+    if (preset) {
+      elements.presetName.value = preset.name;
+      elements.presetCategory.value = preset.category || "work";
+    }
     elements.presetSave.textContent = preset ? "Mettre à jour ce preset" : "Enregistrer un nouveau preset";
   });
   elements.presetForm.addEventListener("submit", savePreset);
   $("krea2-assisted-preset-close").addEventListener("click", () => elements.presetDialog.close());
+  presetManageButtons.forEach((button) => button.addEventListener("click", openPresetManager));
+  elements.presetManagerClose.addEventListener("click", () => elements.presetManager.close());
+  elements.promptLanguage.addEventListener("change", updateLanguageControls);
+  elements.prompt.addEventListener("input", updateLanguageControls);
+  elements.convertLanguage.addEventListener("click", convertPromptLanguage);
   elements.chat.addEventListener("click", () => sendChat("creation"));
   elements.recipeChat.addEventListener("click", () => sendChat("recipe"));
   elements.guidanceFile.addEventListener("change", selectGuidanceFile);

@@ -34,6 +34,46 @@ manuels Local/Serveur sont mémorisés séparément dans le navigateur. Une hist
 rouverte reprend son modèle enregistré, même si le catalogue arrive plus tard.
 Un modèle absent reste indiqué indisponible ; il n'est pas remplacé silencieusement.
 
+Le point de départ distingue désormais deux formats narratifs indépendants :
+
+- **Histoire courte** conserve le parcours historique : propositions ou script
+  fidèle, puis un scénario complet contenant exactement le nombre de
+  micro-scènes choisi.
+- **Histoire longue** commence par les propositions, puis construit une bible et
+  un arc global de **quatre épisodes** avant de rédiger leurs scènes. Chaque
+  épisode a une promesse, un obstacle et un payoff local : ce ne sont pas quatre
+  extraits isolés d'une histoire plus grande. Le nombre de scènes et la durée
+  des clips se règlent séparément avant le développement de chaque épisode ; un
+  épisode peut donc rester très court sans réduire les autres.
+
+Dans une histoire longue, le développement ne reçoit que l'épisode sélectionné,
+l'extrait de bible utile et une mémoire compacte des épisodes antérieurs effectivement rédigés. Ces
+derniers prévalent sur l'arc planifié en cas d'écart. Les actions causales
+nécessaires doivent être montrées dans les micro-scènes, et les identifiants des
+personnages récurrents restent stables. Cette mémoire est construite localement :
+aucun appel LLM de résumé n'est ajouté.
+
+Les trois étapes narratives ont des consignes distinctes sans ajouter d'appel :
+les propositions explorent, l'Architecte produit uniquement la bible et les quatre
+épisodes, puis le Rédacteur transforme un seul épisode en scènes. L'arc est
+calibré sur `target_scene_count × target_clip_seconds`, ne doit pas commencer après
+un incident causal encore jamais montré et doit accomplir visiblement son payoff
+local. Les beats restent des jalons : ils ne sont pas distribués mécaniquement un
+par clip.
+
+La famille **Mélodrame fruits** applique en plus un contrat audio-first. Les
+personnages portent un seul nom inventé dérivé de leur espèce (`Figos`,
+`Figette`, `Pomitto`, `Pomitta`, `Mangotino`, `Manguette`, `Ananito`,
+`Ananette`) ; un prénom humain complété par le fruit, comme `Nour Myrtille`,
+est refusé. Chaque fiche doit nommer explicitement l'espèce. Chaque micro-scène
+contient une à quatre répliques ou monologues brefs. Les paroles doivent suffire
+à comprendre la situation, l'intention, l'obstacle et la conséquence sans
+regarder l'image ; un texte écrit causal est lu ou reformulé. Les gestes gardent
+leur rôle visuel mais ne portent plus seuls une étape indispensable. Cette règle
+s'applique aux histoires Fruits courtes, longues et à leurs suites. **Script
+fidèle** reste exempté : les noms et dialogues collés par l'auteur ne sont jamais
+réécrits pour se conformer à la collection.
+
 1. Choisir **Explorer des propositions**, demander une, deux ou trois histoires,
    donner éventuellement une idée puis lancer la proposition. Sans idée, la
    recette propose des conflits simples, antagonistes excessifs, escalades
@@ -99,6 +139,8 @@ l'épisode** permet de choisir une à douze scènes et cinq à quinze secondes p
 clip avant création. Ce nombre est une contrainte exacte de l'écriture, pas un
 quota de plans internes. Une réponse qui contient un autre nombre de micro-scènes
 est refusée sans remplacer la dernière version ; son brouillon reste consultable.
+Pour une histoire longue, ces valeurs servent seulement de défaut : chaque carte
+d'épisode peut choisir son propre format avant sa première rédaction.
 
 Le parcours par propositions utilise un appel d'architecture puis un appel de
 développement. Le parcours script utilise un seul appel de rédaction, avec les
@@ -144,6 +186,10 @@ sont repris au rafraîchissement ; les retours non envoyés sont conservés dans
 navigateur quand son stockage est disponible.
 
 Les appels s'exécutent en arrière-plan et continuent après navigation/refresh.
+Lorsqu'une réponse JSON complète a seulement été refusée par un contrat local,
+**Revalider la réponse reçue** la reparcourt sans nouvel appel LLM. **Relancer le
+LLM** reste disponible pour demander une nouvelle réponse ; une relance identique
+après échec ne duplique plus la demande utilisateur dans le contexte.
 Une demande simultanée sur le même projet est refusée ; une répétition du même
 identifiant de demande n'envoie pas un deuxième appel. Les écritures manuelles
 vérifient la version du projet pour éviter d'écraser celle d'un autre onglet.

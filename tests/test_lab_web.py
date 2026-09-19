@@ -258,9 +258,9 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260918.3", page.text)
+        self.assertIn("/static/lab.css?v=20260919.1", page.text)
         self.assertIn("/static/prompt-writer-model.js?v=20260918.1", page.text)
-        self.assertIn("/static/ref2v-direct.js?v=20260918.1", page.text)
+        self.assertIn("/static/ref2v-direct.js?v=20260919.1", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")
         core_script = self.client.get("/static/lab-core.js")
         self.assertEqual(direct_script.status_code, 200)
@@ -358,13 +358,15 @@ class LabWebTest(unittest.TestCase):
         page = self.client.get("/")
         script = self.client.get("/static/lab.js")
 
-        self.assertEqual(page.text.count('data-llm-local-for="'), 24)
+        self.assertEqual(page.text.count('data-llm-local-for="'), 26)
         for select_id in (
             "krea2-assisted-llm",
             "krea2-batch-llm",
             "krea2-edit-llm",
             "i2vd-model",
+            "i2vd-chinese-model",
             "ref2vd-model",
+            "ref2vd-chinese-model",
             "social-llm",
             "production-llm",
             "krea2-assisted-revision-llm",
@@ -381,7 +383,7 @@ class LabWebTest(unittest.TestCase):
             )
         self.assertIn('new Set(["local"])', script.text)
         self.assertNotIn('model.id.startsWith("vllm::")', script.text)
-        self.assertEqual(page.text.count("Local · Unsloth"), 21)
+        self.assertEqual(page.text.count("Local · Unsloth"), 23)
         self.assertIn("Aucun modèle local disponible", script.text)
 
     def test_serves_the_h3_base_workspace_with_optional_boundary_frames(self):
@@ -412,7 +414,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="h3r-spectrum" type="checkbox"', page.text)
         self.assertIn('id="ref2vr-spectrum" type="checkbox"', page.text)
         self.assertIn('id="h3r-attempts"', page.text)
-        self.assertIn('/static/h3-render-lab.js?v=20260918.2', page.text)
+        self.assertIn('/static/h3-render-lab.js?v=20260919.2', page.text)
         self.assertIn('id="h3r-render-progress"', page.text)
         self.assertIn('id="ref2vr-render-progress"', page.text)
         self.assertIn('payload.type === "panelforge_render_progress"', render_script.text)
@@ -459,7 +461,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn("core.createLlmOutcomeTone()", render_script.text)
         self.assertIn("outcomeTone.success()", render_script.text)
         self.assertIn("outcomeTone.failure()", render_script.text)
-        self.assertIn('/static/i2v-direct.js?v=20260918.1', page.text)
+        self.assertIn('/static/i2v-direct.js?v=20260919.1', page.text)
         self.assertIn('/static/sensual-controls.js?v=20260911.1', page.text)
         self.assertIn('id="i2vd-animal-interview-fields"', page.text)
         self.assertEqual(page.text.count('class="field-label animal-interview-primary-field"'), 2)
@@ -640,17 +642,17 @@ class LabWebTest(unittest.TestCase):
         for prefix in ("i2vd", "ref2vd"):
             for axis in ("scene-life", "camera", "extra-motion"):
                 self.assertIn(
-                    f'id="{prefix}-creative-{axis}" type="range" min="0" max="3" step="1" value="0"',
+                    f'id="{prefix}-creative-{axis}" type="range" min="0" max="3" step="1" value="3"',
                     page.text,
                 )
-                self.assertIn(f'id="{prefix}-creative-{axis}-value">0</output>', page.text)
+                self.assertIn(f'id="{prefix}-creative-{axis}-value">3</output>', page.text)
         for prefix in ("i2vd", "ref2vd"):
             self.assertIn(f'id="{prefix}-creative-direction" type="checkbox"', page.text)
             self.assertIn(
-                f'id="{prefix}-creative-audacity" type="range" min="0" max="3" step="1" value="2"',
+                f'id="{prefix}-creative-audacity" type="range" min="0" max="3" step="1" value="3"',
                 page.text,
             )
-            self.assertIn(f'id="{prefix}-creative-audacity-value">2</output>', page.text)
+            self.assertIn(f'id="{prefix}-creative-audacity-value">3</output>', page.text)
         self.assertEqual(page.text.count("L’audace fixe l’objectif de nouveauté"), 3)
         self.assertIn('id="h3r-revision-audacity-value">0/3</output>', page.text)
         self.assertIn('id="ref2vr-revision-audacity-value">0/3</output>', page.text)

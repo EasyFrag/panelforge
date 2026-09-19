@@ -383,10 +383,11 @@
     renderWarnings();
   }
 
-  async function fillSettings(attempt) {
+  async function fillSettings(attempt, {rememberCurrent = true} = {}) {
     if (!attempt) return;
     const owner = projectId(), key = recipeKey(attempt.recipe);
-    await switchRecipe(recipeKey(attempt.recipe), { restoreDraft: false });
+    if (rememberCurrent) rememberRecipe();
+    await switchRecipe(recipeKey(attempt.recipe), { restoreDraft: false, remember: false });
     if (owner !== projectId() || (elements.recipe && recipeKey(state.spec.recipe) !== key)) return;
     checkpointPicker?.set(attempt.checkpoint);
     const settings = attempt.settings;
@@ -836,6 +837,8 @@
 
   function renderControls() {
     const active = activeAttempt();
+    const setupOnly = !state.project && elements.lab.classList.contains("h3-render-setup-only");
+    const setupAction = setupOnly && options.setupActionState ? options.setupActionState(state.context) || {} : {};
     const incomplete = state.project?.adaptation && state.project.adaptation.status !== "ready";
     const disabled = state.busy || state.recipeLoading || Boolean(active) || Boolean(incomplete);
     renderPreset(disabled);
@@ -845,7 +848,12 @@
       elements.videoLoraWarning.hidden = elements.videoLoraProfile.value === "lora" || !loraEditor.error;
     }
     if (elements.convert) elements.convert.disabled = state.busy || state.recipeLoading || !state.project || !elements.prompt.value.trim() || !elements.revisionModel?.value || Boolean(state.bunnyError) || missingLora;
-    elements.render.disabled = disabled || !state.project || !elements.prompt.value.trim() || missingLora || Boolean(state.bunnyError);
+    elements.render.textContent = setupOnly
+      ? setupAction.label || "Générer dès que le prompt est prêt"
+      : "Lancer un rendu";
+    elements.render.disabled = setupOnly
+      ? disabled || !options.onSetupRender || Boolean(setupAction.disabled) || missingLora || Boolean(state.bunnyError)
+      : disabled || !state.project || !elements.prompt.value.trim() || missingLora || Boolean(state.bunnyError);
     if (elements.recipe) elements.recipe.disabled = state.busy || state.recipeLoading;
     checkpointPicker?.setDisabled(disabled);
     loraEditor?.setDisabled(disabled);
@@ -881,7 +889,13 @@
       elements.revisionModel.disabled = disabled;
       window.PanelForgeModelPicker.setDisabled(elements.revisionModel, disabled);
     }
-    if (active) setStatus(active.status === "cancel_pending" ? "Annulation…" : "Rendu…", "active");
+    if (active) setStatus(
+      active.status === "queued" ? "En attente dans la file…"
+        : active.status === "cancel_pending" ? "Annulation…"
+          : "Rendu…",
+      "active",
+    );
+    else if (setupOnly && setupAction.status) setStatus(setupAction.status, setupAction.tone || "active");
   }
 
   let pendingContextSerial = 0;
@@ -920,9 +934,9 @@
       if (changed) {
         state.spec = state.specCache.get(state.defaultRecipeKey);
         hydrateDefaults();
-        if (latestAttempt()) await fillSettings(latestAttempt());
-        else if (payload.project.adaptation) await fillSettings(payload.project.adaptation.render_setup);
-        if (options.restoreSetup && detail.render_setup) await fillSettings(detail.render_setup);
+        if (latestAttempt()) await fillSettings(latestAttempt(), {rememberCurrent: false});
+        else if (payload.project.adaptation) await fillSettings(payload.project.adaptation.render_setup, {rememberCurrent: false});
+        if (options.restoreSetup && detail.render_setup) await fillSettings(detail.render_setup, {rememberCurrent: false});
       }
       if (activeAttempt()) { connectPreview(activeAttempt()); startPolling(); }
     } catch (error) {
@@ -944,7 +958,7 @@
       } else state.spec = state.specCache.get(state.defaultRecipeKey);
       if (contextToken !== state.contextToken) return;
       hydrateDefaults({ renderOnly: true });
-      if (detail?.render_setup) await fillSettings(detail.render_setup);
+      if (detail?.render_setup) await fillSettings(detail.render_setup, {rememberCurrent: false});
       elements.prompt.value = "";
       setStatus("Réglages communs", "success");
     } catch (error) {
@@ -983,10 +997,16 @@
   }
 
   async function renderAttempt() {
-    if (!state.project || state.busy || state.recipeLoading || state.bunnyError || loraEditor?.error) return;
+    const setupOnly = !state.project && elements.lab.classList.contains("h3-render-setup-only");
+    if ((!state.project && !setupOnly) || state.busy || state.recipeLoading || state.bunnyError || loraEditor?.error) return;
     state.busy = true; renderControls();
     elements.live.hidden = true; elements.liveEmpty.hidden = false; elements.liveEmpty.textContent = "Connexion à la preview ComfyUI…";
     try {
+      if (setupOnly) {
+        await options.onSetupRender(renderParameters(), state.context);
+        renderControls();
+        return;
+      }
       if (options.beforeRender) await options.beforeRender(renderParameters(), state.context);
       const prepared = await request(`/api/h3-render/projects/${encodeURIComponent(projectId())}/attempts`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1136,6 +1156,7 @@
     openSetup,
     close: () => openContext(null),
     parameters: renderParameters,
+    refreshControls: renderControls,
     get busy() { return state.busy || state.recipeLoading; },
   });
   }

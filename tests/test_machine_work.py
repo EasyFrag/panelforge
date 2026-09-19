@@ -180,6 +180,19 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         self.assertEqual(machine["queue_count"], 0)
         self.assertEqual(coordinator.public_status()["recent"][0]["status"], "cancelled")
 
+    def test_activity_membership_only_tracks_live_or_queued_work(self):
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        self.assertFalse(coordinator.has_activity("video-1"))
+        coordinator.enqueue(
+            "video-1",
+            ComputeResource.REMOTE_GPU,
+            ProductionWorkload.VIDEO_RENDER,
+            "H3",
+        )
+        self.assertTrue(coordinator.has_activity("video-1"))
+        coordinator.cancel_queued("video-1")
+        self.assertFalse(coordinator.has_activity("video-1"))
+
     def test_public_status_exposes_active_job_and_described_fifo(self):
         coordinator = MachineWorkCoordinator(monitor_interval=.01)
         release, first_entered, second_waiting = Event(), Event(), Event()

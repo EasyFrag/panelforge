@@ -34,7 +34,7 @@ from panelforge.domain.krea2_batch import (
     Krea2PromptLanguage,
 )
 from panelforge.domain.krea2_lab import normalize_krea2_model_name
-from panelforge.domain.krea2_style_presets import Krea2StylePreset
+from panelforge.domain.krea2_style_presets import Krea2StylePreset, Krea2StylePresetCategory
 from panelforge.domain.krea2_lab import Krea2AspectRatio
 from panelforge.domain.krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW
 from panelforge.domain.recipes import RecipeRef
@@ -137,6 +137,7 @@ class Krea2StylePresetStore(Protocol):
     def list(self) -> tuple[Krea2StylePreset, ...]: ...
     def get(self, preset_id: str) -> Krea2StylePreset: ...
     def save(self, preset: Krea2StylePreset) -> Krea2StylePreset: ...
+    def delete(self, preset_id: str, expected_revision: int) -> Krea2StylePreset: ...
 
 
 class Krea2CreationExporter(Protocol):
@@ -262,9 +263,13 @@ class Krea2AssistedService:
         reference_filename: str | None = None,
         assistance_recipe_version: str = "1.0.0",
         style_preset_id: str | None = None,
+        prompt_language: Krea2PromptLanguage | None = None,
     ) -> Krea2AssistedProject:
         assistance_recipe(assistance_recipe_version)
         preset = self._preset(style_preset_id) if style_preset_id else None
+        if prompt_language is not None and not isinstance(prompt_language, Krea2PromptLanguage):
+            raise TypeError("prompt_language must be a Krea2PromptLanguage")
+        selected_language = prompt_language or (preset.prompt_language if preset else Krea2PromptLanguage.ENGLISH)
         name = _bounded_text(name, "name", 120)
         if isinstance(intention, str) and not intention.strip() and reference_asset_id is not None:
             intention = (
@@ -284,6 +289,7 @@ class Krea2AssistedService:
             assistance_recipe_version=assistance_recipe_version,
             intention=intention,
             model_id=model_id,
+            prompt_language=selected_language,
             reference_asset_id=reference_asset_id,
             reference_filename=(
                 _bounded_text(reference_filename, "reference_filename", 240)
@@ -307,7 +313,8 @@ class Krea2AssistedService:
         return self.presets.list() if self.presets else ()
 
     def save_style_preset(self, project_id: str, attempt_id: str, name: str,
-                          *, preset_id: str | None = None, expected_revision: int | None = None) -> Krea2StylePreset:
+                          *, preset_id: str | None = None, expected_revision: int | None = None,
+                          category: Krea2StylePresetCategory | None = None) -> Krea2StylePreset:
         with self._lock:
             if self.presets is None:
                 raise ValueError("Le catalogue de presets n’est pas configuré.")
@@ -318,6 +325,8 @@ class Krea2AssistedService:
             previous = self._preset(preset_id) if preset_id else None
             if previous is not None and previous.revision != expected_revision:
                 raise ValueError("Le preset a changé. Recharge la liste avant de le mettre à jour.")
+            if category is not None and not isinstance(category, Krea2StylePresetCategory):
+                raise TypeError("category must be a Krea2StylePresetCategory")
             return self.presets.save(Krea2StylePreset(
                 preset_id=previous.preset_id if previous else f"style-{uuid4().hex}",
                 revision=previous.revision + 1 if previous else 1,
@@ -325,7 +334,29 @@ class Krea2AssistedService:
                 image_asset_id=attempt.output_asset_id, settings=as_batch_settings(attempt.settings),
                 source_project_id=project_id, source_attempt_id=attempt_id, source_seed=attempt.seed,
                 prompt_language=attempt.conversation_prompt_language,
+                category=category or (previous.category if previous else Krea2StylePresetCategory.WORK),
             ))
+
+    def update_style_preset(self, preset_id: str, *, name: str,
+                            category: Krea2StylePresetCategory, expected_revision: int) -> Krea2StylePreset:
+        with self._lock:
+            if self.presets is None:
+                raise ValueError("Le catalogue de presets n’est pas configuré.")
+            previous = self._preset(preset_id)
+            if previous.revision != expected_revision:
+                raise ValueError("Le preset a changé. Recharge la liste avant de le modifier.")
+            if not isinstance(category, Krea2StylePresetCategory):
+                raise TypeError("category must be a Krea2StylePresetCategory")
+            return self.presets.save(replace(
+                previous, revision=previous.revision + 1,
+                name=_bounded_text(name, "preset name", 120), category=category,
+            ))
+
+    def delete_style_preset(self, preset_id: str, *, expected_revision: int) -> Krea2StylePreset:
+        with self._lock:
+            if self.presets is None:
+                raise ValueError("Le catalogue de presets n’est pas configuré.")
+            return self.presets.delete(preset_id, expected_revision)
 
     def apply_style_preset(self, project_id: str, preset_id: str | None, *, expected_branch_id: str,
                            current_prompt: str | None, settings: Krea2BatchSettings,
@@ -341,6 +372,7 @@ class Krea2AssistedService:
                 prompt = _bounded_text(current_prompt, "prompt", 40_000) if current_prompt.strip() else None
             return self.projects.save(replace(
                 project, style_preset=preset, preset_pending=preset is not None,
+                prompt_language=preset.prompt_language if preset else project.prompt_language,
                 current_prompt=prompt,
                 render_settings=settings, render_seed=seed,
             ))
@@ -490,6 +522,7 @@ class Krea2AssistedService:
         seed: int | None = None,
         expected_branch_id: str | None = None,
         enqueue: bool = False,
+        prompt_language: Krea2PromptLanguage | None = None,
     ) -> Krea2AssistedProject:
         prompt = _bounded_text(prompt, "prompt", 40_000)
         if not isinstance(settings, Krea2BatchSettings):
@@ -502,6 +535,10 @@ class Krea2AssistedService:
             project = self.projects.get(project_id)
             if expected_branch_id is not None and project.active_branch_id != expected_branch_id:
                 raise ValueError("La branche active a changé. Rechargez le projet.")
+            if prompt_language is not None:
+                if not isinstance(prompt_language, Krea2PromptLanguage):
+                    raise TypeError("prompt_language must be a Krea2PromptLanguage")
+                project = project.with_prompt_language(prompt_language)
             attempt = Krea2AssistedAttempt(
                 attempt_id=self._attempt_id_factory(),
                 index=max((a.index for a in project.attempts if a.kind == "generation"), default=0) + 1,

@@ -167,6 +167,7 @@ class FourLoraServiceTest(unittest.TestCase):
             self.assertEqual(response.status_code, 201, response.text)
             self.assertEqual(H3VideoLoraStack.from_dict(response.json()["project"]["attempts"][-1]["video_loras"]), stack())
             invalid = deepcopy(body)
+            invalid["video_loras"]["entries"] = list(invalid["video_loras"]["entries"])
             invalid["video_loras"]["entries"].append({"name": "minmax_nsfw/fifth.safetensors"})
             self.assertEqual(client.post("/api/h3-render/projects/two-loras/attempts", json=invalid).status_code, 422)
             with self.assertRaisesRegex(ValueError, "maximum 2"):

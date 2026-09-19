@@ -42,7 +42,7 @@
         {id: "appearance_state", label: "Tenues, pelage et accessoires"}]}];
   const state = {project: null, initialized: false, loading: false, saving: false, models: [], modelsReady: false,
     recipes: fallbackRecipes, wantedModel: {architect: "", writer: ""}, modelChoice: {architect: 0, writer: 0},
-    modelError: "", token: 0, timer: null, paintKey: "", turnKey: "", editScene: null};
+    modelError: "", token: 0, timer: null, paintKey: "", turnKey: "", editScene: null, parentStoryId: null};
   const storage = {get(key) { try { return localStorage.getItem(`panelforge.stories.${key}`); } catch (_) { return null; } },
     set(key, value) { try { localStorage.setItem(`panelforge.stories.${key}`, value); } catch (_) {} }};
   const path = (id, suffix = "") => `/api/stories/projects/${encodeURIComponent(id)}${suffix}`;
@@ -73,6 +73,8 @@
   const blocked = () => state.saving || state.loading || running();
   const creationMode = () => ["script", "continuation"].includes(el("creation-mode").value)
     ? el("creation-mode").value : "ideas";
+  const narrativeFormat = () => document.querySelector('input[name="story-narrative-format"]:checked')?.value === "long"
+    ? "long" : "short";
   const proposalCount = () => Math.max(1, Math.min(3, Number(el("proposal-count").value) || 3));
   const dialogueRegister = () => Math.max(0, Math.min(3, Number(el("dialogue-register").value) || 0));
   const dialogueLanguage = () => dialogueLanguages[el("dialogue-language").value] ? el("dialogue-language").value : "French";
@@ -111,6 +113,9 @@
   }
   function message(text, error = false) { el("message").textContent = text; el("message").classList.toggle("error", error); }
   function refreshStartMode() {
+    const longStory = narrativeFormat() === "long";
+    if (longStory && el("creation-mode").value !== "ideas") el("creation-mode").value = "ideas";
+    el("creation-mode").disabled = longStory;
     const mode = creationMode(), script = mode === "script", continuation = mode === "continuation";
     const silent = dialogueForbidden(), count = proposalCount();
     el("proposal-count-row").hidden = script;
@@ -128,6 +133,7 @@
       ? silent ? "Un seul appel au Rédacteur regroupe les actions dans le nombre exact de micro-scènes ; le script reste entièrement sans paroles."
       : "Un seul appel au Rédacteur regroupe le texte dans le nombre exact de micro-scènes. Les dialogues détectés sont contrôlés mot pour mot."
       : continuation ? "L’Architecte condense toute la saga en mémoire cumulative, puis propose une à trois suites causales sans redécouvrir les faits acquis."
+      : longStory ? "Le LLM propose une à trois pistes, puis construit l’arc global en quatre épisodes avant de développer chaque épisode."
       : "Le LLM propose une à trois histoires avant le développement du scénario.";
     el("create").textContent = script ? "Structurer fidèlement ce script"
       : continuation ? `Proposer ${count} suite${count > 1 ? "s" : ""}`
@@ -136,13 +142,16 @@
       ? silent ? "Le script est regroupé sans omission ; toute parole, voix off, narration et texte lisible restent interdits."
       : "Le script est regroupé sans omission dans le nombre choisi : aucun passage ni dialogue ne doit être réinventé."
       : continuation ? "Même si le dernier épisode avait déjà un passé, les faits durables et les conflits ouverts restent dans la mémoire de saga, sans appel LLM supplémentaire."
+      : longStory ? "Le nombre de scènes choisi devient le format par défaut de chaque épisode et reste ajustable avant son développement."
       : silent ? "Comédie de couple photoréaliste, tendre et compréhensible uniquement par les gestes."
       : "Conflits simples, personnages excessifs, retournements visuels. Tu peux orienter le ton dans ton idée.";
     el("empty-title").textContent = script ? "Un script prêt à structurer" : continuation ? "Comment poursuivre cette saga ?"
+      : longStory ? "Quelle histoire développer en quatre épisodes ?"
       : silent ? "Quelle scène muette raconter ?" : "Quelle histoire raconter ?";
     el("empty-copy").textContent = script
       ? "Le Rédacteur transformera le script en fiches et micro-scènes sans passer par des propositions intermédiaires."
       : continuation ? `Le LLM résumera le canon antérieur puis proposera ${count} continuation${count > 1 ? "s" : ""} fondée${count > 1 ? "s" : ""} sur une reprise, un obstacle et une conséquence préparée.`
+      : longStory ? `Le LLM proposera ${count} piste${count > 1 ? "s" : ""}. Après le choix, l’Architecte construira quatre épisodes cohérents avant le développement des scènes.`
       : silent ? `Le LLM proposera ${count} comédie${count > 1 ? "s" : ""} de couple féline${count > 1 ? "s" : ""}, sans aucune parole, puis développera la piste choisie en actions visuelles.`
       : `Le LLM proposera ${count} accroche${count > 1 ? "s" : ""} avec conflit, escalade et fin. ${count > 1 ? "Choisis une piste, discute-la" : "Tu pourras la discuter"}, puis développe le scénario.`;
     const register = script || silent ? 0 : dialogueRegister(), details = dialogueRegisters[register];
@@ -164,18 +173,26 @@
   function controls() {
     const project = state.project, busy = blocked(), doc = project?.document;
     const mode = creationMode(), scriptStart = mode === "script", sourceRequired = ["script", "continuation"].includes(mode);
+    const conversationRole = project?.narrative_format === "long" && doc?.series_outline && !doc?.scenario
+      ? "architect" : "writer";
     el("create").disabled = state.saving || !selectedModel("writer") || (!scriptStart && !selectedModel("architect"))
       || (sourceRequired && !el("brief").value.trim());
-    el("send").disabled = busy || !(doc?.concepts.length || doc?.scenario) || !el("instruction").value.trim() || !selectedModel("writer");
+    el("send").disabled = busy || !(doc?.concepts.length || doc?.series_outline || doc?.scenario)
+      || !el("instruction").value.trim() || !selectedModel(conversationRole);
     el("ideas").disabled = busy || !project || !selectedModel("architect");
+    el("outline").disabled = busy || !doc?.selected_id || !selectedModel("architect");
     el("develop").disabled = busy || !doc?.selected_id || !selectedModel("writer");
     el("restore").disabled = busy || !project?.revisions.length;
     el("cancel").disabled = !running() || project.job.status === "cancelling";
-    const retryRole = project?.job?.operation === "ideas" ? "architect" : "writer";
+    const retryRole = ["ideas", "outline"].includes(project?.job?.operation)
+      || (project?.job?.operation === "revise" && conversationRole === "architect") ? "architect" : "writer";
     el("retry").disabled = busy || !selectedModel(retryRole);
+    el("revalidate").disabled = busy;
     el("running").hidden = !running();
     el("retry").hidden = !["failed", "interrupted", "cancelled"].includes(project?.job?.status);
+    el("revalidate").hidden = project?.job?.status !== "failed" || !project?.job?.draft?.trim();
     el("concepts").querySelectorAll("button").forEach(item => { item.disabled = busy || item.dataset.selected === "true"; });
+    el("series-episodes").querySelectorAll("button,input").forEach(item => { item.disabled = busy || item.dataset.locked === "true"; });
     el("scenes").querySelectorAll("button").forEach(item => { item.disabled = busy; });
     if (el("validate")) el("validate").disabled = busy || !doc?.scenario;
     if (el("next-episode")) el("next-episode").disabled = busy || !doc?.scenario;
@@ -245,20 +262,25 @@
   }
   function newProject() {
     ++state.token; clearTimeout(state.timer); state.project = null; state.paintKey = ""; state.turnKey = "";
+    state.parentStoryId = null;
     state.loading = false; storage.set("project", ""); el("projects").value = "";
     el("title").value = ""; el("brief").value = ""; el("creation-mode").value = "ideas"; el("proposal-count").value = "3";
+    el("format-short").checked = true; el("format-long").checked = false;
     el("dialogue-register").value = "0"; el("dialogue-language").value = "French";
     for (const role of roles) preferredModel(role);
     refreshStartMode(); paint(); el("brief").focus();
   }
   function paint() {
     const project = state.project, doc = project?.document;
+    const longProject = project?.narrative_format === "long";
     window.dispatchEvent(new CustomEvent("panelforge:story", {detail: project}));
     el("create-form").hidden = !!project; el("conversation-panel").hidden = !project;
-    el("empty").hidden = !!(doc?.concepts.length || doc?.scenario); el("versions-panel").hidden = !project?.revisions.length;
-    el("develop").hidden = !doc?.selected_id; el("scenario").hidden = !doc?.scenario;
+    el("empty").hidden = !!(doc?.concepts.length || doc?.series_outline || doc?.scenario); el("versions-panel").hidden = !project?.revisions.length;
+    el("outline").hidden = !longProject || !doc?.selected_id || !!doc?.series_outline;
+    el("develop").hidden = longProject || !doc?.selected_id; el("scenario").hidden = !doc?.scenario;
+    el("series").hidden = !longProject || !doc?.series_outline;
     paintRecipeDescription();
-    if (!project) { el("concepts").replaceChildren(); paintContinuity(null); message(""); controls(); return; }
+    if (!project) { el("concepts").replaceChildren(); el("series-episodes").replaceChildren(); paintContinuity(null); message(""); controls(); return; }
     el("projects").value = project.project_id;
     const recipe = currentRecipe();
     const scriptProject = project.creation_mode === "script", continuationProject = project.creation_mode === "continuation";
@@ -267,11 +289,21 @@
       : dialogueRegisters[scriptProject ? 0 : (project.dialogue_register || 0)][0];
     const projectLanguage = recipe.dialogue_policy === "forbidden" ? "Sans paroles"
       : dialogueLanguages[project.dialogue_language || "French"] || dialogueLanguages.French;
+    if (longProject) {
+      const episodes = doc.series_outline?.episodes || [];
+      const currentEpisode = episodes.findIndex(item => item.id === doc.selected_episode_id);
+      const hasNextEpisode = currentEpisode >= 0 && currentEpisode < episodes.length - 1;
+      el("next-episode").hidden = !hasNextEpisode;
+      el("next-episode").textContent = "Développer l’épisode suivant";
+    } else {
+      el("next-episode").hidden = false;
+      el("next-episode").textContent = "Créer l’épisode suivant";
+    }
     paintContinuity(doc?.continuity || doc?.continuity_source);
     const startLabel = scriptProject ? "Script fidèle" : continuationProject
       ? `${projectCount} proposition${projectCount > 1 ? "s" : ""} de suite`
       : `${projectCount} proposition${projectCount > 1 ? "s" : ""}`;
-    el("project-brief").textContent = `${recipe.label} · ${startLabel} · Dialogues : ${projectLanguage} · ${projectRegister}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes exactes · ${project.clip_seconds} s par clip`;
+    el("project-brief").textContent = `${recipe.label} · ${longProject ? "Histoire longue · 4 épisodes" : "Histoire courte"} · ${startLabel} · Dialogues : ${projectLanguage} · ${projectRegister}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes par défaut · ${project.clip_seconds} s par clip`;
     el("ideas").hidden = scriptProject;
     el("ideas").textContent = continuationProject
       ? `${project.proposal_count || 3} nouvelle${(project.proposal_count || 3) > 1 ? "s" : ""} suite${(project.proposal_count || 3) > 1 ? "s" : ""}`
@@ -289,7 +321,7 @@
     if (state.paintKey !== key) {
       state.paintKey = key;
       el("versions").replaceChildren(...[...project.revisions].reverse().map(revision => new Option(`v${revision.revision} · ${revision.label}`, revision.revision)));
-      paintConcepts(doc); paintScenario(doc.scenario); paintDiagnostics(project.diagnostics || []);
+      paintConcepts(doc); paintSeries(doc); paintScenario(doc.scenario); paintDiagnostics(project.diagnostics || []);
     }
     const job = project.job;
     if (job) message(job.error || job.phase || "", !!job.error);
@@ -331,6 +363,57 @@
       const choose = button(chosen ? "Sélectionnée" : "Choisir cette histoire", () => mutate("select", {concept_id: concept.id}));
       choose.dataset.selected = String(chosen); choose.setAttribute("aria-pressed", String(chosen)); card.append(choose);
       return card;
+    }));
+  }
+  async function openSeriesEpisode(episodeId, sceneCount, clipSeconds, develop) {
+    if (blocked() || !state.project) return;
+    const id = state.project.project_id, token = state.token;
+    state.saving = true; controls();
+    try {
+      const result = await request(path(id, "/series-episode"), json({episode_id: episodeId,
+        scene_count: sceneCount, clip_seconds: clipSeconds, expected_version: state.project.version}));
+      if (token !== state.token) return;
+      state.project = result; state.paintKey = ""; paint();
+    } catch (error) { if (token === state.token) message(error.message, true); return; }
+    finally { state.saving = false; controls(); }
+    if (develop && !state.project.document?.scenario) await write("develop");
+  }
+  function paintSeries(doc) {
+    const outline = doc?.series_outline;
+    if (!outline) { el("series-episodes").replaceChildren(); return; }
+    el("series-title").textContent = outline.title;
+    el("series-premise").textContent = outline.premise;
+    el("series-arc").textContent = `Arc global : ${outline.overall_arc}`;
+    el("series-ending").textContent = `Aboutissement prévu : ${outline.ending}`;
+    el("series-characters").replaceChildren(...outline.characters.map(character => {
+      const item = node("p"); item.append(node("strong", `${character.name} — `), node("span", character.description)); return item;
+    }));
+    const scenarios = doc.episode_scenarios || {}, formats = doc.episode_formats || {};
+    el("series-episodes").replaceChildren(...outline.episodes.map((episode, index) => {
+      const complete = !!scenarios[episode.id], selected = doc.selected_episode_id === episode.id;
+      const card = node("article", "", `story-series-episode${selected ? " selected" : ""}${complete ? " complete" : ""}`);
+      card.append(node("small", `ÉPISODE ${index + 1} · ${complete ? "DÉVELOPPÉ" : "PLANIFIÉ"}`),
+        node("h3", episode.title), node("p", episode.promise), node("p", `Obstacle : ${episode.conflict}`));
+      const details = node("details"), list = node("ol"); details.append(node("summary", "Étapes et payoff"));
+      episode.beats.forEach(beat => list.append(node("li", beat)));
+      details.append(list, node("p", `Payoff local : ${episode.local_payoff}`),
+        node("p", `Fin : ${episode.ending_state}`), node("p", `Suite : ${episode.carry_forward}`)); card.append(details);
+      const format = formats[episode.id] || {scene_count: state.project.scene_count, clip_seconds: state.project.clip_seconds};
+      const controls = node("div", "", "story-series-format");
+      const scenesLabel = node("label", "Scènes"), scenes = document.createElement("input");
+      scenes.type = "number"; scenes.min = "1"; scenes.max = "12"; scenes.step = "1"; scenes.value = format.scene_count;
+      const durationLabel = node("label", "Secondes / clip"), duration = document.createElement("input");
+      duration.type = "number"; duration.min = "5"; duration.max = "15"; duration.step = "1"; duration.value = format.clip_seconds;
+      if (complete) { scenes.dataset.locked = "true"; duration.dataset.locked = "true"; scenes.disabled = duration.disabled = true; }
+      scenesLabel.append(scenes); durationLabel.append(duration); controls.append(scenesLabel, durationLabel); card.append(controls);
+      const action = button(complete ? (selected ? "Épisode ouvert" : "Ouvrir cet épisode") : "Développer cet épisode", () => {
+        const sceneCount = Math.max(1, Math.min(12, Number(scenes.value) || state.project.scene_count));
+        const clipSeconds = Math.max(5, Math.min(15, Number(duration.value) || state.project.clip_seconds));
+        openSeriesEpisode(episode.id, sceneCount, clipSeconds, !complete);
+      });
+      action.dataset.selected = String(selected && complete);
+      if (selected && complete) { action.dataset.locked = "true"; action.disabled = true; }
+      card.append(action); return card;
     }));
   }
   function paintDiagnostics(items) {
@@ -393,11 +476,23 @@
   function prepareNextEpisode() {
     const source = state.project;
     if (!source?.document?.scenario || blocked()) return;
+    if (source.narrative_format === "long" && source.document.series_outline) {
+      const episodes = source.document.series_outline.episodes;
+      const current = episodes.findIndex(item => item.id === source.document.selected_episode_id);
+      const next = episodes[current + 1];
+      if (!next) return;
+      const format = source.document.episode_formats?.[next.id]
+        || {scene_count: source.scene_count, clip_seconds: source.clip_seconds};
+      openSeriesEpisode(next.id, format.scene_count, format.clip_seconds,
+        !source.document.episode_scenarios?.[next.id]);
+      return;
+    }
     const values = {recipe: recipeKey(source.recipe), title: `${source.title} · suite`, brief: continuationSource(source),
       scenes: source.scene_count, duration: source.clip_seconds, proposals: source.proposal_count || 1,
       register: source.dialogue_register || 0, language: source.dialogue_language || "French",
       architect: el("architect-model").value, writer: el("writer-model").value};
     newProject();
+    state.parentStoryId = source.project_id;
     el("recipe").value = values.recipe; el("creation-mode").value = "continuation";
     el("title").value = values.title; el("brief").value = values.brief;
     el("scene-count").value = values.scenes; el("duration").value = values.duration;
@@ -470,7 +565,9 @@
     finally { state.saving = false; controls(); }
   }
   async function write(operation, instruction = "") {
-    const role = operation === "ideas" ? "architect" : "writer";
+    const revisesOutline = operation === "revise" && state.project?.narrative_format === "long"
+      && state.project.document?.series_outline && !state.project.document?.scenario;
+    const role = ["ideas", "outline"].includes(operation) || revisesOutline ? "architect" : "writer";
     if (blocked() || !state.project || !selectedModel(role)) return;
     const id = state.project.project_id, token = state.token; state.saving = true; controls();
     try {
@@ -524,7 +621,7 @@
         clip_seconds: Number(el("duration").value), scene_count: Number(el("scene-count").value), recipe_id: recipe.id,
         recipe_version: recipe.version, architect_model_id: selectedModel("architect"), writer_model_id: selectedModel("writer"),
         creation_mode: mode, proposal_count: proposalCount(), dialogue_register: mode === "script" || dialogueForbidden() ? 0 : dialogueRegister(),
-        dialogue_language: dialogueLanguage()}));
+        dialogue_language: dialogueLanguage(), narrative_format: narrativeFormat(), parent_story_id: state.parentStoryId}));
       if (token !== state.token) return;
       state.project = project; storage.set("project", project.project_id); state.paintKey = ""; state.turnKey = "";
       el("instruction").value = ""; paint(); await recent(); state.saving = false; await write(mode === "script" ? "script" : "ideas");
@@ -537,6 +634,8 @@
   el("instruction").addEventListener("input", () => { if (state.project) storage.set(`draft.${state.project.project_id}`, el("instruction").value); controls(); });
   el("brief").addEventListener("input", controls);
   el("creation-mode").addEventListener("change", () => { refreshStartMode(); controls(); });
+  for (const input of document.querySelectorAll('input[name="story-narrative-format"]'))
+    input.addEventListener("change", () => { refreshStartMode(); controls(); });
   el("proposal-count").addEventListener("change", () => { refreshStartMode(); controls(); });
   el("dialogue-register").addEventListener("input", refreshStartMode);
   el("dialogue-language").addEventListener("change", refreshStartMode);
@@ -554,8 +653,10 @@
   el("refresh-projects").addEventListener("click", async () => { try { await recent(); if (state.project) await openProject(state.project.project_id); } catch (error) { message(error.message, true); } });
   el("refresh-models").addEventListener("click", models);
   el("ideas").addEventListener("click", () => write("ideas", el("instruction").value.trim()));
+  el("outline").addEventListener("click", () => write("outline", el("instruction").value.trim()));
   el("develop").addEventListener("click", () => write("develop", el("instruction").value.trim()));
   el("restore").addEventListener("click", () => mutate("restore", {revision: Number(el("versions").value)}));
+  el("revalidate").addEventListener("click", () => mutate("revalidate", {}));
   el("retry").addEventListener("click", () => write(state.project.job.operation, [...state.project.turns].reverse().find(turn => turn.role === "user")?.text || ""));
   el("cancel").addEventListener("click", async () => {
     if (!running()) return; const token = state.token;

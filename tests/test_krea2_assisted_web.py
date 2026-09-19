@@ -113,7 +113,8 @@ class Krea2AssistedWebTest(unittest.TestCase):
         url = f"/api/image-lab/krea2-assisted/projects/{project.project_id}"
         body = {"prompt": PROMPT, "model_id": "Krea2/krea2_turbo_bf16.safetensors",
                 "aspect_ratio": "9:16 (Portrait Widescreen)", "megapixels": 0.8,
-                "seed": "0", "loras": [], "expected_branch_id": "main", "sampling": beta}
+                "seed": "0", "loras": [], "expected_branch_id": "main", "sampling": beta,
+                "prompt_language": "zh"}
         with patch.object(self.service, "start_render_worker") as wake:
             first = self.client.post(url + "/attempts?enqueue=true", json=body)
             second = self.client.post(url + "/attempts?enqueue=true", json={**body, "sampling": custom})
@@ -125,6 +126,8 @@ class Krea2AssistedWebTest(unittest.TestCase):
         self.assertEqual(saved["attempts"][1]["settings"]["sampling"], custom)
         self.assertEqual(saved["render_settings"]["sampling"], custom)
         self.assertEqual(saved["attempts"][0]["seed"], "0")
+        self.assertEqual(saved["prompt_language"], "zh")
+        self.assertEqual(saved["attempts"][0]["prompt_language"], "zh")
         draft = {**body, "sampling": sampling_spec()["presets"][1]["settings"]}
         response = self.client.post(url + "/branches", json={
             "expected_branch_id": "main", "branch_id": "main", "draft": draft})
@@ -187,17 +190,20 @@ class Krea2AssistedWebTest(unittest.TestCase):
         project = project.replace_attempt(replace(project.attempt("image-1"), output_asset_id=asset.asset_id))
         self.service.projects.create(project)
         url = "/api/image-lab/krea2-assisted/style-presets"
-        body = {"project_id": project.project_id, "attempt_id": "image-1", "name": "Photo"}
+        body = {"project_id": project.project_id, "attempt_id": "image-1", "name": "Photo", "category": "fun"}
         saved = self.client.post(url, json=body)
         self.assertEqual(saved.status_code, 200, saved.text)
         preset = saved.json()["preset"]
+        self.assertEqual(preset["category"], "fun")
         self.assertEqual(self.client.get(url).json()["presets"][0]["preset_id"], preset["preset_id"])
         created = self.client.post("/api/image-lab/krea2-assisted/projects", data={
             "name": "Shoe", "intention": "A shoe", "model_id": "local", "style_preset_id": preset["preset_id"],
+            "prompt_language": "zh",
         })
         self.assertEqual(created.status_code, 201, created.text)
         value = created.json()["project"]
         self.assertTrue(value["preset_pending"])
+        self.assertEqual(value["prompt_language"], "zh")
         self.assertIsNone(value["current_prompt"])
         self.assertIsNone(value["render_seed"])
         updated = self.client.post(url, json={**body, "preset_id": preset["preset_id"], "expected_revision": 1})
@@ -213,6 +219,16 @@ class Krea2AssistedWebTest(unittest.TestCase):
         self.assertEqual(changed.json()["project"]["current_prompt"], PROMPT)
         self.assertEqual(changed.json()["project"]["render_seed"], "0")
         self.assertEqual(changed.json()["project"]["style_preset"]["revision"], 2)
+        managed = self.client.patch(url + "/" + preset["preset_id"], json={
+            "name": "Photo archive", "category": "archive", "expected_revision": 2,
+        })
+        self.assertEqual(managed.status_code, 200, managed.text)
+        self.assertEqual(managed.json()["preset"]["category"], "archive")
+        deleted = self.client.request("DELETE", url + "/" + preset["preset_id"], json={"expected_revision": 3})
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(self.client.get(url).json()["presets"], [])
+        pinned = self.client.get(f'/api/image-lab/krea2-assisted/projects/{value["project_id"]}').json()["project"]
+        self.assertEqual(pinned["style_preset"]["revision"], 2)
         self.assertEqual(self.gateway.requests, [])
 
     def test_branch_route_restores_memory_without_a_model_or_render_call(self):

@@ -142,6 +142,13 @@ class MachineWorkCoordinator:
             self._finish(owner_id, "cancelled")
         return removed
 
+    def has_activity(self, owner_id: str) -> bool:
+        """Return whether this process currently owns or queues the work item."""
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            return False
+        with self._lock:
+            return owner_id in self._activities
+
     def report_progress(
         self,
         owner_id: str,

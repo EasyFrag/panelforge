@@ -18,7 +18,8 @@ from panelforge.domain.stories import (
     SENSUAL_RECIPE_ID, SENSUAL_RECIPE_VERSION,
     SILENT_CATS_RECIPE_ID, SILENT_CATS_RECIPE_VERSION,
     decode_story_json, extract_script_dialogue_cues, extract_script_dialogues, parse_response, validate_concepts,
-    validate_scenario, validate_script_dialogue_coverage, response_contract, scene_intention,
+    validate_fruit_story_contract, validate_scenario, validate_script_dialogue_coverage, validate_series_outline,
+    response_contract, scene_intention,
 )
 from panelforge.features.lab.stories_web import stories_router
 from panelforge.features.lab.prompt_recipes_web import prompt_recipes_router
@@ -31,8 +32,8 @@ IDEAS = {"reply": "Choisis une piste.", "concepts": [dict(title=f"Le mensonge {i
     protagonist="Un livreur citron", antagonist="Une reine menteuse", escalation="Elle accuse son livreur.",
     reveal="Les étiquettes désignent la reine.", ending="Le livreur récupère son colis.") for i in range(3)]}
 SCENARIO = {"reply": "Voici le scénario.", "scenario": {"title": "La reine et les cadeaux", "logline": "Une reine est démasquée par ses cadeaux volés.",
-    "characters": [{"id": "c1", "name": "Reine", "description": "Pêche anthropomorphe en robe rouge."},
-                   {"id": "c2", "name": "Livreur", "description": "Citron en veste bleue."}],
+    "characters": [{"id": "c1", "name": "Pechetta", "description": "Pêche anthropomorphe en robe rouge."},
+                   {"id": "c2", "name": "Citronito", "description": "Citron anthropomorphe en veste bleue."}],
     "locations": [{"id": "l1", "name": "Place", "description": "Comptoir de cadeaux sous un arbre."}],
     "scenes": [{"title": "Le colis", "location_id": "l1", "character_ids": ["c1", "c2"],
         "opening_state": "Le colis fermé porte une étiquette.", "action": "La reine montre le livreur. Il retourne le colis et découvre le nom.",
@@ -45,6 +46,25 @@ CONTINUITY_BEFORE = {
     "character_states": ["Citron possède la preuve et veut récupérer les colis."],
     "unresolved_threads": ["Les autres colis n’ont pas encore été retrouvés."],
     "available_elements": ["L’étiquette portant le nom de la reine."],
+}
+SERIES_OUTLINE = {
+    "title": "La saga des colis", "premise": "Citron remonte un réseau de colis volés.",
+    "overall_arc": "Une preuve locale mène à la découverte du réseau puis à sa chute.",
+    "ending": "Citron rend tous les colis et la reine perd son pouvoir.",
+    "characters": [
+        {"id": "c1", "name": "Pechetta", "description": "Pêche anthropomorphe en robe rouge."},
+        {"id": "c2", "name": "Citronito", "description": "Citron anthropomorphe en veste bleue."},
+    ],
+    "episodes": [{
+        "id": f"episode-{index}", "title": f"Épisode {index}",
+        "promise": f"Une question locale compréhensible pour l’épisode {index}.",
+        "opening_state": f"État visible au début de l’épisode {index}.",
+        "conflict": f"Obstacle principal de l’épisode {index}.",
+        "beats": ["Un indice apparaît.", "Citron tente de l’utiliser.", "La tentative produit une conséquence."],
+        "local_payoff": f"La question locale {index} reçoit une réponse.",
+        "ending_state": f"État visible à la fin de l’épisode {index}.",
+        "carry_forward": "Une conséquence alimente l’épisode suivant." if index < 4 else "L’arc est conclu.",
+    } for index in range(1, 5)],
 }
 
 
@@ -121,10 +141,51 @@ class StoriesTest(unittest.TestCase):
         self.assertEqual(reopened["document"], p["document"])
         export = self.service.export(p["project_id"])
         self.assertIn("Durée cible : 10 secondes.", export["intentions"][0])
-        self.assertIn("Livreur : « Madame… votre nom est ici. »", export["intentions"][0])
+        self.assertIn("Citronito : « Madame… votre nom est ici. »", export["intentions"][0])
+        self.assertIn("TEST D’ÉCOUTE", self.gateway.requests[1].system_prompt)
+        self.assertIn("UNE ET QUATRE", self.gateway.requests[1].system_prompt)
         self.assertNotIn("TRANSITION VISUELLE", export["intentions"][0])
         self.assertNotIn("Durée cible", self.service.export(p["project_id"], include_duration=False)["intentions"][0])
         self.assertNotIn("Picture", export["text"])
+
+    def test_fruit_contract_rejects_human_names_and_more_than_four_lines(self):
+        human_names = {"scenario": deepcopy(SCENARIO["scenario"])}
+        human_names["scenario"]["characters"][0].update(
+            name="Nour Myrtille",
+            description="Jeune myrtille anthropomorphe en robe bleue.",
+        )
+        with self.assertRaisesRegex(ValueError, "un seul nom inventé"):
+            validate_fruit_story_contract(human_names)
+
+        species_is_not_required = {"scenario": deepcopy(SCENARIO["scenario"])}
+        species_is_not_required["scenario"]["characters"][0].update(
+            name="Pomitta", description="Femme adulte en robe orange.",
+        )
+        self.assertIs(validate_fruit_story_contract(species_is_not_required), species_is_not_required)
+
+        too_many = {"scenario": deepcopy(SCENARIO["scenario"])}
+        too_many["scenario"]["scenes"][0]["dialogue"] = [
+            {"speaker_id": "c1", "text": f"Réplique {index}."} for index in range(1, 6)
+        ]
+        with self.assertRaisesRegex(ValueError, "entre une et 4 répliques"):
+            validate_fruit_story_contract(too_many)
+
+        four_lines = {"scenario": deepcopy(SCENARIO["scenario"])}
+        four_lines["scenario"]["scenes"][0]["dialogue"] = [
+            {"speaker_id": "c1", "text": f"Réplique {index}."} for index in range(1, 5)
+        ]
+        self.assertIs(validate_fruit_story_contract(four_lines), four_lines)
+
+    def test_faithful_fruit_script_keeps_human_names_outside_collection_contract(self):
+        project = self.service.create(
+            brief="TITRE : Rencontre\nPERSONNAGES : LÉA\nLÉA : Bonjour.",
+            creation_mode="script",
+            scene_count=1,
+        )
+        project["model_id"] = "local::fixture"
+        project["job"] = {"operation": "script", "request_id": "fixture-request"}
+        request = self.service._request(project, self.recipes.get(RECIPE_ID, RECIPE_VERSION))
+        self.assertNotIn("TEST D’ÉCOUTE", request.system_prompt)
 
     def test_continuation_keeps_cumulative_memory_and_causal_plan_without_an_extra_call(self):
         concept = deepcopy(IDEAS["concepts"][0])
@@ -168,6 +229,71 @@ class StoriesTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "résumé de la saga"):
             self.service.create(creation_mode="continuation", brief="")
+
+    def test_long_story_builds_four_episode_outline_then_develops_each_episode_format(self):
+        self.gateway.response = json.dumps({"reply": "Une piste.", "concepts": deepcopy(IDEAS["concepts"][:1])})
+        project = self.service.create(brief="Une saga de colis.", narrative_format="long",
+                                      proposal_count=1, scene_count=2, clip_seconds=10)
+        project = self.write(project, "ideas")
+        self.gateway.response = json.dumps({"reply": "Voici l’arc.", "series_outline": SERIES_OUTLINE})
+        project = self.write(project, "outline")
+        self.assertEqual(project["document"]["selected_episode_id"], "episode-1")
+        self.assertEqual(len(project["document"]["series_outline"]["episodes"]), 4)
+        self.assertEqual(project["document"]["episode_formats"]["episode-1"],
+                         {"scene_count": 2, "clip_seconds": 10})
+        outline_context = json.loads(self.gateway.requests[-1].user_prompt)
+        self.assertEqual(outline_context["response_contract"]["series_outline"]["episodes"][-1]["id"], "episode-4")
+        self.assertNotIn("scenario", outline_context["response_contract"])
+        outline_prompt = self.gateway.requests[-1].system_prompt
+        self.assertIn("ARC LONG UNIQUEMENT", outline_prompt)
+        self.assertIn("target_scene_count × target_clip_seconds", outline_prompt)
+        self.assertIn("réalise le payoff local", outline_prompt)
+        self.assertIn("incident causal indispensable", outline_prompt)
+        self.assertNotIn("Tu proposes trois histoires", outline_prompt)
+        self.assertNotIn("CONSTRUIRE CHAQUE CONCEPT", outline_prompt)
+        self.assertNotIn("Chaque micro-scène comporte", outline_prompt)
+
+        project = self.service.select_series_episode(
+            project["project_id"], "episode-1", project["version"], scene_count=2, clip_seconds=6)
+        scenario = deepcopy(SCENARIO)
+        second = deepcopy(scenario["scenario"]["scenes"][0])
+        second.update(title="La conséquence", opening_state="L’étiquette désigne la reine.",
+                      action="Le livreur montre l’étiquette aux clients.",
+                      ending_state="Les clients refusent les faux cadeaux.")
+        scenario["scenario"]["scenes"].append(second)
+        self.gateway.response = json.dumps(scenario)
+        project = self.write(project, "develop")
+        self.assertEqual(len(project["document"]["episode_scenarios"]["episode-1"]["scenes"]), 2)
+        develop_context = json.loads(self.gateway.requests[-1].user_prompt)
+        self.assertEqual(develop_context["target_scene_count"], 2)
+        self.assertEqual(develop_context["clip_seconds"], 6)
+        self.assertEqual([item["id"] for item in develop_context["current_document"]["series_outline"]["episodes"]],
+                         ["episode-1"])
+        self.assertNotIn("concepts", develop_context["current_document"])
+        self.assertIn("DÉVELOPPEMENT DE episode-1 UNIQUEMENT", self.gateway.requests[-1].system_prompt)
+        self.assertIn("ne répartis pas mécaniquement", self.gateway.requests[-1].system_prompt)
+
+        project = self.service.select_series_episode(
+            project["project_id"], "episode-2", project["version"], scene_count=1, clip_seconds=5)
+        request_project = deepcopy(project)
+        request_project["model_id"] = "local::fixture"
+        request_project["job"] = {"operation": "develop", "request_id": "fixture-request"}
+        context = json.loads(self.service._request(
+            request_project, self.recipes.get(RECIPE_ID, RECIPE_VERSION)).user_prompt)
+        self.assertEqual(context["target_scene_count"], 1)
+        self.assertEqual(context["clip_seconds"], 5)
+        self.assertEqual(context["actual_previous_episodes"][0]["episode_id"], "episode-1")
+        self.assertNotIn("episode_scenarios", context["current_document"])
+
+        with self.assertRaisesRegex(ValueError, "arc global"):
+            self.service.create(narrative_format="long", creation_mode="script", brief="SCRIPT")
+
+    def test_series_outline_requires_exactly_four_ordered_episodes(self):
+        self.assertEqual(len(validate_series_outline(SERIES_OUTLINE)["episodes"]), 4)
+        invalid = deepcopy(SERIES_OUTLINE)
+        invalid["episodes"] = invalid["episodes"][:3]
+        with self.assertRaisesRegex(ValueError, "4 éléments"):
+            validate_series_outline(invalid)
 
     def test_invalid_response_and_truncation_preserve_previous_scenario_and_raw_draft(self):
         p = self.scenario()
@@ -229,6 +355,42 @@ class StoriesTest(unittest.TestCase):
                 self.assertEqual(context["proposal_count"], count)
                 self.assertEqual(len(context["response_contract"]["concepts"]), count)
                 self.assertIn(f"exactement {count} proposition", request.system_prompt)
+                self.assertNotIn("Tu proposes trois histoires", request.system_prompt)
+                self.assertNotIn("concept-2", request.system_prompt if count == 1 else "")
+
+    def test_failed_draft_can_be_revalidated_without_another_llm_call(self):
+        project = self.service.create(proposal_count=3)
+        project["turns"].append({"role": "user", "text": "Propose 3 histoires différentes.", "created_at": "fixture"})
+        project["job"] = {
+            "request_id": "fixture-request", "status": "failed", "operation": "ideas",
+            "phase": "Échec", "error": "Ancienne règle locale", "draft": json.dumps(IDEAS),
+            "reasoning": "Raisonnement conservé", "model_role": "architect_model_id",
+            "recipe_revision": 3, "call_id": "call-old",
+        }
+        project["architect_model_id"] = "local::fixture"
+        project = self.store.save(project)
+        calls = len(self.gateway.requests)
+
+        project = self.service.revalidate(project["project_id"], project["version"])
+
+        self.assertEqual(len(self.gateway.requests), calls)
+        self.assertEqual(project["job"]["status"], "succeeded")
+        self.assertEqual(project["job"]["phase"], "Brouillon revalidé sans nouvel appel LLM")
+        self.assertEqual(len(project["document"]["concepts"]), 3)
+        self.assertEqual(project["job"]["reasoning"], "Raisonnement conservé")
+
+    def test_failed_retry_does_not_duplicate_the_same_user_turn(self):
+        project = self.service.create()
+        self.gateway.response = "Pas un JSON"
+        project = self.write(project, "ideas")
+        self.assertEqual(project["job"]["status"], "failed")
+        instruction = project["turns"][-1]["text"]
+        self.gateway.response = json.dumps(IDEAS)
+
+        project = self.write(project, "ideas", instruction)
+
+        self.assertEqual(project["job"]["status"], "succeeded")
+        self.assertEqual([turn["text"] for turn in project["turns"] if turn["role"] == "user"], [instruction])
 
     def test_dialogue_register_is_opt_in_and_script_fidelity_forces_current_behavior(self):
         current = self.service.create()
@@ -279,7 +441,7 @@ class StoriesTest(unittest.TestCase):
             self.service.create(dialogue_language="Italian")
 
     def test_script_mode_skips_concepts_and_requires_every_source_dialogue_verbatim(self):
-        script = """TITRE : LA REINE\n\nSCÈNE 1 — SUR LA PLACE\n\nREINE\nC’est lui !\n\nLIVREUR — À VOIX BASSE\nMadame… votre nom est ici.\n\nFIN\n"""
+        script = """TITRE : LA REINE\n\nSCÈNE 1 — SUR LA PLACE\n\nPECHETTA\nC’est lui !\n\nCITRONITO — À VOIX BASSE\nMadame… votre nom est ici.\n\nFIN\n"""
         self.assertEqual(extract_script_dialogues(script), ["C’est lui !", "Madame… votre nom est ici."])
         self.gateway.response = json.dumps(SCENARIO, ensure_ascii=False)
         project = self.service.create(brief=script, creation_mode="script",
@@ -473,7 +635,9 @@ FIN
     def test_scenario_revision_accepts_valid_document_envelope_without_losing_scenario(self):
         p = self.scenario()
         response = deepcopy(SCENARIO)
-        response["scenario"]["characters"][0]["description"] = "Fraise adulte en robe rouge, reine odieuse."
+        response["scenario"]["characters"][0].update(
+            name="Fraisetta", description="Fraise anthropomorphe adulte en robe rouge, reine odieuse."
+        )
         response["concepts"] = deepcopy(p["document"]["concepts"])
         response["concepts"][1]["antagonist"] = "La reine fraise"
         response["selected_id"] = "concept-2"
@@ -614,6 +778,14 @@ FIN
             self.assertEqual(client.post("/api/stories/projects", json={"dialogue_register": 4}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"dialogue_language": "Italian"}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"creation_mode": "script", "brief": ""}).status_code, 422)
+            self.assertEqual(client.post("/api/stories/projects", json={
+                "narrative_format": "long", "creation_mode": "script", "brief": "SCRIPT"}).status_code, 422)
+            continuation = client.post("/api/stories/projects", json={
+                "brief": "Suite", "creation_mode": "continuation", "proposal_count": 1,
+                "parent_story_id": project["project_id"],
+            })
+            self.assertEqual(continuation.status_code, 201, continuation.text)
+            self.assertEqual(continuation.json()["parent_story_id"], project["project_id"])
             result = client.post(f"/api/stories/projects/{project['project_id']}/select", json={"concept_id": "missing", "expected_version": 1})
             self.assertEqual(result.status_code, 422)
 

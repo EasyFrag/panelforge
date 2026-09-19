@@ -329,7 +329,7 @@ class MultipleLoraServiceTest(unittest.TestCase):
         project = H3RenderProject("old", "session", "revision", "fake", H3RenderInputMode.T2VA, PROMPT,
                                  attempts=(attempt,), revision_version=H3RenderRevisionVersion.CAMERA_LOCKED)
         raw = _serialize(project)
-        self.assertEqual(raw["schema_version"], 14)
+        self.assertEqual(raw["schema_version"], 15)
         for version in range(1, 12):
             with self.subTest(schema=version):
                 historical = deepcopy(raw)

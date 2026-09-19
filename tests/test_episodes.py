@@ -184,7 +184,7 @@ class EpisodeTest(unittest.TestCase):
                 status=H3RenderAttemptStatus.CREATED, output_asset_id=None, error=None, dlss=None, **values)
             project.attempts.append(attempt)
             return project
-        def queue_render(identity, attempt_id):
+        def queue_render(identity, attempt_id, **_options):
             self.rendered[identity].attempt(attempt_id).status = H3RenderAttemptStatus.QUEUED
         def execute_render(identity, attempt_id, **_options):
             attempt = self.rendered[identity].attempt(attempt_id)
@@ -215,11 +215,102 @@ class EpisodeTest(unittest.TestCase):
         self.assertEqual(len(first["scenes"][0]["references"]), 4)
         self.assertEqual(self.composition.calls, [])
         self.assertEqual(self.prompt.sessions, {})
+        scene = first["scenes"][0]
+        self.assertEqual(scene["audacity"], 3)
+        self.assertEqual(scene["creative_axes"], {
+            "scene_life": 3, "camera": 3, "extra_motion": 3, "dialogue": 1,
+        })
+        self.assertEqual(first["video_defaults"]["settings"]["megapixels"], 0.9)
+        self.assertEqual(first["video_defaults"]["initial_megapixels"], 0.9)
         self.story["document"]["scenario"]["title"] = "Autre version"
         self.stories.store.save(self.story)
         view = self.service.get(first["episode_id"])
         self.assertTrue(view["story_changed"])
         self.assertEqual(view["scenario"]["title"], "La poche")
+
+    def test_next_story_preselects_matching_character_images_only(self):
+        parent = self.create()
+        selected = self.service.import_image(
+            parent["episode_id"], "character-1", parent["references"][0]["revision"],
+            b"portrait", "image/png", "reine.png")
+        inherited_asset = selected["references"][0]["image_asset_id"]
+
+        child = self.stories.create(title="Suite", parent_story_id=self.story["project_id"])
+        child_scenario = deepcopy(SCENARIO)
+        child_scenario["characters"][0]["id"] = "heroine-reine"
+        child_scenario["characters"][1]["id"] = "livreur-suite"
+        child_scenario["characters"][2]["id"] = "temoin-suite"
+        child_scenario["scenes"][0]["character_ids"] = ["heroine-reine", "livreur-suite", "temoin-suite"]
+        child_scenario["scenes"][0]["dialogue"][0]["speaker_id"] = "livreur-suite"
+        child_scenario["scenes"][0]["dialogue"][1]["speaker_id"] = "heroine-reine"
+        child["document"]["scenario"] = child_scenario
+        child["revisions"] = [dict(revision=1, document=deepcopy(child["document"]))]
+        child = self.stories.store.save(child)
+
+        episode = self.service.create(child["project_id"], child["version"])
+        queen = next(reference for reference in episode["references"] if reference["name"] == "Lila")
+        # In the fixture character-1 is Lila; the renamed source id proves that
+        # continuation inheritance matches the stable name rather than a local c1 id.
+        self.assertEqual(queen["image_asset_id"], inherited_asset)
+        self.assertEqual(queen["images"][0]["label"], "Référence héritée · Lila")
+        self.assertEqual(queen["inherited_image"]["episode_id"], parent["episode_id"])
+        self.assertEqual(queen["prompt"], "")
+        self.assertIsNone(queen["render_settings"])
+        self.assertFalse(any(reference["image_asset_id"] for reference in episode["references"]
+                             if reference["kind"] == "location"))
+
+    def test_continuation_casting_walks_the_full_parent_chain(self):
+        first = self.create()
+        first = self.service.import_image(
+            first["episode_id"], "character-1", first["references"][0]["revision"],
+            b"portrait", "image/png", "lila.png")
+        asset_id = first["references"][0]["image_asset_id"]
+
+        middle = self.stories.create(title="Épisode intermédiaire",
+                                     parent_story_id=self.story["project_id"])
+        middle["document"]["scenario"] = deepcopy(SCENARIO)
+        middle["revisions"] = [dict(revision=1, document=deepcopy(middle["document"]))]
+        middle = self.stories.store.save(middle)
+        # No Fabrication is created for the middle episode: the next one must
+        # still find the casting selected in the older ancestor.
+        latest = self.stories.create(title="Troisième épisode",
+                                     parent_story_id=middle["project_id"])
+        latest["document"]["scenario"] = deepcopy(SCENARIO)
+        latest["revisions"] = [dict(revision=1, document=deepcopy(latest["document"]))]
+        latest = self.stories.store.save(latest)
+
+        inherited = self.service.create(latest["project_id"], latest["version"])
+        self.assertEqual(inherited["references"][0]["image_asset_id"], asset_id)
+        self.assertEqual(inherited["references"][0]["inherited_image"]["episode_id"], first["episode_id"])
+
+    def test_next_episode_in_a_long_story_reuses_the_previous_casting(self):
+        story = self.stories.store.get(self.story["project_id"])
+        story["narrative_format"] = "long"
+        story["document"].update(
+            selected_episode_id="episode-1",
+            series_outline={"episodes": [{"id": f"episode-{index}"} for index in range(1, 5)]},
+            episode_scenarios={"episode-1": deepcopy(SCENARIO)},
+            episode_formats={f"episode-{index}": {"scene_count": 1, "clip_seconds": 10}
+                             for index in range(1, 5)},
+        )
+        story = self.stories.store.save(story)
+        first = self.service.create(story["project_id"], story["version"])
+        first = self.service.import_image(first["episode_id"], "character-1", 1,
+                                          b"portrait", "image/png", "lila.png")
+        asset_id = first["references"][0]["image_asset_id"]
+
+        story = self.stories.store.get(story["project_id"])
+        second_scenario = deepcopy(SCENARIO)
+        second_scenario["title"] = "La poche · épisode 2"
+        story["document"].update(selected_episode_id="episode-2", scenario=second_scenario)
+        story["document"]["episode_scenarios"]["episode-2"] = deepcopy(second_scenario)
+        story["revisions"].append(dict(revision=2, document=deepcopy(story["document"])))
+        story = self.stories.store.save(story)
+        second = self.service.create(story["project_id"], story["version"])
+        self.assertNotEqual(second["episode_id"], first["episode_id"])
+        self.assertEqual(second["series_episode_index"], 2)
+        self.assertEqual(second["references"][0]["image_asset_id"], asset_id)
+        self.assertEqual(second["references"][0]["inherited_image"]["episode_id"], first["episode_id"])
 
     def test_reference_batch_snapshots_two_profiles_and_stops_for_human_review(self):
         value = self.create(); identity = value["episode_id"]
@@ -307,6 +398,37 @@ class EpisodeTest(unittest.TestCase):
         self.assertTrue(result["video_chain"]["prompts_complete"])
         self.assertTrue(result["scenes"][0]["dlss_ready"])
         self.assertEqual(result["scenes"][0]["video_status"], "succeeded")
+
+    def test_single_scene_chain_can_attach_to_an_already_running_prompt(self):
+        value = self.ready(); identity = value["episode_id"]
+        prepared = self.service.prepare_scene(identity, "scene-1", 1, "manual-prompt")
+        stored = self.service.store.get(identity)
+        stored_scene = stored["scenes"][0]
+        stored_scene["preparations"][-1]["status"] = "running"
+        stored_scene["job"] = {"request_id": "manual-prompt", "status": "running", "error": None}
+        self.service.store.save(stored)
+        self.service._active.add((identity, "scenes", "scene-1"))
+        self.addCleanup(self.service._active.discard, (identity, "scenes", "scene-1"))
+
+        with patch.object(self.service, "_video_chain_worker") as worker:
+            armed = self.service.start_video_chain(
+                identity, expected_video_revision=stored["video_revision"],
+                request_id="armed-render", scene_ids=["scene-1"],
+            )
+        self.assertEqual(armed["video_chain"]["phase"], "Prompt en cours · rendu armé")
+        self.assertEqual(armed["video_chain"]["items"][0]["status"], "prompting")
+        worker.assert_called_once()
+
+        finished_scene = deepcopy(prepared["scenes"][0])
+        finished_scene["preparations"][-1]["status"] = "ready"
+        with patch.object(self.service, "_wait_scene_job",
+                          return_value=(finished_scene, {"status": "succeeded"})), \
+             patch.object(self.service, "prepare_scene") as launch:
+            result = self.service._prepare_chain_prompt(
+                identity, armed["video_chain"]["chain_id"], "scene-1",
+            )
+        self.assertEqual(result["status"], "ready")
+        launch.assert_not_called()
 
     def test_video_chain_resume_retries_only_the_rejected_stage_with_a_new_request(self):
         value = self.ready(); identity = value["episode_id"]

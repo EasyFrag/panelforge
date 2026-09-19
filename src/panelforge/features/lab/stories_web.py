@@ -3,7 +3,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from panelforge.application.stories import StoryConflict
-from panelforge.domain.stories import DEFAULT_DIALOGUE_LANGUAGE, RECIPE_ID, RECIPE_VERSION
+from panelforge.domain.stories import (
+    DEFAULT_DIALOGUE_LANGUAGE, DEFAULT_NARRATIVE_FORMAT, RECIPE_ID, RECIPE_VERSION,
+)
 
 
 class StoryCreate(BaseModel):
@@ -21,6 +23,8 @@ class StoryCreate(BaseModel):
     dialogue_register: int = Field(default=0, ge=0, le=3, strict=True)
     dialogue_language: str = Field(default=DEFAULT_DIALOGUE_LANGUAGE,
         pattern="^(French|English|Korean|Japanese|Russian)$")
+    narrative_format: str = Field(default=DEFAULT_NARRATIVE_FORMAT, pattern="^(short|long)$")
+    parent_story_id: str | None = Field(default=None, pattern="^story-[a-f0-9]{32}$")
 
 
 class StoryWrite(BaseModel):
@@ -41,6 +45,19 @@ class StorySelect(BaseModel):
 class StoryRestore(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(ge=1, strict=True)
+    expected_version: int = Field(ge=1, strict=True)
+
+
+class StoryVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1, strict=True)
+
+
+class StorySeriesEpisode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    episode_id: str = Field(pattern="^episode-[1-4]$")
+    scene_count: int = Field(ge=1, le=12, strict=True)
+    clip_seconds: int = Field(ge=5, le=15, strict=True)
     expected_version: int = Field(ge=1, strict=True)
 
 
@@ -129,6 +146,18 @@ def stories_router(service):
     @router.post("/projects/{project_id}/restore")
     def restore(project_id: str, body: StoryRestore):
         return invoke(lambda: current().restore(project_id, **body.model_dump()))
+
+    @router.post("/projects/{project_id}/revalidate")
+    def revalidate(project_id: str, body: StoryVersion):
+        return invoke(lambda: current().revalidate(project_id, **body.model_dump()))
+
+    @router.post("/projects/{project_id}/series-episode")
+    def select_series_episode(project_id: str, body: StorySeriesEpisode):
+        values = body.model_dump()
+        episode_id = values.pop("episode_id")
+        expected_version = values.pop("expected_version")
+        return invoke(lambda: current().select_series_episode(
+            project_id, episode_id, expected_version, **values))
 
     @router.patch("/projects/{project_id}/scenes/{index}")
     def edit_scene(project_id: str, index: int, body: StorySceneEdit):

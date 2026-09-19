@@ -42,7 +42,7 @@ class StoriesBrowserTest(unittest.TestCase):
         """
         scenario = r"""
           (async()=>{try{
-            const check=(v,m)=>{if(!v)throw new Error(m);},settle=()=>new Promise(r=>setTimeout(r,50));
+            const check=(v,m)=>{if(!v)throw new Error(m);},settle=()=>new Promise(r=>setTimeout(r,250));
             document.querySelector('[data-lab-view="stories"]').click();await settle();
             check(!document.getElementById('story-continuity').hidden,'cumulative memory is visible');
             check(document.getElementById('story-continuity-content').textContent.includes('Les colis restent cachés.'),'open thread displayed');
@@ -83,7 +83,8 @@ class StoriesBrowserTest(unittest.TestCase):
             if(url==='/api/stories/projects'&&options.method==='POST'){
               const body=JSON.parse(options.body);creates.push(body);project={project_id:'story-cccccccccccccccccccccccccccccccc',
                 title:body.title,version:1,brief:body.brief,scene_count:body.scene_count,clip_seconds:body.clip_seconds,
-                creation_mode:body.creation_mode,proposal_count:body.proposal_count,recipe:{id:body.recipe_id,version:body.recipe_version},
+                creation_mode:body.creation_mode,narrative_format:body.narrative_format,parent_story_id:body.parent_story_id,
+                proposal_count:body.proposal_count,recipe:{id:body.recipe_id,version:body.recipe_version},
                 dialogue_register:body.dialogue_register,dialogue_language:body.dialogue_language,
                 architect_model_id:body.architect_model_id,writer_model_id:body.writer_model_id,model_id:body.writer_model_id,
                 document:{concepts:[],selected_id:null,scenario:null},turns:[],job:null,revisions:[],diagnostics:[]};
@@ -99,6 +100,12 @@ class StoriesBrowserTest(unittest.TestCase):
             const check=(v,m)=>{if(!v)throw new Error(m);},settle=()=>new Promise(r=>setTimeout(r,50));
             const change=e=>e.dispatchEvent(new Event('change',{bubbles:true}));
             document.querySelector('[data-lab-view="stories"]').click();await settle();
+            const formatLong=document.getElementById('story-format-long'),formatShort=document.getElementById('story-format-short');
+            formatLong.checked=true;change(formatLong);
+            check(document.getElementById('story-creation-mode').disabled,'long stories use their isolated arc pipeline');
+            check(document.getElementById('story-mode-description').textContent.includes('quatre épisodes'),'long pipeline is explained');
+            formatShort.checked=true;change(formatShort);
+            check(!document.getElementById('story-creation-mode').disabled,'short stories keep the existing start modes');
             const recipes=document.getElementById('story-recipe');
             check([...recipes.options].some(option=>option.textContent==='Cru ++'),'explicit family available');
             check([...recipes.options].some(option=>option.textContent==='Chats de couple · muet'),'silent cat family available');
@@ -137,6 +144,7 @@ class StoriesBrowserTest(unittest.TestCase):
             check(!document.getElementById('story-create').disabled,'script enables creation');
             document.getElementById('story-create-form').requestSubmit();await settle();
             check(creates.length===1&&creates[0].creation_mode==='script','script mode persisted');
+            check(creates[0].narrative_format==='short','existing short-story path remains selected');
             check(creates[0].scene_count===3,'exact selected scene count persisted');
             check(creates[0].proposal_count===1,'selected count persisted without affecting script');
             check(register.disabled&&creates[0].dialogue_register===0,'faithful script disables register');

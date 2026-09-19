@@ -54,7 +54,8 @@ class EpisodesBrowserTest(unittest.TestCase):
           localStorage.clear();
           window.PanelForgeStories={current:()=>story};
           window.PanelForgeH3Render={mount:(prefix,event,mode,options)=>{
-            mounts.push({prefix,mode,options});return {busy:false,open:async context=>{currentContext=context;},close:async()=>{currentContext=null;},parameters:()=>({})};}};
+            mounts.push({prefix,mode,options});return {busy:false,open:async context=>{currentContext=context;},openSetup:async context=>{currentContext=context;},
+              close:async()=>{currentContext=null;},parameters:()=>({}),refreshControls:()=>{}};}};
           window.PanelForgePromptRecipes={showHistory:()=>{},open:()=>{}};
           window.PanelForgeLabCore={request:async(url,options={})=>{
             calls.push({url,options});const body=options.body?JSON.parse(options.body):null;
@@ -90,6 +91,20 @@ class EpisodesBrowserTest(unittest.TestCase):
             if(sceneId&&url.endsWith('/prompt')){
               const scene=episode.scenes.find(s=>s.id===sceneId);scene.job={status:'succeeded'};
               scene.preparations.push({id:'prep-one',session_id:'session-one',render_project_id:'render-one',status:'ready',render_setup:structuredClone(scene.render_setup)});
+              return structuredClone(episode);
+            }
+            if(url.endsWith('/video-defaults')){
+              episode.video_defaults={recipe:{id:body.parameters.recipe_id,version:body.parameters.recipe_version},
+                checkpoint:body.parameters.checkpoint,initial_megapixels:body.parameters.initial_megapixels,
+                settings:{aspect_ratio:body.parameters.aspect_ratio,megapixels:body.parameters.megapixels,
+                  duration_seconds:body.parameters.duration_seconds,steps:body.parameters.steps,seed:Number(body.parameters.seed||0)},
+                seed_locked:body.parameters.seed_locked,music_enabled:body.parameters.music_enabled,spectrum_enabled:body.parameters.spectrum_enabled,
+                force_upscale:body.parameters.force_upscale,bunny:body.parameters.bunny,video_loras:body.parameters.video_loras};
+              episode.video_revision++;return {video_revision:episode.video_revision,
+                render_revisions:Object.fromEntries(episode.scenes.map(scene=>[scene.id,++scene.render_revision]))};
+            }
+            if(url.endsWith('/video-chain')){
+              episode.video_chain={chain_id:'chain-one',status:'completed',phase:'Toutes les vidéos sont terminées',items:[{scene_id:body.scene_ids[0],status:'succeeded'}]};
               return structuredClone(episode);
             }
             if(url==='/api/episodes/'+episode.episode_id)return structuredClone(episode);
@@ -149,20 +164,29 @@ class EpisodesBrowserTest(unittest.TestCase):
             check(episode.references[0].inherit_image_settings&&get('image-custom').hidden,'return to common settings persists');
             get('tab-scenes').click();await settle();
             check(get('reference-limit').textContent==='4 / 9 images','no three-reference restriction');
+            check(currentContext?.scene_id==='scene-1'&&!currentContext.project_id,'render settings open before a prompt exists');
+            check(typeof mounts[0].options.onSetupRender==='function','episode renderer exposes the deferred render action');
+            const common=episode.video_defaults;
+            await mounts[0].options.onSetupRender({recipe_id:common.recipe.id,recipe_version:common.recipe.version,
+              checkpoint:common.checkpoint,initial_megapixels:common.initial_megapixels,...common.settings,
+              seed:String(common.settings.seed),seed_locked:common.seed_locked,music_enabled:common.music_enabled,
+              spectrum_enabled:common.spectrum_enabled,force_upscale:common.force_upscale,bunny:common.bunny,
+              video_loras:common.video_loras,video_lora:null,prompt:''},currentContext);
+            check(calls.some(c=>c.url.endsWith('/video-chain')&&JSON.parse(c.options.body).scene_ids[0]==='scene-1'),'setup action snapshots settings and programs the selected scene');
             check(get('plan-local').checked&&get('writer-local').checked,'both models default local');
             check(get('plan-model').value.includes('Qwen')&&get('writer-model').value.includes('gemma'),'Qwen then Gemma');
             check(get('dialogues').textContent.includes('Victor : « Vous avez pris mon portefeuille ! »'),'exact attributed dialogue');
             check(get('scenes').querySelectorAll('.creative-axes-control input[type=range]').length===5,'five independent sliders');
             get('creative-camera').value='3';get('creative-camera').dispatchEvent(new Event('input'));
             get('creative-extra-motion').value='2';get('creative-extra-motion').dispatchEvent(new Event('input'));
-            check(get('creative-camera-value').value==='3'&&get('creative-dialogue').value==='0','live outputs and dialogue default');
+            check(get('creative-camera-value').value==='3'&&get('creative-dialogue').value==='1','live outputs and dialogue default');
             get('intention').value='Victor recule et Lila montre la poche.';get('intention').dispatchEvent(new Event('input'));
             get('writer-model').value=episode.scenes[0].plan_model_id;get('writer-model').dispatchEvent(new Event('input'));change(get('writer-model'));
             get('scene').value='scene-2';change(get('scene'));await settle();
             check(episode.scenes[0].intention==='Victor recule et Lila montre la poche.','scene edits persist before navigation');
             check(episode.scenes[0].writer_model_id===episode.scenes[0].plan_model_id,'custom writer saved per scene');
-            check(episode.scenes[0].creative_axes.camera===3&&episode.scenes[0].creative_axes.extra_motion===2&&episode.scenes[0].creative_axes.dialogue===0,'all axes persist independently');
-            check(get('creative-camera').value==='2','other scene retains its own creative axes');
+            check(episode.scenes[0].creative_axes.camera===3&&episode.scenes[0].creative_axes.extra_motion===2&&episode.scenes[0].creative_axes.dialogue===1,'all axes persist independently');
+            check(get('creative-camera').value==='3','other scene retains its own creative axes');
             check(get('scene').value==='scene-2'&&get('duration').value==='8','scene picker and duration stay in sync');
             check(get('writer-model').value.includes('gemma'),'other scene retains its own model');
             get('prepare').click();await settle();await settle();

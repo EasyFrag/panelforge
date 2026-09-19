@@ -11,7 +11,7 @@
     renderContext: "", renderSaves: Promise.resolve(), renderRevision: new Map(), dlssPanels: new Map(),
     videoCards: new Map(), cooldownTicker: null };
   const axesIds = {scene_life: "creative-scene-life", camera: "creative-camera", extra_motion: "creative-extra-motion", dialogue: "creative-dialogue"};
-  const initialAxes = {scene_life: 1, camera: 2, extra_motion: 1, dialogue: 0};
+  const initialAxes = {scene_life: 3, camera: 3, extra_motion: 3, dialogue: 1};
   const roles = {subject_reference: "Sujet / identité", environment_reference: "Décor", style_reference: "Style",
     composition_reference: "Composition", motion_reference: "Mouvement", keyframe_reference: "Keyframe", first_frame: "Première frame", last_frame: "Dernière frame"};
   const statuses = {ready: "Prompt prêt", running: "En cours", succeeded: "Terminé", failed: "Échec", interrupted: "À reprendre",
@@ -98,6 +98,7 @@
     el("video-settings-toggle").disabled = state.busy || videoChainRunning() || !s;
     drawLoras();
     drawBatchLoras();
+    renderer.refreshControls?.();
   }
   function fillModel(id, value) {
     const select = el(id);
@@ -169,10 +170,17 @@
   }
   function drawStylePresets() {
     const selected = el("style-preset").value, active = state.data?.style_preset;
-    el("style-preset").replaceChildren(new Option("Style personnalisé", ""), ...state.presets.map(p => new Option(p.name, p.preset_id)));
+    const select = el("style-preset");
+    select.replaceChildren(new Option("Style personnalisé", ""));
+    for (const [category, label] of [["work", "Work"], ["fun", "Fun"], ["nsfw", "NSFW"], ["archive", "Archive"]]) {
+      const presets = state.presets.filter(p => (p.category || "work") === category);
+      if (!presets.length) continue;
+      const group = document.createElement("optgroup"); group.label = label;
+      presets.forEach(p => group.append(new Option(p.name, p.preset_id))); select.append(group);
+    }
     if (active && !state.presets.some(p => p.preset_id === active.preset_id))
-      el("style-preset").add(new Option(`${active.name} · copie de l’épisode`, active.preset_id));
-    el("style-preset").value = selected || active?.preset_id || "";
+      select.add(new Option(`${active.name} · copie de l’épisode`, active.preset_id));
+    select.value = selected || active?.preset_id || "";
     const latest = state.presets.find(p => p.preset_id === active?.preset_id);
     el("style-preset-note").textContent = active
       ? `${active.name} · version ${active.revision} conservée dans cet épisode.${latest && latest.revision !== active.revision ? " Une nouvelle version est disponible : Appliquer pour la reprendre." : ""}`
@@ -527,10 +535,12 @@
     el("reference-preview").hidden = !r.image_asset_id; el("no-reference").hidden = !!r.image_asset_id;
     if (r.image_asset_id) el("reference-preview").src = assetUrl(r.image_asset_id); else el("reference-preview").removeAttribute("src");
     el("image-style-note").hidden = !r.image_asset_id;
-    el("image-style-note").textContent = r.image_style_status === "outdated"
+    const inheritedNote = r.inherited_image
+      ? `Référence héritée de l’épisode précédent pour ${r.inherited_image.name}. ` : "";
+    el("image-style-note").textContent = inheritedNote + (r.image_style_status === "outdated"
       ? "Cette image provient d’une ancienne direction de style. Elle reste retenue jusqu’à ton prochain choix."
       : r.image_style_status === "current" ? "Image préparée avec le style commun actuel."
-      : "Style de cette image non documenté : vérifie sa cohérence avec l’épisode.";
+      : "Style de cette image non documenté : vérifie sa cohérence avec l’épisode.");
     el("asset-status").textContent = r.job?.error || (jobRunning(r) ? r.job.phase : imageRunning() ? "Image en cours de génération…" : "");
     el("image-calls").hidden = !r.krea_project_id; el("image-open").hidden = !r.krea_project_id;
     const items = [...r.images.map(i => ({...i, status: "succeeded", output_asset_id: i.asset_id})), ...(state.imageProject?.attempts || [])];
@@ -693,6 +703,19 @@
     restoreSetup: true,
     raiseContextErrors: true,
     beforeRender: (parameters, context) => saveVideo(parameters, context),
+    onSetupRender: (parameters, context) => startSceneVideoChain(parameters, context),
+    setupActionState(context) {
+      const chain = state.data?.video_chain;
+      const item = chain?.items?.find(value => value.scene_id === context?.scene_id);
+      if (item?.status === "prompt_failed") {
+        return {label: "Réessayer prompt + vidéo", status: item.error || "Le prompt a échoué ; le rendu programmé a été annulé.", tone: "error"};
+      }
+      if (!chain || !["running", "pausing"].includes(chain.status)) {
+        return {label: "Générer dès que le prompt est prêt"};
+      }
+      return {label: item ? "Rendu programmé" : "Chaîne vidéo en cours", disabled: true,
+        status: item?.phase || chain.phase, tone: "active"};
+    },
     onProjectChange(project, context) { if (context?.episode_id !== state.data?.episode_id) return;
       const s = state.data.scenes.find(s => s.id === context.scene_id); if (s) { s.video_status = project.attempts.at(-1)?.status; drawLists(); drawVideoOverview(); } },
   });
@@ -890,6 +913,23 @@
       scene_ids: state.data.scenes.map(value => value.id),
     }));
     accept(data); message("Chaîne lancée. Tu peux la mettre en pause après les tâches déjà en cours.");
+  }
+  async function startSceneVideoChain(parameters, context) {
+    await saveScene();
+    if (!context || context.episode_id !== state.data?.episode_id || context.scene_id !== scene()?.id) {
+      throw new Error("La scène active a changé. Relance la programmation du rendu.");
+    }
+    await saveVideo(parameters, context);
+    const wasRunning = jobRunning(scene());
+    const data = await core.request(api("/video-chain"), send("POST", {
+      expected_video_revision: state.data.video_revision,
+      request_id: crypto.randomUUID(),
+      scene_ids: [context.scene_id],
+    }));
+    accept(data);
+    message(wasRunning
+      ? "Rendu armé : il démarrera automatiquement si le prompt aboutit."
+      : "Prompt puis rendu vidéo programmés pour cette scène.");
   }
   async function pauseVideoChain() {
     const chain = state.data.video_chain; if (!chain) return;

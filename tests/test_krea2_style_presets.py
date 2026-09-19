@@ -9,7 +9,8 @@ import unittest
 
 from panelforge.application.krea2_assisted import Krea2AssistedService
 from panelforge.domain.krea2_assisted import Krea2AssistedTurn, Krea2AssistedTurnMode as Mode, Krea2AssistedTurnRole as Role
-from panelforge.domain.krea2_batch import Krea2LoraSelection
+from panelforge.domain.krea2_batch import Krea2LoraSelection, Krea2PromptLanguage
+from panelforge.domain.krea2_style_presets import Krea2StylePresetCategory
 from panelforge.infrastructure.storage import LocalAssetStore, LocalKrea2AssistedProjectStore
 from panelforge.infrastructure.storage.krea2_style_presets import LocalKrea2StylePresetStore
 from tests.test_krea2_assisted import Gateway, PNG, PROMPT
@@ -113,3 +114,52 @@ class StylePresetTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.apply(self.a, expected_branch_id="stale")
         self.assertEqual(self.gateway.requests, [])
+
+    def test_category_updates_and_catalog_deletion_leave_project_copy_intact(self):
+        pinned = self.apply(self.a)
+        updated = self.service.update_style_preset(
+            self.a.preset_id,
+            name="Style A rangé",
+            category=Krea2StylePresetCategory.NSFW,
+            expected_revision=1,
+        )
+        self.assertEqual(updated.revision, 2)
+        self.assertEqual(updated.category, Krea2StylePresetCategory.NSFW)
+        self.assertEqual(self.catalog.list(), (updated,))
+        deleted = self.service.delete_style_preset(updated.preset_id, expected_revision=2)
+        self.assertEqual(deleted, updated)
+        self.assertEqual(self.catalog.list(), ())
+        with self.assertRaises(KeyError):
+            self.catalog.get(updated.preset_id)
+        self.assertEqual(self.projects.get("branch-test").style_preset, pinned.style_preset)
+        self.assertEqual(self.projects.get("branch-test").style_preset.revision, 1)
+        stored = json.loads(self.catalog.path.read_text(encoding="utf-8"))
+        self.assertEqual(stored["schema_version"], 2)
+        self.assertEqual(stored["deleted"], [updated.preset_id])
+
+    def test_preset_language_is_the_creation_default_but_can_be_overridden(self):
+        chinese = self.catalog.save(replace(
+            self.a,
+            preset_id="style-chinese",
+            name="Style chinois",
+            prompt_language=Krea2PromptLanguage.CHINESE_SIMPLIFIED,
+        ))
+        inherited = self.service.create_project(
+            name="Chinese", intention="Portrait", model_id="local", style_preset_id=chinese.preset_id,
+        )
+        overridden = self.service.create_project(
+            name="English", intention="Portrait", model_id="local", style_preset_id=chinese.preset_id,
+            prompt_language=Krea2PromptLanguage.ENGLISH,
+        )
+        self.assertEqual(inherited.prompt_language, Krea2PromptLanguage.CHINESE_SIMPLIFIED)
+        self.assertEqual(overridden.prompt_language, Krea2PromptLanguage.ENGLISH)
+
+    def test_schema_one_catalogue_defaults_existing_presets_to_work(self):
+        value = json.loads(self.catalog.path.read_text(encoding="utf-8"))
+        value["schema_version"] = 1
+        value.pop("deleted", None)
+        for preset in value["revisions"]:
+            preset.pop("category", None)
+        self.catalog.path.write_text(json.dumps(value), encoding="utf-8")
+        loaded = LocalKrea2StylePresetStore(self.temp.name).get(self.a.preset_id)
+        self.assertEqual(loaded.category, Krea2StylePresetCategory.WORK)

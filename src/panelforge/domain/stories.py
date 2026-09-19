@@ -30,11 +30,66 @@ CONTINUITY_FIELDS = (
     "unresolved_threads", "available_elements",
 )
 CONTINUATION_PLAN_FIELDS = ("carry_over", "obstacle", "payoff", "introduced_elements")
+DEFAULT_NARRATIVE_FORMAT = "short"
+NARRATIVE_FORMATS = frozenset({"short", "long"})
+SERIES_EPISODE_COUNT = 4
+FRUIT_AUDIO_MAX_LINES_PER_SCENE = 4
+
+# Fruit stories use coined stage names, not a human first name followed by
+# the species (for example, "Nour Myrtille"). Three or four stable letters
+# support playful suffixes while keeping the rule deterministic.
+_FRUIT_NAME_ROOTS = (
+    ("fruit de la passion", ("pass",)),
+    ("pamplemousse", ("pamplem",)),
+    ("carambole", ("caramb",)),
+    ("canneberge", ("canneb",)),
+    ("clementine", ("clement",)),
+    ("framboise", ("framb",)),
+    ("groseille", ("groseill",)),
+    ("mangoustan", ("mangoust",)),
+    ("mirabelle", ("mirab",)),
+    ("myrtille", ("myrt",)),
+    ("mandarine", ("mandar",)),
+    ("nectarine", ("nectar",)),
+    ("pasteque", ("pasteq",)),
+    ("abricot", ("abric",)),
+    ("ananas", ("anan",)),
+    ("banane", ("banan",)),
+    ("cerise", ("ceris",)),
+    ("citron", ("citr",)),
+    ("grenade", ("grenad",)),
+    ("goyave", ("goyav",)),
+    ("litchi", ("litch",)),
+    ("mangue", ("mang",)),
+    ("orange", ("orang",)),
+    ("papaye", ("papay",)),
+    ("ramboutan", ("rambout",)),
+    ("raisin", ("rais",)),
+    ("avocat", ("avoc",)),
+    ("cassis", ("cass",)),
+    ("durian", ("duri",)),
+    ("fraise", ("frais", "fraz")),
+    ("figue", ("fig",)),
+    ("melon", ("melon",)),
+    ("mure", ("mur",)),
+    ("peche", ("pech",)),
+    ("poire", ("poir",)),
+    ("pomme", ("pom",)),
+    ("prune", ("prun",)),
+    ("pitaya", ("pitay",)),
+    ("physalis", ("phys",)),
+    ("kumquat", ("kumq",)),
+    ("coing", ("coin",)),
+    ("datte", ("datt",)),
+    ("kaki", ("kaki",)),
+    ("kiwi", ("kiwi",)),
+    ("coco", ("coco",)),
+)
 
 _STORY_RECIPES = {
     (RECIPE_ID, RECIPE_VERSION): {
         "id": RECIPE_ID, "version": RECIPE_VERSION, "label": "Mélodrame fruits",
-        "description": "Fruits anthropomorphes, conflits frontaux et retournements visuels.",
+        "description": "Fruits anthropomorphes aux noms fruités, mélodrame compréhensible à l’écoute.",
         "concept_fields": (("title", "Titre"), ("hook", "Accroche"),
             ("protagonist", "Personnage principal"), ("antagonist", "Antagoniste"),
             ("escalation", "Escalade"), ("reveal", "Révélation"), ("ending", "Fin")),
@@ -95,6 +150,12 @@ def dialogue_language_label(value=DEFAULT_DIALOGUE_LANGUAGE):
     return DIALOGUE_LANGUAGES[dialogue_language_selection(value)]
 
 
+def narrative_format_selection(value=DEFAULT_NARRATIVE_FORMAT):
+    if not isinstance(value, str) or value not in NARRATIVE_FORMATS:
+        raise ValueError("Format narratif inconnu.")
+    return value
+
+
 def story_recipe_spec(recipe_id=RECIPE_ID, version=RECIPE_VERSION):
     try:
         spec = _STORY_RECIPES[(recipe_id, version)]
@@ -131,6 +192,73 @@ def _recipe_fields(recipe_id, version=RECIPE_VERSION):
         return tuple(field for field, _ in _STORY_RECIPES[(recipe_id, version)]["concept_fields"])
     except KeyError as error:
         raise ValueError("Famille d’histoire ou version inconnue.") from error
+
+
+def _fold_fruit_words(value):
+    normalized = unicodedata.normalize("NFKD", value or "")
+    ascii_value = "".join(char for char in normalized if not unicodedata.combining(char)).casefold()
+    return " ".join(re.sub(r"[^a-z]+", " ", ascii_value).split())
+
+
+def _fruit_species(value):
+    description = _fold_fruit_words(value)
+    candidates = []
+    for species, roots in _FRUIT_NAME_ROOTS:
+        token = re.escape(species)
+        matches = [
+            re.search(rf"\bespece\s+(?:de\s+)?{token}\b", description),
+            re.search(rf"\b{token}\s+anthropomorph[a-z]*\b", description),
+        ]
+        for priority, match in enumerate(matches):
+            if match:
+                candidates.append((priority, match.start(), -len(species), species, roots))
+    if not candidates:
+        return None
+    _, _, _, species, roots = min(candidates)
+    return species, roots
+
+
+def _validate_fruit_character_names(characters):
+    for character in characters:
+        name = character.get("name", "")
+        species = _fruit_species(character.get("description", ""))
+        if species is None:
+            continue
+        species_name, roots = species
+        folded_name = _fold_fruit_words(name)
+        if (not name.isalpha() or " " in folded_name or folded_name == species_name
+                or not any(folded_name.startswith(root) and len(folded_name) >= len(root) + 2
+                           for root in roots)):
+            examples = "Figos, Figette, Pomitto, Pomitta, Mangotino, Manguette, Ananito ou Ananette"
+            raise ValueError(
+                f"Le nom « {name} » doit être un seul nom inventé dérivé de l’espèce {species_name}, "
+                f"sans prénom humain ni nom de famille. Exemples : {examples}."
+            )
+
+
+def validate_fruit_story_contract(document):
+    """Validate generated Fruit identities and their listen-only scene budget.
+
+    StoryService deliberately skips this collection contract for faithful
+    scripts so a pasted human script is never silently rewritten.
+    """
+    if not isinstance(document, dict):
+        return document
+    outline = document.get("series_outline")
+    if isinstance(outline, dict):
+        _validate_fruit_character_names(outline.get("characters") or [])
+    scenario = document.get("scenario")
+    if isinstance(scenario, dict):
+        _validate_fruit_character_names(scenario.get("characters") or [])
+        for index, scene in enumerate(scenario.get("scenes") or [], 1):
+            count = len(scene.get("dialogue") or [])
+            if not 1 <= count <= FRUIT_AUDIO_MAX_LINES_PER_SCENE:
+                raise ValueError(
+                    f"La scène {index} d’une histoire Fruit doit contenir entre une et "
+                    f"{FRUIT_AUDIO_MAX_LINES_PER_SCENE} répliques ou monologues brefs afin de rester "
+                    "compréhensible à l’écoute."
+                )
+    return document
 
 
 def decode_story_json(text):
@@ -216,6 +344,55 @@ def _continuation_plan(value):
             for item in _items(value.get("introduced_elements"), "introduced_elements", 0, 4)
         ],
     }
+
+
+def validate_series_outline(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION):
+    """Validate the stable four-episode map used only by long stories."""
+    if not isinstance(value, dict) or set(value) != {
+            "title", "premise", "overall_arc", "ending", "characters", "episodes"}:
+        raise ValueError(
+            "L’arc long doit contenir exactement title, premise, overall_arc, ending, characters et episodes."
+        )
+    recipe_spec = _STORY_RECIPES.get((recipe_id, recipe_version))
+    if recipe_spec is None:
+        raise ValueError("Famille d’histoire ou version inconnue.")
+    adult_required = recipe_spec.get("adult_required", False)
+    result = {key: _text(value.get(key), key, 6000)
+              for key in ("title", "premise", "overall_arc", "ending")}
+    result["characters"] = []
+    for item in _items(value.get("characters"), "Personnages de la série", 1, 12):
+        if not isinstance(item, dict):
+            raise ValueError("Fiche de personnage de série illisible.")
+        character = {key: _text(item.get(key), key, 3000 if key == "description" else 120)
+                     for key in ("id", "name", "description")}
+        if "adult" in item or adult_required:
+            if item.get("adult") is not True:
+                raise ValueError("Chaque personnage de cette famille doit être explicitement identifié comme adulte.")
+            character["adult"] = True
+        result["characters"].append(character)
+    character_ids = [item["id"] for item in result["characters"]]
+    if len(set(character_ids)) != len(character_ids):
+        raise ValueError("Identifiants de personnages de série en double.")
+    result["episodes"] = []
+    for index, item in enumerate(_items(
+            value.get("episodes"), "Épisodes de l’arc", SERIES_EPISODE_COUNT, SERIES_EPISODE_COUNT), 1):
+        if not isinstance(item, dict) or set(item) != {
+                "id", "title", "promise", "opening_state", "conflict", "beats",
+                "local_payoff", "ending_state", "carry_forward"}:
+            raise ValueError(
+                "Chaque épisode doit contenir exactement id, title, promise, opening_state, conflict, beats, "
+                "local_payoff, ending_state et carry_forward."
+            )
+        if item.get("id") != f"episode-{index}":
+            raise ValueError("Les épisodes doivent être identifiés de episode-1 à episode-4, dans cet ordre.")
+        episode = {key: _text(item.get(key), key, 3000) for key in (
+            "id", "title", "promise", "opening_state", "conflict",
+            "local_payoff", "ending_state", "carry_forward",
+        )}
+        episode["beats"] = [_text(beat, "beat", 1500)
+                            for beat in _items(item.get("beats"), "Étapes causales", 2, 6)]
+        result["episodes"].append(episode)
+    return result
 
 
 def validate_concepts(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION, expected_count=3,
@@ -460,21 +637,32 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
 
 def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_id=RECIPE_ID,
                    recipe_version=RECIPE_VERSION, proposal_count=3, source_script="",
-                   target_scene_count=None, creation_mode="ideas"):
+                   target_scene_count=None, creation_mode="ideas",
+                   narrative_format=DEFAULT_NARRATIVE_FORMAT, has_series_outline=False):
     if not isinstance(value, dict):
         raise ValueError("Le modèle doit renvoyer un objet JSON.")
     reply = _text(value.get("reply"), "réponse", MAX_STORY_REPLY_CHARS)
     if operation == "revise" and value.get("discussion_only") is True and set(value) == {"reply", "discussion_only"}:
         return reply, None
-    field = "scenario" if operation in {"develop", "script"} or (operation == "revise" and has_scenario) else "concepts"
+    narrative_format = narrative_format_selection(narrative_format)
+    if operation == "outline" or (
+            operation == "revise" and narrative_format == "long" and has_series_outline and not has_scenario):
+        field = "series_outline"
+    else:
+        field = "scenario" if operation in {"develop", "script"} or (operation == "revise" and has_scenario) else "concepts"
     continuation = creation_mode == "continuation"
     required = {"reply", field} | ({"continuity"} if continuation else set())
     extras = {"concepts", "selected_id"} if operation == "revise" and has_scenario else set()
     if not required.issubset(value) or set(value) - required - extras:
         raise ValueError(f"Réponse incomplète : reply et {field} sont attendus. Le brouillon reste disponible.")
-    document = {field: validate_scenario(value[field], recipe_id, recipe_version) if field == "scenario"
-                else validate_concepts(value[field], recipe_id, recipe_version, proposal_count,
-                                       continuation=continuation)}
+    if field == "scenario":
+        parsed = validate_scenario(value[field], recipe_id, recipe_version)
+    elif field == "series_outline":
+        parsed = validate_series_outline(value[field], recipe_id, recipe_version)
+    else:
+        parsed = validate_concepts(value[field], recipe_id, recipe_version, proposal_count,
+                                   continuation=continuation)
+    document = {field: parsed}
     if continuation:
         document["continuity"] = validate_story_continuity(value["continuity"])
     if field == "scenario" and target_scene_count is not None:
@@ -498,11 +686,42 @@ def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_i
 
 
 def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION,
-                      proposal_count=3, *, creation_mode="ideas"):
+                      proposal_count=3, *, creation_mode="ideas",
+                      narrative_format=DEFAULT_NARRATIVE_FORMAT, has_series_outline=False):
     """An explicit wire example, never a vendor response-format dependency."""
     recipe_spec = _STORY_RECIPES[(recipe_id, recipe_version)]
     adult_required = recipe_spec.get("adult_required", False)
-    if operation in {"develop", "script"} or (operation == "revise" and has_scenario):
+    narrative_format = narrative_format_selection(narrative_format)
+    if operation == "outline" or (
+            operation == "revise" and narrative_format == "long" and has_series_outline and not has_scenario):
+        character = {"id": "series-c1", "name": "Nom stable", "description": "Identité visuelle et rôle stables dans la série."}
+        if adult_required:
+            character["adult"] = True
+        episodes = []
+        for index in range(1, SERIES_EPISODE_COUNT + 1):
+            episodes.append({
+                "id": f"episode-{index}",
+                "title": f"Titre de l’épisode {index}",
+                "promise": "Question locale compréhensible sans connaître les autres épisodes.",
+                "opening_state": "État concret au début de cet épisode.",
+                "conflict": "Obstacle principal de cet épisode.",
+                "beats": ["Cause visible.", "Réaction ou tentative visible.", "Conséquence visible."],
+                "local_payoff": "Résolution satisfaisante de la question locale.",
+                "ending_state": "État exact et observable à la fin de l’épisode.",
+                "carry_forward": "Élément transmis à l’épisode suivant, ou conclusion pour le quatrième.",
+            })
+        example = {
+            "reply": "Présentation de l’arc long en quatre épisodes.",
+            "series_outline": {
+                "title": "Titre de la série",
+                "premise": "Promesse générale de la série.",
+                "overall_arc": "Progression causale globale des quatre épisodes.",
+                "ending": "Aboutissement prévu de l’histoire globale.",
+                "characters": [character],
+                "episodes": episodes,
+            },
+        }
+    elif operation in {"develop", "script"} or (operation == "revise" and has_scenario):
         character = {"id": "c1", "name": "Nom", "description": "Identité visuelle stable, tenue et caractère."}
         if adult_required:
             character["adult"] = True

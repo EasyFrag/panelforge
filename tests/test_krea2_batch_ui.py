@@ -17,14 +17,14 @@ class Krea2BatchUiTest(unittest.TestCase):
     def test_retires_recipe_batch_from_image_lab_navigation(self):
         self.assertIn('id="krea2-batch-lab-workspace"', self.page)
         self.assertNotIn('data-image-lab-mode="krea2-batch-lab"', self.page)
-        self.assertIn('/static/krea2-resource-ui.js?v=20260913.1', self.page)
+        self.assertIn('/static/krea2-resource-ui.js?v=20260919.1', self.page)
         self.assertNotIn('/static/krea2-batch-lab.js?', self.page)
         self.assertIn('"krea2-batch-lab": "krea2-assisted-lab"', self.navigation)
 
     def test_ui_supports_modern_models_ten_reorderable_loras_and_feedback(self):
         for label in (
             "Favoris · BF16", "Favoris · INT8", "BF16", "INT8",
-            "SFW · Sliders", "NSFW · Sliders", "NSFW · Poses",
+            "SFW · Sliders", "NSFW · Sliders", "NSFW · Poses", "NSFW - Persona",
         ):
             self.assertIn(label, self.resources)
         self.assertIn("renderModelPicker", self.script)

@@ -741,7 +741,9 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .prompt-language-variant > summary { cursor: pointer; font-weight: 800; }
 .prompt-language-variant > p { margin: .55rem 0; color: var(--muted); font-size: .66rem; }
 .prompt-language-variant-controls { display: grid; grid-template-columns: minmax(10rem, .8fr) minmax(14rem, 1.4fr) auto auto; gap: .5rem; align-items: end; }
-.prompt-language-variant-controls label { display: grid; gap: .25rem; font-size: .65rem; font-weight: 750; }
+.prompt-language-variant-controls > label, .prompt-language-variant-model > label:first-child { display: grid; gap: .25rem; font-size: .65rem; font-weight: 750; }
+.prompt-language-variant-model { display: grid; align-content: end; }
+.prompt-language-variant-model > .llm-local-toggle { margin-bottom: 0; }
 .prompt-language-variant-controls select, .prompt-language-variant-controls button { min-height: 38px; }
 .prompt-language-variant textarea { width: 100%; margin-top: .55rem; font-family: var(--mono); font-size: .68rem; }
 @media (max-width: 1050px) { .prompt-language-variant-controls { grid-template-columns: 1fr; } }
@@ -1189,6 +1191,31 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-preset-dialog form { display: grid; gap: .8rem; }
 .krea2-preset-dialog label { display: grid; gap: .3rem; }
 .krea2-preset-dialog input, .krea2-preset-dialog select { width: 100%; }
+.krea2-assisted-preset-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: .45rem; }
+.krea2-assisted-preset-choice label { min-width: 0; margin: 0; }
+.krea2-assisted-preset-choice label:nth-child(2) select { width: auto; min-width: 6.2rem; }
+.krea2-assisted-preset-manage { padding-inline: .7rem; white-space: nowrap; }
+.krea2-assisted-convert-language { padding: .42rem .65rem; border-color: color-mix(in srgb, var(--green) 40%, var(--line)); color: var(--green); background: transparent; white-space: nowrap; }
+.krea2-preset-manager { width: min(760px, 94vw); max-height: 82vh; }
+.krea2-preset-manager-head { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.krea2-preset-manager-head h2 { margin: .1rem 0 0; }
+.krea2-preset-manager-list { display: grid; gap: .85rem; margin-top: 1rem; overflow: auto; }
+.krea2-preset-manager-list section { display: grid; gap: .35rem; }
+.krea2-preset-manager-list h3 { margin: 0; padding-bottom: .25rem; color: var(--muted); border-bottom: 1px solid var(--line); font-size: .76rem; letter-spacing: .06em; text-transform: uppercase; }
+.krea2-preset-manager-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) 8rem auto; align-items: center; gap: .6rem; padding: .35rem 0; }
+.krea2-preset-manager-row img { width: 42px; height: 48px; border-radius: 5px; object-fit: cover; background: #17241f; }
+.krea2-preset-manager-row > div { min-width: 0; }
+.krea2-preset-manager-row b, .krea2-preset-manager-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.krea2-preset-manager-row select { width: 100%; padding-block: .42rem; }
+.krea2-preset-manager-row .danger { color: #a12d27; border-color: #d9aaa5; background: transparent; }
+@media (max-width: 680px) {
+  .krea2-assisted-preset-choice { grid-template-columns: minmax(0, 1fr) auto; }
+  .krea2-assisted-preset-choice label:first-child { grid-column: 1 / -1; }
+  .krea2-preset-manager-row { grid-template-columns: 36px minmax(0, 1fr) auto; }
+  .krea2-preset-manager-row img { width: 36px; height: 42px; }
+  .krea2-preset-manager-row select { grid-column: 2; }
+  .krea2-preset-manager-row .danger { grid-column: 3; grid-row: 1 / span 2; }
+}
 .krea2-edit-workbench { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, 1fr); gap: .85rem; align-items: start; }
 .krea2-edit-workbench > .krea2-edit-prompt-panel { margin-top: 0; max-height: 76vh; overflow: auto; }
 .krea2-edit-comparison { min-width: 0; }

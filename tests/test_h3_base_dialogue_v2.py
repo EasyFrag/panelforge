@@ -152,6 +152,19 @@ class H3BaseDialogueV2Test(unittest.TestCase):
             ),
         )
 
+    def test_episode_dialogue_section_excludes_quoted_visual_text(self):
+        source = (
+            "Une pancarte « vilain petit caneton » est visible dans le décor.\n\n"
+            "Répliques exactes, dans cet ordre et avec ces locuteurs :\n"
+            "Camille Cerise : « Regardez-moi ça ! »\n"
+            "Nour : « Laissez-moi tranquille. »\n\n"
+            "Sans dialogue supplémentaire."
+        )
+        self.assertEqual(
+            extract_explicit_dialogues(source),
+            ("Regardez-moi ça !", "Laissez-moi tranquille."),
+        )
+
     def test_plan_restores_quotes_and_sequentializes_only_later_start_camera(self):
         canonical = canonical_direct_ref2v_action_plan_v3(
             json.dumps(dialogue_plan()),

@@ -121,7 +121,7 @@ class ImageCatalogBrowserTest(unittest.TestCase):
           await new Promise(resolve=>setTimeout(resolve,0));
           check(!document.querySelector('dialog[open]'),'closing during fetch does not reopen a late card');
           ui.openResourceInfo(resource);
-          check(calls===1 && document.querySelector('dialog').textContent.includes('Local details'),'loaded card is reused');
+          check(calls===1 && document.querySelector('dialog[open]').textContent.includes('Local details'),'loaded card is reused');
         """)
 
     def test_real_assisted_markup_layout_navigation_and_repaint_recovery(self):
@@ -136,7 +136,7 @@ class ImageCatalogBrowserTest(unittest.TestCase):
         page = (STATIC / "index.html").read_text(encoding="utf-8")
         start = '<main id="krea2-assisted-lab-workspace"'
         markup = start + page.split(start, 1)[1].split('</main>', 1)[0] + '</main>'
-        for dialog_id in ("krea2-assisted-preset-dialog", "krea2-assisted-lightbox"):
+        for dialog_id in ("krea2-assisted-preset-dialog", "krea2-assisted-preset-manager", "krea2-assisted-lightbox"):
             start = f'<dialog id="{dialog_id}"'
             markup += start + page.split(start, 1)[1].split('</dialog>', 1)[0] + '</dialog>'
         picker = (STATIC / "lab.js").read_text(encoding="utf-8").split('const ui = {};', 1)[0]

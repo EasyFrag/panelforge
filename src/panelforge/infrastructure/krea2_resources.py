@@ -63,6 +63,8 @@ _DEFAULT_LORA_CATEGORIES = {
     "m99_labiaplasty_pussy_8a_krea2.safetensors": "nsfw_details",
     "realcumk4.safetensors": "nsfw_details",
     "transparent_clothes_krea2_v2.safetensors": "nsfw_details",
+    "pussy_helper_v01alpha.safetensors": "nsfw_details",
+    "lenovo_krea2.safetensors": "unclassified",
     "krea2 masturbation.safetensors": "nsfw_poses",
     # Technical KREA Edit LoRAs remain inspectable but are not selectable.
     "krea2 edit anime to real_000001500.safetensors": "excluded_krea_edit",
@@ -91,6 +93,7 @@ class Krea2LoraCategory(StrEnum):
     NSFW_SLIDERS = "nsfw_sliders"
     NSFW_DETAILS = "nsfw_details"
     NSFW_POSES = "nsfw_poses"
+    NSFW_PERSONA = "nsfw_persona"
     EXCLUDED_KREA_EDIT = "excluded_krea_edit"
     UNCLASSIFIED = "unclassified"
 
@@ -1115,6 +1118,8 @@ def _lora_category(
     explicit = _DEFAULT_LORA_CATEGORIES.get(filename)
     if explicit is not None:
         return Krea2LoraCategory(explicit)
+    if normalized.startswith("people/"):
+        return Krea2LoraCategory.NSFW_PERSONA
     if normalized.startswith("poses/"):
         return Krea2LoraCategory.NSFW_POSES
     if normalized.startswith("sliders/"):

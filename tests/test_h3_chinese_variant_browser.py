@@ -25,6 +25,7 @@ class H3ChineseVariantBrowserTest(unittest.TestCase):
             writer_model_id: 'writer-model', prompt_variants: [],
             documents: {final_prompt: {active_revision_id: 'final-1'}}
           }};
+          const gemma = 'local::HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP';
           let renders = 0; const requests = [];
           const render = () => { renders += 1; };
           const setComposition = value => { state.composition = value; };
@@ -54,16 +55,16 @@ class H3ChineseVariantBrowserTest(unittest.TestCase):
           const component = window.PanelForgeChinesePromptVariant.create({
             prefix: 'test', state, core, render, setComposition
           });
-          component.populate([{id: 'other-model'}, {id: 'writer-model'}]);
+          component.populate([{id: 'other-model'}, {id: 'writer-model'}, {id: gemma, source: 'local'}]);
           component.draw({locked: false, ready: true});
-          check(document.querySelector('#test-chinese-model').value === 'writer-model',
-            'the final writer model is the default translator');
+          check(document.querySelector('#test-chinese-model').value === gemma,
+            'the local uncensored Gemma is the default translator');
           check(component.selection().language === 'en', 'English is canonical by default');
           document.querySelector('#test-generate-chinese').click();
           await new Promise(resolve => setTimeout(resolve, 0));
           component.draw({locked: false, ready: true});
           const selection = component.selection();
-          check(requests.length === 1 && requests[0].body.model_id === 'writer-model',
+          check(requests.length === 1 && requests[0].body.model_id === gemma,
             'one explicit translator call uses the selected model');
           check(selection.language === 'zh' && selection.variantId === 'zh-1',
             'generated Chinese becomes the opt-in selection');
@@ -87,6 +88,7 @@ class H3ChineseVariantBrowserTest(unittest.TestCase):
         <details id="test-chinese-panel" hidden></details>
         <select id="test-prompt-language"><option value="en">English</option><option value="zh" disabled>中文</option></select>
         <select id="test-chinese-model"></select>
+        <label><input type="checkbox" data-llm-local-for="test-chinese-model" checked>Local</label>
         <button id="test-generate-chinese"></button><button id="test-copy-chinese"></button>
         <p id="test-chinese-status"></p><textarea id="test-chinese-content"></textarea>
         <script>""" + script + "</script>"

@@ -814,8 +814,22 @@ class H3RenderService:
                         force_upscale=force_upscale,
                     )["bypassed"]
                 )
-            prompt = canonicalize_h3_revision(project.current_prompt, prompt, project.input_mode, combat_sequence=project.combat_settings is not None, combat_version=project.preparation.version,
-                classic_cinematic=project.preparation.is_classic_cinematic, sensual_cinematic=project.preparation.is_sensual)
+            # The optional Chinese prompt is an experimental A/B artifact.  The
+            # canonical H3 validators intentionally recognise the English
+            # compiler-owned camera clauses, so applying them to translated
+            # prose rejects otherwise renderable variants before ComfyUI.  Keep
+            # only the generic request-size guard above for zh projects until a
+            # dedicated Chinese contract is proven useful.
+            if not project.source_prompt_revision_id.startswith("zh:"):
+                prompt = canonicalize_h3_revision(
+                    project.current_prompt,
+                    prompt,
+                    project.input_mode,
+                    combat_sequence=project.combat_settings is not None,
+                    combat_version=project.preparation.version,
+                    classic_cinematic=project.preparation.is_classic_cinematic,
+                    sensual_cinematic=project.preparation.is_sensual,
+                )
             duration_ms = round(settings.effective_duration_seconds * 1000)
             cuts = extract_prompt_cut_times_ms(prompt) or project.planned_cut_times_ms
             timestamps = plan_keyframe_timestamps_ms(
@@ -860,7 +874,21 @@ class H3RenderService:
             project = replace(project, current_prompt=prompt)
             return self.projects.save(project.add_attempt(attempt))
 
-    def queue_attempt(self, project_id: str, attempt_id: str) -> H3RenderProject:
+    @staticmethod
+    def _activity_id(project_id: str, attempt_id: str) -> str:
+        return f"h3:{project_id}:{attempt_id}"
+
+    @staticmethod
+    def _operation_label(operation_label: str | None) -> str:
+        return (operation_label or "H3 / REF2V")[:200]
+
+    def queue_attempt(
+        self,
+        project_id: str,
+        attempt_id: str,
+        *,
+        operation_label: str | None = None,
+    ) -> H3RenderProject:
         active = {
             H3RenderAttemptStatus.QUEUED,
             H3RenderAttemptStatus.RUNNING,
@@ -872,6 +900,12 @@ class H3RenderService:
                 candidate = self._refresh_detached(candidate)
                 for value in candidate.attempts:
                     if value.status in active:
+                        activity_id = self._activity_id(candidate.project_id, value.attempt_id)
+                        if (
+                            self.work_coordinator is not None
+                            and self.work_coordinator.has_activity(activity_id)
+                        ):
+                            continue
                         raise ValueError(
                             f"Un rendu H3/REF2V est déjà actif : essai {value.index} "
                             f"dans l’atelier {candidate.project_id} ({value.status.value})."
@@ -879,7 +913,30 @@ class H3RenderService:
             # Refresh may have recovered an earlier attempt in this same project.
             # Do not overwrite that terminal state with the pre-refresh snapshot.
             project = self.projects.get(project_id)
-            return self.projects.save(project.replace_attempt(project.attempt(attempt_id).queue()))
+            attempt = project.attempt(attempt_id)
+            if (
+                attempt.status is H3RenderAttemptStatus.QUEUED
+                and self.work_coordinator is not None
+                and self.work_coordinator.has_activity(self._activity_id(project_id, attempt_id))
+            ):
+                return project
+            queued = self.projects.save(project.replace_attempt(attempt.queue()))
+            if self.work_coordinator is None:
+                return queued
+            activity_id = self._activity_id(project_id, attempt_id)
+            try:
+                self.work_coordinator.enqueue(
+                    activity_id,
+                    ComputeResource.REMOTE_GPU,
+                    ProductionWorkload.VIDEO_RENDER,
+                    self._operation_label(operation_label),
+                )
+            except BaseException:
+                # Admission is part of queuing: never leave a persisted attempt
+                # looking queued when it has no corresponding FIFO ticket.
+                self.projects.save(queued.replace_attempt(attempt))
+                raise
+            return queued
 
     def execute_attempt(
         self,
@@ -897,13 +954,21 @@ class H3RenderService:
             or post_cooldown_seconds < 0
         ):
             raise ValueError("post_cooldown_seconds must be non-negative")
-        if self.work_coordinator is not None:
-            try:
+        key = (project_id, attempt_id)
+        with self._lock:
+            project = self.projects.get(project_id)
+            if project.attempt(attempt_id).status is not H3RenderAttemptStatus.QUEUED:
+                return project
+            if key in self._claimed:
+                return project
+            self._claimed.add(key)
+        try:
+            if self.work_coordinator is not None:
                 with self.work_coordinator.lease(
-                    f"h3:{project_id}:{attempt_id}",
+                    self._activity_id(project_id, attempt_id),
                     ComputeResource.REMOTE_GPU,
                     ProductionWorkload.VIDEO_RENDER,
-                    (operation_label or "H3 / REF2V")[:200],
+                    self._operation_label(operation_label),
                     cancelled=lambda: self.projects.get(project_id).attempt(attempt_id).status
                     is not H3RenderAttemptStatus.QUEUED,
                 ):
@@ -918,13 +983,15 @@ class H3RenderService:
                             on_finished=on_cooldown_finished,
                         )
                     return project
-            except ResourceWaitCancelled:
-                return self.projects.get(project_id)
-        return self._execute_attempt_owned(project_id, attempt_id)
+            return self._execute_attempt_owned(project_id, attempt_id)
+        except ResourceWaitCancelled:
+            return self.projects.get(project_id)
+        finally:
+            with self._lock:
+                self._claimed.discard(key)
 
     def _execute_attempt_owned(self, project_id: str, attempt_id: str) -> H3RenderProject:
-        key = (project_id, attempt_id)
-        activity_id = f"h3:{project_id}:{attempt_id}"
+        activity_id = self._activity_id(project_id, attempt_id)
         if self.work_coordinator is not None:
             self.work_coordinator.report_progress(activity_id, 0.02, "Préparation du workflow vidéo")
         with self._lock:
@@ -932,9 +999,6 @@ class H3RenderService:
             attempt = project.attempt(attempt_id)
             if attempt.status is not H3RenderAttemptStatus.QUEUED:
                 return project
-            if key in self._claimed:
-                raise ValueError("attempt is already executing")
-            self._claimed.add(key)
         execution_id: str | None = None
         workflow_digest: str | None = None
         family = "PanelForge_H3_Ref2V" if project.input_mode is H3RenderInputMode.REF2VA else "PanelForge_H3_Base"
@@ -1072,16 +1136,21 @@ class H3RenderService:
                 }:
                     current = self.projects.save(current.replace_attempt(current_attempt.fail(_error(error))))
                 return current
-        finally:
-            with self._lock:
-                self._claimed.discard(key)
 
     def cancel_attempt(self, project_id: str, attempt_id: str) -> H3RenderProject:
         with self._lock:
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
             if attempt.status in {H3RenderAttemptStatus.CREATED, H3RenderAttemptStatus.QUEUED}:
-                return self.projects.save(project.replace_attempt(attempt.cancel()))
+                saved = self.projects.save(project.replace_attempt(attempt.cancel()))
+                if (
+                    attempt.status is H3RenderAttemptStatus.QUEUED
+                    and self.work_coordinator is not None
+                ):
+                    self.work_coordinator.cancel_queued(
+                        self._activity_id(project_id, attempt_id)
+                    )
+                return saved
             if attempt.status not in {H3RenderAttemptStatus.RUNNING, H3RenderAttemptStatus.CANCEL_PENDING}:
                 return project
             assert attempt.execution_id is not None

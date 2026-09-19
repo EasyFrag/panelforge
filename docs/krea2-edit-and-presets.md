@@ -72,6 +72,27 @@ la politique d’envoi unique de la référence initiale concerne Création assi
 
 ## Presets de Création assistée
 
+### Bibliothèque classée et prompts bilingues — 19 septembre 2026
+
+Les presets sont classés dans quatre catégories logiques, affichées dans cet
+ordre : **Work**, **Fun**, **NSFW**, puis **Archive**. Le gestionnaire compact de
+Création assistée permet de changer une catégorie ou de retirer un preset du
+catalogue. Ces opérations créent une nouvelle révision ou un marqueur de
+suppression ; elles ne modifient jamais la copie immuable déjà intégrée à un
+projet ou à un épisode.
+
+Chaque preset conserve aussi sa langue de prompt, English ou 中文. Le choisir
+présélectionne cette langue pour un nouveau projet, mais le sélecteur reste
+modifiable. Pendant la conversation, le changement s'applique au prochain
+échange et au prochain rendu. Une conversion du prompt courant reste une action
+LLM explicite, proposée seulement quand la langue sélectionnée diffère de la
+langue persistée ; aucune traduction cachée n'est ajoutée aux échanges normaux.
+
+Le catalogue LoRA ajoute parallèlement la catégorie logique
+**NSFW - Persona** pour les fichiers du sous-dossier `people`. Aucun fichier
+n'est déplacé. `pussy_helper_v01alpha.safetensors` reste classé dans les détails
+NSFW et `lenovo_krea2.safetensors` reste volontairement non classé.
+
 Sur un essai réussi, **Créer un preset** ouvre la sauvegarde : nouveau nom ou
 mise à jour d’un preset existant. Le snapshot contient le prompt et les réglages
 enregistrés sur cet essai, son image et sa provenance. Les paramètres actuellement

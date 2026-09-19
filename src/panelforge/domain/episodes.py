@@ -17,7 +17,7 @@ REF2V_COOKBOOK = ("minimax.h3.ref2v.classic.cinematic.planned", "1.0.0")
 REF2V_PROFILE = ("minimax.h3.ref2v.classic.cinematic", "1.0.0")
 DEFAULT_PLAN_MODEL = "local::unsloth/Qwen3.8-27B-GGUF"
 DEFAULT_WRITER_MODEL = "local::unsloth/gemma-4-31B-it-qat-GGUF"
-DEFAULT_CREATIVE_AXES = dict(scene_life=1, camera=2, extra_motion=1, dialogue=0)
+DEFAULT_CREATIVE_AXES = dict(scene_life=3, camera=3, extra_motion=3, dialogue=1)
 
 
 def image_defaults(episode):
@@ -112,6 +112,15 @@ def scene_action(scene):
 def initial_episode(story, identity):
     recipe = story_recipe_selection(story.get("recipe"))
     scenario = validate_scenario(story["document"]["scenario"], recipe["id"], recipe["version"])
+    selected_series_episode = story["document"].get("selected_episode_id")
+    episode_format = (story["document"].get("episode_formats") or {}).get(selected_series_episode, {})
+    clip_seconds = episode_format.get("clip_seconds", story["clip_seconds"])
+    series_episode_index = None
+    outline = story["document"].get("series_outline") or {}
+    for index, item in enumerate(outline.get("episodes", []), 1):
+        if item["id"] == selected_series_episode:
+            series_episode_index = index
+            break
     refs, lookup = [], {}
     for kind, collection in (("character", "characters"), ("location", "locations")):
         for index, item in enumerate(scenario[collection]):
@@ -128,20 +137,22 @@ def initial_episode(story, identity):
         bindings.append(dict(reference_id=lookup[("location", scene["location_id"])], role="environment_reference"))
         # Preserve all requested assets, even when the user must reduce a scene to nine.
         scenes.append(dict(id=f"scene-{index + 1}", index=index, title=scene["title"], revision=1,
-            duration=story["clip_seconds"], intention=scene_action(scene), references=bindings,
+            duration=clip_seconds, intention=scene_action(scene), references=bindings,
             plan_model_id=DEFAULT_PLAN_MODEL, writer_model_id=DEFAULT_WRITER_MODEL,
-            shot_count=None, audacity=2, creative_axes=deepcopy(DEFAULT_CREATIVE_AXES), preparations=[], render_revision=1,
-            render_setup=default_render_setup(story["clip_seconds"]), inherit_video_settings=True))
+            shot_count=None, audacity=3, creative_axes=deepcopy(DEFAULT_CREATIVE_AXES), preparations=[], render_revision=1,
+            render_setup=default_render_setup(clip_seconds), inherit_video_settings=True))
         scenes[-1]["render_setup"]["settings"]["seed"] = int(fingerprint([identity, index])[:12], 16)
+    source_value = [selected_series_episode, scenario] if selected_series_episode else scenario
     return dict(episode_id=identity, story_id=story["project_id"], title=scenario["title"],
-        story_revision=story["revisions"][-1]["revision"], source_hash=fingerprint(scenario),
+        story_revision=story["revisions"][-1]["revision"], source_hash=fingerprint(source_value),
         story_recipe=deepcopy(recipe), dialogue_language=dialogue_language_selection(
             story.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)),
         scenario=deepcopy(scenario), references=refs, scenes=scenes,
+        series_episode_id=selected_series_episode, series_episode_index=series_episode_index,
         style="", visual_revision=1,
         style_image=None, style_preset=None, image_defaults=image_defaults({}),
         reference_profiles={}, reference_batch=None,
-        video_defaults=default_render_setup(story["clip_seconds"]), video_revision=1, video_chain=None,
+        video_defaults=default_render_setup(clip_seconds), video_revision=1, video_chain=None,
         cookbook=dict(id=REF2V_COOKBOOK[0], version=REF2V_COOKBOOK[1]))
 
 

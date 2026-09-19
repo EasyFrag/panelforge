@@ -641,8 +641,8 @@
         setCreativeAudacity(input.creative_audacity ?? 0);
       } else {
         elements.intention.value = "";
-        setCreativeAxes(null, 0);
-        setCreativeAudacity(2);
+        setCreativeAxes({scene_life: 3, camera: 3, extra_motion: 3, dialogue: 1});
+        setCreativeAudacity(3);
       }
       elements.creativeDirection.checked = Boolean(
         session.brief_variant
@@ -1803,8 +1803,8 @@
     showReferencePreview("last", null, "");
     elements.intention.value = "";
     resetAnimalInterviewInputs();
-    setCreativeAxes(null, 0);
-    setCreativeAudacity(2);
+    setCreativeAxes({scene_life: 3, camera: 3, extra_motion: 3, dialogue: 1});
+    setCreativeAudacity(3);
     elements.creativeDirection.checked = false;
     elements.quickMode.checked = true;
     clearStageDrafts();
@@ -2027,7 +2027,7 @@
   });
 
   updateCreativeAxes();
-  setCreativeAudacity(2);
+  setCreativeAudacity(3);
   render();
   initialize();
 })();

@@ -30,6 +30,12 @@
 .story-panel { min-width: 0; padding: 1.15rem; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
 .story-conversation form > label, .story-conversation form > button { margin: .8rem 0; }
 .story-conversation form > button { width: 100%; }
+.story-narrative-switch { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; margin: .8rem 0; padding: .65rem; border: 1px solid var(--line); border-radius: 11px; }
+.story-narrative-switch legend { padding: 0 .3rem; font-size: .82rem; font-weight: 750; }
+#stories-workspace .story-narrative-switch label { display: flex; align-items: flex-start; gap: .55rem; padding: .65rem; border: 1px solid var(--line); border-radius: 9px; background: white; cursor: pointer; }
+.story-narrative-switch label:has(input:checked) { border-color: var(--green); background: var(--green-soft); }
+.story-narrative-switch span, .story-narrative-switch small { display: block; }
+.story-narrative-switch small { margin-top: .25rem; color: var(--muted); line-height: 1.35; }
 #story-dialogue-register-row { padding: .65rem; border: 1px solid var(--line); border-radius: 10px; }
 #stories-workspace #story-dialogue-register { padding: 0; border: 0; background: transparent; }
 #story-dialogue-register-value { justify-self: end; color: var(--green); font-weight: 750; }
@@ -64,6 +70,17 @@
 .story-continuity p, .story-continuity ul { margin: .3rem 0; font-size: .86rem; line-height: 1.45; }
 .story-continuity ul { padding-left: 1.2rem; }
 #story-develop { width: 100%; margin-top: 1rem; }
+#story-outline { width: 100%; margin-top: 1rem; }
+.story-series { margin-top: 1rem; padding: 1rem; border: 1px solid #aac7bc; border-radius: 13px; background: #f7faf8; }
+.story-series > header > small { color: var(--green); font-weight: 750; letter-spacing: .05em; }
+#story-series-episodes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.story-series-episode { display: flex; flex-direction: column; min-width: 0; padding: .85rem; border: 1px solid var(--line); border-radius: 11px; background: white; }
+.story-series-episode.selected { border: 2px solid var(--green); }
+.story-series-episode.complete { background: #f0f7f3; }
+.story-series-episode p { margin: .35rem 0; font-size: .84rem; overflow-wrap: anywhere; }
+.story-series-episode ol { padding-left: 1.25rem; font-size: .8rem; }
+.story-series-format { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: auto; padding-top: .65rem; }
+.story-series-episode > button { width: 100%; margin-top: .65rem; }
 #story-scenario { margin-top: 1.25rem; }
 #story-scenario .story-actions { justify-content: space-between; }
 #story-scenario-title { margin: 0; }
@@ -79,4 +96,4 @@
 .story-scene-editor form { display: grid; gap: .8rem; }
 .story-scene-editor .story-actions { justify-content: space-between; }
 @media(max-width: 1250px) { #story-concepts { grid-template-columns: 1fr; }.story-concept details { margin-top: .4rem; } }
-@media(max-width: 850px) { .story-layout { grid-template-columns: 1fr; }#stories-workspace { padding: 1rem; }#story-turns { max-height: 350px; } }
+@media(max-width: 850px) { .story-layout { grid-template-columns: 1fr; }#stories-workspace { padding: 1rem; }#story-turns { max-height: 350px; }.story-narrative-switch, #story-series-episodes { grid-template-columns: 1fr; } }

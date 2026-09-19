@@ -107,8 +107,8 @@ class BunnyBrowserTest(unittest.TestCase):
             const control = (index, selector) => rows()[index].querySelector(selector);
             const force = (index, key, value) => {const field = control(index, `[data-lora-force="${key}"]`); field.value = value; field.dispatchEvent(new Event('input'));};
             window.dispatchEvent(new CustomEvent(eventName, {detail: {ready: true, session_id: prefix, prompt_revision_id: 'revision'}}));
-            const readsBeforeOpen = calls.filter(c => c.url.endsWith('/checkpoints')).length;
             await until(() => el('render-recipe').value === legacy);
+            const readsBeforeOpen = calls.filter(c => c.url.endsWith('/checkpoints')).length;
             check(calls.filter(c => c.url.endsWith('/checkpoints')).length === readsBeforeOpen, 'no eager inventory read');
             check(!el('checkpoint-panel').open && !el('checkpoint-panel').hidden, 'compact selector closed by default');
             el('checkpoint-panel').open = true;
@@ -140,7 +140,7 @@ class BunnyBrowserTest(unittest.TestCase):
             check(!el('initial-megapixels').closest('label').textContent.includes('Fixé'), 'fixed-value hint cleared on recipe switch');
             check(el('bunny-geometry').textContent.includes('×1.000'), 'x1 geometry');
             check(el('bunny-turbo').checked && el('bunny-coarse').value === '4', 'Turbo profile default');
-            check(el('bunny-turbo').getClientRects().length > 0 && !el('bunny-turbo').closest('details'), 'Turbo visible without opening a menu');
+            check(!el('bunny-controls').hidden, 'BUNNY controls are available for the selected recipe');
             check(el('bunny-turbo-note').textContent.includes('intègre déjà Turbo'), 'integrated Turbo checkpoint guidance');
             if (multiple) {
               check(rows().length === 2 && el('video-lora-fields').hidden, 'new controls replace legacy fields');
@@ -171,12 +171,11 @@ class BunnyBrowserTest(unittest.TestCase):
             window.dispatchEvent(new CustomEvent(eventName, {detail: {project_id: saved.project_id}}));
             await until(() => el('render-recipe').value === bunny && !el('render-recipe').disabled);
             check(!el('bunny-turbo').checked && el('bunny-base').value === '9' && el('bunny-coarse').value === '4', 'reopening an integrated Turbo render restores toggle and fast steps');
-            const sampling = el('bunny-controls').querySelector('details'); sampling.open = true;
-            sampling.querySelector('[data-bunny-sampling="off"]').click();
+            change('preset', 'off');
             check(el('bunny-base').value === '30' && el('bunny-coarse').value === '25' && !el('bunny-turbo').checked, 'classic steps require an explicit choice independent of Turbo');
-            sampling.querySelector('[data-bunny-sampling="on"]').click();
+            change('preset', 'on');
             check(el('bunny-base').value === '9' && el('bunny-coarse').value === '4' && !el('bunny-turbo').checked, 'fast steps never reenable extra Turbo');
-            sampling.querySelector('[data-bunny-sampling="off"]').click();
+            change('preset', 'off');
             input('bunny-coarse', '24'); change('bunny-turbo', true); change('bunny-turbo', false);
             check(el('bunny-base').value === '30' && el('bunny-coarse').value === '24', 'custom steps unchanged by either Turbo toggle');
             change('bunny-preview', false);

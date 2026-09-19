@@ -1,8 +1,10 @@
 """Coordinate existing KREA2 Assisted and REF2V services for a validated story."""
 from copy import deepcopy
 from dataclasses import asdict, replace
+import re
 from threading import RLock, Thread
 import time
+import unicodedata
 from uuid import uuid4
 
 from panelforge.domain.episodes import (
@@ -41,6 +43,75 @@ class EpisodeService:
         self._active_batches = set()
         self._active_video_chains = set()
 
+    @staticmethod
+    def _identity_key(value):
+        folded = unicodedata.normalize("NFKD", value or "")
+        return re.sub(r"[^a-z0-9]+", "", folded.encode("ascii", "ignore").decode().casefold())
+
+    def _inherit_character_images(self, episode, story):
+        """Carry accepted casting forward without copying prompts or technical settings."""
+        sources = []
+        current_index = episode.get("series_episode_index")
+        for summary in self.store.list(story["project_id"]):
+            try:
+                candidate = self.store.get(summary["episode_id"])
+            except (FileNotFoundError, ValueError):
+                continue
+            candidate_index = candidate.get("series_episode_index")
+            if current_index is not None and candidate_index is not None and candidate_index >= current_index:
+                continue
+            sources.append((2, candidate_index or 0, summary["updated_at"], True, candidate))
+        ancestor_id = story.get("parent_story_id")
+        seen_story_ids = {story["project_id"]}
+        depth = 1
+        while ancestor_id and ancestor_id not in seen_story_ids:
+            seen_story_ids.add(ancestor_id)
+            try:
+                ancestor = self.stories.store.get(ancestor_id)
+            except (FileNotFoundError, ValueError):
+                break
+            for summary in self.store.list(ancestor_id):
+                try:
+                    # Prefer the immediate parent to older ancestors, while still
+                    # carrying a casting through a chain whose middle episode was
+                    # never sent to Fabrication.
+                    sources.append((1, -depth, summary["updated_at"], False,
+                                    self.store.get(summary["episode_id"])))
+                except (FileNotFoundError, ValueError):
+                    continue
+            ancestor_id = ancestor.get("parent_story_id")
+            depth += 1
+        sources.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        inherited = 0
+        for target in episode["references"]:
+            if target["kind"] != "character" or target.get("image_asset_id"):
+                continue
+            target_name = self._identity_key(target["name"])
+            chosen = None
+            for _, _, _, same_story, source in sources:
+                matches = [reference for reference in source.get("references", [])
+                           if reference.get("kind") == "character" and reference.get("image_asset_id")
+                           and ((same_story and reference.get("source_id") == target.get("source_id"))
+                                or self._identity_key(reference.get("name")) == target_name)]
+                if len(matches) == 1:
+                    chosen = (source, matches[0])
+                    break
+            if chosen is None:
+                continue
+            source, reference = chosen
+            asset_id = reference["image_asset_id"]
+            target["images"] = [{"asset_id": asset_id,
+                                 "label": f"Référence héritée · {reference['name']}"}]
+            target["image_asset_id"] = asset_id
+            target["image_style"] = deepcopy(reference.get("image_style"))
+            target["inherited_image"] = {
+                "episode_id": source["episode_id"],
+                "reference_id": reference["id"],
+                "name": reference["name"],
+            }
+            inherited += 1
+        return inherited
+
     def create(self, story_id, expected_version):
         with self._lock:
             story = self.stories.get(story_id)
@@ -48,11 +119,14 @@ class EpisodeService:
                 raise EpisodeConflict("L’histoire a changé ou son écriture est en cours. Rechargez-la avant de la valider.")
             if not story["document"].get("scenario"):
                 raise ValueError("Développez et validez un scénario avant la fabrication.")
-            digest = fingerprint(story["document"]["scenario"])
+            series_episode_id = story["document"].get("selected_episode_id")
+            digest = fingerprint([series_episode_id, story["document"]["scenario"]]
+                                 if series_episode_id else story["document"]["scenario"])
             for existing in self.store.list(story_id):
                 if existing["source_hash"] == digest:
                     return self.get(existing["episode_id"])
             value = initial_episode(story, f"episode-{uuid4().hex}")
+            self._inherit_character_images(value, story)
             self.store.save(value)
             return self.get(value["episode_id"])
 
@@ -119,7 +193,11 @@ class EpisodeService:
                 "current" if fingerprint(image_style) == fingerprint(active_style) else "outdated")
         try:
             story = self.stories.store.get(value["story_id"])
-            view["story_changed"] = fingerprint(story["document"].get("scenario")) != value["source_hash"]
+            series_episode_id = value.get("series_episode_id")
+            source_scenario = ((story["document"].get("episode_scenarios") or {}).get(series_episode_id)
+                               if series_episode_id else story["document"].get("scenario"))
+            source_value = [series_episode_id, source_scenario] if series_episode_id else source_scenario
+            view["story_changed"] = fingerprint(source_value) != value["source_hash"]
         except FileNotFoundError:
             view["story_changed"] = True
         for scene in view["scenes"]:
@@ -840,26 +918,31 @@ class EpisodeService:
                 raise EpisodeConflict("Une chaîne vidéo est déjà en cours.")
             if value.get("video_revision", 1) != expected_video_revision:
                 raise EpisodeConflict("Les réglages vidéo communs ont changé. Rechargez avant le lancement.")
+            requested_scene_ids = list(scene_ids)
             chosen = []
             seen = set()
-            for scene_id in scene_ids:
+            for scene_id in requested_scene_ids:
                 if scene_id in seen:
                     raise ValueError("Une scène ne peut apparaître qu’une fois dans la chaîne.")
                 seen.add(scene_id)
                 scene = self._item(value, "scenes", scene_id)
-                if (scene.get("job") or {}).get("status") == "running":
+                if ((scene.get("job") or {}).get("status") == "running" and len(requested_scene_ids) != 1):
                     raise EpisodeConflict(f"Le prompt de la scène {scene['index'] + 1} est déjà en cours.")
                 scene_inputs(value, scene)
                 chosen.append(scene)
             if not chosen:
                 raise ValueError("Choisissez au moins une scène.")
             chain_id = f"video-chain-{uuid4().hex}"
+            attached_prompt = (chosen[0].get("job") or {}).get("status") == "running"
             value["video_chain"] = dict(chain_id=chain_id, request_id=request_id, status="running",
-                phase="Préparation des prompts", error=None, pause_requested=False,
+                phase="Prompt en cours · rendu armé" if attached_prompt else "Préparation des prompts",
+                error=None, pause_requested=False,
                 inter_video_cooldown_seconds=inter_video_cooldown_seconds,
                 cooldown_until=None, cooldown_scene_id=None,
                 items=[dict(scene_id=scene["id"], index=scene["index"], title=scene["title"],
-                    status="pending", phase="En attente", error=None, preparation_id=None,
+                    status="prompting" if (scene.get("job") or {}).get("status") == "running" else "pending",
+                    phase="Prompt en cours · rendu armé" if (scene.get("job") or {}).get("status") == "running" else "En attente",
+                    error=None, preparation_id=None,
                     render_project_id=None, attempt_id=None, output_asset_id=None, prompt_attempt=0,
                     render_setup=effective_video_setup(value, scene)) for scene in chosen])
             self.store.save(value)
@@ -959,10 +1042,25 @@ class EpisodeService:
             latest = scene["preparations"][-1] if scene["preparations"] else None
             if latest and latest.get("status") == "ready" and latest.get("input_hash") == inputs_hash:
                 return latest
+            attached_job = (scene.get("job") or {}).get("status") == "running"
+            if attached_job:
+                self._video_item(chain, scene_id).update(
+                    status="prompting", phase="Prompt en cours · rendu armé", error=None,
+                    preparation_id=latest.get("id") if latest else None,
+                )
+                self.store.save(value)
             resume = bool(latest and latest.get("input_hash") == inputs_hash
                           and latest.get("status") in {"failed", "interrupted"})
             revision = scene["revision"]
             prompt_attempt = int(item.get("prompt_attempt", 0))
+        if attached_job:
+            scene, job = self._wait_scene_job(identity, scene_id, chain_id)
+            latest = scene["preparations"][-1] if scene["preparations"] else None
+            if job.get("status") != "succeeded" or not latest or latest.get("status") != "ready":
+                raise ValueError(job.get("error") or "La préparation du prompt a échoué ; le rendu programmé est annulé.")
+            if latest.get("input_hash") != fingerprint(scene_inputs(self.store.get(identity), scene)):
+                raise ValueError("Les entrées de la scène ont changé ; le rendu programmé est annulé.")
+            return latest
         self._video_chain_change(identity, chain_id, lambda _value, chain:
             self._video_item(chain, scene_id).update(status="prompting", phase="Rédaction du prompt", error=None))
         self.prepare_scene(identity, scene_id, revision,
@@ -1032,7 +1130,11 @@ class EpisodeService:
             if self._video_chain_paused(identity, chain_id):
                 return None
             try:
-                self.render.queue_attempt(project_id, attempt.attempt_id)
+                self.render.queue_attempt(
+                    project_id,
+                    attempt.attempt_id,
+                    operation_label=f"H3 / REF2V · {item['index'] + 1} · {item['title']}",
+                )
                 break
             except ValueError as error:
                 if "déjà actif" not in str(error):

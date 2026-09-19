@@ -24,11 +24,12 @@
 #episode-scenes .h3-render-lab { margin-top: .8rem; }
 #episode-scenes .h3-render-setup-only .h3-render-heading,
 #episode-scenes .h3-render-setup-only .h3-render-prompt,
-#episode-scenes .h3-render-setup-only .h3-render-actions,
 #episode-scenes .h3-render-setup-only .render-progress-panel,
 #episode-scenes .h3-render-setup-only .h3-render-preview-grid,
 #episode-scenes .h3-render-setup-only .h3-render-conversation,
 #episode-scenes .h3-render-setup-only .h3-render-history { display: none; }
+#episode-scenes .h3-render-setup-only .h3-render-actions { display: flex; }
+#episode-scenes .h3-render-setup-only .h3-render-actions > :not(.primary) { display: none; }
 #episode-workshop .h3-render-settings input[type=checkbox] { width: auto; }
 #episode-render-host { min-width: 0; }
 .episode-visual-panel { padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: var(--green-soft); }

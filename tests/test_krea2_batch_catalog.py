@@ -18,6 +18,7 @@ from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipe
 from panelforge.infrastructure.krea2_resources import (
     CivitaiMetadataClient,
     Krea2LoraCategory,
+    Krea2ResourceSafety,
     LocalKrea2ResourceCatalog,
 )
 from panelforge.infrastructure.presets import load_krea2_batch_workflow
@@ -709,6 +710,9 @@ class Krea2BatchCatalogTest(unittest.TestCase):
                 "sliders/Age_Slider_krea2t_000000020.safetensors",
                 "sliders/slider_penis_size_krea2_v2_loraholic.safetensors",
                 "sliders/CrunchyBanana_Krea_Cleavage_Slider.safetensors",
+                "people/Adele_krea2.safetensors",
+                "pussy_helper_v01alpha.safetensors",
+                "people/lenovo_krea2.safetensors",
             )
             for name in names:
                 path = loras / name
@@ -729,6 +733,10 @@ class Krea2BatchCatalogTest(unittest.TestCase):
             self.assertEqual(resources[names[4]].lora_category, Krea2LoraCategory.SFW_SLIDERS)
             self.assertEqual(resources[names[5]].lora_category, Krea2LoraCategory.NSFW_SLIDERS)
             self.assertEqual(resources[names[6]].lora_category, Krea2LoraCategory.NSFW_SLIDERS)
+            self.assertEqual(resources[names[7]].lora_category, Krea2LoraCategory.NSFW_PERSONA)
+            self.assertEqual(resources[names[7]].safety, Krea2ResourceSafety.NSFW)
+            self.assertEqual(resources[names[8]].lora_category, Krea2LoraCategory.NSFW_DETAILS)
+            self.assertEqual(resources[names[9]].lora_category, Krea2LoraCategory.UNCLASSIFIED)
 
     def test_missing_local_root_remains_visible_when_comfy_has_no_fallback(self):
         class EmptyComfyInventory:

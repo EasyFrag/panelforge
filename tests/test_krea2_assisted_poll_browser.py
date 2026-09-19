@@ -24,7 +24,8 @@ class AssistedPollingBrowserTest(unittest.TestCase):
         (async () => { try {
           const check = (ok, message) => { if (!ok) throw new Error(message); };
           const elements = {gallery: document.getElementById('gallery'), prompt: {value: 'A photograph'},
-            model: {value: 'Krea2/a'}, ratio: {value: '9:16'}, megapixels: {value: '0.8'}, seed: {value: '0'}};
+            model: {value: 'Krea2/a'}, ratio: {value: '9:16'}, megapixels: {value: '0.8'}, seed: {value: '0'},
+            promptLanguage: {value: 'en'}, workflow: {value: 'krea2-sampling@1.0.0'}};
           const base = {attempt_id: 'a', index: 1, status: 'succeeded', output_url: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
             output_asset_id: 'asset-a', settings: {aspect_ratio: '9:16', model_id: 'Krea2/a', megapixels: 0.8, resolution: {width: 688, height: 1224}},
             prompt: 'Photo A', seed: '0', can_restore_conversation: true};
@@ -35,6 +36,7 @@ class AssistedPollingBrowserTest(unittest.TestCase):
           let position = 1;
           const attemptStatus = a => a.status === 'queued' ? `queued ${position}` : a.status;
           const compactResourceName = value => value, strengthLabel = String;
+          const workflowSpec = () => ({label: 'KREA2', recipe_id: 'krea2-sampling'});
           const samplingSummary = () => '8 + 2 steps';
           const validateSamplingInputs = () => true, readSampling = () => ({preset_id: 'current'});
           const imageFigure = (url, caption) => { const figure = document.createElement('figure');
@@ -42,7 +44,7 @@ class AssistedPollingBrowserTest(unittest.TestCase):
           let reused = null, feedback = null;
           const loadAttemptSettings = a => { reused = a; }, selectFeedback = id => { feedback = id; };
           const startPreparedAttempt = () => {}, cancelAttempt = () => {}, saveImage = () => {}, openPresetDialog = () => {}, changeBranch = () => {};
-          const selections = new Map();
+          const selections = new Map(), jobs = [];
           __DLSS__
           window.PanelForgeDlss = {groups, picker, button: () => document.createElement('button')};
           __GALLERY__

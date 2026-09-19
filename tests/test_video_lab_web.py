@@ -9,7 +9,10 @@ from fastapi.testclient import TestClient
 
 from panelforge.application import ChangeViewRunner, VideoLabRunner
 from panelforge.features.lab.web import create_app
-from panelforge.features.lab.web import _RenderProgressTracker
+from panelforge.features.lab.web import (
+    _RenderProgressTracker,
+    _relay_video_preview,
+)
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
     VideoLabPresetRecipe,
@@ -316,6 +319,59 @@ class VideoLabWebTest(unittest.TestCase):
         self.assertIsNone(ignored)
         self.assertEqual(complete["data"]["percent"], 100.0)
         self.assertFalse(complete["data"]["estimated"])
+
+    def test_progress_tracker_accepts_spectrum_effective_step_count(self):
+        tracker = _RenderProgressTracker(
+            self.video_lab.recipe.progress_profile,
+            lambda: "video-prompt-spectrum",
+            configured_steps=None,
+        )
+
+        progress = tracker.consume({
+            "type": "progress",
+            "data": {
+                "prompt_id": "video-prompt-spectrum",
+                "node": "21",
+                "value": 2,
+                "max": 4,
+            },
+        })
+
+        self.assertEqual(progress["data"]["phase_id"], "base_sampling")
+        self.assertEqual(progress["data"]["percent"], 25.5)
+        self.assertEqual(progress["data"]["current_step"], 2)
+        self.assertEqual(progress["data"]["total_steps"], 4)
+
+    def test_preview_relay_reports_normalized_progress_to_the_global_queue(self):
+        reports = []
+
+        class Browser:
+            async def send_text(self, _message):
+                return None
+
+            async def send_json(self, _message):
+                return None
+
+            async def send_bytes(self, _message):
+                return None
+
+            async def receive(self):
+                while not reports:
+                    await asyncio.sleep(0)
+                return {"type": "websocket.disconnect"}
+
+        tracker_profile = self.video_lab.recipe.progress_profile
+        asyncio.run(_relay_video_preview(
+            Browser(),
+            FakePreviewConnection(),
+            progress_profile=tracker_profile,
+            execution_id=lambda: "video-prompt-1",
+            configured_steps=None,
+            progress_reporter=reports.append,
+        ))
+
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0]["data"]["percent"], 16.75)
 
     def test_asset_prefill_path_and_created_cancellation(self):
         source = self.assets.create(PNG, media_type="image/png")

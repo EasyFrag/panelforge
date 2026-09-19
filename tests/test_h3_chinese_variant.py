@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from panelforge.application import StreamEventKind
 from panelforge.application.dialogue_placeholders import DialoguePlaceholders
 from panelforge.application.vocal_policy import speech_lines
-from panelforge.domain import CompositionStage
+from panelforge.domain import CompositionStage, VideoAspectRatio, VideoLabSettings
 from panelforge.domain.video_preparation import ClassicCinematicSettings
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.storage import LocalPromptCompositionStore
@@ -112,7 +112,7 @@ class H3ChineseVariantTest(unittest.TestCase):
             )
             service.approve(session.session_id, CompositionStage.FINAL_PROMPT)
             english = english_composition.final_prompt.active_revision.content
-            chinese = english.replace("The", "这个", 1)
+            chinese = english.replace("The camera", "摄像机")
             gateway.responses = iter((chinese,))
 
             events = list(service.stream_generate_chinese_variant(
@@ -146,6 +146,19 @@ class H3ChineseVariantTest(unittest.TestCase):
             self.assertEqual(english_project.current_prompt, english)
             self.assertEqual(chinese_project.current_prompt, chinese)
             self.assertTrue(chinese_project.source_prompt_revision_id.startswith("zh:"))
+
+            prepared = renders.prepare_attempt(
+                chinese_project.project_id,
+                prompt=chinese_project.current_prompt,
+                settings=VideoLabSettings(
+                    aspect_ratio=VideoAspectRatio.PORTRAIT_WIDESCREEN,
+                    megapixels=0.2,
+                    duration_seconds=8,
+                    steps=25,
+                    seed=42,
+                ),
+            )
+            self.assertEqual(prepared.attempts[-1].prompt, chinese)
 
     def test_http_stream_exposes_variant_and_language_specific_render_project(self):
         plan, writer, _ = fixture()
