@@ -209,6 +209,27 @@ class _RenderProgressTracker:
             if node_id is not None:
                 self.current_node_id = str(node_id)
             return self._step_event(data, prompt_id=expected_id)
+        if event_type == "progress_state":
+            nodes = data.get("nodes")
+            if not isinstance(nodes, dict):
+                return None
+            result = None
+            for node_id, state in nodes.items():
+                if not isinstance(state, dict) or state.get("state") == "pending":
+                    continue
+                state_prompt_id = state.get("prompt_id")
+                if isinstance(state_prompt_id, str) and state_prompt_id != expected_id:
+                    continue
+                node_id = str(node_id)
+                if self.profile.phase_for_node(node_id) is None:
+                    continue
+                self.current_node_id = node_id
+                snapshot = dict(state)
+                snapshot["node"] = node_id
+                candidate = self._step_event(snapshot, prompt_id=expected_id)
+                if candidate is not None:
+                    result = candidate
+            return result
         if event_type == "executed":
             node_id = data.get("node")
             if node_id is None:

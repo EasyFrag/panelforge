@@ -911,6 +911,7 @@
     const data = await core.request(api("/video-chain"), send("POST", {
       expected_video_revision: state.data.video_revision, request_id: crypto.randomUUID(),
       scene_ids: state.data.scenes.map(value => value.id),
+      auto_dlss: true,
     }));
     accept(data); message("Chaîne lancée. Tu peux la mettre en pause après les tâches déjà en cours.");
   }
@@ -925,6 +926,7 @@
       expected_video_revision: state.data.video_revision,
       request_id: crypto.randomUUID(),
       scene_ids: [context.scene_id],
+      auto_dlss: false,
     }));
     accept(data);
     message(wasRunning

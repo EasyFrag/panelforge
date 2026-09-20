@@ -159,6 +159,30 @@ class FakeKrea:
     def start_render_worker(self): pass
 
 
+class FakeDlss:
+    def __init__(self):
+        self.calls = []
+        self.jobs = []
+
+    def list(self, owner=None, owner_id=None):
+        return [job for job in self.jobs
+                if (owner is None or job["snapshot"]["owner"] == owner)
+                and (owner_id is None or job["snapshot"]["owner_id"] == owner_id)]
+
+    def queue(self, *, owner, owner_id, attempt_id, settings, request_id):
+        self.calls.append(dict(owner=owner, owner_id=owner_id, attempt_id=attempt_id,
+                               settings=settings, request_id=request_id))
+        job = {
+            "job_id": f"dlss-{len(self.jobs) + 1}",
+            "status": "queued",
+            "error": None,
+            "snapshot": {"owner": owner, "owner_id": owner_id, "root_attempt_id": attempt_id},
+            "request": {"attempt_id": attempt_id, "settings": asdict(settings)},
+        }
+        self.jobs.append(job)
+        return job
+
+
 class EpisodeTest(unittest.TestCase):
     def setUp(self):
         self.temp = TemporaryDirectory()
@@ -190,13 +214,13 @@ class EpisodeTest(unittest.TestCase):
             attempt = self.rendered[identity].attempt(attempt_id)
             attempt.status = H3RenderAttemptStatus.SUCCEEDED
             attempt.output_asset_id = f"video-output-{attempt_id}"
-        self.krea = FakeKrea()
+        self.krea, self.dlss = FakeKrea(), FakeDlss()
         self.service = EpisodeService(stories=self.stories, store=LocalEpisodeStore(root),
             krea=self.krea, prompt_lab=self.prompt,
             composition=self.composition, render=NS(get_or_create_from_session=create_render,
                 prepare_attempt=prepare_render, queue_attempt=queue_render, execute_attempt=execute_render,
                 new_seed=lambda: 987654321,
-                projects=NS(get=lambda key: self.rendered[key])), assets=self.assets)
+                projects=NS(get=lambda key: self.rendered[key])), assets=self.assets, dlss=self.dlss)
         self.thread = patch("panelforge.application.episodes.Thread", InlineThread)
         self.thread.start(); self.addCleanup(self.thread.stop)
 
@@ -398,6 +422,40 @@ class EpisodeTest(unittest.TestCase):
         self.assertTrue(result["video_chain"]["prompts_complete"])
         self.assertTrue(result["scenes"][0]["dlss_ready"])
         self.assertEqual(result["scenes"][0]["video_status"], "succeeded")
+        self.assertEqual(self.dlss.calls, [])
+
+    def test_global_video_chain_queues_quick_dlss_once_after_video_success(self):
+        value = self.ready(); identity = value["episode_id"]
+        result = self.service.start_video_chain(
+            identity,
+            expected_video_revision=value["video_revision"],
+            request_id="video-chain-with-dlss",
+            scene_ids=["scene-1"],
+            auto_dlss=True,
+        )
+
+        item = result["video_chain"]["items"][0]
+        self.assertTrue(result["video_chain"]["auto_dlss"])
+        self.assertEqual(item["status"], "succeeded")
+        self.assertEqual(item["dlss_job_id"], "dlss-1")
+        self.assertEqual(item["dlss_status"], "queued")
+        self.assertEqual(len(self.dlss.calls), 1)
+        call = self.dlss.calls[0]
+        self.assertEqual(call["owner"], "ref2v")
+        self.assertEqual(call["owner_id"], item["render_project_id"])
+        self.assertEqual(call["attempt_id"], item["attempt_id"])
+        self.assertEqual(asdict(call["settings"]), {
+            "size": "1.724", "intensity": 0.2, "tone": 0, "structure": 0.2,
+            "skin": 0, "style": "Natural", "detail": 1,
+            "strict_neural": False, "interpolate": True, "hdr": False,
+            "codec": "H.264 (NVIDIA NVENC)",
+        })
+
+        self.service._queue_chain_dlss(
+            identity, result["video_chain"]["chain_id"], "scene-1",
+            item["render_project_id"], item["attempt_id"],
+        )
+        self.assertEqual(len(self.dlss.calls), 1)
 
     def test_single_scene_chain_can_attach_to_an_already_running_prompt(self):
         value = self.ready(); identity = value["episode_id"]
@@ -510,6 +568,49 @@ class EpisodeTest(unittest.TestCase):
         self.assertTrue(all("post_cooldown_seconds" not in call for call in calls))
         self.assertTrue(all(call["operation_label"].startswith("H3 / REF2V") for call in calls))
         self.assertIsNone(result["video_chain"]["cooldown_until"])
+        self.assertEqual(result["video_chain"]["status"], "completed")
+
+    def test_video_chain_prepares_every_prompt_without_waiting_for_prior_videos(self):
+        for index in range(2, 4):
+            scene = deepcopy(self.story["document"]["scenario"]["scenes"][0])
+            scene["title"] = f"Scène {index}"
+            self.story["document"]["scenario"]["scenes"].append(scene)
+        self.story = self.stories.store.save(self.story)
+        value = self.ready()
+        identity = value["episode_id"]
+        events = []
+
+        def prepare(_identity, _chain_id, scene_id):
+            events.append(f"prompt:{scene_id}")
+            return {"id": f"preparation-{scene_id}", "render_project_id": f"render-{scene_id}"}
+
+        def start(_identity, _chain_id, scene_id, _preparation, _setup, **_options):
+            events.append(f"video:{scene_id}")
+            return f"render-{scene_id}", f"attempt-{scene_id}", scene_id
+
+        def wait(_identity, current_chain_id, active):
+            scene_id = active[2]
+            events.append(f"wait:{scene_id}")
+            self.service._video_chain_change(identity, current_chain_id, lambda _value, chain:
+                self.service._video_item(chain, scene_id).update(
+                    status="succeeded", phase="Vidéo terminée"))
+
+        with patch.object(self.service, "_prepare_chain_prompt", side_effect=prepare), \
+             patch.object(self.service, "_start_chain_video", side_effect=start), \
+             patch.object(self.service, "_wait_chain_video", side_effect=wait):
+            result = self.service.start_video_chain(
+                identity,
+                expected_video_revision=value["video_revision"],
+                request_id="video-chain-overlap",
+                scene_ids=["scene-1", "scene-2", "scene-3"],
+            )
+
+        self.assertEqual(events, [
+            "prompt:scene-1", "video:scene-1",
+            "prompt:scene-2", "video:scene-2",
+            "prompt:scene-3", "video:scene-3",
+            "wait:scene-1", "wait:scene-2", "wait:scene-3",
+        ])
         self.assertEqual(result["video_chain"]["status"], "completed")
 
     def test_failed_writer_resumes_without_regenerating_accepted_plan(self):

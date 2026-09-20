@@ -47,6 +47,13 @@ class WorkQueueBrowserTest(unittest.TestCase):
           check(!floating.hidden&&floating.textContent.includes('DLSS vidÃ©o'),'active local work is visible');
           check(floating.textContent.includes('Working')&&floating.textContent.includes('50 %'),'working state and progress are visible');
           check(floating.textContent.includes('1 en attente')&&floating.querySelectorAll('[data-compact] progress').length===2,'both queue meters are visible');
+          floating.querySelector('[data-minimize]').click();
+          check(floating.classList.contains('minimized'),'monitor can be minimized');
+          check(floating.querySelectorAll('.work-queue-minimized-lane svg').length===2,'minimized monitor shows local computer and server cloud icons');
+          check(floating.querySelectorAll('.work-queue-minimized-dot').length===2&&floating.querySelector('[data-restore]').textContent.includes('50 %'),'minimized monitor keeps state dots and progress');
+          check(floating.querySelector('[data-restore]').textContent.includes('+1'),'minimized monitor keeps the waiting count');
+          floating.querySelector('[data-restore]').click();
+          check(!floating.classList.contains('minimized'),'clicking the minimized monitor restores it');
           await window.PanelForgeWorkQueue.open();
           const dialog=document.querySelector('.work-queue-dialog');
           check(dialog.open&&dialog.querySelectorAll('.work-queue-lane').length===2,'both lanes open');

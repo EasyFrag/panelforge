@@ -1,5 +1,43 @@
 # CONTINUITY
 
+## Patch 2026-09-20 — moniteur global compact et minimisable
+
+### Works
+- Le panneau flottant **Traitements** passe de 560 px à 375 px sur écran large, soit environ un tiers de largeur en moins, tout en conservant son repli responsive pleine largeur sur petit écran.
+- Un bouton **Minimiser** réduit le panneau à une pilule toujours visible : icône PC pour la machine locale, nuage pour le serveur, pastille d’état, pourcentage courant et badge `+N` lorsqu’une file attend. Un clic sur la pilule restaure la vue normale.
+- Les couleurs restent alignées sur le suivi existant : vert prêt, orange actif/en attente, bleu refroidissement, rouge indisponible et gris en pause. Les libellés complets restent disponibles dans les infobulles et dans la vue normale.
+- Le choix minimisé/restauré est conservé dans `localStorage`; un navigateur qui refuse le stockage garde simplement le fonctionnement de la session courante. Aucun endpoint, job ni règle d’ordonnancement n’est modifié.
+- Les caches passent à `lab.css?v=20260920.1` et `work-queue.js?v=20260920.1`. La fixture navigateur couvre réduction, icônes, pastilles, progression, file et restauration. `git diff --check` est propre ; les tests restent à lancer par l’utilisateur conformément aux consignes du worktree.
+
+### Broken / missing
+- Aucun navigateur utilisateur n’a été ouvert pendant le patch ; la densité réelle à 375 px devra être confirmée après rechargement du Lab.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger les nouveaux assets.
+2. Minimiser le panneau pendant un traitement local et un rendu serveur, puis vérifier couleurs, pourcentages et badges `+N`.
+3. Ajuster uniquement la largeur si 375 px tronque trop les intitulés sur l’écran réel.
+
+## Patch 2026-09-19 — chaîne Histoires avec DLSS automatique et progression BUNNY
+
+### Works
+- La chaîne vidéo d’un épisode prépare maintenant chaque scène complète dans l’ordre (Plan puis prompt final), réserve sa vidéo dans la FIFO distante dès que le prompt est prêt, puis passe immédiatement au prompt de la scène suivante. Elle n’attend plus la fin de la vidéo précédente avant de reprendre le LLM local.
+- La concurrence reste bornée à un traitement par machine par `MachineWorkCoordinator` : les appels LLM restent sérialisés sur la voie locale et les vidéos restent sérialisées avec refroidissement sur la voie distante, mais les deux voies peuvent travailler simultanément.
+- Le worker conserve toutes les vidéos réservées et réconcilie chacune avant de terminer la chaîne. Une pause observée entre deux tâches attend les vidéos déjà engagées et laisse le prompt courant prêt pour la reprise.
+- Le bouton global **Lancer prompts + vidéos** arme maintenant aussi le DLSS rapide classique pour chaque vidéo réussie. La tâche est inscrite dès que la vidéo est produite avec les valeurs du bouton H3/REF2V existant : ×1,724, 60 FPS, profil léger Natural et H.264 NVENC.
+- Cette automatisation est strictement limitée à la chaîne globale Histoires. Un lancement unitaire, un rendu armé depuis une scène, H3 Base et REF2V Direct gardent leur comportement manuel. Une demande déterministe et la recherche d’une tâche existante empêchent un double DLSS lors d’une réconciliation.
+- Le DLSS réutilise la FIFO locale et son verrou `MachineWorkCoordinator` existants : il peut attendre derrière un appel LLM en cours, mais ne s’exécute jamais en parallèle d’un autre traitement local. Un échec de prompt ou de vidéo ne crée aucune tâche DLSS ; une erreur d’admission DLSS ne transforme pas la vidéo réussie en échec.
+- Le normaliseur de progression H3 accepte désormais les snapshots ComfyUI `progress_state`, ignore les nœuds en attente et filtre l’identifiant d’exécution. Le profil BUNNY existant peut ainsi afficher sa première passe `1/4…4/4`, son upscale latent, sa seconde passe `1/5…5/5`, puis le décodage au lieu de rester au jalon fixe de soumission à 8 %.
+- Les régressions ciblées couvrent l’ordre `prompt 1 → vidéo 1 → prompt 2 → vidéo 2…` sans attente intermédiaire, les snapshots BUNNY des deux passes, la portée globale/unitaire du drapeau DLSS et les réglages exacts de la tâche automatique. Compilation Python et `git diff --check` sont propres ; conformément aux consignes du worktree, les tests restent à lancer par l’utilisateur.
+
+### Broken / missing
+- Aucun appel LLM ni rendu ComfyUI réel n’a été lancé pendant le patch. Le prochain BUNNY doit confirmer que la version ComfyUI installée publie bien les compteurs attendus dans `progress_state`.
+- Le statut DLSS détaillé reste suivi par le moniteur global existant ; la carte de scène conserve volontairement son interface actuelle et n’attend pas la fin du DLSS pour déclarer la vidéo terminée.
+
+### Next steps (max 3)
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger `episodes.js?v=20260919.5`, puis lancer un épisode de plusieurs scènes avec le bouton global.
+2. Sur BUNNY, vérifier que le suivi passe de `Première passe · étape x/4` à `Seconde passe · étape x/5` au lieu de rester à 8 %.
+3. Confirmer dans le moniteur que chaque vidéo réussie ajoute un DLSS à la file locale, après l’appel LLM déjà en cours, sans bloquer la préparation distante des autres vidéos.
+
 ## Release 2026-09-19 — PanelForge 1.0.0
 
 ### Works

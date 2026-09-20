@@ -22,6 +22,8 @@ class EpisodesBrowserTest(unittest.TestCase):
         self.assertIn('item?.status === "prompt_failed" ? "Prompt : \\u00e9chec"', script)
         self.assertIn('Relancer les sc\u00e8nes incompl\u00e8tes', script)
         self.assertIn('videoRecoveryRunning()', script)
+        self.assertIn('auto_dlss: true', script)
+        self.assertIn('auto_dlss: false', script)
         self.assertIn('if (refs.media.dataset.assetId !== assetId)', script)
         self.assertNotIn('el("video-cards").replaceChildren', overview)
         self.assertIn('episode-video-card.processing', style)
@@ -172,7 +174,7 @@ class EpisodesBrowserTest(unittest.TestCase):
               seed:String(common.settings.seed),seed_locked:common.seed_locked,music_enabled:common.music_enabled,
               spectrum_enabled:common.spectrum_enabled,force_upscale:common.force_upscale,bunny:common.bunny,
               video_loras:common.video_loras,video_lora:null,prompt:''},currentContext);
-            check(calls.some(c=>c.url.endsWith('/video-chain')&&JSON.parse(c.options.body).scene_ids[0]==='scene-1'),'setup action snapshots settings and programs the selected scene');
+            check(calls.some(c=>c.url.endsWith('/video-chain')&&JSON.parse(c.options.body).scene_ids[0]==='scene-1'&&JSON.parse(c.options.body).auto_dlss===false),'setup action snapshots settings and programs the selected scene without automatic DLSS');
             check(get('plan-local').checked&&get('writer-local').checked,'both models default local');
             check(get('plan-model').value.includes('Qwen')&&get('writer-model').value.includes('gemma'),'Qwen then Gemma');
             check(get('dialogues').textContent.includes('Victor : « Vous avez pris mon portefeuille ! »'),'exact attributed dialogue');

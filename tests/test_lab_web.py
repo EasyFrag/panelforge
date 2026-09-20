@@ -232,7 +232,7 @@ class LabWebTest(unittest.TestCase):
             page.text.index('id="release-comfy-vram"'),
         )
         self.assertIn("/static/lab.js?v=20260918.3", page.text)
-        self.assertIn("/static/work-queue.js?v=20260918.4", page.text)
+        self.assertIn("/static/work-queue.js?v=20260920.1", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
@@ -258,7 +258,7 @@ class LabWebTest(unittest.TestCase):
         self.assertIn('id="ref2vd-workspace"', page.text)
         self.assertIn('id="ref2vd-image-input" type="file"', page.text)
         self.assertIn("multiple", page.text)
-        self.assertIn("/static/lab.css?v=20260919.1", page.text)
+        self.assertIn("/static/lab.css?v=20260920.1", page.text)
         self.assertIn("/static/prompt-writer-model.js?v=20260918.1", page.text)
         self.assertIn("/static/ref2v-direct.js?v=20260919.1", page.text)
         direct_script = self.client.get("/static/ref2v-direct.js")

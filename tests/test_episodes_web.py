@@ -128,13 +128,18 @@ class EpisodeWebTest(unittest.TestCase):
 
         response = self.client.post("/api/episodes/episode-test/video-chain", json={
             "expected_video_revision": 4, "request_id": "video-chain-request", "scene_ids": ["scene-1", "scene-2"],
-            "inter_video_cooldown_seconds": 45})
+            "inter_video_cooldown_seconds": 45, "auto_dlss": True})
         self.assertEqual(response.status_code, 202, response.text)
         self.assertEqual(self.calls[-1][2]["scene_ids"], ["scene-1", "scene-2"])
         self.assertEqual(self.calls[-1][2]["inter_video_cooldown_seconds"], 45)
+        self.assertIs(self.calls[-1][2]["auto_dlss"], True)
         invalid = self.client.post("/api/episodes/episode-test/video-chain", json={
             "expected_video_revision": 4, "request_id": "video-chain-invalid", "scene_ids": ["scene-1"],
             "inter_video_cooldown_seconds": True})
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+        invalid = self.client.post("/api/episodes/episode-test/video-chain", json={
+            "expected_video_revision": 4, "request_id": "video-chain-invalid", "scene_ids": ["scene-1"],
+            "auto_dlss": 1})
         self.assertEqual(invalid.status_code, 422, invalid.text)
         response = self.client.post("/api/episodes/episode-test/video-chains/chain-1/pause")
         self.assertEqual(response.status_code, 202, response.text)

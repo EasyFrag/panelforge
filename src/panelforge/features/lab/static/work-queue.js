@@ -12,6 +12,13 @@
   let status = null;
   let saving = false;
   let notices = [];
+  const minimizedStorageKey = "panelforge.workQueue.minimized";
+  let minimized = false;
+  try {
+    minimized = window.localStorage.getItem(minimizedStorageKey) === "true";
+  } catch (_) {
+    minimized = false;
+  }
 
   const request = async (url, options = {}) => {
     const response = await fetch(url, {
@@ -60,11 +67,16 @@
   floating.innerHTML = `
     <div class="work-queue-compact-head">
       <strong>Traitements</strong>
-      <button type="button" data-open>Détails</button>
+      <div class="work-queue-compact-actions">
+        <button type="button" data-open>Détails</button>
+        <button type="button" data-minimize aria-label="Minimiser le suivi des traitements" title="Minimiser">−</button>
+      </div>
     </div>
     <div class="work-queue-compact-lanes" data-compact></div>
-    <div data-notices></div>`;
+    <div data-notices></div>
+    <button class="work-queue-minimized" type="button" data-restore aria-label="Agrandir le suivi des traitements" title="Agrandir le suivi"></button>`;
   document.body.append(floating);
+  floating.classList.toggle("minimized", minimized);
 
   const form = dialog.querySelector("[data-settings-form]");
   const field = name => form.elements.namedItem(name);
@@ -84,6 +96,63 @@
     : machine?.paused ? "paused"
     : machine?.state === "hot" || machine?.state === "unavailable" ? "unavailable"
     : Number(machine?.queue_count || 0) > 0 ? "busy" : "idle";
+
+  function setMinimized(value) {
+    minimized = Boolean(value);
+    floating.classList.toggle("minimized", minimized);
+    try {
+      window.localStorage.setItem(minimizedStorageKey, String(minimized));
+    } catch (_) {
+      // The monitor still works when storage is disabled by the browser.
+    }
+  }
+
+  function minimizedIcon(resource) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    svg.innerHTML = resource === "local_gpu"
+      ? '<rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path>'
+      : '<path d="M7.5 18H18a4 4 0 0 0 .6-7.96A6.5 6.5 0 0 0 6.2 8.5 4.75 4.75 0 0 0 7.5 18Z"></path>';
+    return svg;
+  }
+
+  function minimizedLaneView(resource, machine) {
+    const tone = stateTone(machine);
+    const queueCount = Number(machine?.queue_count || 0);
+    const progress = percent(machine?.active);
+    const value = progress == null ? (tone === "idle" ? "0 %" : "—") : `${progress} %`;
+    const item = document.createElement("span");
+    item.className = `work-queue-minimized-lane ${tone}`;
+    item.append(minimizedIcon(resource));
+    const dot = document.createElement("i");
+    dot.className = "work-queue-minimized-dot";
+    dot.setAttribute("aria-hidden", "true");
+    const amount = document.createElement("strong");
+    amount.textContent = value;
+    item.append(dot, amount);
+    if (queueCount > 0) {
+      const waiting = document.createElement("small");
+      waiting.textContent = `+${queueCount}`;
+      item.append(waiting);
+    }
+    const name = resource === "local_gpu" ? "Local" : "Serveur";
+    item.title = `${name} · ${stateLabel(machine)} · ${value}${queueCount ? ` · ${queueCount} en attente` : ""}`;
+    return item;
+  }
+
+  function renderMinimized() {
+    const unavailable = {state: "unavailable", active: null, queue_count: 0, queue: []};
+    const local = status?.machines?.local_gpu || unavailable;
+    const remote = status?.machines?.remote_gpu || unavailable;
+    const summary = floating.querySelector("[data-restore]");
+    summary.replaceChildren(
+      minimizedLaneView("local_gpu", local),
+      minimizedLaneView("remote_gpu", remote),
+    );
+    summary.setAttribute("aria-label", `Agrandir le suivi des traitements. Local ${stateLabel(local)}, serveur ${stateLabel(remote)}.`);
+  }
 
   function activityView(activity, {queued = false} = {}) {
     const item = document.createElement("article");
@@ -211,6 +280,7 @@
   }
 
   function render() {
+    renderMinimized();
     if (!status?.machines) {
       const unavailable = {state: "unavailable", active: null, queue_count: 0, queue: []};
       floating.querySelector("[data-compact]").replaceChildren(
@@ -306,6 +376,8 @@
   dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
   dialog.addEventListener("cancel", event => { event.preventDefault(); dialog.close(); });
   floating.querySelector("[data-open]").addEventListener("click", open);
+  floating.querySelector("[data-minimize]").addEventListener("click", () => setMinimized(true));
+  floating.querySelector("[data-restore]").addEventListener("click", () => setMinimized(false));
 
   form.addEventListener("submit", async event => {
     event.preventDefault();

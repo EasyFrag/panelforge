@@ -597,9 +597,6 @@ def build_app(args: argparse.Namespace):
         traces=llm_traces, application_outcomes=gateway)
     from panelforge.application.episodes import EpisodeService
     from panelforge.infrastructure.storage.episodes import LocalEpisodeStore
-    episodes = EpisodeService(stories=stories, store=LocalEpisodeStore(args.workspace),
-        krea=krea2_assisted, prompt_lab=prompt_lab, composition=prompt_composition,
-        render=h3_render, assets=assets, work_coordinator=machine_work)
     production_lora_memory = LocalProductionLoraMemory(args.workspace)
     production = ProductionService(
         gateway=gateway,
@@ -643,6 +640,9 @@ def build_app(args: argparse.Namespace):
         },
         work_coordinator=machine_work,
     )
+    episodes = EpisodeService(stories=stories, store=LocalEpisodeStore(args.workspace),
+        krea=krea2_assisted, prompt_lab=prompt_lab, composition=prompt_composition,
+        render=h3_render, assets=assets, dlss=dlss, work_coordinator=machine_work)
     return create_app(
         runner,
         prompt_recipes=prompt_recipes,

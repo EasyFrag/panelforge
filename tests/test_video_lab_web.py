@@ -8,6 +8,7 @@ import unittest
 from fastapi.testclient import TestClient
 
 from panelforge.application import ChangeViewRunner, VideoLabRunner
+from panelforge.domain.h3_bunny import H3BunnySettings
 from panelforge.features.lab.web import create_app
 from panelforge.features.lab.web import (
     _RenderProgressTracker,
@@ -19,6 +20,7 @@ from panelforge.infrastructure.presets import (
     load_change_view_preset,
     load_video_lab_workflow,
 )
+from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
     LocalRunStore,
@@ -40,6 +42,13 @@ VIDEO_DIRECTORY = (
     / "video.generate.ref2v"
     / "minimax-h3-ref2v"
     / "0.2.0"
+)
+BUNNY_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "video.generate.h3-base"
+    / "minimax-h3-bunny"
+    / "0.1.3"
 )
 PNG = b"\x89PNG\r\n\x1a\nimage"
 MP4 = b"\x00\x00\x00\x18ftypisomvideo"
@@ -341,6 +350,38 @@ class VideoLabWebTest(unittest.TestCase):
         self.assertEqual(progress["data"]["percent"], 25.5)
         self.assertEqual(progress["data"]["current_step"], 2)
         self.assertEqual(progress["data"]["total_steps"], 4)
+
+    def test_progress_tracker_accepts_bunny_progress_state_snapshots(self):
+        profile = BunnyH3RenderRecipe(BUNNY_DIRECTORY).progress_for(H3BunnySettings())
+        tracker = _RenderProgressTracker(profile, lambda: "bunny-prompt")
+
+        coarse = tracker.consume({
+            "type": "progress_state",
+            "data": {
+                "prompt_id": "bunny-prompt",
+                "nodes": {
+                    "12": {"state": "running", "value": 2, "max": 4},
+                    "19": {"state": "pending", "value": 0, "max": 5},
+                },
+            },
+        })
+        refine = tracker.consume({
+            "type": "progress_state",
+            "data": {
+                "prompt_id": "bunny-prompt",
+                "nodes": {
+                    "12": {"state": "finished", "value": 4, "max": 4},
+                    "19": {"state": "running", "value": 2, "max": 5},
+                },
+            },
+        })
+
+        self.assertEqual(coarse["data"]["phase_id"], "coarse")
+        self.assertEqual(coarse["data"]["percent"], 23.5)
+        self.assertEqual((coarse["data"]["current_step"], coarse["data"]["total_steps"]), (2, 4))
+        self.assertEqual(refine["data"]["phase_id"], "refine")
+        self.assertEqual(refine["data"]["percent"], 66.0)
+        self.assertEqual((refine["data"]["current_step"], refine["data"]["total_steps"]), (2, 5))
 
     def test_preview_relay_reports_normalized_progress_to_the_global_queue(self):
         reports = []
