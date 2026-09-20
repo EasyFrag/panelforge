@@ -145,6 +145,20 @@ class DlssService:
         self.wake()
         return job
 
+    def cancel_queued(self, job_id):
+        """Cancel only work that has not acquired or submitted to the local machine."""
+        with self._lock, self.jobs.lease("requests"):
+            job = self.jobs.get(job_id)
+            if job["status"] != "queued" or job.get("execution_id"):
+                return job
+            job["cancel_requested"] = True
+            job["status"] = "cancelled"
+            job["finished_at"] = datetime.now(timezone.utc).isoformat()
+            self.jobs.save(job)
+        if self.work_coordinator is not None:
+            self.work_coordinator.cancel_queued(f"dlss:{job_id}")
+        return job
+
     def control(self, action):
         with self._lock, self.jobs.lease("worker"), self.jobs.lease("requests"):
             if any(j["status"] in ACTIVE for j in self.jobs.list()):

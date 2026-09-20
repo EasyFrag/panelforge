@@ -9,6 +9,7 @@ from .stories import (
     validate_scenario, visual_transition_instruction,
 )
 from .prompt_lab import CreativeFreedomAxes
+from .long_stories import fabrication_scenario
 from .krea2_sampling import Krea2AssistedSampling
 from .krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW
 from dataclasses import asdict
@@ -111,7 +112,7 @@ def scene_action(scene):
 
 def initial_episode(story, identity):
     recipe = story_recipe_selection(story.get("recipe"))
-    scenario = validate_scenario(story["document"]["scenario"], recipe["id"], recipe["version"])
+    scenario = validate_scenario(fabrication_scenario(story), recipe["id"], recipe["version"])
     selected_series_episode = story["document"].get("selected_episode_id")
     episode_format = (story["document"].get("episode_formats") or {}).get(selected_series_episode, {})
     clip_seconds = episode_format.get("clip_seconds", story["clip_seconds"])

@@ -4,15 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260920.1">
+  <link rel="stylesheet" href="/static/lab.css?v=20260920.2">
   <script src="/static/lab.js?v=20260918.3" defer></script>
   <script src="/static/work-queue.js?v=20260920.1" defer></script>
   <script src="/static/lab-core.js?v=20260918.1" defer></script>
-  <link rel="stylesheet" href="/static/stories.css?v=20260919.1">
-  <script src="/static/stories.js?v=20260919.2" defer></script>
-  <link rel="stylesheet" href="/static/episodes.css?v=20260919.1">
+  <link rel="stylesheet" href="/static/stories.css?v=20260920.3">
+  <script src="/static/stories.js?v=20260920.5" defer></script>
+  <script src="/static/stories-help.js?v=20260920.3" defer></script>
+  <link rel="stylesheet" href="/static/episodes.css?v=20260920.1">
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
-  <script src="/static/dlss-lab.js?v=20260918.1" defer></script>
+  <script src="/static/dlss-lab.js?v=20260920.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
   <script src="/static/classic-cinematic-controls.js?v=20260910.9" defer></script>
   <script src="/static/combat-controls.js?v=20260910.6" defer></script>
@@ -32,7 +33,7 @@
   <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260919.1" defer></script>
-  <script src="/static/episodes.js?v=20260919.5" defer></script>
+  <script src="/static/episodes.js?v=20260920.4" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260919.1" defer></script>
@@ -77,7 +78,7 @@
 
   <main id="stories-workspace" hidden>
     <div class="story-heading">
-      <div><small>ATELIER NARRATIF · FAMILLES ISOLÉES</small><h1>Histoires</h1><p>Explore une à trois pistes, ou transforme fidèlement un script complet.</p></div>
+      <div><small>ATELIER NARRATIF · FAMILLES ISOLÉES</small><h1>Histoires</h1><p>Développe une histoire à partir de ton intention, ou transforme fidèlement un script complet.</p></div>
       <div class="story-actions"><button id="story-recipes" type="button">Consignes LLM</button><button id="story-fabrication" type="button" hidden>Fabrication</button><button id="story-new" type="button">Nouvelle histoire</button></div>
     </div>
     <div class="story-toolbar">
@@ -86,8 +87,8 @@
         <div class="story-select-row"><select id="story-projects"><option value="">Nouvelle histoire</option></select>
           <button id="story-refresh-projects" type="button" title="Actualiser les histoires enregistrées">Actualiser</button></div>
       </div>
-      <div class="story-model-control">
-        <label for="story-architect-model">Architecte · concepts</label>
+      <details id="story-model-settings" class="story-settings"><summary>Modèles d’écriture</summary><div class="story-settings-grid"><div class="story-model-control">
+        <label for="story-architect-model">Architecte · concepts, arc et relectures</label>
         <div class="story-select-row"><select id="story-architect-model"><option value="">Chargement à l’ouverture…</option></select>
           <button id="story-refresh-models" type="button" title="Actualiser les modèles LLM">↻</button></div>
         <label class="llm-local-toggle"><input id="story-architect-local" type="checkbox" data-llm-local-for="story-architect-model" checked> Local · Unsloth</label>
@@ -97,48 +98,65 @@
         <select id="story-writer-model"><option value="">Chargement à l’ouverture…</option></select>
         <label class="llm-local-toggle"><input id="story-writer-local" type="checkbox" data-llm-local-for="story-writer-model" checked> Local · Unsloth</label>
       </div>
+      </div></details>
     </div>
     <p id="story-model-message" class="muted" role="status"></p>
     <p id="story-message" role="status" aria-live="polite"></p>
     <div id="story-writing" class="story-layout">
       <section class="story-panel story-conversation" aria-label="Création et conversation">
         <form id="story-create-form">
-          <h2>Point de départ</h2>
+          <h2>Quelle histoire veux-tu raconter ?</h2>
+          <p class="muted">Une phrase suffit. Tu pourras orienter le récit après la première proposition.</p>
+          <label><span id="story-brief-label">Ton idée · facultative</span><textarea id="story-brief" rows="4" maxlength="12000" placeholder="Un rendez-vous tourne au règlement de comptes quand arrive l’addition…"></textarea></label>
+          <div class="story-example-row"><span>Essayer un point de départ</span><button type="button" data-story-example="social">L’addition qui dérape</button><button type="button" data-story-example="melodrama">Les gouttes d’eau</button><button type="button" data-story-example="fantasy">Le temps de vie</button></div>
           <fieldset class="story-narrative-switch">
-            <legend>Format narratif</legend>
-            <label><input id="story-format-short" type="radio" name="story-narrative-format" value="short" checked><span><b>Histoire courte</b><small>Le scénario complet tient dans le nombre exact de scènes choisi.</small></span></label>
-            <label><input id="story-format-long" type="radio" name="story-narrative-format" value="long"><span><b>Histoire longue</b><small>Un arc de quatre épisodes, puis chaque épisode est développé séparément.</small></span></label>
+            <legend>Construction</legend>
+            <label><input id="story-format-short" type="radio" name="story-narrative-format" value="short" checked><span><b>Scénario court</b><small>Une écriture directe.</small></span></label>
+            <label><input id="story-format-long" type="radio" name="story-narrative-format" value="long"><span><b>Histoire suivie</b><small>Progression, scènes et continuité vérifiées.</small></span></label>
           </fieldset>
-          <label>Famille éditoriale<select id="story-recipe"><option value="story.brainrot@1.0.0">Mélodrame fruits</option><option value="story.sensual-light@1.0.0">Sensuel light</option><option value="story.explicit-hard@1.0.0">Cru ++</option><option value="story.silent-cats@1.0.0">Chats de couple · muet</option></select></label>
-          <p id="story-recipe-description" class="muted">Fruits anthropomorphes aux noms fruités, mélodrame compréhensible à l’écoute.</p>
-          <label>Mode de départ<select id="story-creation-mode"><option value="ideas">Explorer des propositions</option><option value="continuation">Continuer une histoire</option><option value="script">Suivre fidèlement un script complet</option></select></label>
-          <p id="story-mode-description" class="muted">Le LLM propose plusieurs histoires avant le développement du scénario.</p>
-          <label id="story-dialogue-language-row">Langue parlée<select id="story-dialogue-language"><option value="French" selected>Français</option><option value="English">English</option><option value="Korean">한국어 · Coréen</option><option value="Japanese">日本語 · Japonais</option><option value="Russian">Русский · Russe</option></select><small id="story-dialogue-language-description" class="muted">Les dialogues sont écrits dans cette langue ; les descriptions restent en français.</small></label>
-          <label id="story-dialogue-register-row"><span>Vocabulaire des dialogues · <strong id="story-dialogue-register-label">Actuel</strong></span><input id="story-dialogue-register" type="range" min="0" max="3" step="1" value="0"><output id="story-dialogue-register-value">0/3</output><small id="story-dialogue-register-description" class="muted">Aucun pilotage ajouté : comportement actuel.</small></label>
-          <label>Nom<input id="story-title" maxlength="160" placeholder="Ex. La reine des faux cadeaux"></label>
-          <label><span id="story-brief-label">Ton idée · facultative</span><textarea id="story-brief" rows="5" maxlength="12000" placeholder="Un patron avocat odieux qui arnaque ses clients… Ou laisse le LLM te surprendre."></textarea></label>
-          <label id="story-proposal-count-row">Nombre de propositions<select id="story-proposal-count"><option value="1">1 histoire</option><option value="2">2 histoires</option><option value="3" selected>3 histoires</option></select></label>
-          <details><summary>Format de l’épisode</summary><div class="story-format">
-            <label>Nombre exact de micro-scènes<input id="story-scene-count" type="number" min="1" max="12" step="1" value="6" required></label>
+          <fieldset id="story-long-options" class="story-long-options" hidden>
+            <legend>Ton parcours</legend>
+            <label>Accompagnement<select id="story-workflow-mode"><option value="manual">Manuel guidé · je valide les étapes</option><option value="automatic">Automatique · jusqu’au scénario prêt</option></select></label>
+            <label>Univers des personnages<input id="story-universe" maxlength="1000" list="story-universes" placeholder="Au choix du moteur"><datalist id="story-universes"><option value="Fruits anthropomorphes"></option><option value="Gouttes d’eau anthropomorphes"></option><option value="Humains stylisés"></option><option value="Animaux anthropomorphes"></option></datalist></label>
+            <label>À publier<select id="story-long-delivery"><option value="continuous">Une vidéo continue</option><option value="serial">Une série d’épisodes</option></select></label>
+            <label><span id="story-target-label">Durée souhaitée · secondes</span><input id="story-target-seconds" type="number" min="10" max="2160" value="80" step="10"></label>
+          </fieldset>
+          <details class="story-settings"><summary>Orienter l’histoire <small>Facultatif · le moteur peut choisir</small></summary>
+            <div class="story-settings-grid">
+              <label data-story-long-only hidden>Construction narrative<select id="story-long-profile"><option value="auto">Automatique</option><option value="social">Conflit du quotidien / joute verbale</option><option value="melodrama">Mélodrame / rapports de pouvoir</option><option value="transformation">Transformation / quête</option><option value="suspense">Suspense / révélation</option><option value="fantasy">Aventure à règle fantastique</option></select></label>
+              <label data-story-long-only hidden>Narration<select id="story-long-narration"><option value="auto">Automatique</option><option value="dialogue">Dialogues dramatiques</option><option value="audio">Compréhensible à l’écoute</option><option value="visual">Principalement visuelle</option></select></label>
+              <label data-story-long-only hidden>Fin<select id="story-long-ending"><option value="auto">Automatique</option><option value="resolution">Résolution</option><option value="open">Ouverte / suite</option><option value="reversal">Retournement</option><option value="cost">Victoire avec coût</option></select></label>
+              <label>Famille éditoriale<select id="story-recipe"><option value="story.brainrot@1.0.0">Mélodrame fruits</option><option value="story.sensual-light@1.0.0">Sensuel light</option><option value="story.explicit-hard@1.0.0">Cru ++</option><option value="story.silent-cats@1.0.0">Chats de couple · muet</option></select></label>
+              <label>Point de départ<select id="story-creation-mode"><option value="ideas">Inventer à partir de mon idée</option><option value="adapt" hidden>Développer mon récit fourni</option><option value="continuation">Continuer une histoire</option><option value="script">Suivre un script complet</option></select></label>
+              <label id="story-dialogue-language-row">Langue parlée<select id="story-dialogue-language"><option value="French" selected>Français</option><option value="English">English</option><option value="Korean">한국어 · Coréen</option><option value="Japanese">日本語 · Japonais</option><option value="Russian">Русский · Russe</option></select><small id="story-dialogue-language-description" class="muted"></small></label>
+              <label id="story-dialogue-register-row"><span>Vocabulaire · <strong id="story-dialogue-register-label">Actuel</strong></span><input id="story-dialogue-register" type="range" min="0" max="3" step="1" value="0"><output id="story-dialogue-register-value">0/3</output><small id="story-dialogue-register-description" class="muted"></small></label>
+            </div>
+            <p id="story-recipe-description" class="muted"></p><p id="story-mode-description" class="muted"></p>
+          </details>
+          <details class="story-settings"><summary>Production avancée <small>Découpage et durée des clips</small></summary><div class="story-settings-grid">
+            <label data-story-long-only hidden><span id="story-long-unit-label">Nombre de séquences</span><input id="story-long-units" type="number" min="1" max="12" value="1" step="1"></label>
+            <label><span id="story-scene-count-label">Nombre exact de micro-scènes</span><input id="story-scene-count" type="number" min="1" max="12" step="1" value="6" required></label>
             <label>Secondes par clip<input id="story-duration" type="number" min="5" max="15" step="1" value="10" required></label>
-          </div><p class="muted">Ce nombre est obligatoire. Plusieurs événements du brief ou du script peuvent être regroupés dans une même micro-scène.</p></details>
-          <button id="story-create" class="primary" type="submit">Proposer 3 histoires</button>
-          <p id="story-create-note" class="muted">Conflits simples, personnages excessifs, retournements visuels. Tu peux orienter le ton dans ton idée.</p>
+            <label>Nom du projet · facultatif<input id="story-title" maxlength="160" placeholder="Le titre sera proposé avec l’histoire"></label>
+          </div><p id="story-format-help" class="muted"></p></details>
+          <p id="story-budget-summary" class="story-budget" hidden></p>
+          <button id="story-create" class="primary" type="submit">Proposer une histoire</button>
+          <p id="story-create-note" class="muted"></p>
         </form>
         <div id="story-conversation-panel" hidden>
           <h2>Façonner l’histoire</h2>
           <details><summary>Point de départ et format</summary><p id="story-project-brief"></p></details>
           <div id="story-turns" aria-label="Échanges avec le LLM"></div>
-          <form id="story-chat-form"><label>Ton retour<textarea id="story-instruction" rows="4" maxlength="12000" placeholder="Le méchant est trop gentil. Garde le retournement, mais rends ses actes plus excessifs…"></textarea></label>
-            <button id="story-send" class="primary" type="submit">Envoyer</button>
+          <form id="story-chat-form"><label id="story-feedback-target-row" hidden>Ton retour porte sur<select id="story-feedback-target"><option value="outline">L’histoire complète</option></select></label><p id="story-feedback-context" class="muted" hidden></p><label>Ton retour<textarea id="story-instruction" rows="4" maxlength="12000" placeholder="Le méchant est trop gentil. Garde le retournement, mais rends ses actes plus excessifs…"></textarea></label>
+            <button id="story-question" type="button" hidden>Poser une question</button><button id="story-send" class="primary" type="submit">Envoyer</button>
           </form>
-          <div class="story-actions"><button id="story-ideas" type="button">3 nouvelles pistes</button><button id="story-calls" type="button">Échanges LLM</button></div>
+          <div class="story-actions"><button id="story-ideas" type="button">Une autre histoire</button><button id="story-calls" type="button">Échanges LLM</button></div>
           <div id="story-running" hidden><progress aria-label="Écriture en cours"></progress><button id="story-cancel" type="button">Annuler l’échange</button><p class="muted">L’écriture continue si tu changes d’écran ou actualises la page.</p></div>
           <div class="story-actions">
             <button id="story-revalidate" type="button" hidden>Revalider la réponse reçue</button>
             <button id="story-retry" type="button" hidden>Relancer le LLM</button>
           </div>
-          <details id="story-live-panel" class="story-live" hidden open>
+          <details id="story-live-panel" class="story-live" hidden>
             <summary id="story-live-summary">Trace du modèle · en direct</summary>
             <p id="story-live-empty" class="muted">En attente des premiers tokens du modèle…</p>
             <section id="story-reasoning-panel" hidden><h3>Plan / raisonnement exposé par le modèle</h3><pre id="story-reasoning"></pre></section>
@@ -147,11 +165,26 @@
         </div>
       </section>
       <section class="story-panel story-document" aria-label="Propositions et scénario">
-        <div id="story-empty"><h2 id="story-empty-title">Quelle histoire raconter ?</h2><p id="story-empty-copy">Le LLM proposera les accroches demandées avec leur conflit, leur escalade et leur fin. Choisis une piste, discute-la, puis développe le scénario.</p></div>
+        <section id="story-guided-tools" class="story-guided-tools" hidden>
+          <nav id="story-progress" aria-label="Progression de l’histoire">Histoire → Scénario → Prêt à fabriquer</nav>
+          <div class="story-actions"><label>Accompagnement<select id="story-active-mode"><option value="manual">Manuel guidé</option><option value="automatic">Automatique</option></select></label><button id="story-advance" type="button" class="primary">Continuer</button><button id="story-pause" type="button">Reprendre la main</button></div>
+          <p id="story-workflow-message" role="status" aria-live="polite"></p>
+          <ul id="story-workflow-issues" hidden></ul>
+        </section>
+        <div id="story-empty"><h2 id="story-empty-title">Quelle histoire raconter ?</h2><p id="story-empty-copy">Ton histoire apparaîtra ici, avec sa progression et sa fin. Tu pourras l’orienter avant de développer les scènes.</p></div>
         <div id="story-versions-panel" class="story-actions" hidden><label>Versions de l’histoire<select id="story-versions"></select></label><button id="story-restore" type="button">Reprendre cette version</button></div>
         <details id="story-continuity" class="story-continuity" hidden><summary>Mémoire cumulative de la saga</summary><div id="story-continuity-content"></div></details>
         <div id="story-concepts"></div>
         <button id="story-outline" class="primary" type="button" hidden>Construire l’arc en 4 épisodes</button>
+        <details id="story-long-review" class="story-long-review" hidden><summary>Détails de continuité et de vérification</summary>
+          <details><summary>Contrat, règles et révélations</summary><div id="story-long-contract"></div></details>
+          <details><summary>Faits et connaissances après cette unité</summary><div id="story-long-canon"></div></details>
+          <p id="story-long-state" role="status"></p>
+          <div class="story-actions"><button id="story-review-outline" type="button">Relire l’arc</button><button id="story-repair-outline" type="button">Corriger l’arc</button><button id="story-revise-outline" type="button">Réviser l’arc avec mon retour</button></div>
+          <div id="story-outline-review-result"></div>
+          <div class="story-actions"><button id="story-review-episode" type="button">Relire l’unité ouverte</button><button id="story-repair-episode" type="button">Corriger l’unité</button><button id="story-rewrite-episode" type="button">Réécrire depuis l’arc</button></div>
+          <div id="story-episode-review-result"></div>
+        </details>
         <section id="story-series" class="story-series" hidden>
           <header><small>HISTOIRE LONGUE · ARC GLOBAL</small><h2 id="story-series-title"></h2><p id="story-series-premise"></p></header>
           <details><summary>Trajectoire générale et personnages</summary><p id="story-series-arc"></p><p id="story-series-ending"></p><div id="story-series-characters"></div></details>
@@ -159,7 +192,8 @@
         </section>
         <button id="story-develop" class="primary" type="button" hidden>Développer cette histoire</button>
         <div id="story-scenario" hidden>
-          <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-next-episode" type="button">Créer l’épisode suivant</button><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary">Valider et préparer la fabrication</button></div>
+          <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-next-episode" type="button">Créer l’épisode suivant</button><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary" aria-describedby="story-fabrication-reason">Valider et préparer la fabrication</button></div>
+          <aside id="story-fabrication-gate" class="story-diagnostics" hidden><strong>Avant la fabrication</strong><p id="story-fabrication-reason" role="status" aria-live="polite"></p><button id="story-fabrication-next" type="button">Continuer les vérifications</button></aside>
           <p id="story-logline"></p>
           <aside id="story-diagnostics" class="story-diagnostics" hidden><strong>Diagnostic sans appel LLM</strong><ul id="story-diagnostic-list"></ul></aside>
           <details><summary>Personnages et décors</summary><div id="story-cast"></div></details>
@@ -168,6 +202,7 @@
         </div>
       </section>
     </div>
+    <dialog id="story-help" class="story-help"><h2 id="story-help-title"></h2><div id="story-help-content"></div><form method="dialog"><button type="submit">Compris</button></form></dialog>
     <dialog id="story-scene-editor" class="story-scene-editor">
       <form id="story-scene-form">
         <div class="story-actions"><h2 id="story-scene-editor-title">Modifier la scène</h2><button id="story-scene-close" type="button">Fermer</button></div>
@@ -316,7 +351,8 @@
           <div class="episode-bar"><div><h2>Prompts et vidéos de l’épisode</h2>
             <p class="muted">Toutes les scènes restent visibles. Les prompts sont rédigés un par un ; les vidéos démarrent automatiquement sur le serveur distant.</p></div>
             <div class="story-actions"><button id="episode-video-start" type="button" class="primary">Lancer prompts + vidéos</button>
-              <button id="episode-video-pause" type="button" hidden>Pause après les tâches en cours</button>
+              <button id="episode-video-pause" type="button" title="Laisse finir uniquement les traitements qui utilisent déjà une machine et retire les réservations suivantes." hidden>Pause après les traitements actifs</button>
+              <button id="episode-video-drain" class="text-button" type="button" title="N’ajoute plus de travail mais termine toutes les réservations déjà placées dans les files." hidden>Finir la file puis suspendre</button>
               <button id="episode-video-resume" type="button" hidden>Relancer les scènes incomplètes</button></div></div>
           <p class="episode-video-cooldown muted">Le repos entre vidéos et la protection thermique suivent les paramètres globaux. <button id="episode-video-global-settings" type="button">Modifier</button></p>
           <div id="episode-video-progress" class="episode-video-progress" hidden>

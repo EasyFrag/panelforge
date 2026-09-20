@@ -182,6 +182,18 @@ class FakeDlss:
         self.jobs.append(job)
         return job
 
+    def cancel_queued(self, job_id):
+        job = next(value for value in self.jobs if value["job_id"] == job_id)
+        if job["status"] == "queued" and not job.get("execution_id"):
+            job["status"] = "cancelled"
+        return job
+
+    def retry(self, job_id):
+        job = next(value for value in self.jobs if value["job_id"] == job_id)
+        if job["status"] == "cancelled":
+            job["status"] = "queued"
+        return job
+
 
 class EpisodeTest(unittest.TestCase):
     def setUp(self):
@@ -214,11 +226,16 @@ class EpisodeTest(unittest.TestCase):
             attempt = self.rendered[identity].attempt(attempt_id)
             attempt.status = H3RenderAttemptStatus.SUCCEEDED
             attempt.output_asset_id = f"video-output-{attempt_id}"
+        def cancel_render(identity, attempt_id):
+            project = self.rendered[identity]
+            project.attempt(attempt_id).status = H3RenderAttemptStatus.CANCELLED
+            return project
         self.krea, self.dlss = FakeKrea(), FakeDlss()
         self.service = EpisodeService(stories=self.stories, store=LocalEpisodeStore(root),
             krea=self.krea, prompt_lab=self.prompt,
             composition=self.composition, render=NS(get_or_create_from_session=create_render,
                 prepare_attempt=prepare_render, queue_attempt=queue_render, execute_attempt=execute_render,
+                cancel_attempt=cancel_render,
                 new_seed=lambda: 987654321,
                 projects=NS(get=lambda key: self.rendered[key])), assets=self.assets, dlss=self.dlss)
         self.thread = patch("panelforge.application.episodes.Thread", InlineThread)
@@ -383,6 +400,7 @@ class EpisodeTest(unittest.TestCase):
         ready = self.service.prepare_scene(identity, "scene-1", 1, "request-0001")
         scene = ready["scenes"][0]
         self.assertEqual(scene["preparations"][0]["status"], "ready")
+        self.assertEqual(scene["preparations"][0]["prompt_stages"], {"plan": "ready", "writer": "ready"})
         self.assertEqual(self.composition.calls, [(CompositionStage.BEAT_SHEET, scene["plan_model_id"]),
                                                 (CompositionStage.FINAL_PROMPT, scene["writer_model_id"])])
         self.service.prepare_scene(identity, "scene-1", 1, "request-0001")
@@ -496,6 +514,8 @@ class EpisodeTest(unittest.TestCase):
 
         self.assertEqual(failed["video_chain"]["status"], "completed_with_errors")
         self.assertEqual(failed["video_chain"]["items"][0]["status"], "prompt_failed")
+        self.assertEqual(failed["scenes"][0]["preparations"][0]["prompt_stages"],
+                         {"plan": "ready", "writer": "failed"})
         self.assertEqual([stage for stage, _model in self.composition.calls],
                          [CompositionStage.BEAT_SHEET, CompositionStage.FINAL_PROMPT])
 
@@ -503,6 +523,8 @@ class EpisodeTest(unittest.TestCase):
 
         self.assertEqual(resumed["video_chain"]["status"], "completed")
         self.assertEqual(resumed["video_chain"]["items"][0]["status"], "succeeded")
+        self.assertEqual(resumed["scenes"][0]["preparations"][0]["prompt_stages"],
+                         {"plan": "ready", "writer": "ready"})
         self.assertEqual(len(resumed["scenes"][0]["preparations"]), 1)
         self.assertEqual([stage for stage, _model in self.composition.calls],
                          [CompositionStage.BEAT_SHEET, CompositionStage.FINAL_PROMPT,
@@ -612,6 +634,49 @@ class EpisodeTest(unittest.TestCase):
             "wait:scene-1", "wait:scene-2", "wait:scene-3",
         ])
         self.assertEqual(result["video_chain"]["status"], "completed")
+
+    def test_pause_after_active_cancels_only_queued_chain_work_and_resume_keeps_prompts(self):
+        value = self.ready(); identity = value["episode_id"]
+        prepared = self.service.prepare_scene(identity, "scene-1", 1, "prepare-before-pause")
+        preparation = prepared["scenes"][0]["preparations"][-1]
+        project = self.service.render.prepare_attempt(preparation["render_project_id"], manual=True)
+        attempt = project.attempts[-1]
+        self.service.render.queue_attempt(project.project_id, attempt.attempt_id)
+        dlss = self.dlss.queue(owner="ref2v", owner_id=project.project_id,
+            attempt_id=attempt.attempt_id, settings=self.service._automatic_video_dlss_settings(),
+            request_id="queued-dlss-before-pause")
+        with patch.object(self.service, "_video_chain_worker"):
+            chain_view = self.service.start_video_chain(identity,
+                expected_video_revision=prepared["video_revision"], request_id="pause-chain-request",
+                scene_ids=["scene-1"], auto_dlss=True)
+        chain_id = chain_view["video_chain"]["chain_id"]
+        stored = self.service.store.get(identity)
+        stored["video_chain"]["items"][0].update(status="rendering", phase="Rendu vidéo en cours",
+            preparation_id=preparation["id"], render_project_id=project.project_id,
+            attempt_id=attempt.attempt_id, dlss_job_id=dlss["job_id"], dlss_status="queued")
+        self.service.store.save(stored)
+
+        paused = self.service.pause_video_chain(identity, chain_id, mode="after_active")
+        item = paused["video_chain"]["items"][0]
+        self.assertEqual(paused["video_chain"]["phase"], "Pause après les traitements actifs")
+        self.assertEqual(project.attempt(attempt.attempt_id).status, H3RenderAttemptStatus.CANCELLED)
+        self.assertEqual(item["status"], "prompt_ready")
+        self.assertIsNone(item["attempt_id"])
+        self.assertEqual(item["dlss_status"], "cancelled")
+        self.assertTrue(item["dlss_resume_pending"])
+        self.assertEqual(paused["scenes"][0]["preparations"][-1]["prompt_stages"],
+                         {"plan": "ready", "writer": "ready"})
+
+    def test_pause_after_queue_keeps_existing_reservations(self):
+        value = self.ready(); identity = value["episode_id"]
+        with patch.object(self.service, "_video_chain_worker"):
+            chain_view = self.service.start_video_chain(identity,
+                expected_video_revision=value["video_revision"], request_id="drain-chain-request",
+                scene_ids=["scene-1"])
+        chain_id = chain_view["video_chain"]["chain_id"]
+        paused = self.service.pause_video_chain(identity, chain_id, mode="after_queue")
+        self.assertEqual(paused["video_chain"]["phase"], "Pause après la file réservée")
+        self.assertEqual(paused["video_chain"]["items"][0]["status"], "pending")
 
     def test_failed_writer_resumes_without_regenerating_accepted_plan(self):
         value = self.ready(); identity = value["episode_id"]

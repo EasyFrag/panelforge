@@ -66,7 +66,7 @@ class StoriesBrowserTest(unittest.TestCase):
                 + '</script><script>' + scenario + '</script>')
         self.run_browser(browsers[-1], html)
 
-    def test_proposal_selector_and_script_mode_submit_the_right_operation(self):
+    def test_single_story_flow_and_script_mode_submit_the_right_operation(self):
         browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
         if not browsers:
             self.skipTest("local Chromium not installed")
@@ -84,7 +84,7 @@ class StoriesBrowserTest(unittest.TestCase):
               const body=JSON.parse(options.body);creates.push(body);project={project_id:'story-cccccccccccccccccccccccccccccccc',
                 title:body.title,version:1,brief:body.brief,scene_count:body.scene_count,clip_seconds:body.clip_seconds,
                 creation_mode:body.creation_mode,narrative_format:body.narrative_format,parent_story_id:body.parent_story_id,
-                proposal_count:body.proposal_count,recipe:{id:body.recipe_id,version:body.recipe_version},
+                recipe:{id:body.recipe_id,version:body.recipe_version},
                 dialogue_register:body.dialogue_register,dialogue_language:body.dialogue_language,
                 architect_model_id:body.architect_model_id,writer_model_id:body.writer_model_id,model_id:body.writer_model_id,
                 document:{concepts:[],selected_id:null,scenario:null},turns:[],job:null,revisions:[],diagnostics:[]};
@@ -102,8 +102,9 @@ class StoriesBrowserTest(unittest.TestCase):
             document.querySelector('[data-lab-view="stories"]').click();await settle();
             const formatLong=document.getElementById('story-format-long'),formatShort=document.getElementById('story-format-short');
             formatLong.checked=true;change(formatLong);
-            check(document.getElementById('story-creation-mode').disabled,'long stories use their isolated arc pipeline');
-            check(document.getElementById('story-mode-description').textContent.includes('quatre épisodes'),'long pipeline is explained');
+            check(!document.getElementById('story-creation-mode').disabled,'long stories allow pitches or a provided story');
+            check(!document.getElementById('story-long-options').hidden,'long V2 options visible');
+            check(document.getElementById('story-mode-description').textContent.includes('relecture'),'long V2 review workflow explained');
             formatShort.checked=true;change(formatShort);
             check(!document.getElementById('story-creation-mode').disabled,'short stories keep the existing start modes');
             const recipes=document.getElementById('story-recipe');
@@ -114,18 +115,18 @@ class StoriesBrowserTest(unittest.TestCase):
             check(document.getElementById('story-dialogue-language').disabled,'silent family disables spoken language');
             check(document.getElementById('story-dialogue-register-label').textContent==='Sans paroles','silent policy visible');
             recipes.value='story.brainrot@1.0.0';change(recipes);
-            const count=document.getElementById('story-proposal-count'),mode=document.getElementById('story-creation-mode');
+            const mode=document.getElementById('story-creation-mode');
+            check(!document.getElementById('story-proposal-count'),'proposal count selector removed');
             const language=document.getElementById('story-dialogue-language');
             check(!language.disabled&&language.value==='French','French is the compatible default');
             language.value='Japanese';change(language);
-            count.value='1';change(count);
-            check(document.getElementById('story-create').textContent==='Proposer 1 histoire','one-story label');
+            check(document.getElementById('story-create').textContent==='Proposer une histoire','one-story label');
             const register=document.getElementById('story-dialogue-register');register.value='3';register.dispatchEvent(new Event('input',{bubbles:true}));
             check(document.getElementById('story-dialogue-register-label').textContent==='Très cru / argot','register label');
             mode.value='continuation';change(mode);
             const brief=document.getElementById('story-brief');
             check(brief.required&&brief.maxLength===60000,'continuation requires a longer saga source');
-            check(document.getElementById('story-create').textContent==='Proposer 1 suite','continuation label');
+            check(document.getElementById('story-create').textContent==='Proposer une suite','continuation label');
             check(document.getElementById('story-mode-description').textContent.includes('mémoire cumulative'),'cumulative memory explained');
             check(document.getElementById('story-create').disabled,'blank continuation blocks creation');
             brief.value='ÉPISODE 1 — Citron découvre la preuve.';brief.dispatchEvent(new Event('input',{bubbles:true}));
@@ -134,7 +135,7 @@ class StoriesBrowserTest(unittest.TestCase):
             brief.value='';brief.dispatchEvent(new Event('input',{bubbles:true}));
             const sceneCount=document.getElementById('story-scene-count');sceneCount.value='3';
             check(sceneCount.closest('label').textContent.includes('Nombre exact de micro-scènes'),'scene count is presented as exact');
-            check(document.getElementById('story-proposal-count-row').hidden,'count hidden in script mode');
+            check(!document.getElementById('story-proposal-count-row'),'count absent in every mode');
             check(!language.disabled,'faithful script still declares its actual language');
             check(document.getElementById('story-dialogue-language-description').textContent.includes('n’est pas traduit'),'script translation policy visible');
             check(brief.required,'script is required');
@@ -146,7 +147,7 @@ class StoriesBrowserTest(unittest.TestCase):
             check(creates.length===1&&creates[0].creation_mode==='script','script mode persisted');
             check(creates[0].narrative_format==='short','existing short-story path remains selected');
             check(creates[0].scene_count===3,'exact selected scene count persisted');
-            check(creates[0].proposal_count===1,'selected count persisted without affecting script');
+            check(!Object.hasOwn(creates[0],'proposal_count'),'obsolete parameter is not sent');
             check(register.disabled&&creates[0].dialogue_register===0,'faithful script disables register');
             check(creates[0].dialogue_language==='Japanese','spoken language persisted');
             check(writes.length===1&&writes[0].operation==='script','script skips idea generation');

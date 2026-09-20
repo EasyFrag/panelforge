@@ -28,9 +28,9 @@ from panelforge.infrastructure.storage.prompt_recipes import LocalPromptRecipeSt
 from panelforge.infrastructure.storage.local import _atomic_write, _json_bytes
 
 ROOT = Path(__file__).resolve().parents[1]
-IDEAS = {"reply": "Choisis une piste.", "concepts": [dict(title=f"Le mensonge {i}", hook=f"Une reine cache la preuve {i}.",
+IDEAS = {"reply": "Voici l’histoire proposée.", "concepts": [dict(title="Le mensonge", hook="Une reine cache la preuve.",
     protagonist="Un livreur citron", antagonist="Une reine menteuse", escalation="Elle accuse son livreur.",
-    reveal="Les étiquettes désignent la reine.", ending="Le livreur récupère son colis.") for i in range(3)]}
+    reveal="Les étiquettes désignent la reine.", ending="Le livreur récupère son colis.")]}
 SCENARIO = {"reply": "Voici le scénario.", "scenario": {"title": "La reine et les cadeaux", "logline": "Une reine est démasquée par ses cadeaux volés.",
     "characters": [{"id": "c1", "name": "Pechetta", "description": "Pêche anthropomorphe en robe rouge."},
                    {"id": "c2", "name": "Citronito", "description": "Citron anthropomorphe en veste bleue."}],
@@ -123,7 +123,6 @@ class StoriesTest(unittest.TestCase):
 
     def scenario(self):
         p = self.concepts()
-        p = self.service.select(p["project_id"], "concept-2", p["version"])
         self.gateway.response = json.dumps(SCENARIO)
         return self.write(p, "develop")
 
@@ -132,7 +131,7 @@ class StoriesTest(unittest.TestCase):
         self.assertEqual(len(self.gateway.requests), 2)
         self.assertEqual(p["job"]["status"], "succeeded")
         context = json.loads(self.gateway.requests[1].user_prompt)
-        self.assertEqual(context["current_document"]["selected_id"], "concept-2")
+        self.assertEqual(context["current_document"]["selected_id"], "concept-1")
         self.assertEqual(context["clip_seconds"], 10)
         self.assertIsNone(context["response_contract"]["scenario"]["scenes"][0]["visual_transition"])
         self.assertIn("visual_transition est optionnel", self.gateway.requests[1].system_prompt)
@@ -199,7 +198,7 @@ class StoriesTest(unittest.TestCase):
                                             "continuity": CONTINUITY_BEFORE})
         project = self.service.create(
             brief="ÉPISODE 1 — Citron découvre l’étiquette.", creation_mode="continuation",
-            proposal_count=1, scene_count=1,
+            scene_count=1,
         )
         project = self.write(project, "ideas")
         self.assertEqual(project["document"]["continuity_source"], CONTINUITY_BEFORE)
@@ -233,7 +232,7 @@ class StoriesTest(unittest.TestCase):
     def test_long_story_builds_four_episode_outline_then_develops_each_episode_format(self):
         self.gateway.response = json.dumps({"reply": "Une piste.", "concepts": deepcopy(IDEAS["concepts"][:1])})
         project = self.service.create(brief="Une saga de colis.", narrative_format="long",
-                                      proposal_count=1, scene_count=2, clip_seconds=10)
+                                      scene_count=2, clip_seconds=10)
         project = self.write(project, "ideas")
         self.gateway.response = json.dumps({"reply": "Voici l’arc.", "series_outline": SERIES_OUTLINE})
         project = self.write(project, "outline")
@@ -310,7 +309,7 @@ class StoriesTest(unittest.TestCase):
             json.dumps(c)[:-1] + ",}" for c in IDEAS["concepts"]) + ",],}"
         p = self.concepts()
         self.assertEqual(p["job"]["status"], "succeeded")
-        self.assertEqual(len(p["document"]["concepts"]), 3)
+        self.assertEqual(len(p["document"]["concepts"]), 1)
         self.assertEqual(len(self.gateway.requests), 1)
 
     def test_trailing_comma_decode_preserves_strings_and_rejects_other_damage(self):
@@ -328,39 +327,70 @@ class StoriesTest(unittest.TestCase):
         response["reply"] = "x" * 144_000
         reply, document = parse_response(response, "ideas", False)
         self.assertEqual(len(reply), 144_000)
-        self.assertEqual(len(document["concepts"]), 3)
+        self.assertEqual(len(document["concepts"]), 1)
         response["reply"] += "x"
         with self.assertRaisesRegex(ValueError, "maximum 144000"):
             parse_response(response, "ideas", False)
 
     def test_story_requests_and_preserves_live_model_reasoning(self):
-        self.gateway.reasoning = "Je pose les enjeux, puis je distingue trois fins."
+        self.gateway.reasoning = "Je pose les enjeux et le point d’arrêt du récit."
         project = self.concepts()
         self.assertTrue(self.gateway.requests[-1].include_reasoning)
         self.assertEqual(project["job"]["reasoning"], self.gateway.reasoning)
         self.assertEqual(project["job"]["draft"], self.gateway.response)
 
-    def test_one_or_two_proposals_use_the_requested_contract_and_one_is_auto_selected(self):
-        for count in (1, 2):
-            with self.subTest(count=count):
-                response = {"reply": "Voici.", "concepts": deepcopy(IDEAS["concepts"][:count])}
-                self.gateway.response = json.dumps(response)
-                project = self.service.create(proposal_count=count)
-                project = self.write(project, "ideas")
-                self.assertEqual(project["job"]["status"], "succeeded")
-                self.assertEqual(len(project["document"]["concepts"]), count)
-                self.assertEqual(project["document"]["selected_id"], "concept-1" if count == 1 else None)
-                request = self.gateway.requests[-1]
-                context = json.loads(request.user_prompt)
-                self.assertEqual(context["proposal_count"], count)
-                self.assertEqual(len(context["response_contract"]["concepts"]), count)
-                self.assertIn(f"exactement {count} proposition", request.system_prompt)
-                self.assertNotIn("Tu proposes trois histoires", request.system_prompt)
-                self.assertNotIn("concept-2", request.system_prompt if count == 1 else "")
+    def test_single_proposal_is_the_only_contract_and_is_auto_selected(self):
+        project = self.write(self.service.create(), "ideas")
+        self.assertEqual(project["job"]["status"], "succeeded")
+        self.assertEqual(len(project["document"]["concepts"]), 1)
+        self.assertEqual(project["document"]["selected_id"], "concept-1")
+        self.assertNotIn("proposal_count", project)
+        request = self.gateway.requests[-1]
+        context = json.loads(request.user_prompt)
+        self.assertNotIn("proposal_count", context)
+        self.assertEqual(len(context["response_contract"]["concepts"]), 1)
+        self.assertIn("exactement une proposition", request.system_prompt)
+        self.assertNotIn("Tu proposes trois histoires", request.system_prompt)
+        self.assertNotIn("concept-2", request.system_prompt)
+
+    def test_multiple_proposals_are_rejected_without_replacing_accepted_work(self):
+        project = self.concepts()
+        previous = deepcopy(project["document"])
+        response = deepcopy(IDEAS)
+        response["concepts"].append({**response["concepts"][0], "title": "Une autre histoire"})
+        self.gateway.response = json.dumps(response)
+        project = self.write(project, "ideas")
+        self.assertEqual(project["job"]["status"], "failed")
+        self.assertEqual(project["document"], previous)
+        self.assertIn("Une seule proposition", project["job"]["error"])
+
+    def test_revision_uses_one_proposal_despite_archived_editorial_wording(self):
+        project = self.concepts()
+        project = self.write(project, "revise", "Garde la découverte pour la fin.")
+        self.assertEqual(project["job"]["status"], "succeeded")
+        self.assertEqual(project["document"]["selected_id"], "concept-1")
+        prompt = self.gateway.requests[-1].system_prompt
+        self.assertNotIn("trois concepts", prompt)
+        self.assertNotIn("concept-2", prompt)
+        self.assertIn("une seule proposition", prompt)
+
+    def test_legacy_proposals_remain_readable_but_new_calls_only_produce_one(self):
+        project = self.service.create()
+        project["proposal_count"] = 3  # Archived metadata is ignored by new calls.
+        project["document"]["concepts"] = [{**IDEAS["concepts"][0], "id": f"concept-{i}", "title": f"Archive {i}"} for i in range(1, 4)]
+        project = self.store.save(project)
+        project = self.service.get(project["project_id"])
+        self.assertEqual(len(project["document"]["concepts"]), 3)
+        project = self.service.select(project["project_id"], "concept-2", project["version"])
+        self.assertEqual(project["document"]["selected_id"], "concept-2")
+        project = self.write(project, "ideas")
+        self.assertEqual(project["job"]["status"], "succeeded")
+        self.assertEqual(len(project["document"]["concepts"]), 1)
+        self.assertEqual(project["document"]["selected_id"], "concept-1")
 
     def test_failed_draft_can_be_revalidated_without_another_llm_call(self):
-        project = self.service.create(proposal_count=3)
-        project["turns"].append({"role": "user", "text": "Propose 3 histoires différentes.", "created_at": "fixture"})
+        project = self.service.create()
+        project["turns"].append({"role": "user", "text": "Propose une histoire.", "created_at": "fixture"})
         project["job"] = {
             "request_id": "fixture-request", "status": "failed", "operation": "ideas",
             "phase": "Échec", "error": "Ancienne règle locale", "draft": json.dumps(IDEAS),
@@ -376,7 +406,7 @@ class StoriesTest(unittest.TestCase):
         self.assertEqual(len(self.gateway.requests), calls)
         self.assertEqual(project["job"]["status"], "succeeded")
         self.assertEqual(project["job"]["phase"], "Brouillon revalidé sans nouvel appel LLM")
-        self.assertEqual(len(project["document"]["concepts"]), 3)
+        self.assertEqual(len(project["document"]["concepts"]), 1)
         self.assertEqual(project["job"]["reasoning"], "Raisonnement conservé")
 
     def test_failed_retry_does_not_duplicate_the_same_user_turn(self):
@@ -639,14 +669,14 @@ FIN
             name="Fraisetta", description="Fraise anthropomorphe adulte en robe rouge, reine odieuse."
         )
         response["concepts"] = deepcopy(p["document"]["concepts"])
-        response["concepts"][1]["antagonist"] = "La reine fraise"
-        response["selected_id"] = "concept-2"
+        response["concepts"][0]["antagonist"] = "La reine fraise"
+        response["selected_id"] = "concept-1"
         self.gateway.response = json.dumps(response)
         p = self.write(p, "revise", "Les personnages sont des fruits.")
         self.assertEqual(p["job"]["status"], "succeeded")
         self.assertEqual(p["document"]["scenario"]["characters"][0]["description"], response["scenario"]["characters"][0]["description"])
-        self.assertEqual(p["document"]["concepts"][1]["antagonist"], "La reine fraise")
-        self.assertEqual(p["document"]["selected_id"], "concept-2")
+        self.assertEqual(p["document"]["concepts"][0]["antagonist"], "La reine fraise")
+        self.assertEqual(p["document"]["selected_id"], "concept-1")
         preserved = deepcopy(p["document"])
         for changes in ({"selected_id": "concept-3"}, {"concepts": []}, {"extra_unknown": "ignore validation"}):
             self.gateway.response = json.dumps({**response, **changes})
@@ -775,13 +805,15 @@ FIN
             self.assertEqual(package.status_code, 200)
             self.assertEqual(client.post("/api/stories/projects", json={"clip_seconds": True}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"proposal_count": 0}).status_code, 422)
+            for obsolete_count in (1, 2, 3):
+                self.assertEqual(client.post("/api/stories/projects", json={"proposal_count": obsolete_count}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"dialogue_register": 4}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"dialogue_language": "Italian"}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={"creation_mode": "script", "brief": ""}).status_code, 422)
             self.assertEqual(client.post("/api/stories/projects", json={
                 "narrative_format": "long", "creation_mode": "script", "brief": "SCRIPT"}).status_code, 422)
             continuation = client.post("/api/stories/projects", json={
-                "brief": "Suite", "creation_mode": "continuation", "proposal_count": 1,
+                "brief": "Suite", "creation_mode": "continuation",
                 "parent_story_id": project["project_id"],
             })
             self.assertEqual(continuation.status_code, 201, continuation.text)
@@ -810,8 +842,8 @@ FIN
             "characters_and_dynamic": "Deux adultes attirés l’un par l’autre.", "desire": "Ils veulent cesser de se retenir.",
             "obstacle": "Ils craignent de compliquer leur travail.", "sensual_escalation": "Leurs mains se frôlent puis restent jointes.",
             "turning_point": "Elle lui demande de rester.", "ending": "Ils s’embrassent et referment la porte."}
-            for index in range(1, 4)]
-        self.gateway.response = json.dumps({"reply": "Trois pistes.", "concepts": concepts})
+            for index in range(1, 2)]
+        self.gateway.response = json.dumps({"reply": "Une histoire.", "concepts": concepts})
         project = self.service.create(recipe_id=SENSUAL_RECIPE_ID, recipe_version=SENSUAL_RECIPE_VERSION,
             architect_model_id="local::architect", writer_model_id="local::writer", scene_count=1)
         self.service.start(project["project_id"], operation="ideas", instruction="", model_id=None,
@@ -860,7 +892,7 @@ FIN
             "acts_and_progression": "Approche, contact, changement de position et acte principal.",
             "physical_escalation": "Les mouvements deviennent plus soutenus.",
             "turning_point": "Ils changent volontairement de position.", "ending": "Ils restent enlacés sur le lit."}
-        self.assertEqual(validate_concepts([concept], EXPLICIT_RECIPE_ID, expected_count=1)[0]["id"], "concept-1")
+        self.assertEqual(validate_concepts([concept], EXPLICIT_RECIPE_ID)[0]["id"], "concept-1")
 
         scenario = deepcopy(SCENARIO["scenario"])
         for character in scenario["characters"]:

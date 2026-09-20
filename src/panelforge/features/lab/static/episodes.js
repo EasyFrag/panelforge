@@ -60,6 +60,7 @@
     const r = ref(), s = scene(), busyRef = state.busy || jobRunning(r), busyScene = state.busy || jobRunning(s);
     for (const id of ["story-projects", "story-new", "story-fabrication"]) document.getElementById(id).disabled = state.busy;
     document.getElementById("story-validate").disabled = state.busy || !state.story?.document?.scenario
+      || (state.story?.narrative_engine?.version === "2.0.0" && !state.story?.long_status?.fabrication_ready)
       || ["running", "cancelling"].includes(state.story?.job?.status);
     for (const id of ["description", "asset-model", "asset-local", "asset-feedback", "asset-text", "image-workflow", "image-model", "image-ratio", "image-mp", "image-seed", "image-preset", "image-import", "save-reference", "image-toggle-settings"])
       el(id).disabled = busyRef || !r;
@@ -90,6 +91,8 @@
     el("video-start").disabled = state.busy || videoChainRunning() || !state.data?.scenes?.length;
     el("video-pause").hidden = chainStatus !== "running";
     el("video-pause").disabled = state.busy;
+    el("video-drain").hidden = chainStatus !== "running";
+    el("video-drain").disabled = state.busy;
     el("video-resume").hidden = !["paused", "interrupted", "failed", "completed_with_errors"].includes(chainStatus);
     const incomplete = chain?.items?.filter(item => item.status !== "succeeded").length || 0;
     el("video-resume").textContent = chainStatus === "completed_with_errors"
@@ -387,7 +390,8 @@
     const heading = node("div", "", "episode-video-card-heading");
     const title = node("b"), meta = node("span", "", "muted");
     heading.append(title, meta);
-    const promptStatus = node("p", "", "muted"), videoStatus = node("p", "", "muted");
+    const planStatus = node("p", "", "muted"), writerStatus = node("p", "", "muted");
+    const videoStatus = node("p"), dlssStatus = node("p");
     const error = node("p", "", "error"); error.hidden = true;
     const media = node("div", "", "episode-video-media");
     const dlss = node("div", "", "episode-video-dlss");
@@ -399,10 +403,37 @@
       drawLists(); drawScene(true); drawVideoOverview(); await openRender(); storeContext();
     }));
     actions.append(open);
-    card.append(heading, promptStatus, videoStatus, error, media, dlss, actions);
-    card._refs = {title, meta, promptStatus, videoStatus, error, media, dlss, actions, open};
+    card.append(heading, planStatus, writerStatus, videoStatus, dlssStatus, error, media, dlss, actions);
+    card._refs = {title, meta, planStatus, writerStatus, videoStatus, dlssStatus, error, media, dlss, actions, open};
     return card;
   }
+  function updateStage(element, label, status, text) {
+    const tone = ["ready", "succeeded"].includes(status) ? "done"
+      : ["failed", "interrupted", "unconfirmed"].includes(status) ? "failed"
+      : ["starting", "submitting", "running", "receiving", "importing", "cancel_pending"].includes(status) ? "running" : "pending";
+    const marker = {done: "✓ ", running: "● ", failed: "X ", pending: ""}[tone];
+    element.className = `episode-stage ${tone}`;
+    element.textContent = `${marker}${label} : ${text}`;
+  }
+  function updateDlssStage(card, value, item) {
+    const attempt = value.video_attempt;
+    const live = attempt && window.PanelForgeDlss?.progress?.({owner: "ref2v",
+      ownerId: value.preparations.at(-1)?.render_project_id, attempt});
+    const paused = item?.dlss_resume_pending && (!live || live.status === "cancelled");
+    const status = paused ? "paused" : live?.status || item?.dlss_status || "pending";
+    const text = paused ? "en pause" : live?.label || ({pending: "à préparer", queued: "en attente",
+      paused: "en pause", failed: "échec", succeeded: "terminé", cancelled: "annulé"}[status] || "en cours");
+    updateStage(card._refs.dlssStatus, "DLSS", status, text);
+    card._refs.dlssStatus.title = live?.error || item?.dlss_error || "";
+  }
+  window.addEventListener("panelforge:dlss-update", () => {
+    if (!state.data) return;
+    const items = new Map((state.data.video_chain?.items || []).map(item => [item.scene_id, item]));
+    for (const value of state.data.scenes) {
+      const card = state.videoCards.get(value.id);
+      if (card) updateDlssStage(card, value, items.get(value.id));
+    }
+  });
   function cooldownRemaining(chain) {
     const deadline = Date.parse(chain?.cooldown_until || "");
     const persisted = Number.isFinite(deadline) ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : 0;
@@ -416,19 +447,35 @@
     if (processing) card.setAttribute("aria-busy", "true"); else card.removeAttribute("aria-busy");
     refs.title.textContent = `${value.index + 1} \u00b7 ${value.title}`;
     refs.meta.textContent = `${value.duration} s \u00b7 ${value.inherit_video_settings ? "r\u00e9glages communs" : "personnalis\u00e9s"}`;
-    const promptText = item?.status === "prompt_failed" ? "Prompt : \u00e9chec"
-      : item && !["pending", "prompting"].includes(item.status) ? "Prompt : pr\u00eat"
-      : jobRunning(value) || item?.status === "prompting" ? "Prompt : r\u00e9daction en cours"
-      : `Prompt : ${statuses[value.preparations.at(-1)?.status] || "\u00e0 pr\u00e9parer"}`;
+    const preparation = value.preparations.at(-1);
+    const explicitStages = preparation?.prompt_stages || {};
+    const phase = value.job?.phase || item?.phase || "";
+    const fallbackStage = stage => {
+      if (preparation?.status === "ready" || (item && !["pending", "prompting", "prompt_failed"].includes(item.status))) return "ready";
+      if (stage === "plan" && phase.startsWith("1/2")) return "running";
+      if (stage === "plan" && phase.startsWith("2/2")) return "ready";
+      if (stage === "writer" && phase.startsWith("2/2")) return "running";
+      if (preparation?.status === "interrupted") return "interrupted";
+      if (preparation?.status === "failed" || item?.status === "prompt_failed") return stage === "writer" ? "failed" : "unknown";
+      return "pending";
+    };
+    const stageText = {pending: "\u00e0 pr\u00e9parer", running: "en cours", ready: "pr\u00eat",
+      failed: "\u00e9chec", interrupted: "interrompu", unknown: "\u00e0 v\u00e9rifier"};
+    const plan = explicitStages.plan || fallbackStage("plan");
+    const writer = explicitStages.writer || fallbackStage("writer");
     const videoByStatus = {pending: "en attente du prompt", prompting: "en attente du prompt",
       prompt_ready: "pr\u00eate \u00e0 d\u00e9marrer", rendering: "en file sur le GPU", succeeded: "termin\u00e9e", video_failed: "\u00e9chec"};
     let videoText = videoByStatus[item?.status] || statuses[value.video_status] || "\u00e0 g\u00e9n\u00e9rer";
     if (item?.status === "rendering" && attempt?.status === "running") videoText = "rendu en cours";
     else if (item?.status === "rendering" && attempt?.status === "cancel_pending") videoText = "annulation en cours";
-    refs.promptStatus.textContent = promptText;
-    refs.videoStatus.textContent = `Vid\u00e9o : ${videoText}`;
-    refs.promptStatus.className = `${item?.status === "prompt_failed" ? "error" : "muted"}${item?.status === "prompting" ? " episode-video-live" : ""}`;
-    refs.videoStatus.className = `${item?.status === "video_failed" ? "error" : "muted"}${item?.status === "rendering" ? " episode-video-live" : ""}`;
+    const videoStage = item?.status === "video_failed" ? "failed"
+      : item?.status === "succeeded" ? "succeeded"
+      : ["pending", "prompting", "prompt_ready"].includes(item?.status) ? "pending"
+      : attempt?.status || value.video_status || "pending";
+    updateStage(refs.planStatus, "Plan", plan, stageText[plan] || plan);
+    updateStage(refs.writerStatus, "Rédacteur", writer, stageText[writer] || writer);
+    updateStage(refs.videoStatus, "Vidéo", videoStage, videoText);
+    updateDlssStage(card, value, item);
     refs.error.hidden = !item?.error; refs.error.textContent = item?.error || "";
     const assetId = attempt?.output_asset_id || "";
     if (refs.media.dataset.assetId !== assetId) {
@@ -933,9 +980,10 @@
       ? "Rendu armé : il démarrera automatiquement si le prompt aboutit."
       : "Prompt puis rendu vidéo programmés pour cette scène.");
   }
-  async function pauseVideoChain() {
+  async function pauseVideoChain(mode = "after_active") {
     const chain = state.data.video_chain; if (!chain) return;
-    accept(await core.request(api(`/video-chains/${encodeURIComponent(chain.chain_id)}/pause`), {method: "POST"}));
+    accept(await core.request(api(`/video-chains/${encodeURIComponent(chain.chain_id)}/pause`),
+      send("POST", {mode})));
   }
   async function resumeVideoChain() {
     const chain = state.data.video_chain; if (!chain) return;
@@ -963,7 +1011,8 @@
   }));
   el("video-start").addEventListener("click", () => action(startVideoChain));
   el("video-global-settings").addEventListener("click", () => window.PanelForgeWorkQueue?.open());
-  el("video-pause").addEventListener("click", () => action(pauseVideoChain));
+  el("video-pause").addEventListener("click", () => action(() => pauseVideoChain("after_active")));
+  el("video-drain").addEventListener("click", () => action(() => pauseVideoChain("after_queue")));
   el("video-resume").addEventListener("click", () => action(resumeVideoChain));
   el("video-settings-toggle").addEventListener("click", () => action(toggleVideoInheritance));
   for (const kind of ["character", "location"]) {

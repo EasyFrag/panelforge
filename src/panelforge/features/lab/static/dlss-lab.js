@@ -309,6 +309,15 @@
     for (const [key, value] of errors) {
       window.PanelForgeWorkQueue?.notice(value.error, {id: `dlss:${key}`});
     }
+    window.dispatchEvent(new CustomEvent("panelforge:dlss-update"));
+  }
+  function progress(value) {
+    const scope = rootKey(value), waiting = pending.get(scope);
+    if (waiting) return {status: waiting.sending ? "starting" : "failed",
+      label: waiting.sending ? "Préparation" : "Erreur", error: waiting.error};
+    const items = jobs.filter(job => jobKey(job) === scope);
+    const job = items.filter(job => active.has(job.status)).at(-1) || items.at(-1);
+    return job ? {status: job.status, label: labels[job.status] || job.status, error: job.error} : null;
   }
   function inlineStatus(value) {
     const panel = document.createElement("section"); panel.className = "dlss-inline"; panel.hidden = true;
@@ -395,7 +404,7 @@
     }
     return button;
   }
-  window.PanelForgeDlss = Object.freeze({ open, button, groups, picker, inlineStatus,
+  window.PanelForgeDlss = Object.freeze({ open, button, groups, picker, inlineStatus, progress,
     comparisonButton: value => imageComparison?.button(value) || document.createElement("span") });
   poll();
 })();

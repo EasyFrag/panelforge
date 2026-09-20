@@ -1,5 +1,5 @@
 """Small fabrication API; generation delegates to the existing application services."""
-from typing import Annotated
+from typing import Annotated, Literal
 from dataclasses import asdict
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -136,6 +136,10 @@ class VideoChainBody(StrictBody):
     scene_ids: list[str] = Field(min_length=1)
     inter_video_cooldown_seconds: int = Field(default=30, ge=1, le=3600, strict=True)
     auto_dlss: bool = Field(default=False, strict=True)
+
+
+class PauseVideoChainBody(StrictBody):
+    mode: Literal["after_active", "after_queue"] = "after_active"
 
 
 def episodes_router(service, *, serialize_image_project, validate_image, image_body, render_body):
@@ -357,8 +361,10 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
             auto_dlss=body.auto_dlss))
 
     @router.post("/{identity}/video-chains/{chain_id}/pause", status_code=202)
-    def pause_video_chain(identity: str, chain_id: str):
-        return invoke(lambda: current().pause_video_chain(identity, chain_id))
+    def pause_video_chain(identity: str, chain_id: str, body: PauseVideoChainBody | None = None):
+        return invoke(lambda: current().pause_video_chain(
+            identity, chain_id, mode=body.mode if body is not None else "after_active",
+        ))
 
     @router.post("/{identity}/video-chains/{chain_id}/resume", status_code=202)
     def resume_video_chain(identity: str, chain_id: str):

@@ -19,7 +19,10 @@ class EpisodesBrowserTest(unittest.TestCase):
         overview = script.split("  function drawVideoOverview() {", 1)[1].split("  function imageRecord(", 1)[0]
         self.assertIn('Prompts ${promptReady}/${chainItems.length}', overview)
         self.assertIn(r'Vid\u00e9os ${videoDone}/${chainItems.length}', overview)
-        self.assertIn('item?.status === "prompt_failed" ? "Prompt : \\u00e9chec"', script)
+        self.assertIn('`Plan : ${stageText[plan] || plan}`', script)
+        self.assertIn('`R\\u00e9dacteur : ${stageText[writer] || writer}`', script)
+        self.assertIn('pauseVideoChain("after_active")', script)
+        self.assertIn('pauseVideoChain("after_queue")', script)
         self.assertIn('Relancer les sc\u00e8nes incompl\u00e8tes', script)
         self.assertIn('videoRecoveryRunning()', script)
         self.assertIn('auto_dlss: true', script)

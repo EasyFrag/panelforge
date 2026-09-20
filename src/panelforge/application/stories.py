@@ -16,6 +16,9 @@ from panelforge.domain.stories import (
 )
 from .prompt_lab import CompletionRequest, StreamEventKind, LlmCallApplicationOutcome, truncated_response_message
 from .revised_documents import strip_markdown_fence
+from panelforge.domain import long_stories as long_narrative
+from .long_stories import request as long_story_request
+from .story_workflow import StoryWorkflow, new_workflow
 
 
 _MAX_LIVE_DRAFT_CHARS = 240_000
@@ -112,20 +115,16 @@ def _dedupe_conversation(turns):
     return compact
 
 
-def _ideas_system_prompt(base_prompt, count):
-    """Make the requested pitch count authoritative without contradictory legacy wording."""
-    if count == 3:
-        return base_prompt
+def _ideas_system_prompt(base_prompt):
+    """One proposal, including when archived/user recipes still ask for three."""
     fixed_count_markers = ("trois", "concept-2", "concept-3")
     retained = [
         line for line in base_prompt.splitlines()
         if not any(marker in line.casefold() for marker in fixed_count_markers)
     ]
-    ids = "concept-1" if count == 1 else f"concept-1 à concept-{count}"
     authority = (
-        "ÉTAPE IDÉES — QUANTITÉ AUTORITAIRE\n"
-        f"Produis exactement {count} proposition{'s' if count > 1 else ''} complète"
-        f"{'s' if count > 1 else ''}, identifiée{'s' if count > 1 else ''} {ids}. "
+        "ÉTAPE IDÉES — UNE HISTOIRE\n"
+        "Produis exactement une proposition complète, identifiée concept-1. "
         "Le brief, les corrections explicites et le contrat JSON du contexte font foi. "
         "Renvoie uniquement reply et concepts, en JSON valide."
     )
@@ -198,11 +197,13 @@ def _now():
 
 
 class StoryService:
-    def __init__(self, *, gateway, store, recipes, traces=None, application_outcomes=None):
+    def __init__(self, *, gateway, store, recipes, traces=None, application_outcomes=None, long_recipes=None):
         self.gateway, self.store, self.recipes = gateway, store, recipes
         self.traces, self.application_outcomes = traces, application_outcomes
+        self.long_recipes = long_recipes
         self._lock = RLock()
         self._active = {}
+        self.workflow = StoryWorkflow(self)
 
     @staticmethod
     def _normalize(project):
@@ -222,7 +223,6 @@ class StoryService:
             document.setdefault("selected_episode_id", None)
             document.setdefault("episode_scenarios", {})
             document.setdefault("episode_formats", {})
-        project.setdefault("proposal_count", 3)
         project.setdefault("dialogue_register", 0)
         project.setdefault("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)
         project["dialogue_language"] = dialogue_language_selection(project["dialogue_language"])
@@ -235,6 +235,8 @@ class StoryService:
         if isinstance(project.get("job"), dict):
             project["job"].setdefault("draft", "")
             project["job"].setdefault("reasoning", "")
+        if long_narrative.is_v2(project):
+            project["long_status"] = long_narrative.status(project)
         return project
 
     def recipe_specs(self):
@@ -243,30 +245,45 @@ class StoryService:
 
     def create(self, *, title="Nouvelle histoire", brief="", clip_seconds=10, scene_count=6,
                recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION,
-               architect_model_id="", writer_model_id="", creation_mode="ideas", proposal_count=3,
+               architect_model_id="", writer_model_id="", creation_mode="ideas",
                dialogue_register=0, dialogue_language=DEFAULT_DIALOGUE_LANGUAGE,
-               narrative_format=DEFAULT_NARRATIVE_FORMAT, parent_story_id=None):
+               narrative_format=DEFAULT_NARRATIVE_FORMAT, parent_story_id=None, long_options=None,
+               workflow_mode=None, visual_universe="", target_seconds=None):
         if not isinstance(title, str) or not title.strip() or len(title) > 160:
             raise ValueError("Donnez un nom à cette histoire (160 caractères maximum).")
         if not isinstance(brief, str):
             raise ValueError("Point de départ invalide.")
         if type(clip_seconds) is not int or not 5 <= clip_seconds <= 15 or type(scene_count) is not int or not 1 <= scene_count <= 12:
             raise ValueError("Choisissez 1 à 12 micro-scènes de 5 à 15 secondes.")
-        if creation_mode not in {"ideas", "script", "continuation"}:
+        if creation_mode not in {"ideas", "script", "continuation", "adapt"}:
             raise ValueError("Mode de création inconnu.")
         narrative_format = narrative_format_selection(narrative_format)
-        if narrative_format == "long" and creation_mode != "ideas":
+        if long_options is not None:
+            if narrative_format != "long" or self.long_recipes is None:
+                raise ValueError("Le moteur long V2 n’est pas configuré pour ce parcours.")
+            long_options = long_narrative.options(long_options)
+            if creation_mode not in {"ideas", "adapt"}:
+                raise ValueError("La V2 commence par des propositions ou par une histoire fournie.")
+        if workflow_mode is not None and long_options is None:
+            raise ValueError("Le parcours guidé nécessite le moteur long V2.")
+        if long_options and "auto" in long_options.values() and workflow_mode is None:
+            raise ValueError("Les choix automatiques nécessitent le parcours guidé.")
+        if not isinstance(visual_universe, str) or len(visual_universe) > 1000:
+            raise ValueError("Décris l’univers en 1 000 caractères maximum.")
+        if target_seconds is not None and (type(target_seconds) is not int or not 10 <= target_seconds <= 2160):
+            raise ValueError("La durée souhaitée doit être comprise entre 10 et 2 160 secondes.")
+        if creation_mode == "adapt" and (long_options is None or not brief.strip()):
+            raise ValueError("L’adaptation longue V2 nécessite une histoire fournie.")
+        if narrative_format == "long" and long_options is None and creation_mode != "ideas":
             raise ValueError("Une histoire longue commence par un arc global ; utilise le mode Explorer des propositions.")
         if parent_story_id is not None and (
                 not isinstance(parent_story_id, str)
                 or not parent_story_id.startswith("story-") or len(parent_story_id) != 38):
             raise ValueError("Histoire parente invalide.")
-        brief_limit = (_MAX_CONTINUATION_BRIEF_CHARS if creation_mode == "continuation"
+        brief_limit = (_MAX_CONTINUATION_BRIEF_CHARS if creation_mode in {"continuation", "adapt"}
                        else _MAX_STANDARD_BRIEF_CHARS)
         if len(brief) > brief_limit:
             raise ValueError(f"Point de départ trop long ({brief_limit:,} caractères maximum).".replace(",", " "))
-        if type(proposal_count) is not int or not 1 <= proposal_count <= 3:
-            raise ValueError("Choisissez entre 1 et 3 propositions.")
         if type(dialogue_register) is not int or not 0 <= dialogue_register <= 3:
             raise ValueError("Le registre des dialogues doit être compris entre 0 et 3.")
         dialogue_language = dialogue_language_selection(dialogue_language)
@@ -279,6 +296,8 @@ class StoryService:
         if story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") == "forbidden":
             dialogue_register = 0
             dialogue_language = DEFAULT_DIALOGUE_LANGUAGE
+            if long_options is not None:
+                long_options["narration"] = "visual"
         if not any((item["id"], item["version"]) == (recipe["id"], recipe["version"])
                    for item in self.recipes.list()):
             raise ValueError("Cette famille d’histoire n’est pas installée dans ce Lab.")
@@ -291,13 +310,21 @@ class StoryService:
                             episode_scenarios={}, episode_formats={})
         if creation_mode == "continuation":
             document.update(continuity=None, continuity_source=None)
-        return self.store.save(dict(project_id=f"story-{uuid4().hex}", title=title.strip(), brief=brief.strip(),
+        value = dict(project_id=f"story-{uuid4().hex}", title=title.strip(), brief=brief.strip(),
             clip_seconds=clip_seconds, scene_count=scene_count, document=document,
             revisions=[], turns=[], job=None, model_id=writer_model_id.strip(), recipe=recipe,
             architect_model_id=architect_model_id.strip(), writer_model_id=writer_model_id.strip(), diagnostics=[],
-            creation_mode=creation_mode, proposal_count=proposal_count, dialogue_register=dialogue_register,
+            creation_mode=creation_mode, dialogue_register=dialogue_register,
             dialogue_language=dialogue_language, narrative_format=narrative_format,
-            parent_story_id=parent_story_id))
+            parent_story_id=parent_story_id)
+        if long_options is not None:
+            value.update(narrative_engine=deepcopy(long_narrative.ENGINE), long_options=long_options)
+            value.update(visual_universe=visual_universe.strip(), target_seconds=target_seconds,
+                         narrative_preferences=deepcopy(long_options))
+            document.update(episode_states={}, episode_provenance={}, reviews={})
+            if workflow_mode is not None:
+                value["workflow"] = new_workflow(workflow_mode)
+        return self._normalize(self.store.save(value))
 
     def get(self, project_id):
         with self._lock:
@@ -305,6 +332,8 @@ class StoryService:
             job = project.get("job")
             if job and job["status"] in {"running", "cancelling"} and project_id not in self._active:
                 job.update(status="interrupted", error="Le service a été interrompu. La dernière version et le brouillon sont conservés.")
+                if project.get("workflow"):
+                    project["workflow"].update(status="blocked", message="Le service s’est arrêté. Reprends l’étape ; les textes sont conservés.")
                 project = self.store.save(project)
             return project
 
@@ -325,6 +354,20 @@ class StoryService:
         episode_format = self._active_episode_format(project)
         project["diagnostics"] = story_diagnostics(scenario, clip_seconds=episode_format["clip_seconds"],
             target_scene_count=episode_format["scene_count"], recipe_id=recipe["id"])
+        if long_narrative.is_v2(project):
+            project["revisions"][-1]["narrative_engine"] = deepcopy(long_narrative.ENGINE)
+            project["revisions"][-1]["long_options"] = deepcopy(project["long_options"])
+            if model_id:
+                project["revisions"][-1]["editorial_fingerprint"] = project["job"]["editorial_fingerprint"]
+            project["diagnostics"] = [item for item in project["diagnostics"] if item["code"] != "scene_count"]
+            state = project["document"].get("episode_states", {}).get(project["document"].get("selected_episode_id"), {})
+            for item in state.get("scene_events", []):
+                if scenario and item["scene_index"] < len(scenario["scenes"]):
+                    words = sum(len(d["text"].split()) for d in scenario["scenes"][item["scene_index"]]["dialogue"])
+                    if words / 2.4 + item["action_seconds"] > episode_format["clip_seconds"]:
+                        project["diagnostics"].append(dict(code="estimated_clip_load", level="warning", scene_index=item["scene_index"],
+                            message=f"Clip {item['scene_index'] + 1} : parole estimée et actions successives dépassent le budget ; à vérifier à la relecture."))
+            project["long_status"] = long_narrative.status(project)
         chosen = next((c for c in project["document"]["concepts"] if c["id"] == project["document"]["selected_id"]), None)
         outline = project["document"].get("series_outline")
         if outline or scenario or chosen:
@@ -393,6 +436,8 @@ class StoryService:
             if project.get("narrative_format") == "long":
                 document.update(series_outline=None, selected_episode_id=None,
                                 episode_scenarios={}, episode_formats={})
+                if long_narrative.is_v2(project):
+                    document.update(episode_states={}, episode_provenance={}, reviews={})
             self._snapshot(project, "Choix de l’histoire")
             return self.store.save(project)
 
@@ -412,6 +457,8 @@ class StoryService:
                 raise ValueError("Choisissez des clips de 5 à 15 secondes.")
             previous_format = (document.get("episode_formats") or {}).get(episode_id)
             requested_format = {"scene_count": scene_count, "clip_seconds": clip_seconds}
+            if long_narrative.is_v2(project) and previous_format != requested_format:
+                raise ValueError("Le budget V2 est fixé à la création et relu avec l’arc ; conservez ce plafond et cette durée.")
             if existing and previous_format and previous_format != requested_format:
                 raise ValueError("Le format d’un épisode déjà développé ne peut pas changer sans réécriture.")
             document.setdefault("episode_formats", {})[episode_id] = requested_format
@@ -444,9 +491,14 @@ class StoryService:
             current_scene.update(deepcopy(changes))
             recipe = story_recipe_selection(project["recipe"])
             project["document"]["scenario"] = validate_scenario(scenario, recipe["id"], recipe["version"])
+            if long_narrative.is_v2(project):
+                long_narrative.fabrication_scenario(project, require_review=False)
             if project.get("narrative_format") == "long" and project["document"].get("selected_episode_id"):
                 project["document"].setdefault("episode_scenarios", {})[
                     project["document"]["selected_episode_id"]] = deepcopy(project["document"]["scenario"])
+            if project.get("workflow"):
+                project["workflow"].update(status="paused", wait_target=None)
+                project["workflow"]["repairs"].pop(project["document"].get("selected_episode_id"), None)
             self._snapshot(project, f"Édition manuelle de la scène {index + 1}")
             project["turns"].append(dict(role="assistant",
                 text=f"La scène {index + 1} a été modifiée manuellement sans appel LLM.", created_at=_now()))
@@ -458,14 +510,19 @@ class StoryService:
             if type(revision) is not int or not 1 <= revision <= len(project["revisions"]):
                 raise ValueError("Version d’histoire introuvable.")
             project["document"] = deepcopy(project["revisions"][revision - 1]["document"])
+            if long_narrative.is_v2(project):
+                project["long_options"] = deepcopy(project["revisions"][revision - 1].get("long_options", project["long_options"]))
+                if project.get("workflow"):
+                    project["workflow"].update(status="paused", approvals={}, repairs={}, wait_target=None)
             self._snapshot(project, f"Reprise de la version {revision}")
             project["turns"].append(dict(role="assistant", text=f"Version {revision} réappliquée. Les échanges suivants partiront de ce document.", created_at=_now()))
             return self.store.save(project)
 
-    def start(self, project_id, *, operation, instruction, model_id=None, expected_version, request_id):
-        if operation not in {"ideas", "outline", "develop", "script", "revise"}:
+    def start(self, project_id, *, operation, instruction, model_id=None, expected_version, request_id,
+              feedback_target=None, review_unit_ids=None, workflow_step=False):
+        if operation not in {"ideas", "outline", "develop", "script", "revise"} | long_narrative.EXTRA_OPERATIONS:
             raise ValueError("Action d’écriture inconnue.")
-        if not isinstance(instruction, str) or len(instruction) > 12000 or (operation == "revise" and not instruction.strip()):
+        if not isinstance(instruction, str) or len(instruction) > 12000 or (operation in {"revise", "discuss"} and not instruction.strip()):
             raise ValueError("Écrivez une demande de 1 à 12 000 caractères.")
         if not isinstance(request_id, str) or not 8 <= len(request_id) <= 100:
             raise ValueError("Identifiant de demande invalide.")
@@ -474,6 +531,15 @@ class StoryService:
             if project.get("job", {}) and project["job"]["request_id"] == request_id:
                 return project
             project = self._editable(project_id, expected_version)
+            v2 = long_narrative.is_v2(project)
+            if feedback_target:
+                project["job"] = {**(project.get("job") or {}), "feedback_target": feedback_target}
+            elif project.get("job"):
+                project["job"].pop("feedback_target", None)
+            if not v2 and operation in long_narrative.EXTRA_OPERATIONS:
+                raise ValueError("Cette action appartient au moteur long V2.")
+            if v2:
+                long_narrative.check_start(project, operation)
             if operation == "ideas" and project["creation_mode"] not in {"ideas", "continuation"}:
                 raise ValueError("Ce projet suit un script fourni et ne génère pas de pistes.")
             if operation == "script" and project["creation_mode"] != "script":
@@ -481,10 +547,10 @@ class StoryService:
             if operation == "outline":
                 if project.get("narrative_format") != "long":
                     raise ValueError("La construction d’un arc est réservée aux histoires longues.")
-                if not project["document"]["selected_id"]:
+                if not project["document"]["selected_id"] and not (v2 and project["creation_mode"] == "adapt"):
                     raise ValueError("Sélectionnez une histoire avant de construire son arc.")
             if operation == "develop":
-                if not project["document"]["selected_id"]:
+                if not project["document"]["selected_id"] and not (v2 and (project["creation_mode"] == "adapt" or project.get("workflow"))):
                     raise ValueError("Sélectionnez une histoire avant de la développer.")
                 if project.get("narrative_format") == "long" and (
                         not project["document"].get("series_outline")
@@ -498,6 +564,10 @@ class StoryService:
                                and project["document"].get("series_outline")
                                and not project["document"].get("scenario"))
             role = "architect_model_id" if operation in {"ideas", "outline"} or revises_outline else "writer_model_id"
+            if v2 and ("outline" in operation or operation.startswith("review_")):
+                role = "architect_model_id"
+            if operation == "compose" or (feedback_target and feedback_target["unit_id"] == "outline"):
+                role = "architect_model_id"
             chosen_model = model_id.strip() if isinstance(model_id, str) else project.get(role, "")
             if not chosen_model:
                 chosen_model = project.get("model_id", "")
@@ -505,13 +575,24 @@ class StoryService:
                 raise ValueError("Choisissez un modèle LLM pour cette étape.")
             # Read active editorial instructions now; this call retains its snapshot.
             recipe = story_recipe_selection(project["recipe"])
-            package = self.recipes.get(recipe["id"], recipe["version"])
-            count = project["proposal_count"]
-            label = {"ideas": f"Propose {count} histoire{'s' if count > 1 else ''} différente{'s' if count > 1 else ''}.",
+            if v2 and self.long_recipes is None:
+                raise ValueError("La recette longue V2 doit être configurée dans le lanceur.")
+            package = self.long_recipes.snapshot() if v2 else self.recipes.get(recipe["id"], recipe["version"])
+            label = {"ideas": "Propose une histoire à partir de mon intention.",
                      "outline": "Construis l’arc global en quatre épisodes autoportants et reliés.",
                      "develop": "Développe l’histoire sélectionnée en scénario complet.",
                      "script": "Structure fidèlement le script fourni sans omettre ni réécrire ses dialogues.",
-                     "revise": instruction.strip()}[operation]
+                     "revise": instruction.strip(),
+                     "revise_outline": "Révise le contrat et l’arc selon mon retour.",
+                     "review_outline": "Relis le contrat et l’arc global.",
+                     "review_episode": "Relis cette unité et son canon.",
+                     "repair_outline": "Corrige les remarques de la relecture de l’arc en une passe.",
+                     "repair_episode": "Corrige les remarques de la relecture de cette unité en une passe.",
+                     "compose": "Imagine une histoire et sa progression à partir de mon idée.",
+                     "edit_outline": "Vérifie l’histoire et apporte les petites corrections utiles.",
+                     "review_block": "Vérifie ces séquences et leurs raccords.", "discuss": instruction.strip()}[operation]
+            if v2 and operation == "outline":
+                label = "Construis le contrat et l’architecture longue selon le format choisi."
             turn_text = instruction.strip() or label
             previous_job = project.get("job") or {}
             duplicate_failed_retry = (
@@ -522,12 +603,35 @@ class StoryService:
                 and (project["turns"][-1].get("text") or "").strip() == turn_text
             )
             if not duplicate_failed_retry:
-                project["turns"].append(dict(role="user", text=turn_text, created_at=_now()))
+                turn = dict(role="user", text=turn_text, created_at=_now())
+                if feedback_target:
+                    turn.update(target=deepcopy(feedback_target), feedback_status="pending", request_id=request_id,
+                                question=operation == "discuss")
+                project["turns"].append(turn)
+            elif feedback_target:
+                project["turns"][-1].update(target=deepcopy(feedback_target), feedback_status="pending",
+                                            request_id=request_id, question=operation == "discuss")
             project[role] = chosen_model
             project["model_id"] = chosen_model
             project["job"] = dict(request_id=request_id, status="running", operation=operation, started_at=_now(),
                 phase="Préparation de l’écriture…", error=None, draft="", reasoning="", model_role=role,
-                recipe=deepcopy(recipe), recipe_revision=package["revision"], call_id=None)
+                recipe=deepcopy(recipe), recipe_revision=package["revision"], call_id=None,
+                instruction=instruction.strip())
+            if feedback_target:
+                project["job"]["feedback_target"] = deepcopy(feedback_target)
+            if operation == "review_block":
+                identities = review_unit_ids or [project["document"]["selected_episode_id"]]
+                if not isinstance(identities, list) or not 1 <= len(identities) <= 2 or len(set(identities)) != len(identities):
+                    raise ValueError("Une relecture groupée porte sur une ou deux séquences distinctes.")
+                if any(identity not in project["document"]["episode_scenarios"] for identity in identities):
+                    raise ValueError("Rédigez les séquences avant leur relecture.")
+                project["job"]["review_unit_ids"] = identities
+            if project.get("workflow") and not workflow_step:
+                project["workflow"].update(status="paused", pause_requested=False)
+            if v2:
+                project["job"].update(narrative_engine=deepcopy(long_narrative.ENGINE),
+                                      editorial_fingerprint=package["fingerprint"],
+                                      narrative_input_hash=long_narrative.input_hash(project))
             cancel = Event()
             self._active[project_id] = cancel
             try:
@@ -540,17 +644,51 @@ class StoryService:
                 raise
             return project
 
+    def retry(self, project_id, expected_version, model_id=None):
+        """Retry exactly the failed scope; never reinterpret a local comment as a global rewrite."""
+        with self._lock:
+            project = self._editable(project_id, expected_version)
+            job = deepcopy(project.get("job") or {})
+            if job.get("status") not in {"failed", "interrupted", "cancelled"}:
+                raise ValueError("Aucune étape en échec à reprendre.")
+            if long_narrative.is_v2(project) and job.get("narrative_input_hash") not in {None, long_narrative.input_hash(project)}:
+                raise ValueError("Le document a changé depuis cet appel. Adresse un nouveau retour à la version actuelle.")
+            if project.get("workflow"):
+                project["workflow"].update(status="paused" if job["operation"] == "discuss" else "running",
+                                           pause_requested=False, wait_target=None, calls=0)
+                project = self.store.save(project)
+            instruction = job.get("instruction")
+            if instruction is None:
+                instruction = next((turn["text"] for turn in reversed(project["turns"]) if turn["role"] == "user"), "")
+            try:
+                return self.start(project_id, operation=job["operation"], instruction=instruction,
+                    expected_version=project["version"], request_id=str(uuid4()), model_id=model_id,
+                    feedback_target=job.get("feedback_target"), review_unit_ids=job.get("review_unit_ids"),
+                    workflow_step=bool(project.get("workflow")))
+            except Exception as error:
+                if project.get("workflow"):
+                    self.workflow._stop(self.store.get(project_id), "blocked", str(error))
+                raise
+
     def cancel(self, project_id):
         with self._lock:
             project = self.get(project_id)
             event = self._active.get(project_id)
+            if project.get("workflow"):
+                project["workflow"].update(status="paused", pause_requested=True)
             if event:
                 event.set()
                 project["job"].update(status="cancelling", phase="Annulation demandée ; attente du moteur LLM…")
+            if event or project.get("workflow"):
                 project = self.store.save(project)
             return project
 
     def _request(self, project, package):
+        if long_narrative.is_v2(project):
+            language = project.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)
+            register = project.get("dialogue_register", 0)
+            return long_story_request(project, package, _dialogue_language_policy(language),
+                                      _dialogue_register_policy(register, language) if register else "")
         operation = project["job"]["operation"]
         recipe = story_recipe_selection(project["recipe"])
         has_scenario = bool(project["document"]["scenario"])
@@ -585,7 +723,6 @@ class StoryService:
             # continuity_source is retained for alternative pitches and restore,
             # but the active cumulative memory is sufficient for the LLM.
             document.pop("continuity_source", None)
-        count = project["proposal_count"]
         episode_format = self._active_episode_format(project)
         target_scene_count = episode_format["scene_count"]
         clip_seconds = episode_format["clip_seconds"]
@@ -635,17 +772,17 @@ class StoryService:
             )
         else:
             contract_notes = (
-                f"JSON strict conforme au contrat. Exactement {count} concept{'s' if count > 1 else ''} ; "
+                "JSON strict conforme au contrat. Une seule proposition, identifiée concept-1 ; "
                 "1–12 personnages, 1–8 décors. Tous les identifiants référencés doivent exister. "
                 "En révision, discussion_only:true ne modifie rien ; sinon renvoyer le document entier. "
                 "Le document courant et selected_id font foi."
             )
         context = dict(operation=operation, creation_mode=project["creation_mode"],
-            narrative_format=project.get("narrative_format", DEFAULT_NARRATIVE_FORMAT), proposal_count=count,
+            narrative_format=project.get("narrative_format", DEFAULT_NARRATIVE_FORMAT),
             brief=project["brief"], clip_seconds=clip_seconds,
             target_scene_count=target_scene_count, target_clip_seconds=clip_seconds, current_document=document,
             conversation=conversation, recent_concepts_to_avoid=seen[:24],
-            response_contract=response_contract(operation, has_scenario, recipe["id"], recipe["version"], count,
+            response_contract=response_contract(operation, has_scenario, recipe["id"], recipe["version"],
                                                 creation_mode=project["creation_mode"],
                                                 narrative_format=project.get("narrative_format", DEFAULT_NARRATIVE_FORMAT),
                                                 has_series_outline=has_series_outline),
@@ -677,9 +814,17 @@ class StoryService:
         if outline_stage:
             system_prompt = _long_outline_system_prompt(recipe["id"], dialogue_language)
         elif operation == "ideas":
-            system_prompt = _ideas_system_prompt(package["fields"][field], count)
+            system_prompt = _ideas_system_prompt(package["fields"][field])
         else:
             system_prompt = package["fields"][field]
+        if operation == "revise":
+            # Archived recipe versions remain immutable; their former selection
+            # wording must not reintroduce several proposals into a new call.
+            for old, new in (("leurs trois concepts complets", "la proposition complète"),
+                             ("trois concepts avant développement", "une proposition avant développement"),
+                             ("concept-1, concept-2 et concept-3", "concept-1"),
+                             ("concept-1, concept-2 ou concept-3", "concept-1")):
+                system_prompt = system_prompt.replace(old, new)
         if operation == "script":
             system_prompt += (
                 "\n\nMODE SCRIPT FIDÈLE POUR CET APPEL : le brief contient un script complet. Il est la source narrative autoritaire "
@@ -690,10 +835,8 @@ class StoryService:
                 "Pour chaque source_dialogues, conserve dialogue_id et text. delivery et delivery_note portent les indications de voix off, hors champ, pensée ou média ; "
                 "ces indications ne doivent jamais être ajoutées au début de text."
             )
-        elif operation == "revise" and not has_scenario and not has_series_outline and count != 3:
-            system_prompt += (f"\n\nCONTRAT DE CE PROJET : le document contient exactement {count} proposition"
-                              f"{'s' if count > 1 else ''}, identifiée{'s' if count > 1 else ''} de concept-1"
-                              f"{' à concept-' + str(count) if count > 1 else ''}. Conserve cette quantité.")
+        elif operation == "revise" and not has_scenario and not has_series_outline:
+            system_prompt += "\n\nRenvoie uniquement l’histoire ajustée dans concepts, une seule proposition identifiée concept-1."
         if operation == "develop" or (operation == "revise" and has_scenario):
             system_prompt += (
                 f"\n\nFORMAT DE L’ÉPISODE : scenario.scenes contient exactement {target_scene_count} micro-scène"
@@ -776,12 +919,16 @@ class StoryService:
             raise ValueError(
                 "Le modèle n’a pas renvoyé un JSON valide. La dernière version et le brouillon sont conservés."
             ) from error
+        if long_narrative.is_v2(project):
+            if project["job"].get("narrative_input_hash") != long_narrative.input_hash(project):
+                raise ValueError("Le document a changé depuis cet appel ; relancez l’étape au lieu de revalider l’ancien brouillon.")
+            return long_narrative.parse(project, data)
         recipe = story_recipe_selection(project["recipe"])
         episode_format = self._active_episode_format(project)
         reply, document = parse_response(
             data, project["job"]["operation"], bool(project["document"]["scenario"]),
             selected_id=project["document"]["selected_id"], recipe_id=recipe["id"],
-            recipe_version=recipe["version"], proposal_count=project["proposal_count"],
+            recipe_version=recipe["version"],
             source_script=project["brief"], target_scene_count=episode_format["scene_count"],
             creation_mode=project["creation_mode"],
             narrative_format=project.get("narrative_format", DEFAULT_NARRATIVE_FORMAT),
@@ -795,7 +942,21 @@ class StoryService:
 
     def _apply_parsed(self, current, *, reply, document, model_id, recipe_revision, call_id,
                       raw, reasoning, phase="Écriture enregistrée"):
-        if document:
+        if document and long_narrative.is_v2(current):
+            if "review" in document:
+                document["review"].update(model_id=model_id, call_id=call_id)
+            for review in document.get("block_reviews", {}).values():
+                review.update(model_id=model_id, call_id=call_id)
+            long_narrative.apply_document(current, document)
+            labels = {"outline": "Contrat et arc V2", "ideas": "Propositions longues V2",
+                      "develop": "Unité rédigée V2", "review_outline": "Relecture de l’arc",
+                      "review_episode": "Relecture de l’unité", "repair_outline": "Correction de l’arc",
+                      "repair_episode": "Correction de l’unité", "revise_outline": "Révision de l’arc", "revise": "Révision V2",
+                      "compose": "Histoire et progression", "edit_outline": "Histoire vérifiée et ajustée",
+                      "review_block": "Séquences vérifiées ensemble"}
+            self._snapshot(current, labels[current["job"]["operation"]], model_id=model_id,
+                           recipe_revision=recipe_revision, call_id=call_id)
+        elif document:
             operation = current["job"]["operation"]
             if operation == "ideas" and current["creation_mode"] == "continuation":
                 document["continuity_source"] = deepcopy(document["continuity"])
@@ -825,32 +986,45 @@ class StoryService:
                 )
             if "concepts" in document and "scenario" not in document:
                 current["document"]["scenario"] = None
-                if operation == "ideas":
-                    current["document"]["selected_id"] = (
-                        document["concepts"][0]["id"] if current["proposal_count"] == 1 else None
+                current["document"]["selected_id"] = document["concepts"][0]["id"]
+                if operation == "ideas" and current.get("narrative_format") == "long":
+                    current["document"].update(
+                        series_outline=None, selected_episode_id=None,
+                        episode_scenarios={}, episode_formats={},
                     )
-                    if current.get("narrative_format") == "long":
-                        current["document"].update(
-                            series_outline=None, selected_episode_id=None,
-                            episode_scenarios={}, episode_formats={},
-                        )
-            proposal_label = (
-                f"{current['proposal_count']} proposition"
-                f"{'s' if current['proposal_count'] > 1 else ''}"
-            )
             self._snapshot(
                 current,
-                {"ideas": proposal_label, "outline": "Arc global en 4 épisodes",
+                {"ideas": "Histoire proposée", "outline": "Arc global en 4 épisodes",
                  "develop": "Scénario développé", "script": "Script structuré fidèlement",
                  "revise": "Révision avec le LLM"}[operation],
                 model_id=model_id, recipe_revision=recipe_revision, call_id=call_id,
             )
         current["turns"].append(dict(role="assistant", text=reply, created_at=_now()))
+        if current["job"].get("feedback_target"):
+            current["turns"][-1]["target"] = deepcopy(current["job"]["feedback_target"])
+            for turn in current["turns"]:
+                if turn.get("request_id") == current["job"]["request_id"]:
+                    turn["feedback_status"] = "applied" if document else "answered"
+            if not document and current.get("workflow"):
+                current["workflow"].update(status="paused", message="Réponse disponible. Ton histoire n’a pas été modifiée.")
         current["job"].update(
             status="succeeded", phase=phase, error=None,
             draft=raw[:_MAX_LIVE_DRAFT_CHARS], reasoning=reasoning,
             call_id=call_id, finished_at=_now(),
         )
+        if document and long_narrative.is_v2(current):
+            try:
+                received = decode_story_json(strip_markdown_fence(raw.strip()))
+                normalizations = []
+                if isinstance(received.get("scenario"), dict) and "episode_state" in received["scenario"]:
+                    normalizations.append("Mémoire de continuité replacée à la racine ; contenu préservé puis revalidé.")
+                if isinstance(received.get("series_outline"), dict) and any(
+                        isinstance(rule, str) for rule in received["series_outline"].get("world_rules", [])):
+                    normalizations.append("Règles reçues en texte conservées et structurées ; aucune limite narrative inventée.")
+                if normalizations:
+                    current["job"]["normalizations"] = normalizations
+            except ValueError:
+                pass
         return current
 
     def revalidate(self, project_id, expected_version):
@@ -870,6 +1044,9 @@ class StoryService:
                 raw=raw, reasoning=job.get("reasoning") or "",
                 phase="Brouillon revalidé sans nouvel appel LLM",
             )
+            if project.get("workflow"):
+                project["workflow"].update(status="paused", pause_requested=False, wait_target=None,
+                    message="Réponse récupérée sans nouvel appel LLM. Continue le parcours pour effectuer les vérifications restantes.")
             return self.store.save(project)
 
     def _run(self, project, package, cancel):
@@ -949,10 +1126,18 @@ class StoryService:
             finally:
                 with self._lock:
                     self._active.pop(project_id, None)
+                    current = self.store.get(project_id)
+                    if current.get("workflow", {}).get("status") == "running":
+                        try:
+                            self.workflow.tick(current)
+                        except Exception as error:
+                            current = self.store.get(project_id)
+                            current["workflow"].update(status="blocked", message=str(error))
+                            self.store.save(current)
 
     def export(self, project_id, *, include_duration=True):
         project = self.get(project_id)
-        scenario = project["document"]["scenario"]
+        scenario = long_narrative.fabrication_scenario(project, require_review=False) if project["document"].get("scenario") else None
         if not scenario:
             raise ValueError("Développez d’abord le scénario.")
         duration = self._active_episode_format(project)["clip_seconds"] if include_duration else None

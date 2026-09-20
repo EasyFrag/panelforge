@@ -20,6 +20,7 @@ from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_d
 from panelforge.domain.prompt_composition import CookbookBinding, CompositionStage, PreparationIntent
 from panelforge.domain.prompt_lab import CreativeFreedomAxes, ReferenceUse
 from panelforge.domain.stories import DEFAULT_DIALOGUE_LANGUAGE
+from panelforge.domain.long_stories import fabrication_scenario, is_v2, status as long_story_status
 from panelforge.domain.video_preparation import ClassicCinematicSettings
 from panelforge.domain.krea2_assisted import Krea2AssistedAttemptStatus
 from panelforge.domain.production import ThermalPolicy
@@ -122,9 +123,10 @@ class EpisodeService:
                 raise EpisodeConflict("L’histoire a changé ou son écriture est en cours. Rechargez-la avant de la valider.")
             if not story["document"].get("scenario"):
                 raise ValueError("Développez et validez un scénario avant la fabrication.")
+            production_scenario = fabrication_scenario(story)
             series_episode_id = story["document"].get("selected_episode_id")
-            digest = fingerprint([series_episode_id, story["document"]["scenario"]]
-                                 if series_episode_id else story["document"]["scenario"])
+            digest = fingerprint([series_episode_id, production_scenario]
+                                 if series_episode_id else production_scenario)
             for existing in self.store.list(story_id):
                 if existing["source_hash"] == digest:
                     return self.get(existing["episode_id"])
@@ -149,7 +151,11 @@ class EpisodeService:
                             and (identity, collection, item["id"]) not in self._active):
                         item["job"].update(status="interrupted", error="Traitement interrompu. Vous pouvez le reprendre.")
                         if collection == "scenes" and item["preparations"]:
-                            item["preparations"][-1]["status"] = "interrupted"
+                            preparation = item["preparations"][-1]
+                            preparation["status"] = "interrupted"
+                            for stage, status in (preparation.get("prompt_stages") or {}).items():
+                                if status == "running":
+                                    preparation["prompt_stages"][stage] = "interrupted"
                         interrupted = True
             if interrupted:
                 value = self.store.save(value)
@@ -161,6 +167,7 @@ class EpisodeService:
             chain = value.get("video_chain")
             if chain:
                 chain.setdefault("auto_dlss", False)
+                chain.setdefault("pause_mode", None)
                 chain.setdefault("inter_video_cooldown_seconds", 30)
                 chain.setdefault("cooldown_until", None)
                 chain.setdefault("cooldown_scene_id", None)
@@ -168,6 +175,7 @@ class EpisodeService:
                     item.setdefault("dlss_job_id", None)
                     item.setdefault("dlss_status", None)
                     item.setdefault("dlss_error", None)
+                    item.setdefault("dlss_resume_pending", False)
             if chain and chain.get("status") in {"running", "pausing"} and identity not in self._active_video_chains:
                 chain.update(status="interrupted", phase="Chaîne interrompue", error="Le serveur a redémarré pendant la production vidéo.")
                 value = self.store.save(value)
@@ -204,8 +212,12 @@ class EpisodeService:
             series_episode_id = value.get("series_episode_id")
             source_scenario = ((story["document"].get("episode_scenarios") or {}).get(series_episode_id)
                                if series_episode_id else story["document"].get("scenario"))
+            if is_v2(story):
+                source_scenario = fabrication_scenario(story, episode_id=series_episode_id, require_review=False)
             source_value = [series_episode_id, source_scenario] if series_episode_id else source_scenario
             view["story_changed"] = fingerprint(source_value) != value["source_hash"]
+            if is_v2(story):
+                view["story_changed"] |= not long_story_status(story)["units"].get(series_episode_id, {}).get("ready", False)
         except FileNotFoundError:
             view["story_changed"] = True
         for scene in view["scenes"]:
@@ -348,7 +360,11 @@ class EpisodeService:
                 try:
                     project = self.render.projects.get(project_id)
                     attempts = [candidate for candidate in project.attempts
-                                if getattr(candidate, "dlss", None) is None]
+                                if getattr(candidate, "dlss", None) is None
+                                and candidate.status not in {
+                                    H3RenderAttemptStatus.FAILED,
+                                    H3RenderAttemptStatus.CANCELLED,
+                                }]
                     candidate = attempts[-1] if attempts else None
                 except (KeyError, FileNotFoundError, ValueError):
                     candidate = None
@@ -949,7 +965,7 @@ class EpisodeService:
             attached_prompt = (chosen[0].get("job") or {}).get("status") == "running"
             value["video_chain"] = dict(chain_id=chain_id, request_id=request_id, status="running",
                 phase="Prompt en cours · rendu armé" if attached_prompt else "Préparation des prompts",
-                error=None, pause_requested=False, auto_dlss=auto_dlss,
+                error=None, pause_requested=False, pause_mode=None, auto_dlss=auto_dlss,
                 inter_video_cooldown_seconds=inter_video_cooldown_seconds,
                 cooldown_until=None, cooldown_scene_id=None,
                 items=[dict(scene_id=scene["id"], index=scene["index"], title=scene["title"],
@@ -957,7 +973,7 @@ class EpisodeService:
                     phase="Prompt en cours · rendu armé" if (scene.get("job") or {}).get("status") == "running" else "En attente",
                     error=None, preparation_id=None,
                     render_project_id=None, attempt_id=None, output_asset_id=None, prompt_attempt=0,
-                    dlss_job_id=None, dlss_status=None, dlss_error=None,
+                    dlss_job_id=None, dlss_status=None, dlss_error=None, dlss_resume_pending=False,
                     render_setup=effective_video_setup(value, scene)) for scene in chosen])
             self.store.save(value)
             self._active_video_chains.add(identity)
@@ -969,15 +985,21 @@ class EpisodeService:
                 raise
         return self.get(identity)
 
-    def pause_video_chain(self, identity, chain_id):
+    def pause_video_chain(self, identity, chain_id, mode="after_active"):
+        if mode not in {"after_active", "after_queue"}:
+            raise ValueError("Mode de pause vidéo inconnu.")
         with self._lock:
             value = self.store.get(identity)
             chain = value.get("video_chain")
             if not chain or chain.get("chain_id") != chain_id:
                 raise KeyError("Chaîne vidéo introuvable.")
-            if chain.get("status") == "running":
-                chain.update(status="pausing", phase="Pause après les tâches en cours", pause_requested=True)
+            if chain.get("status") in {"running", "pausing"}:
+                phase = ("Pause après les traitements actifs" if mode == "after_active"
+                         else "Pause après la file réservée")
+                chain.update(status="pausing", phase=phase, pause_requested=True, pause_mode=mode)
                 self.store.save(value)
+        if mode == "after_active":
+            self._suspend_chain_queued_work(identity, chain_id)
         return self.get(identity)
 
     def resume_video_chain(self, identity, chain_id):
@@ -993,7 +1015,8 @@ class EpisodeService:
                 raise EpisodeConflict("La chaîne vidéo termine encore une tâche.")
             if any(item.get("status") in {"prompting", "rendering"} for item in chain.get("items", [])):
                 raise EpisodeConflict("Une relance manuelle est déjà en cours pour cette chaîne.")
-            chain.update(status="running", phase="Reprise de la chaîne", error=None, pause_requested=False)
+            chain.update(status="running", phase="Reprise de la chaîne", error=None,
+                         pause_requested=False, pause_mode=None)
             for item in chain.get("items", []):
                 if item.get("status") == "prompt_failed":
                     item.update(status="pending", phase="À reprendre", error=None,
@@ -1031,6 +1054,10 @@ class EpisodeService:
     def _video_chain_paused(self, identity, chain_id):
         _value, chain = self._video_chain_snapshot(identity, chain_id)
         return bool(chain.get("pause_requested"))
+
+    def _video_chain_pause_mode(self, identity, chain_id):
+        _value, chain = self._video_chain_snapshot(identity, chain_id)
+        return chain.get("pause_mode") if chain.get("pause_requested") else None
 
     def _video_item(self, chain, scene_id):
         return next(item for item in chain["items"] if item["scene_id"] == scene_id)
@@ -1154,6 +1181,18 @@ class EpisodeService:
                 if "déjà actif" not in str(error):
                     raise
                 self._sleep(0.5)
+        if self._video_chain_pause_mode(identity, chain_id) == "after_active":
+            attempt = self.render.projects.get(project_id).attempt(attempt.attempt_id)
+            if attempt.status is H3RenderAttemptStatus.QUEUED:
+                self.render.cancel_attempt(project_id, attempt.attempt_id)
+                attempt = self.render.projects.get(project_id).attempt(attempt.attempt_id)
+            if attempt.status is H3RenderAttemptStatus.CANCELLED:
+                self._video_chain_change(identity, chain_id, lambda _value, chain:
+                    self._video_item(chain, scene_id).update(
+                        status="prompt_ready", phase="Prompt prêt · vidéo suspendue",
+                        attempt_id=None, error=None,
+                    ))
+                return None
         self._video_chain_change(identity, chain_id, lambda _value, chain:
             self._video_item(chain, scene_id).update(status="rendering", phase="Rendu vidéo en cours", error=None))
         Thread(target=self._execute_chain_attempt,
@@ -1197,7 +1236,23 @@ class EpisodeService:
         try:
             _value, chain = self._video_chain_snapshot(identity, chain_id)
             item = self._video_item(chain, scene_id)
-            if not chain.get("auto_dlss") or item.get("dlss_job_id") or self.dlss is None:
+            if not chain.get("auto_dlss") or self.dlss is None:
+                return
+            if chain.get("pause_requested") or chain.get("status") == "paused":
+                self._video_chain_change(identity, chain_id, lambda _value, current:
+                    self._video_item(current, scene_id).update(
+                        dlss_status="paused", dlss_error=None, dlss_resume_pending=True,
+                    ))
+                return
+            if item.get("dlss_job_id"):
+                if not item.get("dlss_resume_pending"):
+                    return
+                job = self.dlss.retry(item["dlss_job_id"])
+                self._video_chain_change(identity, chain_id, lambda _value, current:
+                    self._video_item(current, scene_id).update(
+                        dlss_status=job.get("status"), dlss_error=job.get("error"),
+                        dlss_resume_pending=False,
+                    ))
                 return
             jobs = self.dlss.list(owner="ref2v", owner_id=project_id)
             job = next((candidate for candidate in jobs if (
@@ -1217,7 +1272,7 @@ class EpisodeService:
             self._video_chain_change(identity, chain_id, lambda _value, current:
                 self._video_item(current, scene_id).update(
                     dlss_job_id=job["job_id"], dlss_status=job.get("status"),
-                    dlss_error=job.get("error"),
+                    dlss_error=job.get("error"), dlss_resume_pending=False,
                 ))
         except EpisodeConflict:
             return
@@ -1240,6 +1295,10 @@ class EpisodeService:
                                       H3RenderAttemptStatus.RUNNING, H3RenderAttemptStatus.CANCEL_PENDING}:
                 break
             self._sleep(0.2)
+        _value, chain = self._video_chain_snapshot(identity, chain_id)
+        current = self._video_item(chain, scene_id)
+        if current.get("attempt_id") != attempt_id:
+            return
         if attempt.status is H3RenderAttemptStatus.SUCCEEDED:
             self._video_chain_change(identity, chain_id, lambda _value, chain:
                 self._video_item(chain, scene_id).update(status="succeeded", phase="Vidéo terminée",
@@ -1256,6 +1315,37 @@ class EpisodeService:
         self._video_chain_change(identity, chain_id, lambda _value, chain:
             chain.update(status="paused", phase="Chaîne en pause", pause_requested=False, error=None))
 
+    def _suspend_chain_queued_work(self, identity, chain_id):
+        _value, chain = self._video_chain_snapshot(identity, chain_id)
+        for snapshot in chain.get("items", []):
+            scene_id = snapshot["scene_id"]
+            project_id, attempt_id = snapshot.get("render_project_id"), snapshot.get("attempt_id")
+            if project_id and attempt_id:
+                try:
+                    attempt = self.render.projects.get(project_id).attempt(attempt_id)
+                except (KeyError, FileNotFoundError, ValueError):
+                    attempt = None
+                if attempt is not None and attempt.status is H3RenderAttemptStatus.QUEUED:
+                    self.render.cancel_attempt(project_id, attempt_id)
+                    self._video_chain_change(identity, chain_id, lambda _value, current, scene_id=scene_id,
+                                              attempt_id=attempt_id:
+                        self._video_item(current, scene_id).update(
+                            status="prompt_ready", phase="Prompt prêt · vidéo suspendue",
+                            attempt_id=None, error=None,
+                        ) if self._video_item(current, scene_id).get("attempt_id") == attempt_id else None)
+            dlss_job_id = snapshot.get("dlss_job_id")
+            if dlss_job_id and self.dlss is not None:
+                job = next((candidate for candidate in self.dlss.list()
+                            if candidate.get("job_id") == dlss_job_id), None)
+                if job is not None and job.get("status") == "queued" and not job.get("execution_id"):
+                    cancelled = self.dlss.cancel_queued(dlss_job_id)
+                    self._video_chain_change(identity, chain_id, lambda _value, current, scene_id=scene_id,
+                                              cancelled=cancelled:
+                        self._video_item(current, scene_id).update(
+                            dlss_status=cancelled.get("status"), dlss_error=cancelled.get("error"),
+                            dlss_resume_pending=True,
+                        ))
+
     def _video_chain_worker(self, identity, chain_id):
         active_videos = []
         try:
@@ -1265,6 +1355,9 @@ class EpisodeService:
                 _value, current_chain = self._video_chain_snapshot(identity, chain_id)
                 current = self._video_item(current_chain, scene_id)
                 if current.get("status") == "succeeded":
+                    if current.get("render_project_id") and current.get("attempt_id"):
+                        self._queue_chain_dlss(identity, chain_id, scene_id,
+                                               current["render_project_id"], current["attempt_id"])
                     continue
                 if self._video_chain_paused(identity, chain_id):
                     for active_video in active_videos:
@@ -1333,10 +1426,12 @@ class EpisodeService:
                 if not latest or latest["input_hash"] != fingerprint(inputs) or latest["status"] not in {"failed", "interrupted"}:
                     raise ValueError("Cette préparation ne peut pas être reprise : les entrées ont changé.")
                 preparation = latest
+                preparation.setdefault("prompt_stages", {"plan": "pending", "writer": "pending"})
                 preparation.update(status="running", error=None)
             else:
                 preparation = dict(id=f"prep-{uuid4().hex}", inputs=inputs, input_hash=fingerprint(inputs),
                     session_id=None, render_project_id=None, status="running", error=None,
+                    prompt_stages={"plan": "pending", "writer": "pending"},
                     render_setup=effective_video_setup(value, scene))
                 scene["preparations"].append(preparation)
             self.store.save(value)
@@ -1365,17 +1460,33 @@ class EpisodeService:
             preparation_intent=PreparationIntent(source_text=inputs["source_text"], creative_audacity=inputs["audacity"],
                 creative_axes=axes, creative_freedom=freedom if "creative_axes" in inputs else 35),
             writer_model_id=inputs["writer_model_id"])
-        for stage, label in ((CompositionStage.BEAT_SHEET, "1/2 · Plan REF2V"), (CompositionStage.FINAL_PROMPT, "2/2 · Rédaction du prompt")):
+        stages = ((CompositionStage.BEAT_SHEET, "plan", "1/2 · Plan REF2V"),
+                  (CompositionStage.FINAL_PROMPT, "writer", "2/2 · Rédaction du prompt"))
+        for stage, stage_key, label in stages:
             document = self.composition.get(session_id).document(stage)
             if document.approved_revision_id:
+                self._change(key, lambda s, stage_key=stage_key:
+                    s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "ready"}))
                 continue
-            self._change(key, lambda s: s["job"].update(phase=label))
-            if document.active_revision is None:
-                for event in self.composition.stream_generate(session_id, stage):
-                    if event.kind is StreamEventKind.TRUNCATED:
-                        raise ValueError(f"{label} : réponse tronquée. Le brouillon reste dans les échanges LLM.")
-                if self.composition.get(session_id).document(stage).active_revision is None:
-                    raise ValueError(f"{label} : aucun document accepté. Le brouillon reste dans les échanges LLM.")
-            self.composition.approve(session_id, stage)
+            self._change(key, lambda s, stage_key=stage_key:
+                (s["job"].update(phase=label),
+                 s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "running"})))
+            try:
+                if document.active_revision is None:
+                    for event in self.composition.stream_generate(session_id, stage):
+                        if event.kind is StreamEventKind.TRUNCATED:
+                            raise ValueError(f"{label} : réponse tronquée. Le brouillon reste dans les échanges LLM.")
+                    if self.composition.get(session_id).document(stage).active_revision is None:
+                        raise ValueError(f"{label} : aucun document accepté. Le brouillon reste dans les échanges LLM.")
+                self.composition.approve(session_id, stage)
+            except Exception:
+                self._change(key, lambda s, stage_key=stage_key:
+                    s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "failed"}))
+                raise
+            self._change(key, lambda s, stage_key=stage_key:
+                s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "ready"}))
         project = self.render.get_or_create_from_session(session_id)
-        self._change(key, lambda s: s["preparations"][-1].update(status="ready", render_project_id=project.project_id, error=None))
+        self._change(key, lambda s: s["preparations"][-1].update(
+            status="ready", render_project_id=project.project_id, error=None,
+            prompt_stages={"plan": "ready", "writer": "ready"},
+        ))

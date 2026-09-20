@@ -30,8 +30,8 @@ class EpisodeWebTest(unittest.TestCase):
         def chain(identity, **values):
             self.calls.append(("video-chain", identity, values))
             return {"video_chain": {"status": "running"}}
-        def pause(identity, chain_id):
-            self.calls.append(("pause", identity, chain_id)); return {"video_chain": {"status": "pausing"}}
+        def pause(identity, chain_id, mode="after_active"):
+            self.calls.append(("pause", identity, chain_id, mode)); return {"video_chain": {"status": "pausing"}}
         def resume(identity, chain_id):
             self.calls.append(("resume", identity, chain_id)); return {"video_chain": {"status": "running"}}
         app = FastAPI()
@@ -141,9 +141,13 @@ class EpisodeWebTest(unittest.TestCase):
             "expected_video_revision": 4, "request_id": "video-chain-invalid", "scene_ids": ["scene-1"],
             "auto_dlss": 1})
         self.assertEqual(invalid.status_code, 422, invalid.text)
-        response = self.client.post("/api/episodes/episode-test/video-chains/chain-1/pause")
+        response = self.client.post("/api/episodes/episode-test/video-chains/chain-1/pause",
+                                    json={"mode": "after_queue"})
         self.assertEqual(response.status_code, 202, response.text)
-        self.assertEqual(self.calls[-1], ("pause", "episode-test", "chain-1"))
+        self.assertEqual(self.calls[-1], ("pause", "episode-test", "chain-1", "after_queue"))
+        invalid = self.client.post("/api/episodes/episode-test/video-chains/chain-1/pause",
+                                   json={"mode": "immediate"})
+        self.assertEqual(invalid.status_code, 422, invalid.text)
         response = self.client.post("/api/episodes/episode-test/video-chains/chain-1/resume")
         self.assertEqual(response.status_code, 202, response.text)
         self.assertEqual(self.calls[-1], ("resume", "episode-test", "chain-1"))

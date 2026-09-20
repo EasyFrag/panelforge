@@ -395,27 +395,17 @@ def validate_series_outline(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VE
     return result
 
 
-def validate_concepts(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION, expected_count=3,
-                      *, continuation=False):
-    if type(expected_count) is not int or not 1 <= expected_count <= 3:
-        raise ValueError("Le nombre de propositions doit être compris entre 1 et 3.")
+def validate_concepts(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION, *, continuation=False):
     fields = _recipe_fields(recipe_id, recipe_version)
-    concepts = []
-    for index, item in enumerate(_items(value, "Propositions", expected_count, expected_count), 1):
-        if not isinstance(item, dict):
-            raise ValueError("Proposition illisible.")
-        identity = item.get("id", f"concept-{index}")
-        if identity != f"concept-{index}":
-            raise ValueError("Identifiant de proposition inconnu.")
-        concept = dict(id=identity, **{key: _text(item.get(key), key, 2000) for key in fields})
-        if continuation:
-            concept["continuation_plan"] = _continuation_plan(item.get("continuation_plan"))
-        concepts.append(concept)
-    if len({concept["id"] for concept in concepts}) != expected_count:
-        raise ValueError("Identifiants de proposition en double.")
-    if len({concept["title"].casefold() for concept in concepts}) != expected_count:
-        raise ValueError("Les propositions doivent avoir des titres distincts.")
-    return concepts
+    item = _items(value, "Une seule proposition", 1, 1)[0]
+    if not isinstance(item, dict):
+        raise ValueError("Proposition illisible.")
+    if item.get("id", "concept-1") != "concept-1":
+        raise ValueError("Identifiant de proposition inconnu.")
+    concept = dict(id="concept-1", **{key: _text(item.get(key), key, 2000) for key in fields})
+    if continuation:
+        concept["continuation_plan"] = _continuation_plan(item.get("continuation_plan"))
+    return [concept]
 
 
 _SCRIPT_HEADING_PREFIXES = (
@@ -636,7 +626,7 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
 
 
 def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_id=RECIPE_ID,
-                   recipe_version=RECIPE_VERSION, proposal_count=3, source_script="",
+                   recipe_version=RECIPE_VERSION, source_script="",
                    target_scene_count=None, creation_mode="ideas",
                    narrative_format=DEFAULT_NARRATIVE_FORMAT, has_series_outline=False):
     if not isinstance(value, dict):
@@ -660,7 +650,7 @@ def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_i
     elif field == "series_outline":
         parsed = validate_series_outline(value[field], recipe_id, recipe_version)
     else:
-        parsed = validate_concepts(value[field], recipe_id, recipe_version, proposal_count,
+        parsed = validate_concepts(value[field], recipe_id, recipe_version,
                                    continuation=continuation)
     document = {field: parsed}
     if continuation:
@@ -679,14 +669,14 @@ def parse_response(value, operation, has_scenario, *, selected_id=None, recipe_i
         raise ValueError("Une révision ne peut pas choisir une autre histoire à votre place.")
     if field == "scenario" and "concepts" in value:
         document["concepts"] = validate_concepts(
-            value["concepts"], recipe_id, recipe_version, proposal_count,
+            value["concepts"], recipe_id, recipe_version,
             continuation=continuation,
         )
     return reply, document
 
 
 def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION,
-                      proposal_count=3, *, creation_mode="ideas",
+                      *, creation_mode="ideas",
                       narrative_format=DEFAULT_NARRATIVE_FORMAT, has_series_outline=False):
     """An explicit wire example, never a vendor response-format dependency."""
     recipe_spec = _STORY_RECIPES[(recipe_id, recipe_version)]
@@ -749,8 +739,7 @@ def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_versi
             "scenes": [scene]}}
     else:
         fields = _recipe_fields(recipe_id, recipe_version)
-        concepts = [{"id": f"concept-{index}", **{field: f"Texte français : {field}" for field in fields}}
-                    for index in range(1, proposal_count + 1)]
+        concepts = [{"id": "concept-1", **{field: f"Texte français : {field}" for field in fields}}]
         if creation_mode == "continuation":
             for concept in concepts:
                 concept["continuation_plan"] = {
@@ -759,8 +748,7 @@ def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_versi
                     "payoff": "Conséquence finale préparée par les scènes précédentes.",
                     "introduced_elements": [],
                 }
-        example = {"reply": (f"Présentation de {proposal_count} proposition"
-                             f"{'s' if proposal_count > 1 else ''} et invitation à choisir ou ajuster."),
+        example = {"reply": "Présentation de l’histoire proposée et invitation à la développer ou l’ajuster.",
                    "concepts": concepts}
     if creation_mode == "continuation":
         example["continuity"] = {

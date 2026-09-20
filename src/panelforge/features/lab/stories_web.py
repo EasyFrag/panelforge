@@ -8,6 +8,15 @@ from panelforge.domain.stories import (
 )
 
 
+class LongStoryOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile: str = Field(default="melodrama", pattern="^(auto|melodrama|social|transformation|suspense|fantasy)$")
+    delivery: str = Field(default="serial", pattern="^(serial|continuous)$")
+    narration: str = Field(default="dialogue", pattern="^(auto|dialogue|audio|visual)$")
+    unit_count: int = Field(default=4, ge=1, le=12, strict=True)
+    ending_type: str = Field(default="resolution", pattern="^(auto|resolution|open|reversal|cost)$")
+
+
 class StoryCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(default="Nouvelle histoire", min_length=1, max_length=160)
@@ -18,13 +27,16 @@ class StoryCreate(BaseModel):
     recipe_version: str = Field(default=RECIPE_VERSION, min_length=1, max_length=64)
     architect_model_id: str = Field(default="", max_length=300)
     writer_model_id: str = Field(default="", max_length=300)
-    creation_mode: str = Field(default="ideas", pattern="^(ideas|script|continuation)$")
-    proposal_count: int = Field(default=3, ge=1, le=3, strict=True)
+    creation_mode: str = Field(default="ideas", pattern="^(ideas|script|continuation|adapt)$")
     dialogue_register: int = Field(default=0, ge=0, le=3, strict=True)
     dialogue_language: str = Field(default=DEFAULT_DIALOGUE_LANGUAGE,
         pattern="^(French|English|Korean|Japanese|Russian)$")
     narrative_format: str = Field(default=DEFAULT_NARRATIVE_FORMAT, pattern="^(short|long)$")
     parent_story_id: str | None = Field(default=None, pattern="^story-[a-f0-9]{32}$")
+    long_options: LongStoryOptions | None = None
+    workflow_mode: str | None = Field(default=None, pattern="^(manual|automatic)$")
+    visual_universe: str = Field(default="", max_length=1000)
+    target_seconds: int | None = Field(default=None, ge=10, le=2160, strict=True)
 
 
 class StoryWrite(BaseModel):
@@ -53,9 +65,26 @@ class StoryVersion(BaseModel):
     expected_version: int = Field(ge=1, strict=True)
 
 
+class StoryAdvance(StoryVersion):
+    mode: str | None = Field(default=None, pattern="^(manual|automatic)$")
+    architect_model_id: str | None = Field(default=None, min_length=1, max_length=300)
+    writer_model_id: str | None = Field(default=None, min_length=1, max_length=300)
+
+
+class StoryFeedback(StoryVersion):
+    unit_id: str = Field(pattern="^(outline|episode-([1-9]|1[0-2]))$")
+    scene_index: int | None = Field(default=None, ge=0, le=11, strict=True)
+    instruction: str = Field(min_length=1, max_length=12000)
+    question: bool = False
+
+
+class StoryRetry(StoryVersion):
+    model_id: str | None = Field(default=None, min_length=1, max_length=300)
+
+
 class StorySeriesEpisode(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    episode_id: str = Field(pattern="^episode-[1-4]$")
+    episode_id: str = Field(pattern="^episode-([1-9]|1[0-2])$")
     scene_count: int = Field(ge=1, le=12, strict=True)
     clip_seconds: int = Field(ge=5, le=15, strict=True)
     expected_version: int = Field(ge=1, strict=True)
@@ -139,6 +168,18 @@ def stories_router(service):
     def write(project_id: str, body: StoryWrite):
         return invoke(lambda: current().start(project_id, **body.model_dump()))
 
+    @router.post("/projects/{project_id}/advance", status_code=202)
+    def advance(project_id: str, body: StoryAdvance):
+        return invoke(lambda: current().workflow.advance(project_id, **body.model_dump()))
+
+    @router.post("/projects/{project_id}/pause")
+    def pause(project_id: str):
+        return invoke(lambda: current().workflow.pause(project_id))
+
+    @router.post("/projects/{project_id}/feedback", status_code=202)
+    def feedback(project_id: str, body: StoryFeedback):
+        return invoke(lambda: current().workflow.feedback(project_id, **body.model_dump()))
+
     @router.post("/projects/{project_id}/select")
     def select(project_id: str, body: StorySelect):
         return invoke(lambda: current().select(project_id, **body.model_dump()))
@@ -150,6 +191,10 @@ def stories_router(service):
     @router.post("/projects/{project_id}/revalidate")
     def revalidate(project_id: str, body: StoryVersion):
         return invoke(lambda: current().revalidate(project_id, **body.model_dump()))
+
+    @router.post("/projects/{project_id}/retry", status_code=202)
+    def retry(project_id: str, body: StoryRetry):
+        return invoke(lambda: current().retry(project_id, **body.model_dump()))
 
     @router.post("/projects/{project_id}/series-episode")
     def select_series_episode(project_id: str, body: StorySeriesEpisode):

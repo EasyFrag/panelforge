@@ -18,6 +18,7 @@ from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
 from panelforge.application.media_analysis import MediaAnalysisService
 from panelforge.application.stories import StoryService
 from panelforge.infrastructure.storage.stories import LocalStoryStore, LocalStoryRecipeStore
+from panelforge.infrastructure.long_story_recipes import LongStoryRecipes
 from panelforge.infrastructure.storage.media_analysis import LocalMediaAnalysisStore
 from panelforge.infrastructure.media_analysis_images import MediaAnalysisImages
 from panelforge.application.media_transcription import MediaTranscriptionService
@@ -588,6 +589,7 @@ def build_app(args: argparse.Namespace):
             ffmpeg=whisper_root / "ffmpeg.exe", model_directory=whisper_root / "_models")),
     )
     stories = StoryService(gateway=gateway, store=LocalStoryStore(args.workspace),
+        long_recipes=LongStoryRecipes(PROJECT_ROOT / "prompt_sources/story.long/2.0.0"),
         recipes=LocalStoryRecipeStore(args.workspace, {
             ("story.brainrot", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.brainrot/1.0.0",
             ("story.sensual-light", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.sensual-light/1.0.0",

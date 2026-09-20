@@ -1,0 +1,11 @@
+{
+  "engine": {"id": "story.long", "version": "2.0.0"},
+  "prompts": {"common": "common.txt", "ideas": "ideas.txt", "outline": "outline.txt", "write": "write.txt", "review": "review.txt"},
+  "profiles": {
+    "social": "Conflit du quotidien / joute verbale : une situation concrète, souvent un seul lieu et deux ou trois personnages. Chaque réplique poursuit un but : imposer une règle, négocier, se défausser, refuser, demander de l'aide. Change de tactique après chaque échec ; ne répète pas seulement une accusation. Un témoin peut faire respecter la règle et rendre le rapport de force visible. Prépare une chute ironique ou une conséquence concrète ; aucune magie, secret familial ou violence n'est nécessaire. Exemple de mécanique : un personnage exige de séparer les frais, découvre sa propre facture, tente de partager puis de transférer ses dépenses, essuie un refus et doit assumer. Invente une autre situation et d'autres détails. Une question finale au public n'est ajoutée que si le brief la demande ; elle est prononcée par un personnage identifié.",
+    "melodrama": "Organise des désirs opposés, des stratégies et des conséquences relationnelles. Une personne aidée peut trahir son allié. La victime ne doit pas forcément gagner, ni le coupable être puni.",
+    "transformation": "Préserve les découvertes, les essais et les changements de capacité ou de statut. Prépare les limites utiles ; distingue le pouvoir acquis du nouvel objectif encore à accomplir.",
+    "suspense": "Distingue vérité, indices, croyances et savoir du public. Prépare une révélation compatible avec les scènes antérieures. Un événement peut rester hors champ volontairement : ne révèle pas son explication avant l'unité réservée.",
+    "fantasy": "Définis une règle fantastique simple, ses limites et les exceptions préparées. Les tentatives et leurs conséquences renouvellent le danger. Évite les nouveaux pouvoirs providentiels et les poursuites répétitives sans changement."
+  }
+}

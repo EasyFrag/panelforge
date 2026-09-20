@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "status": "not_run",
+  "description": "Briefs originaux de qualification narrative ; aucun exemple cible ni scénario historique à corriger.",
+  "cases": [
+    {
+      "id": "social-queue", "split": "development", "recipe_id": "story.brainrot",
+      "creation_mode": "ideas", "scene_count": 8, "clip_seconds": 10,
+      "workflow_mode": "automatic", "target_seconds": 80,
+      "long_options": {"profile": "social", "delivery": "continuous", "narration": "dialogue", "unit_count": 1, "ending_type": "reversal"},
+      "brief": "Un client tente de doubler toute une file d’attente et se piège avec ses propres excuses.",
+      "checks": ["Chaque tentative change de tactique après un refus.", "Les personnages secondaires ont un rôle causal simple.", "La chute découle des paroles ou actes antérieurs, sans règle magique ajoutée."]
+    },
+    {
+      "id": "social-shared-task", "split": "holdout", "recipe_id": "story.brainrot",
+      "creation_mode": "ideas", "scene_count": 6, "clip_seconds": 10,
+      "workflow_mode": "automatic", "target_seconds": 120,
+      "long_options": {"profile": "social", "delivery": "continuous", "narration": "dialogue", "unit_count": 2, "ending_type": "reversal"},
+      "brief": "Dans une colocation, celui qui invente une règle pour éviter la vaisselle finit par réclamer qu’on l’abolisse.",
+      "checks": ["Le moteur invente seul des tentatives et leurs conséquences.", "La deuxième séquence poursuit la négociation sans recommencer le conflit.", "Le retournement est préparé et jouable dans le budget."]
+    },
+    {
+      "id": "melodrama-workshop", "split": "development", "recipe_id": "story.brainrot",
+      "creation_mode": "adapt", "scene_count": 6, "clip_seconds": 10,
+      "long_options": {"profile": "melodrama", "delivery": "serial", "narration": "dialogue", "unit_count": 3, "ending_type": "cost"},
+      "brief": "Dans une ville de fruits adultes, une couturière prête son atelier à une amie ruinée. L'amie attire leur meilleur client et lui cache que les vêtements sont réalisés par la couturière. Celle-ci découvre le mensonge pendant un essayage, mais une confrontation publique ferait perdre leur unique commande. Elle exige d'être présentée au client et termine la commande à deux. Elles gardent l'atelier, mais leur amitié ne retrouve pas sa confiance initiale. Préserver le choix coûteux, sans punition spectaculaire ni pardon instantané.",
+      "checks": ["Le travail caché est montré avant la découverte.", "Le risque de perdre la commande explique le choix.", "La coopération finale ne signifie pas une confiance restaurée."]
+    },
+    {
+      "id": "melodrama-shelter", "split": "holdout", "recipe_id": "story.silent-cats",
+      "creation_mode": "adapt", "scene_count": 5, "clip_seconds": 10,
+      "long_options": {"profile": "melodrama", "delivery": "continuous", "narration": "visual", "unit_count": 3, "ending_type": "resolution"},
+      "brief": "Deux chats anthropomorphes adultes partagent un abri sous la pluie. L'un accumule des morceaux de toit pour protéger sa couche et laisse l'autre trempé. Le second construit un auvent, dont l'eau s'écoule involontairement sur le premier. En voyant la couverture commune mouillée, ils démontent leurs protections séparées et construisent ensemble un toit. Finir sur un geste de partage concret. Aucun dialogue, inscription ou narrateur, et aucune catastrophe providentielle.",
+      "checks": ["La chaîne toit déplacé, eau, réaction se lit dans les images.", "Les deux chats agissent ; le second ne reste pas une victime passive.", "La réparation commune est montrée."]
+    },
+    {
+      "id": "transformation-boots", "split": "development", "recipe_id": "story.brainrot",
+      "creation_mode": "adapt", "scene_count": 6, "clip_seconds": 10,
+      "long_options": {"profile": "transformation", "delivery": "serial", "narration": "visual", "unit_count": 3, "ending_type": "open"},
+      "brief": "Un coursier fruit adulte découvre des bottes qui permettent un seul bond très haut, mais aucun changement de direction en l'air. Un essai l'envoie dans une bâche. Il apprend à viser et sauve un chariot qui dévale une rampe en bondissant au bon endroit. À la fin il aperçoit un pont rompu qui l'empêche encore d'atteindre son destinataire. Préserver découverte, échec, apprentissage et réussite locale ; le nouveau pouvoir ne doit pas livrer magiquement le colis.",
+      "checks": ["La limite de direction est préparée avant le sauvetage.", "Le second essai change une méthode visible.", "Le colis reste à livrer à la fin."]
+    },
+    {
+      "id": "transformation-clay", "split": "holdout", "recipe_id": "story.brainrot",
+      "creation_mode": "adapt", "scene_count": 6, "clip_seconds": 10,
+      "long_options": {"profile": "transformation", "delivery": "continuous", "narration": "audio", "unit_count": 3, "ending_type": "cost"},
+      "brief": "Une artisane fruit adulte trouve une argile qui répare un objet cassé lorsqu'elle lui donne la forme exacte de la pièce manquante. À chaque usage ses doigts deviennent plus rigides. Après une petite réparation et un échec lié à une mauvaise forme, elle fabrique la pièce qui permet à sa sœur de reprendre son métier. Elle y parvient mais ne peut plus fermer une main. Le coût est progressif et connu avant le choix final, sans guérison de dernière minute. Les informations essentielles doivent être compréhensibles à l'écoute.",
+      "checks": ["Le coût est découvert avant la décision finale.", "La réparation exige un apprentissage et une pièce montrée.", "Les paroles rendent les règles compréhensibles sans expliquer tout à répétition."]
+    },
+    {
+      "id": "suspense-double-seal", "split": "development", "recipe_id": "story.brainrot",
+      "creation_mode": "adapt", "scene_count": 6, "clip_seconds": 10,
+      "long_options": {"profile": "suspense", "delivery": "serial", "narration": "dialogue", "unit_count": 3, "ending_type": "reversal"},
+      "brief": "Dans un musée de fruits adultes, une gardienne cherche un vase disparu. Un sceau brisé semble accuser le livreur. Il montre qu'un second sceau identique existait déjà. Le public ne découvre qu'à la dernière unité que la directrice avait déplacé le vase pour cacher une fissure dont elle était responsable. Elle n'a pas volé le vase pour s'enrichir. Préparer la fissure et la possibilité d'un déplacement avec des indices ambigus. Les personnages peuvent connaître la vérité avant le public.",
+      "checks": ["L'explication n'est pas révélée dans la première unité.", "Le sceau a une existence visible avant son utilisation comme preuve.", "La révélation finale explique les indices et conserve le motif de la fissure."]
+    },
+    {
+      "id": "suspense-empty-chair", "split": "holdout", "recipe_id": "story.brainrot",
+      "creation_mode": "adapt", "scene_count": 5, "clip_seconds": 10,
+      "long_options": {"profile": "suspense", "delivery": "continuous", "narration": "visual", "unit_count": 3, "ending_type": "reversal"},
+      "brief": "Un serveur fruit adulte pense que sa collègue abandonne le service chaque soir. Une chaise vide, une porte entrouverte et un plateau manquant nourrissent le soupçon. Il la suit et découvre seulement à la fin qu'elle apporte le repas à leur ancien patron isolé dans la pièce voisine. Préparer une portion supplémentaire et une poignée difficile à ouvrir sans rendre immédiatement la destination évidente. La collègue a choisi de partir ; aucune agression ni disparition surnaturelle.",
+      "checks": ["Les indices soutiennent une fausse interprétation sans mentir sur les images.", "Le repas supplémentaire est préparé avant la révélation.", "Aucun dialogue n'est indispensable à la compréhension."]
+    },
+    {
+      "id": "fantasy-shadow-door", "split": "development", "recipe_id": "story.brainrot",
+      "creation_mode": "adapt", "scene_count": 6, "clip_seconds": 10,
+      "long_options": {"profile": "fantasy", "delivery": "serial", "narration": "dialogue", "unit_count": 3, "ending_type": "resolution"},
+      "brief": "Une porte enchantée ne s'ouvre que lorsque deux ombres se touchent sur son battant. Deux fruits adultes tentent de l'ouvrir pour rentrer avant la pluie. Ils découvrent la règle par hasard, puis échouent lorsqu'un nuage efface les ombres. Une lampe déjà présente leur permet de recréer l'ombre de chacun et de passer. Garder la règle identique du début à la fin. La lampe doit être introduite avant l'obstacle, et le premier personnage passé doit encore aider le second.",
+      "checks": ["Le contact des ombres cause une ouverture observable.", "Le nuage produit une conséquence conforme à la règle.", "La lampe ne surgit pas au moment de résoudre le problème."]
+    },
+    {
+      "id": "fantasy-pressure-budget", "split": "holdout", "recipe_id": "story.brainrot",
+      "creation_mode": "adapt", "scene_count": 2, "clip_seconds": 5,
+      "long_options": {"profile": "fantasy", "delivery": "continuous", "narration": "visual", "unit_count": 2, "ending_type": "cost"},
+      "brief": "Une voyageuse fruit adulte doit franchir un pont qui exige de déposer un objet personnel pour chaque personne qui traverse. Elle découvre la règle par un premier essai raté, traverse en donnant son sac, puis veut faire passer son compagnon sans l'abandonner. Elle donne son manteau en comprenant qu'ils dormiront sans protection. Montrer découverte, tentative ratée, compréhension, choix, traversées et conséquence. Ne pas changer la règle pour gagner du temps. Le budget proposé est volontairement très court : la relecture doit reconnaître si la promesse est irréalisable sans changer le budget ou réduire le périmètre avec l'auteur.",
+      "checks": ["Aucune traversée gratuite ne résout le conflit.", "Le don et sa conséquence sont compréhensibles.", "Une impossibilité de budget est signalée, pas masquée dans un état final."]
+    }
+  ]
+}

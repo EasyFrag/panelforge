@@ -10,6 +10,7 @@ from panelforge.domain.stories import (
 )
 from .local import _atomic_write, _json_bytes, _read_json_object
 from .prompt_recipes import LocalPromptRecipeStore
+from panelforge.domain.long_stories import ENGINE, is_v2
 
 
 class LocalStoryStore:
@@ -28,8 +29,10 @@ class LocalStoryStore:
     def get(self, project_id):
         with self._lock:
             value = _read_json_object(self._path(project_id))
-        if value.get("schema_version") != 1 or value.get("project_id") != project_id:
+        if value.get("schema_version") not in {1, 2} or value.get("project_id") != project_id:
             raise ValueError("Format d’histoire indisponible.")
+        if value.get("schema_version") == 2 and value.get("narrative_engine") != ENGINE:
+            raise ValueError("Version de moteur narratif indisponible.")
         return value
 
     def save(self, project):
@@ -39,9 +42,11 @@ class LocalStoryStore:
             value = deepcopy(project)
             value["updated_at"] = datetime.now(UTC).isoformat()
             value.setdefault("created_at", value["updated_at"])
-            value["schema_version"] = 1
+            value["schema_version"] = 2 if is_v2(value) else 1
             value["version"] = value.get("version", 0) + 1
-            _atomic_write(path, _json_bytes(value))
+            persisted = deepcopy(value)
+            persisted.pop("long_status", None)  # Derived on read; not an authoritative approval.
+            _atomic_write(path, _json_bytes(persisted))
             return value
 
     def list(self, limit=30):

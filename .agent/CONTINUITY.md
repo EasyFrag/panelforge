@@ -1,5 +1,271 @@
 # CONTINUITY
 
+## Version GitHub 2026-09-20 — Histoires longues V2
+
+### Goal
+- L’utilisateur demande explicitement une version GitHub et confirme de poursuivre la publication.
+
+### Current state
+- Références de cette version : branche `snapshots/long-stories-v2-2026-09-20`, tag `snapshot-long-stories-v2-2026-09-20`, dépôt `EasyFrag/panelforge`. Base de travail `8c8257e` ; master et les tags précédents ne sont pas remplacés.
+- Contenu : moteur long V2, proposition unique, automatique/manuel guidé, retours ciblés, reprises et récupération des réponses, sortie 80 000 tokens, UX Fabrication/DLSS et bandeau Traitements, tests et fixtures déjà écrits, corpus et audits, brief français. Notes : `docs/releases/snapshot-long-stories-v2-2026-09-20.md`.
+- Les données générées et traces complètes restent dans le workspace ignoré. Publication limitée aux sources, prompts, fixtures, documentation et tests liés aux changements. Les tests restent exécutés par l’utilisateur ; aucune génération ou intervention sur les services n’est nécessaire à la publication.
+
+### Next steps
+1. Utiliser le tag daté pour retrouver cette version et poursuivre les essais français avec les mêmes modèles.
+2. L’utilisateur peut exécuter les tests documentés ; les limites de qualité des relectures restent celles des audits, sans nouveau correctif implicite.
+
+## Audit 2026-09-20 — version française et qualité des appels de La Goutte de Poison
+
+### Goal
+- Expliquer la réplique anglaise, fournir les réglages et un brief français, auditer les sorties et le raisonnement enregistré ; aucune implémentation demandée.
+
+### Current state
+- Projet `story-5915c5e742274dada03708420fb3c261`, stockage v494, révision narrative 6 ; fabrication `episode-165c6e56266c46aaae08063e1d0760b4`. Le sélecteur French contredit deux demandes explicites d’anglais du brief fourni auparavant par l’assistant. Gemma conserve intentionnellement la citation anglaise comme exception.
+- Sept appels narratifs examinés : six aboutis, un tronqué ; 883,003 s cumulées (~14 min 43). Les trois derniers demandent bien 80 000 et terminent normalement. Tokens consommés non disponibles ; raisonnement exposé évalué par passages et tailles en caractères, sans l’assimiler à une preuve du mécanisme interne du modèle.
+- Le récit est fidèle au registre de tromperie. Défauts : Qwen boucle longuement sur le conflit de langue ; edit_outline introduit du franglais dans un contrat auparavant français ; un blocage de langue disparaît à la relecture suivante malgré citation et contrat inchangés. Le raccord où Rose revient avant la préparation du verre reste ambigu. La remarque sur l’absence du geste de boire est à relativiser : opening_state le contient et est transmis à Fabrication.
+- Rapport `docs/diagnostics/audit-poison-langue-et-qualite-2026-09-20.md`, réglages et brief prêts à coller `docs/essai-poison-francais-2026-09-20.md`, pièces dans le workspace partagé `experiments/audit-poison-francais-2026-09-20/evidence.json`.
+- Documentation seule modifiée ; aucun code, projet, test, LLM, rendu ou service modifié/lancé.
+
+### Next steps
+1. L’utilisateur peut essayer le brief français avec Français / vocabulaire 1, adaptation, mélodrame visuel, résolution, manuel guidé, 60 s / six clips maximum ; mêmes modèles pour isoler l’effet du brief.
+2. Vérifier français dans contrat et dialogues, cohérence de la dissimulation et stabilité des relectures. Ne pas refondre ou relancer sans demande.
+
+## Correctif 2026-09-20 — budget de sortie des histoires longues à 80 000
+
+### Goal
+- Demande explicite de l’utilisateur : porter à 80 000 tokens le budget épuisé à 8 000.
+
+### Current state
+- Échec confirmé sur La Goutte de Poison (`story-5915c5e742274dada03708420fb3c261`), appel `llm-6ce2e0ea60b74d35933dddc39bb94fdf`, opération `review_block` : max_tokens=8000, finish_reason=length, statut truncated, 167,779 s, raisonnement reçu mais aucun JSON final. Scénario déjà écrit conservé.
+- `application/long_stories.py` demande désormais `max_tokens=80_000` pour tous les appels V2 : conception, rédaction, corrections, relectures et discussion. Raisonnement et réponse partagent ce plafond. Les adaptateurs local/distant du lanceur ne configurent pas de plafond inférieur ; aucune configuration du serveur de modèles modifiée.
+- Modification limitée au paramètre et à son commentaire. Syntaxe Python vérifiée statiquement ; aucun test ni appel LLM lancé, aucun projet modifié, aucun service redémarré.
+
+### Next steps
+1. L’utilisateur redémarre PanelForge depuis le worktree actif pour charger le changement Python, puis utilise Relancer le LLM sur l’histoire en échec ; la reprise conserve la portée review_block et le scénario.
+2. Observer le prochain résultat sans lancer automatiquement de génération ou de tests à sa place. Les limites du serveur de modèles restent indépendantes du plafond demandé par l’application.
+
+## Alignement 2026-09-20 — essai fidèle à la référence d’empoisonnement
+
+### Goal
+- L’utilisateur précise que l’histoire actuelle lui plaît : il souhaite ici se rapprocher du registre de tromperie de la référence, sans coder.
+
+### Current state
+- Réglages de l’interface vérifiés. Proposition : nouvelle Histoire suivie, Développer mon récit fourni, Manuel guidé, mélodrame, narration principalement visuelle, fin Résolution, vidéo continue de 60 s maximum, une séquence et six clips de dix secondes. Modèles Qwen/Gemma actuels conservés.
+- Brief d’adaptation à fournir : adultes gouttes dans un monde social familier, épouse dévouée, liaison cachée, complicité volontaire, empoisonnement fictionnel suggéré, nouvelle union des complices. Apparence des gouttes distincte d’une mécanique de fusion/essence. La résolution ferme le plan cruel sans exiger un autre retournement.
+- Aucun code, projet, test, appel LLM ou service modifié/lancé. La demande ne constitue pas une autorisation de refonte.
+
+### Next steps
+1. L’utilisateur peut lancer ce nouvel essai avec le texte fourni et vérifier la direction au premier arrêt manuel.
+2. Juger la fidélité au registre séparément de la qualité intrinsèque ; conserver les histoires existantes.
+
+## Audit narratif 2026-09-20 — dérive de la trahison vers la fable
+
+### Goal
+- Expliquer l’écart de registre entre la référence AQO et les dernières histoires de gouttes, sans implémentation ni nouvelle génération.
+
+### Current state
+- Dernière fabrication : L’eau qu’on donne (`story-fcd6917016b04555bf7dd96e367e0d83`, stockage v415, révision narrative 14, `episode-dbeb0e1642a44404b2cf5d83e4ee397b`). Dernière création distincte : La Goutte trahie (`story-bc3c97f1549c4853bd02eb0eb027f34a`), également examinée avec La dernière trace.
+- Référence réexaminée par sa planche horodatée et transcription locale existantes : liaison, confiance exploitée, complicité autour d’une boisson et nouvelle union. Prompts réellement envoyés lus ; le moteur reçoit un brief textuel sans la vidéo. Dès la proposition initiale de L’eau, il invente une perte d’identité et un sacrifice nocif. Le contrat promeut sa règle dans must_keep et autorise une médecin professionnelle et non méchante ; les relectures valident cette interprétation.
+- Actions de Fabrication conservées, avec ajout des preuves visuelles seulement : la dérive est antérieure aux médias. La Goutte trahie conserve une trahison mais revient à fusion/survie/chute/évaporation ; ses consignes récentes contre les symboles sont bien présentes dans la trace et insuffisantes dans ce cas.
+- Rapport `docs/diagnostics/derive-trahison-gouttes-2026-09-20.md` ; extraits d’audit conservés dans le workspace partagé, `experiments/audit-derive-gouttes-2026-09-20/evidence.json`. Documents seuls ajoutés/modifiés ; aucun code, projet, test, modèle ou service lancé/modifié.
+
+### Next steps
+1. Aligner la promesse dramatique : tromperie volontaire, confiance exploitée et responsabilités visibles ; distinguer ces demandes des inventions du modèle.
+2. Après demande d’implémentation, renforcer la conception et la relecture existantes sur ces critères, sans multiplier par défaut les appels ou sélecteurs. Les tests et essais restent lancés par l’utilisateur.
+
+## Patch UX 2026-09-20 — bandeau Traitements et progression DLSS
+
+### Goal
+- Corriger le débordement à droite du bandeau Traitements et rendre les étapes de fabrication lisibles, avec un patch minimal demandé par l’utilisateur.
+
+### Current state
+- Colonnes du bandeau compact contraintes à leur largeur disponible ; les textes longs restent tronqués dans le cadre et les barres peuvent rétrécir.
+- Chaque carte affiche Plan, Rédacteur, Vidéo et désormais DLSS dès le départ : ✓ vert gras pour terminé, ● bleu pour en cours, X rouge gras pour échec, noir normal en attente. Le contour du traitement actif est bleu.
+- Le suivi DLSS réutilise les données et le rafraîchissement du module navigateur existant, avec état réel par essai (y compris fin, erreur et pause). Aucun nouveau polling ni changement backend. Versions des quatre ressources statiques modifiées incrémentées dans index.html.
+- Vérification de syntaxe des deux JS et diff effectuée. Aucun test ajouté ou exécuté, aucun appel LLM, rendu ou redémarrage ; pas de validation visuelle automatisée, conformément au périmètre minimal demandé.
+
+### Next steps
+1. L’utilisateur recharge avec Ctrl+F5 pour voir le correctif ; aucun redémarrage serveur nécessaire.
+2. Observer le bandeau et les étapes pendant les traitements habituels, puis ajuster uniquement si un défaut concret subsiste.
+
+## Correctif UI 2026-09-20 — bouton Fabrication désactivé sans explication
+
+### Goal
+- L’utilisateur montre le bouton désactivé sur L’eau qu’on donne et demande pourquoi il ne peut pas cliquer. Expliquer l’étape réellement manquante et rendre sa reprise accessible au même endroit.
+
+### Current state
+- État confirmé par lecture du projet et GET sur le serveur 7861 : `story-fcd6917016b04555bf7dd96e367e0d83`, version 363, arc relu et actuel, première unité écrite et non périmée, mais aucune relecture de cette unité. `fabrication_ready=false`. Le mode manuel attend encore l’accord de l’auteur sur l’arc. Le diagnostic du clip 4 est un warning estimatif, pas la cause du verrouillage.
+- Défaut UI : l’action de reprise disait Développer le scénario alors que les scènes existaient, et la raison du verrouillage n’était pas affichée près de Fabrication. Ajout du panneau Avant la fabrication, raison explicite et bouton contextuel ; dans ce cas Valider l’histoire et relire le scénario. Le bouton appelle l’avancement existant, qui relit les scènes à jour sans les redévelopper. Les cas périmés, erreurs, retours nécessaires, traitement actif et modèles manquants ont un message adapté.
+- Libellé et message du parcours corrigés pour les histoires déjà écrites en attente d’accord sur leur direction. Contrôles backend/Fabrication conservés ; aucun LLM ni traitement déclenché par l’agent, aucun projet réel modifié.
+- Changement applicatif limité au navigateur (`stories.js` / `index.html`, cache JS `20260920.5`). JS mis à jour confirmé servi par HTTP ; Ctrl+F5 suffit pour cette modification, sans redémarrage serveur. Tests navigateur et reprise d’un scénario écrit ajoutés, non exécutés selon la demande explicite de l’utilisateur. Syntaxes Python/JS des fichiers et fixtures, HTML/IDs et diff vérifiés statiquement.
+
+### Next steps
+1. L’utilisateur recharge avec Ctrl+F5 puis clique Valider l’histoire et relire le scénario sous le bouton de fabrication. La relecture lance un appel LLM ; son résultat peut demander une correction avant de débloquer la fabrication.
+2. L’utilisateur exécute `tests.test_long_stories_browser` et `tests.test_story_workflow` pour les régressions ajoutées ; ne pas lancer de tests ou de modèles à sa place.
+3. Continuer à distinguer estimations du diagnostic, relectures manquantes et vrais problèmes bloquants dans les retours d’interface.
+
+## Correctif 2026-09-20 — deux conceptions rejetées sur world_rules
+
+### Goal
+- L’utilisateur signale un nouvel échec après l’implémentation. Corriger la cause commune et permettre de reprendre les réponses déjà générées. Il a explicitement refusé l’exécution des tests par l’agent : « Non, je les lancerai » ; ne pas redemander ni les lancer.
+
+### Current state
+- Deux échecs `compose` confirmés : La Flaque (`story-d4e196f9bc014e9f84e5cf62c5f40d7e`, `llm-2a15b266a8444dbbbbbb34d5d0a21089`) et Le prix doux (`story-35b5ac1255cd44749d064308680d30d9`, `llm-d5f3cf0a13e842e8b43c6e6e08ccb69b`). Qwen local a terminé normalement ; le parseur refuse des règles écrites en phrases. Le dernier changement avait retiré les exemples de règles/secrets sans fournir le schéma de leurs éléments facultatifs.
+- Contrats d’éléments ajoutés aux contextes et prompts d’arc. Règles en texte récupérables sans perte, IDs déterministes sans collision et limites inconnues `null`. Sur un arc existant, seul un texte identique et unique peut retrouver son ancien ID et ses limites ; ambiguïtés, secrets incomplets et incohérences restent rejetés. Le brut reste conservé, la normalisation est tracée, la revalidation met le parcours en pause avant les contrôles narratifs.
+- Biais Auto également corrigé : dans La Flaque, le modèle avait interprété social/dialogue/reversal de l’exemple comme des préférences imposées. Les champs automatiques utilisent maintenant des emplacements à résoudre ; les choix explicites sont conservés.
+- Fixtures exactes des deux réponses et module `tests/test_long_story_response_contracts.py` ajoutés. Syntaxe Python/JS, JSON, identité des fixtures et diff vérifiés statiquement ; tests **non exécutés**, aucun LLM, rendu ni redémarrage. Projets réels non modifiés. Cache `stories.js` : `20260920.4`.
+- Rapport `docs/diagnostics/erreur-world-rules-2026-09-20.md`, procédure et commande de tests ajoutées au guide.
+
+### Next steps
+1. L’utilisateur lance `tests.test_long_story_response_contracts`, `tests.test_long_stories`, `tests.test_story_workflow` ; résultats encore inconnus.
+2. Après redémarrage du serveur et Ctrl+F5 par l’utilisateur, utiliser Revalider la réponse reçue sur les projets concernés, puis Continuer. Pas besoin de relancer la conception pour cette erreur de format.
+3. Observer les contrôles narratifs suivants : une récupération de format ne garantit pas la qualité ou la cohérence de ces arcs. Ajuster depuis les erreurs concrètes et leurs réponses enregistrées.
+
+## Implémentation 2026-09-20 — parcours guidé et référence de l’addition
+
+### Goal
+- L’utilisateur a autorisé l’implémentation directe des modes automatique / manuel guidé, du parcours de retours et des corrections discutées, avec analyse du nouveau `Download(29).mp4`. Cet accord remplace la précédente consigne de discussion seule. Préserver une seule histoire et la Fabrication industrielle.
+
+### Current state
+- Référence examinée : 76,67 s, 576 × 1024, conflit dialogué au restaurant, stratégies successives autour du paiement puis inversion du rapport de force. Planches et transcription CPU dans `D:\Code\panelforge\workspace\experiments\audit-download29-2026-09-20`. Rapport : `docs/diagnostics/reference-addition-et-parcours-guide-2026-09-20.md`.
+- Ajout du profil `social` (conflit quotidien/joute verbale) au même moteur V2, et du préréglage **L’addition qui dérape** : vidéo continue, 80 s maximum, une unité de huit clips de dix secondes, dialogues, retournement, fruits, vocabulaire 1. Préréglages gouttes et compteurs également accessibles ; compteurs exacts et montage final restent des limites existantes.
+- Nouveau `application/story_workflow.py` : conception+arc (`compose`), édition/relecture de l’arc (`edit_outline`), rédaction par unité et relecture par blocs de deux en automatique continu. Deux unités sans correction : cinq appels prévus. Manuel : pauses après direction et chaque unité. Une correction maximum par unité bloquée, puis arrêt et demande de retour ; plafond global par reprise. Reprendre la main termine l’appel actif et suspend l’enchaînement.
+- UI recentrée sur intention/univers/publication/durée, panneaux avancés repliés, boutons `ⓘ` avec exemples. Un champ de retour histoire/séquence/scène, commentaire depuis une scène, actions Appliquer / Question, versions et brouillon conservé. L’API vérifie la portée des changements et conserve la cible lors des reprises après erreur. Cache Histoires `20260920.3` ; nouveau `stories-help.js`.
+- Correctifs `projectCount`, cibles individuelles des relectures (règles/secrets/personnages/événements/scènes), budget par unité/total. `episode_state` imbriqué dans `scenario` est déplacé sans inventer de mémoire, puis validé ; conflits de mémoire rejetés. Revalidation des anciens brouillons laissée à l’utilisateur, sans appel LLM nécessaire à cette action.
+- Règles/secrets facultatifs, consignes d’invention depuis une intention minimale, respect du brief et résolution des options Auto. Scénarios, versions et Fabrication existants conservés. Le mode automatique de rédaction n’amorce pas les médias.
+- Guide `docs/long-stories-v2.md` mis à jour ; corpus porté à dix briefs, tous `not_run`. Tests synthétiques ajoutés/actualisés (domaine, parcours, reprises, navigateur), **non exécutés** selon AGENTS. Syntaxe Python/JS, scripts des fixtures navigateur, HTML/IDs, manifests et diff vérifiés statiquement. Aucun appel LLM PanelForge, rendu ou redémarrage pendant cette tâche. Le gain narratif n’est pas encore mesuré.
+
+### Next steps
+1. L’utilisateur exécute les tests ciblés avec `tests.test_story_workflow`, puis la suite générale indiquée dans le guide ; distinguer les échecs historiques.
+2. Après ses traitements actifs, redémarrer le Lab et faire Ctrl+F5. Essayer Addition en Manuel guidé, question sans réécriture, retour de scène, puis automatique avec reprise en main. Pour L’eau qu’on donne, tenter Revalider la réponse reçue puis Continuer ; les contrôles de contenu restent susceptibles de signaler un autre problème.
+3. Comparer textes et coûts à modèles/budgets constants, avec brief minimal et brief détaillé, avant les vidéos. Juger progression et chute, puis ajuster à partir des runs réelles.
+
+## Alignement 2026-09-20 — automatique / manuel guidé et mémoire mal imbriquée
+
+### Goal
+- Toujours en discussion avant implémentation. L’utilisateur propose **Automatique avec validations automatiques / Manuel**, demande un emplacement et une portée évidents pour ses retours, et signale l’erreur de développement « Réponse de scénario doit contenir exactement : reply scenario episode_state. »
+
+### Current state
+- Diagnostic confirmé sur **L’eau qu’on donne**, `story-fcd6917016b04555bf7dd96e367e0d83`, appel `llm-37d913d8bcfa4fe2969ad85c01cb6bc2`, Gemma4 unsloth, 28,036 s, fin normale `stop`. Réponse JSON complète : cinq scènes et mémoire présentes, mais `episode_state` est imbriqué dans `scenario` au lieu d’être à la racine. Le validateur rejette l’enveloppe avant les contrôles de contenu. Brouillon conservé.
+- Correctif proposé seulement : normaliser ce déplacement unique et non ambigu, conserver le brut puis revalider normalement. Ne pas inventer un état vide, ne pas ignorer un conflit entre deux états ; ne pas promettre la validation narrative sur le seul rétablissement du format. Aucun appel ni projet modifié.
+- Proposition UI : même moteur/contrôles pour les deux modes ; automatique jusqu’au scénario prêt, corrections bornées et arrêt sur blocage persistant ; manuel guidé avec pauses d’auteur et bouton « Valider et continuer », pas gestion manuelle de relire/corriger/relire. La fabrication de médias reste distincte.
+- Un seul espace fixe de retour avec cible visible Histoire complète / Séquence / Scène, bouton « Commenter cette scène » pour cibler, exemple contextuel, « Appliquer mon retour » ou « Poser une question ». Versions et résumé des changements, retours rattachés à leur cible/version. « Reprendre la main » interrompt l’enchaînement automatique à une frontière d’étape sans perdre les textes.
+- Rapport complété : `docs/diagnostics/erreurs-relecture-et-autonomie-2026-09-20.md`. Changements documentaires uniquement ; aucun code applicatif, test, LLM, média ou redémarrage lancé. Les défauts projectCount, références de relecture et budget restent à corriger après accord.
+
+### Next steps
+1. Aligner les modes et le parcours de retours sans implémenter tant que l’utilisateur n’a pas donné le feu vert demandé.
+2. Après accord, corriger les erreurs de réception/affichage identifiées et récupérer les brouillons par revalidation, puis simplifier et automatiser le parcours avec cibles de retour explicites.
+3. L’utilisateur exécutera ensuite les comparaisons textuelles prévues avant les vidéos ; garder les mêmes modèles/budgets pour juger le regroupement d’appels.
+
+## Alignement 2026-09-20 — projectCount, interface légère et appels regroupés
+
+### Goal
+- L’utilisateur approuve la direction générale mais demande **de ne pas coder pour le moment**. Diagnostiquer `projectCount is not defined`, proposer une création mieux organisée avec boutons d’information/exemples, préciser ses moments d’intervention et réduire les appels lorsque la qualité le permet. Il lancera les essais ensuite.
+
+### Current state
+- Régression confirmée dans `stories.js:365`, y compris dans le JS servi par HTTP : le message sans job interpole encore `projectCount`, supprimé lors du passage à une seule proposition. `paint()` se produit après sauvegarde et avant `write()` : l’erreur peut laisser un projet créé sans démarrer le LLM. Le projet « goute d’eau » `story-63a23597c6764a3ea7c650dc5f49943f` est dans cet état. Correctif identifié, **non appliqué**.
+- Nouvelle run lue : **L’eau qu’on donne**, `story-fcd6917016b04555bf7dd96e367e0d83`, une séquence de cinq clips maximum de dix secondes, brief gouttes/épouse/mari/médecin. Quatre appels proposition/arc/relecture/correction = environ 6 min 13 cumulées, sans scènes encore. La relecture repère un vrai transfert d’essence absent de l’action et deux problèmes de lisibilité : valeur concrète du contrôle, coût actuel excessif à évaluer.
+- Proposition détaillée ajoutée au rapport `docs/diagnostics/erreurs-relecture-et-autonomie-2026-09-20.md` : fusion proposition+arc, relecteur distinct apportant les petites corrections dans le même appel, pause utilisateur sur l’histoire puis sur le scénario, rédaction par séquence, relecture globale des récits compacts ou par blocs pour les longs. Pour deux séquences : objectif 5 appels au lieu de 7, hors corrections ; ne pas promettre le même ratio pour toutes les longueurs ni une baisse proportionnelle du temps.
+- Interface proposée : idée/univers/format/durée visibles ; « Orienter l’histoire » et « Production et modèles » repliés ; `ⓘ` par réglage avec effet et exemples ; Auto pour les choix narratifs inférables, valeurs retenues consultables. Une seule proposition et Fabrication conservées.
+- Changements documentaires uniquement. Lecture du code, HTTP GET du JS servi et lecture des données existantes ; aucun code applicatif modifié, test ou appel LLM lancé, aucun redémarrage.
+
+### Next steps
+1. Finir l’alignement avant d’implémenter ; ne pas interpréter l’approbation de l’approche comme une autorisation de coder contre la demande explicite actuelle.
+2. Après accord : réparer projectCount, références de relecture et budgets ; mettre en place le parcours simplifié et son automatisation bornée.
+3. L’utilisateur lancera quatre essais textuels comparatifs (deux briefs × parcours actuel corrigé / regroupé), à modèles et budgets constants ; juger intérêt, clarté, fin, cohérence, durée et reprises avant de rendre des vidéos.
+
+## Diagnostic 2026-09-20 — erreurs de relecture et création autonome
+
+### Goal
+- À la demande explicite de l’utilisateur, **discuter avant d’implémenter** : diagnostiquer les erreurs après une longue attente, expliquer les références gouttes d’eau / compteurs et simplifier les choix. Objectif clarifié : intention minimale → histoire inventée presque en autonomie ; une bonne adaptation d’un brief détaillé ne suffit pas.
+
+### Current state
+- Rapport : `docs/diagnostics/erreurs-relecture-et-autonomie-2026-09-20.md`. Changements documentaires uniquement ; aucun code applicatif, projet utilisateur, appel LLM, test ou service modifié/lancé.
+- Deux échecs confirmés sur **Le Sirop des Regrets**, `story-0ce193485e5a4de5bec5defc0f83234e`, opération `review_outline` : appels `llm-bc2d98c9bf2c4ee0a061488368e94b46` (185 s) et `llm-1812e59862694f7d986d59415f1e901c` (149 s). Réponses JSON complètes, `finish_reason=stop`. Le validateur rejette `secret-1`, puis `secret-2` / `rule-3`, pourtant présents : seules leurs rubriques globales sont autorisées. Pas de boucle automatique de correction constatée. Raisonnement volumineux (environ 72 800 / 47 700 caractères) ; aucune preuve de timeout ou troncature. Arc et dernier brouillon conservés.
+- Autre défaut : `clip_budget.max_clips=6` est par unité, mais le modèle l’interprète comme le total des deux unités. Budget réel 120 s ; critiques fondées sur 60 s. Le Sirop, créé sans brief, verrouille trop de ses inventions dans `must_keep` et accumule règles/secrets avant de démontrer une histoire simple et filmable.
+- **Test histoire**, `story-23d3d7bbddc143a48a25dec9b04761a6`, a les options transformation/continu/ouverte mais aucun appel enregistré lors de l’inspection. Les appels récents portent encore l’ancien `proposal_count` ; aucun redémarrage entrepris.
+- Gouttes = référence AQO, 47,81 s, mélodrame visuel de trahison ; compteurs = 390,20 s, règle fantastique, dialogues, dangers successifs. Exemples de briefs minimaux et réglages détaillés dans le rapport. Famille gouttes absente du sélecteur ; le brief V2 peut imposer cet univers. Chiffres exacts non garantis, export actuel « sans texte à l’écran » ; ne pas prétendre que le profil fantastique règle leur rendu.
+- Proposition à discuter : fiabiliser références/budgets, améliorer l’invention et borner la critique ; première vue idée/univers/vidéo unique ou série/durée, directions narratives Auto avec exemples, production/modèles avancés. Préserver une seule proposition et la chaîne de Fabrication. Aucun de ces changements supplémentaires n’est implémenté.
+
+### Next steps
+1. Aligner cette route avec l’utilisateur avant toute modification applicative, conformément à sa dernière demande.
+2. Après accord, corriger les références de relecture et expliciter les budgets ; permettre la revalidation du brouillon existant sans relancer inutilement le modèle, en conservant ses remarques narratives.
+3. Évaluer l’invention sur des briefs d’une phrase et des textes complets avant la vidéo ; mesurer qualité, temps et rejets. L’utilisateur exécute les tests sauf demande contraire explicite.
+
+## Retour utilisateur et simplification 2026-09-20 — intention forte, proposition unique
+
+### Goal
+- Analyser la dernière histoire jugée satisfaisante, expliquer les réglages et retirer entièrement le choix du nombre de propositions. Préférence durable de l’utilisateur : travailler une seule histoire ; éviter d’ajouter des contrôles qui compliquent le parcours.
+
+### Current state
+- Dernière histoire fabriquée inspectée : **La vengeance salée de Pomitto**, `story-14f83b366fa64020916a12b0dcf80780`, six clips de dix secondes, **mode court historique**. La nouvelle V2 **Le Sirop des Regrets** n’avait pas encore de scénario enregistré lors de l’inspection. Le succès de Pomitto ne prouve donc pas encore la continuité longue V2.
+- Brief, proposition, scénario, intentions et trois images de chacun des six clips existants examinés. Planche : `D:\Code\panelforge\workspace\experiments\analyse-pomitto-2026-09-20\storyboard.jpg`. Aucun projet, rendu ou asset utilisateur modifié ; seulement ces supports d’analyse ajoutés.
+- **À préserver pour la suite : une bonne intention donne déjà de bons résultats.** Le brief apporte une trajectoire concrète (détresse, rencontre, aide, récompense, transformation, nouvel objectif), que le rédacteur développe de manière lisible. Ne pas imposer davantage d’étapes ou de contrôles sans bénéfice démontré. Le défaut précis reste l’élargissement dès la proposition : expulsion ajoutée et attaque finale alors que l’auteur arrêtait le récit au départ du héros. Priorité à la fidélité des moments obligatoires et du point d’arrêt ; ne pas refaire cette histoire.
+- Suppression du sélecteur, du paramètre API/création `proposal_count`, des branches de quantité et du nombre variable dans les contrats/parser/contextes, en court et long. Une seule proposition acceptée et automatiquement sélectionnée ; carte pleine largeur, bouton de sélection redondant retiré. Les anciennes cartes multiples restent lisibles/sélectionnables ; leur métadonnée de quantité ne pilote plus les appels. Adaptation des anciennes consignes conservée sans modifier les recettes archivées sur disque.
+- Documentation : `docs/diagnostics/retour-pomitto-et-reglages-2026-09-20.md`, avec analyse, limites d’observation, explication de chaque réglage et configuration de comparaison. Guide V2 et audit initial reliés à ce retour.
+- Essai conseillé : modèles déjà utilisés Qwen3.8-27B Architecte / Gemma4-31B Rédacteur, famille Fruit, histoire fournie, profil Transformation, récit continu, deux séquences, trois clips maximum de dix secondes par séquence, dialogues français, fin ouverte explicitement bornée dans le brief. Registre 3 pour comparer au cas observé, 1 pour un ton moins vulgaire. Ce sont des conseils, les autres valeurs par défaut n’ont pas été changées.
+- Tests existants adaptés et régressions ajoutées pour proposition unique, rejet de réponses multiples sans perte du document, archives et suppression du paramètre API. Syntaxe Python/JS et fixtures navigateur vérifiées statiquement, IDs HTML vérifiés, `git diff --check` propre. Tests non exécutés selon `AGENTS.md`, aucun appel LLM ni redémarrage. Cache Histoires JS/CSS : `20260920.2`.
+
+### Next steps
+1. Après les traitements en cours, l’utilisateur redémarre PanelForge et recharge le navigateur pour synchroniser serveur et formulaire sans `proposal_count`.
+2. Lancer les tests Histoires/V2/navigateur indiqués dans le guide ; vérifier qu’une proposition permet directement le développement et que les archives à plusieurs cartes restent accessibles.
+3. Comparer un essai V2 court en deux séquences avec une intention concrète, les mêmes modèles et soixante secondes maximum. Juger d’abord fidélité de progression/fin et simplicité ; ne pas conclure au gain de qualité sur le seul ajout de structure.
+
+## Implémentation 2026-09-20 — moteur Histoires longues V2
+
+### Goal
+- À la demande de l’utilisateur après l’audit, implémenter une première refonte du seul parcours long tout en conservant la Fabrication industrielle.
+
+### Current state
+- Les nouvelles histoires longues créées dans le Lab utilisent explicitement `story.long@2.0.0` / schéma 2. Les anciens projets longs et les courts restent en schéma 1 ; aucun scénario enregistré n’est migré. L’API historique conserve son comportement si `long_options` est absent.
+- Quatre profils (mélodrame, transformation, suspense, règle fantastique), feuilleton ou récit continu, 1 à 12 unités, narration et type de fin. Deux entrées : propositions optionnelles ou récit fourni à développer. Le nombre de clips devient un plafond ; durée uniforme et budget fixes à la création.
+- Nouveau domaine `long_stories.py`, projection applicative des contextes et recette versionnée `prompt_sources/story.long/2.0.0`. Contrat, événements et dépendances, règles, secrets, savoir des personnages, faits et fils narratifs structurés. Relecture de l’arc puis de chaque unité obligatoire avant la suite/Fabrication ; correction explicite en un appel, sans boucle automatique. Les contextes n’imposent plus quatre épisodes ni un quota de paroles.
+- Les relectures sont liées par empreinte au document relu. Une modification amont rend les unités dépendantes à réécrire sans effacement ; restauration cohérente et refus de réappliquer un vieux brouillon à un document changé. Les révisions LLM conservent version et empreinte de recette.
+- L’interface expose contrat, événements, canon, remarques et actions de relecture/correction/réécriture. Le bouton historique d’édition des recettes courtes est masqué pour la V2. Les informations indispensables rejoignent l’intention des scènes ; création, déduplication et comparaison `story_changed` utilisent la même projection vers Fabrication, y compris lorsque l’utilisateur consulte une autre unité.
+- Raccord uniquement à l’entrée de Fabrication : personnages/décors, héritage des images, prompts, files, vidéos et DLSS conservés. Les modifications préexistantes de pause de chaîne et Plan/Rédacteur restent présentes. Caches `stories.js` / `stories.css` : `20260920.1`, `episodes.js` : `20260920.3`.
+- Guide et limites : `docs/long-stories-v2.md`. Huit briefs originaux, deux par profil, dans `evals/story-long-v2/briefs.json`, statut `not_run`. Régressions domaine/service/API/Fabrication et navigateur ajoutées ; attente historique du test navigateur long mise à jour.
+- Vérifications statiques : syntaxe Python, JavaScript applicatif et fixture navigateur, JSON et IDs HTML ; `git diff --check` propre. Aucun test exécuté, appel LLM, média, redémarrage ou service réel lancé, conformément au `AGENTS.md`. Le gain narratif reste à qualifier sur des histoires complètes.
+
+### Next steps
+1. L’utilisateur lance les tests ciblés indiqués dans le guide, puis la suite générale ; les échecs historiques restent à distinguer des régressions nouvelles.
+2. Après les traitements actifs, l’utilisateur redémarre le Lab et recharge le navigateur ; essayer une nouvelle histoire longue, l’arc/relecture, puis deux unités consécutives et une modification amont.
+3. Évaluer les huit briefs à modèle et budget comparables avant de conclure sur la qualité ; ne rendre des vidéos qu’après comparaison des textes. Ajuster ensuite les prompts ou le budget sans migrer silencieusement les projets historiques.
+
+## Patch 2026-09-20 — pause de chaîne explicite et étapes Plan/Rédacteur
+
+### Works
+- La chaîne vidéo Histoires distingue maintenant deux pauses. **Pause après les traitements actifs** laisse terminer uniquement le LLM, la vidéo ou le DLSS ayant déjà acquis une machine, retire de la FIFO les vidéos et DLSS encore en attente appartenant à cette chaîne, conserve leurs prompts puis les rend reprenables. **Finir la file puis suspendre** conserve explicitement l’ancien comportement de drainage de toutes les réservations déjà admises.
+- La suspension est bornée à la chaîne concernée : aucun traitement d’un autre atelier n’est annulé et aucune tâche déjà soumise à ComfyUI n’est interrompue. Une course d’admission tardive est contrôlée après la réservation H3 ; un essai annulé par la pause redevient `Prompt prêt · vidéo suspendue` au lieu d’être compté comme un échec.
+- Le DLSS automatique respecte la pause : une sortie vidéo terminée pendant la suspension mémorise un DLSS à reprendre sans le mettre en file ; un DLSS de la chaîne encore non soumis est annulé localement puis réarmé à la reprise. `DlssService.cancel_queued()` ne touche jamais un job déjà soumis.
+- Les cartes de scènes remplacent l’état agrégé `Prompt` par deux lignes persistantes **Plan** et **Rédacteur** (`à préparer`, `en cours`, `prêt`, `échec`, `interrompu`). La reprise d’un rédacteur échoué conserve et affiche le Plan déjà validé.
+- Le cache Episodes passe à `episodes.js?v=20260920.2`. `git diff --check` et la compilation Python des trois modules modifiés sont propres. Conformément aux consignes du worktree, les tests ajoutés restent à lancer par l’utilisateur.
+
+### Broken / missing
+- Le processus PanelForge déjà lancé utilise encore l’ancienne sémantique jusqu’à son redémarrage ; une chaîne actuellement en `pausing` ne peut pas être rétroactivement nettoyée par le nouveau code chargé sur disque.
+- Aucun appel LLM, rendu ComfyUI, DLSS réel ni test applicatif n’a été lancé pendant le patch.
+
+### Next steps (max 3)
+1. Laisser finir les traitements actuels, redémarrer PanelForge puis faire `Ctrl+F5` pour charger Episodes `20260920.2`.
+2. Lancer trois scènes, demander **Pause après les traitements actifs** quand une vidéo est en cours et une autre en file, puis vérifier que seule la première termine et que la seconde repasse à `vidéo suspendue`.
+3. Reprendre la chaîne et confirmer que les lignes Plan/Rédacteur restent prêtes, que la vidéo suspendue est remise en file et que son DLSS automatique repart ensuite une seule fois.
+
+## Audit 2026-09-20 — rédaction des histoires longues, trajectoire à aligner
+
+### Goal
+- Auditer exclusivement le constructeur des histoires longues et proposer sa refonte, en préservant la chaîne personnages/décors, prompts, vidéos et DLSS ; aucune réécriture de Kiwina demandée.
+
+### Current state
+- Rapport : `docs/diagnostics/audit-histoires-longues-2026-09-20.md`. Code du worktree actif, quatre projets longs du workspace principal, traces historiques, cinq MP4 et trois analyses fournies examinés. Mesures, planches horodatées et transcriptions CPU des références conservées dans `D:\Code\panelforge\workspace\experiments\audit-stories-2026-09-20`.
+- Le mode long possède déjà bible, arc fixe de quatre épisodes et mémoire des scénarios précédents. Limites actuelles : nombre exact de clips avec densification imposée, absence de registre explicite des connaissances/révélations, critique narrative non séparée, mémoire fondée sur les états finaux déclarés et absence de signalement des épisodes dépendants après révision.
+- Les trois scénarios longs disponibles sont uniquement des épisodes 1 et précèdent le dernier correctif des prompts. Les traces Kiwina/Pomitta ne contiennent pas `ARC LONG UNIQUEMENT`. Pomitto est un projet **court** : il ne démontre pas directement un défaut du parcours long.
+- Proposition, non implémentée : cœur long V2 commun, récit continu ou feuilleton, profils mélodrame/transformation/suspense/règle fantastique, contrat narratif, critique bornée, canon et allocation souple aux clips, puis adaptateur vers Fabrication. Le choix de format a été demandé à l'utilisateur ; la recommandation actuelle couvre les deux.
+- Changements documentaires uniquement. Aucun appel LLM de PanelForge, rendu, redémarrage ou test applicatif lancé ; lecture du code/des tests et vérification documentaire effectuées.
+
+### Next steps
+1. Aligner avec l'utilisateur le format prioritaire, le budget de clips ajustable et la place de la relecture narrative.
+2. Définir un jeu de briefs originaux variés et le contrat de sortie compatible Fabrication avant d'implémenter la V2 longue.
+3. Comparer la qualité sur des histoires complètes et des épisodes consécutifs ; préserver les anciennes versions et le mode court pendant la migration.
+
 ## Patch 2026-09-20 — moniteur global compact et minimisable
 
 ### Works

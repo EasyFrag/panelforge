@@ -361,6 +361,20 @@ class DlssTest(unittest.TestCase):
         self.complete(job)
         self.assertEqual(len(self.comfy.submissions), 1)
 
+    def test_cancel_queued_never_marks_submitted_work_for_cancellation(self):
+        queued = self.queue()
+        cancelled = self.service.cancel_queued(queued["job_id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertTrue(cancelled["cancel_requested"])
+
+        submitted = self.queue(request_id="submitted")
+        saved = self.jobs.get(submitted["job_id"])
+        saved.update(status="running", execution_id="already-submitted")
+        self.jobs.save(saved)
+        untouched = self.service.cancel_queued(submitted["job_id"])
+        self.assertEqual(untouched["status"], "running")
+        self.assertFalse(untouched.get("cancel_requested", False))
+
     def test_worker_lease_prevents_a_second_executor(self):
         job = self.queue()
         with self.jobs.lease("worker"):
