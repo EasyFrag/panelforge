@@ -154,7 +154,7 @@ class EpisodeService:
                             preparation = item["preparations"][-1]
                             preparation["status"] = "interrupted"
                             for stage, status in (preparation.get("prompt_stages") or {}).items():
-                                if status == "running":
+                                if status in {"running", "queued", "starting"}:
                                     preparation["prompt_stages"][stage] = "interrupted"
                         interrupted = True
             if interrupted:
@@ -455,7 +455,7 @@ class EpisodeService:
             scene_inputs(value, scene, require_images=False)
             if scene["shot_count"] is not None and not 1 <= scene["shot_count"] <= 6:
                 raise ValueError("Choisissez Auto ou un à six plans.")
-            scene["render_setup"]["settings"]["duration_seconds"] = scene["duration"]
+            # Technical render settings are independent of the narrative duration.
             scene["render_revision"] += 1
             scene["revision"] += 1
             self.store.save(value)
@@ -1426,12 +1426,14 @@ class EpisodeService:
                 if not latest or latest["input_hash"] != fingerprint(inputs) or latest["status"] not in {"failed", "interrupted"}:
                     raise ValueError("Cette préparation ne peut pas être reprise : les entrées ont changé.")
                 preparation = latest
-                preparation.setdefault("prompt_stages", {"plan": "pending", "writer": "pending"})
+                stages = preparation.get("prompt_stages") or {}
+                preparation["prompt_stages"] = {stage: "ready" if stages.get(stage) == "ready" else "queued"
+                                                for stage in ("plan", "writer")}
                 preparation.update(status="running", error=None)
             else:
                 preparation = dict(id=f"prep-{uuid4().hex}", inputs=inputs, input_hash=fingerprint(inputs),
                     session_id=None, render_project_id=None, status="running", error=None,
-                    prompt_stages={"plan": "pending", "writer": "pending"},
+                    prompt_stages={"plan": "queued", "writer": "queued"},
                     render_setup=effective_video_setup(value, scene))
                 scene["preparations"].append(preparation)
             self.store.save(value)
@@ -1469,11 +1471,26 @@ class EpisodeService:
                     s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "ready"}))
                 continue
             self._change(key, lambda s, stage_key=stage_key:
-                (s["job"].update(phase=label),
-                 s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "running"})))
+                (s["job"].update(phase=f"{label} · Planifié · en attente du LLM"),
+                 s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "queued"})))
             try:
                 if document.active_revision is None:
+                    progress_state = "queued"
                     for event in self.composition.stream_generate(session_id, stage):
+                        # A DELTA may be a locally compiled prefix, not model activity.
+                        # Only gateway status events can establish resource admission.
+                        if event.kind is StreamEventKind.STATUS:
+                            phase = getattr(event.phase, "value", event.phase)
+                            state = {"queued": "queued", "starting": "starting",
+                                     "loading": "starting", "generating": "running"}.get(phase)
+                            if state and (state != progress_state or phase == "loading"):
+                                progress_state = state
+                                detail = event.text if phase == "loading" else {
+                                    "queued": "Planifié · en attente du LLM", "starting": "Démarrage du LLM",
+                                    "running": "En cours"}[state]
+                                self._change(key, lambda s, state=state, detail=detail:
+                                    (s["job"].update(phase=f"{label} · {detail}"),
+                                     s["preparations"][-1]["prompt_stages"].update({stage_key: state})))
                         if event.kind is StreamEventKind.TRUNCATED:
                             raise ValueError(f"{label} : réponse tronquée. Le brouillon reste dans les échanges LLM.")
                     if self.composition.get(session_id).document(stage).active_revision is None:
@@ -1481,7 +1498,8 @@ class EpisodeService:
                 self.composition.approve(session_id, stage)
             except Exception:
                 self._change(key, lambda s, stage_key=stage_key:
-                    s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "failed"}))
+                    s["preparations"][-1].setdefault("prompt_stages", {}).update(
+                        {"plan": "failed", "writer": "pending"} if stage_key == "plan" else {"writer": "failed"}))
                 raise
             self._change(key, lambda s, stage_key=stage_key:
                 s["preparations"][-1].setdefault("prompt_stages", {}).update({stage_key: "ready"}))

@@ -348,6 +348,30 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         release_stream.set(); self.assertTrue(complete_entered.wait(2))
         stream.join(2); complete.join(2)
 
+    def test_waiting_stream_announces_queue_before_the_delegate_can_start(self):
+        waiting, entered = Event(), Event()
+        observed = []
+        class Gateway:
+            def stream(self, _request):
+                entered.set()
+                yield CompletionStreamEvent(StreamEventKind.COMPLETED, StreamPhase.COMPLETED)
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        gateway = CoordinatedMultimodalGateway(Gateway(), coordinator)
+        def consume():
+            for event in gateway.stream(CompletionRequest("model", "system", "user")):
+                observed.append(event.phase)
+                if event.phase is StreamPhase.QUEUED:
+                    waiting.set()
+        with coordinator.lease("already-running", ComputeResource.LOCAL_GPU, ProductionWorkload.LLM, "Existing call"):
+            thread = Thread(target=consume)
+            thread.start()
+            self.assertTrue(waiting.wait(2))
+            self.assertFalse(entered.is_set())
+            self.assertEqual(observed, [StreamPhase.QUEUED])
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(observed, [StreamPhase.QUEUED, StreamPhase.STARTING, StreamPhase.COMPLETED])
+
     def test_closing_llm_stream_after_terminal_event_is_completed_not_failed(self):
         class Gateway:
             def list_models(self): return ()
@@ -363,6 +387,8 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         coordinator = MachineWorkCoordinator(monitor_interval=.01)
         gateway = CoordinatedMultimodalGateway(Gateway(), coordinator)
         stream = gateway.stream(CompletionRequest("model", "system", "user"))
+        self.assertEqual(next(stream).phase, StreamPhase.QUEUED)
+        self.assertEqual(next(stream).phase, StreamPhase.STARTING)
         self.assertEqual(next(stream).kind, StreamEventKind.COMPLETED)
         stream.close()
 

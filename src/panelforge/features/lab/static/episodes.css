@@ -83,6 +83,7 @@
 .episode-video-card .episode-stage { color: var(--ink); font-weight: 400; }
 .episode-video-card .episode-stage.done { color: var(--green); font-weight: 700; }
 .episode-video-card .episode-stage.running { color: #1769aa; }
+.episode-video-card .episode-stage.planned { color: #976000; }
 .episode-video-card .episode-stage.failed { color: var(--red); font-weight: 700; }
 @keyframes episode-video-pulse { 50% { box-shadow: 0 0 0 4px rgba(23, 105, 170, .14); } }
 @media (prefers-reduced-motion: reduce) { .episode-video-card.processing { animation: none; } }

@@ -1,5 +1,132 @@
 # CONTINUITY
 
+## Version GitHub 2026-09-22 — fiabilité des histoires et des scènes
+
+### Goal
+- Publier la version GitHub demandée par l’utilisateur, avec les correctifs depuis la sauvegarde Histoires longues V2 du 20 septembre.
+
+### Current state
+- Base `ccb8698`, dépôt `EasyFrag/panelforge`. Références dédiées à cette version : branche `snapshots/long-stories-reliability-2026-09-22`, tag `snapshot-long-stories-reliability-2026-09-22`. Les références précédentes restent inchangées.
+- Contenu : réglages techniques par scène, états planifié/démarrage/exécution, récupération bornée JSON et knowledge sans secret, restitution des dépendances d’événements lors des relectures, consignes ciblées, tests et documentation. Notes : `docs/releases/snapshot-long-stories-reliability-2026-09-22.md`.
+- Publication limitée aux fichiers de sources/tests/docs de ce worktree. Workspace, vidéos, assets et traces complètes exclus ; checkout racine et son fichier utilisateur `lancementwork` laissés hors du commit. Tests non exécutés, aucun rendu/appel LLM/service lancé.
+- Vérifications de publication : 25 fichiers sélectionnés ; syntaxe de 14 fichiers Python, trois fichiers JavaScript et deux scripts navigateur embarqués ; diff-check. Pas de données runtime dans la sélection ni de motif de secret détecté. Aucun hook Git actif. Cette version est une sauvegarde documentée, sans validation fonctionnelle supplémentaire.
+
+### Next steps
+1. Utiliser les références datées pour retrouver la sauvegarde ; les essais/tests restent exécutés par l’utilisateur selon les notes de version.
+2. La continuation ancien vers long V2 reste une tâche distincte non implémentée. Ne pas relancer de génération ou de service pour cette publication.
+
+## Correctif 2026-09-22 — depends_on omis sur tous les événements
+
+### Goal
+- Traiter l’erreur signalée « Événement doit contenir exactement : id trigger change evidence depends_on », sans changer l’intention ou relancer une génération.
+
+### Current state
+- Projet `story-9ddd34b57dc549d2bc959d9c735ac0ec` / Jus de trahison. Compose accepté `llm-2a4067718f57481a9f2ab1fb01cf3d43`, edit_outline rejeté `llm-dd37021b04e54376bea3ddd4f5a29209`, puis relance utilisateur également rejetée `llm-32da5d473cb0446781a16d586494b19a`. Omission de depends_on sur six événements dans les deux réponses, IDs/unités/ordre identiques au contexte ; stop/80 000, pas de troncature. Le dernier brouillon complet est conservé. Durées de relecture ~100 et 114 s.
+- Petit correctif ajouté dans domain/long_stories : récupération des liens antérieurs pour edit_outline uniquement, quand seules les dépendances manquent et que la structure des IDs/unités/ordre est conservée ; texte édité et brouillon raw préservés. Aucune inférence pour création/révision libre, nouveaux IDs ou réorganisation ; valeurs explicites conservées et références encore validées. Diagnostic des événements avec chemin et champs manquants/supplémentaires.
+- application/long_stories explicite le contrat events et depends_on obligatoire ; application/stories trace cette normalisation. Pas d’appel additionnel ni de boucle. Tests ciblés ajoutés dans test_long_story_response_contracts, non exécutés conformément au choix utilisateur. Contrôles statiques syntaxe/diff uniquement.
+- Le projet garde l’intention simple, creation_mode=adapt, deux séquences de cinq clips/10 s. La relecture a aussi produit un mélange français/anglais ; le correctif ne réécrit pas ce texte. Notes : `docs/diagnostics/correctif-evenements-2026-09-22.md`.
+- Aucun projet, service, appel LLM ou rendu modifié/lancé. Pas de récupération automatique du run en parallèle de l’utilisateur.
+
+### Next steps
+1. Après fin des tâches actives, redémarrage utilisateur puis « Revalider la réponse reçue » sur le brouillon échoué ; pas besoin de relancer le modèle pour cette récupération. Tests ciblés laissés à l’utilisateur.
+2. Réévaluer ensuite la qualité éditoriale/langue séparément ; la restauration des métadonnées ne garantit pas la qualité de la relecture.
+
+## Réglages 2026-09-22 — reproduction de Download(21).mp4
+
+### Goal
+- Fournir un réglage concret et un récit source pour reproduire au plus près la vidéo jointe, sans implémentation ni lancement d’une histoire.
+
+### Current state
+- Source `C:\Users\samue\Downloads\Download(21).mp4` : 99,67 s, 576×1012, français. 25 captures et transcription complète Whisper large-v3-turbo local CPU réalisées dans le workspace partagé `experiments/analyse-download21-2026-09-22` ; aucun appel LLM ou GPU/rendu. Analyse par images échantillonnées et ASR, pas écoute humaine certifiée ; quelques mots d’argot incertains.
+- Histoire : fils adulte pomme présente sa compagne au père pomme ; flirt puis intimité hors champ, excuse acceptée, grossesse, père complice qui rassure le fils, bébé pomme pris comme preuve de fidélité, aparté final du père révélant sa paternité au public. Fils encore ignorant. Ce n’est pas la vidéo du club de sport ni celle d’empoisonnement.
+- Fiche prête `docs/diagnostics/download21-reglages-et-recit-francais.md` : Histoire suivie, Développer mon récit fourni, Mélodrame fruits / rapports de pouvoir, Dialogues dramatiques, Retournement avec arrêt ouvert explicite, français, vocabulaire 3, vidéo continue 100 s, 1 séquence, plafond 12 clips de 10 s, manuel guidé. Marge de clips explicitée ; 100 s déclenche sinon deux séquences automatiques, régler le découpage ensuite. Récit à coller, garde-fous sur le savoir des personnages, bébé pomme et aparté final ; adaptation non graphique des sous-entendus.
+- Aucun code, projet, réglage applicatif, service, test ou génération d’histoire/image/vidéo modifié/lancé. Extraction/transcription locales pour cette analyse uniquement.
+
+### Next steps
+1. L’utilisateur peut appliquer la fiche et vérifier l’arc avant développement. Réglages d’écriture seuls ne garantissent pas mêmes voix/rendus.
+2. Le correctif de continuation des anciennes histoires vers V2 reste distinct et non implémenté ; ne pas mélanger ce nouveau récit fourni avec « Le client ».
+
+## Audit 2026-09-20 — continuer « Le client » depuis une ancienne histoire
+
+### Goal
+- Vérifier si l’utilisateur a correctement réglé la suite de l’histoire à la salle de sport ; expliquer le passage de l’ancienne version au moteur long actuel, sans implémentation ni génération.
+
+### Current state
+- Ancienne source `story-b411ddb0ab44495a97c8459ae4a8a09d` (18 septembre, schema 1, continuation, 3 clips de 10 s, mémoire cumulative et scénario présents). Nouveau projet `story-b574aa30e04d4ea8a984a7c9fb9cf7cb` (20 septembre, schema 2 long V2) correctement lié par parent_story_id ; mémoire et dernier scénario copiés dans brief, scénario source identique après décodage. Aucun texte de direction ajouté après ce scénario.
+- Réglages sauvegardés : français, fruits anthropomorphes, registre 3, 50 s souhaitées, 1 séquence continue, plafond 5 clips de 10 s, profil transformation, narration audio. Fin initialement AUTO (`narrative_preferences`), résolue en cost par le modèle ; ne pas attribuer ce choix à l’utilisateur. Mode automatique, Architecte Qwen3.8-27B, Rédacteur Gemma4-31B.
+- Défaut confirmé de reprise ancien vers long : `prepareNextEpisode` préremplit continuation et parent, mais `refreshStartMode` masque continuation en format long et revient silencieusement à ideas. Le backend V2 refuse également continuation ; `application/long_stories.py` n’exploite pas parent_story_id comme mémoire canonique structurée. Nouveau projet effectivement creation_mode=ideas.
+- Arc déjà généré : reprise du bon de réservation, révélation par Banane, transfert par Ananas, exclusion de Pêche — événements du dernier épisode rejoués. Fin quasi identique, ajout mineur d’un premier poids pour Citron. Casting conservé, progression temporelle non assurée. Lors de la lecture finale (~19:12 Paris), edit_outline encore running ; aucune conclusion sur un scénario final absent à la capture.
+- Recommandation : garder langue/univers/budget ; transformation seulement si progression de Citron souhaitée, mélodrame pour prolonger rapports de pouvoir, dialogue pour retrouver la confrontation verbale. Auto fin n’est pas une erreur ; ouverte si épisode suivant souhaité. Reprendre la main et cibler « L’histoire complète » pour demander explicitement de commencer après la fin précédente, sans rejouer les événements acquis. Cette consigne est un contournement, pas une correction du parcours.
+- Lecture de fichiers uniquement ; continuité mise à jour. Aucun code, réglage de projet, test, appel LLM, rendu ou service modifié/lancé.
+
+### Next steps
+1. Expliquer à l’utilisateur que l’historique a été correctement transmis mais que le parcours a perdu la continuation ; ne pas lui demander de sélectionner une option indisponible en long.
+2. Si demandé ultérieurement, corriger réellement le passage ancien vers long (interface, contrat backend et canon antérieur), sans simple réaffichage d’un sélecteur refusé par le backend. Conserver les tests/générations à la main de l’utilisateur.
+
+## Implémentation 2026-09-20 — états, réglages par scène et récupération des réponses
+
+### Goal
+- Implémenter les lots alignés après autorisation explicite de l’utilisateur, dont le cas « Connaissance sans secret ou événement valide » ; conserver les réglages manuels par scène et les prompts existants.
+
+### Current state
+- Code actif modifié dans ce worktree seulement. Les passerelles LLM signalent queued/starting ; Episodes utilise les événements STATUS pour distinguer planifié, démarrage et génération. Les DELTA locaux ne prouvent pas une exécution. Cartes, sélecteur, ligne de chaîne et bandeau distinguent attente/exécution ; couleurs et DLSS explicites. Échec du Plan : Rédacteur à préparer ; reprise : étapes restantes remises en file.
+- Panneau vidéo : sauvegarde par scène, délai ~800 ms, input/change, attente avant navigation/lancement, indicateur de sauvegarde, protection des révisions locales contre un ancien polling. Le lancement immédiat utilise ses paramètres capturés sans attendre sa propre opération busy. Les cartes affichent la durée technique. `update_scene` ne réécrit plus la durée personnalisée ; durée narrative/prompt et essais déjà lancés préservés, aucune action globale.
+- Long V2 : contraintes explicites sur knowledge ; normalisation locale limitée à secrets=[]/secret_id=null avec événement et personnages valides, trace et original conservés. Références réelles invalides toujours rejetées. Le brouillon en échec est évalué localement pour proposer sa revalidation sans appel. Nouveau module domain `story_response_recovery.py` : remplacement littéral limité, sans exécuter de code ; une seule correction de syntaxe LLM si nécessaire, valeurs conservées et validation complète, original et diagnostic conservés, aucune boucle. Libération du flux d’origine avant cet éventuel appel. Plafond 80 000 inchangé.
+- Consigne Plan ciblée sur l’attribution des intentions et connaissances aux bons personnages ; pas de relecture supplémentaire ni modification des prompts déjà enregistrés.
+- Tests ciblés ajoutés/adaptés, non exécutés conformément à la préférence utilisateur et AGENTS.md. Vérification limitée à AST Python, syntaxe Node (dont les scripts du test navigateur) et diff-check. Aucun appel LLM, rendu, donnée de projet, service ou publication GitHub déclenché. Notes et commande de tests : `docs/patch-scenes-et-reponses-2026-09-20.md`.
+
+### Next steps
+1. L’utilisateur peut lancer les tests ciblés documentés. Ne pas les lancer implicitement, ni redémarrer les services ou faire des générations de vérification.
+2. Après fin des traitements actifs, redémarrage utilisateur de PanelForge puis Ctrl+F5. Sur le brouillon bloqué par secret_id=null, utiliser « Revalider le brouillon » ; données laissées intactes pendant le patch.
+3. Essai manuel : 8 s → autre scène → retour, puis chaîne ; vérifier attente ambre et seule étape réellement active en bleu. Ajuster seulement sur constat d’un nouvel échec.
+
+## Alignement 2026-09-20 — planification visible et patch de fiabilité
+
+### Goal
+- L’utilisateur signale trois « Plan : en cours » lors de lancements manuels et demande une proposition de patch couvrant affichage, persistance des réglages et erreurs LLM. Alignement uniquement, sans code.
+
+### Current state
+- Cause confirmée : `_prepare_scene` marque `prompt_stages[stage]=running` avant d’entrer dans `composition.stream_generate`. `CoordinatedMultimodalGateway.stream` attend une réservation LOCAL_GPU, qui sérialise les appels, sans transmettre d’état d’attente à la scène. La boucle Episodes ignore ensuite les événements de progression hors troncature. Les cartes affichent donc correctement une donnée applicative trop optimiste ; ce n’est pas la preuve de trois générations simultanées.
+- Proposition : distinguer non demandé / planifié / démarrage ou exécution / terminé / erreur, avec planifié en ambre et horloge, en cours bleu, terminé coche verte gras, erreur X rouge gras, non demandé noir. Relier la tâche à sa scène et à son étape ; exploiter l’ordonnanceur et les événements structurés, pas le seul démarrage du thread ou un premier fragment de texte qui pourrait être un préfixe local. Conserver les attentes de dépendances et le chargement du modèle lisibles. Même état dans cartes, détail et bandeau Traitements. Vidéo/DLSS planifiés seulement si demandés.
+- Sauvegarde : paramètres techniques propres à la scène, indicateur discret et attente de sauvegarde avant sortie/lancement, durée du résumé basée sur le réglage de rendu. Aucun bouton global ; aucun changement du prompt ou de la durée narrative. Les essais et paramètres capturés par les traitements déjà lancés restent stables.
+- Robustesse : préciser les tableaux vides/IDs admissibles ; normalisation locale strictement non ambiguë des métadonnées absentes avec trace de réparation, sans masquer une référence réelle invalide. Pour une sortie JSON irréparable localement, proposer au plus une réparation ciblée du brouillon, jamais une boucle ou une reprise de toute l’histoire ; conserver original et diagnostics précis. Aucun appel supplémentaire systématique, plafond 80 000 inchangé. Les corrections narratives générales restent distinctes ; l’attribution « les trois feignent l’innocence » peut être ciblée dans les consignes existantes sans nouvelle relecture systématique.
+- Lecture du code et des états seulement ; continuité seule mise à jour. Aucun code, test, appel LLM, rendu ou service modifié/lancé.
+
+### Next steps
+1. Présenter trois lots ciblés (états, persistance, récupération LLM) et leur comportement concret ; attendre l’alignement avant d’implémenter.
+2. Respecter les restrictions utilisateur acquises : manuel par scène, prompts inchangés au réglage, tests exécutés par l’utilisateur et aucun redémarrage/génération implicite.
+
+## Audit 2026-09-20 — derniers runs, contraintes de durée précisées
+
+### Goal
+- Auditer les derniers traitements et conserver les corrections explicites de l’utilisateur : réglages manuels par scène, aucun bouton « appliquer à toutes », aucun changement ou appel de régénération du prompt lié à la durée de rendu. Pas d’implémentation dans ce tour.
+
+### Current state
+- Rapport `docs/diagnostics/audit-runs-2026-09-20-1752.md`, preuves dans le workspace partagé `experiments/audit-runs-2026-09-20-1752/evidence.json`, capture principale à 17:59:50 Paris. Nouvelle histoire `story-219216052b914c85a9014b5b21e173fb` : premier compose rejeté pour une expression `.replace(...)` invalide en JSON, malgré `finish_reason=stop` et 80 000 tokens disponibles ; second compose accepté, edit_outline encore en cours à la capture. Pas de scénario final à juger à ce stade.
+- Fabrication Poison `episode-165c6e56266c46aaae08063e1d0760b4` : scènes 1 et 3 réussies (MP4 ~10,13 s et 8,00 s), scène 2 en rendu à 10 s, scènes 4–6 non préparées. Six appels de préparation acceptés, ~9 min 07 cumulées. Chaîne active limitée à scène 2, auto_dlss=false. Réglage commun stocké à 8 s mais scènes héritées à 10 s ; rendu ponctuel scène 3 à 8 s avec prompt à 10 s déjà permis et signalé par l’avertissement existant.
+- Huit images clés existantes lues, métadonnées MP4 seules inspectées via FFmpeg, sans décodage complet/écoute. Dérive locale du Plan : « les trois feignent l’innocence » inclut Rose à tort. Forme optique de Rubis et baiser sur les lèvres demandés à surveiller, sans conclure à l’absence du geste à partir de captures seulement.
+- Documents et preuves d’audit seuls écrits. Aucun code, projet, prompt, test, appel de génération ou service modifié/lancé.
+- Contrôle final 18:02:59 : relecture d’arc acceptée, puis develop rejeté à 18:02:16 pour `knowledge[0].secret_id=null` alors que `secrets=[]` (event-2 et personnages valides). Gemma interprète knowledge comme « Any new realizations » malgré le contrat réservé aux secrets. Brouillon complet 7 009 caractères conservé ; workflow blocked. Quatre appels, 578,942 s cumulées, deux acceptés/deux rejetés, tous stop/80 000. Pièce `final-evidence.json` et rapport mis à jour. La scène 2 de Poison est maintenant réussie et sa chaîne completed.
+
+### Next steps
+1. Si l’utilisateur demande l’implémentation, sauvegarder les réglages techniques par scène et les reprendre au lancement sans toucher à la durée narrative ni aux prompts. Ne pas ajouter d’action globale ou de préparation automatique liée au réglage.
+2. Le nouveau run est désormais bloqué sur la validation d’un champ de continuité ; expliquer les deux erreurs et la conservation du brouillon. Ne pas relancer ou modifier les projets pendant un audit.
+
+## Alignement 2026-09-20 — conserver les réglages de chaque scène
+
+### Goal
+- L’utilisateur veut régler les scènes successivement (par exemple 8 s), retrouver ces valeurs et lancer la chaîne avec ces choix. Discussion avant implémentation.
+
+### Current state
+- Lecture seule du code applicatif : l’autosauvegarde existe dans `episodes.js`, avec attente avant navigation/lancement. En héritage commun, `saveVideo` enregistre les réglages communs, puis `effective_video_setup` réimpose `scene.duration` ; changer uniquement la durée du panneau de rendu ne change donc pas la durée canonique. Hors héritage, le rendu conserve sa durée mais `save_render_setup` ne synchronise pas `scene.duration`, utilisée pour le prompt ; `update_scene` peut ensuite réécrire la durée de rendu.
+- La chaîne capture les réglages effectifs au lancement. Des modifications ultérieures ne modifient pas cette capture. Les contrôles de durée du scénario et du rendu doivent être cohérents.
+- Proposition initiale corrigée par l’utilisateur : sauvegarde automatique durable par scène, portée scène/commun explicite, indicateur de sauvegarde, attente des sauvegardes avant navigation et lancement. La durée de rendu reste indépendante du prompt et de la durée narrative ; aucune adaptation du prompt, aucun bouton « appliquer à toutes ».
+- Aucun code applicatif, donnée de projet, test, génération ou service modifié/lancé ; continuité seule mise à jour.
+
+### Next steps
+1. Les deux restrictions utilisateur sont acquises ; ne pas coder dans le tour d’audit ni réintroduire une modification des prompts ou une action globale.
+2. Lors d’une future implémentation, préserver les choix par scène et distinguer les réglages du prochain lancement de ceux déjà capturés par une chaîne active.
+
 ## Version GitHub 2026-09-20 — Histoires longues V2
 
 ### Goal

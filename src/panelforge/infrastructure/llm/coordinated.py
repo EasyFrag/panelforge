@@ -10,6 +10,7 @@ from panelforge.application import (
     CompletionResult,
     CompletionStreamEvent,
     StreamEventKind,
+    StreamPhase,
 )
 from panelforge.domain.production import ComputeResource, ProductionWorkload
 
@@ -35,11 +36,15 @@ class CoordinatedMultimodalGateway:
 
     def stream(self, request: CompletionRequest) -> Iterator[CompletionStreamEvent]:
         owner = f"llm-{uuid4().hex}"
+        yield CompletionStreamEvent(StreamEventKind.STATUS, StreamPhase.QUEUED,
+                                    "Planifié · en attente du LLM")
         with self._coordinator.lease(
             owner, ComputeResource.LOCAL_GPU, ProductionWorkload.LLM,
             request.operation_id or "LLM",
         ):
             self._coordinator.report_stage(owner, "Génération LLM")
+            yield CompletionStreamEvent(StreamEventKind.STATUS, StreamPhase.STARTING,
+                                        "Démarrage du LLM")
             terminal_was_yielded = False
             try:
                 for event in self._delegate.stream(request):

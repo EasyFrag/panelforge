@@ -170,6 +170,8 @@ class StreamEventKind(StrEnum):
 
 
 class StreamPhase(StrEnum):
+    QUEUED = "queued"
+    STARTING = "starting"
     PREPARING = "preparing"
     LOADING = "loading"
     GENERATING = "generating"

@@ -430,6 +430,57 @@ class EpisodeTest(unittest.TestCase):
         self.assertFalse(scene["inherit_video_settings"])
         self.assertEqual(scene["effective_render_setup"]["settings"]["megapixels"], 2.2)
 
+    def test_prompt_status_waits_for_admission_and_ignores_a_local_prefix(self):
+        value = self.ready(); identity = value["episode_id"]
+        original = self.composition.stream_generate
+        observed = []
+        def stream(session, stage):
+            stage_key = "plan" if stage is CompositionStage.BEAT_SHEET else "writer"
+            for kind, phase in ((StreamEventKind.DELTA, "generating"), (StreamEventKind.STATUS, "queued"),
+                                (StreamEventKind.STATUS, "starting"), (StreamEventKind.STATUS, "generating")):
+                yield NS(kind=kind, phase=phase, text="Local prefix" if kind is StreamEventKind.DELTA else "Progress")
+                saved = self.service.store.get(identity)
+                observed.append(saved["scenes"][0]["preparations"][-1]["prompt_stages"][stage_key])
+            yield from original(session, stage)
+        self.composition.stream_generate = stream
+        result = self.service.prepare_scene(identity, "scene-1", 1, "queued-prompt")
+        self.assertEqual(observed, ["queued", "queued", "starting", "running"] * 2)
+        self.assertEqual(result["scenes"][0]["preparations"][-1]["prompt_stages"], {"plan": "ready", "writer": "ready"})
+
+    def test_failed_plan_does_not_leave_the_writer_in_the_queue(self):
+        value = self.ready()
+        def fail(_session, _stage):
+            raise ValueError("Rejected plan")
+        self.composition.stream_generate = fail
+        result = self.service.prepare_scene(value["episode_id"], "scene-1", 1, "failed-plan")
+        preparation = result["scenes"][0]["preparations"][-1]
+        self.assertEqual(preparation["status"], "failed")
+        self.assertEqual(preparation["prompt_stages"], {"plan": "failed", "writer": "pending"})
+
+    def test_render_duration_survives_scene_saves_and_is_used_without_rewriting_prompt(self):
+        value = self.ready(); identity = value["episode_id"]
+        value = self.service.prepare_scene(identity, "scene-1", 1, "prepare-original")
+        scene = value["scenes"][0]
+        original_inputs = deepcopy(scene["preparations"][0]["inputs"])
+        original_project = self.rendered[scene["preparations"][0]["render_project_id"]]
+        setup = deepcopy(scene["effective_render_setup"])
+        setup["settings"]["duration_seconds"] = 8
+        self.service.save_render_setup(identity, scene["id"], scene["render_revision"], setup)
+        value = self.service.update_scene(identity, scene["id"], scene["revision"], duration=10)
+        scene = value["scenes"][0]
+        self.assertEqual(scene["duration"], 10)
+        self.assertFalse(scene["inherit_video_settings"])
+        self.assertEqual(scene["effective_render_setup"]["settings"]["duration_seconds"], 8)
+        self.assertEqual(scene["preparations"][0]["inputs"], original_inputs)
+        self.assertFalse(scene["stale"])
+        before_calls = list(self.composition.calls)
+        result = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],
+            request_id="custom-duration", scene_ids=[scene["id"]])
+        self.assertEqual(result["video_chain"]["items"][0]["render_setup"]["settings"]["duration_seconds"], 8)
+        self.assertEqual(self.composition.calls, before_calls)
+        self.assertEqual(original_project.current_prompt, "Generated video prompt")
+        self.assertEqual(original_project.attempts[-1].settings.duration_seconds, 8)
+
     def test_video_chain_prepares_prompt_renders_and_unlocks_manual_dlss(self):
         value = self.ready(); identity = value["episode_id"]
         result = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],

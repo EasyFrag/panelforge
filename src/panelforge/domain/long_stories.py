@@ -47,9 +47,20 @@ def refs(value, allowed, label):
     return values
 
 
-def fields(value, required, label):
+def fields(value, required, label, *, path=None):
     if not isinstance(value, dict) or set(value) != set(required.split()):
-        raise ValueError(f"{label} doit contenir exactement : {required}.")
+        message = f"{label} doit contenir exactement : {required}."
+        if path:
+            message += f" Emplacement : {path}."
+            if isinstance(value, dict):
+                missing, extra = set(required.split()) - set(value), set(value) - set(required.split())
+                if missing:
+                    message += " Champs manquants : " + ", ".join(sorted(missing)) + "."
+                if extra:
+                    message += " Champs inattendus : " + ", ".join(sorted(extra)) + "."
+            else:
+                message += " Un objet JSON est attendu."
+        raise ValueError(message)
 
 
 def options(value):
@@ -214,8 +225,48 @@ def normalize_world_rules(project, rules):
     return normalized
 
 
+def normalize_event_dependencies(project, value):
+    """An editorial pass may omit, but must not implicitly erase, the saved causal graph."""
+    previous = project["document"].get("series_outline")
+    if ((project.get("job") or {}).get("operation") != "edit_outline"
+            or not isinstance(previous, dict) or not isinstance(value, dict)):
+        return value, []
+    old_units, new_units = previous.get("episodes"), value.get("episodes")
+    if not isinstance(old_units, list) or not isinstance(new_units, list) or len(old_units) != len(new_units):
+        return value, []
+    pairs, identities = [], set()
+    for old_unit, new_unit in zip(old_units, new_units):
+        if (not isinstance(old_unit, dict) or not isinstance(new_unit, dict)
+                or old_unit.get("id") != new_unit.get("id")):
+            return value, []
+        old_events, new_events = old_unit.get("events"), new_unit.get("events")
+        if not isinstance(old_events, list) or not isinstance(new_events, list) or len(old_events) != len(new_events):
+            return value, []
+        for old, new in zip(old_events, new_events):
+            if not isinstance(old, dict) or not isinstance(new, dict):
+                return value, []
+            identity = new.get("id")
+            if not isinstance(identity, str) or identity != old.get("id") or identity in identities:
+                return value, []
+            identities.add(identity)
+            pairs.append((old, new))
+    restored = {new["id"]: deepcopy(old["depends_on"]) for old, new in pairs
+                if set(new) == {"id", "trigger", "change", "evidence"}
+                and isinstance(old.get("depends_on"), list)}
+    if not restored:
+        return value, []
+    result = deepcopy(value)
+    for unit in result["episodes"]:
+        for event in unit["events"]:
+            if event["id"] in restored:
+                event["depends_on"] = restored[event["id"]]
+    return result, ["Liens de causalité repris de l’arc enregistré pour " + ", ".join(restored)
+                    + " : identifiants, séquences et ordre inchangés ; texte reçu et brouillon original conservés."]
+
+
 def validate_outline(project, value):
     fields(value, "title premise overall_arc ending characters episodes contract world_rules secrets", "Arc V2")
+    value, _normalizations = normalize_event_dependencies(project, value)
     result = {key: text(value[key], key, 6000) for key in ("title", "premise", "overall_arc", "ending")}
     fields(value["contract"], "promise protagonist_goal stakes must_keep freedoms", "Contrat")
     result["contract"] = {key: text(value["contract"][key], key) for key in ("promise", "protagonist_goal", "stakes")}
@@ -236,8 +287,9 @@ def validate_outline(project, value):
             raise ValueError("Identifiant ordonné ou type de fin invalide.")
         record = {key: text(unit[key], key) for key in unit if key != "events"}
         record["events"] = []
-        for event in items(unit["events"], "Événements", 12, 1):
-            fields(event, "id trigger change evidence depends_on", "Événement")
+        for event_index, event in enumerate(items(unit["events"], "Événements", 12, 1)):
+            fields(event, "id trigger change evidence depends_on", "Événement",
+                   path=f"series_outline.episodes[{index - 1}].events[{event_index}]")
             e = {key: text(event[key], key, 1500) for key in ("id", "trigger", "change", "evidence")}
             if e["id"] in all_events:
                 raise ValueError("Identifiant d’événement en double.")
@@ -342,12 +394,19 @@ def validate_episode(project, scenario, state):
             raise ValueError("Fait dupliqué ou sans événement source dans l’unité.")
         fact_ids.add(identity)
         parsed["facts"].append(dict(id=identity, text=text(raw["text"], "fait"), event_id=raw["event_id"]))
-    for raw in items(state["knowledge"], "Connaissances", 24):
+    for index, raw in enumerate(items(state["knowledge"], "Connaissances", 24)):
         fields(raw, "secret_id character_ids event_id", "Connaissance")
-        if raw["secret_id"] not in secrets or raw["event_id"] not in events:
-            raise ValueError("Connaissance sans secret ou événement valide.")
+        characters = refs(raw["character_ids"], canonical, "Personnages informés")
+        if not isinstance(raw["event_id"], str) or raw["event_id"] not in events:
+            raise ValueError(f"episode_state.knowledge[{index}].event_id : événement inconnu dans cette unité.")
+        if not secrets and raw["secret_id"] is None:
+            # No secret can be learned when the outline declares none. Preserve
+            # real reference errors, and leave the scenario/facts untouched.
+            continue
+        if not isinstance(raw["secret_id"], str) or raw["secret_id"] not in secrets:
+            raise ValueError(f"episode_state.knowledge[{index}].secret_id : secret absent ou inconnu dans l’arc.")
         parsed["knowledge"].append(dict(secret_id=raw["secret_id"], event_id=raw["event_id"],
-            character_ids=refs(raw["character_ids"], canonical, "Personnages informés")))
+            character_ids=characters))
     for key in ("open_threads", "resolved_threads"):
         parsed[key] = strings(state[key], key)
     return scenario, parsed

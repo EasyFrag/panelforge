@@ -19,8 +19,8 @@ class EpisodesBrowserTest(unittest.TestCase):
         overview = script.split("  function drawVideoOverview() {", 1)[1].split("  function imageRecord(", 1)[0]
         self.assertIn('Prompts ${promptReady}/${chainItems.length}', overview)
         self.assertIn(r'Vid\u00e9os ${videoDone}/${chainItems.length}', overview)
-        self.assertIn('`Plan : ${stageText[plan] || plan}`', script)
-        self.assertIn('`R\\u00e9dacteur : ${stageText[writer] || writer}`', script)
+        self.assertIn('updateStage(refs.planStatus, "Plan", plan, stageText[plan] || plan)', script)
+        self.assertIn('updateStage(refs.writerStatus, "Rédacteur", writer, stageText[writer] || writer)', script)
         self.assertIn('pauseVideoChain("after_active")', script)
         self.assertIn('pauseVideoChain("after_queue")', script)
         self.assertIn('Relancer les sc\u00e8nes incompl\u00e8tes', script)
@@ -51,7 +51,17 @@ class EpisodesBrowserTest(unittest.TestCase):
         markup = '<main id="stories-workspace"' + (STATIC / "index.html").read_text(encoding="utf8").split('<main id="stories-workspace"', 1)[1].split('</main>', 1)[0] + '</main>'
         setup = "const story=" + json.dumps(story, ensure_ascii=False) + ";let episode=" + json.dumps(episode, ensure_ascii=False) + ";"
         setup += r"""
-          const calls=[], mounts=[];let currentContext=null;
+          const calls=[], mounts=[];let currentContext=null, renderBusy=false;
+          const renderParameters=()=>{
+            const s=currentContext.render_setup;
+            return {recipe_id:s.recipe.id,recipe_version:s.recipe.version,checkpoint:s.checkpoint,
+              initial_megapixels:s.initial_megapixels,...s.settings,
+              duration_seconds:Number(document.getElementById('episoder-duration').value),
+              seed_locked:s.seed_locked,music_enabled:s.music_enabled,spectrum_enabled:s.spectrum_enabled,
+              force_upscale:s.force_upscale,bunny:s.bunny,video_loras:s.video_loras,video_lora:s.video_lora};
+          };
+          const openRender=async context=>{currentContext=context;
+            document.getElementById('episoder-duration').value=context.render_setup.settings.duration_seconds;};
           const model={comfy_name:'krea2_turbo_bf16.safetensors',resource_id:'checkpoint-1',display_name:'KREA2',category:'bf16',favorite:false};
           const model2={...model,resource_id:'checkpoint-2',comfy_name:'other.safetensors',display_name:'Other'};
           const lora={resource_id:'lora-1',comfy_name:'pastel.safetensors',display_name:'Pastel',category:'sfw_style',lora_category:'sfw_style'};
@@ -59,8 +69,8 @@ class EpisodesBrowserTest(unittest.TestCase):
           localStorage.clear();
           window.PanelForgeStories={current:()=>story};
           window.PanelForgeH3Render={mount:(prefix,event,mode,options)=>{
-            mounts.push({prefix,mode,options});return {busy:false,open:async context=>{currentContext=context;},openSetup:async context=>{currentContext=context;},
-              close:async()=>{currentContext=null;},parameters:()=>({}),refreshControls:()=>{}};}};
+            mounts.push({prefix,mode,options});return {get busy(){return renderBusy;},open:openRender,openSetup:openRender,
+              close:async()=>{currentContext=null;},parameters:renderParameters,refreshControls:()=>{}};}};
           window.PanelForgePromptRecipes={showHistory:()=>{},open:()=>{}};
           window.PanelForgeLabCore={request:async(url,options={})=>{
             calls.push({url,options});const body=options.body?JSON.parse(options.body):null;
@@ -89,14 +99,26 @@ class EpisodesBrowserTest(unittest.TestCase):
             if(url.endsWith('/project'))return {project:{attempts:[{attempt_id:'attempt-one',index:1,label:'Essai 1',
               status:'succeeded',output_asset_id:'image-candidate',accepted:false}]}};
             const sceneId=url.match(/\/scenes\/(scene-\d+)/)?.[1];
-            if(sceneId&&options.method==='PUT'){
+            if(sceneId&&options.method==='PUT'&&url.endsWith('/'+sceneId)){
               const scene=episode.scenes.find(s=>s.id===sceneId);Object.assign(scene,body);scene.revision++;scene.render_revision++;
-              scene.render_setup.settings.duration_seconds=scene.duration;return structuredClone(episode);
+              return structuredClone(episode);
             }
             if(sceneId&&url.endsWith('/prompt')){
               const scene=episode.scenes.find(s=>s.id===sceneId);scene.job={status:'succeeded'};
               scene.preparations.push({id:'prep-one',session_id:'session-one',render_project_id:'render-one',status:'ready',render_setup:structuredClone(scene.render_setup)});
               return structuredClone(episode);
+            }
+            const renderSceneId=url.match(/\/scenes\/(scene-\d+)\/render-setup$/)?.[1];
+            if(renderSceneId){
+              const scene=episode.scenes.find(s=>s.id===renderSceneId),p=body.parameters;
+              if(body.expected_revision!==scene.render_revision)throw new Error('render revision matches saved scene');
+              scene.render_setup={recipe:{id:p.recipe_id,version:p.recipe_version},checkpoint:p.checkpoint,
+                initial_megapixels:p.initial_megapixels,settings:{aspect_ratio:p.aspect_ratio,megapixels:p.megapixels,
+                  duration_seconds:p.duration_seconds,steps:p.steps,seed:p.seed},seed_locked:p.seed_locked,
+                music_enabled:p.music_enabled,spectrum_enabled:p.spectrum_enabled,force_upscale:p.force_upscale,
+                bunny:p.bunny,video_loras:p.video_loras,video_lora:p.video_lora};
+              scene.effective_render_setup=structuredClone(scene.render_setup);scene.inherit_video_settings=false;
+              return {render_revision:++scene.render_revision};
             }
             if(url.endsWith('/video-defaults')){
               episode.video_defaults={recipe:{id:body.parameters.recipe_id,version:body.parameters.recipe_version},
@@ -171,12 +193,33 @@ class EpisodesBrowserTest(unittest.TestCase):
             check(get('reference-limit').textContent==='4 / 9 images','no three-reference restriction');
             check(currentContext?.scene_id==='scene-1'&&!currentContext.project_id,'render settings open before a prompt exists');
             check(typeof mounts[0].options.onSetupRender==='function','episode renderer exposes the deferred render action');
-            const common=episode.video_defaults;
+            const queuedScene=episode.scenes[1];
+            queuedScene.job={status:'running',phase:'1/2 · Plan REF2V'};
+            queuedScene.preparations=[{id:'queued-fixture',status:'running',prompt_stages:{plan:'queued',writer:'queued'}}];
+            get('refresh').click();await settle();
+            const queuedCard=get('video-cards').querySelector('[data-scene-id="scene-2"]');
+            check(queuedCard.textContent.includes('◷ Plan : planifié'),'queued plan has a distinct visible state');
+            check(!queuedCard.classList.contains('processing'),'queued scene does not pulse as active');
+            queuedScene.preparations[0].prompt_stages.plan='running';
+            get('refresh').click();await settle();
+            check(queuedCard.textContent.includes('● Plan : en cours')&&queuedCard.classList.contains('processing'),'admitted plan becomes blue and active');
+            queuedScene.job=null;queuedScene.preparations=[];get('refresh').click();await settle();
+            const duration=document.getElementById('episoder-duration');
+            duration.value='8';duration.dispatchEvent(new Event('input',{bubbles:true}));
+            get('scene').value='scene-2';change(get('scene'));await settle();
+            check(episode.scenes[0].duration===10&&episode.scenes[0].render_setup.settings.duration_seconds===8,'render duration saved without changing narrative duration');
+            check(!calls.some(c=>c.url.endsWith('/video-defaults')),'editing a scene never writes common settings');
+            get('scene').value='scene-1';change(get('scene'));await settle();
+            check(document.getElementById('episoder-duration').value==='8','duration restored on reopening');
+            check(get('video-cards').querySelector('[data-scene-id="scene-1"]').textContent.includes('8 s'),'card shows render duration');
+            const common=episode.scenes[0].render_setup;
+            duration.dispatchEvent(new Event('input',{bubbles:true}));renderBusy=true;
             await mounts[0].options.onSetupRender({recipe_id:common.recipe.id,recipe_version:common.recipe.version,
               checkpoint:common.checkpoint,initial_megapixels:common.initial_megapixels,...common.settings,
               seed:String(common.settings.seed),seed_locked:common.seed_locked,music_enabled:common.music_enabled,
               spectrum_enabled:common.spectrum_enabled,force_upscale:common.force_upscale,bunny:common.bunny,
               video_loras:common.video_loras,video_lora:null,prompt:''},currentContext);
+            renderBusy=false;
             check(calls.some(c=>c.url.endsWith('/video-chain')&&JSON.parse(c.options.body).scene_ids[0]==='scene-1'&&JSON.parse(c.options.body).auto_dlss===false),'setup action snapshots settings and programs the selected scene without automatic DLSS');
             check(get('plan-local').checked&&get('writer-local').checked,'both models default local');
             check(get('plan-model').value.includes('Qwen')&&get('writer-model').value.includes('gemma'),'Qwen then Gemma');

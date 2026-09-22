@@ -2398,6 +2398,10 @@ class PromptCompositionService:
         elif cookbook.output_contract == MULTISHOT_DIRECT_CONTRACT and instruction is None:
             prefix = _mono_direct_context(session, composition, cookbook)
         system_prompt += _vocal_stage_policy(session, composition, cookbook, stage)
+        if stage is CompositionStage.BEAT_SHEET and cookbook.output_contract in _REF2V_PLANNED_CONTRACTS:
+            system_prompt += ("\nPreserve each character's knowledge and intent separately. "
+                "Attribute concealment, complicity and feigned reactions only to the characters who know and hide the fact. "
+                "A deceived or uninformed character does not share the others' pretense merely by appearing in the same shot.")
         request = CompletionRequest(
             model_id=session.model_id,
             system_prompt=system_prompt,

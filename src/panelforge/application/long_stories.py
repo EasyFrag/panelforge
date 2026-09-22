@@ -34,6 +34,9 @@ def request(project, package, language_policy, register_policy=""):
         context["current_outline"] = outline
         context["response_contract"] = narrative.outline_example(project)
         context["outline_entry_contracts"] = narrative.outline_entry_contracts()
+        context["outline_entry_contracts"]["events"] = {
+            "id": "ID stable de l’événement", "trigger": "Cause ou but", "change": "Changement produit",
+            "evidence": "Preuve visible ou audible", "depends_on": ["ID d’un événement antérieur"]}
         if target == "block":
             context["units_to_review"] = [{"unit_id": identity,
                 "scenario": doc["episode_scenarios"][identity], "episode_state": doc["episode_states"][identity],
@@ -65,6 +68,12 @@ def request(project, package, language_policy, register_policy=""):
         context["response_contract"] = narrative.episode_example(project)
         context["knowledge_entry_contract"] = {"secret_id": "ID d’un secret de la bible",
             "character_ids": ["ID d’un personnage qui apprend cette vérité"], "event_id": "ID de l’événement source dans cette unité"}
+        context["knowledge_constraints"] = {
+            "allowed_secret_ids": [secret["id"] for secret in outline["secrets"]],
+            "allowed_event_ids": [event["id"] for event in context["selected_unit"]["events"]],
+            "rule": "knowledge suit uniquement les secrets déclarés, pas toute prise de conscience. "
+                    "Sans secret déclaré, knowledge doit être []. Ne jamais créer une entrée avec secret_id:null.",
+        }
     if review:
         context["response_contract"] = narrative.review_example()
         context["review_target"] = target
@@ -81,6 +90,12 @@ def request(project, package, language_policy, register_policy=""):
     profile_prompt = package["profiles"].get(profile) or ("Choisis le profil adapté parmi : " + json.dumps(package["profiles"], ensure_ascii=False))
     system = "\n\n".join([package["prompts"]["common"], profile_prompt,
                               package["prompts"][stage], language_policy, register_policy])
+    system += ("\nFORMAT : uniquement du JSON, jamais d’expression de code ou de méthode comme .replace(). "
+               "Écris directement les chaînes finales. Respecte les IDs autorisés et laisse les listes facultatives vides lorsqu’elles ne s’appliquent pas.")
+    if "outline_entry_contracts" in context:
+        system += ("\nChaque événement contient exactement id, trigger, change, evidence, depends_on. "
+                   "depends_on est obligatoire même vide ([]). Lors d’une relecture, recopie les dépendances "
+                   "de current_outline tant que la causalité ne change pas ; ne les omets jamais.")
     if operation == "compose":
         resolved_example = {key: f"CHOISIR_{key.upper()}" if project["long_options"][key] == "auto" else project["long_options"][key]
                             for key in ("profile", "narration", "ending_type")}

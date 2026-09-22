@@ -154,6 +154,11 @@
     summary.setAttribute("aria-label", `Agrandir le suivi des traitements. Local ${stateLabel(local)}, serveur ${stateLabel(remote)}.`);
   }
 
+  function activityStage(activity, queued = false) {
+    return queued ? "◷ Planifié · en attente de la machine" : ({queued: "Planifié · en attente du LLM",
+      starting: "Démarrage du LLM", preparing: "Préparation de l’appel", loading: "Chargement du modèle",
+      generating: "Génération en cours"}[activity.stage] || activity.stage || "Traitement en cours");
+  }
   function activityView(activity, {queued = false} = {}) {
     const item = document.createElement("article");
     item.className = `work-queue-item${queued ? " queued" : ""}`;
@@ -164,14 +169,14 @@
     kind.textContent = labels[activity.workload] || activity.workload || "Traitement";
     title.append(strong, kind);
     const stage = document.createElement("p");
-    stage.textContent = queued ? "En attente de la machine" : activity.stage || "Traitement en cours";
+    stage.textContent = activityStage(activity, queued);
     const progress = document.createElement("progress");
     progress.max = 1;
     const value = percent(activity);
     if (value == null || queued) progress.removeAttribute("value");
     else progress.value = Math.max(0, Math.min(1, Number(activity.progress)));
     const progressLabel = document.createElement("span");
-    progressLabel.textContent = queued ? "En file" : value == null ? "Progression non mesurable" : `${value} %`;
+    progressLabel.textContent = queued ? "Planifié" : value == null ? "Progression non mesurable" : `${value} %`;
     item.append(title, stage, progress, progressLabel);
     return item;
   }
@@ -235,7 +240,7 @@
       const remaining = Number(machine?.cooldown_remaining_seconds || 0);
       operation.textContent = `${machine?.operation || "Refroidissement de la machine"}${remaining ? ` · ${remaining} s` : ""}`;
     } else if (machine?.active) {
-      operation.textContent = `${activityName(machine.active)}${machine.active.stage ? ` · ${machine.active.stage}` : ""}`;
+      operation.textContent = `${activityName(machine.active)} · ${activityStage(machine.active)}`;
     } else if (machine?.paused) {
       operation.textContent = "Les nouveaux traitements attendent la reprise.";
     } else if (tone === "unavailable") {

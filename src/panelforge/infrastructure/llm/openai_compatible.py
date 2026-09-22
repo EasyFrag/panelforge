@@ -189,7 +189,7 @@ class OpenAICompatibleGateway:
                         queue_position = new_queue_position
                         yield CompletionStreamEvent(
                             kind=StreamEventKind.STATUS,
-                            phase=StreamPhase.LOADING,
+                            phase=StreamPhase.QUEUED,
                             text=f"Position dans la file : {queue_position}",
                         )
             if reasoning and reasoning_filter is not None:

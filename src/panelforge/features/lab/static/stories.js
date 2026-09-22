@@ -359,7 +359,7 @@
     el("revalidate").disabled = busy;
     el("running").hidden = !running();
     el("retry").hidden = !["failed", "interrupted", "cancelled"].includes(project?.job?.status);
-    el("revalidate").hidden = project?.job?.status !== "failed" || !project?.job?.draft?.trim();
+    el("revalidate").hidden = project?.job?.status !== "failed" || !project?.job?.draft?.trim() || project?.job?.can_revalidate === false;
     el("concepts").querySelectorAll("button").forEach(item => { item.disabled = busy || item.dataset.selected === "true"; });
     el("series-episodes").querySelectorAll("button,input").forEach(item => { item.disabled = busy || item.dataset.locked === "true"; });
     el("scenes").querySelectorAll("button").forEach(item => { item.disabled = busy; });
@@ -505,7 +505,7 @@
       paintConcepts(doc); paintSeries(doc); paintScenario(doc.scenario); paintDiagnostics(project.diagnostics || []);
     }
     const job = project.job;
-    if (job) message(job.error || [job.phase, ...(job.normalizations || [])].filter(Boolean).join(" · "), !!job.error);
+    if (job) message(job.revalidation_error || job.error || [job.phase, ...(job.normalizations || [])].filter(Boolean).join(" · "), !!job.error);
     else message(scriptProject ? "Script enregistré. Tu peux lancer sa structuration fidèle."
       : continuationProject ? "Historique enregistré. L’Architecte peut maintenant construire la mémoire de saga et les suites."
       : "Histoire enregistrée. Tu peux maintenant demander sa création.");
