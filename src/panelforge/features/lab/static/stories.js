@@ -134,6 +134,10 @@
     el("send").textContent = guided ? "Appliquer mon retour" : "Envoyer";
     if (!guided) return;
     const flow = project.workflow;
+    const usage = project.llm_usage;
+    el("call-summary").textContent = usage
+      ? `${usage.calls} appel${usage.calls > 1 ? "s" : ""} enregistré${usage.calls > 1 ? "s" : ""} · ${Math.floor(usage.elapsed_ms / 60000)} min ${Math.round((usage.elapsed_ms % 60000) / 1000)} s cumulées · ${usage.repair_calls} récupération${usage.repair_calls > 1 ? "s" : ""}${usage.earlier_calls_unknown ? " · suivi depuis cette mise à jour" : ""}`
+      : "Les échanges antérieurs sont disponibles dans Échanges LLM.";
     if (document.activeElement !== el("active-mode")) el("active-mode").value = flow?.mode || "manual";
     const written = Object.keys(doc.episode_scenarios || {}).length > 0;
     const directionPending = flow?.status === "awaiting_author" && flow.wait_target === "outline";
@@ -356,10 +360,13 @@
       || project?.job?.feedback_target?.unit_id === "outline"
       || (project?.job?.operation === "revise" && conversationRole === "architect") ? "architect" : "writer";
     el("retry").disabled = busy || !selectedModel(retryRole);
-    el("revalidate").disabled = busy;
+    el("revalidate").disabled = busy || project?.job?.can_revalidate === false;
+    el("revalidate").title = project?.job?.can_revalidate === false
+      ? project.job.revalidation_error || "Le brouillon ne satisfait pas encore les contrôles locaux."
+      : "Appliquer la réponse déjà reçue, sans demander une nouvelle rédaction.";
     el("running").hidden = !running();
     el("retry").hidden = !["failed", "interrupted", "cancelled"].includes(project?.job?.status);
-    el("revalidate").hidden = project?.job?.status !== "failed" || !project?.job?.draft?.trim() || project?.job?.can_revalidate === false;
+    el("revalidate").hidden = project?.job?.status !== "failed" || !project?.job?.draft?.trim();
     el("concepts").querySelectorAll("button").forEach(item => { item.disabled = busy || item.dataset.selected === "true"; });
     el("series-episodes").querySelectorAll("button,input").forEach(item => { item.disabled = busy || item.dataset.locked === "true"; });
     el("scenes").querySelectorAll("button").forEach(item => { item.disabled = busy; });
@@ -505,7 +512,12 @@
       paintConcepts(doc); paintSeries(doc); paintScenario(doc.scenario); paintDiagnostics(project.diagnostics || []);
     }
     const job = project.job;
-    if (job) message(job.revalidation_error || job.error || [job.phase, ...(job.normalizations || [])].filter(Boolean).join(" · "), !!job.error);
+    paintRecovery(project);
+    paintDiagnostics(project.diagnostics || []);
+    if (job) message(longV2() && job.status === "failed" && job.draft_diagnostics?.length
+      ? (job.can_revalidate ? "Le brouillon peut être récupéré sans nouvel appel. Consulte les vérifications restantes dans le document."
+        : "Le brouillon est conservé. Les problèmes détectés sont regroupés dans le document.")
+      : job.revalidation_error || job.error || [job.phase, ...(job.normalizations || [])].filter(Boolean).join(" · "), !!job.error);
     else message(scriptProject ? "Script enregistré. Tu peux lancer sa structuration fidèle."
       : continuationProject ? "Historique enregistré. L’Architecte peut maintenant construire la mémoire de saga et les suites."
       : "Histoire enregistrée. Tu peux maintenant demander sa création.");
@@ -525,6 +537,48 @@
     }
     paintLongReview();
     controls();
+  }
+  function paintRecovery(project) {
+    const job = project.job || {}, panel = el("recovery-panel");
+    const actions = el(longV2() ? "recovery-actions" : "retry-actions");
+    if (el("revalidate").parentElement !== actions) actions.prepend(el("revalidate"));
+    const failed = job.status === "failed" && !!job.draft;
+    panel.hidden = !failed;
+    if (failed) {
+      el("recovery-title").textContent = job.can_revalidate ? "Brouillon récupérable" : "Brouillon conservé · points à résoudre";
+      el("recovery-help").textContent = job.can_revalidate
+        ? "Récupère ce texte sans nouvel appel au modèle. Les vérifications éditoriales et de durée restent à effectuer avant fabrication."
+        : "La récupération sans appel LLM est indisponible tant que les problèmes ci-dessous persistent. Le texte reçu est conservé ; relancer le LLM demande une nouvelle rédaction.";
+      const unique = [...new Map((job.draft_diagnostics || []).map(item => [`${item.code}:${item.path}`, item])).values()];
+      el("recovery-issues").replaceChildren(...unique.map(item => node("li", item.message, item.level || "warning")));
+      const preview = job.draft_preview;
+      el("readable-draft").hidden = !Array.isArray(preview?.scenes);
+      if (Array.isArray(preview?.scenes)) {
+        const names = Object.fromEntries((Array.isArray(preview.characters) ? preview.characters : []).filter(item => item && typeof item === "object").map(item => [item.id, item.name]));
+        el("readable-scenes").replaceChildren(...preview.scenes.filter(scene => scene && typeof scene === "object").map((scene, index) => {
+          const card = node("article", "", "story-scene");
+          card.append(node("strong", `${index + 1} · ${scene.title || "Scène"}`), node("p", scene.action || ""));
+          for (const line of Array.isArray(scene.dialogue) ? scene.dialogue : []) {
+            if (line && typeof line.text === "string") card.append(node("p", `${names[line.speaker_id] || line.speaker_id || "Personnage"} : ${line.text}`, "story-dialogue"));
+          }
+          card.append(node("p", scene.ending_state || "", "muted")); return card;
+        }));
+      }
+    }
+    const history = project.draft_history || [];
+    el("draft-history").hidden = !history.length;
+    if (state.draftHistoryKey !== `${project.project_id}:${history.length}`) {
+      state.draftHistoryKey = `${project.project_id}:${history.length}`;
+      el("draft-history-items").replaceChildren(...history.map((item, index) => {
+        const button = node("button", `Télécharger le brouillon ${index + 1} · ${item.operation} · ${item.status}`);
+        button.type = "button";
+        button.addEventListener("click", () => {
+          const url = URL.createObjectURL(new Blob([JSON.stringify(item, null, 2)], {type: "application/json"}));
+          const link = document.createElement("a"); link.href = url; link.download = `brouillon-${index + 1}.json`; link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }); return button;
+      }));
+    }
   }
   function paintLongReview() {
     if (!longV2() || !state.project.document.series_outline) return;
@@ -873,7 +927,7 @@
     if (action === "advance") return el("advance").click();
     if (action === "feedback") return focusFeedback(state.project.workflow.wait_target);
     const target = action === "models" ? el("model-settings")
-      : !el("revalidate").hidden ? el("revalidate") : el("retry");
+      : !el("revalidate").hidden && !el("revalidate").disabled ? el("revalidate") : el("retry");
     if (action === "models") target.open = true;
     target.scrollIntoView({behavior: "smooth", block: "center"});
     (action === "models" ? el("architect-model") : target).focus();

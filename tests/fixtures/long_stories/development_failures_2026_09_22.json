@@ -1,0 +1,219 @@
+{
+  "description": "Recorded development failures, reduced to narrative inputs. No thinking, credentials or media.",
+  "project": {
+    "project_id": "story-9ddd34b57dc549d2bc959d9c735ac0ec",
+    "title": "Jus de trahison",
+    "brief": "Un jeune homme pomme, naïf et amoureux, présente sa copine à son père, un vieux charmeur. Pendant qu’il se réjouit de les voir bien s’entendre, ils commencent à se rapprocher dans son dos. Je veux une histoire de tromperie familiale drôle et cynique, avec des dialogues très familiers, des excuses absurdes et un fils qui fait beaucoup trop confiance aux autres.",
+    "recipe": {
+      "id": "story.brainrot",
+      "version": "1.0.0"
+    },
+    "narrative_engine": {
+      "id": "story.long",
+      "version": "2.0.0"
+    },
+    "narrative_format": "long",
+    "long_options": {
+      "delivery": "continuous",
+      "ending_type": "reversal",
+      "narration": "dialogue",
+      "profile": "melodrama",
+      "unit_count": 2
+    },
+    "dialogue_language": "French",
+    "dialogue_register": 3,
+    "creation_mode": "adapt",
+    "clip_seconds": 10,
+    "scene_count": 5,
+    "visual_universe": "Pommes rouges anthropomorphes, animation 3D expressive ; médecin ananas",
+    "target_seconds": 100,
+    "document": {
+      "concepts": [],
+      "episode_formats": {
+        "episode-1": {
+          "clip_seconds": 10,
+          "scene_count": 5
+        },
+        "episode-2": {
+          "clip_seconds": 10,
+          "scene_count": 5
+        }
+      },
+      "episode_provenance": {},
+      "episode_scenarios": {},
+      "episode_states": {},
+      "reviews": {},
+      "scenario": null,
+      "selected_episode_id": "episode-1",
+      "selected_id": null,
+      "series_outline": {
+        "characters": [
+          {
+            "description": "Jeune pomme rouge à la feuille verte, sourire naïf, voix douce ; il croit dur comme fer aux belles histoires et se fait avoir par les plus gros mensonges.",
+            "id": "series-c1",
+            "name": "Pom"
+          },
+          {
+            "description": "Pomme rouge au reflet fraise, expressive et charmeuse ; elle ment avec un sourire et joue la fille parfaite pour atteindre Papa Pom.",
+            "id": "series-c2",
+            "name": "Fraise"
+          },
+          {
+            "description": "Vieille pomme rouge ridée mais luisante, voix de charmeur, regard rieur ; il séduit tout le monde et utilise son âge comme une excuse.",
+            "id": "series-c3",
+            "name": "Papa Pom"
+          },
+          {
+            "description": "Médecin ananas en blouse jaune, sourire professionnel trop doux ; il fournit des diagnostics absurdes qui servent d'alibi à la trahison.",
+            "id": "series-c4",
+            "name": "Docteur Ananas"
+          }
+        ],
+        "contract": {
+          "freedoms": [
+            "Ajouter un médecin ananas qui fournit des diagnostics absurdes and serves as complice témoin.",
+            "Donner aux personnages des noms fruités et une identité visuelle expressive in 3D.",
+            "Terminer par un retournement où la trahison est révélée comme prémeditée, without immediate punishment."
+          ],
+          "must_keep": [
+            "Un jeune homme pomme naïf et amoureux présente sa copine à son père.",
+            "Le père est un vieux charmeur.",
+            "Le fils se réjouit de les voir bien s'entendre pendant qu'ils commencent à se rapprocher dans son dos.",
+            "L'histoire est une trahison familiale drôle et cynique.",
+            "Les dialogues sont très familiers, with absurd excuses.",
+            "Le fils fait beaucoup trop confiance aux autres.",
+            "Le cadre reste des pommes rouges anthropomorphes en animation 3D expressive, avec un médecin ananas."
+          ],
+          "promise": "Un mélodrame familial fruité, drôle et cynique, where the naïveté of a son becomes the perfect weapon for an amorous trahison.",
+          "protagonist_goal": "Pom veut que son père accepte Fraise and that the three form a soudée family.",
+          "stakes": "Son amour, sa confiance, son image de famille and the risk of losing the two people he believes he loves."
+        },
+        "ending": "Pom reste seul avec son cadeau vide, tandis que Papa Pom et Fraise s'éloignent main dans la main, Docteur Ananas refermant le dossier ; la famille rêvée n'était qu'un montage.",
+        "episodes": [
+          {
+            "beats": [
+              "Fraise fait bonne impression et Papa Pom lance un jeu de séduction déguisé en familiarité.",
+              "Fraise et Papa Pom créent un langage privé de moqueries tendres pendant que Pom se réjouit.",
+              "Il invente un diagnostic absurde qui justifies qu'ils leave together."
+            ],
+            "carry_forward": "L'excuse médicale devient l'outil principal for continuing to approach behind Pom.",
+            "conflict": "La confiance de Pom masque déjà les regards complices entre Fraise et Papa Pom.",
+            "ending_state": "Pom range la cuisine seul, satisfait, after having heard the two adults s'éloigner with an absurd medical excuse.",
+            "ending_type": "open",
+            "events": [
+              {
+                "change": "Fraise fait bonne impression et Papa Pom lance un jeu de séduction déguisé en familiarité.",
+                "depends_on": [],
+                "evidence": "Pom présente Fraise ; Papa Pom la regarde longuement et dit « Wesh, t'as ramené une belle pomme ? », puis Fraise répond « Et toi t'es pas bad, mon vieux ».",
+                "id": "event-1",
+                "trigger": "Pom veut obtenir l'approbation de son père."
+              },
+              {
+                "change": "Fraise et Papa Pom créent un langage privé de moqueries tendres pendant que Pom se réjouit.",
+                "depends_on": [
+                  "event-1"
+                ],
+                "evidence": "Ils échangent des phrases très familières, « t'as la gueule de mes ex, mais sans les dettes » / « il a du jus, ton p'tit père », et partagent une gorgée de jus sans que Pom y voie du mal.",
+                "id": "event-2",
+                "trigger": "Le dîner doit paraître familial."
+              },
+              {
+                "change": "Il invente un diagnostic absurde qui justifies qu'ils leave together.",
+                "depends_on": [
+                  "event-2"
+                ],
+                "evidence": "Docteur Ananas annonce « Papa a un petit choc dans le cœur, il faut une stimulation douce au jus » ; Fraise dit « je m'en occupe, c'est du gâteau », and Pom remercie le médecin en disant « t'es une star ».",
+                "id": "event-3",
+                "trigger": "Le docteur ananas arrive for a cardiac control of Papa Pom."
+              }
+            ],
+            "id": "episode-1",
+            "local_payoff": "Papa Pom et Fraise s'échappent ensemble sous prétexte médical, sans éveiller the suspicion of Pom.",
+            "opening_state": "Pom arrive chez Papa Pom avec Fraise, nerveux mais confiant.",
+            "promise": "Pom peut-il croire que son père et sa copine deviennent une vraie famille ?",
+            "title": "Le dîner du charmeur"
+          },
+          {
+            "beats": [
+              "Il organise un brunch surprise et demande au docteur ananas de valider la santé of Papa Pom.",
+              "Ils laissent des indices que Pom interprets as proofs of family affection.",
+              "Il discovers that they have prepared their own departure, with a declaration qui officialise their liaison."
+            ],
+            "carry_forward": "Aboutissement global : la trahison familiale est révélée as cynical and prémeditated.",
+            "conflict": "Fraise and Papa Pom must hide their plan while Pom organizes an official moment.",
+            "ending_state": "Pom holds his empty gift in front of the door, while Papa Pom and Fraise s'éloignent hand in hand, Docteur Ananas refermant le dossier behind them.",
+            "ending_type": "reversal",
+            "events": [
+              {
+                "change": "Il organise un brunch surprise et demande au docteur ananas de valider la santé of Papa Pom.",
+                "depends_on": [
+                  "event-3"
+                ],
+                "evidence": "Pom dit « on fait un truc massif pour sceller tout ça » ; Docteur Ananas répond « tout est bon, mais zéro stress », and Fraise ajoute « Papa est juste en mode jus, t'inquiète pas ».",
+                "id": "event-4",
+                "trigger": "Pom veut transformer the complicité supposée in family engagement."
+              },
+              {
+                "change": "Ils laissent des indices que Pom interprets as proofs of family affection.",
+                "depends_on": [
+                  "event-4"
+                ],
+                "evidence": "Pom trouve une carte « thérapie du jus » signée Docteur Ananas et un billet pour two, but he smiles in saying « ils sont trop mignons ».",
+                "id": "event-5",
+                "trigger": "Fraise and Papa Pom continuent de se cacher sous des prétextes absurdes."
+              },
+              {
+                "change": "Il discovers that they have prepared their own departure, with a declaration qui officialise their liaison.",
+                "depends_on": [
+                  "event-5"
+                ],
+                "evidence": "Docteur Ananas lit « C'est un pacte de charme, tout est signé » ; Papa Pom dit « t'as bien joué, mon p'tit, t'étais le meilleur appât », while Fraise embrasse Pom on the forehead and leaves with Papa Pom, leaving his empty gift in his hand.",
+                "id": "event-6",
+                "trigger": "Pom ouvre the door of the room where the two adults se retrouvent for the moment officiel."
+              }
+            ],
+            "id": "episode-2",
+            "local_payoff": "Pom discovers that the « lien familial » n'était qu'un montage : les two adults part together with the blessing of Docteur Ananas.",
+            "opening_state": "Pom prépare un brunch surprise and a small family gift, convinced that the medical excuse was harmless.",
+            "promise": "La confiance de Pom va-t-elle transformer the trahison in family event ?",
+            "title": "Le piège du brunch"
+          }
+        ],
+        "overall_arc": "La première unité installe le dîner, la complicité suspecte et l'excuse médicale. La seconde unité transforme la confiance de Pom en piège : il organise un moment officiel, interprète les indices comme de la tendresse, puis découvre que la trahison était planifiée.",
+        "premise": "Un jeune pomme rouge trop tendre présente sa copine à son père charmeur ; pendant qu'il savoure l'harmonie familiale, les deux adultes préparent une trahison cynique avec des excuses absurdes.",
+        "secrets": [
+          {
+            "id": "secret-1",
+            "known_by": [
+              "series-c2",
+              "series-c3",
+              "series-c4"
+            ],
+            "reveal_episode_id": "episode-2",
+            "truth": "Papa Pom and Fraise use medical excuses to pass time together and prepare their own liaison behind Pom."
+          }
+        ],
+        "title": "Jus de trahison",
+        "world_rules": []
+      }
+    },
+    "turns": [],
+    "revisions": [],
+    "diagnostics": [],
+    "model_id": "local::fixture",
+    "writer_model_id": "local::fixture",
+    "architect_model_id": "local::fixture",
+    "job": {
+      "operation": "develop",
+      "request_id": "recorded-development-20260922",
+      "status": "failed",
+      "instruction": "",
+      "editorial_fingerprint": "fixture",
+      "recipe_revision": 2,
+      "model_role": "writer_model_id"
+    }
+  },
+  "invalid_json": "{\n  \"reply\": \"L'unité 1 est développée. J'ai mis l'accent sur le contraste entre la naïveté rayonnante de Pom et la complicité presque électrique entre Fraise et Papa Pom. Le Docteur Ananas intervient comme le catalyseur qui transforme un simple dîner en une opportunité d'évasion pour les deux charmeurs.\",\n  \"scenario\": {\n    \"title\": \"Le dîner du charmeur\",\n    \"logline\": \"Pom présente sa copine à son père, mais tandis que le fils s'émerveille de leur entente, Fraise et Papa Pom nouent une alliance secrète sous l'œil complice du Docteur Ananas.\",\n    \"characters\": [\n      {\n        \"description\": \"Jeune pomme rouge à la feuille verte, sourire naïf, voix douce ; il croit dur comme fer aux belles histoires et se fait avoir par les plus gros mensonges.\",\n        \"id\": \"series-c1\",\n        \"name\": \"Pom\"\n      },\n      {\n        \"description\": \"Pomme rouge au reflet fraise, expressive et charmeuse ; elle ment avec un sourire et joue la fille parfaite pour atteindre Papa Pom.\",\n        \"id\": \"series-c2\",\n        \"name\": \"Fraise\"\n      },\n      {\n        \"description\": \"Vieille pomme rouge ridée mais luisante, voix de charmeur, regard rieur ; il séduit tout le monde et utilise son âge comme une excuse.\",\n        \"id\": \"series-c3\",\n        \"name\": \"Papa Pom\"\n      },\n      {\n        \"description\": \"Médecin ananas en blouse jaune, sourire professionnel trop doux ; il fournit des diagnostics absurdes qui servent d'alibi à la trahison.\",\n        \"id\": \"series-c4\",\n        \"name\": \"Docteur Ananas\"\n      }\n    ],\n    \"locations\": [\n      {\n        \"id\": \"l1\",\n        \"name\": \"Le salon-cuisine de Papa Pom\",\n        \"description\": \"Un espace chaleureux et coloré, avec une grande table en bois et des meubles arrondis, typique d'un intérieur de fruit.\"\n      }\n    ],\n    \"scenes\": [\n      {\n        \"title\": \"La première étincelle\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\"\n        ],\n        \"opening_state\": \"Pom et Fraise entrent dans le salon. Papa Pom attend, debout, avec un sourire malicieux.\",\n        \"action\": \"Pom tire Fraise par la main avec enthousiasme. Papa Pom s'arrête un instant, scanne Fraise de haut en bas avec un regard brillant, puis s'approche d'elle.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Papa ! Je te présente enfin Fraise, c'est la fille dont je t'ai parlé !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"Wesh, t'as ramené une belle pomme, là !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Et toi t'es pas bad, mon vieux. T'as un sacré style.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Fraise et Papa Pom sont déjà en phase de séduction, tandis que Pom rayonne de bonheur.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"Le jeu des regards\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\"\n        ],\n        \"opening_state\": \"Ils sont installés autour de la table pour le dîner. Pom parle avec passion.\",\n        \"action\": \"Pom gesticule en racontant une anecdote. Pendant ce temps, Fraise et Papa Pom s'ignorent presque pour se concentrer l'un sur l'autre, échangeant des sourires en coin.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"C'est génial, vous vous entendez déjà super bien ! Je savais que vous alliez matcher !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"C'est vrai, il a du jus, ton p'tit père, Pom.\",\n            \"delivery\": \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"Et toi, t'as la gueule de mes ex, mais sans les dettes.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Une complicité évidente s'est installée entre les deux adultes, ignorant Pom.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"Le partage complice\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\"\n        ],\n        \"opening_state\": \"Un verre de jus frais est posé au centre de la table.\",\n        \"action\": \"Papa Pom verse un verre. Au lieu de le donner à Pom, il le tend à Fraise. Leurs doigts se frôlent. Ils boivent alternativement dans le même verre avec un regard intense.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Regardez-les ! Ils sont déjà comme des meilleurs potes, c'est trop mignon !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"C'est juste qu'on a les mêmes goûts, mon fils.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Exactement. On est sur la même longueur d'onde.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Pom est convaincu de l'harmonie familiale, alors que la tension amoureuse monte.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"Le diagnostic absurde\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"opening_state\": \"Le Docteur Ananas entre dans la pièce avec sa blouse jaune, un stéthoscope autour du cou.\",\n        \"action\": \"Le médecin pose sa main sur le front de Papa Pom, puis écoute son cœur avec un air très sérieux, presque théâtral.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c4\",\n            \"text\": \"Bon, verdict. Papa a un petit choc dans le cœur. Rien de grave, mais il faut une stimulation douce au jus.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Oh non ! Papa, ça va ? T'as besoin de quoi ?\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c4\",\n            \"text\": \"Une présence apaisante. Idéalement, quelqu'un qui sait écouter.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Le terrain est préparé pour que Papa Pom et Fraise s'isolent.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"L'évasion\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"opening_state\": \"Le groupe est toujours dans la cuisine. Papa Pom regarde Fraise avec espoir.\",\n        \"action\": \"Fraise se lève brusquement et prend le bras de Papa Pom. Le Docteur Ananas leur fait un clin d'œil. Pom reste seul, commençant à ranger la table avec un sourire béat.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Je m'en occupe, Docteur ! C'est du gâteau. Allez, viens Papa Pom, on va se soigner.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Merci Docteur Ananas, t'es une star ! Profitez bien tous les deux !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"On revient... peut-être. À plus, fiston !\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Pom range la cuisine seul, satisfait, après avoir entendu les deux adultes s'éloigner.\",\n        \"visual_transition\": null\n      }\n    ]\n  },\n  \"episode_state\": {\n    \"scene_events\": [\n      {\n        \"scene_index\": 0,\n        \"event_ids\": [\n          \"event-1\"\n        ],\n        \"evidence\": \"Pom présente Fraise ; Papa Pom la regarde longuement et dit « Wesh, t'as ramené une belle pomme ? »\",\n        \"action_seconds\": 4,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 1,\n        \"event_ids\": [\n          \"event-2\"\n        ],\n        \"evidence\": \"Fraise dit « il a du jus, ton p'tit père » et Papa Pom répond « t'as la gueule de mes ex, mais sans les dettes »\",\n        \"action_seconds\": 3,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 2,\n        \"event_ids\": [\n          \"event-2\"\n        ],\n        \"evidence\": \"Fraise et Papa Pom partagent un verre de jus avec un regard intense.\",\n        \"action_seconds\": 5,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 3,\n        \"event_ids\": [\n          \"event-3\"\n        ],\n        \"evidence\": \"Docteur Ananas annonce « Papa a un petit choc dans le cœur, il faut une stimulation douce au jus »\",\n        \"action_seconds\": 4,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 4,\n        \"event_ids\": [\n          \"event-3\"\n        ],\n        \"evidence\": \"Fraise dit « je m'en occupe » et s'en va avec Papa Pom pendant que Pom range la cuisine.\",\n        \"action_seconds\": 6,\n        \"reveals\": []\n      }\n    ],\n    \"facts\": [\n      {\n        \"id\": \"fact-1\",\n        \"text\": \"Pom a présenté Fraise à son père et l'attraction a été immédiate.\",\n        \"event_id\": \"event-1\"\n      },\n      {\n        \"id\": \"fact-2\",\n        \"text\": \"Fraise et Papa Pom partagent une complicité verbale et physique.\",\n        \"event_id\": \"event-2\"\n      },\n      {\n        \"id\": \"fact-3\",\n        \"text\": \"Docteur Ananas a diagnostiqué un choc cardiaque absurde pour justifier un tête-à-tête.\",\n        \"event_id\": \"event-3\"\n      }\n    ],\n    \"knowledge\": [\n      {\n        \"secret_id\": \"secret-1\",\n        \"character_ids\": [\n          \"series-c2\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"event_id\": \"event-3\"\n      }\n    ],\n    \"open_threads\": [\n      \"Est-ce que Pom va finir par remarquer que son père et sa copine flirtent ?\"\n    ],\n    \"resolved_threads\": []\n  }\n}",
+  "syntax_correction": "{\n  \"reply\": \"L'unité 1 est développée. J'ai mis l'accent sur le contraste entre la naïveté rayonnante de Pom et la complicité presque électrique entre Fraise et Papa Pom. Le Docteur Ananas intervient comme le catalyseur qui transforme un simple dîner en une opportunité d'évasion pour les deux charmeurs.\",\n  \"scenario\": {\n    \"title\": \"Le dîner du charmeur\",\n    \"logline\": \"Pom présente sa copine à son père, mais tandis que le fils s'émerveille de leur entente, Fraise et Papa Pom nouent une alliance secrète sous l'œil complice du Docteur Ananas.\",\n    \"characters\": [\n      {\n        \"description\": \"Jeune pomme rouge à la feuille verte, sourire naïf, voix douce ; il croit dur comme fer aux belles histoires et se fait avoir par les plus gros mensonges.\",\n        \"id\": \"series-c1\",\n        \"name\": \"Pom\"\n      },\n      {\n        \"description\": \"Pomme rouge au reflet fraise, expressive et charmeuse ; elle ment avec un sourire et joue la fille parfaite pour atteindre Papa Pom.\",\n        \"id\": \"series-c2\",\n        \"name\": \"Fraise\"\n      },\n      {\n        \"description\": \"Vieille pomme rouge ridée mais luisante, voix de charmeur, regard rieur ; il séduit tout le monde et utilise son âge comme une excuse.\",\n        \"id\": \"series-c3\",\n        \"name\": \"Papa Pom\"\n      },\n      {\n        \"description\": \"Médecin ananas en blouse jaune, sourire professionnel trop doux ; il fournit des diagnostics absurdes qui servent d'alibi à la trahison.\",\n        \"id\": \"series-c4\",\n        \"name\": \"Docteur Ananas\"\n      }\n    ],\n    \"locations\": [\n      {\n        \"id\": \"l1\",\n        \"name\": \"Le salon-cuisine de Papa Pom\",\n        \"description\": \"Un espace chaleureux et coloré, avec une grande table en bois et des meubles arrondis, typique d'un intérieur de fruit.\"\n      }\n    ],\n    \"scenes\": [\n      {\n        \"title\": \"La première étincelle\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\"\n        ],\n        \"opening_state\": \"Pom et Fraise entrent dans le salon. Papa Pom attend, debout, avec un sourire malicieux.\",\n        \"action\": \"Pom tire Fraise par la main avec enthousiasme. Papa Pom s'arrête un instant, scanne Fraise de haut en bas avec un regard brillant, puis s'approche d'elle.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Papa ! Je te présente enfin Fraise, c'est la fille dont je t'ai parlé !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"Wesh, t'as ramené une belle pomme, là !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Et toi t'es pas bad, mon vieux. T'as un sacré style.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Fraise et Papa Pom sont déjà en phase de séduction, tandis que Pom rayonne de bonheur.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"Le jeu des regards\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\"\n        ],\n        \"opening_state\": \"Ils sont installés autour de la table pour le dîner. Pom parle avec passion.\",\n        \"action\": \"Pom gesticule en racontant une anecdote. Pendant ce temps, Fraise et Papa Pom s'ignorent presque pour se concentrer l'un sur l'autre, échangeant des sourires en coin.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"C'est génial, vous vous entendez déjà super bien ! Je savais que vous alliez matcher !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"C'est vrai, il a du jus, ton p'tit père, Pom.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"Et toi, t'as la gueule de mes ex, mais sans les dettes.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Une complicité évidente s'est installée entre les deux adultes, ignorant Pom.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"Le partage complice\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\"\n        ],\n        \"opening_state\": \"Un verre de jus frais est posé au centre de la table.\",\n        \"action\": \"Papa Pom verse un verre. Au lieu de le donner à Pom, il le tend à Fraise. Leurs doigts se frôlent. Ils boivent alternativement dans le même verre avec un regard intense.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Regardez-les ! Ils sont déjà comme des meilleurs potes, c'est trop mignon !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"C'est juste qu'on a les mêmes goûts, mon fils.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Exactement. On est sur la même longueur d'onde.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Pom est convaincu de l'harmonie familiale, alors que la tension amoureuse monte.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"Le diagnostic absurde\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"opening_state\": \"Le Docteur Ananas entre dans la pièce avec sa blouse jaune, un stéthoscope autour du cou.\",\n        \"action\": \"Le médecin pose sa main sur le front de Papa Pom, puis écoute son cœur avec un air très sérieux, presque théâtral.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c4\",\n            \"text\": \"Bon, verdict. Papa a un petit choc dans le cœur. Rien de grave, mais il faut une stimulation douce au jus.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Oh non ! Papa, ça va ? T'as besoin de quoi ?\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c4\",\n            \"text\": \"Une présence apaisante. Idéalement, quelqu'un qui sait écouter.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Le terrain est préparé pour que Papa Pom et Fraise s'isolent.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"L'évasion\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"opening_state\": \"Le groupe est toujours dans la cuisine. Papa Pom regarde Fraise avec espoir.\",\n        \"action\": \"Fraise se lève brusquement et prend le bras de Papa Pom. Le Docteur Ananas leur fait un clin d'œil. Pom reste seul, commençant à ranger la table avec un sourire béat.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Je m'en occupe, Docteur ! C'est du gâteau. Allez, viens Papa Pom, on va se soigner.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Merci Docteur Ananas, t'es une star ! Profitez bien tous les deux !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"On revient... peut-être. À plus, fiston !\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Pom range la cuisine seul, satisfait, après avoir entendu les deux adultes s'éloigner.\",\n        \"visual_transition\": null\n      }\n    ]\n  },\n  \"episode_state\": {\n    \"scene_events\": [\n      {\n        \"scene_index\": 0,\n        \"event_ids\": [\n          \"event-1\"\n        ],\n        \"evidence\": \"Pom présente Fraise ; Papa Pom la regarde longuement et dit « Wesh, t'as ramené une belle pomme ? »\",\n        \"action_seconds\": 4,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 1,\n        \"event_ids\": [\n          \"event-2\"\n        ],\n        \"evidence\": \"Fraise dit « il a du jus, ton p'tit père » et Papa Pom répond « t'as la gueule de mes ex, mais sans les dettes »\",\n        \"action_seconds\": 3,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 2,\n        \"event_ids\": [\n          \"event-2\"\n        ],\n        \"evidence\": \"Fraise et Papa Pom partagent un verre de jus avec un regard intense.\",\n        \"action_seconds\": 5,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 3,\n        \"event_ids\": [\n          \"event-3\"\n        ],\n        \"evidence\": \"Docteur Ananas annonce « Papa a un petit choc dans le cœur, il faut une stimulation douce au jus »\",\n        \"action_seconds\": 4,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 4,\n        \"event_ids\": [\n          \"event-3\"\n        ],\n        \"evidence\": \"Fraise dit « je m'en occupe » et s'en va avec Papa Pom pendant que Pom range la cuisine.\",\n        \"action_seconds\": 6,\n        \"reveals\": []\n      }\n    ],\n    \"facts\": [\n      {\n        \"id\": \"fact-1\",\n        \"text\": \"Pom a présenté Fraise à son père et l'attraction a été immédiate.\",\n        \"event_id\": \"event-1\"\n      },\n      {\n        \"id\": \"fact-2\",\n        \"text\": \"Fraise et Papa Pom partagent une complicité verbale et physique.\",\n        \"event_id\": \"event-2\"\n      },\n      {\n        \"id\": \"fact-3\",\n        \"text\": \"Docteur Ananas a diagnostiqué un choc cardiaque absurde pour justifier un tête-à-tête.\",\n        \"event_id\": \"event-3\"\n      }\n    ],\n    \"knowledge\": [\n      {\n        \"secret_id\": \"secret-1\",\n        \"character_ids\": [\n          \"series-c2\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"event_id\": \"event-3\"\n      }\n    ],\n    \"open_threads\": [\n      \"Est-ce que Pom va finir par remarquer que son père et sa copine flirtent ?\"\n    ],\n    \"resolved_threads\": []\n  }\n}",
+  "reaction_draft": "{\n  \"reply\": \"L'unité 'Le dîner du charmeur' a été développée. J'ai mis l'accent sur le contraste entre la naïveté béate de Pom et le jeu de séduction cynique entre Papa Pom et Fraise. Le Docteur Ananas intervient comme le catalyseur absurde pour justifier leur départ. Le registre des dialogues est volontairement familier et cru pour accentuer l'aspect comique et déséquilibré de la situation.\",\n  \"scenario\": {\n    \"title\": \"Le dîner du charmeur\",\n    \"logline\": \"Un jeune pomme naïf présente sa copine à son père, sans voir que les deux s'allient pour le tromper avec l'aide d'un médecin ananas.\",\n    \"characters\": [\n      {\n        \"description\": \"Jeune pomme rouge à la feuille verte, sourire naïf, voix douce ; il croit dur comme fer aux belles histoires et se fait avoir par les plus gros mensonges.\",\n        \"id\": \"series-c1\",\n        \"name\": \"Pom\"\n      },\n      {\n        \"description\": \"Pomme rouge au reflet fraise, expressive et charmeuse ; elle ment avec un sourire et joue la fille parfaite pour atteindre Papa Pom.\",\n        \"id\": \"series-c2\",\n        \"name\": \"Fraise\"\n      },\n      {\n        \"description\": \"Vieille pomme rouge ridée mais luisante, voix de charmeur, regard rieur ; il séduit tout le monde et utilise son âge comme une excuse.\",\n        \"id\": \"series-c3\",\n        \"name\": \"Papa Pom\"\n      },\n      {\n        \"description\": \"Médecin ananas en blouse jaune, sourire professionnel trop doux ; il fournit des diagnostics absurdes qui servent d'alibi à la trahison.\",\n        \"id\": \"series-c4\",\n        \"name\": \"Docteur Ananas\"\n      }\n    ],\n    \"locations\": [\n      {\n        \"id\": \"l1\",\n        \"name\": \"Maison de Papa Pom\",\n        \"description\": \"Intérieur chaleureux, déco un peu datée, avec une grande table à manger et un salon cosy.\"\n      }\n    ],\n    \"scenes\": [\n      {\n        \"title\": \"La première rencontre\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\"\n        ],\n        \"opening_state\": \"Pom et Fraise sont sur le pas de la porte. Pom tremble d'excitation.\",\n        \"action\": \"Pom ouvre la porte avec enthousiasme. Papa Pom apparaît, s'appuie contre le chambranle et dévisage Fraise avec un sourire en coin. Fraise répond par un clin d'œil audacieux.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Papa ! Je te présente Fraise, ma chérie !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"Wesh, t'as ramené une belle pomme, toi. On est bien là.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Et toi t'es pas bad, mon vieux. On m'avait dit que t'avais encore du peps.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"L'attraction immédiate entre Papa Pom et Fraise est établie, Pom est ravi.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"Le dîner complice\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\"\n        ],\n        \"opening_state\": \"Les trois sont assis autour de la table, des verres de jus sont servis.\",\n        \"action\": \"Pom parle avec passion de son amour pour Fraise, mais ne regarde pas les deux autres. Papa Pom et Fraise se fixent intensément. Ils se passent un verre de jus, leurs doigts se frôlent longuement.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"T'as la gueule de mes ex, petite. Mais sans les dettes, ça c'est le bonus.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Laisse tomber, il a du jus, ton p'tit père, Pom. C'est du vintage !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Je savais que vous alliez vous kiffer ! C'est trop beau !\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Un langage privé de séduction s'est installé entre les deux adultes.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"Le diagnostic absurde\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"opening_state\": \"On sonne à la porte. Le Docteur Ananas entre, sa mallette à la main.\",\n        \"action\": \"Le Docteur Ananas pose un stéthoscope sur le torse de Papa Pom. Il échange un regard entendu avec Fraise. Il prend un air grave, presque théâtral.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c4\",\n            \"text\": \"Alors, on a un petit choc dans le cœur, là. C'est critique. Faut une stimulation douce au jus, direct, sans attendre.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"Quoi ? Mais Papa va bien ! T'es sûr, Doc ?\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c4\",\n            \"text\": \"T'inquiète, gamin. Je gère. Mais faut agir vite.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Le mensonge médical est posé comme une vérité absolue pour Pom.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"L'évasion\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\",\n          \"series-c2\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"opening_state\": \"Papa Pom simule un léger malaise, s'appuyant sur la table.\",\n        \"action\": \"Fraise se lève d'un bond, attrape le bras de Papa Pom avec une vigueur suspecte. Le Docteur Ananas les pousse doucement vers la sortie en faisant signe à Pom de rester.\",\n        \"dialogue\": [\n          {\n            \"speaker_id\": \"series-c2\",\n            \"text\": \"Je m'en occupe, c'est du gâteau. Je vais l'aider à se reposer dans le calme.\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c1\",\n            \"text\": \"T'es une star, Docteur ! Merci de sauver mon père !\",\n            \"delivery\": \"spoken\"\n          },\n          {\n            \"speaker_id\": \"series-c3\",\n            \"text\": \"Allez, on y va... j'ai besoin de... soins intensifs.\",\n            \"delivery\": \"spoken\"\n          }\n        ],\n        \"ending_state\": \"Papa Pom et Fraise quittent la pièce ensemble.\",\n        \"visual_transition\": null\n      },\n      {\n        \"title\": \"La solitude heureuse\",\n        \"location_id\": \"l1\",\n        \"character_ids\": [\n          \"series-c1\"\n        ],\n        \"opening_state\": \"Pom est seul dans la cuisine, le silence est revenu.\",\n        \"action\": \"Pom range les verres avec un sourire idiot. Il fredonne un air joyeux, convaincu que sa famille est enfin réunie et harmonieuse.\",\n        \"dialogue\": [],\n        \"ending_state\": \"Pom est seul, satisfait et totalement dupé.\",\n        \"visual_transition\": null\n      }\n    ]\n  },\n  \"episode_state\": {\n    \"scene_events\": [\n      {\n        \"scene_index\": 0,\n        \"event_ids\": [\n          \"event-1\"\n        ],\n        \"evidence\": \"Papa Pom regarde Fraise et dit : « Wesh, t'as ramené une belle pomme ? »\",\n        \"action_seconds\": 4,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 1,\n        \"event_ids\": [\n          \"event-2\"\n        ],\n        \"evidence\": \"Papa Pom et Fraise échangent des phrases familières et se frôlent en prenant du jus.\",\n        \"action_seconds\": 6,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 2,\n        \"event_ids\": [\n          \"event-3\"\n        ],\n        \"evidence\": \"Docteur Ananas annonce un « choc dans le cœur » nécessitant une « stimulation douce au jus ».\",\n        \"action_seconds\": 5,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 3,\n        \"event_ids\": [\n          \"event-3\"\n        ],\n        \"evidence\": \"Fraise emmène Papa Pom sous prétexte de s'occuper de sa santé.\",\n        \"action_seconds\": 4,\n        \"reveals\": []\n      },\n      {\n        \"scene_index\": 4,\n        \"event_ids\": [],\n        \"evidence\": \"Pom range la cuisine seul, heureux.\",\n        \"action_seconds\": 8,\n        \"reveals\": []\n      }\n    ],\n    \"facts\": [\n      {\n        \"id\": \"fact-1\",\n        \"text\": \"Papa Pom et Fraise ont eu un coup de foudre immédiat et cynique.\",\n        \"event_id\": \"event-1\"\n      },\n      {\n        \"id\": \"fact-2\",\n        \"text\": \"Fraise et Papa Pom flirtent ouvertement dès que Pom ne regarde pas.\",\n        \"event_id\": \"event-2\"\n      },\n      {\n        \"id\": \"fact-3\",\n        \"text\": \"Le Docteur Ananas a inventé un diagnostic cardiaque pour permettre à Papa Pom et Fraise de s'isoler.\",\n        \"event_id\": \"event-3\"\n      }\n    ],\n    \"knowledge\": [\n      {\n        \"secret_id\": \"secret-1\",\n        \"character_ids\": [\n          \"series-c2\",\n          \"series-c3\",\n          \"series-c4\"\n        ],\n        \"event_id\": \"event-3\"\n      }\n    ],\n    \"open_threads\": [\n      \"Combien de temps Pom pourra-t-il croire à l'excuse médicale ?\"\n    ],\n    \"resolved_threads\": []\n  }\n}"
+}

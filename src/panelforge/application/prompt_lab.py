@@ -128,8 +128,11 @@ class CompletionRequest:
     operation_id: str = "unspecified"
     include_reasoning: bool = False
     trace_context: dict | None = None
+    output_schema: dict | None = None
 
     def __post_init__(self) -> None:
+        if self.output_schema is not None and not isinstance(self.output_schema, dict):
+            raise TypeError("output_schema must be an object or None")
         if not isinstance(self.include_reasoning, bool):
             raise TypeError("include_reasoning must be a boolean")
         if self.max_tokens is not None:

@@ -3,13 +3,14 @@ from copy import deepcopy
 from uuid import uuid4
 
 from panelforge.domain import long_stories as narrative
+from panelforge.domain.story_diagnostics import project_quality
 
 
 def new_workflow(mode):
     if mode not in {"automatic", "manual"}:
         raise ValueError("Choisissez Automatique ou Manuel guidé.")
     return dict(mode=mode, status="paused", message="Prêt à imaginer l’histoire.", approvals={},
-                repairs={}, calls=0, wait_target=None, pause_requested=False)
+                repairs={}, calls=0, budget_calls=0, wait_target=None, pause_requested=False)
 
 
 class StoryWorkflow:
@@ -34,7 +35,9 @@ class StoryWorkflow:
             if flow.get("wait_target") and flow["status"] == "awaiting_author":
                 target = flow["wait_target"]
                 flow["approvals"][target] = narrative.source_hash(project, target)
-            flow.update(status="running", pause_requested=False, wait_target=None, calls=0)
+            if flow.get("status") == "blocked" and flow.get("budget_calls", flow["calls"]) >= 4 * project["long_options"]["unit_count"] + 8:
+                flow["budget_calls"] = 0  # Explicit author continuation opens a new bounded budget.
+            flow.update(status="running", pause_requested=False, wait_target=None)
             # Repair allowances persist across resume: continuing must not create an unbounded loop.
             project = self.service.store.save(project)
             return self.tick(project)
@@ -60,12 +63,11 @@ class StoryWorkflow:
 
     def _call(self, project, operation, *, target=None, block=None):
         doc, flow = project["document"], project["workflow"]
-        if flow["calls"] >= 4 * project["long_options"]["unit_count"] + 8:
+        if flow.get("budget_calls", flow["calls"]) >= 4 * project["long_options"]["unit_count"] + 8:
             return self._stop(project, "blocked", "La limite de travail automatique est atteinte. Les textes sont conservés.")
         if target:
             doc["selected_episode_id"] = target
             doc["scenario"] = deepcopy(doc["episode_scenarios"].get(target))
-        flow["calls"] += 1
         labels = {"compose": "Invention de l’histoire et de sa progression…", "edit_outline": "Vérification et ajustement de l’histoire…",
                   "develop": "Rédaction de la séquence…", "review_block": "Vérification des scènes et de leurs raccords…",
                   "repair_episode": "Correction ciblée de la séquence…"}
@@ -94,6 +96,9 @@ class StoryWorkflow:
         if not narrative.review_current(project, "outline"):
             return self._call(project, "edit_outline")
         if not narrative.review_clear(project, "outline"):
+            if flow["repairs"].get("outline", 0) < 1:
+                flow["repairs"]["outline"] = 1
+                return self._call(project, "edit_outline")
             return self._stop(project, "blocked", "Un choix reste à préciser dans l’histoire. Écris ton retour sur l’histoire complète.", "outline")
         if flow["mode"] == "manual" and flow["approvals"].get("outline") != narrative.source_hash(project, "outline"):
             return self._stop(project, "awaiting_author", "L’histoire est prête à discuter. Valide sa direction pour développer les scènes.", "outline")
@@ -108,6 +113,12 @@ class StoryWorkflow:
                 if pending and flow["mode"] == "manual":
                     return self._call(project, "review_block", block=pending)
                 return self._call(project, "develop", target=identity)
+            if (not narrative.review_current(project, identity) and
+                    any(item["level"] == "blocking" for item in project_quality(project, identity))):
+                # A proven local budget problem does not need a model call to be discovered.
+                # It blocks approval and triggers the existing single correction allowance.
+                doc.setdefault("reviews", {})[identity] = narrative.validate_review(project,
+                    {"summary": "Contrôle local de faisabilité ; relecture éditoriale encore nécessaire.", "issues": []}, identity)
             if not narrative.review_current(project, identity):
                 pending.append(identity)
                 if len(pending) >= block_size:
@@ -151,7 +162,7 @@ class StoryWorkflow:
             elif scene_index is not None:
                 raise ValueError("Une scène doit être rattachée à sa séquence.")
             flow = project.setdefault("workflow", new_workflow("manual"))
-            flow.update(mode="manual", status="paused" if question else "running", pause_requested=False, calls=0, wait_target=None)
+            flow.update(mode="manual", status="paused" if question else "running", pause_requested=False, budget_calls=0, wait_target=None)
             if not question:
                 flow["repairs"].pop(unit_id, None)
             feedback_target = dict(unit_id=unit_id, scene_index=scene_index,

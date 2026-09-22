@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from panelforge.application.prompt_lab import CompletionResult, CompletionStreamEvent, StreamEventKind, StreamPhase
 from panelforge.application.stories import StoryService
 from panelforge.domain import long_stories as narrative
+from panelforge.domain.story_contracts import VERSION, wire_scene
 from panelforge.features.lab.stories_web import stories_router
 from panelforge.infrastructure.long_story_recipes import LongStoryRecipes
 from panelforge.infrastructure.storage.stories import LocalStoryStore, LocalStoryRecipeStore
@@ -30,6 +31,7 @@ class WorkflowGateway:
         self.mutate_discussion = False
         self.fail_operation = None
         self.responses = []
+        self.overlong = False
 
     def stream(self, request):
         self.requests.append(request)
@@ -48,9 +50,7 @@ class WorkflowGateway:
                 unit["ending_type"] = "open"
             result["series_outline"]["episodes"][-1]["ending_type"] = result["resolved_options"]["ending_type"]
         elif op == "edit_outline":
-            result["series_outline"] = deepcopy(c["current_outline"])
-            for unit in result["series_outline"]["episodes"]:
-                unit.pop("beats", None)
+            result["edits"] = []
             result["review"] = {"summary": "Arc cohérent.", "issues": []}
         elif op == "review_block":
             result["reviews"] = [{"unit_id": unit["unit_id"], "summary": "Raccord examiné.",
@@ -60,11 +60,23 @@ class WorkflowGateway:
         elif op == "discuss":
             result = {"reply": "La scène prépare le refus.", "discussion_only": not self.mutate_discussion}
         else:
+            if op == "develop" and self.overlong:
+                for scene in result["scenario"]["scenes"]:
+                    scene["dialogue"] = [dict(speaker_id=scene["character_ids"][0],
+                        text=" ".join(["Pourquoi"] * 60), delivery="spoken")]
             if op in {"revise", "repair_episode"} and c.get("current_scenario"):
-                result["scenario"] = deepcopy(c["current_scenario"])
-                result["episode_state"] = deepcopy(c["current_episode_state"])
                 index = (c.get("feedback_target") or {}).get("scene_index") or 0
-                result["scenario"]["scenes"][index]["action"] += " Le refus est explicite."
+                if "scene_edits" in result:
+                    result["scene_edits"][0]["scene"]["action"] += " Le refus est explicite."
+                    if self.overlong:
+                        result["scene_edits"][0]["scene"]["dialogue"] = []
+                else:
+                    result["scenario"] = deepcopy(c["current_scenario"])
+                    result["scenario"].pop("characters", None)
+                    result["scenario"]["scenes"] = [wire_scene(scene, c["current_episode_state"]["scene_events"][i])
+                        for i, scene in enumerate(result["scenario"]["scenes"])]
+                    result["episode_state"] = {k: deepcopy(v) for k, v in c["current_episode_state"].items() if k != "scene_events"}
+                    result["scenario"]["scenes"][index]["action"] += " Le refus est explicite."
             if self.nested:
                 result["scenario"]["episode_state"] = result.pop("episode_state")
         self.responses.append(deepcopy(result))
@@ -114,6 +126,18 @@ class StoryWorkflowTest(unittest.TestCase):
         self.assertEqual(budget["max_seconds_total"], 120)
         self.assertEqual(budget["scope"], "per_unit")
         self.assertEqual(json.loads(self.gateway.requests[0].user_prompt)["target_seconds_total"], 80)
+        self.assertEqual(project["llm_usage"]["calls"], 5)
+        self.assertEqual(project["workflow"]["calls"], 5)
+        self.assertEqual(len(project["draft_history"]), 4)
+        self.assertTrue(all(entry["status"] == "accepted" for entry in project["llm_attempts"]))
+
+    def test_local_duration_problem_is_corrected_before_paying_for_editorial_review(self):
+        self.gateway.overlong = True
+        project = self.advance(self.create(count=1))
+        self.assertEqual(project["workflow"]["status"], "ready", project["job"].get("error"))
+        operations = [r.operation_id.split('.')[2].split('@')[0] for r in self.gateway.requests]
+        self.assertEqual(operations, ["compose", "edit_outline", "develop", "repair_episode", "review_block"])
+        self.assertTrue(project["long_status"]["fabrication_ready"])
 
     def test_manual_pauses_for_direction_and_each_sequence(self):
         project = self.advance(self.create("manual"))
@@ -128,6 +152,8 @@ class StoryWorkflowTest(unittest.TestCase):
         project = self.advance(project)
         self.assertEqual(project["workflow"]["status"], "ready")
         self.assertEqual(len(self.gateway.requests), calls)
+        self.assertEqual(project["llm_usage"]["calls"], calls)
+        self.assertEqual(project["workflow"]["calls"], calls)
 
     def test_pause_finishes_active_call_and_does_not_start_another(self):
         project = self.create()
@@ -151,7 +177,7 @@ class StoryWorkflowTest(unittest.TestCase):
         project = self.service.store.save(project)
         calls = len(self.gateway.requests)
         project = self.advance(project)
-        self.assertEqual([r.operation_id for r in self.gateway.requests[calls:]], ["story.long.review_block@2.0.0"])
+        self.assertEqual([r.operation_id for r in self.gateway.requests[calls:]], [f"story.long.review_block@{VERSION}"])
         self.assertEqual(project["document"]["scenario"], before)
         self.assertTrue(project["long_status"]["fabrication_ready"])
         self.assertEqual(project["workflow"]["wait_target"], "episode-1")

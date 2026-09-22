@@ -22,5 +22,5 @@ class LongStoryRecipes:
             if path.parent != self.root.resolve():
                 raise ValueError("Source éditoriale hors de la recette.")
             prompts[key] = path.read_text(encoding="utf-8")
-        return {"revision": 1, "engine": ENGINE.copy(), "prompts": prompts,
+        return {"revision": 2, "engine": ENGINE.copy(), "prompts": prompts,
                 "profiles": manifest["profiles"], "fingerprint": fingerprint([manifest, prompts])}

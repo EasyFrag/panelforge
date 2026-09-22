@@ -3,6 +3,8 @@ from copy import deepcopy
 import json
 
 from panelforge.domain import long_stories as narrative
+from panelforge.domain import story_contracts as contracts
+from panelforge.domain.story_diagnostics import project_quality
 from panelforge.domain.stories import response_contract, story_recipe_spec
 from .prompt_lab import CompletionRequest
 
@@ -11,7 +13,8 @@ def request(project, package, language_policy, register_policy=""):
     doc, operation = project["document"], project["job"]["operation"]
     target = narrative.scope(project)
     review = operation.startswith("review_")
-    stage = "review" if review else "ideas" if target == "ideas" else "outline" if target == "outline" else "write"
+    stage = "review" if review or operation == "edit_outline" else "ideas" if target == "ideas" else "outline" if target == "outline" else "write"
+    structured = project["job"].get("response_contract_version") == contracts.VERSION
     family = story_recipe_spec(project["recipe"]["id"], project["recipe"]["version"])
     context = {"operation": operation, "brief": project["brief"], "creation_mode": project["creation_mode"],
         "long_options": project["long_options"], "visual_family": family,
@@ -31,7 +34,10 @@ def request(project, package, language_policy, register_policy=""):
                                                          project["recipe"]["version"])
         context["previous_pitches"] = [{"title": c["title"], "hook": c["hook"]} for c in doc["concepts"]]
     elif target in {"outline", "block"}:
-        context["current_outline"] = outline
+        context["current_outline"] = deepcopy(outline)
+        if context["current_outline"]:
+            for unit in context["current_outline"]["episodes"]:
+                unit.pop("beats", None)
         context["response_contract"] = narrative.outline_example(project)
         context["outline_entry_contracts"] = narrative.outline_entry_contracts()
         context["outline_entry_contracts"]["events"] = {
@@ -74,6 +80,13 @@ def request(project, package, language_policy, register_policy=""):
             "rule": "knowledge suit uniquement les secrets déclarés, pas toute prise de conscience. "
                     "Sans secret déclaré, knowledge doit être []. Ne jamais créer une entrée avec secret_id:null.",
         }
+        seconds = fmt["clip_seconds"]
+        context["speech_budget"] = {"clip_seconds": seconds, "words_per_second_estimate": 2.4,
+            "example": f"Avec 3 secondes de gestes non simultanés, viser au plus {max(0, int((seconds - 3) * 2.4))} mots au total dans le clip, tous locuteurs réunis.",
+            "rule": "Réserver aussi les réactions. Si nécessaire, raccourcir les paroles ou répartir dans la limite du nombre de clips. Ce budget est une estimation, pas un quota à remplir."}
+    if outline and target != "ideas":
+        context["local_diagnostics"] = ({identity: project_quality(project, identity) for identity in project["job"].get("review_unit_ids", [])}
+            if target == "block" else project_quality(project, target))
     if review:
         context["response_contract"] = narrative.review_example()
         context["review_target"] = target
@@ -93,7 +106,7 @@ def request(project, package, language_policy, register_policy=""):
     system += ("\nFORMAT : uniquement du JSON, jamais d’expression de code ou de méthode comme .replace(). "
                "Écris directement les chaînes finales. Respecte les IDs autorisés et laisse les listes facultatives vides lorsqu’elles ne s’appliquent pas.")
     if "outline_entry_contracts" in context:
-        system += ("\nChaque événement contient exactement id, trigger, change, evidence, depends_on. "
+        system += ("\nLes entrées d’arc suivent outline_entry_contracts. Chaque événement contient exactement id, trigger, change, evidence, depends_on. "
                    "depends_on est obligatoire même vide ([]). Lors d’une relecture, recopie les dépendances "
                    "de current_outline tant que la causalité ne change pas ; ne les omets jamais.")
     if operation == "compose":
@@ -113,13 +126,17 @@ def request(project, package, language_policy, register_policy=""):
     elif operation == "edit_outline":
         context["response_contract"]["review"] = narrative.review_example()["review"]
         context["allowed_review_targets"] = sorted(narrative.review_targets(project, "outline"))
-        system += "\n" + package["prompts"]["review"]
         system += ("\nÉDITION EN UNE PASSE : examine l'arc puis corrige directement les petits défauts locaux. "
-                   "Renvoie reply, series_outline corrigé complet et review portant sur CE RÉSULTAT. "
+                   + ("Renvoie les edits ciblés sur allowed_edit_paths, base_hash, reply et review portant sur le résultat après ces changements. "
+                      "Chaque edit contient path et value (la valeur complète du champ). Une liste vide signifie aucun changement. "
+                      "Conserve tout champ non ciblé ; ne modifie pas la causalité sans ajuster ses dépendances. " if structured else
+                      "Renvoie reply, series_outline corrigé complet et review portant sur CE RÉSULTAT. ") +
                    "Les issues ne listent que les problèmes encore présents, jamais ceux que tu viens de corriger. "
                    "N'invente pas une modification pour justifier ton rôle. Préserve les IDs, le brief, les options et les événements déjà rédigés. "
                    "Un choix majeur incompatible avec l'intention reste une remarque blocking. Résume les changements dans reply. "
                    "N'étends pas la mythologie pour résoudre un problème qui peut être clarifié par un geste ou une parole.")
+        if structured:
+            context["allowed_edit_paths"] = sorted(contracts.outline_edit_targets(project))
     elif operation == "review_block":
         system += ("\nRelis ensemble units_to_review et leurs raccords. Renvoie reply et reviews, une entrée par unit_id demandé. "
                    "Une remarque scene-N se rapporte à la séquence de son entrée. N'écris aucun scénario dans cette réponse.")
@@ -135,11 +152,28 @@ def request(project, package, language_policy, register_policy=""):
         system += "\nFamille muette : dialogue reste vide dans chaque scène."
     if project["recipe"]["id"] == "story.brainrot" and not context["visual_universe"]:
         system += "\nPar défaut : fruits anthropomorphes, noms fruités inventés en un mot, espèce visuelle explicite. Préserve les noms et identités explicitement imposés par le brief. Aucun quota de répliques."
+    schema = contracts.response_schema(project) if structured else None
+    if structured:
+        context["contract_version"] = contracts.VERSION
+        context["response_contract"] = contracts.wire_example(project, context["response_contract"])
+        context["response_schema"] = schema
+        if target not in {"outline", "block", "ideas"} and not review and operation != "discuss":
+            system += ("\nCONTRAT D’ÉCRITURE : chaque scène porte narrative avec purpose (progression, reaction ou transition), "
+                "event_ids, anchor_scene_index, evidence, action_seconds, reveals et hints. Les indices publics hints ne sont pas une confirmation reveals "
+                "et ne donnent aucun savoir au héros. Une progression doit servir un événement. Une réaction ou transition sans nouvel événement "
+                "doit viser une scène antérieure par anchor_scene_index (index à partir de zéro). "
+                "Ne recopie ni characters dans scenario ni scene_events dans episode_state : l’application les assemble. "
+                "Suis speech_budget ; une phrase naturelle courte et une réaction valent mieux que trois longues répliques.")
+        if "scene_edits" in context["response_contract"]:
+            system += ("\nCORRECTION LOCALE : renvoie uniquement les scènes changées dans scene_edits, avec leur scene_index et leur scène complète. "
+                "Les autres scènes et décors sont conservés automatiquement. episode_state actualise seulement les faits et connaissances effectivement joués. "
+                "Reprends base_hash exactement. N’invente pas une correction de contenu lorsqu’une métadonnée suffit.")
     return CompletionRequest(model_id=project["model_id"], system_prompt=system,
         # Reasoning and the final JSON share the same output budget.
         user_prompt=json.dumps(context, ensure_ascii=False), max_tokens=80_000,
-        temperature=.3 if review else .75 if stage == "ideas" else .6, include_reasoning=True,
-        operation_id=f"story.long.{operation}@2.0.0",
+        temperature=.3 if review or operation == "edit_outline" else .75 if stage == "ideas" else .6, include_reasoning=True,
+        output_schema=schema,
+        operation_id=f"story.long.{operation}@{contracts.VERSION if structured else '2.0.0'}",
         trace_context=dict(project_id=project["project_id"], stage=f"story_long_{operation}",
             cookbook_id="story.long", cookbook_version="2.0.0", recipe_revision=package["revision"],
             turn_id=project["job"]["request_id"]))

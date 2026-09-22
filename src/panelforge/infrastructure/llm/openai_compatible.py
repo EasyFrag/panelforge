@@ -6,7 +6,7 @@ import base64
 from collections.abc import Iterator
 import re
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 from panelforge.application import (
     CompletionRequest,
@@ -40,6 +40,7 @@ class OpenAICompatibleGateway:
         maximum_output_tokens: int | None = None,
         maximum_images: int | None = None,
         source_label: str = "OpenAI-compatible server",
+        structured_output: str = "off",
         client=None,
     ) -> None:
         if not isinstance(base_url, str) or not base_url.strip():
@@ -67,12 +68,32 @@ class OpenAICompatibleGateway:
         self._maximum_output_tokens = maximum_output_tokens
         self._maximum_images = maximum_images
         self._source_label = source_label.strip()
+        if structured_output not in {"off", "json_schema"}:
+            raise ValueError("structured_output must be off or json_schema")
+        self._structured_output = structured_output
         self._client = client or OpenAI(
             base_url=base_url.rstrip("/") + "/",
             api_key=api_key,
             timeout=timeout,
             max_retries=0,
         )
+
+    def _structured_arguments(self, request):
+        if request.output_schema is None or self._structured_output == "off":
+            return {}
+        return {"response_format": {"type": "json_schema", "json_schema": {
+            "name": "story_response", "schema": request.output_schema, "strict": True}}}
+
+    def _create(self, arguments):
+        try:
+            return self._client.chat.completions.create(**arguments)
+        except BadRequestError as error:
+            if "response_format" not in arguments or not any(
+                    word in str(error).lower() for word in ("response_format", "json_schema", "grammar", "schema")):
+                raise
+            raise ValueError("Le serveur a refusé la contrainte JSON du scénario. Aucun nouvel appel automatique. "
+                "Vérifier sa prise en charge de json_schema ; le lanceur permet structured-output=off pour ce serveur "
+                "en conservant la validation locale. Détail du serveur : " + str(error)) from error
 
     def list_models(self) -> tuple[ModelDescriptor, ...]:
         response = self._client.models.list()
@@ -92,7 +113,8 @@ class OpenAICompatibleGateway:
         output_tokens = self._output_tokens(request)
         if output_tokens is not None:
             arguments["max_tokens"] = output_tokens
-        response = self._client.chat.completions.create(**arguments)
+        arguments.update(self._structured_arguments(request))
+        response = self._create(arguments)
         choice = response.choices[0]
         content = choice.message.content
         finish_reason = _finish_reason(getattr(choice, "finish_reason", None))
@@ -132,7 +154,12 @@ class OpenAICompatibleGateway:
         output_tokens = self._output_tokens(request)
         if output_tokens is not None:
             arguments["max_tokens"] = output_tokens
-        stream = self._client.chat.completions.create(**arguments)
+        arguments.update(self._structured_arguments(request))
+        if request.output_schema is not None:
+            yield CompletionStreamEvent(kind=StreamEventKind.STATUS, phase=StreamPhase.PREPARING,
+                text=("Contrat JSON : sortie contrainte demandée au serveur" if self._structured_output == "json_schema"
+                      else "Contrat JSON : validation locale ; contrainte serveur désactivée"))
+        stream = self._create(arguments)
         content_parts: list[str] = []
         generating = False
         model_id = request.model_id

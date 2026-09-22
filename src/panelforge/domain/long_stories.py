@@ -4,6 +4,8 @@ import hashlib
 import json
 
 from .stories import response_contract, parse_response, validate_scenario
+from . import story_contracts as contracts
+from .story_diagnostics import normalize_scene_state, episode_issues, project_quality, outline_reference_issues
 
 ENGINE = {"id": "story.long", "version": "2.0.0"}
 PROFILES = {"melodrama": "Mélodrame", "social": "Conflit du quotidien / joute verbale", "transformation": "Transformation / quête",
@@ -122,7 +124,8 @@ def review_current(project, target):
 
 def review_clear(project, target):
     return review_current(project, target) and not any(
-        issue["severity"] == "blocking" for issue in project["document"]["reviews"][target]["issues"])
+        issue["severity"] == "blocking" for issue in project["document"]["reviews"][target]["issues"]) and not any(
+        item["level"] == "blocking" for item in project_quality(project, target))
 
 
 def status(project):
@@ -252,6 +255,7 @@ def normalize_event_dependencies(project, value):
             pairs.append((old, new))
     restored = {new["id"]: deepcopy(old["depends_on"]) for old, new in pairs
                 if set(new) == {"id", "trigger", "change", "evidence"}
+                and old.get("trigger") == new.get("trigger") and old.get("change") == new.get("change")
                 and isinstance(old.get("depends_on"), list)}
     if not restored:
         return value, []
@@ -267,6 +271,13 @@ def normalize_event_dependencies(project, value):
 def validate_outline(project, value):
     fields(value, "title premise overall_arc ending characters episodes contract world_rules secrets", "Arc V2")
     value, _normalizations = normalize_event_dependencies(project, value)
+    structural = deepcopy(value)
+    structural["world_rules"] = normalize_world_rules(project, value["world_rules"])
+    problems = contracts.structural_issues(structural, contracts.outline_schema(project), "series_outline")
+    if not problems:
+        problems.extend(outline_reference_issues(project, structural))
+    if problems:
+        raise contracts.StoryValidationError(problems)
     result = {key: text(value[key], key, 6000) for key in ("title", "premise", "overall_arc", "ending")}
     fields(value["contract"], "promise protagonist_goal stakes must_keep freedoms", "Contrat")
     result["contract"] = {key: text(value["contract"][key], key) for key in ("promise", "protagonist_goal", "stakes")}
@@ -344,71 +355,28 @@ def production_action(action, evidence):
 
 
 def validate_episode(project, scenario, state):
-    doc, target = project["document"], scope(project)
-    outline = doc["series_outline"]
+    state, _notes = normalize_scene_state(project, scenario, state)
+    problems = episode_issues(project, scenario, state)
+    if any(item["level"] == "blocking" for item in problems):
+        raise contracts.StoryValidationError(problems)
     scenario = validate_scenario(scenario, project["recipe"]["id"], project["recipe"]["version"])
-    maximum = doc["episode_formats"][target]["scene_count"]
-    if len(scenario["scenes"]) > maximum:
-        raise ValueError(f"Budget dépassé : au maximum {maximum} clips ; réduisez le périmètre de cette unité.")
-    canonical = {c["id"]: c for c in outline["characters"]}
-    for character in scenario["characters"]:
-        if character["id"] not in canonical or character["name"] != canonical[character["id"]]["name"]:
-            raise ValueError("Le casting V2 doit conserver les identifiants et noms de la bible ; révisez l’arc pour l’étendre.")
-    fields(state, "scene_events facts knowledge open_threads resolved_threads", "Canon de l’unité")
-    unit = next(u for u in outline["episodes"] if u["id"] == target)
-    events = {e["id"]: e for e in unit["events"]}
-    secrets = {s["id"]: s for s in outline["secrets"]}
-    revealed_before = {s for identity in previous_ids(project, target)
-                       for scene in doc.get("episode_states", {}).get(identity, {}).get("scene_events", []) for s in scene["reveals"]}
-    allowed_reveals = {s["id"] for s in secrets.values() if s["reveal_episode_id"] == target}
-    parsed = {"scene_events": [], "facts": [], "knowledge": []}
-    seen_events, seen_reveals = set(), set()
-    seconds = doc["episode_formats"][target]["clip_seconds"]
-    for index, raw in enumerate(items(state["scene_events"], "Affectation des événements", len(scenario["scenes"]), len(scenario["scenes"]))):
-        fields(raw, "scene_index event_ids evidence action_seconds reveals", "Affectation")
-        if type(raw["scene_index"]) is not int or raw["scene_index"] != index or index >= len(scenario["scenes"]):
-            raise ValueError("Une affectation ordonnée est requise pour chaque clip, à partir de scene_index 0.")
-        assigned = refs(raw["event_ids"], events, "Événements du clip")
-        if not assigned:
-            raise ValueError("Chaque clip doit servir au moins un événement de l’unité.")
-        for identity in assigned:
-            if (set(events[identity]["depends_on"]) & set(events)) - seen_events:
-                raise ValueError("Un événement est utilisé avant sa préparation.")
-            seen_events.add(identity)
-        duration = raw["action_seconds"]
-        if type(duration) not in {int, float} or not 0 <= duration <= seconds:
-            raise ValueError("L’estimation des actions successives doit tenir dans le clip.")
-        reveals = refs(raw["reveals"], allowed_reveals | revealed_before, "Révélation prématurée ou inconnue")
-        seen_reveals.update(reveals)
-        evidence = text(raw["evidence"], "information indispensable", 1500)
-        production_action(scenario["scenes"][index]["action"], evidence)
-        parsed["scene_events"].append(dict(scene_index=index, event_ids=assigned,
-            evidence=evidence, action_seconds=duration, reveals=reveals))
-    if seen_events != set(events) or not allowed_reveals <= seen_reveals:
-        raise ValueError("Tous les événements et les révélations réservées à cette unité doivent être affectés aux clips.")
-    fact_ids = set()
-    for raw in items(state["facts"], "Faits", 24):
-        fields(raw, "id text event_id", "Fait")
-        identity = text(raw["id"], "identifiant du fait", 120)
-        if identity in fact_ids or raw["event_id"] not in events:
-            raise ValueError("Fait dupliqué ou sans événement source dans l’unité.")
-        fact_ids.add(identity)
-        parsed["facts"].append(dict(id=identity, text=text(raw["text"], "fait"), event_id=raw["event_id"]))
-    for index, raw in enumerate(items(state["knowledge"], "Connaissances", 24)):
-        fields(raw, "secret_id character_ids event_id", "Connaissance")
-        characters = refs(raw["character_ids"], canonical, "Personnages informés")
-        if not isinstance(raw["event_id"], str) or raw["event_id"] not in events:
-            raise ValueError(f"episode_state.knowledge[{index}].event_id : événement inconnu dans cette unité.")
-        if not secrets and raw["secret_id"] is None:
-            # No secret can be learned when the outline declares none. Preserve
-            # real reference errors, and leave the scenario/facts untouched.
+    # A knowledge row represents an acquisition, not a repetition of the initial bible.
+    secrets = project["document"]["series_outline"]["secrets"]
+    known = {s["id"]: set(s["known_by"]) for s in secrets}
+    for identity in previous_ids(project, scope(project)):
+        for row in project["document"].get("episode_states", {}).get(identity, {}).get("knowledge", []):
+            known.setdefault(row["secret_id"], set()).update(row["character_ids"])
+    parsed = deepcopy(state)
+    parsed["knowledge"] = []
+    for row in state["knowledge"]:
+        if row["secret_id"] is None and not secrets:
             continue
-        if not isinstance(raw["secret_id"], str) or raw["secret_id"] not in secrets:
-            raise ValueError(f"episode_state.knowledge[{index}].secret_id : secret absent ou inconnu dans l’arc.")
-        parsed["knowledge"].append(dict(secret_id=raw["secret_id"], event_id=raw["event_id"],
-            character_ids=characters))
-    for key in ("open_threads", "resolved_threads"):
-        parsed[key] = strings(state[key], key)
+        if row["secret_id"] not in known:
+            raise contracts.StoryValidationError([contracts.issue("unknown_secret", "episode_state.knowledge", "Secret inconnu.")])
+        learned = [identity for identity in row["character_ids"] if identity not in known[row["secret_id"]]]
+        if learned:
+            parsed["knowledge"].append(dict(row, character_ids=learned))
+            known[row["secret_id"]].update(learned)
     return scenario, parsed
 
 
@@ -443,13 +411,28 @@ def validate_review(project, value, target=None):
         if raw["target_id"] not in targets:
             raise ValueError(f"Cible de relecture inconnue : {raw['target_id']}. Choisissez un élément présent dans le document.")
         issues.append({key: text(raw[key], key) for key in raw})
-    return dict(summary=text(value["summary"], "bilan", 6000), issues=issues, source_hash=source_hash(project, target))
+    for diagnostic in project_quality(project, target):
+        target_id = diagnostic.get("target_id", "contract")
+        if not any(item["problem"] == diagnostic["message"] for item in issues):
+            issues.append(dict(severity=diagnostic["level"], target_id=target_id,
+                problem=diagnostic["message"], suggestion="Corriger localement ce passage et vérifier sa faisabilité.",
+                code=diagnostic["code"], path=diagnostic["path"]))
+    return dict(summary=text(value["summary"], "bilan", 6000), issues=issues,
+                source_hash=source_hash(project, target), contract_version=contracts.VERSION)
 
 
 def parse(project, value):
     operation, target = project["job"]["operation"], scope(project)
     if not isinstance(value, dict):
         raise ValueError("Objet JSON narratif attendu.")
+    value = normalize_episode_response(value)
+    if project["job"].get("response_contract_version") == contracts.VERSION:
+        schema = contracts.response_schema(project)
+        if schema is not None:
+            problems = contracts.structural_issues(value, schema)
+            if problems:
+                raise contracts.StoryValidationError(problems)
+        value = contracts.canonical_response(project, value)
     reply = text(value.get("reply"), "réponse", 12000)
     if operation == "discuss":
         fields(value, "reply discussion_only", "Discussion")
@@ -504,7 +487,8 @@ def parse(project, value):
     scene_index = feedback.get("scene_index")
     if operation == "revise" and scene_index is not None:
         previous = project["document"]["episode_scenarios"][target]
-        previous_memory = project["document"]["episode_states"][target]["scene_events"]
+        previous_memory = normalize_scene_state(project, previous,
+            project["document"]["episode_states"][target])[0]["scene_events"]
         metadata_changed = {key: value for key, value in scenario.items() if key != "scenes"} != {
             key: value for key, value in previous.items() if key != "scenes"}
         if metadata_changed or len(scenario["scenes"]) != len(previous["scenes"]) or any(

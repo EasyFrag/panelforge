@@ -1,5 +1,70 @@
 # CONTINUITY
 
+## Version GitHub 2026-09-22 — contrats longs 2.1
+
+### Goal
+- Publier une nouvelle version de sauvegarde, demandée après le retour utilisateur « ça a l’air de marcher ».
+
+### Current state
+- Base `2673c24`, dépôt `EasyFrag/panelforge`. Références dédiées : branche `snapshots/long-stories-contracts-2.1-2026-09-22` et tag `snapshot-long-stories-contracts-2.1-2026-09-22`. Notes : `docs/releases/snapshot-long-stories-contracts-2.1-2026-09-22.md`.
+- Contenu : contrats 2.1, corrections ciblées, récupération locale/limitée, réactions ancrées, diagnostics, budgets/provenance, interface de reprise, tests et audit. Fabrication et stockage V2 conservés.
+- Contrôles statiques uniquement ; tests fonctionnels laissés à l’utilisateur. Retour utilisateur positif sur son essai, sans conclure à une validation exhaustive. Aucun appel LLM, rendu, projet ou service modifié/lancé pour cette publication.
+- Sources/tests/docs de ce worktree sélectionnés ; runtime, médias, traces complètes et fichier utilisateur `lancementwork` exclus. Les versions précédentes et master restent inchangés.
+
+### Next steps
+1. Retrouver cette sauvegarde par son tag daté ; bilan de publication et commit consignés dans la continuité du checkout racine.
+2. Tests ciblés selon les notes de version ; poursuivre les essais du parcours avec l’utilisateur et traiter les éventuels défauts séparément.
+
+## UX 2026-09-22 — bouton de récupération et relance utilisateur
+
+### Goal
+- Expliquer l’absence du bouton « Récupérer le brouillon » signalée après une relance LLM, et rendre cette action facile à trouver.
+
+### Current state
+- Serveur sur 7861 redémarré par l’utilisateur à 11:50, nouveaux appels `@2.1.0` confirmés. Jus de trahison : après une tentative annulée, deux développements acceptés ; relecture groupée encore en cours à la dernière lecture (version 550). Aucune erreur sur cette relecture à cet instant. Le brouillon ancien en échec est archivé dans `draft_history[0]`.
+- Le bouton ne concerne que le dernier job failed avec brouillon ; il disparaît dès une nouvelle génération. Il était aussi séparé du panneau de récupération, dans la conversation. Impossible de confirmer rétrospectivement l’état exact de son affichage avant le clic utilisateur.
+- Patch UI minimal : bouton existant déplacé près du brouillon pour les histoires longues ; visible mais désactivé avec explication si la récupération est impossible. Choix de l’action depuis Fabrication respecte cet état désactivé. Ctrl+F5 suffit pour charger le changement d’interface.
+- Lecture des fichiers runtime et du GET projet ; aucune modification du projet, annulation, relance, test fonctionnel ou action sur le service. Syntaxe JavaScript et diff-check passent.
+
+### Next steps
+1. Laisser la relecture déjà lancée par l’utilisateur se terminer ; analyser son résultat si demandé. Les deux unités écrites ne constituent pas encore une approbation éditoriale.
+2. Ancien brouillon consultable/téléchargeable dans les brouillons précédents ; sa remise en place n’est pas nécessaire pour poursuivre le nouveau run et n’a pas été effectuée.
+
+## Correctif implémenté 2026-09-22 — contrats longs 2.1
+
+### Goal
+- Implémenter le correctif complet de l’audit, maintenant autorisé par « Va y, je te fais confiance, impressionne moi ».
+
+### Current state
+- Contrats JSON partagés et transport configurable ; adaptation vers le stockage/fabrication V2 existant. Éditions de champs de l’arc et de scènes sous empreinte ; réactions ancrées, indices distincts des confirmations, diagnostics regroupés, estimation de durée et avertissements de langue. Le contrôle local de charge déclenche la correction éditoriale avant un appel de relecture inutile ; le résultat doit ensuite être relu.
+- JSON récupérable traité localement, sans modèle ; syntaxe encore ambiguë/incomplète arrêtée sans réécriture invérifiable. Au plus une récupération LLM des métadonnées autorisées, texte immuable. Origine/correction et résultats d’appels séparés ; archives et compteurs persistants. Interface de récupération, lecture du brouillon et téléchargement des précédents.
+- Tests ajoutés/adaptés sur traces enregistrées et passerelles factices, dont compatibilité fabrication et scènes anciennes. **Aucun test fonctionnel exécuté** : l’utilisateur les lance lui-même. Syntaxe de 19 fichiers Python, syntaxe JavaScript et diff-check contrôlés ; vérification statique uniquement. Aucun appel LLM, rendu, projet runtime, service ou publication GitHub modifié/lancé.
+- Guide complet : `docs/diagnostics/correctif-contrats-histoires-2026-09-22.md`. Schémas demandés par défaut aux deux serveurs via le lanceur ; leur prise en charge réelle reste non vérifiée. Options serveur `--llm-structured-output off` / `--local-llm-structured-output off` disponibles, erreur dédiée si refus explicite du schéma, aucun fallback silencieux.
+
+### Next steps
+1. L’utilisateur lance les six modules de tests ciblés avec PYTHONPATH sur ce worktree, puis redémarre quand ses traitements sont terminés.
+2. Sur Jus de trahison : récupérer le brouillon sans appel LLM, examiner les diagnostics puis continuer le parcours pour les corrections de charge et la relecture. Aucun rattrapage automatique du runtime n’a été effectué.
+3. Vérifier la compatibilité du schéma avec les serveurs actifs et la qualité du prochain run ; les heuristiques de durée/langue ne remplacent pas cette vérification. La continuation ancien vers long reste hors de ce patch.
+
+## Audit 2026-09-22 — erreurs en chaîne, contrats et raisonnement
+
+### Goal
+- Expliquer complètement les nouveaux échecs JSON et « Chaque clip doit servir au moins un événement », analyser les raisonnements enregistrés et proposer un correctif de fond. Audit/proposition seulement dans ce tour.
+
+### Current state
+- Rapport : `docs/diagnostics/audit-contrats-histoires-2026-09-22.md`. Preuves copiées dans le workspace partagé `experiments/audit-story-contracts-2026-09-22` : projet, sept appels, réponses et thinking, synthèse. Projet Jus de trahison `story-9ddd34b57dc549d2bc959d9c735ac0ec`, version 413, toujours bloqué sur develop ; arc accepté, aucune séquence acceptée, dernier brouillon conservé.
+- Sept appels, 655,037 s cumulées, deux acceptés/cinq rejetés (réparation comprise), tous finish_reason=stop/max_tokens=80000 ; consommation tokens non renseignée. Qwen Hauhau pour l’arc/relectures, Gemma Hauhau puis Unsloth pour les deux développements. Pas de troncature expliquant les nouveaux échecs.
+- Défaut confirmé de notre garde-fou JSON : original `"delivery": "delivery": "spoken"`, réparation exactement limitée à `"delivery": "spoken"`. `assert_format_only` confond clés et valeurs dans sa comparaison de tokens et rejette cette correction fidèle. Le résultat de récupération masque aussi l’erreur source dans le bilan applicatif de l’appel initial.
+- Dernier clip : réaction finale explicitement demandée par l’arc (fils seul heureux à ranger), mais event_ids=[] ; tous les événements sont déjà couverts. Le validateur refuse toute la séquence. Contrat à expliciter pour progression/réaction/transition et ancrages, sans attribuer arbitrairement un événement.
+- Défauts supplémentaires : consignes concurrentes de sortie dans les relectures, aucun schéma envoyé au décodeur, réécritures complètes et données redondantes, arc accepté très franglais, quatre clips de 10 s avec 35–41 mots chacun (parole seule estimée 14,6–17,1 s), ambiguïté soupçon/confirmation publique/connaissance du héros. Le thinking énumère parfois les contraintes ensuite omises ; plus de raisonnement ne garantit pas la conformité. include_reasoning n’est pas un contrôle du calcul serveur. workflow.calls revient à zéro aux reprises, pas un total historique.
+- Proposition : contrat versionné unique par opération, sortie contrainte selon capacité locale à vérifier, révisions ciblées et données dérivées gérées par l’application, validation regroupée, récupération bornée, contrôle éditorial/temps/langue sur la bonne révision, états/candidats/provenance et compteurs durables. Conserver fabrication, DLSS, réglages techniques et plafond 80000 ; aucun nouveau réglage utilisateur requis pour résoudre les pannes.
+- Documentation officielle llama.cpp consultée pour la faisabilité des sorties contraintes et leurs limites ; aucune capacité locale testée. Analyse de fichiers et calculs sur traces uniquement. Aucun code applicatif, projet, réglage, test, modèle, rendu ou service modifié/lancé. Pas de publication GitHub dans ce tour.
+
+### Next steps
+1. Présenter diagnostic et proposition ; implémentation non commencée. Reprendre ensemble les cas observés avant d’annoncer le problème résolu, pas une série de patchs d’erreur isolés.
+2. Après implémentation autorisée, reprise du dernier brouillon avec rattachement de la réaction, traitement de charge et langue, validation complète puis suite ; ne pas régénérer l’arc ou modifier silencieusement le projet.
+3. Tests/générations restent à la main de l’utilisateur. La continuation ancien vers long demeure une tâche distincte.
+
 ## Version GitHub 2026-09-22 — fiabilité des histoires et des scènes
 
 ### Goal

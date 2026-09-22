@@ -27,3 +27,28 @@ class StoryResponseRecoveryTest(unittest.TestCase):
         for corrected in ('{"a":"autre","b":8}', '{"a":"texte","b":10}'):
             with self.assertRaisesRegex(ValueError, "modifie le contenu"):
                 assert_format_only('{"a":"texte" "b":8}', corrected)
+
+    def test_duplicate_delivery_is_recovered_locally_without_changing_text(self):
+        original = '{"text":"Il a du jus.","delivery":"delivery":"spoken"}'
+        corrected = '{"text":"Il a du jus.","delivery":"spoken"}'
+        data, notes = decode_response(original)
+        self.assertEqual(data, {"text": "Il a du jus.", "delivery": "spoken"})
+        self.assertTrue(notes)
+        assert_format_only(original, corrected)
+
+    def test_flat_scalar_equality_cannot_hide_reparenting(self):
+        with self.assertRaisesRegex(ValueError, "modifie le contenu"):
+            assert_format_only('{"a":{"b":1},"c":2}', '{"a":{"b":1,"c":2}}')
+
+    def test_duplicate_keys_truncation_and_nonfinite_numbers_are_not_guessed(self):
+        for raw in ('{"delivery":"spoken","delivery":"thought"}', '{"a":"texte"', '{"x":NaN}', '{"x":1e999}'):
+            with self.subTest(raw=raw), self.assertRaises(StoryJsonError):
+                decode_response(raw)
+
+    def test_key_like_text_inside_dialogue_is_unchanged(self):
+        # Build the literal using json to ensure this is dialogue data, not malformed JSON.
+        import json
+        value = {"text": 'Il dit : "delivery": "delivery": "spoken".', "delivery": "spoken"}
+        result, notes = decode_response(json.dumps(value))
+        self.assertEqual(result, value)
+        self.assertFalse(notes)

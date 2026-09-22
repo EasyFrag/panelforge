@@ -125,7 +125,7 @@ class LongStoryResponseContractsTest(unittest.TestCase):
         result = narrative.validate_outline(project, outline)
         self.assertEqual(result["episodes"][0]["events"][1]["depends_on"], [])
         outline["episodes"][0]["events"][1]["depends_on"] = ["unknown-event"]
-        with self.assertRaisesRegex(ValueError, "référence inconnue"):
+        with self.assertRaisesRegex(ValueError, "(?i)dépendance|référence inconnue"):
             narrative.validate_outline(project, outline)
         for field, value in (("evidence", None), ("surprise", "Extra field")):
             broken = deepcopy(response["series_outline"])
@@ -179,7 +179,7 @@ class LongStoryResponseContractsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "secret_id"):
             self.service.revalidate(project["project_id"], project["version"])
 
-    def test_failed_format_repair_stops_after_one_attempt(self):
+    def test_ambiguous_or_incomplete_json_stops_without_an_unverifiable_model_rewrite(self):
         project, _ = self.recorded()
         class Gateway:
             def __init__(self): self.calls = []
@@ -193,12 +193,12 @@ class LongStoryResponseContractsTest(unittest.TestCase):
         project = self.service.store.save(project)
         self.service._run(project, self.recipes.snapshot(), Event())
         result = self.service.get(project["project_id"])
-        self.assertEqual(len(gateway.calls), 2)
+        self.assertEqual(len(gateway.calls), 1)
         self.assertEqual(result["job"]["status"], "failed")
-        self.assertEqual(result["job"]["format_repair"]["attempts"], 1)
-        self.assertEqual(result["job"]["original_draft"], '{"reply": "incomplet"')
+        self.assertNotIn("format_repair", result["job"])
+        self.assertEqual(result["job"]["draft"], '{"reply": "incomplet"')
 
-    def test_format_repair_uses_one_extra_call_and_preserves_original(self):
+    def test_missing_separator_is_recovered_locally_and_preserves_original(self):
         project, fixture = self.recorded()
         valid = json.dumps(json.loads(fixture["response_raw"]), ensure_ascii=False)
         broken = valid.replace(', "series_outline":', ' "series_outline":', 1)
@@ -216,10 +216,11 @@ class LongStoryResponseContractsTest(unittest.TestCase):
         project = self.service.store.save(project)
         self.service._run(project, self.recipes.snapshot(), Event())
         result = self.service.get(project["project_id"])
-        self.assertEqual(len(gateway.calls), 2)
+        self.assertEqual(len(gateway.calls), 1)
         self.assertEqual(result["job"]["status"], "succeeded", result["job"].get("error"))
         self.assertEqual(result["job"]["original_draft"], broken)
-        self.assertEqual(result["job"]["format_repair"]["attempts"], 1)
+        self.assertNotIn("format_repair", result["job"])
+        self.assertTrue(result["job"]["normalizations"])
 
     def test_invalid_content_is_still_rejected_without_changing_the_saved_draft(self):
         project, fixture = self.recorded()
@@ -227,7 +228,7 @@ class LongStoryResponseContractsTest(unittest.TestCase):
         raw["series_outline"]["episodes"][0]["events"][0]["depends_on"] = ["event-does-not-exist"]
         project["job"]["draft"] = json.dumps(raw, ensure_ascii=False)
         project = self.service.store.save(project)
-        with self.assertRaisesRegex(ValueError, "référence inconnue"):
+        with self.assertRaisesRegex(ValueError, "(?i)dépendance|référence inconnue"):
             self.service.revalidate(project["project_id"], project["version"])
         saved = self.service.get(project["project_id"])
         self.assertEqual(saved["job"]["draft"], project["job"]["draft"])
@@ -256,7 +257,7 @@ class LongStoryResponseContractsTest(unittest.TestCase):
             with self.subTest(collection=collection, values=values):
                 response = json.loads(fixture["response_raw"])
                 response["series_outline"][collection] = values
-                with self.assertRaisesRegex(ValueError, "doit contenir exactement"):
+                with self.assertRaisesRegex(ValueError, "Type attendu|Champ obligatoire|Champ inattendu"):
                     narrative.parse(project, response)
 
     def test_outline_requests_describe_entries_even_when_optional_lists_are_empty(self):

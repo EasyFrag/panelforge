@@ -152,8 +152,8 @@
           </form>
           <div class="story-actions"><button id="story-ideas" type="button">Une autre histoire</button><button id="story-calls" type="button">Échanges LLM</button></div>
           <div id="story-running" hidden><progress aria-label="Écriture en cours"></progress><button id="story-cancel" type="button">Annuler l’échange</button><p class="muted">L’écriture continue si tu changes d’écran ou actualises la page.</p></div>
-          <div class="story-actions">
-            <button id="story-revalidate" type="button" hidden>Revalider la réponse reçue</button>
+          <div id="story-retry-actions" class="story-actions">
+            <button id="story-revalidate" type="button" hidden>Récupérer le brouillon · sans appel LLM</button>
             <button id="story-retry" type="button" hidden>Relancer le LLM</button>
           </div>
           <details id="story-live-panel" class="story-live" hidden>
@@ -169,8 +169,17 @@
           <nav id="story-progress" aria-label="Progression de l’histoire">Histoire → Scénario → Prêt à fabriquer</nav>
           <div class="story-actions"><label>Accompagnement<select id="story-active-mode"><option value="manual">Manuel guidé</option><option value="automatic">Automatique</option></select></label><button id="story-advance" type="button" class="primary">Continuer</button><button id="story-pause" type="button">Reprendre la main</button></div>
           <p id="story-workflow-message" role="status" aria-live="polite"></p>
+          <p id="story-call-summary" class="muted"></p>
           <ul id="story-workflow-issues" hidden></ul>
         </section>
+        <aside id="story-recovery-panel" class="story-diagnostics" hidden>
+          <strong id="story-recovery-title">Brouillon conservé</strong>
+          <p id="story-recovery-help"></p>
+          <div id="story-recovery-actions" class="story-actions"></div>
+          <ul id="story-recovery-issues"></ul>
+          <details id="story-readable-draft" hidden><summary>Lire le brouillon avant récupération</summary><div id="story-readable-scenes"></div></details>
+        </aside>
+        <details id="story-draft-history" class="story-continuity" hidden><summary>Brouillons précédents conservés</summary><div id="story-draft-history-items"></div></details>
         <div id="story-empty"><h2 id="story-empty-title">Quelle histoire raconter ?</h2><p id="story-empty-copy">Ton histoire apparaîtra ici, avec sa progression et sa fin. Tu pourras l’orienter avant de développer les scènes.</p></div>
         <div id="story-versions-panel" class="story-actions" hidden><label>Versions de l’histoire<select id="story-versions"></select></label><button id="story-restore" type="button">Reprendre cette version</button></div>
         <details id="story-continuity" class="story-continuity" hidden><summary>Mémoire cumulative de la saga</summary><div id="story-continuity-content"></div></details>

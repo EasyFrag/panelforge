@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from panelforge.application.stories import StoryService
 from panelforge.application.episodes import EpisodeService
 from panelforge.domain import long_stories as narrative
+from panelforge.domain.story_contracts import VERSION, wire_scene
 from panelforge.domain.episodes import initial_episode, scene_inputs
 from panelforge.features.lab.stories_web import stories_router
 from panelforge.infrastructure.long_story_recipes import LongStoryRecipes
@@ -64,6 +65,16 @@ class LongStoriesTest(unittest.TestCase):
         return self.service.create(**values)
 
     def write(self, project, operation, response, instruction=""):
+        response = deepcopy(response)
+        if "scenario" in response and "episode_state" in response:
+            metadata = response["episode_state"].pop("scene_events")
+            scenes = [wire_scene(scene, metadata[i]) for i, scene in enumerate(response["scenario"]["scenes"])]
+            if operation == "repair_episode":
+                response = dict(reply=response["reply"], base_hash=narrative.source_hash(project, project["document"]["selected_episode_id"]),
+                    scene_edits=[dict(scene_index=i, scene=scene) for i, scene in enumerate(scenes)], episode_state=response["episode_state"])
+            else:
+                response["scenario"].pop("characters", None)
+                response["scenario"]["scenes"] = scenes
         self.gateway.response = json.dumps(response, ensure_ascii=False)
         self.service.start(project["project_id"], operation=operation, instruction=instruction, model_id="local::fixture",
                            expected_version=project["version"], request_id=str(uuid4()))
@@ -233,11 +244,11 @@ class LongStoriesTest(unittest.TestCase):
         response = unit_response(project)
         self.assertEqual(len(narrative.parse(project, response)[1]["scenario"]["scenes"]), 1)
         response["episode_state"]["scene_events"][0]["action_seconds"] = 11
-        with self.assertRaisesRegex(ValueError, "estimation"):
+        with self.assertRaisesRegex(ValueError, "action_seconds|estimation"):
             narrative.parse(project, response)
         response = unit_response(project)
         response["scenario"]["scenes"] *= 5
-        with self.assertRaisesRegex(ValueError, "Budget"):
+        with self.assertRaisesRegex(ValueError, "scenes|Budget"):
             narrative.parse(project, response)
 
     def test_budget_does_not_silently_change_after_architecture(self):
@@ -303,7 +314,7 @@ class LongStoriesTest(unittest.TestCase):
                 project = self.arc(long_options=config)
                 self.assertEqual(len(project["document"]["series_outline"]["episodes"]), 5)
                 request = self.gateway.requests[-1]
-                self.assertEqual(request.operation_id, "story.long.outline@2.0.0")
+                self.assertEqual(request.operation_id, f"story.long.outline@{VERSION}")
                 self.assertIn(self.long_recipes.snapshot()["profiles"][profile], request.system_prompt)
                 self.assertNotIn("UNE ET QUATRE", request.system_prompt)
 
@@ -315,7 +326,7 @@ class LongStoriesTest(unittest.TestCase):
             narrative.validate_outline(project, result)
         result = arc_response(project)["series_outline"]
         result["episodes"][-1]["ending_type"] = "resolution"
-        with self.assertRaisesRegex(ValueError, "fin globale"):
+        with self.assertRaisesRegex(ValueError, "ending_type|fin globale"):
             narrative.validate_outline(project, result)
 
     def test_adaptation_can_keep_an_author_supplied_name_over_family_defaults(self):
@@ -337,7 +348,7 @@ class LongStoriesTest(unittest.TestCase):
         project = self.create(creation_mode="ideas")
         project = self.write(project, "ideas", {"reply": "Une piste.", "concepts": deepcopy(IDEAS["concepts"][:1])})
         self.assertEqual(project["document"]["selected_id"], "concept-1")
-        self.assertEqual(self.gateway.requests[-1].operation_id, "story.long.ideas@2.0.0")
+        self.assertEqual(self.gateway.requests[-1].operation_id, f"story.long.ideas@{VERSION}")
         context = json.loads(self.gateway.requests[-1].user_prompt)
         self.assertNotIn("proposal_count", context)
         self.assertEqual(len(context["response_contract"]["concepts"]), 1)

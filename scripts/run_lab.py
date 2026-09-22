@@ -232,6 +232,12 @@ def parse_args() -> argparse.Namespace:
         help="API key sent to the local OpenAI-compatible server",
     )
     parser.add_argument("--llm-timeout", type=float, default=300.0)
+    parser.add_argument("--llm-structured-output", choices=("off", "json_schema"),
+        default=os.environ.get("PANELFORGE_LLM_STRUCTURED_OUTPUT", "json_schema"),
+        help="Story JSON constraint capability of the llama.cpp server; no silent fallback")
+    parser.add_argument("--local-llm-structured-output", choices=("off", "json_schema"),
+        default=os.environ.get("PANELFORGE_LOCAL_LLM_STRUCTURED_OUTPUT", "json_schema"),
+        help="Story JSON constraint capability of the local server; off keeps explicit local validation")
     parser.add_argument(
         "--local-llm-base-url",
         default=os.environ.get(
@@ -378,6 +384,7 @@ def build_app(args: argparse.Namespace):
                 args.llm_base_url,
                 api_key=args.llm_api_key,
                 timeout=args.llm_timeout,
+                structured_output=getattr(args, "llm_structured_output", "json_schema"),
             ),
             "local": OpenAICompatibleGateway(
                 getattr(
@@ -390,6 +397,7 @@ def build_app(args: argparse.Namespace):
                     or "panelforge-local-unconfigured"
                 ),
                 timeout=args.llm_timeout,
+                structured_output=getattr(args, "local_llm_structured_output", "json_schema"),
             ),
         }
     )
