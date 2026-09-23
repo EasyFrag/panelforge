@@ -89,7 +89,7 @@ class StoryWorkflow:
             flow["pause_requested"] = False
             return self._stop(project, "paused", "Enchaînement suspendu. Écris ton retour ou continue quand tu veux.")
         job = project.get("job") or {}
-        if job.get("status") in {"failed", "interrupted", "cancelled"} and job.get("narrative_input_hash") in {None, narrative.input_hash(project)}:
+        if job.get("operation") != "discuss" and job.get("status") in {"failed", "interrupted", "cancelled"} and job.get("narrative_input_hash") in {None, narrative.input_hash(project)}:
             if not (job.get("draft") or "").strip():
                 return self._stop(project, "blocked", "L’étape a été arrêtée avant réception d’un scénario. Les détails sont conservés ; reprends l’étape pour faire un nouvel essai.")
             return self._stop(project, "blocked", "L’étape a été arrêtée. Le résultat et les détails sont conservés ; revalide le brouillon ou reprends l’étape.")
@@ -159,14 +159,17 @@ class StoryWorkflow:
                     raise ValueError("Cette séquence n’est pas rédigée ; adresse ton retour à l’histoire complète.")
                 if scene_index is not None and (type(scene_index) is not int or not 0 <= scene_index < len(scenario["scenes"])):
                     raise ValueError("Scène ciblée introuvable.")
-                doc["selected_episode_id"] = unit_id
-                doc["scenario"] = deepcopy(scenario)
+                if not question:
+                    doc["selected_episode_id"] = unit_id
+                    doc["scenario"] = deepcopy(scenario)
             elif scene_index is not None:
                 raise ValueError("Une scène doit être rattachée à sa séquence.")
             flow = project.setdefault("workflow", new_workflow("manual"))
-            flow.update(mode="manual", status="paused" if question else "running", pause_requested=False, budget_calls=0, wait_target=None)
             if not question:
+                flow.update(mode="manual", status="running", pause_requested=False, budget_calls=0, wait_target=None)
                 flow["repairs"].pop(unit_id, None)
+            elif flow["status"] == "running":
+                flow.update(status="paused", message="Question en cours. Continue le parcours après la réponse.")
             feedback_target = dict(unit_id=unit_id, scene_index=scene_index,
                                    source_hash=narrative.source_hash(project, unit_id), version=project["version"])
             project = self.service.store.save(project)
@@ -175,5 +178,6 @@ class StoryWorkflow:
                     expected_version=project["version"], request_id=str(uuid4()), feedback_target=feedback_target,
                     workflow_step=True)
             except Exception as error:
-                self._stop(self.service.store.get(project_id), "blocked", str(error), unit_id)
+                if not question:
+                    self._stop(self.service.store.get(project_id), "blocked", str(error), unit_id)
                 raise

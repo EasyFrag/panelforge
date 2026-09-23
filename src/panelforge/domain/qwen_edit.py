@@ -22,6 +22,7 @@ class QwenEditSettings:
     seed: str = "1234"
     reuse_seed: bool = True
     negative_prompt: str = ""
+    color_finish: str = "natural"
 
     def __post_init__(self):
         if self.resolution not in {"source", "1", "2", "4"} or self.aspect_ratio not in RATIOS:
@@ -32,7 +33,8 @@ class QwenEditSettings:
             raise ValueError("Le CFG doit être compris entre 1 et 10.")
         if not isinstance(self.seed, str) or not re.fullmatch(r"[0-9]{1,20}", self.seed) or int(self.seed) >= 2**64:
             raise ValueError("Seed invalide : entier positif inférieur à 2⁶⁴.")
-        if type(self.reuse_seed) is not bool or not isinstance(self.negative_prompt, str) or len(self.negative_prompt) > 12000:
+        if (type(self.reuse_seed) is not bool or not isinstance(self.negative_prompt, str)
+                or len(self.negative_prompt) > 12000 or self.color_finish not in {"natural", "raw"}):
             raise ValueError("Réglages Qwen invalides.")
 
     def dimensions(self, source_size=None):
@@ -75,6 +77,10 @@ def render_inputs(stage):
     result = []
     if stage["source_asset_id"]:
         result.append({"id": "source", "asset_id": stage["source_asset_id"], "name": "Source", "role": "Image à modifier"})
+        guide = stage.get("guide")
+        if guide:
+            result.append({"id": "guide", "asset_id": guide["mask_asset_id"], "name": "Zone peinte",
+                           "role": "Masque visuel : blanc = zone où concentrer la modification"})
     result.extend({key: ref[key] for key in ("id", "asset_id", "name", "role")}
                   for ref in stage["references"] if ref["active"] and ref["usage"] == "render")
     if len(result) > MAX_RENDER_IMAGES:
@@ -84,6 +90,7 @@ def render_inputs(stage):
 
 def context_snapshot(stage):
     return {"mode": stage["mode"], "source_asset_id": stage["source_asset_id"],
+            "guide": dict(stage["guide"]) if stage.get("guide") else None,
             "references": [dict(ref) for ref in stage["references"] if ref["active"]],
             "render_inputs": render_inputs(stage),
             "aspect_ratio": stage["settings"]["aspect_ratio"] if stage["mode"] == "composition" else "source"}

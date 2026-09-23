@@ -13,6 +13,7 @@ from .client import (
     ComfyQueueEntry,
     ComfyQueueSnapshot,
     ComfySystemStats,
+    ComfyWorkflowRejected,
     build_websocket_url,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "ComfyQueueEntry",
     "ComfyQueueSnapshot",
     "ComfySystemStats",
+    "ComfyWorkflowRejected",
     "build_websocket_url",
 ]

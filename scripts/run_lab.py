@@ -92,6 +92,7 @@ from panelforge.infrastructure.qwen_edit_images import PillowQwenEditImages
 from panelforge.infrastructure.qwen_project_exports import LocalQwenProjectExporter
 from panelforge.infrastructure.storage.qwen_edits import LocalQwenEditStore
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
+from panelforge.infrastructure.prompt_examples import LocalPromptExampleLibrary
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
 from panelforge.infrastructure.h3_lora_resources import H3LoraResourceCatalog
 from panelforge.infrastructure.local_gpu import NvidiaSmiMonitor
@@ -356,6 +357,11 @@ def build_app(args: argparse.Namespace):
         settings_store=LocalWorkSchedulerSettings(args.workspace),
         monitor_interval=max(0.2, args.poll_interval),
     )
+    prompt_examples = LocalPromptExampleLibrary(
+        args.workspace,
+        work_coordinator=machine_work,
+    )
+    prompt_examples.start_indexing()
     runner = ChangeViewRunner(
         recipe=recipe,
         comfy=comfy,
@@ -451,6 +457,7 @@ def build_app(args: argparse.Namespace):
     )
     krea2_assisted = Krea2AssistedService(
         gateway=gateway,
+        prompt_examples=prompt_examples,
         presets=LocalKrea2StylePresetStore(args.workspace),
         recipes=krea2_visual_recipes,
         workflow=krea2_assisted_default_workflow,
@@ -499,9 +506,10 @@ def build_app(args: argparse.Namespace):
     )
     qwen_edit = QwenEditService(
         gateway=gateway,
-        workflow=load_qwen_edit_workflow(PROJECT_ROOT / "workflows/image.edit/qwen-image-2.1/1.0.0"),
+        workflow=load_qwen_edit_workflow(PROJECT_ROOT / "workflows/image.edit/qwen-image-2.1/2.0.0"),
         comfy=krea2_edit_comfy, assets=assets, projects=LocalQwenEditStore(args.workspace),
         images=PillowQwenEditImages(),
+        edit_images=PillowEditImages(), retouch_compositor=PillowRetouchCompositor(),
         exporter=LocalQwenProjectExporter(Path(getattr(args, "krea2_projects_root",
             Path(r"D:\AI\PanelForge\KREA2 Projects"))).parent / "Qwen Projects"),
         work_coordinator=machine_work, run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
@@ -657,7 +665,7 @@ def build_app(args: argparse.Namespace):
         outputs=DlssOutputs(dlss_output_root, assets, fallback_roots=dlss_fallback_roots),
         runtime=LocalDlssRuntime(root=dlss_root, base_url=dlss_url, journal=dlss_jobs, comfy=dlss_comfy, output_root=dlss_output_root),
         media=DlssMedia(ffmpeg=dlss_root / "tools/ffmpeg.exe", ffprobe=dlss_root / "tools/ffprobe.exe"),
-        candidates=DlssCandidates(edit=krea2_edit, assisted=krea2_assisted, h3=h3_render),
+        candidates=DlssCandidates(edit=krea2_edit, assisted=krea2_assisted, h3=h3_render, qwen=qwen_edit),
         workflows={
             "image": DlssWorkflow(PROJECT_ROOT / "workflows/image.upscale/dlss/0.1.0"),
             "video": DlssWorkflow(PROJECT_ROOT / "workflows/video.upscale/dlss/0.1.0"),

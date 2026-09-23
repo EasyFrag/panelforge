@@ -839,6 +839,7 @@
     const active = activeAttempt();
     const setupOnly = !state.project && elements.lab.classList.contains("h3-render-setup-only");
     const setupAction = setupOnly && options.setupActionState ? options.setupActionState(state.context) || {} : {};
+    const renderAction = !setupOnly && options.renderActionState ? options.renderActionState(state.context) || {} : {};
     const incomplete = state.project?.adaptation && state.project.adaptation.status !== "ready";
     const disabled = state.busy || state.recipeLoading || Boolean(active) || Boolean(incomplete);
     renderPreset(disabled);
@@ -850,10 +851,10 @@
     if (elements.convert) elements.convert.disabled = state.busy || state.recipeLoading || !state.project || !elements.prompt.value.trim() || !elements.revisionModel?.value || Boolean(state.bunnyError) || missingLora;
     elements.render.textContent = setupOnly
       ? setupAction.label || "Générer dès que le prompt est prêt"
-      : "Lancer un rendu";
+      : renderAction.label || "Lancer un rendu";
     elements.render.disabled = setupOnly
       ? disabled || !options.onSetupRender || Boolean(setupAction.disabled) || missingLora || Boolean(state.bunnyError)
-      : disabled || !state.project || !elements.prompt.value.trim() || missingLora || Boolean(state.bunnyError);
+      : disabled || Boolean(renderAction.disabled) || !state.project || !elements.prompt.value.trim() || missingLora || Boolean(state.bunnyError);
     if (elements.recipe) elements.recipe.disabled = state.busy || state.recipeLoading;
     checkpointPicker?.setDisabled(disabled);
     loraEditor?.setDisabled(disabled);
@@ -1008,7 +1009,9 @@
         return;
       }
       if (options.beforeRender) await options.beforeRender(renderParameters(), state.context);
-      const prepared = await request(`/api/h3-render/projects/${encodeURIComponent(projectId())}/attempts`, {
+      const prepared = options.prepareAttempt
+        ? await options.prepareAttempt(renderParameters(), state.context)
+        : await request(`/api/h3-render/projects/${encodeURIComponent(projectId())}/attempts`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(renderParameters()),
       });

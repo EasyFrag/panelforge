@@ -162,6 +162,18 @@ def initial_episode(story, identity):
     return result
 
 
+def only_reference_images_changed(previous, current):
+    """Allow image replacement only when the complete prompt contract is unchanged."""
+    if not previous or not previous.get("references") or previous == current:
+        return False
+    def without_images(inputs):
+        return {**inputs, "references": [
+            {key: value for key, value in ref.items() if key != "asset_id"}
+            for ref in inputs.get("references", [])]}
+    return (all(ref.get("asset_id") for ref in current.get("references", []))
+            and without_images(previous) == without_images(current))
+
+
 def scene_inputs(episode, scene, *, require_images=True):
     from . import episode_continuity, story_continuity
     axes = CreativeFreedomAxes(**scene.get("creative_axes", DEFAULT_CREATIVE_AXES))

@@ -16,12 +16,18 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260919.1', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260923.3', self.page)
+        self.assertIn('Pertinence forte', self.script)
         self.assertIn('id="krea2-assisted-workflow"', self.page)
         self.assertIn('workflow: elements.workflow.value', self.script)
         self.assertIn('Image KREA2 avant Flux', self.script)
         self.assertIn('Télécharger l’image pré-Flux', self.script)
-        self.assertIn('<option value="3.0.0" selected>V3', self.page)
+        self.assertIn('<option value="4.0.0" selected>V4', self.page)
+        self.assertIn('id="krea2-assisted-library-status"', self.page)
+        self.assertIn('id="krea2-assisted-example-candidates"', self.page)
+        self.assertIn('id="krea2-assisted-chat-without-refresh"', self.page)
+        self.assertIn('refresh_prompt_examples: refreshPromptExamples', self.script)
+        self.assertIn('sendChat("creation", null, false)', self.script)
         self.assertIn('id="krea2-assisted-new-preset"', self.page)
         self.assertIn('id="krea2-assisted-preset-dialog"', self.page)
         self.assertIn('id="krea2-assisted-preset-note"', self.page)
@@ -75,13 +81,14 @@ class Krea2AssistedUiTest(unittest.TestCase):
             "krea2-assisted-lab",
             "change-view",
             "krea2-edit-lab",
+            "qwen-edit-lab",
         ]
         modebars = re.findall(
             r'<nav class="image-lab-modebar"[^>]*>(.*?)</nav>',
             self.page,
             flags=re.DOTALL,
         )
-        self.assertEqual(len(modebars), 5)
+        self.assertEqual(len(modebars), 6)
         for modebar in modebars:
             self.assertEqual(
                 re.findall(r'data-image-lab-mode="([^"]+)"', modebar),

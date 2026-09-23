@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 
 
@@ -13,7 +13,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
-from panelforge.infrastructure.comfy import ComfyHttpClient, ComfyImageRef
+from panelforge.infrastructure.comfy import (
+    ComfyHttpClient,
+    ComfyImageRef,
+    ComfyWorkflowRejected,
+)
 
 
 class FakeHttpResponse(BytesIO):
@@ -49,6 +53,38 @@ class ComfyHttpClientTest(unittest.TestCase):
             },
         )
         self.assertEqual(urlopen.call_args.kwargs, {"timeout": 12.0})
+
+    @patch("panelforge.infrastructure.comfy.client.urllib.request.urlopen")
+    def test_submit_workflow_exposes_compact_comfy_validation_error(self, urlopen):
+        body = json.dumps({
+            "error": {"message": "Prompt outputs failed validation"},
+            "node_errors": {
+                "37": {
+                    "class_type": "UNETLoader",
+                    "errors": [{
+                        "message": "Value not in list",
+                        "extra_info": {
+                            "input_name": "unet_name",
+                            "received_value": "missing-model.safetensors",
+                            "input_config": [["available-model.safetensors"]],
+                        },
+                    }],
+                },
+            },
+        }).encode("utf-8")
+        urlopen.side_effect = HTTPError(
+            "http://127.0.0.1:8188/prompt", 400, "Bad Request", {}, BytesIO(body)
+        )
+        client = ComfyHttpClient("http://127.0.0.1:8188", client_id="client")
+
+        with self.assertRaises(ComfyWorkflowRejected) as raised:
+            client.submit_workflow({"37": {"class_type": "UNETLoader"}})
+
+        self.assertTrue(raised.exception.definitive_rejection)
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("nœud 37 (UNETLoader)", str(raised.exception))
+        self.assertIn("missing-model.safetensors", str(raised.exception))
+        self.assertNotIn("available-model.safetensors", str(raised.exception))
 
     @patch("panelforge.infrastructure.comfy.client.urllib.request.urlopen")
     def test_get_history_encodes_prompt_id_and_returns_raw_payload(self, urlopen):

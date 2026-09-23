@@ -27,6 +27,7 @@ class WorkflowGateway:
         self.entered, self.release = Event(), Event()
         self.release.set()
         self.blocking = False
+        self.warnings = False
         self.nested = False
         self.mutate_discussion = False
         self.fail_operation = None
@@ -56,7 +57,11 @@ class WorkflowGateway:
             result["reviews"] = [{"unit_id": unit["unit_id"], "summary": "Raccord examiné.",
                 "issues": [{"severity": "blocking", "target_id": "scene-1", "problem": "Un refus manque.",
                             "suggestion": "Montrer le refus."}] if self.blocking else []}
-                for unit in c["units_to_review"]]
+                for unit in c.get("reader_units", c.get("units_to_review", []))]
+            if self.warnings:
+                for review in result["reviews"]:
+                    review["issues"].append(dict(severity="warning", target_id="scene-1",
+                        problem="Le propriétaire est absent du casting.", suggestion="Retirer le propriétaire."))
         elif op == "discuss":
             result = {"reply": "La scène prépare le refus.", "discussion_only": not self.mutate_discussion}
         else:
@@ -121,7 +126,8 @@ class StoryWorkflowTest(unittest.TestCase):
         self.assertTrue(all(u["ready"] for u in project["long_status"]["units"].values()))
         self.assertEqual(len(project["document"]["concepts"]), 0)  # One architecture, no parallel pitch list.
         for request in self.gateway.requests:
-            self.assertIn("Gouttes d’eau", request.system_prompt)
+            if "reader_units" not in json.loads(request.user_prompt):
+                self.assertIn("Gouttes d’eau", request.system_prompt)
         budget = json.loads(self.gateway.requests[0].user_prompt)["clip_budget"]
         self.assertEqual(budget["max_seconds_total"], 120)
         self.assertEqual(budget["scope"], "per_unit")
@@ -242,7 +248,149 @@ class StoryWorkflowTest(unittest.TestCase):
         project = self.settle(project)
         self.assertEqual(project["workflow"]["status"], "ready")
         last = json.loads(self.gateway.requests[-1].user_prompt)
-        self.assertEqual([u["unit_id"] for u in last["units_to_review"]], ["episode-1", "episode-2"])
+        self.assertEqual([u["unit_id"] for u in last.get("reader_units", last.get("units_to_review", []))], ["episode-1", "episode-2"])
+
+
+    def test_automatic_repair_ignores_warnings_and_next_review_sees_actual_changes(self):
+        self.gateway.blocking = True
+        self.gateway.warnings = True
+        project = self.advance(self.create(count=1))
+        self.assertEqual(project["workflow"]["status"], "blocked")
+        requests = [json.loads(r.user_prompt) for r in self.gateway.requests]
+        repair = next(c for c in requests if c["operation"] == "repair_episode")
+        self.assertEqual([i["severity"] for i in repair["review_to_address"]["issues"]], ["blocking"])
+        self.assertNotIn("Retirer le propriétaire", json.dumps(repair, ensure_ascii=False))
+        self.assertTrue(all(i["level"] == "blocking" for i in repair["local_diagnostics"]))
+        followup = requests[-1]["review_followup"][0]
+        self.assertEqual(followup["unit_id"], "episode-1")
+        self.assertEqual([i["severity"] for i in followup["previous_issues"]], ["blocking", "warning"])
+        changed = followup["changes"][0]
+        self.assertNotIn("Le refus est explicite.", changed["before"]["action"])
+        self.assertIn("Le refus est explicite.", changed["after"]["action"])
+        self.assertNotIn("ending_state", changed["after"])
+        self.assertEqual(sum(c["operation"] == "repair_episode" for c in requests), 1)
+
+    def test_warning_alone_does_not_launch_a_correction(self):
+        self.gateway.warnings = True
+        project = self.advance(self.create(count=1))
+        self.assertEqual(project["workflow"]["status"], "ready")
+        self.assertFalse(any(".repair_" in r.operation_id for r in self.gateway.requests))
+
+    def test_question_preserves_automatic_block_and_explains_its_real_reason(self):
+        self.gateway.blocking = True
+        project = self.advance(self.create(count=1))
+        before, flow, calls = deepcopy(project["document"]), deepcopy(project["workflow"]), len(self.gateway.requests)
+        self.service.workflow.feedback(project["project_id"], expected_version=project["version"],
+            unit_id="episode-1", scene_index=None, instruction="Quel retour attends-tu ?", question=True)
+        project = self.settle(project)
+        self.assertEqual(project["document"], before)
+        for key in ("mode", "status", "wait_target", "message", "approvals", "repairs"):
+            self.assertEqual(project["workflow"][key], flow[key], key)
+        self.assertEqual(project["workflow"]["budget_calls"], flow["budget_calls"] + 1)
+        self.assertEqual(len(self.gateway.requests), calls + 1)
+        context = json.loads(self.gateway.requests[-1].user_prompt)["workflow_context"]
+        self.assertEqual(context["status"], "blocked")
+        self.assertEqual(context["blocking_issues"][0]["problem"], "Un refus manque.")
+        self.assertEqual(context["previous_step"]["operation"], "review_block")
+        self.assertIn("ne promets aucune réécriture", self.gateway.requests[-1].system_prompt)
+
+    def test_question_retry_keeps_the_pending_approval_and_original_context(self):
+        project = self.advance(self.create("manual", 1))
+        flow = deepcopy(project["workflow"])
+        self.gateway.fail_operation = "discuss"
+        self.service.workflow.feedback(project["project_id"], expected_version=project["version"],
+            unit_id="outline", scene_index=None, instruction="Pourquoi cette fin ?", question=True)
+        project = self.settle(project)
+        self.assertEqual(project["job"]["status"], "failed")
+        self.gateway.fail_operation = None
+        self.service.retry(project["project_id"], project["version"])
+        project = self.settle(project)
+        for key in ("mode", "status", "wait_target", "approvals", "repairs"):
+            self.assertEqual(project["workflow"][key], flow[key], key)
+        contexts = [json.loads(r.user_prompt)["workflow_context"] for r in self.gateway.requests if ".discuss@" in r.operation_id]
+        self.assertEqual(contexts[0], contexts[1])
+        calls = len(self.gateway.requests)
+        project = self.advance(project)
+        self.assertEqual(project["workflow"]["wait_target"], "episode-1")
+        self.assertEqual([r.operation_id.split(".")[2].split("@")[0] for r in self.gateway.requests[calls:]],
+                         ["develop", "review_block"])
+
+    def test_question_about_another_unit_neither_selects_it_nor_restarts_writing(self):
+        project = self.advance(self.create())
+        before = deepcopy(project["document"])
+        calls = len(self.gateway.requests)
+        self.service.workflow.feedback(project["project_id"], expected_version=project["version"],
+            unit_id="episode-1", scene_index=None, instruction="Ça me va.", question=True)
+        project = self.settle(project)
+        self.assertEqual(project["document"], before)
+        self.assertEqual(project["workflow"]["mode"], "automatic")
+        self.assertEqual(project["workflow"]["status"], "ready")
+        self.assertEqual(len(self.gateway.requests), calls + 1)
+
+    def test_cancelling_a_question_keeps_the_author_checkpoint(self):
+        project = self.advance(self.create("manual", 1))
+        before = deepcopy(project["document"])
+        self.gateway.entered.clear()
+        self.gateway.release.clear()
+        self.addCleanup(self.gateway.release.set)
+        self.service.workflow.feedback(project["project_id"], expected_version=project["version"],
+            unit_id="outline", scene_index=None, instruction="Pourquoi cette fin ?", question=True)
+        self.assertTrue(self.gateway.entered.wait(2))
+        self.service.cancel(project["project_id"])
+        self.gateway.release.set()
+        project = self.settle(project)
+        self.assertEqual(project["job"]["status"], "cancelled")
+        self.assertEqual(project["workflow"]["status"], "awaiting_author")
+        self.assertEqual(project["workflow"]["wait_target"], "outline")
+        self.assertEqual(project["document"], before)
+        calls = len(self.gateway.requests)
+        project = self.advance(project)
+        self.assertEqual(project["workflow"]["wait_target"], "episode-1")
+        self.assertEqual(len(self.gateway.requests), calls + 2)
+
+    def test_question_receives_the_technical_error_that_preceded_it(self):
+        self.gateway.fail_operation = "develop"
+        project = self.advance(self.create(count=1))
+        self.assertEqual(project["workflow"]["status"], "blocked")
+        self.gateway.fail_operation = None
+        self.service.workflow.feedback(project["project_id"], expected_version=project["version"],
+            unit_id="outline", scene_index=None, instruction="Pourquoi cet arrêt ?", question=True)
+        project = self.settle(project)
+        previous = json.loads(self.gateway.requests[-1].user_prompt)["workflow_context"]["previous_step"]
+        self.assertEqual(previous["operation"], "develop")
+        self.assertEqual(previous["error"], "Erreur de fixture à reprendre.")
+        self.assertEqual(project["workflow"]["status"], "blocked")
+
+    def test_new_fruit_names_are_checked_in_the_existing_outline_edit(self):
+        project = self.create("manual", 1)
+        project["visual_universe"] = "Fruits anthropomorphes"
+        project = self.advance(self.service.store.save(project))
+        self.assertEqual(len(self.gateway.requests), 2)
+        contexts = [json.loads(r.user_prompt) for r in self.gateway.requests]
+        self.assertEqual([c["fruit_naming"]["mode"] for c in contexts], ["invent", "check_new_cast"])
+        for request in self.gateway.requests:
+            self.assertIn("Bananito, Kiwina, Cerisa, Cerisetto, Noisettine", request.system_prompt)
+            self.assertIn("Conserve les noms explicitement fournis", request.system_prompt)
+            self.assertIn("Un univers humain, animal ou de gouttes", request.system_prompt)
+
+    def test_existing_and_written_characters_are_exempt_from_the_new_naming_rule(self):
+        project = self.advance(self.create("manual", 1))
+        project["document"]["series_outline"]["characters"][0]["name"] = "Noisette"
+        project["document"]["reviews"].pop("outline", None)
+        project["job"]["operation"] = "edit_outline"
+        project.pop("fruit_naming_version")
+        before = deepcopy(project["document"])
+        request = self.service._request(project, self.service.long_recipes.snapshot())
+        self.assertEqual(json.loads(request.user_prompt)["fruit_naming"]["mode"], "preserve")
+        self.assertNotIn("Bananito", request.system_prompt)
+        self.assertEqual(project["document"], before)
+        # A previously written cast is also protected even if its review is absent.
+        project = self.advance(self.advance(self.create("manual", 1)))
+        project["document"]["reviews"].pop("outline", None)
+        project["job"]["operation"] = "edit_outline"
+        request = self.service._request(project, self.service.long_recipes.snapshot())
+        self.assertEqual(json.loads(request.user_prompt)["fruit_naming"]["mode"], "preserve")
+
 
     def test_question_cannot_apply_a_document(self):
         project = self.advance(self.create("manual", 1))

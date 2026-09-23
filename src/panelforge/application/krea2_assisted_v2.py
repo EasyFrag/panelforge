@@ -44,6 +44,7 @@ def system_prompt(mode: str) -> str:
 def _words(text: str) -> set[str]:
     normalized = unicodedata.normalize("NFKD", text.casefold())
     normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = normalized.replace("_", " ")
     return set(re.findall(r"[\w]+", normalized))
 
 

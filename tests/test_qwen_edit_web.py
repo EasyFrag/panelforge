@@ -54,6 +54,41 @@ class QwenEditWebTest(QwenEditFixture):
         self.assertEqual(self.gateway.requests, [])
         self.assertEqual(self.comfy.submitted, [])
 
+    def test_crop_endpoint_uses_original_pixels_and_continues_in_a_new_stage(self):
+        stage = self.current()
+        response = self.client.post(self.url + "/crop", json={"revision": stage["revision"],
+            "request_id": "web-crop", "source_asset_id": stage["source_asset_id"],
+            "source_width": 160, "source_height": 96, "x": 10, "y": 8, "width": 120, "height": 80})
+        self.assertEqual(response.status_code, 201, response.text)
+        project = response.json()["project"]
+        self.assertEqual(project["stages"][0]["attempts"][0]["kind"], "crop")
+        self.assertEqual(project["stages"][-1]["source_dimensions"], [120, 80])
+        self.assertEqual(self.comfy.submitted, [])
+
+    def test_visual_guide_endpoints_save_idempotently_and_can_remove_the_mask(self):
+        original = self.current()
+        response = self.client.post(self.url + "/guide",
+            data={"revision": original["revision"], "request_id": "web-guide",
+                  "source_asset_id": original["source_asset_id"],
+                  "source_width": "160", "source_height": "96"},
+            files={"mask": ("zone.png", png("white", mode="RGBA"), "image/png")})
+        self.assertEqual(response.status_code, 201, response.text)
+        guided = response.json()["project"]["stages"][0]
+        self.assertEqual([value["id"] for value in guided["render_inputs"]], ["source", "guide"])
+        same = self.client.post(self.url + "/guide",
+            data={"revision": original["revision"], "request_id": "web-guide",
+                  "source_asset_id": original["source_asset_id"],
+                  "source_width": "160", "source_height": "96"},
+            files={"mask": ("zone.png", png("white", mode="RGBA"), "image/png")})
+        self.assertEqual(same.status_code, 201, same.text)
+        self.assertEqual(same.json()["project"]["stages"][0]["guide"]["mask_asset_id"],
+                         guided["guide"]["mask_asset_id"])
+        cleared = self.client.post(self.url + "/guide/clear",
+            json={"revision": guided["revision"], "request_id": "web-guide-clear"})
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertIsNone(cleared.json()["project"]["stages"][0]["guide"])
+        self.assertEqual(self.comfy.submitted, [])
+
     def test_message_endpoint_runs_one_fake_call_and_exposes_the_received_trace(self):
         self.update(draft="Recolore le mur.", model_id="fake-vision")
         response = self.client.post(self.url + "/messages", json={"revision": self.current()["revision"], "request_id": "web-message"})

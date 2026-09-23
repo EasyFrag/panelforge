@@ -38,7 +38,7 @@ class DlssRequestBody(BaseModel):
         # Owner-specific defaults apply only to omitted fields. Explicit choices
         # and persisted jobs keep their settings, including size/cadence/HDR.
         defaults = {}
-        if self.owner in {"assisted", "edit"}:
+        if self.owner in {"assisted", "edit", "qwen"}:
             defaults = {"size": "1.5", "skin": -1}
         elif self.owner in {"h3", "ref2v"}:
             defaults = {"intensity": 0.2, "tone": 0, "structure": 0.2, "skin": 0, "detail": 1, "style": "Natural"}
@@ -46,7 +46,7 @@ class DlssRequestBody(BaseModel):
 
 
 class DlssImageComparisonBody(DlssRequestBody):
-    owner: Literal["assisted", "edit"]
+    owner: Literal["assisted", "edit", "qwen"]
     preset_ids: list[str] = Field(min_length=1, max_length=5)
 
 
@@ -99,7 +99,7 @@ def register_dlss_routes(app, service):
         def read():
             settings = body.resolved_settings()
             value = service.preview(body.owner, body.owner_id, body.attempt_id, settings)
-            if body.owner in {"assisted", "edit"}:
+            if body.owner in {"assisted", "edit", "qwen"}:
                 value["image_presets"] = image_presets(settings)
             return value
         return action(read)

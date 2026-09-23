@@ -89,6 +89,17 @@ class PillowRetouchCompositor:
         before, after = self._pair(source, generated)
         return PreparedRetouch(_png(before), _png(after), *before.size, _png(self._harmonized(before, after)))
 
+    def harmonize(self, source: bytes, generated: bytes, *, strength: int = 55) -> bytes:
+        """Blend a restrained source color transfer without changing render geometry."""
+        validate_retouch_harmonization(True, strength)
+        Image, _ = _pillow()
+        before = _read(source, max_pixels=17_000_000)
+        after = _read(generated, max_pixels=17_000_000)
+        if before.size != after.size:
+            before = before.resize(after.size, resample=Image.Resampling.LANCZOS)
+        level = (strength * 255 + 50) // 100
+        return _png(Image.composite(self._harmonized(before, after), after, Image.new("L", after.size, level)))
+
     def compose(self, source: bytes, generated: bytes, mask: bytes, *,
                 harmonize: bool = False, harmonize_strength: int = 100) -> ComposedRetouch:
         validate_retouch_harmonization(harmonize, harmonize_strength)

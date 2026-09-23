@@ -4,7 +4,12 @@ from dataclasses import replace
 import hashlib
 import unittest
 
-from panelforge.application import krea2_assisted_v1 as v1, krea2_assisted_v2 as v2, krea2_assisted_v3 as v3
+from panelforge.application import (
+    krea2_assisted_v1 as v1,
+    krea2_assisted_v2 as v2,
+    krea2_assisted_v3 as v3,
+    krea2_assisted_v4 as v4,
+)
 from panelforge.application.krea2_assisted import assistance_recipe
 from panelforge.domain.krea2_assisted import (
     Krea2AssistedProject, Krea2AssistedTurn, Krea2AssistedTurnMode,
@@ -35,7 +40,7 @@ class AssistanceVersionTest(unittest.TestCase):
                 self.assertEqual(loaded.assistance_recipe_version, "1.0.0")
                 self.assertEqual(loaded.turns[0].assistance_recipe_version, "1.0.0")
                 saved = _serialize(loaded)
-                self.assertEqual(saved["schema_version"], 7)
+                self.assertEqual(saved["schema_version"], 12)
                 self.assertEqual(_deserialize(saved), loaded)
 
     def test_versioned_records_do_not_silently_default_missing_reference(self):
@@ -80,3 +85,9 @@ class AssistanceVersionTest(unittest.TestCase):
         self.assertNotEqual(v3.system_prompt("creation"), v2.system_prompt("creation"))
         self.assertEqual(v3.system_prompt("recipe"), v2.system_prompt("recipe"))
         self.assertEqual(v3.MAX_TOKENS, v2.MAX_TOKENS)
+
+    def test_v4_is_distinct_and_keeps_v3_as_an_explicit_choice(self):
+        self.assertIs(assistance_recipe("4.0.0"), v4)
+        self.assertIs(assistance_recipe("3.0.0"), v3)
+        self.assertNotEqual(v4.system_prompt("creation"), v3.system_prompt("creation"))
+        self.assertEqual(v4.system_prompt("recipe"), v3.system_prompt("recipe"))

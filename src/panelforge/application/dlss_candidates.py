@@ -1,5 +1,6 @@
 """Attach shared post-processing results to existing workshops without replaying generation."""
 
+from copy import deepcopy
 from dataclasses import asdict, replace
 
 from panelforge.domain.dlss import DlssResult
@@ -9,8 +10,8 @@ from panelforge.domain.h3_render import H3RenderAttemptStatus, H3RenderKeyframe
 
 
 class DlssCandidates:
-    def __init__(self, *, edit, assisted, h3):
-        self.services = {"edit": edit, "assisted": assisted, "h3": h3, "ref2v": h3}
+    def __init__(self, *, edit, assisted, h3, qwen=None):
+        self.services = {"edit": edit, "assisted": assisted, "h3": h3, "ref2v": h3, "qwen": qwen}
 
     def _service(self, owner):
         service = self.services.get(owner)
@@ -25,6 +26,38 @@ class DlssCandidates:
         service = self._service(owner)
         with service._lock:
             project = self._get(service, owner, owner_id)
+            if owner == "qwen":
+                stage = next((value for value in project["stages"]
+                              if any(item["id"] == attempt_id for item in value["attempts"])), None)
+                if stage is None or project["active_stage_id"] != stage["id"] or stage.get("accepted_attempt_id"):
+                    raise ValueError("Choisis un résultat de l’étape Qwen active.")
+                attempt = next(item for item in stage["attempts"] if item["id"] == attempt_id)
+                if attempt["status"] != "succeeded" or not attempt.get("output_asset_id"):
+                    raise ValueError("Choisis un résultat réussi à améliorer.")
+                if attempt.get("kind") == "crop":
+                    raise ValueError("Continue depuis l’étape recadrée avant d’améliorer un rendu.")
+                if attempt.get("dlss"):
+                    attempt = next(item for item in stage["attempts"]
+                                   if item["id"] == attempt["dlss"]["root_attempt_id"])
+                if settings.interpolate or settings.hdr:
+                    raise ValueError("Ces options sont réservées à la vidéo.")
+                original = attempt
+                if attempt.get("retouch"):
+                    original = next(item for item in stage["attempts"]
+                                    if item["id"] == attempt["retouch"]["original_attempt_id"])
+                mask = attempt.get("retouch") if settings.size == "source" else None
+                snapshot = {"owner": owner, "owner_id": owner_id,
+                            "parent_attempt_id": attempt["id"], "root_attempt_id": attempt["id"],
+                            "input_asset_id": original["output_asset_id"] if mask else attempt["output_asset_id"],
+                            "media_type": "image/png", "stage_id": stage["id"],
+                            "source_asset_id": stage.get("source_asset_id"),
+                            "original_attempt_id": original["id"],
+                            "mask_asset_id": mask.get("mask_asset_id") if mask else None,
+                            "harmonize": mask.get("harmonize", False) if mask else False,
+                            "harmonize_strength": mask.get("harmonize_strength", 100) if mask else 100}
+                if settings.size == "source" and not snapshot["source_asset_id"]:
+                    raise ValueError("Cette composition n’a pas de taille source à préserver.")
+                return snapshot
             if owner == "edit":
                 service._require_editable(project)
             attempt = next((a for a in project.attempts if a.attempt_id == attempt_id), None)
@@ -39,9 +72,9 @@ class DlssCandidates:
                 is_ref = project.input_mode.value == "ref2va"
                 if (owner == "ref2v") != is_ref:
                     raise ValueError("La vidéo n’appartient pas à ce mode de rendu.")
-            if settings.size == "source" and owner != "edit":
+            if settings.size == "source" and owner not in {"edit", "qwen"}:
                 raise ValueError("La taille source est réservée à l’atelier Edit.")
-            if owner in {"edit", "assisted"} and (settings.interpolate or settings.hdr):
+            if owner in {"edit", "assisted", "qwen"} and (settings.interpolate or settings.hdr):
                 raise ValueError("Ces options sont réservées à la vidéo.")
             snapshot = {"owner": owner, "owner_id": owner_id, "parent_attempt_id": attempt.attempt_id,
                         "root_attempt_id": attempt.attempt_id, "input_asset_id": attempt.output_asset_id,
@@ -70,6 +103,14 @@ class DlssCandidates:
         service = self._service(snapshot["owner"])
         with service._lock:
             project = self._get(service, snapshot["owner"], snapshot["owner_id"])
+            if snapshot["owner"] == "qwen":
+                stage = next((value for value in project["stages"] if value["id"] == snapshot["stage_id"]), None)
+                if (stage is None or project["active_stage_id"] != stage["id"] or stage.get("accepted_attempt_id")
+                        or stage.get("source_asset_id") != snapshot.get("source_asset_id")):
+                    raise ValueError("L’étape Qwen a changé pendant l’upscale. Le fichier DLSS reste téléchargeable.")
+                if not any(item["id"] == snapshot["parent_attempt_id"] for item in stage["attempts"]):
+                    raise ValueError("L’essai d’origine n’est plus dans cet atelier.")
+                return
             if snapshot["owner"] == "edit":
                 service._require_editable(project)
                 if project.restart_count != snapshot["restart_count"] or project.source_asset_id != snapshot["source_asset_id"]:
@@ -80,7 +121,7 @@ class DlssCandidates:
     def compose(self, snapshot, enhanced, assets):
         if not snapshot.get("mask_asset_id"):
             return enhanced
-        service = self._service("edit")
+        service = self._service(snapshot["owner"] if snapshot["owner"] == "qwen" else "edit")
         return service.retouch_compositor.compose(
             assets.read_bytes(snapshot["source_asset_id"]), enhanced, assets.read_bytes(snapshot["mask_asset_id"]),
             harmonize=snapshot["harmonize"], harmonize_strength=snapshot["harmonize_strength"],
@@ -96,6 +137,29 @@ class DlssCandidates:
                           fps=job["output_metadata"].get("fps"), duration_seconds=job["output_metadata"].get("duration_seconds"))
         with service._lock:
             project = self._get(service, owner, snapshot["owner_id"])
+            if owner == "qwen":
+                stage = next(value for value in project["stages"] if value["id"] == snapshot["stage_id"])
+                existing = next((item for item in stage["attempts"]
+                                 if item.get("dlss", {}).get("job_id") == job["job_id"]), None)
+                if existing:
+                    return existing["id"]
+                self.validate_current(snapshot)
+                parent = next(item for item in stage["attempts"] if item["id"] == snapshot["parent_attempt_id"])
+                candidate = deepcopy(parent)
+                # The DLSS pixels are now a new full-image result. Keeping the
+                # parent's retouch metadata would reopen the pre-DLSS image in
+                # the mask editor instead of this candidate.
+                candidate.pop("retouch", None)
+                candidate.update(id="dlss-result-" + job["job_id"][5:], request_id=job["job_id"],
+                                 created_at=job.get("created_at", parent.get("created_at")),
+                                 finished_at=job.get("finished_at"), status="succeeded", kind="dlss",
+                                 execution_id=None, workflow_sha256=None, output_asset_id=job["output_asset_id"],
+                                 output_dimensions=[info.width, info.height], dimensions=[info.width, info.height],
+                                 error=None, cancel_requested=False, dlss=asdict(info))
+                stage["attempts"].append(candidate)
+                stage["revision"] += 1
+                service._save(project)
+                return candidate["id"]
             existing = next((a for a in project.attempts if a.dlss and a.dlss.job_id == job["job_id"]), None)
             if existing:
                 return existing.attempt_id

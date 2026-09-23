@@ -338,7 +338,8 @@ class StoryService:
         if prior_story.strip():
             value["prior_story"] = prior_story.strip()
         if long_options is not None:
-            value.update(narrative_engine=deepcopy(long_narrative.ENGINE), long_options=long_options)
+            value.update(narrative_engine=deepcopy(long_narrative.ENGINE), long_options=long_options,
+                         fruit_naming_version=1)
             value.update(visual_universe=visual_universe.strip(), target_seconds=target_seconds,
                          narrative_preferences=deepcopy(long_options))
             document.update(episode_states={}, episode_provenance={}, reviews={})
@@ -692,6 +693,10 @@ class StoryService:
                 phase="Préparation de l’écriture…", error=None, draft="", reasoning="", model_role=role,
                 recipe=deepcopy(recipe), recipe_revision=package["revision"], call_id=None,
                 instruction=instruction.strip())
+            if operation == "discuss":
+                project["job"]["discussion_previous_step"] = deepcopy(
+                    previous_job.get("discussion_previous_step") or
+                    {key: previous_job.get(key) for key in ("operation", "status", "error")})
             if feedback_target:
                 project["job"]["feedback_target"] = deepcopy(feedback_target)
             if operation == "review_block":
@@ -733,9 +738,8 @@ class StoryService:
                 raise ValueError("Aucune étape en échec à reprendre.")
             if long_narrative.is_v2(project) and job.get("narrative_input_hash") not in {None, long_narrative.input_hash(project)}:
                 raise ValueError("Le document a changé depuis cet appel. Adresse un nouveau retour à la version actuelle.")
-            if project.get("workflow"):
-                project["workflow"].update(status="paused" if job["operation"] == "discuss" else "running",
-                                           pause_requested=False, wait_target=None, budget_calls=0)
+            if project.get("workflow") and job["operation"] != "discuss":
+                project["workflow"].update(status="running", pause_requested=False, wait_target=None, budget_calls=0)
                 project = self.store.save(project)
             instruction = job.get("instruction")
             if instruction is None:
@@ -746,7 +750,7 @@ class StoryService:
                     feedback_target=job.get("feedback_target"), review_unit_ids=job.get("review_unit_ids"),
                     workflow_step=bool(project.get("workflow")))
             except Exception as error:
-                if project.get("workflow"):
+                if project.get("workflow") and job["operation"] != "discuss":
                     self.workflow._stop(self.store.get(project_id), "blocked", str(error))
                 raise
 
@@ -754,7 +758,7 @@ class StoryService:
         with self._lock:
             project = self.get(project_id)
             event = self._active.get(project_id)
-            if project.get("workflow"):
+            if project.get("workflow") and (project.get("job") or {}).get("operation") != "discuss":
                 project["workflow"].update(status="paused", pause_requested=True)
             if event:
                 event.set()
@@ -1090,8 +1094,8 @@ class StoryService:
             for turn in current["turns"]:
                 if turn.get("request_id") == current["job"]["request_id"]:
                     turn["feedback_status"] = "applied" if document else "answered"
-            if not document and current.get("workflow"):
-                current["workflow"].update(status="paused", message="Réponse disponible. Ton histoire n’a pas été modifiée.")
+            if not document and current.get("workflow") and current["job"]["operation"] != "discuss":
+                current["workflow"].update(status="paused", message="Réponse disponible. Ton histoire n’a pas été modifiée. Pour approuver, utilise Valider / Continuer.")
         current["job"].update(
             status="succeeded", phase=phase, error=None,
             draft=raw[:_MAX_LIVE_DRAFT_CHARS], reasoning=reasoning,
@@ -1145,7 +1149,7 @@ class StoryService:
                 raw=raw, reasoning=job.get("reasoning") or "",
                 phase="Brouillon revalidé sans nouvel appel LLM",
             )
-            if project.get("workflow"):
+            if project.get("workflow") and job["operation"] != "discuss":
                 project["workflow"].update(status="paused", pause_requested=False, wait_target=None,
                     message="Réponse récupérée sans nouvel appel LLM. Continue le parcours pour effectuer les vérifications restantes.")
             return self.store.save(project)
@@ -1352,7 +1356,7 @@ class StoryService:
                             elapsed_ms=model_elapsed_ms if model_elapsed_ms is not None else round((monotonic() - started) * 1000),
                             accepted=completed and source_failure is None, error=str(source_failure or failure) if source_failure or failure else None)
                         current = self.store.save(current)
-                    if current.get("workflow", {}).get("status") == "running":
+                    if current.get("workflow", {}).get("status") == "running" and current["job"]["operation"] != "discuss":
                         try:
                             self.workflow.tick(current)
                         except Exception as error:

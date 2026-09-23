@@ -35,6 +35,8 @@ from .krea2_assisted import (
     Krea2AssistedAttempt,
     Krea2AssistedAttemptStatus,
     Krea2AssistedProject,
+    Krea2PromptExample,
+    Krea2PromptSearchBrief,
     Krea2AssistedRecipeDraft,
     Krea2AssistedTurn,
     Krea2AssistedTurnMode,

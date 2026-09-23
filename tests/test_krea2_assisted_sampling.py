@@ -140,7 +140,7 @@ class Krea2AssistedSamplingTest(unittest.TestCase):
             store.create(project)
             path = Path(folder) / "krea2_assisted/old-project/project.json"
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["schema_version"], 10)
+            self.assertEqual(raw["schema_version"], 13)
             raw["schema_version"] = 8
             path.write_text(json.dumps(raw), encoding="utf-8")
             before = path.read_bytes()

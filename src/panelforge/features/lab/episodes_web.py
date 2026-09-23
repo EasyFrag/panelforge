@@ -80,6 +80,12 @@ class RenderImageBody(RevisionBody):
     expected_visual_revision: int | None = Field(default=None, ge=1, strict=True)
 
 
+class SceneRenderBody(StrictBody):
+    preparation_id: str = Field(min_length=1, max_length=120)
+    render_project_id: str = Field(min_length=1, max_length=120)
+    parameters: dict
+
+
 class ImageBody(RevisionBody):
     asset_id: str = Field(min_length=1, max_length=100)
 
@@ -150,7 +156,7 @@ class PauseVideoChainBody(StrictBody):
     mode: Literal["after_active", "after_queue"] = "after_active"
 
 
-def episodes_router(service, *, serialize_image_project, validate_image, image_body, render_body):
+def episodes_router(service, *, serialize_image_project, validate_image, image_body, render_body, serialize_render_project):
     router = APIRouter(prefix="/api/episodes")
 
     def current():
@@ -360,6 +366,17 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
     @router.post("/{identity}/scenes/{scene_id}/prompt", status_code=202)
     def scene_prompt(identity: str, scene_id: str, body: StartBody):
         return invoke(lambda: current().prepare_scene(identity, scene_id, body.expected_revision, body.request_id, body.resume))
+
+    @router.post("/{identity}/scenes/{scene_id}/render-attempts", status_code=201)
+    def prepare_scene_render(identity: str, scene_id: str, body: SceneRenderBody):
+        def prepare():
+            parameters = render_body.model_validate(body.parameters)
+            project, preparation_id = current().prepare_scene_render(identity, scene_id,
+                preparation_id=body.preparation_id, render_project_id=body.render_project_id,
+                prompt=parameters.prompt, setup=video_setup(body.parameters))
+            return {"project": serialize_render_project(project), "preparation_id": preparation_id,
+                    "episode": current().get(identity)}
+        return invoke(prepare)
 
     @router.put("/{identity}/scenes/{scene_id}/render-setup")
     def save_render(identity: str, scene_id: str, body: RenderSetupBody):

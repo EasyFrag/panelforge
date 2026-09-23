@@ -105,7 +105,7 @@
       const video = ["h3", "ref2v"].includes(context.owner);
       const defaults = video ? videoOptions : imageOptions;
       Object.entries(saved?.settings || defaults).forEach(([name, v]) => { if (field(name).type === "checkbox") field(name).checked = v; else field(name).value = v; });
-      field("size").querySelector('[value="source"]').hidden = context.owner !== "edit";
+      field("size").querySelector('[value="source"]').hidden = !["edit", "qwen"].includes(context.owner);
       dialog.querySelectorAll("[data-video]").forEach(e => { e.hidden = !video; });
       dialog.querySelectorAll("[data-image]").forEach(e => { e.hidden = video; });
       dialog.querySelectorAll(".dlss-field-help").forEach(e => { e.hidden = true; });
@@ -143,7 +143,7 @@
     if (!context) return;
     const current = ++epoch; previewReady = false; $("[data-start]").disabled = true;
     $("[data-dimensions]").textContent = "Lecture des dimensions…";
-    $("[data-size-note]").textContent = context.owner === "edit" ? (field("size").value === "source"
+    $("[data-size-note]").textContent = ["edit", "qwen"].includes(context.owner) ? (field("size").value === "source"
       ? "Le masque est réappliqué ; les pixels de la source hors masque sont conservés."
       : "Finition : toute l’image sélectionnée est traitée, y compris les zones issues de la source.") : "Une variante sera enregistrée à côté de l’original.";
     try {

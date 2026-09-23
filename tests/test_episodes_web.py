@@ -6,6 +6,7 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from panelforge.application.episodes import EpisodeConflict
 from panelforge.domain.krea2_sampling import Krea2AssistedSampling
 from panelforge.domain.krea2_assisted_workflows import KREA2_FLUX_KLEIN_WORKFLOW
 from panelforge.features.lab.episodes_web import episodes_router
@@ -34,12 +35,38 @@ class EpisodeWebTest(unittest.TestCase):
             self.calls.append(("pause", identity, chain_id, mode)); return {"video_chain": {"status": "pausing"}}
         def resume(identity, chain_id):
             self.calls.append(("resume", identity, chain_id)); return {"video_chain": {"status": "running"}}
+        def render_attempt(identity, scene_id, **values):
+            if values["preparation_id"] == "historical":
+                raise EpisodeConflict("Sélectionnez la dernière préparation.")
+            self.calls.append(("render-attempt", identity, scene_id, values))
+            return {"project_id": "render-with-current-images"}, "prep-current-images"
         app = FastAPI()
         app.include_router(episodes_router(NS(update_visual=visual, start_reference_batch=batch,
             save_video_defaults=video_defaults, set_scene_video_inheritance=inheritance, start_video_chain=chain,
-            pause_video_chain=pause, resume_video_chain=resume), serialize_image_project=lambda p: p,
-            validate_image=lambda content: "image/png", image_body=Krea2AssistedAttemptBody, render_body=H3RenderAttemptBody))
+            pause_video_chain=pause, resume_video_chain=resume, prepare_scene_render=render_attempt,
+            get=lambda identity: {"episode_id": identity}), serialize_image_project=lambda p: p,
+            validate_image=lambda content: "image/png", image_body=Krea2AssistedAttemptBody, render_body=H3RenderAttemptBody, serialize_render_project=lambda p: p))
         self.client = TestClient(app)
+
+    def test_scene_render_returns_the_effective_project_and_passes_the_exact_prompt(self):
+        parameters = dict(prompt="Use <Picture 1>. Keep this exact prompt.",
+            aspect_ratio="9:16 (Portrait Widescreen)", megapixels=0.9, duration_seconds=8,
+            steps=9, seed="42", seed_locked=True, recipe_id="minimax-h3-ref2v", recipe_version="0.2.1")
+        body = dict(preparation_id="prep-old", render_project_id="render-old", parameters=parameters)
+        url = "/api/episodes/episode-test/scenes/scene-1/render-attempts"
+        response = self.client.post(url, json=body)
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["project"]["project_id"], "render-with-current-images")
+        self.assertEqual(response.json()["preparation_id"], "prep-current-images")
+        values = self.calls[-1][-1]
+        self.assertEqual(values["prompt"], parameters["prompt"])
+        self.assertEqual(values["setup"]["settings"]["duration_seconds"], 8)
+        self.assertEqual(values["setup"]["settings"]["seed"], "42")
+        conflict = self.client.post(url, json={**body, "preparation_id": "historical"})
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+        invalid = self.client.post(url, json={**body, "parameters": {**parameters, "duration_seconds": 999}})
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+        self.assertEqual(len(self.calls), 1)
 
     def test_common_sampling_and_loras_use_assisted_validation(self):
         settings = dict(model_id="krea.safetensors", loras=[dict(name="style.safetensors", strength=0.65)],

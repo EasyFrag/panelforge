@@ -10,6 +10,55 @@ from panelforge.domain.stories import response_contract, story_recipe_spec
 from .prompt_lab import CompletionRequest
 
 
+def _review_followup(project, identities):
+    """Reuse saved versions; expose only actual changes to playable material."""
+    result = []
+    for identity in identities:
+        review = project["document"].get("reviews", {}).get(identity)
+        if not review or narrative.review_current(project, identity):
+            continue
+        for revision in reversed(project.get("revisions", [])):
+            document = revision.get("document", {})
+            before = document.get("episode_scenarios", {}).get(identity)
+            if not before:
+                continue
+            snapshot = dict(project, document=document, long_options=revision.get("long_options", project["long_options"]))
+            if narrative.source_hash(snapshot, identity) != review.get("source_hash"):
+                continue
+            previous = continuity.reader_view(before)["scenes"]
+            current = continuity.reader_view(project["document"]["episode_scenarios"][identity])["scenes"]
+            changes = []
+            for index in range(max(len(previous), len(current))):
+                old = previous[index] if index < len(previous) else None
+                new = current[index] if index < len(current) else None
+                if old != new:
+                    changes.append(dict(scene_index=index, before=old, after=new))
+            result.append(dict(unit_id=identity, previous_issues=deepcopy(review["issues"]), changes=changes))
+            break
+    return result
+
+
+def _fruit_naming(project, operation):
+    doc = project["document"]
+    mode = "preserve"
+    if project.get("fruit_naming_version") == 1 and not doc.get("episode_scenarios"):
+        if operation in {"ideas", "compose", "outline"} and not doc.get("series_outline"):
+            mode = "invent"
+        elif operation == "edit_outline" and not doc.get("reviews", {}).get("outline"):
+            mode = "check_new_cast"
+    if mode == "preserve":
+        rule = "Conserve les noms des personnages existants, même s'ils sont simplement le nom d'un fruit. Ne les renomme pas pour appliquer une nouvelle préférence."
+    else:
+        rule = ("Uniquement pour les personnages fruités nouvellement inventés : invente un prénom dérivé du fruit, "
+                "avec une terminaison mignonne : Bananito, Kiwina, Cerisa, Cerisetto, Noisettine. "
+                "Le nom brut du fruit ne suffit pas. Ne fixe pas tous les personnages à ces exemples. "
+                "Conserve les noms explicitement fournis par l'auteur et ceux du récit précédent. "
+                "Un univers humain, animal ou de gouttes d'eau conserve ses propres noms.")
+        if mode == "check_new_cast":
+            rule += " Vérifie ce nommage dans cette passe d'édition déjà prévue ; corrige seulement les noms que tu viens d'inventer et leurs mentions, en conservant les IDs."
+    return dict(mode=mode, rule=rule)
+
+
 def request(project, package, language_policy, register_policy=""):
     doc, operation = project["document"], project["job"]["operation"]
     target = narrative.scope(project)
@@ -116,6 +165,9 @@ def request(project, package, language_policy, register_policy=""):
             for identity in previous if identity in doc["episode_scenarios"]]
         if doc.get("prior_story_snapshot"):
             context["reader_history"].insert(0, dict(unit_id="previous-story", **continuity.reader_view(doc["prior_story_snapshot"])))
+    if review and target not in {"outline", "ideas"}:
+        identities = project["job"].get("review_unit_ids", []) if target == "block" else [target]
+        context["review_followup"] = _review_followup(project, identities)
     if review:
         context["response_contract"] = narrative.review_example()
         context["review_target"] = target
@@ -125,9 +177,16 @@ def request(project, package, language_policy, register_policy=""):
                             for identity in project["job"]["review_unit_ids"]]}
         else:
             context["allowed_review_targets"] = sorted(narrative.review_targets(project, target))
-    elif operation.startswith("repair_"):
-        context["review_to_address"] = deepcopy(doc["reviews"][target])
-        context["correction_policy"] = "Une seule correction ciblée pour cet appel. Une nouvelle relecture sera nécessaire."
+    correcting = operation.startswith("repair_") or (operation == "edit_outline"
+        and narrative.review_current(project, "outline")
+        and any(item["severity"] == "blocking" for item in doc["reviews"]["outline"]["issues"]))
+    if correcting:
+        context["review_to_address"] = dict(summary="Corriger uniquement les problèmes bloquants.",
+            issues=[deepcopy(item) for item in doc["reviews"][target]["issues"] if item["severity"] == "blocking"])
+        context["local_diagnostics"] = [item for item in context.get("local_diagnostics", []) if item["level"] == "blocking"]
+        context["correction_policy"] = ("Une seule correction ciblée des problèmes bloquants. Les warnings restent informatifs. "
+            "Préserve le reste, notamment les relations et la propriété des objets. Ne polis pas le style. "
+            "Ajuste seulement les raccords nécessaires à la correction. Une nouvelle relecture sera nécessaire.")
     profile = project["long_options"]["profile"]
     profile_prompt = package["profiles"].get(profile) or ("Choisis le profil adapté parmi : " + json.dumps(package["profiles"], ensure_ascii=False))
     system = "\n\n".join([package["prompts"]["common"], profile_prompt,
@@ -141,6 +200,7 @@ def request(project, package, language_policy, register_policy=""):
             "Priorité : relations indispensables, désir, occasion, acte ou ellipse lisible, conséquence. "
             "Un clin d'œil ne prouve pas à lui seul une liaison ; une proximité ne nomme pas forcément un couple. "
             "Signale les participants visibles non déclarés et les changements physiques sans raccord. "
+            "Nommer le propriétaire absent d’un objet ne rend pas ce personnage visible et n’impose pas de l’ajouter au casting. "
             "Une information volontairement cachée n'est pas un défaut. Les préférences de style sont des warnings, jamais une invitation à complexifier.")
     system += ("\nFORMAT : uniquement du JSON, jamais d’expression de code ou de méthode comme .replace(). "
                "Écris directement les chaînes finales. Respecte les IDs autorisés et laisse les listes facultatives vides lorsqu’elles ne s’appliquent pas.")
@@ -177,11 +237,30 @@ def request(project, package, language_policy, register_policy=""):
         if structured:
             context["allowed_edit_paths"] = sorted(contracts.outline_edit_targets(project))
     elif operation == "review_block":
-        system += ("\nRelis ensemble units_to_review et leurs raccords. Renvoie reply et reviews, une entrée par unit_id demandé. "
+        units_key = "reader_units" if reader_mode else "units_to_review"
+        system += (f"\nRelis ensemble {units_key} et leurs raccords. Renvoie reply et reviews, une entrée par unit_id demandé. "
                    "Une remarque scene-N se rapporte à la séquence de son entrée. N'écris aucun scénario dans cette réponse.")
     elif operation == "discuss":
         context["response_contract"] = {"reply": "Réponse à la question, sans réécrire le document", "discussion_only": True}
-        system += "\nQUESTION DE L'AUTEUR : réponds uniquement avec reply et discussion_only:true. Ne modifie aucun document."
+        flow = project.get("workflow") or {}
+        stop_target = flow.get("wait_target")
+        stopped_review = doc.get("reviews", {}).get(stop_target, {})
+        context["workflow_context"] = dict(
+            mode=flow.get("mode"), status=flow.get("status"), message=flow.get("message"),
+            wait_target=stop_target, previous_step=project["job"].get("discussion_previous_step"),
+            blocking_issues=[deepcopy(item) for item in stopped_review.get("issues", []) if item["severity"] == "blocking"],
+            validation_action="Valider / Continuer")
+        system += ("\nQUESTION DE L'AUTEUR : réponds uniquement avec reply et discussion_only:true. Ne modifie aucun document. "
+                   "workflow_context donne l'état réel du parcours et la raison de son arrêt. Explique ce motif et les "
+                   "blocking_issues pertinents ; distingue une erreur technique d'un choix narratif. "
+                   "N'invente pas une validation du ton, du rythme ou des personnages à obtenir. "
+                   "Une question conserve le mode choisi. Tu ne peux ni valider ni lancer la production depuis cette réponse. "
+                   "Si l'auteur exprime son accord, indique le bouton Valider / Continuer ; ne promets aucune réécriture.")
+    if correcting:
+        system += "\nCORRECTION CIBLÉE PRIORITAIRE : " + context["correction_policy"]
+    if operation == "revise" and context.get("feedback_target"):
+        system += ("\nUne simple approbation sans changement demandé appelle uniquement reply et discussion_only:true. "
+                   "Indique le bouton Valider / Continuer ; ne réécris pas le scénario pour un simple accord.")
     if context.get("feedback_target"):
         system += ("\nLe retour courant ne s'applique qu'à feedback_target. Préserve le reste ; explique les conséquences utiles. "
                    "Si une demande locale exige de changer l'architecture, réponds en discussion_only plutôt que de changer silencieusement les événements réservés.")
@@ -189,8 +268,11 @@ def request(project, package, language_policy, register_policy=""):
         system += "\nUnivers explicitement choisi par l'auteur : " + context["visual_universe"] + ". Cet univers prévaut sur celui de la famille par défaut."
     if family.get("dialogue_policy") == "forbidden":
         system += "\nFamille muette : dialogue reste vide dans chaque scène."
-    if project["recipe"]["id"] == "story.brainrot" and not context.get("visual_universe"):
-        system += "\nPar défaut : fruits anthropomorphes, noms fruités inventés en un mot, espèce visuelle explicite. Préserve les noms et identités explicitement imposés par le brief. Aucun quota de répliques."
+    if project["recipe"]["id"] == "story.brainrot" and not project.get("visual_universe"):
+        system += "\nPar défaut : fruits anthropomorphes, espèce visuelle explicite. Préserve les identités explicitement imposées par le brief. Aucun quota de répliques."
+    if not review and project["recipe"]["id"] == "story.brainrot":
+        context["fruit_naming"] = _fruit_naming(project, operation)
+        system += "\nNOMMAGE DES PERSONNAGES : " + context["fruit_naming"]["rule"]
     schema = contracts.response_schema(project) if structured else None
     if structured:
         context["contract_version"] = project["job"]["response_contract_version"]

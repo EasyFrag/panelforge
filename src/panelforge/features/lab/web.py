@@ -650,6 +650,7 @@ class Krea2AssistedChatBody(BaseModel):
     guidance_asset_id: str | None = None
     guidance_filename: str | None = None
     expected_branch_id: str | None = None
+    refresh_prompt_examples: bool = True
 
 
 class Krea2AssistedAttemptBody(BaseModel):
@@ -718,6 +719,11 @@ class Krea2StylePresetApplyBody(BaseModel):
 
 class Krea2AssistedFeedbackBody(BaseModel):
     attempt_id: str | None = None
+
+
+class Krea2AssistedPromptExampleBody(BaseModel):
+    example_id: str = Field(min_length=1, max_length=128)
+    expected_branch_id: str
 
 
 class Krea2AssistedRecipeDraftBody(BaseModel):
@@ -995,7 +1001,7 @@ def create_app(
     from .episodes_web import episodes_router
     app.include_router(episodes_router(episodes, serialize_image_project=serialize_krea2_assisted_project,
         validate_image=detect_image_media_type, image_body=Krea2AssistedAttemptBody,
-        render_body=H3RenderAttemptBody))
+        render_body=H3RenderAttemptBody, serialize_render_project=serialize_h3_render_project))
     from .image_catalog import ImageLabCatalogs
     image_catalogs = ImageLabCatalogs()
     app.include_router(media_analysis_router(media_analysis))
@@ -2721,6 +2727,7 @@ def create_app(
             "restaging": {"enabled": krea2_edit is not None and any(getattr(w, "requires_subject_reference", False) for w in krea2_edit.workflows),
                           "default_instruction": RESTAGING_INSTRUCTION},
             "assistance_recipes": service.list_assistance_recipes(),
+            "prompt_library": service.prompt_example_library_status(),
             **image_catalogs.read(service.resources, service, _serialize_llm_model, refresh=refresh),
             "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
             "defaults": {
@@ -2779,7 +2786,7 @@ def create_app(
             return {"project": serialize_krea2_assisted_project(project)}
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Preset introuvable.") from error
-        except (TypeError, ValueError) as error:
+        except (RuntimeError, TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         finally:
             if reference is not None:
@@ -2789,6 +2796,14 @@ def create_app(
     def list_krea2_style_presets() -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
         return {"presets": [_serialize_krea2_style_preset(p) for p in service.list_style_presets()]}
+
+    @app.post("/api/image-lab/krea2-assisted/prompt-library/index", status_code=status.HTTP_202_ACCEPTED)
+    def index_krea2_prompt_library(force: bool = False) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return {"prompt_library": service.start_prompt_example_indexing(force=force)}
+        except RuntimeError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post("/api/image-lab/krea2-assisted/style-presets")
     def save_krea2_style_preset(body: Krea2StylePresetSaveBody) -> dict[str, object]:
@@ -2851,7 +2866,7 @@ def create_app(
         try:
             return {
                 "projects": [
-                    serialize_krea2_assisted_project(project)
+                    serialize_krea2_assisted_project(project, include_prompt_examples=False)
                     for project in service.list(limit)
                 ]
             }
@@ -2865,6 +2880,24 @@ def create_app(
             return {"project": serialize_krea2_assisted_project(service.get(project_id))}
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="KREA2 assisted project not found") from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/prompt-example")
+    def select_krea2_prompt_example(
+        project_id: str,
+        body: Krea2AssistedPromptExampleBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            project = service.select_prompt_example(
+                project_id,
+                body.example_id,
+                expected_branch_id=body.expected_branch_id,
+            )
+            return {"project": serialize_krea2_assisted_project(project)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Projet ou exemple introuvable.") from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post(
         "/api/image-lab/krea2-assisted/projects/{project_id}/guidance-images",
@@ -2933,6 +2966,7 @@ def create_app(
             guidance_filename=body.guidance_filename,
             current_prompt=body.current_prompt,
             include_reasoning=include_reasoning,
+            refresh_prompt_examples=body.refresh_prompt_examples,
         ))
 
     @app.get("/api/image-lab/krea2-assisted/render-queue")
@@ -5525,7 +5559,11 @@ def _serialize_krea2_style_preset(preset) -> dict[str, object] | None:
     }
 
 
-def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str, object]:
+def serialize_krea2_assisted_project(
+    project: Krea2AssistedProject,
+    *,
+    include_prompt_examples: bool = True,
+) -> dict[str, object]:
     draft = project.recipe_draft
     branches = []
     for branch in project.conversation_branches():
@@ -5544,6 +5582,31 @@ def serialize_krea2_assisted_project(project: Krea2AssistedProject) -> dict[str,
         "id": project.project_id,
         "active_branch_id": project.active_branch_id,
         "composition_base_asset_id": project.composition_base_asset_id,
+        "prompt_examples": [
+            {
+                "example_id": example.example_id,
+                "source_file": example.source_file,
+                "source_line": example.source_line,
+                "digest": example.digest,
+                "prompt": example.prompt,
+                "score": example.score,
+                "relevance": example.relevance,
+                "actions": list(example.actions),
+                "participants": list(example.participants),
+                "interactions": list(example.interactions),
+                "positions": list(example.positions),
+                "framings": list(example.framings),
+                "settings": list(example.settings),
+                "selected": example.example_id == project.selected_prompt_example_id,
+            }
+            for example in project.prompt_examples
+        ] if include_prompt_examples else [],
+        "selected_prompt_example_id": project.selected_prompt_example_id,
+        "prompt_example_search_brief": (
+            asdict(project.prompt_example_search_brief)
+            if project.prompt_example_search_brief is not None
+            else None
+        ),
         "branches": branches,
         "render_settings": _serialize_krea2_assisted_settings(project.render_settings),
         "style_preset": _serialize_krea2_style_preset(project.style_preset),

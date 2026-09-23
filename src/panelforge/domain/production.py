@@ -69,6 +69,7 @@ class ComputeResource(StrEnum):
 
 class ProductionWorkload(StrEnum):
     LLM = "llm"
+    MAINTENANCE = "maintenance"
     IMAGE_RENDER = "image_render"
     VIDEO_RENDER = "video_render"
     VIDEO_COOLDOWN = "video_cooldown"

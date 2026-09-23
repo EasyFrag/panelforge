@@ -341,7 +341,8 @@ class Krea2AssistedWebTest(unittest.TestCase):
             self.assertLess(monotonic(), deadline, "fake catalog refresh timed out")
             sleep(.005)
             spec = self.client.get("/api/image-lab/krea2-assisted/spec")
-        self.assertEqual([item["version"] for item in spec.json()["assistance_recipes"]], ["1.0.0", "2.0.0", "3.0.0"])
+        self.assertEqual([item["version"] for item in spec.json()["assistance_recipes"]], ["1.0.0", "2.0.0", "3.0.0", "4.0.0"])
+        self.assertEqual(spec.json()["prompt_library"]["state"], "unavailable")
         self.assertEqual(spec.json()["limits"]["lora_count"], 10)
         model = spec.json()["render_models"][0]["comfy_name"]
         lora = spec.json()["loras"][0]["comfy_name"]

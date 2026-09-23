@@ -362,6 +362,88 @@ class Krea2AssistedBranch:
 
 
 @dataclass(frozen=True, slots=True)
+class Krea2PromptExample:
+    """Immutable scene-library candidate pinned to an assisted project."""
+
+    example_id: str
+    source_file: str
+    source_line: int
+    digest: str
+    prompt: str
+    score: float
+    relevance: str = "medium"
+    actions: tuple[str, ...] = ()
+    participants: tuple[str, ...] = ()
+    interactions: tuple[str, ...] = ()
+    positions: tuple[str, ...] = ()
+    framings: tuple[str, ...] = ()
+    settings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _text(self.example_id, "example_id")
+        _text(self.source_file, "source_file")
+        _digest(self.digest)
+        _text(self.prompt, "example prompt")
+        if isinstance(self.source_line, bool) or not isinstance(self.source_line, int) or self.source_line < 1:
+            raise ValueError("source_line must be a positive integer")
+        if isinstance(self.score, bool) or not isinstance(self.score, (int, float)):
+            raise TypeError("example score must be numeric")
+        if self.relevance not in {"strong", "medium", "weak"}:
+            raise ValueError("example relevance must be strong, medium or weak")
+        for values, label in (
+            (self.actions, "example actions"),
+            (self.participants, "example participants"),
+            (self.interactions, "example interactions"),
+            (self.positions, "example positions"),
+            (self.framings, "example framings"),
+            (self.settings, "example settings"),
+        ):
+            _strings(values, label, maximum=12)
+
+
+@dataclass(frozen=True, slots=True)
+class Krea2PromptSearchBrief:
+    """Structured V4 retrieval intent produced before local example search."""
+
+    search_caption: str
+    source_message: str
+    actions: tuple[str, ...] = ()
+    participants: tuple[str, ...] = ()
+    interactions: tuple[str, ...] = ()
+    positions: tuple[str, ...] = ()
+    framings: tuple[str, ...] = ()
+    settings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _text(self.search_caption, "search caption")
+        _text(self.source_message, "search source message")
+        for values, label in (
+            (self.actions, "search actions"),
+            (self.participants, "search participants"),
+            (self.interactions, "search interactions"),
+            (self.positions, "search positions"),
+            (self.framings, "search framings"),
+            (self.settings, "search settings"),
+        ):
+            _strings(values, label, maximum=12)
+
+    @property
+    def retrieval_query(self) -> str:
+        sections = [self.search_caption]
+        for label, values in (
+            ("actions", self.actions),
+            ("participants", self.participants),
+            ("interactions", self.interactions),
+            ("positions", self.positions),
+            ("framings", self.framings),
+            ("settings", self.settings),
+        ):
+            if values:
+                sections.append(f"{label}: {', '.join(values)}")
+        return ". ".join(sections)
+
+
+@dataclass(frozen=True, slots=True)
 class Krea2AssistedProject:
     project_id: str
     name: str
@@ -394,6 +476,9 @@ class Krea2AssistedProject:
     style_preset: Krea2StylePreset | None = None
     preset_pending: bool = False
     composition_base_asset_id: str | None = None
+    prompt_examples: tuple[Krea2PromptExample, ...] = ()
+    selected_prompt_example_id: str | None = None
+    prompt_example_search_brief: Krea2PromptSearchBrief | None = None
 
     def __post_init__(self) -> None:
         validate_preset_selection(self.style_preset, self.preset_pending)
@@ -409,6 +494,24 @@ class Krea2AssistedProject:
             _text(self.reference_asset_id, "reference_asset_id")
         if self.composition_base_asset_id is not None:
             _text(self.composition_base_asset_id, "composition_base_asset_id")
+        if not isinstance(self.prompt_examples, tuple) or any(
+            not isinstance(value, Krea2PromptExample) for value in self.prompt_examples
+        ):
+            raise TypeError("prompt_examples must contain Krea2PromptExample values")
+        if len({value.example_id for value in self.prompt_examples}) != len(self.prompt_examples):
+            raise ValueError("prompt example IDs must be unique")
+        if self.selected_prompt_example_id is not None:
+            _text(self.selected_prompt_example_id, "selected_prompt_example_id")
+            if not any(
+                value.example_id == self.selected_prompt_example_id
+                for value in self.prompt_examples
+            ):
+                raise ValueError("selected prompt example must belong to the project")
+        if (
+            self.prompt_example_search_brief is not None
+            and not isinstance(self.prompt_example_search_brief, Krea2PromptSearchBrief)
+        ):
+            raise TypeError("prompt_example_search_brief must be a Krea2PromptSearchBrief")
         if self.revision_model_id is not None:
             _text(self.revision_model_id, "revision_model_id")
         if not isinstance(self.prompt_language, Krea2PromptLanguage):
@@ -570,6 +673,37 @@ class Krea2AssistedProject:
         return replace(
             self,
             revision_model_id=_text(model_id, "revision_model_id"),
+        )
+
+    def select_prompt_example(self, example_id: str) -> Krea2AssistedProject:
+        example_id = _text(example_id, "example_id")
+        if not any(value.example_id == example_id for value in self.prompt_examples):
+            raise KeyError(example_id)
+        return replace(self, selected_prompt_example_id=example_id)
+
+    def replace_prompt_examples(
+        self,
+        examples: tuple[Krea2PromptExample, ...],
+        brief: Krea2PromptSearchBrief,
+    ) -> Krea2AssistedProject:
+        if len(examples) != 3:
+            raise ValueError("V4 retrieval must return exactly three prompt examples")
+        return replace(
+            self,
+            prompt_examples=examples,
+            selected_prompt_example_id=examples[0].example_id,
+            prompt_example_search_brief=brief,
+        )
+
+    @property
+    def selected_prompt_example(self) -> Krea2PromptExample | None:
+        return next(
+            (
+                value
+                for value in self.prompt_examples
+                if value.example_id == self.selected_prompt_example_id
+            ),
+            None,
         )
 
     def add_attempt(self, attempt: Krea2AssistedAttempt) -> Krea2AssistedProject:

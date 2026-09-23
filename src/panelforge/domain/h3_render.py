@@ -575,6 +575,7 @@ class H3RenderProject:
     revision_draft_version: H3RenderRevisionVersion | None = None
     dialogue_level: int = 0
     adaptation: H3Ref2VAdaptation | None = None
+    reference_parent_project_id: str | None = None
     preparation: VideoPreparationRef = VideoPreparationRef()
     combat_settings: CombatSettings | None = None
     cinematic_settings: ClassicCinematicSettings | None = None
@@ -588,6 +589,10 @@ class H3RenderProject:
         validate_sensual_settings(self.preparation, self.sensual_settings)
         if type(self.dialogue_level) is not int or not 0 <= self.dialogue_level <= 3:
             raise ValueError("dialogue_level must be between 0 and 3")
+        if self.reference_parent_project_id is not None:
+            _text(self.reference_parent_project_id, "reference_parent_project_id")
+            if self.reference_parent_project_id == self.project_id:
+                raise ValueError("reference parent must be another project")
         if self.adaptation is not None:
             if not isinstance(self.adaptation, H3Ref2VAdaptation) or self.input_mode is not H3RenderInputMode.REF2VA:
                 raise TypeError("adaptations require a REF2VA project")

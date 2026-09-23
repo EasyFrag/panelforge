@@ -120,10 +120,10 @@
   }
   function paintFeedbackHint() {
     const target = feedbackTarget();
-    el("feedback-context").textContent = `Cible : ${targetLabel(target)}. ${running() ? "Ton texte reste en brouillon. Reprends la main pour l’envoyer après l’appel actif." : "Appliquer modifie le texte ; poser une question ouvre une discussion."}`;
-    el("instruction").placeholder = target.unit_id === "outline" ? "Garde cette idée, mais change la fin : je veux que la trahison soit découverte…"
-      : target.scene_index == null ? "Dans cette séquence, rends la négociation plus tendue, en gardant la fin prévue…"
-      : "Garde les personnages, mais montre plus clairement le refus dans cette scène…";
+    el("feedback-context").textContent = `Cible : ${targetLabel(target)}. ${running() ? "Ton texte reste en brouillon. Reprends la main pour l’envoyer après l’appel actif." : "Une question conserve le texte et le mode choisi. Demander une modification réécrit la cible. Pour approuver, utilise le bouton Valider / Continuer."}`;
+    el("instruction").placeholder = target.unit_id === "outline" ? "Question : pourquoi cette fin ? Modification : garde cette idée, mais change la fin…"
+      : target.scene_index == null ? "Question : que comprend le public ici ? Modification : rends la négociation plus tendue…"
+      : "Question : pourquoi ce refus ? Modification : montre plus clairement le refus dans cette scène…";
   }
   function paintWorkflow() {
     const project = state.project, guided = longV2(), doc = project?.document;
@@ -131,7 +131,13 @@
     el("guided-tools").hidden = !guided;
     el("feedback-target-row").hidden = !guided; el("feedback-context").hidden = !guided;
     el("question").hidden = !guided;
-    el("send").textContent = guided ? "Appliquer mon retour" : "Envoyer";
+    el("send").textContent = guided ? "Demander une modification" : "Envoyer";
+    el("send").type = guided ? "button" : "submit";
+    el("question").type = guided ? "submit" : "button";
+    el("question").classList.toggle("primary", guided);
+    el("send").classList.toggle("primary", !guided);
+    el("question").title = "Obtenir une réponse sans modifier l’histoire ni changer de mode.";
+    el("send").title = guided ? "Demander une réécriture de la cible sélectionnée." : "";
     if (!guided) return;
     const flow = project.workflow;
     const usage = project.llm_usage;
@@ -149,7 +155,7 @@
     el("workflow-issues").replaceChildren(...issues.map(item => node("li", `${item.problem} ${item.suggestion}`)));
     el("progress").textContent = !doc.series_outline ? "① Histoire → ② Scénario → ③ Prêt à fabriquer"
       : flow?.status === "ready" ? "✓ Histoire → ✓ Scénario → ✓ Prêt à fabriquer" : "✓ Histoire → ② Scénario → ③ Prêt à fabriquer";
-    el("advance").textContent = flow?.status === "awaiting_author" ? (flow.wait_target === "outline" ? (written ? "Valider l’histoire et continuer" : "Développer le scénario") : "Valider et continuer")
+    el("advance").textContent = flow?.status === "awaiting_author" ? (flow.wait_target === "outline" ? (written ? "Valider l’histoire et continuer" : "Valider et développer le scénario") : "Valider et continuer")
       : flow?.status === "ready" ? "Scénario terminé" : !doc.series_outline ? "Imaginer mon histoire" : "Continuer le parcours";
     el("pause").hidden = !running();
     const previous = el("feedback-target").value;
@@ -949,8 +955,8 @@
     } catch (error) { if (token === state.token) message(error.message, true); }
     finally { state.saving = false; controls(); }
   });
-  el("chat-form").addEventListener("submit", event => { event.preventDefault(); if (longV2()) sendFeedback(); else write("revise", el("instruction").value.trim()); });
-  el("question").addEventListener("click", () => sendFeedback(true));
+  el("chat-form").addEventListener("submit", event => { event.preventDefault(); if (longV2()) sendFeedback(true); else write("revise", el("instruction").value.trim()); });
+  el("send").addEventListener("click", () => { if (longV2()) sendFeedback(false); });
   el("feedback-target").addEventListener("change", paintFeedbackHint);
   el("advance").addEventListener("click", () => workflowAction("advance", {mode: el("active-mode").value,
     architect_model_id: selectedModel("architect"), writer_model_id: selectedModel("writer")}));

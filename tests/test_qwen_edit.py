@@ -13,11 +13,15 @@ import zipfile
 from PIL import Image
 
 from panelforge.application.machine_work import MachineWorkCoordinator
+from panelforge.application.dlss_candidates import DlssCandidates
 from panelforge.application.prompt_lab import CompletionResult, CompletionStreamEvent, ModelDescriptor, StreamEventKind, StreamPhase
 from panelforge.application.qwen_edit import QwenEditService, QwenEditConflict
+from panelforge.domain.dlss import DlssSettings
 from panelforge.domain.qwen_edit import QwenEditSettings, prompt_is_ready, render_inputs
 from panelforge.domain.production import ComputeResource, ProductionWorkload
 from panelforge.infrastructure.presets.qwen_edit import load_qwen_edit_workflow
+from panelforge.infrastructure.edit_images import PillowEditImages
+from panelforge.infrastructure.krea2_retouch import PillowRetouchCompositor
 from panelforge.infrastructure.qwen_edit_images import PillowQwenEditImages
 from panelforge.infrastructure.qwen_project_exports import LocalQwenProjectExporter, project_zip
 from panelforge.infrastructure.storage.local import LocalAssetStore
@@ -25,12 +29,12 @@ from panelforge.infrastructure.storage.qwen_edits import LocalQwenEditStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / "workflows/image.edit/qwen-image-2.1/1.0.0"
+WORKFLOW = ROOT / "workflows/image.edit/qwen-image-2.1/2.0.0"
 
 
-def png(color="navy", size=(160, 96)):
+def png(color="navy", size=(160, 96), mode="RGB"):
     result = BytesIO()
-    Image.new("RGB", size, color).save(result, "PNG")
+    Image.new(mode, size, color).save(result, "PNG")
     return result.getvalue()
 
 
@@ -97,6 +101,7 @@ class QwenEditFixture(unittest.TestCase):
         self.workflow = load_qwen_edit_workflow(WORKFLOW)
         self.service = QwenEditService(gateway=self.gateway, workflow=self.workflow, comfy=self.comfy,
             assets=self.assets, projects=self.store, images=PillowQwenEditImages(), poll_interval=.001,
+            edit_images=PillowEditImages(), retouch_compositor=PillowRetouchCompositor(),
             exporter=LocalQwenProjectExporter(Path(self.temporary.name) / "exports"))
         self.project = self.service.create(name="Composition test", content=png())
         self.project_id = self.project["id"]
@@ -189,6 +194,85 @@ class QwenEditSchedulingTest(QwenEditFixture):
 
 
 class QwenEditTest(QwenEditFixture):
+    def test_crop_is_local_idempotent_and_starts_the_next_stage(self):
+        stage = self.current()
+        project = self.service.crop_source(self.project_id, self.stage_id, revision=stage["revision"],
+            request_id="crop-request", source_asset_id=stage["source_asset_id"],
+            source_width=160, source_height=96, x=20, y=8, width=100, height=80)
+        original, following = project["stages"]
+        crop = original["attempts"][-1]
+        self.assertEqual((crop["kind"], crop["output_dimensions"]), ("crop", [100, 80]))
+        self.assertEqual(following["source_asset_id"], crop["output_asset_id"])
+        self.assertEqual(self.comfy.submitted, [])
+        self.assertEqual(self.gateway.requests, [])
+        again = self.service.crop_source(self.project_id, self.stage_id, revision=original["revision"],
+            request_id="crop-request", source_asset_id=stage["source_asset_id"],
+            source_width=160, source_height=96, x=20, y=8, width=100, height=80)
+        self.assertEqual(again["active_stage_id"], following["id"])
+        self.assertEqual(len(again["stages"][0]["attempts"]), 1)
+
+    def test_visual_guide_is_idempotent_and_natural_finish_keeps_the_raw_qwen_result(self):
+        source = self.current()
+        guide_mask = png("white", size=(160, 96), mode="RGBA")
+        project = self.service.save_guide(self.project_id, self.stage_id, guide_mask,
+            revision=source["revision"], request_id="guide-request",
+            source_asset_id=source["source_asset_id"], source_width=160, source_height=96)
+        guided = project["stages"][0]
+        self.assertEqual([value["id"] for value in render_inputs(guided)], ["source", "guide"])
+        again = self.service.save_guide(self.project_id, self.stage_id, guide_mask,
+            revision=source["revision"], request_id="guide-request",
+            source_asset_id=source["source_asset_id"], source_width=160, source_height=96)
+        self.assertEqual(again["stages"][0]["guide"]["mask_asset_id"], guided["guide"]["mask_asset_id"])
+
+        self.update(prompt="Modify <image1> only in the approximate region shown by <image2>.")
+        rendered = self.render()
+        self.assertEqual(rendered["status"], "succeeded", rendered["error"])
+        self.assertEqual(rendered["context"]["guide"]["mask_asset_id"], guided["guide"]["mask_asset_id"])
+        self.assertNotEqual(rendered["output_asset_id"], rendered["raw_output_asset_id"])
+        self.assertEqual(len(self.comfy.uploads), 1)
+        with Image.open(BytesIO(self.comfy.uploads[0][0])) as uploaded:
+            self.assertEqual(uploaded.getchannel("A").getextrema(), (0, 0))
+        graph = self.comfy.submitted[0]
+        self.assertEqual(graph["64"]["inputs"]["images.image_1"], ["77", 0])
+        self.assertEqual(graph["64"]["inputs"]["images.image_2"], ["80", 0])
+        self.assertNotIn("81", graph)
+
+    def test_natural_finish_preserves_the_generated_resolution(self):
+        self.comfy.output = png("green", size=(320, 192))
+        self.update(prompt="Recolor the wall in <image1> green.")
+        rendered = self.render()
+        self.assertEqual(rendered["output_dimensions"], [320, 192])
+        with Image.open(BytesIO(self.assets.read_bytes(rendered["output_asset_id"]))) as output:
+            self.assertEqual(output.size, (320, 192))
+
+    def test_natural_finish_failure_keeps_the_raw_generation_successful(self):
+        self.service.retouch_compositor = None
+        self.update(prompt="Recolor the wall in <image1> green.")
+        rendered = self.render()
+        self.assertEqual(rendered["status"], "succeeded")
+        self.assertEqual(rendered["output_asset_id"], rendered["raw_output_asset_id"])
+        self.assertEqual(rendered["finish"]["status"], "fallback")
+        self.assertIn("pas configurée", rendered["finish_error"])
+
+    def test_dlss_candidate_is_attached_to_the_active_qwen_stage(self):
+        self.update(prompt="Recolor the wall green.")
+        rendered = self.render()
+        candidates = DlssCandidates(edit=None, assisted=None, h3=None, qwen=self.service)
+        snapshot = candidates.prepare("qwen", self.project_id, rendered["id"], DlssSettings(size="2"))
+        output = self.assets.create(png("purple", size=(320, 192)), media_type="image/png")
+        report = self.assets.create(b"{}", media_type="application/json")
+        job = {"job_id": "dlss-qwen-test", "snapshot": snapshot, "report_asset_id": report.asset_id,
+               "output_asset_id": output.asset_id, "enhanced_asset_id": output.asset_id,
+               "output_metadata": {"width": 320, "height": 192}, "settings": {"size": "2"},
+               "created_at": "2026-09-23T10:00:00+00:00", "finished_at": "2026-09-23T10:00:01+00:00"}
+        candidate_id = candidates.attach(job, SimpleNamespace(reference=None))
+        result = self.current()["attempts"][-1]
+        self.assertEqual((candidate_id, result["kind"]), (result["id"], "dlss"))
+        self.assertEqual(result["dlss"]["root_attempt_id"], rendered["id"])
+        self.assertEqual(result["output_dimensions"], [320, 192])
+        self.assertEqual(candidates.attach(job, SimpleNamespace(reference=None)), candidate_id)
+        self.assertEqual(len(self.current()["attempts"]), 2)
+
     def test_inspirations_reach_the_llm_but_never_the_qwen_uploads(self):
         inspiration = self.reference("Palette", "assistant", "yellow")
         self.message("Reprends les couleurs de Palette.")
@@ -335,6 +419,10 @@ class QwenEditTest(QwenEditFixture):
         self.assertEqual(len([k for k in graph["64"]["inputs"] if k.startswith("images.image_")]), 16)
         self.assertEqual(graph["64"]["inputs"]["images.image_16"], ["qwen_reference_16", 0])
         self.assertEqual(self.workflow.template["64"]["inputs"]["images.image_1"], ["77", 0])
+        self.assertEqual(self.workflow.template["37"]["inputs"]["unet_name"],
+                         "qwen_image_2.1_bf16.safetensors")
+        self.assertEqual(self.workflow.template["38"]["inputs"]["clip_name"],
+                         "qwen3vl_8b_bf16.safetensors")
 
     def test_invalid_or_missing_prompt_image_reference_is_rejected_before_queue(self):
         self.reference("Léa", "render")
@@ -366,6 +454,26 @@ class QwenEditTest(QwenEditFixture):
         self.assertEqual(len(self.comfy.submitted), 1)
         self.assertEqual(failed["status"], "failed")
         self.assertIn("Vérifie sa file", failed["error"])
+
+    def test_definitive_comfy_rejection_is_reported_without_queue_warning(self):
+        self.update(prompt="Make the wall burgundy.")
+        attempt = self.queue()
+
+        class Rejected(RuntimeError):
+            definitive_rejection = True
+
+        def reject(graph):
+            self.comfy.submitted.append(graph)
+            raise Rejected("HTTP 400: nœud 37 : Value not in list")
+
+        self.comfy.submit_workflow = reject
+        self.service.execute_attempt(self.project_id, self.stage_id, attempt["id"])
+        failed = self.current()["attempts"][0]
+        self.assertEqual(len(self.comfy.submitted), 1)
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("refusé le workflow avant sa mise en file", failed["error"])
+        self.assertIn("nœud 37", failed["error"])
+        self.assertNotIn("Vérifie sa file", failed["error"])
 
     def test_resuming_a_validated_stage_keeps_both_project_versions(self):
         self.message()

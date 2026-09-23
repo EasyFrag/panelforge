@@ -487,6 +487,26 @@ class H3RenderService:
             )
             return self.projects.create(project)
 
+    def fork_reference_images(self, project_id, *, expected_asset_ids, asset_ids):
+        """Keep the original render history and prompt provenance on image refresh."""
+        with self._lock:
+            source = self.projects.get(project_id)
+            asset_ids = tuple(asset_ids)
+            if (source.input_mode is not H3RenderInputMode.REF2VA
+                    or source.adaptation is not None
+                    or source.reference_asset_ids != tuple(expected_asset_ids)
+                    or len(asset_ids) != len(source.reference_asset_ids)):
+                raise ValueError("Les références du rendu ont changé. Préparez un nouveau prompt pour cette scène.")
+            for asset_id in asset_ids:
+                if not self.assets.get(asset_id).media_type.startswith("image/"):
+                    raise ValueError("Les références du rendu doivent être des images.")
+            return self.projects.create(replace(
+                source, project_id=self._project_id_factory(), reference_asset_ids=asset_ids,
+                reference_parent_project_id=source.project_id,
+                attempts=(), feedback_attempt_id=None, turns=(),
+                revision_draft=None, revision_error=None, revision_draft_version=None,
+            ))
+
     def get(self, project_id: str) -> H3RenderProject:
         with self._lock:
             return self._refresh_detached(self.projects.get(project_id))

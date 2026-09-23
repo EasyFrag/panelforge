@@ -23,6 +23,9 @@
     llm: $("krea2-assisted-llm"),
     refreshAll: $("krea2-assisted-refresh-all"),
     assistanceRecipe: $("krea2-assisted-assistance-recipe"),
+    libraryRow: $("krea2-assisted-library-row"),
+    libraryStatus: $("krea2-assisted-library-status"),
+    libraryIndex: $("krea2-assisted-library-index"),
     activeRecipe: $("krea2-assisted-active-recipe"),
     newPreset: $("krea2-assisted-new-preset"),
     newPresetNote: $("krea2-assisted-new-preset-note"),
@@ -53,6 +56,10 @@
     title: $("krea2-assisted-title"),
     status: $("krea2-assisted-status"),
     warnings: $("krea2-assisted-warnings"),
+    examplePanel: $("krea2-assisted-example-panel"),
+    exampleSummary: $("krea2-assisted-example-summary"),
+    exampleCandidates: $("krea2-assisted-example-candidates"),
+    examplePrompt: $("krea2-assisted-example-prompt"),
     conversationLayout: $("krea2-assisted-conversation-layout"),
     conversation: $("krea2-assisted-conversation"),
     message: $("krea2-assisted-message"),
@@ -68,6 +75,7 @@
     guidanceDockKind: $("krea2-assisted-guidance-dock-kind"),
     guidanceDockNote: $("krea2-assisted-guidance-dock-note"),
     chat: $("krea2-assisted-chat"),
+    chatWithoutRefresh: $("krea2-assisted-chat-without-refresh"),
     recipeChat: $("krea2-assisted-recipe-chat"),
     showReasoning: $("krea2-assisted-show-reasoning"),
     promptLanguage: $("krea2-assisted-prompt-language"),
@@ -289,6 +297,7 @@
     renderQueue: { items: [], error: null },
     newProjectLlmTouched: false,
     refreshingAll: false,
+    libraryPollTimer: null,
   };
   const reasoningTrace = core && typeof core.createReasoningTrace === "function"
     ? core.createReasoningTrace({
@@ -331,11 +340,16 @@
     const llmReady = Boolean(state.spec?.llm_models?.length && elements.llm.value);
     const modelsReady = Boolean(state.spec?.render_models?.some(m => m.comfy_name === elements.model.value));
     const lorasReady = state.loraSlots.every(slot => !slot.name || state.spec?.loras?.some(lora => lora.comfy_name === slot.name));
-    elements.create.disabled = value || !llmReady;
+    const v4Selected = elements.assistanceRecipe.value === "4.0.0";
+    const libraryReady = state.spec?.prompt_library?.state === "ready";
+    elements.create.disabled = value || !llmReady || (v4Selected && !libraryReady);
+    elements.assistanceRecipe.disabled = value;
+    elements.libraryIndex.disabled = value || ["queued", "indexing"].includes(state.spec?.prompt_library?.state);
     elements.llm.disabled = value;
     elements.refreshAll.disabled = value || state.refreshingAll;
     window.PanelForgeModelPicker.setDisabled(elements.llm, value);
     elements.chat.disabled = value || !state.project || !llmReady;
+    elements.chatWithoutRefresh.disabled = value || !state.project || !llmReady;
     elements.recipeChat.disabled = value || !state.project || !llmReady;
     elements.revisionLlm.disabled = value || !state.project;
     window.PanelForgeModelPicker.setDisabled(elements.revisionLlm, value || !state.project);
@@ -357,6 +371,7 @@
     presetManageButtons.forEach((button) => { button.disabled = value; });
     elements.presetManager.querySelectorAll("button,select").forEach((control) => { control.disabled = value; });
     elements.gallery.querySelectorAll("button").forEach((button) => { button.disabled = value; });
+    elements.exampleCandidates.querySelectorAll("button").forEach((button) => { button.disabled = value; });
     updateLanguageControls();
     renderStatus();
     if (!value && state.project && ((state.renderQueue.items || []).length
@@ -373,6 +388,98 @@
   function setMessage(message = "", error = false) {
     elements.messageState.textContent = message;
     elements.messageState.classList.toggle("error", error);
+  }
+
+  function scheduleLibraryPoll() {
+    clearTimeout(state.libraryPollTimer);
+    if (!["queued", "indexing"].includes(state.spec?.prompt_library?.state)) return;
+    state.libraryPollTimer = setTimeout(async () => {
+      try { await refreshCatalog(true); } catch (_) { /* surfaced by catalogue status */ }
+    }, 2500);
+  }
+
+  function renderLibraryStatus() {
+    const library = state.spec?.prompt_library || { state: "unavailable", progress: 0 };
+    const percent = Math.round(Number(library.progress || 0) * 100);
+    const labels = {
+      ready: `Bibliothèque locale · ${library.example_count || 0} scènes · prête`,
+      queued: "Bibliothèque locale · en attente dans la file locale",
+      indexing: `Bibliothèque locale · indexation ${percent} %`,
+      failed: `Bibliothèque locale · échec : ${library.error || "erreur inconnue"}`,
+      unavailable: "Bibliothèque locale · index absent",
+    };
+    elements.libraryStatus.textContent = labels[library.state] || labels.unavailable;
+    elements.libraryRow.dataset.state = library.state || "unavailable";
+    elements.libraryIndex.textContent = library.state === "ready" ? "Reconstruire" : "Indexer";
+    elements.libraryIndex.hidden = ["queued", "indexing"].includes(library.state);
+    scheduleLibraryPoll();
+  }
+
+  async function indexPromptLibrary() {
+    if (state.busy) return;
+    const force = state.spec?.prompt_library?.state === "ready";
+    setBusy(true);
+    setNewMessage("Indexation locale ajoutée à la file…", false);
+    try {
+      const payload = await request(`/api/image-lab/krea2-assisted/prompt-library/index?force=${force}`, { method: "POST" });
+      state.spec.prompt_library = payload.prompt_library;
+      renderLibraryStatus();
+      setNewMessage("La bibliothèque V4 est traitée localement ; le suivi global montre son avancement.", false);
+    } catch (error) { setNewMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function selectPromptExample(exampleId) {
+    if (!state.project || state.busy || exampleId === state.project.selected_prompt_example_id) return;
+    setBusy(true);
+    try {
+      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/prompt-example`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ example_id: exampleId, expected_branch_id: state.project.active_branch_id }),
+      });
+      renderProject(payload.project, { preservePrompt: true });
+      setMessage("Nouvelle inspiration locale épinglée pour les prochains échanges.");
+    } catch (error) { setMessage(error.message, true); }
+    finally { setBusy(false); }
+  }
+
+  function renderPromptExamples() {
+    const examples = state.project?.prompt_examples || [];
+    const relevanceLabels = {
+      strong: "Pertinence forte",
+      medium: "Pertinence moyenne",
+      weak: "Pertinence faible",
+    };
+    elements.examplePanel.hidden = !examples.length;
+    elements.exampleCandidates.replaceChildren();
+    if (!examples.length) { elements.examplePrompt.textContent = ""; return; }
+    const selected = examples.find(example => example.selected)
+      || examples.find(example => example.example_id === state.project.selected_prompt_example_id)
+      || examples[0];
+    elements.exampleSummary.textContent = `${selected.source_file} · ligne ${selected.source_line}`;
+    elements.examplePrompt.textContent = selected.prompt;
+    examples.forEach((example, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "krea2-assisted-example-candidate";
+      button.setAttribute("aria-pressed", String(example.example_id === selected.example_id));
+      const tags = [
+        ...(example.actions || []), ...(example.participants || []),
+        ...(example.interactions || []), ...(example.positions || []),
+        ...(example.framings || []), ...(example.settings || []),
+      ];
+      const title = document.createElement("b"); title.textContent = `Option ${index + 1}`;
+      const relevance = document.createElement("small");
+      relevance.className = `krea2-assisted-example-relevance ${example.relevance || "medium"}`;
+      relevance.textContent = relevanceLabels[example.relevance] || relevanceLabels.medium;
+      const meta = document.createElement("small");
+      meta.textContent = tags.slice(0, 4).join(" · ") || `${example.source_file} · ligne ${example.source_line}`;
+      const excerpt = document.createElement("span");
+      excerpt.textContent = example.prompt.length > 180 ? `${example.prompt.slice(0, 177)}…` : example.prompt;
+      button.append(title, relevance, meta, excerpt);
+      button.addEventListener("click", () => selectPromptExample(example.example_id));
+      elements.exampleCandidates.append(button);
+    });
   }
 
   function promptLanguageLabel(value) {
@@ -1002,6 +1109,11 @@
     const recipe = (state.spec?.assistance_recipes || []).find((item) => item.version === recipeVersion);
     elements.activeRecipe.textContent = `Assistance : ${recipe?.label || recipeVersion} · liée au projet`;
     elements.activeRecipe.title = `Recette d’assistance ${recipeVersion}`;
+    const usesV4Examples = recipeVersion === "4.0.0";
+    elements.chat.textContent = usesV4Examples
+      ? "Affiner + actualiser l’inspiration"
+      : "Affiner le prompt";
+    elements.chatWithoutRefresh.hidden = !usesV4Examples || !(project.prompt_examples || []).length;
     elements.promptLanguage.value = project.prompt_language || "en";
     if (changed) {
       workflowSamplingDrafts.clear();
@@ -1025,6 +1137,8 @@
     if (changed || JSON.stringify(previous?.branches) !== JSON.stringify(project.branches)) renderBranches();
     if (changed || previous?.preset_pending !== project.preset_pending
       || JSON.stringify(previous?.style_preset) !== JSON.stringify(project.style_preset)) renderPresetSelection();
+    if (changed || previous?.selected_prompt_example_id !== project.selected_prompt_example_id
+      || JSON.stringify(previous?.prompt_examples) !== JSON.stringify(project.prompt_examples)) renderPromptExamples();
     const serialized = draftText(project.recipe_draft);
     if (changed || !elements.recipeDraft.value.trim() || elements.recipeDraft.value === state.draftSnapshot || serialized !== state.draftSnapshot) {
       elements.recipeDraft.value = serialized;
@@ -1192,12 +1306,14 @@
     state.spec = next;
     configureSampling(next.sampling);
     configureWorkflows(next.workflows);
-    const signature = JSON.stringify([next.render_models, next.loras, next.llm_models]);
+    const signature = JSON.stringify([next.render_models, next.loras, next.llm_models,
+      next.prompt_library, next.assistance_recipes]);
     if (state.catalogSignature === signature && !force) {
+      renderLibraryStatus();
       catalogStatus.observe(next);
       return;
     }
-    const previousRecipe = elements.assistanceRecipe.value || "3.0.0";
+    const previousRecipe = elements.assistanceRecipe.value || "4.0.0";
     elements.assistanceRecipe.replaceChildren();
     for (const recipe of state.spec.assistance_recipes || []) {
       const option = document.createElement("option");
@@ -1222,6 +1338,7 @@
       resourceUi.syncModelPicker(elements.model);
     }
     setBusy(state.busy);
+    renderLibraryStatus();
     // A failed repaint must be retried even if the next HTTP payload is identical.
     state.catalogSignature = signature;
     catalogStatus.observe(next);
@@ -1311,7 +1428,7 @@
     finally { setBusy(false); }
   }
 
-  async function sendChat(mode, explicitMessage = null) {
+  async function sendChat(mode, explicitMessage = null, refreshPromptExamples = true) {
     if (!state.project) return;
     const message = (explicitMessage || elements.message.value).trim()
       || (mode === "recipe" ? "Aide-moi à transformer le résultat sélectionné en recette Batch réutilisable. Pose les questions encore nécessaires." : "Affinons le prompt actuel.");
@@ -1338,10 +1455,12 @@
             prompt_language: elements.promptLanguage.value,
             guidance_asset_id: guidance?.asset_id || null,
             guidance_filename: guidance?.filename || null,
+            refresh_prompt_examples: refreshPromptExamples,
           }),
         },
         (event) => {
           reasoningTrace.handle(event);
+          if (event.kind === "status" && event.text) setMessage(event.text);
           if (event.error) streamError = event.error;
           if (event.project) renderProject(event.project, { preservePrompt: false });
         },
@@ -1724,6 +1843,7 @@
     elements.refreshAll.classList.add("refreshing");
     elements.refreshAll.setAttribute("aria-busy", "true");
     setBusy(state.busy);
+    renderLibraryStatus();
     setNewMessage("Actualisation des modèles, presets et projets…", false);
     const tasks = [
       ["catalogues KREA2 et LLM", refreshCatalog(true, true)],
@@ -1748,6 +1868,8 @@
   }
 
   elements.newForm.addEventListener("submit", createProject);
+  elements.assistanceRecipe.addEventListener("change", () => setBusy(state.busy));
+  elements.libraryIndex.addEventListener("click", indexPromptLibrary);
   elements.llm.addEventListener("change", () => { state.newProjectLlmTouched = true; setBusy(state.busy); });
   elements.refreshAll.addEventListener("click", refreshAllResources);
   elements.model.addEventListener("change", () => setBusy(state.busy));
@@ -1780,6 +1902,7 @@
   elements.prompt.addEventListener("input", updateLanguageControls);
   elements.convertLanguage.addEventListener("click", convertPromptLanguage);
   elements.chat.addEventListener("click", () => sendChat("creation"));
+  elements.chatWithoutRefresh.addEventListener("click", () => sendChat("creation", null, false));
   elements.recipeChat.addEventListener("click", () => sendChat("recipe"));
   elements.guidanceFile.addEventListener("change", selectGuidanceFile);
   elements.guidanceRemove.addEventListener("click", clearGuidance);
@@ -1809,7 +1932,10 @@
       initialize();
     });
   });
-  window.addEventListener("beforeunload", stopPolling);
+  window.addEventListener("beforeunload", () => {
+    stopPolling();
+    clearTimeout(state.libraryPollTimer);
+  });
   window.PanelForgeKrea2AssistedLab = Object.freeze({
     open: async (projectId = null) => {
       window.PanelForgeLabNavigation?.switchView("krea2-assisted-lab");

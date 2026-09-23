@@ -103,6 +103,13 @@ class EpisodesBrowserTest(unittest.TestCase):
               const scene=episode.scenes.find(s=>s.id===sceneId);Object.assign(scene,body);scene.revision++;scene.render_revision++;
               return structuredClone(episode);
             }
+            if(sceneId&&url.endsWith('/render-attempts')){
+              const scene=episode.scenes.find(s=>s.id===sceneId);
+              if(body.preparation_id!==scene.preparations.at(-1).id)throw new Error('latest preparation required');
+              scene.preparations.push({...structuredClone(scene.preparations.at(-1)),id:'prep-new-images',render_project_id:'render-new-images',images_refreshed:true});
+              scene.stale=false;scene.image_refresh_names=[];
+              return {project:{project_id:'render-new-images',attempts:[]},preparation_id:'prep-new-images',episode:structuredClone(episode)};
+            }
             if(sceneId&&url.endsWith('/prompt')){
               const scene=episode.scenes.find(s=>s.id===sceneId);scene.job={status:'succeeded'};
               scene.preparations.push({id:'prep-one',session_id:'session-one',render_project_id:'render-one',status:'ready',render_setup:structuredClone(scene.render_setup)});
@@ -243,6 +250,22 @@ class EpisodesBrowserTest(unittest.TestCase):
             check(currentContext.render_setup.recipe.id==='minimax-h3-bunny','BUNNY default');
             check(currentContext.render_setup.video_loras.entries.length===1&&currentContext.render_setup.video_loras.entries[0].name.includes('Motion_Repair'),'only Motion Repair');
             check(document.getElementById('episoder-lab')&&document.getElementById('ref2vr-lab'),'renderer DOM isolated from existing REF2V');
+            const refreshedScene=episode.scenes[1];
+            refreshedScene.stale=true;refreshedScene.image_refresh_names=['Pêchette'];
+            get('refresh').click();await settle();await settle();
+            check(get('scene-state').textContent.includes('sans appel LLM'),'image-only refresh is explained');
+            check(mounts[0].options.renderActionState(currentContext).label.includes('nouvelles images'),'render action announces current images');
+            const previousPreparation=currentContext.preparation_id;
+            const parameters={...renderParameters(),prompt:'My exact prompt'};
+            await mounts[0].options.beforeRender(parameters,currentContext);
+            const refreshed=await mounts[0].options.prepareAttempt(parameters,currentContext);
+            check(refreshed.project.project_id==='render-new-images','manual launch uses the episode endpoint');
+            check(currentContext.project_id==='render-new-images'&&currentContext.preparation_id==='prep-new-images','render context switches to new version');
+            check(get('preparation').value==='prep-new-images','new preparation is selected');
+            check(mounts[0].options.renderActionState({...currentContext,preparation_id:previousPreparation}).disabled,'historical version cannot silently render old images');
+            refreshedScene.stale=true;refreshedScene.image_refresh_names=[];
+            get('refresh').click();await settle();
+            check(mounts[0].options.renderActionState(currentContext).disabled,'changed intention requires a new prompt');
             document.querySelector('#result').textContent='PASS';
           }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}})();
         """

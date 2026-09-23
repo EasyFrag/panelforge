@@ -20,6 +20,8 @@ from panelforge.domain.krea2_assisted import (
     Krea2AssistedAttemptStatus,
     Krea2AssistedBranch,
     Krea2AssistedProject,
+    Krea2PromptExample,
+    Krea2PromptSearchBrief,
     Krea2AssistedRecipeDraft,
     Krea2AssistedTurn,
     Krea2AssistedTurnMode,
@@ -112,7 +114,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
     branches = project.conversation_branches()
     turns = {turn.turn_id: turn for branch in branches for turn in branch.turns}
     return {
-        "schema_version": 10,
+        "schema_version": 13,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "name": project.name,
@@ -124,6 +126,30 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
         "reference_asset_id": project.reference_asset_id,
         "reference_filename": project.reference_filename,
         "composition_base_asset_id": project.composition_base_asset_id,
+        "prompt_examples": [
+            {
+                "example_id": example.example_id,
+                "source_file": example.source_file,
+                "source_line": example.source_line,
+                "digest": example.digest,
+                "prompt": example.prompt,
+                "score": example.score,
+                "relevance": example.relevance,
+                "actions": list(example.actions),
+                "participants": list(example.participants),
+                "interactions": list(example.interactions),
+                "positions": list(example.positions),
+                "framings": list(example.framings),
+                "settings": list(example.settings),
+            }
+            for example in project.prompt_examples
+        ],
+        "selected_prompt_example_id": project.selected_prompt_example_id,
+        "prompt_example_search_brief": (
+            asdict(project.prompt_example_search_brief)
+            if project.prompt_example_search_brief is not None
+            else None
+        ),
         "turns": [_turn(turn) for turn in project.turns],
         "active_branch_id": project.active_branch_id,
         "conversation_turns": [_turn(turn) for turn in turns.values()],
@@ -187,7 +213,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
-    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}:
+    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}:
         raise ValueError("unsupported KREA2 assisted project schema")
     branch_fields: dict[str, Any] = {}
     if value["schema_version"] >= 4:
@@ -220,6 +246,38 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
         reference_asset_id=value.get("reference_asset_id"),
         reference_filename=value.get("reference_filename"),
         composition_base_asset_id=value.get("composition_base_asset_id"),
+        prompt_examples=tuple(
+            Krea2PromptExample(
+                example_id=item["example_id"],
+                source_file=item["source_file"],
+                source_line=int(item["source_line"]),
+                digest=item["digest"],
+                prompt=item["prompt"],
+                score=float(item["score"]),
+                relevance=item.get("relevance", "medium"),
+                actions=tuple(item.get("actions", [])),
+                participants=tuple(item.get("participants", [])),
+                interactions=tuple(item.get("interactions", [])),
+                positions=tuple(item.get("positions", [])),
+                framings=tuple(item.get("framings", [])),
+                settings=tuple(item.get("settings", [])),
+            )
+            for item in value.get("prompt_examples", [])
+        ),
+        selected_prompt_example_id=value.get("selected_prompt_example_id"),
+        prompt_example_search_brief=(
+            Krea2PromptSearchBrief(
+                search_caption=value["prompt_example_search_brief"]["search_caption"],
+                source_message=value["prompt_example_search_brief"]["source_message"],
+                actions=tuple(value["prompt_example_search_brief"].get("actions", [])),
+                participants=tuple(value["prompt_example_search_brief"].get("participants", [])),
+                interactions=tuple(value["prompt_example_search_brief"].get("interactions", [])),
+                positions=tuple(value["prompt_example_search_brief"].get("positions", [])),
+                framings=tuple(value["prompt_example_search_brief"].get("framings", [])),
+                settings=tuple(value["prompt_example_search_brief"].get("settings", [])),
+            )
+            if value.get("prompt_example_search_brief") else None
+        ),
         turns=tuple(_load_turn(item, value["schema_version"]) for item in value.get("turns", [])),
         current_prompt=value.get("current_prompt"),
         style_preset=load_preset(value.get("style_preset")), preset_pending=value.get("preset_pending", False),

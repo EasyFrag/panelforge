@@ -11,7 +11,7 @@ from uuid import uuid4
 from panelforge.domain.episodes import (
     REF2V_PROFILE, REFERENCE_ROLES, DEFAULT_CREATIVE_AXES, fingerprint, initial_episode, scene_inputs,
     effective_image_settings, image_defaults, inherits_images, style_context,
-    effective_video_setup, inherits_video_settings, video_defaults,
+    effective_video_setup, inherits_video_settings, video_defaults, only_reference_images_changed,
 )
 from panelforge.domain.dlss import DlssSettings
 from panelforge.domain.krea2_batch import Krea2LoraSelection
@@ -252,11 +252,18 @@ class EpisodeService(EpisodeContinuityActions):
             rendered_seconds = scene["effective_render_setup"]["settings"]["duration_seconds"]
             scene["duration_warning"] = (f"Prompt prévu pour {scene['duration']:g} s ; rendu réglé à {rendered_seconds:g} s. "
                 "Les paroles et gestes restent ceux du prompt enregistré." if abs(rendered_seconds - scene["duration"]) > .01 else None)
+            scene["image_refresh_names"] = []
             try:
                 inputs = scene_inputs(value, scene)
                 scene["resolved_intention"] = inputs["source_text"]
                 scene["input_error"] = None
                 scene["stale"] = bool(scene["preparations"] and scene["preparations"][-1]["input_hash"] != fingerprint(inputs))
+                latest = scene["preparations"][-1] if scene["preparations"] else None
+                if (latest and latest.get("status") == "ready" and latest.get("render_project_id")
+                        and only_reference_images_changed(latest.get("inputs"), inputs)):
+                    scene["image_refresh_names"] = [ref["name"] for old, ref in
+                        zip(latest["inputs"]["references"], inputs["references"])
+                        if old["asset_id"] != ref["asset_id"]]
             except ValueError as error:
                 scene["resolved_intention"] = ""
                 scene["input_error"] = str(error)
@@ -1105,6 +1112,58 @@ class EpisodeService(EpisodeContinuityActions):
                 return deepcopy(scene), deepcopy(job)
             self._sleep(0.1)
 
+    def _refresh_scene_reference_images(self, value, scene, inputs):
+        # Caller holds the episode lock. The former preparation/session/renders
+        # remain historical evidence; only a new production snapshot is added.
+        latest = scene["preparations"][-1] if scene["preparations"] else None
+        if not latest or latest.get("status") != "ready" or not latest.get("render_project_id"):
+            raise EpisodeConflict("Préparez le prompt de cette scène avant de lancer le rendu.")
+        if latest["input_hash"] == fingerprint(inputs):
+            return latest
+        if not only_reference_images_changed(latest.get("inputs"), inputs):
+            raise EpisodeConflict("L’intention, les rôles ou les réglages du prompt ont changé. Préparez un nouveau prompt avant de lancer le rendu.")
+        project = self.render.fork_reference_images(latest["render_project_id"],
+            expected_asset_ids=tuple(ref["asset_id"] for ref in latest["inputs"]["references"]),
+            asset_ids=tuple(ref["asset_id"] for ref in inputs["references"]))
+        refreshed = dict(id=f"prep-{uuid4().hex}", inputs=deepcopy(inputs), input_hash=fingerprint(inputs),
+            session_id=latest["session_id"], render_project_id=project.project_id,
+            source_preparation_id=latest["id"], images_refreshed=True, status="ready", error=None,
+            prompt_stages={"plan": "ready", "writer": "ready"},
+            render_setup=effective_video_setup(value, scene))
+        scene["preparations"].append(refreshed)
+        self.store.save(value)
+        return refreshed
+
+    def prepare_scene_render(self, identity, scene_id, *, preparation_id, render_project_id, prompt, setup):
+        """Resolve current story images at the manual launch, without any LLM call."""
+        with self._lock:
+            value = self.store.get(identity)
+            scene = self._item(value, "scenes", scene_id)
+            latest = scene["preparations"][-1] if scene["preparations"] else None
+            if (not latest or latest["id"] != preparation_id
+                    or latest.get("render_project_id") != render_project_id):
+                raise EpisodeConflict("Sélectionnez la dernière préparation de la scène avant de relancer le rendu.")
+            if (scene.get("job") or {}).get("status") == "running":
+                raise EpisodeConflict("La préparation du prompt est encore en cours.")
+            chain = value.get("video_chain") or {}
+            if (chain.get("status") in {"running", "pausing"}
+                    and any(item["scene_id"] == scene_id for item in chain.get("items", []))):
+                raise EpisodeConflict("Cette scène est déjà prise en charge par la chaîne vidéo.")
+            preparation = self._refresh_scene_reference_images(value, scene, scene_inputs(value, scene))
+            project = self._prepare_render_attempt(preparation["render_project_id"], prompt, setup)
+            return project, preparation["id"]
+
+    def _prepare_render_attempt(self, project_id, prompt, setup):
+        settings, bunny, video_loras, video_lora = self._video_attempt_settings(setup)
+        return self.render.prepare_attempt(project_id, prompt=prompt, settings=settings,
+            music_enabled=bool(setup.get("music_enabled", False)),
+            spectrum_enabled=bool(setup.get("spectrum_enabled", False)),
+            initial_megapixels=setup.get("initial_megapixels", 0.2),
+            force_upscale=bool(setup.get("force_upscale", False)),
+            recipe_id=setup["recipe"]["id"], recipe_version=setup["recipe"]["version"],
+            bunny=bunny, checkpoint=setup.get("checkpoint"), video_loras=video_loras,
+            video_lora=video_lora)
+
     def _prepare_chain_prompt(self, identity, chain_id, scene_id):
         with self._lock:
             value = self.store.get(identity)
@@ -1113,11 +1172,16 @@ class EpisodeService(EpisodeContinuityActions):
             if not chain or chain.get("chain_id") != chain_id:
                 raise EpisodeConflict("La chaîne vidéo a été remplacée.")
             item = self._video_item(chain, scene_id)
-            inputs_hash = fingerprint(scene_inputs(value, scene))
+            inputs = scene_inputs(value, scene)
+            inputs_hash = fingerprint(inputs)
             latest = scene["preparations"][-1] if scene["preparations"] else None
             if latest and latest.get("status") == "ready" and latest.get("input_hash") == inputs_hash:
                 return latest
             attached_job = (scene.get("job") or {}).get("status") == "running"
+            if (not attached_job and latest and latest.get("status") == "ready"
+                    and latest.get("render_project_id")
+                    and only_reference_images_changed(latest.get("inputs"), inputs)):
+                return self._refresh_scene_reference_images(value, scene, inputs)
             if attached_job:
                 self._video_item(chain, scene_id).update(
                     status="prompting", phase="Prompt en cours · rendu armé", error=None,
@@ -1184,19 +1248,20 @@ class EpisodeService(EpisodeContinuityActions):
             except (KeyError, ValueError):
                 pass
         if attempt is None:
-            settings, bunny, video_loras, video_lora = self._video_attempt_settings(setup)
-            project = self.render.prepare_attempt(project_id, prompt=project.current_prompt, settings=settings,
-                music_enabled=bool(setup.get("music_enabled", False)),
-                spectrum_enabled=bool(setup.get("spectrum_enabled", False)),
-                initial_megapixels=setup.get("initial_megapixels", 0.2),
-                force_upscale=bool(setup.get("force_upscale", False)),
-                recipe_id=setup["recipe"]["id"], recipe_version=setup["recipe"]["version"],
-                bunny=bunny, checkpoint=setup.get("checkpoint"), video_loras=video_loras,
-                video_lora=video_lora)
-            attempt = project.attempts[-1]
-            self._video_chain_change(identity, chain_id, lambda _value, chain:
-                self._video_item(chain, scene_id).update(render_project_id=project_id,
-                    attempt_id=attempt.attempt_id, status="prompt_ready", phase="Prompt prêt"))
+            with self._lock:
+                value = self.store.get(identity)
+                scene = self._item(value, "scenes", scene_id)
+                if scene["preparations"][-1]["id"] != preparation["id"]:
+                    raise EpisodeConflict("La préparation de la scène a changé. Relancez la chaîne vidéo.")
+                preparation = self._refresh_scene_reference_images(value, scene, scene_inputs(value, scene))
+                project_id = preparation["render_project_id"]
+                project = self.render.projects.get(project_id)
+                project = self._prepare_render_attempt(project_id, project.current_prompt, setup)
+                attempt = project.attempts[-1]
+                self._video_chain_change(identity, chain_id, lambda _value, chain:
+                    self._video_item(chain, scene_id).update(render_project_id=project_id,
+                        preparation_id=preparation["id"], attempt_id=attempt.attempt_id,
+                        status="prompt_ready", phase="Prompt prêt"))
         if attempt.status is not H3RenderAttemptStatus.CREATED:
             self._video_chain_change(identity, chain_id, lambda _value, chain:
                 self._video_item(chain, scene_id).update(status="rendering", phase="Rendu vidéo en cours", error=None))

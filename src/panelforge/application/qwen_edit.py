@@ -5,6 +5,8 @@ from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
+import hashlib
+import re
 import secrets
 from threading import Event, RLock, Thread
 import time
@@ -48,15 +50,17 @@ def _new_stage(index, source_asset_id, *, settings=None, model_id="", mode="edit
             "source_dimensions": None,
             "label": "Composition" if mode == "composition" else f"Modification {index}", "revision": 0,
             "settings": settings or QwenEditSettings(seed=str(secrets.randbits(64))).record(), "model_id": model_id,
-            "draft": "", "prompt": "", "prompt_fingerprint": None, "summary": "", "references": [],
+            "draft": "", "prompt": "", "prompt_fingerprint": None, "summary": "", "guide": None, "references": [],
             "messages": [], "attempts": [], "accepted_attempt_id": None, "feedback_attempt_id": None}
 
 
 class QwenEditService:
     def __init__(self, *, gateway, workflow, comfy, assets, projects, images, exporter=None,
-                 work_coordinator=None, run_timeout=3600, poll_interval=1):
+                 edit_images=None, retouch_compositor=None, work_coordinator=None,
+                 run_timeout=3600, poll_interval=1):
         self.gateway, self.workflow, self.comfy = gateway, workflow, comfy
         self.assets, self.projects, self.images = assets, projects, images
+        self.edit_images, self.retouch_compositor = edit_images, retouch_compositor
         self.exporter, self.work_coordinator = exporter, work_coordinator
         self.run_timeout, self.poll_interval = run_timeout, poll_interval
         self._lock = RLock()
@@ -143,7 +147,9 @@ class QwenEditService:
                         raise ValueError("Le nom ne peut pas être vide.")
                     (project if key == "name" else stage)[key] = value
             render_inputs(stage)
-            if len([r for r in stage["references"] if r["active"]]) + bool(stage["source_asset_id"]) > MAX_ASSISTANT_IMAGES:
+            assistant_only = len([r for r in stage["references"]
+                                  if r["active"] and r["usage"] == "assistant"])
+            if len(render_inputs(stage)) + assistant_only > MAX_ASSISTANT_IMAGES:
                 raise ValueError("L’assistant accepte au maximum 32 images dans cet atelier.")
             if old_signature != context_fingerprint(stage):
                 stage["prompt_fingerprint"] = None
@@ -180,10 +186,80 @@ class QwenEditService:
                                         "role": role, "usage": usage, "active": True})
             validate_references(stage["references"])
             render_inputs(stage)
-            if len([r for r in stage["references"] if r["active"]]) + bool(stage["source_asset_id"]) > MAX_ASSISTANT_IMAGES:
+            assistant_only = len([r for r in stage["references"]
+                                  if r["active"] and r["usage"] == "assistant"])
+            if len(render_inputs(stage)) + assistant_only > MAX_ASSISTANT_IMAGES:
                 raise ValueError("L’assistant accepte au maximum 32 images dans cet atelier.")
             stage["prompt_fingerprint"] = None
             stage["revision"] += 1
+            return self._save(project)
+
+    def save_guide(self, project_id, stage_id, mask, *, revision, request_id, source_asset_id,
+                   source_width, source_height):
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", request_id):
+            raise ValueError("Identifiant de guide invalide.")
+        if not isinstance(mask, bytes) or not mask or len(mask) > 25 * 1024 * 1024:
+            raise ValueError("Guide vide ou supérieur à 25 Mio.")
+        digest = hashlib.sha256(mask).hexdigest()
+        with self._lock:
+            project = self.projects.get(project_id)
+            stage = _stage(project, stage_id)
+            existing = stage.get("guide")
+            if existing and existing.get("request_id") == request_id:
+                if existing.get("submitted_sha256") != digest or existing.get("source_asset_id") != source_asset_id:
+                    raise QwenEditConflict("Cette demande correspond déjà à un autre guide.")
+                return project
+            stage = self._editable(project, stage_id, revision)
+            if stage.get("source_asset_id") != source_asset_id:
+                raise QwenEditConflict("L’image source a changé. Rouvre le guide visuel.")
+            if any(a["status"] in ACTIVE_ATTEMPTS | {"submitting"} for a in stage["attempts"]):
+                raise QwenEditConflict("Attends la fin du rendu avant de modifier le guide.")
+            source = self.assets.read_bytes(source_asset_id)
+            if self.images.dimensions(source) != (source_width, source_height):
+                raise QwenEditConflict("Les dimensions de la source ont changé. Rouvre le guide visuel.")
+            normalized = self.images.normalize_mask(mask, (source_width, source_height))
+            asset = self.assets.create(normalized, media_type="image/png", source_run_id=project_id)
+            stage["guide"] = {"mask_asset_id": asset.asset_id, "source_asset_id": source_asset_id,
+                              "width": source_width, "height": source_height, "request_id": request_id,
+                              "submitted_sha256": digest, "updated_at": _now()}
+            render_inputs(stage)
+            stage["prompt_fingerprint"] = None
+            stage["revision"] += 1
+            return self._save(project)
+
+    def clear_guide(self, project_id, stage_id, *, revision, request_id):
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", request_id):
+            raise ValueError("Identifiant de guide invalide.")
+        with self._lock:
+            project = self.projects.get(project_id)
+            stage = _stage(project, stage_id)
+            if stage.get("guide_clear_request_id") == request_id:
+                return project
+            stage = self._editable(project, stage_id, revision)
+            if any(a["status"] in ACTIVE_ATTEMPTS | {"submitting"} for a in stage["attempts"]):
+                raise QwenEditConflict("Attends la fin du rendu avant de retirer le guide.")
+            stage["guide"] = None
+            stage["guide_clear_request_id"] = request_id
+            stage["prompt_fingerprint"] = None
+            stage["revision"] += 1
+            return self._save(project)
+
+    def restart_stage(self, project_id, stage_id, *, revision, request_id):
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", request_id):
+            raise ValueError("Identifiant de redémarrage invalide.")
+        with self._lock:
+            project = self.projects.get(project_id)
+            stage = _stage(project, stage_id)
+            if stage.get("restart_request_id") == request_id:
+                return project
+            stage = self._editable(project, stage_id, revision)
+            if any(a["status"] in ACTIVE_ATTEMPTS | {"submitting"} for a in stage["attempts"]) or any(
+                    message["status"] in {"queued", "running"} for message in stage["messages"]):
+                raise QwenEditConflict("Attends la fin des traitements avant de recommencer cette étape.")
+            fresh = _new_stage(stage["index"], stage["source_asset_id"], model_id=stage["model_id"], mode=stage["mode"])
+            fresh.update(id=stage["id"], label=stage["label"], source_dimensions=deepcopy(stage["source_dimensions"]),
+                         revision=stage["revision"] + 1, restart_request_id=request_id)
+            project["stages"][project["stages"].index(stage)] = fresh
             return self._save(project)
 
     def begin_message(self, project_id, stage_id, *, revision, request_id):
@@ -204,7 +280,8 @@ class QwenEditService:
             feedback = _attempt(stage, stage["feedback_attempt_id"]) if stage["feedback_attempt_id"] else None
             feedback_id = feedback["output_asset_id"] if feedback else None
             snapshot = context_snapshot(stage)
-            image_count = len(snapshot["references"]) + bool(stage["source_asset_id"]) + bool(feedback_id)
+            image_count = len(snapshot["render_inputs"]) + len([ref for ref in snapshot["references"]
+                                                                 if ref["usage"] == "assistant"]) + bool(feedback_id)
             if image_count > MAX_ASSISTANT_IMAGES:
                 raise ValueError("Trop d’images pour l’assistant : désactive une référence ou le retour visuel.")
             message = {"id": _id("message"), "request_id": request_id, "created_at": _now(),
@@ -358,14 +435,19 @@ class QwenEditService:
                 settings = replace(settings, seed=str(secrets.randbits(64)))
                 stage["settings"] = settings.record()
             source_size = self.images.dimensions(self.assets.read_bytes(stage["source_asset_id"])) if stage["source_asset_id"] else None
-            attempt = {"id": _id("attempt"), "request_id": request_id, "created_at": _now(), "status": "queued",
+            attempt = {"id": _id("attempt"), "request_id": request_id, "created_at": _now(), "status": "queued", "kind": "generation",
                        "work_operation": "Qwen · " + project["name"],
                        "prompt": stage["prompt"], "summary": stage["summary"], "settings": settings.record(), "context": context_snapshot(stage),
                        "dimensions": list(settings.dimensions(source_size)), "message_ids": [m["id"] for m in stage["messages"]],
                        "feedback_asset_id": (_attempt(stage, stage["feedback_attempt_id"])["output_asset_id"]
                                              if stage["feedback_attempt_id"] else None),
                        "recipe": asdict(self.workflow.reference), "execution_id": None, "workflow_sha256": None,
-                       "output_asset_id": None, "error": None, "cancel_requested": False}
+                       "output_asset_id": None, "raw_output_asset_id": None,
+                       "finish": {"mode": settings.color_finish,
+                                  "strength": 55 if settings.color_finish == "natural" else 0,
+                                  "status": "pending"},
+                       "finish_error": None,
+                       "error": None, "cancel_requested": False}
             stage["attempts"].append(attempt)
             stage["revision"] += 1
             self._save(project)
@@ -462,6 +544,10 @@ class QwenEditService:
             if attempt["status"] == "cancelled":
                 return
             if attempt["status"] == "submitting" and not attempt["execution_id"]:
+                if getattr(error, "definitive_rejection", False):
+                    self._attempt_update(project_id, stage_id, attempt_id, status="failed", finished_at=_now(),
+                        error="ComfyUI a refusé le workflow avant sa mise en file : " + str(error))
+                    return
                 self._attempt_update(project_id, stage_id, attempt_id, status="failed", finished_at=_now(),
                     error="La confirmation d’envoi à ComfyUI n’est pas parvenue. Vérifie sa file avant de relancer : " + str(error))
                 return
@@ -482,7 +568,21 @@ class QwenEditService:
         if attempt["status"] == "queued":
             settings = QwenEditSettings(**attempt["settings"])
             uploaded = []
-            for ref in attempt["context"]["render_inputs"]:
+            guide = attempt["context"].get("guide")
+            render_values = attempt["context"]["render_inputs"]
+            guide_upload = None
+            if guide:
+                source = render_values[0]
+                payload = self.images.prepare_guide(
+                    self.assets.read_bytes(source["asset_id"]),
+                    self.assets.read_bytes(guide["mask_asset_id"]),
+                    tuple(attempt["dimensions"]),
+                )
+                result = self.comfy.upload_image(payload, filename=f"{attempt_id}-guide.png",
+                                                 subfolder="panelforge/qwen-edit")
+                guide_upload = result.workflow_value
+                render_values = render_values[2:]
+            for ref in render_values:
                 if self._stop.is_set() or self._attempt_record(project_id, stage_id, attempt_id)["cancel_requested"]:
                     return
                 content = self.assets.read_bytes(ref["asset_id"])
@@ -492,7 +592,7 @@ class QwenEditService:
                 uploaded.append(result.workflow_value)
             graph = self.workflow.build(images=uploaded, prompt=attempt["prompt"], settings=settings,
                 dimensions=tuple(attempt["dimensions"]), composition=attempt["context"]["mode"] == "composition",
-                output_prefix=f"image/qwen-edit/{project_id}/{attempt_id}")
+                output_prefix=f"image/qwen-edit/{project_id}/{attempt_id}", guide=guide_upload)
             digest = self.projects.save_workflow(project_id, attempt_id, graph)
             with self._lock:
                 current = self._attempt_record(project_id, stage_id, attempt_id)
@@ -518,10 +618,32 @@ class QwenEditService:
                 if output:
                     file = output[0]
                     content = self.comfy.download_output(filename=file["filename"], subfolder=file.get("subfolder", ""), folder_type=file.get("type", "output"))
-                    size = self.images.dimensions(content)
-                    asset = self.assets.create(self.images.normalize_source(content), media_type="image/png")
-                    self._attempt_update(project_id, stage_id, attempt_id, status="succeeded", output_asset_id=asset.asset_id,
-                                         output_dimensions=list(size), error=None, finished_at=_now())
+                    raw = self.images.normalize_source(content)
+                    raw_asset = self.assets.create(raw, media_type="image/png", source_run_id=project_id)
+                    finished = raw
+                    finish = deepcopy(attempt.get("finish", {"mode": "raw", "strength": 0}))
+                    finish_error = None
+                    source_asset_id = attempt["context"].get("source_asset_id")
+                    if finish.get("mode") == "natural" and source_asset_id:
+                        try:
+                            if self.retouch_compositor is None:
+                                raise ValueError("La finition couleur Qwen n’est pas configurée.")
+                            finished = self.retouch_compositor.harmonize(
+                                self.assets.read_bytes(source_asset_id), raw, strength=finish.get("strength", 55))
+                            finish["status"] = "applied"
+                        except Exception as error:
+                            # The optional local finish must never discard a valid Qwen generation.
+                            finish["status"] = "fallback"
+                            finish_error = str(error)
+                    else:
+                        finish["status"] = "raw"
+                    asset = raw_asset if finished is raw else self.assets.create(
+                        finished, media_type="image/png", source_run_id=project_id)
+                    size = self.images.dimensions(finished)
+                    self._attempt_update(project_id, stage_id, attempt_id, status="succeeded",
+                                         output_asset_id=asset.asset_id, raw_output_asset_id=raw_asset.asset_id,
+                                         output_dimensions=list(size), finish=finish, finish_error=finish_error,
+                                         error=None, finished_at=_now())
                     return
                 events = [event[0] for event in status.get("messages", []) if isinstance(event, (list, tuple)) and event]
                 if "execution_interrupted" in events or status.get("status_str") in {"cancelled", "interrupted"}:
@@ -557,6 +679,52 @@ class QwenEditService:
             self._wake.set()
             return project
 
+    def crop_source(self, project_id, stage_id, *, revision, request_id, source_asset_id,
+                    source_width, source_height, x, y, width, height):
+        """Save an immutable local crop, then continue from it as a new Qwen stage."""
+        if self.edit_images is None:
+            raise ValueError("Le recadrage n’est pas configuré.")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", request_id):
+            raise ValueError("Identifiant de recadrage invalide.")
+        crop = {"request_id": request_id, "source_asset_id": source_asset_id,
+                "source_width": source_width, "source_height": source_height,
+                "x": x, "y": y, "width": width, "height": height}
+        with self._lock:
+            project = self.projects.get(project_id)
+            stage = _stage(project, stage_id)
+            existing = next((value for value in stage["attempts"]
+                             if value.get("crop", {}).get("request_id") == request_id), None)
+            if existing:
+                if existing["crop"] != crop:
+                    raise QwenEditConflict("Cette demande correspond déjà à un autre recadrage.")
+                return project if stage.get("accepted_attempt_id") == existing["id"] else self.accept(
+                    project_id, stage_id, existing["id"], revision=stage["revision"])
+            stage = self._editable(project, stage_id, revision)
+            if stage["source_asset_id"] != source_asset_id:
+                raise QwenEditConflict("L’image source a changé. Rouvre le recadrage.")
+            if any(a["status"] in ACTIVE_ATTEMPTS | {"submitting"} for a in stage["attempts"]) or any(
+                    message["status"] in {"queued", "running"} for message in stage["messages"]):
+                raise QwenEditConflict("Attends la fin des traitements de cette étape avant de recadrer.")
+            content = self.assets.read_bytes(source_asset_id)
+            if self.edit_images.dimensions(content) != (source_width, source_height):
+                raise QwenEditConflict("Les dimensions de la source ont changé. Rouvre le recadrage.")
+            output = self.edit_images.crop(content, x=x, y=y, width=width, height=height)
+            asset = self.assets.create(output, media_type="image/png", source_run_id=project_id)
+            attempt = {"id": _id("attempt"), "request_id": request_id, "created_at": _now(),
+                       "finished_at": _now(), "status": "succeeded", "kind": "crop",
+                       "prompt": "Recadrage", "summary": "Source recadrée localement.",
+                       "settings": deepcopy(stage["settings"]), "context": context_snapshot(stage),
+                       "dimensions": [width, height], "message_ids": [], "feedback_asset_id": None,
+                       "recipe": asdict(self.workflow.reference), "execution_id": None,
+                       "workflow_sha256": None, "output_asset_id": asset.asset_id,
+                       "output_dimensions": [width, height], "error": None,
+                       "cancel_requested": False, "crop": crop}
+            stage["attempts"].append(attempt)
+            stage["revision"] += 1
+            self._save(project)
+            accepted_revision = stage["revision"]
+        return self.accept(project_id, stage_id, attempt["id"], revision=accepted_revision)
+
     def accept(self, project_id, stage_id, attempt_id, *, revision):
         with self._lock:
             project = self.projects.get(project_id)
@@ -591,6 +759,7 @@ class QwenEditService:
             order = {r["id"]: i for i, r in enumerate(attempt["context"]["references"])}
             stage["references"].sort(key=lambda r: order.get(r["id"], len(order)))
             stage["settings"] = deepcopy(attempt["settings"])
+            stage["guide"] = deepcopy(attempt["context"].get("guide"))
             stage.update(prompt=attempt["prompt"], summary=attempt["summary"], draft="", feedback_attempt_id=None)
             stage["prompt_fingerprint"] = context_fingerprint(stage)
             stage["revision"] += 1

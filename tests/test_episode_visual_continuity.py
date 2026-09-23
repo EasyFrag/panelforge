@@ -87,7 +87,7 @@ class EpisodeVisualContinuityTest(unittest.TestCase):
         view = self.create(); identity = view["episode_id"]
         app = FastAPI()
         app.include_router(episodes_router(self.service, serialize_image_project=lambda x: x,
-            validate_image=None, image_body=None, render_body=None))
+            validate_image=None, image_body=None, render_body=None, serialize_render_project=lambda p: p))
         with TestClient(app) as client:
             url = f"/api/episodes/{identity}/continuity"
             body = dict(expected_revision=1, visual_continuity=self.visual())

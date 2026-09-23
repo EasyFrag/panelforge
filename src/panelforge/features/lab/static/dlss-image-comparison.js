@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const imageOwner = owner => ["assisted", "edit"].includes(owner);
+  const imageOwner = owner => ["assisted", "edit", "qwen"].includes(owner);
   const settingLabels = { intensity: "NR", tone: "Tonalité", structure: "Structure", skin: "Peau", detail: "Détails", style: "Style" };
   const describe = settings => Object.entries(settingLabels).map(([key, label]) => `${label} ${settings[key]}`).join(" · ");
   const scopeOf = value => `${value.owner}:${value.ownerId}:${value.attempt.dlss?.root_attempt_id || value.attempt.attempt_id}`;

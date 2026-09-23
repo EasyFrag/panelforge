@@ -442,7 +442,7 @@
     el("reference").value = state.refId;
     el("reference-count").textContent = `${activeReferences().filter(r => r.image_asset_id).length} / ${activeReferences().length} images retenues`;
     el("scene").replaceChildren(...state.data.scenes.map(s => new Option(`${s.index + 1} · ${s.title} · ${renderDuration(s)} s · ${
-      s.stale ? "À actualiser" : jobRunning(s) ? promptActivity(s) : statuses[s.video_status] || statuses[s.preparations.at(-1)?.status] || "À préparer"}`, s.id)));
+      s.image_refresh_names?.length ? "Images à synchroniser" : s.stale ? "À actualiser" : jobRunning(s) ? promptActivity(s) : statuses[s.video_status] || statuses[s.preparations.at(-1)?.status] || "À préparer"}`, s.id)));
     el("scene").value = state.sceneId;
   }
   function createVideoCard(sceneId) {
@@ -732,10 +732,13 @@
     const source = state.data.scenario.scenes[s.index], names = Object.fromEntries(state.data.scenario.characters.map(c => [c.id, c.name]));
     el("dialogues").textContent = source.dialogue.map(d => dialogueLabel(d, names[d.speaker_id])).join("\n") || "Aucun dialogue.";
     el("resolved-intention").textContent = s.resolved_intention || s.input_error;
-    el("scene-state").textContent = s.input_error || (s.stale ? "Les références ou l’intention ont changé. Les anciens prompts et rendus sont conservés ; prépare un nouveau prompt pour appliquer ces changements." : "Les références sont prêtes. Les dialogues sont ajoutés automatiquement.");
+    el("scene-state").textContent = s.input_error || (s.image_refresh_names?.length
+      ? `Images modifiées : ${s.image_refresh_names.join(", ")}. Elles seront utilisées à la prochaine génération, avec le même prompt et sans appel LLM. Les anciens rendus restent dans leur préparation.`
+      : s.stale ? "L’intention ou les références de la scène ont changé. Prépare un nouveau prompt avant de relancer le rendu ; les anciens rendus restent conservés."
+      : "Les références sont prêtes. Les dialogues sont ajoutés automatiquement.");
     el("prompt-status").textContent = s.job?.error || (jobRunning(s) ? s.job.phase : "");
     el("preparation-label").hidden = !s.preparations.length;
-    el("preparation").replaceChildren(...[...s.preparations].reverse().map((p, index) => new Option(`Préparation ${s.preparations.length - index} · ${statuses[p.status] || p.status}`, p.id)));
+    el("preparation").replaceChildren(...[...s.preparations].reverse().map((p, index) => new Option(`Préparation ${s.preparations.length - index} · ${p.images_refreshed ? "Images actualisées · prompt conservé" : statuses[p.status] || p.status}`, p.id)));
     if (!s.preparations.some(p => p.id === state.prepId)) state.prepId = s.preparations.at(-1)?.id || "";
     el("preparation").value = state.prepId;
     el("video-settings-note").textContent = s.inherit_video_settings
@@ -746,6 +749,14 @@
   }
   function accept(data) {
     if (state.data?.episode_id === data.episode_id && (state.data.continuity_revision || 1) > (data.continuity_revision || 1)) return;
+    if (state.data?.episode_id === data.episode_id) {
+      // Preparations are append-only: ignore a poll started before a refresh.
+      if (data.scenes.some(s => s.preparations.length < (state.data.scenes.find(old => old.id === s.id)?.preparations.length || 0))) return;
+      const previous = scene(), incoming = data.scenes.find(s => s.id === state.sceneId);
+      if (previous && incoming && state.prepId === previous.preparations.at(-1)?.id
+          && incoming.preparations.length > previous.preparations.length)
+        state.prepId = incoming.preparations.at(-1).id;
+    }
     // A poll may have started just before a settings save completed. Keep the
     // newer local snapshot until the next response includes its revision.
     if (state.data?.episode_id === data.episode_id && state.data.visual_revision > (data.visual_revision || 1))
@@ -839,6 +850,17 @@
     restoreSetup: true,
     raiseContextErrors: true,
     beforeRender: (parameters, context) => saveRenderAction(parameters, context),
+    prepareAttempt: (parameters, context) => prepareSceneRender(parameters, context),
+    renderActionState(context) {
+      const s = state.data?.scenes.find(value => value.id === context?.scene_id);
+      if (!s) return {};
+      if (context.preparation_id !== s.preparations.at(-1)?.id)
+        return {disabled: true, label: "Sélectionner la dernière préparation pour générer"};
+      if (s.input_error || (s.stale && !s.image_refresh_names?.length))
+        return {disabled: true, label: "Préparer un nouveau prompt avant le rendu"};
+      if (s.image_refresh_names?.length) return {label: "Générer avec les nouvelles images"};
+      return {};
+    },
     onSetupRender: (parameters, context) => startSceneVideoChain(parameters, context),
     setupActionState(context) {
       const chain = state.data?.video_chain;
@@ -902,6 +924,20 @@
     await saveVideo(parameters, context);
     if (edit === renderEdit) renderDirty = false;
   }
+  async function prepareSceneRender(parameters, context) {
+    // Save pending narrative edits before the server checks prompt compatibility.
+    await saveScene();
+    const result = await core.request(api(`/scenes/${context.scene_id}/render-attempts`, context.episode_id), send("POST", {
+      preparation_id: context.preparation_id, render_project_id: context.project_id, parameters,
+    }));
+    context.project_id = result.project.project_id;
+    context.preparation_id = result.preparation_id;
+    if (context === state.activeRender && context.episode_id === state.data?.episode_id) {
+      state.prepId = result.preparation_id; state.renderContext = context.project_id;
+      accept(result.episode);
+    }
+    return result;
+  }
   async function persistRender() {
     if (!renderDirty || !state.activeRender) return;
     const context = state.activeRender, edit = renderEdit;
@@ -951,7 +987,7 @@
     state.renderContext = key; el("render-save").textContent = "";
     if (!s) { state.activeRender = null; await renderer.close(); return; }
     const setup = p && p.id !== s.preparations.at(-1)?.id ? p.render_setup : (s.effective_render_setup || s.render_setup);
-    const context = {project_id: key, episode_id: state.data.episode_id, scene_id: s.id, render_setup: setup};
+    const context = {project_id: key, preparation_id: p?.id, episode_id: state.data.episode_id, scene_id: s.id, render_setup: setup};
     state.activeRender = context;
     if (!p?.render_project_id && !renderer.openSetup) {
       state.activeRender = null; state.renderContext = ""; await renderer.close(); return;

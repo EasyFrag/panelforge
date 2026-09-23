@@ -41,14 +41,14 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
           state.spec.recipe = {id: 'minimax-h3-latent-speed', version: '0.1.3'};
           const renderProject = project => { state.project = project; };
           let failure = ''; const setStatus = message => { failure = message; };
-          const sent = [];
+          const sent = [], started = [];
           window.fetch = () => { throw new Error('unexpected network call'); };
           const request = async (url, options) => {
             if (url.endsWith('/attempts')) {
               const body = JSON.parse(options.body); sent.push(body);
               return {project: {...state.project, attempts: [{attempt_id: 'attempt', settings: body, initial_megapixels: body.initial_megapixels}]}};
             }
-            check(url.endsWith('/start'), 'only fake prepare/start accepted'); return {project: state.project};
+            check(url.endsWith('/start'), 'only fake prepare/start accepted'); started.push(url); return {project: state.project};
           };
           __CONTROL_FUNCTIONS__
           check(inferredDuration('The target video is one continuous 9-second shot.', 6) === 9, 'historical duration remains supported');
@@ -83,6 +83,20 @@ class H3RenderControlsBrowserTest(unittest.TestCase):
           delete state.spec.defaults.seed_locked; hydrateDefaults();
           check(elements.duration.value === '8', 'the shared REF2V controls also read the cinematic duration');
           check(elements.seedLock.checked, 'missing seed default also falls back to reuse');
+          let refreshedParameters=null;
+          state.context={episode_id:'episode',scene_id:'scene',preparation_id:'old-prep'};
+          options.prepareAttempt=async (parameters,context)=>{
+            check(context.preparation_id==='old-prep','story context reaches the server hook');
+            refreshedParameters=parameters;
+            return {project:{...state.project,project_id:'render-new-images',attempts:[{attempt_id:'new-attempt'}]}};
+          };
+          const directCalls=sent.length;
+          elements.duration.value='8'; await renderAttempt();
+          check(!failure&&refreshedParameters.duration_seconds===8,'image refresh keeps duration');
+          check(refreshedParameters.prompt===elements.prompt.value,'image refresh keeps prompt');
+          check(sent.length===directCalls,'story launch avoids the unchecked generic prepare endpoint');
+          check(started.at(-1).includes('/render-new-images/attempts/new-attempt/start'),'new snapshot is started, not the old render');
+          delete options.prepareAttempt;
           check(elements.megapixels.value === '0.2' && elements.initialMegapixels.value === '0.2', 'new REF2V uses the same resolution defaults');
           elements.initialMegapixels.value = '0.4'; elements.megapixels.value = '0.8';
           const refSeed = elements.seed.value; await renderAttempt(); await renderAttempt();

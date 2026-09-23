@@ -1,5 +1,172 @@
 # CONTINUITY
 
+## Version GitHub 2026-09-23 — KREA2 V4, Qwen V2 et correctifs Histoires
+
+### Goal
+- Publier une version du code actuel à la demande de l’utilisateur ; conserver la proposition de localisation linguistique pour une implémentation ultérieure.
+
+### Current state
+- Sauvegarde préparée depuis `4f89ab6`, dépôt `EasyFrag/panelforge`, branche dédiée `snapshots/krea4-qwen2-story-fixes-2026-09-23` et tag `snapshot-krea4-qwen2-story-fixes-2026-09-23`.
+- Contenu : KREA2 V4 et recherche locale en deux étapes, Qwen V2/guide/comparateur et diagnostic ComfyUI, stabilité automatique/chat/noms fruités et synchronisation des références MiniMax. Notes : `docs/releases/snapshot-krea4-qwen2-story-fixes-2026-09-23.md`.
+- Contrôles statiques uniquement pour la publication ; tests à la main de l’utilisateur. Aucun LLM, rendu ou redémarrage. Runtime, médias, modèles, corpus/index V4 et fichier utilisateur `lancementwork` exclus ; master et anciens tags conservés.
+
+### Next steps
+1. Retrouver la sauvegarde par le tag daté ; confirmation de publication et commit consignés dans la continuité du checkout racine.
+2. Lancer les essais/tests souhaités ; la localisation linguistique reste à implémenter après accord.
+
+## Patch 2026-09-23 - KREA2 Assisted V4 two-stage retrieval
+
+### Goal
+- Make V4 understand the desired scene before searching the local 15,000-prompt library, both for initial creation and later creation chats, while keeping an explicit path that reuses the currently pinned example.
+
+### Current state
+- The main V4 action now runs sequentially through the existing LLM resource path: a compact structured scene brief, local example retrieval, then final prompt writing. The brief sees the original intention, current prompt, newest request and relevant subject/reference images; the style-preset example is intentionally excluded.
+- The English retrieval caption and structured action/participant/interaction/position/framing/setting tags are validated and persisted for audit. The three refreshed candidates replace the bootstrap candidates before the writer is called. A malformed or truncated brief stops the chain; no final writer call is attempted.
+- V3 and recipe chats keep their previous single-call behavior. A discreet "Sans actualiser l'inspiration" action skips the first call and local search, then writes with the currently pinned example. Initial V4 project creation retains its cheap bootstrap retrieval so this escape path remains available after a failed brief.
+- The UI shows the two V4 stages, refreshes candidate cards between them, and uses cache version 20260923.3. Persistence schema is 13 and remains compatible with schemas 1-12.
+- Validation: all 86 test_krea2_assisted*.py tests and both Assisted browser fixtures pass; Python compilation and git diff --check pass. No real LLM call, image render, runtime restart, commit or push was performed.
+
+### Next steps
+1. Restart the Lab and use Ctrl+F5 to load the new Assisted assets.
+2. Compare one V4 main refinement with "Sans actualiser l'inspiration"; inspect the three refreshed candidates and the persisted search brief in the project API if needed.
+3. Judge retrieval quality on real prompts before changing the brief taxonomy or adding another reranking rule.
+
+## Patch 2026-09-23 - KREA2 Assisted V4 retrieval precision
+
+### Goal
+- Improve the relevance of the three local V4 examples without changing the immutable corpus or adding a database/LLM call.
+
+### Current state
+- Index format is now version 2. Deterministic metadata covers actions, participant topology, interaction type, pose, framing and settings, including subway/platform distinctions. Rare action, group and setting constraints receive stronger reranking weight; explicit mismatches receive a penalty.
+- Candidate selection considers the best 512 semantic matches, then keeps three diverse results. Near-duplicate variants cannot consume several slots unless no alternative exists. Candidate cards show `Pertinence forte`, `moyenne` or `faible`; raw scores are no longer presented as confidence.
+- Minor-coded source lines remain untouched but are ineligible. The rule now includes school/student uniforms and French school-age wording. The previously observed school-uniform subway example is ineligible; its cleaned adult variant remains eligible.
+- Project persistence is schema 12. New action/participant/interaction metadata and the relevance label are snapshotted with each project. Schemas 1-11 remain readable with compatible defaults.
+- Corpus audit, read-only: 20,052 non-empty lines, 15,062 unique examples, 14,856 eligible in index v2 and 206 ineligible. No source file was rewritten.
+- Validation: 84 `test_krea2_assisted*.py` tests and 7 assistance-version tests pass; Python compilation and `git diff --check` pass. The targeted clinical query classifies an exact group/subway/action candidate as strong and a generic solo candidate as weak. No LLM call, render, runtime index rebuild, commit or push was performed.
+
+### Next steps
+1. Restart the Lab. Startup will enqueue the v2 index rebuild as a local maintenance task; V4 intentionally stays unavailable until it is ready and never falls back to V3.
+2. Use Ctrl+F5 to load `krea2-assisted-lab.js?v=20260923.2` and `lab.css?v=20260923.2`.
+3. Repeat the same intention and inspect the three relevance labels and candidate diversity before evaluating the generated image.
+
+## Correctif 2026-09-23 — glissement direct du comparateur Qwen V2
+
+### Goal
+- Donner au comparateur Avant/Après Qwen le même geste direct que Modifier avec KREA2 : cliquer ou toucher l’image, puis tirer la séparation, sans devoir viser le slider inférieur.
+
+### Current state
+- Qwen reprend le contrat KREA2 : position centralisée et bornée, capture du pointeur au `pointerdown`, mise à jour pendant le glissement, libération sur `pointerup`/annulation et support de repli lorsque la capture native est indisponible. Souris, stylet et tactile sont couverts par les Pointer Events.
+- La séparation visuelle, le masque de comparaison, le slider et son `aria-valuetext` restent synchronisés. Le slider demeure utilisable au clavier. L’option existante est clarifiée en « Suivre la souris sans cliquer » et ne conditionne plus le glissement direct.
+- Cache de `qwen-edit-v2.js` incrémenté. Régression navigateur ajoutée pour un glissement de 20 à 76 %, la synchronisation CSS et la valeur accessible ; test non exécuté conformément au mode de validation courant. Contrôles réalisés : AST de la fixture Python, contrat DOM/cache, parsing JavaScript par Chromium headless et `git diff --check`. Aucun runtime, rendu, redémarrage, commit ou push.
+
+### Next steps
+1. Faire Ctrl+F5 après rechargement du Lab, puis tirer directement la ligne blanche dans le comparateur Qwen.
+2. Test ciblé à lancer par l’utilisateur si souhaité : `python -m unittest discover -s tests -p "test_qwen_edit_browser.py"`.
+
+## Patch 2026-09-23 — histoires : références actualisées à la relance MiniMax
+
+### Goal
+- Corriger, après accord utilisateur, la relance MiniMax conservant l’ancienne image d’un personnage malgré la sélection d’une nouvelle image dans l’histoire.
+
+### Current state
+- Implémenté dans `D:\Code\panelforge-krea2-flux` : comparaison stricte du contrat de préparation ; remplacement des seules images sans appel LLM, via une nouvelle préparation et un nouvel atelier. Prompt, réglages et historique conservés. Provenance explicite du parent H3, schéma 16 compatible avec 1–15 ; session LLM historique préservée.
+- Route de préparation du rendu propre à l’épisode, contrôlée côté serveur. Même synchronisation en chaîne, avec recontrôle avant création de l’essai. Les essais déjà créés/en file conservent leur instantané. Les changements narratifs/rôles/ordre demandent de repréparer le prompt en manuel.
+- UX : images modifiées nommées, bouton « Générer avec les nouvelles images », nouvelle préparation sélectionnée ; anciennes versions consultables. Cache des scripts incrémenté.
+- Dix tests ciblés ajoutés ; API et deux fixtures navigateur étendues, non exécutés. AST Python, compilation syntaxique JavaScript sans exécution et diff-check vérifiés. Aucun LLM, rendu, runtime, redémarrage, commit ou push. Travaux parallèles KREA/Qwen/Comfy et fichier utilisateur `lancementwork` conservés.
+- Note et commande de tests : `docs/diagnostics/story-reference-image-refresh-2026-09-23.md` dans le worktree actif.
+
+### Next steps
+1. Tests à la main de l’utilisateur. Après ses traitements, redémarrer le Lab et faire Ctrl+F5.
+2. Depuis la dernière préparation de « L’humiliation », relancer avec la nouvelle image de Pêchette ; comparer puis consulter les anciens essais via leur préparation. Validation réelle du rendu encore à faire.
+
+## Correctif 2026-09-23 — rejet HTTP 400 du workflow Qwen V2
+
+### Goal
+- Diagnostiquer et corriger le rejet ComfyUI du premier rendu guidé Qwen V2, sans soumettre ni relancer automatiquement une génération.
+
+### Current state
+- Cause confirmée sur le graphe archivé de l’essai rejeté : la recette 2.0 demandait `qwen_image_2.1_int8_convrot.safetensors` et `qwen3vl_8b_int8_convrot.safetensors`, absents de l’inventaire ComfyUI. Les rendus Qwen réussis du même projet utilisent les variantes `qwen_image_2.1_bf16.safetensors` et `qwen3vl_8b_bf16.safetensors`, toutes deux présentes. Le workflow 2.0 et son empreinte de manifeste sont corrigés sur cette combinaison déjà validée ; le VAE bf16 était déjà correct.
+- La file ComfyUI a été vérifiée en lecture seule : 0 rendu actif et 0 rendu en attente. Aucun identifiant d’exécution n’avait été reçu pour l’essai rejeté. L’ancien upload du guide n’est plus présent dans l’inventaire courant ; le prochain essai le téléversera de nouveau sous un identifiant immuable.
+- Le transport ComfyUI conserve maintenant le corps JSON d’un rejet de `/prompt`, le réduit aux erreurs actionnables par nœud/entrée et l’expose comme rejet définitif. Qwen distingue donc un HTTP 4xx refusé avant mise en file d’une réponse perdue potentiellement ambiguë ; le message « vérifie sa file » reste réservé à ce second cas.
+- Régressions ajoutées pour les poids bf16 épinglés, le diagnostic compact d’un `value_not_in_list` et le libellé Qwen d’un rejet définitif. Tests non exécutés conformément aux consignes du dépôt. Contrôles réalisés : AST des sources/tests modifiés, JSON + SHA-256 du manifeste, présence de toutes les classes de nœuds et des trois poids dans l’instance ComfyUI. Aucun prompt, rendu, redémarrage, commit ou push.
+
+### Next steps
+1. Redémarrer le Lab pour recharger la recette 2.0 corrigée, puis faire Ctrl+F5.
+2. Relancer l’essai depuis l’interface ; un nouveau guide sera envoyé et la file était vide au dernier contrôle.
+3. Tests ciblés à lancer par l’utilisateur : `python -m unittest discover -s tests -p "test_comfy_client.py"` puis `python -m unittest discover -s tests -p "test_qwen_edit.py"`.
+
+## Implementation 2026-09-23 - KREA2 Assisted V4 local prompt library
+
+### Goal
+- Add the approved local RAG path for roughly 15,000 KREA2 scene prompts, keep V4 selected by default, keep V3 manually selectable, and never silently fall back from V4 to V3.
+
+### Current state
+- V4 `4.0.0` extends V3 and retrieves three candidates locally. The selected candidate is pinned to the project and exactly one complete source prompt is injected as untrusted structural/photographic reference data. Retrieval adds no LLM call. The user can inspect and select any of the three candidates from a compact panel.
+- The immutable corpus copy lives under `workspace/prompt_libraries/bunnys_wildcards_1/source`: 18 source files, byte-identical to the supplied downloads. The generated local index contains 20,052 source lines, 15,062 unique examples and 14,983 eligible retrieval examples. Source prompts are not rewritten; minor-coded entries remain in metadata but are ineligible for retrieval.
+- Index storage is file-only: `examples.jsonl`, normalized 384-dimension float16 vectors and a manifest, with no database. FastEmbed uses the multilingual MiniLM ONNX encoder on CPU. Search is brute-force semantic retrieval followed by deterministic position/framing/setting reranking.
+- Indexing is a local maintenance workload and therefore uses the shared local machine coordinator. It starts automatically when needed and is also controllable from the Assisted screen. Model and index caches remain in the local workspace; normal KREA2 rendering remains remote.
+- V4 is selected in the new-project UI. V3 remains an explicit manual option. If the V4 library is absent, indexing, queued or failed, V4 project creation is disabled/rejected with a clear error; no V3 fallback exists.
+- Project persistence is schema 11 and stores the three candidate snapshots plus the pinned example ID, so reopening a project does not depend on a later reindex changing retrieval order. Older schemas remain readable.
+- Dependencies added: `fastembed>=0.7,<1` and `numpy>=1.26,<3`. The local environment has them installed, the ONNX model is cached, and the current index reports `ready`.
+- Validation: 82 KREA2 Assisted tests pass, source hash comparison reports 18/18 identical, Python compilation and `git diff --check` pass. The complete dirty-worktree suite ran 1,578 tests and remains non-green with 42 failures and 31 errors outside this targeted surface (notably existing H3/Combat and Story browser expectations). No LLM call, image render, commit or push was performed for this patch.
+
+### Next steps
+1. Restart the Lab and use Ctrl+F5 so the V4 selector and compact inspiration panel load.
+2. Create one V4 project with a short intention, inspect the three candidates, then compare the resulting prompt with the same intention manually run through V3.
+3. Judge retrieval quality on real usage before changing taxonomy weights or adding an approximate vector index.
+
+## Implémentation 2026-09-23 — Modifier avec Qwen V2, guide local et couleurs source
+
+### Goal
+- Refaire « Modifier avec Qwen » depuis zéro en reprenant la clarté du parcours KREA2 : source stable, étapes, comparaison et essais ; faire du marquage grossier sur la source le geste principal ; intégrer le workflow local-mask fourni et simplifier « Harmoniser avec la source ». Retirer la retouche Qwen, devenue redondante.
+
+### Current state
+- Ancien bloc, CSS et contrôleur Qwen supprimés puis remplacés par une V2 indépendante (préfixe qv2) : projets récents visuels, timeline, nommage/export, grand comparateur Avant/Après, brut Qwen sélectionnable, conversation, références typées, réglages et cartes d’essais. Une nouvelle source ouvre directement l’éditeur de zone ; recadrage et DLSS partagés restent disponibles. La retouche Qwen et ses routes ont été retirées.
+- Guide visuel premier ordre : pinceau, rectangle grossier, gomme, taille, annulation, effacement et suppression. Le canvas travaille aux pixels de la source avec une surimpression rouge, conserve un historique de gestes compact et protège les traits non enregistrés. Le masque canonique est sauvegardé avec CAS/idempotence, invalide le prompt, se restaure avec un essai et apparaît comme image2 après la source ; les références Qwen suivantes sont décalées explicitement.
+- Nouveau workflow versionné qwen.image_edit@2.0.0, dérivé exactement du JSON fourni : chaîne LoadImage/Resize/MaskToImage pilotée par manifeste, preview retirée, source et masque envoyés ensemble dans un PNG RGBA à alpha inversé conforme à LoadImage. Sans guide, la recette garde le parcours multi-image antérieur ; composition sans source reste prise en charge. Les IDs ComfyUI restent uniquement dans le manifeste.
+- Assistance LLM 2.0 : la zone blanche est décrite comme un repère spatial approximatif, jamais comme un objet, une forme à reproduire ou une frontière de compositing ; l’intention écrite décide du contenu et le reste de la source doit être préservé.
+- « Harmoniser avec la source » est la finition par défaut : transfert colorimétrique local modéré après Qwen, à la résolution exacte du rendu. Le brut est toujours archivé et comparable. Si la finition locale échoue, l’essai reste réussi sur le brut avec diagnostic au lieu de perdre la génération. Le mode « Qwen brut » reste explicite.
+- Tests unitaires, HTTP et navigateur adaptés au guide, au workflow 2.0, au brut/harmonisé, à la conservation de résolution, au fallback de finition, aux rôles d’images et au canvas ; non exécutés. Contrôles réalisés : AST Python, JSON + empreinte du workflow, contrat des 97 IDs DOM, absence de marqueur temporaire et git diff --check. Aucun appel LLM, rendu, tâche DLSS, redémarrage, commit ou push. Les travaux Histoires/KREA parallèles du worktree partagé ont été préservés.
+
+### Next steps
+1. Après les traitements en cours, redémarrer le Lab puis faire Ctrl+F5 afin de charger la route et les assets V2.
+2. Essai manuel recommandé : importer une source, peindre une tache/zone, enregistrer le guide, demander le prompt, rendre, comparer « harmonisé à la source » et « Qwen brut », puis valider l’étape.
+3. Tests à lancer par l’utilisateur : python -m unittest discover -s tests -p "test_qwen_edit*.py".
+
+## Patch 2026-09-23 — stabilité du mode histoire, chat et noms fruités
+
+### Goal
+- Implémenter uniquement les points 1 et 2 validés : corrections ciblées, questions sans bascule de mode/réécriture et noms fruités pour les nouvelles histoires. Le point 3 (dialogues du plan vidéo) est reporté explicitement.
+
+### Current state
+- Patch dans le worktree actif : corrections limitées aux blocages ; contexte de relecture avant/après calculé depuis les snapshots existants et lié à l'empreinte de la version relue ; limite d'une correction inchangée.
+- Questions : mode/document/approbations/motif d'arrêt/cible/compteur de réparations conservés, y compris reprise/annulation. État réel et erreur précédente transmis au chat. Question par défaut, modification explicite, approbation via le bouton existant ; un simple accord demande une réponse sans document.
+- Politique de nommage marquée uniquement à la création des nouveaux projets longs ; exemples mignons et vérification dans la première édition prévue. Noms imposés/hérités et anciens personnages conservés. Pas de migration, de renommage déterministe ni de nouveau validateur bloquant. Recette révision 5, contrats 2.2 inchangés.
+- Neuf tests de régression ajoutés au workflow et fixture navigateur adaptée ; non exécutés. Contrôles AST Python, compilation syntaxique JavaScript sans exécution et diff-check réalisés. Aucun appel LLM, rendu, mutation runtime, redémarrage ou publication.
+- Travaux Qwen parallèles conservés, notamment index.html partagé (seul cache stories.js modifié par ce patch). Notes et commandes : docs/diagnostics/story-auto-chat-naming-patch-2026-09-23.md.
+
+### Next steps
+1. L'utilisateur redémarre le Lab après ses traitements, puis Ctrl+F5 ; tests ciblés à sa main selon les notes.
+2. Vérifier un arrêt auto suivi d'une question, une validation manuelle après discussion et les noms d'une nouvelle histoire fruitée. Qualité réelle à confirmer.
+3. Traiter ultérieurement le point 3, seulement à la demande de l'utilisateur.
+
+
+## Implémentation 2026-09-23 — parité d’usage Qwen / KREA2
+
+### Goal
+- Rendre « Modifier avec Qwen » moins étroit et moins encombrant après l’audit comparatif avec « Modifier avec KREA2 », puis implémenter les priorités validées par l’utilisateur.
+
+### Current state
+- Interface Qwen réorganisée autour du résultat : navigation visuelle des projets récents, barre unique pour source/références Qwen/inspirations assistant, comparateur avec zooms séparés et actions immédiates, historique pleine largeur sous forme de cartes riches (type, dimensions, steps, seed, références, résumé et actions par variante). La barre de références se replie lorsqu’elle ne contient que la source ; le panneau flottant de travaux reste réduit à son en-tête dans cet atelier et se déploie au survol/focus.
+- Recadrage local réutilisé depuis le composant commun : le serveur recadre les pixels originaux, journalise un essai `crop`, le valide et ouvre l’étape suivante sans appel Qwen/LLM. Retouche au masque réutilisée depuis KREA2 : préparation source/résultat, harmonisation facultative, masque et sortie enregistrés comme essai `retouch`, avec CAS et idempotence par `request_id` + digest.
+- DLSS partagé étendu au propriétaire `qwen`, y compris comparaison de préréglages et taille source. Les tâches restent dans le journal DLSS et leur résultat est rattaché comme essai `dlss` à l’étape Qwen active ; validation de source/étape, attachement idempotent et recomposition du masque pour une retouche à taille source. Aucun empilement silencieux des passes.
+- Routes HTTP de recadrage et retouche ajoutées ; assemblage Lab injecte `PillowEditImages`, `PillowRetouchCompositor` et le service Qwen dans `DlssCandidates`. Versions de cache des assets mises à jour. Tests unitaires, HTTP et navigateur préparés pour les trois types d’essais locaux et la nouvelle structure, sans exécution.
+- Contrôles réalisés : compilation Python des sources et tests modifiés, parse JavaScript des trois scripts par Chromium headless, IDs HTML uniques, références DOM Qwen résolues et `git diff --check`. Aucun test fonctionnel, appel LLM, rendu, tâche DLSS, mutation runtime, redémarrage, commit ou push effectué.
+
+### Next steps
+1. Après la fin des traitements en cours, redémarrer le Lab puis faire Ctrl+F5 pour charger les routes et assets versionnés.
+2. Vérifier manuellement sur un projet Qwen existant : navigation de projet, référence assistant/Qwen, sélection d’essai, recadrage, retouche, DLSS et validation. Les tests automatisés restent à lancer par l’utilisateur selon les consignes du dépôt.
+
 ## Version GitHub 2026-09-23 — Qwen et continuité des histoires
 
 ### Goal

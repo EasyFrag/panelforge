@@ -1,0 +1,214 @@
+{
+  "3": {
+    "inputs": {
+      "seed": 1234,
+      "steps": 25,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "37",
+        0
+      ],
+      "positive": [
+        "64",
+        0
+      ],
+      "negative": [
+        "64",
+        1
+      ],
+      "latent_image": [
+        "62",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "37": {
+    "inputs": {
+      "unet_name": "qwen_image_2.1_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "38": {
+    "inputs": {
+      "clip_name": "qwen3vl_8b_bf16.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "39": {
+    "inputs": {
+      "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "56": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "62": {
+    "inputs": {
+      "width": [
+        "76",
+        0
+      ],
+      "height": [
+        "76",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "64": {
+    "inputs": {
+      "prompt": "Add a tall blue cylindrical quiz-show hat on the cat’s head in the region indicated by <image2>. The hat has a flat blue brim, a tall straight-sided blue crown decorated with large white stars, and an oversized red question mark standing upright above the top of the hat. A small gold ribbon-shaped ornament sits beneath the question mark. Keep the rest of <image1> unchanged.",
+      "negative_prompt": "",
+      "resolution": 0,
+      "clip": [
+        "38",
+        0
+      ],
+      "images.image_1": [
+        "77",
+        0
+      ],
+      "images.image_2": [
+        "80",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImage21",
+    "_meta": {
+      "title": "Text Encode Qwen Image 2.1"
+    }
+  },
+  "76": {
+    "inputs": {
+      "image": [
+        "77",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "Get Image Size"
+    }
+  },
+  "77": {
+    "inputs": {
+      "resize_type": "scale to multiple",
+      "resize_type.multiple": 32,
+      "scale_method": "bicubic",
+      "input": [
+        "78",
+        0
+      ]
+    },
+    "class_type": "ResizeImageMaskNode",
+    "_meta": {
+      "title": "Resize Image/Mask"
+    }
+  },
+  "78": {
+    "inputs": {
+      "image": "clipspace-painted-masked-1789936442000.png [input]"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "79": {
+    "inputs": {
+      "mask": [
+        "78",
+        1
+      ]
+    },
+    "class_type": "MaskToImage",
+    "_meta": {
+      "title": "Convert Mask to Image"
+    }
+  },
+  "80": {
+    "inputs": {
+      "resize_type": "match size",
+      "resize_type.crop": "center",
+      "scale_method": "bicubic",
+      "input": [
+        "79",
+        0
+      ],
+      "resize_type.match": [
+        "77",
+        0
+      ]
+    },
+    "class_type": "ResizeImageMaskNode",
+    "_meta": {
+      "title": "Resize Image/Mask"
+    }
+  },
+  "81": {
+    "inputs": {
+      "images": [
+        "80",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  }
+}

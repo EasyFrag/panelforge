@@ -62,6 +62,16 @@ class ComfyBusyError(RuntimeError):
     """Raised when a destructive cleanup is unsafe while jobs are queued."""
 
 
+class ComfyWorkflowRejected(RuntimeError):
+    """A definitive ComfyUI validation rejection before queue admission."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        self.status_code = status_code
+        self.definitive_rejection = 400 <= status_code < 500
+        suffix = f": {detail}" if detail else ""
+        super().__init__(f"HTTP {status_code}{suffix}")
+
+
 @dataclass(frozen=True, slots=True)
 class ComfyDeviceStats:
     """Stable GPU memory counters exposed by ComfyUI ``/system_stats``."""
@@ -166,7 +176,13 @@ class ComfyHttpClient:
             method="POST",
         )
 
-        response = self._read_json(request)
+        try:
+            response = self._read_json(request)
+        except urllib.error.HTTPError as error:
+            raise ComfyWorkflowRejected(
+                error.code,
+                _prompt_rejection_detail(error.read()),
+            ) from error
         prompt_id = response["prompt_id"]
         if not isinstance(prompt_id, str) or not prompt_id:
             raise ValueError("ComfyUI returned an invalid prompt_id")
@@ -609,6 +625,52 @@ def _parse_queue_entries(
             )
         )
     return tuple(entries)
+
+
+def _prompt_rejection_detail(content: bytes) -> str:
+    """Keep actionable Comfy validation fields while omitting huge option lists."""
+    decoded = content.decode("utf-8", errors="replace").strip()
+    try:
+        payload = json.loads(decoded)
+    except (json.JSONDecodeError, TypeError):
+        return " ".join(decoded.split())[:1000]
+    if not isinstance(payload, Mapping):
+        return " ".join(decoded.split())[:1000]
+
+    details: list[str] = []
+    summary = payload.get("error")
+    if isinstance(summary, Mapping):
+        message = summary.get("message")
+        if isinstance(message, str) and message.strip():
+            details.append(message.strip())
+
+    node_errors = payload.get("node_errors")
+    if isinstance(node_errors, Mapping):
+        for node_id, node_error in node_errors.items():
+            if not isinstance(node_error, Mapping):
+                continue
+            class_type = node_error.get("class_type")
+            node_label = f"nœud {node_id}"
+            if isinstance(class_type, str) and class_type:
+                node_label += f" ({class_type})"
+            errors = node_error.get("errors")
+            if not isinstance(errors, Sequence) or isinstance(errors, (str, bytes)):
+                continue
+            for item in errors:
+                if not isinstance(item, Mapping):
+                    continue
+                message = item.get("message")
+                text = message.strip() if isinstance(message, str) else "Entrée invalide"
+                extra = item.get("extra_info")
+                if isinstance(extra, Mapping):
+                    input_name = extra.get("input_name")
+                    received = extra.get("received_value")
+                    if isinstance(input_name, str) and received is not None:
+                        text += f" ({input_name}={received!r})"
+                details.append(f"{node_label} : {text}")
+
+    compact = "; ".join(dict.fromkeys(details))
+    return compact[:1000] or "Requête refusée par ComfyUI."
 
 
 def _history_phase(record: Mapping[str, Any]) -> tuple[ComfyPromptPhase, str | None]:
