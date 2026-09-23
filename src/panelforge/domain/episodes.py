@@ -144,7 +144,7 @@ def initial_episode(story, identity):
             render_setup=default_render_setup(clip_seconds), inherit_video_settings=True))
         scenes[-1]["render_setup"]["settings"]["seed"] = int(fingerprint([identity, index])[:12], 16)
     source_value = [selected_series_episode, scenario] if selected_series_episode else scenario
-    return dict(episode_id=identity, story_id=story["project_id"], title=scenario["title"],
+    result = dict(episode_id=identity, story_id=story["project_id"], title=scenario["title"],
         story_revision=story["revisions"][-1]["revision"], source_hash=fingerprint(source_value),
         story_recipe=deepcopy(recipe), dialogue_language=dialogue_language_selection(
             story.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)),
@@ -155,12 +155,18 @@ def initial_episode(story, identity):
         reference_profiles={}, reference_batch=None,
         video_defaults=default_render_setup(clip_seconds), video_revision=1, video_chain=None,
         cookbook=dict(id=REF2V_COOKBOOK[0], version=REF2V_COOKBOOK[1]))
+    if "visual_continuity" in scenario:
+        from .episode_continuity import sync_references
+        result.update(continuity_version=1, continuity_revision=1)
+        sync_references(result, DEFAULT_PLAN_MODEL)
+    return result
 
 
 def scene_inputs(episode, scene, *, require_images=True):
+    from . import episode_continuity, story_continuity
     axes = CreativeFreedomAxes(**scene.get("creative_axes", DEFAULT_CREATIVE_AXES))
     refs = {r["id"]: r for r in episode["references"]}
-    bindings = scene["references"]
+    bindings = episode_continuity.bindings(episode, scene)
     if not 1 <= len(bindings) <= 9:
         raise ValueError("Choisissez entre une et neuf images pour cette scène, personnages et décor compris.")
     if len({b["reference_id"] for b in bindings}) != len(bindings):
@@ -172,6 +178,8 @@ def scene_inputs(episode, scene, *, require_images=True):
             raise ValueError("Référence ou rôle inconnu.")
         if require_images and not ref["image_asset_id"]:
             raise ValueError(f"Choisissez une image pour {ref['name']} avant de préparer le prompt.")
+        if require_images and episode_continuity.active(episode) and ref.get("continuity_image_stale"):
+            raise ValueError(f"L'état de {ref['name']} a changé. Confirmez ou remplacez son image dans la fiche avant de préparer le prompt.")
         selected.append(dict(reference_id=ref["id"], name=ref["name"], asset_id=ref["image_asset_id"],
                              role=binding["role"], kind=ref["kind"], source_id=ref["source_id"]))
     for role in ("first_frame", "last_frame"):
@@ -190,6 +198,13 @@ def scene_inputs(episode, scene, *, require_images=True):
     if not any(r["kind"] == "location" and r["source_id"] == location["id"] for r in selected):
         lines.append(f"Décor : {location['name']}. {location['description']}")
     lines.append(scene["intention"])
+    if episode_continuity.active(episode):
+        continuity_text = story_continuity.instructions(episode["scenario"], scene["index"])
+        if continuity_text:
+            lines.append(continuity_text)
+        lines.append("Les images ancrent les identités. Les états acquis ci-dessus déterminent le corps, la tenue et les objets à cet instant. "
+                     "Une variante est le même personnage, pas un personnage supplémentaire. "
+                     "Les émotions ne créent pas d'action physique non demandée : abattu signifie découragé, pas allongé ; humilié ne signifie pas rétréci.")
     transition = visual_transition_instruction(source_scene,
         silent=(episode.get("story_recipe") or {}).get("id") == SILENT_CATS_RECIPE_ID)
     if transition:
@@ -218,4 +233,6 @@ def scene_inputs(episode, scene, *, require_images=True):
     # Old preparations keep their fingerprints until their inputs are edited.
     if "creative_axes" in scene:
         result["creative_axes"] = deepcopy(scene["creative_axes"])
+    if episode_continuity.active(episode):
+        result["visual_continuity"] = episode_continuity.snapshot(episode, scene)
     return result

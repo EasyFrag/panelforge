@@ -8,7 +8,12 @@ import math
 
 from .stories import story_recipe_spec
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
+SUPPORTED_VERSIONS = {"2.1.0", VERSION}
+
+
+def structured(project):
+    return (project.get("job") or {}).get("response_contract_version") in SUPPORTED_VERSIONS
 
 
 def obj(**properties):
@@ -67,11 +72,12 @@ def structural_issues(value, schema, path="response"):
             else:
                 errors.extend(structural_issues(item, schema["properties"][key], f"{path}.{key}"))
     elif kind == "array":
-        if not schema["minItems"] <= len(value) <= schema["maxItems"]:
-            errors.append(issue("list_size", path, f"Liste de {schema['minItems']} à {schema['maxItems']} éléments attendue."))
+        minimum, maximum = schema.get("minItems", 0), schema.get("maxItems", math.inf)
+        if not minimum <= len(value) <= maximum:
+            errors.append(issue("list_size", path, f"Liste de {minimum} à {maximum} éléments attendue."))
         for index, item in enumerate(value):
             errors.extend(structural_issues(item, schema["items"], f"{path}[{index}]"))
-    elif kind == "string" and (not value.strip() or len(value) < schema.get("minLength", 0) or len(value) > schema.get("maxLength", 240000)):
+    elif kind == "string" and (len(value.strip()) < schema.get("minLength", 0) or len(value) > schema.get("maxLength", 240000)):
         errors.append(issue("text_size", path, "Texte vide ou trop long."))
     elif kind in {"number", "integer"} and not schema.get("minimum", -math.inf) <= value <= schema.get("maximum", math.inf):
         errors.append(issue("number_range", path, "Nombre hors limites."))
@@ -200,6 +206,13 @@ def response_schema(project):
         schema = obj(reply=reply, scenario=obj(title=string(), logline=string(), locations=array(location, 1, 8),
             scenes=array(scene_schema(project), 1, project["document"]["episode_formats"][target]["scene_count"])),
             episode_state=state_schema(project))
+    if project.get("job", {}).get("response_contract_version") == VERSION and "episode_state" in schema.get("properties", {}):
+        from .story_continuity import schema as continuity_schema
+        visual = continuity_schema(project["document"]["episode_formats"][target]["scene_count"])
+        if "scene_edits" in schema["properties"]:
+            schema["properties"]["visual_continuity"] = visual
+        else:
+            schema["properties"]["scenario"]["properties"]["visual_continuity"] = visual
     if operation in {"revise", "revise_outline"}:
         return {"anyOf": [schema, obj(reply=reply, discussion_only=dict(type="boolean", enum=[True]))]}
     return schema
@@ -228,13 +241,19 @@ def wire_example(project, example):
         doc = project["document"]
         scene = wire_scene(doc["episode_scenarios"][target]["scenes"][index], doc["episode_states"][target]["scene_events"][index])
         state = {k: deepcopy(v) for k, v in doc["episode_states"][target].items() if k != "scene_events"}
-        return dict(reply="Corrections ciblées.", base_hash=source_hash(project, target),
-                    scene_edits=[dict(scene_index=index, scene=scene)], episode_state=state)
+        result = dict(reply="Corrections ciblées.", base_hash=source_hash(project, target),
+                      scene_edits=[dict(scene_index=index, scene=scene)], episode_state=state)
+        if project["job"].get("response_contract_version") == VERSION:
+            result["visual_continuity"] = deepcopy(doc["episode_scenarios"][target].get("visual_continuity", {
+                "version": 1, "dramatic_summary": "Ce que le public doit comprendre ; ce que le héros ignore.", "elements": []}))
+        return result
     result = deepcopy(example)
     if "scenario" in result and "episode_state" in result:
         result["scenario"].pop("characters", None)
         metadata = result["episode_state"].pop("scene_events")
         result["scenario"]["scenes"] = [wire_scene(scene, metadata[i]) for i, scene in enumerate(result["scenario"]["scenes"])]
+        if project["job"].get("response_contract_version") == VERSION:
+            result["scenario"].setdefault("visual_continuity", dict(version=1, dramatic_summary="Le drame compréhensible à l'écran.", elements=[]))
     return result
 
 
@@ -264,6 +283,8 @@ def canonical_response(project, value):
         if result["base_hash"] != source_hash(project, target):
             raise StoryValidationError([issue("stale_patch", "base_hash", "La version de base a changé.")])
         scenario = deepcopy(project["document"]["episode_scenarios"][target])
+        if "visual_continuity" in result:
+            scenario["visual_continuity"] = result.pop("visual_continuity")
         metadata = deepcopy(project["document"]["episode_states"][target]["scene_events"])
         seen = set()
         for edit in result.pop("scene_edits"):
@@ -282,4 +303,28 @@ def canonical_response(project, value):
         result["scenario"]["characters"] = deepcopy(project["document"]["series_outline"]["characters"])
         result["episode_state"]["scene_events"] = [dict(scene_index=i, **scene.pop("narrative"))
             for i, scene in enumerate(result["scenario"]["scenes"])]
+    if "scenario" in result and project.get("job", {}).get("response_contract_version") == VERSION:
+        from .long_stories import previous_ids
+        from .story_continuity import carry_forward, inherit, empty, normalize
+        doc = project["document"]
+        previous = previous_ids(project, target)
+        inherited = carry_forward(doc["episode_scenarios"][previous[-1]]) if previous else doc.get("visual_state_inherited")
+        result["scenario"].setdefault("visual_continuity", empty())
+        try:
+            merged = inherit(result["scenario"], inherited)
+            merged["visual_continuity"] = normalize(merged["visual_continuity"], merged)
+        except (ValueError, TypeError, KeyError) as error:
+            # A prior object's owner may be absent from a new cast, for example.
+            # Keep the writer's valid current ledger and expose the unresolved
+            # inheritance rather than reject the new playable episode.
+            try:
+                current = normalize(result["scenario"]["visual_continuity"], result["scenario"])
+            except ValueError:
+                current = empty()
+            current["warnings"] = (current.get("warnings", []) + [
+                "La mémoire visuelle précédente n'a pas pu être reprise entièrement : " + str(error)[:2000]
+                + " Vérifie les états de départ dans Continuité."])[-4:]
+            result["scenario"]["visual_continuity"] = current
+        else:
+            result["scenario"] = merged
     return result

@@ -1,0 +1,27 @@
+.pf-continuity { margin: 1rem 0; min-width: 0; }
+.pf-continuity details { border: 1px solid #d7ded9; border-radius: 12px; padding: .9rem 1rem; background: #f6f8f6; }
+.pf-continuity summary { cursor: pointer; font-weight: 700; color: #17584b; }
+.pf-continuity-drama { padding: .75rem 1rem; border-left: 3px solid #448b78; background: #eef6f1; border-radius: 6px; }
+.pf-continuity-help, .pf-continuity small { color: #52635e; font-size: .9rem; }
+.pf-continuity-row { margin: .8rem 0; padding: .9rem; border: 1px solid #dce4df; border-radius: 9px; background: white; overflow-wrap: anywhere; }
+.pf-continuity-row p { margin: .4rem 0; }
+.pf-continuity-ignored { opacity: .65; }
+.pf-continuity-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; margin-top: .75rem; }
+.pf-continuity button { font-size: .9rem; }
+.pf-continuity-dialog { width: min(720px, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; box-sizing: border-box; border: 1px solid #bed0c6; border-radius: 16px; padding: 1.25rem; color: #152721; }
+.pf-continuity-dialog::backdrop { background: #142a2460; }
+.pf-continuity-dialog label { display: flex; flex-direction: column; gap: .35rem; margin: .7rem 0; flex: 1; min-width: 0; font-weight: 600; }
+.pf-continuity-dialog label small { font-weight: 400; color: #52635e; }
+.pf-continuity-dialog input:not([type=checkbox]), .pf-continuity-dialog textarea, .pf-continuity-dialog select { box-sizing: border-box; width: 100%; padding: .65rem; border: 1px solid #c8d4cd; border-radius: 7px; font: inherit; }
+.pf-continuity-dialog textarea { resize: vertical; min-height: 4rem; }
+.pf-continuity-dialog input[type=checkbox] { width: auto; align-self: start; }
+.pf-continuity-dialog fieldset { border: 1px solid #d7ded9; border-radius: 9px; margin: .9rem 0; padding: .8rem; min-width: 0; }
+.pf-continuity-presence { display: flex; flex-wrap: wrap; gap: .5rem; }
+.pf-continuity-presence label { flex: 1 1 150px; flex-direction: row; align-items: center; font-size: .9rem; }
+.pf-continuity-presence input { order: -1; }
+.pf-continuity-error { color: #a72e28; white-space: pre-wrap; }
+.pf-continuity-results { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: .8rem; }
+.pf-continuity-results img { display: block; width: 100%; height: 240px; object-fit: contain; background: #f2f3f1; }
+.episode-continuity-note { font-size: .85rem; color: #52635e; overflow-wrap: anywhere; }
+.episode-duration-note { font-size: .85rem; color: #89531d; overflow-wrap: anywhere; }
+@media (max-width: 520px) { .pf-continuity-actions > label { flex-basis: 100%; } }

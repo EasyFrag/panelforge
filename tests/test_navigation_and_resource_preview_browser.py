@@ -15,6 +15,40 @@ class NavigationAndResourcePreviewBrowserTest(unittest.TestCase):
             self.skipTest("local Chromium not installed")
         return browsers[-1]
 
+    def test_change_view_is_reachable_from_each_image_workshop_without_legacy_gallery(self):
+        modes = ("change-view", "krea2-assisted-lab", "krea2-edit-lab", "qwen-edit-lab")
+        buttons = ''.join(f'<button data-image-lab-mode="{mode}">{mode}</button>' for mode in modes)
+        markup = '<meta charset="utf-8"><pre id="result">PENDING</pre>'
+        markup += '<button data-lab-view="change-view">Image Lab</button><span id="recipe-badge" hidden>Recipe</span>'
+        markup += ''.join(f'<section id="{mode}-workspace" hidden>{buttons}</section>' for mode in modes)
+        source = (STATIC / "lab-core.js").read_text(encoding="utf8")
+        scenario = """
+          window.fetch=()=>{throw new Error('No network from the fixture');};
+          document.addEventListener('DOMContentLoaded',()=>{try{
+            const check=(value,message)=>{if(!value)throw new Error(message);};
+            const visible=()=>[...document.querySelectorAll('section')].filter(s=>!s.hidden);
+            const assertView=(mode)=>{
+              check(visible().length===1 && visible()[0].id===mode+'-workspace','only '+mode+' visible');
+              check(document.querySelector('[data-lab-view="change-view"]').classList.contains('active'),'Image Lab parent active');
+              document.querySelectorAll('[data-image-lab-mode]').forEach(button=>{
+                check(button.classList.contains('active')===(button.dataset.imageLabMode===mode),'all submode bars synchronized');
+              });
+              check(document.querySelector('#recipe-badge').hidden===(mode!=='change-view'),'recipe badge follows workspace');
+              check(sessionStorage.getItem('panelforge.lab.last-view.v1')===mode,'selected view persisted');
+            };
+            if(sessionStorage.getItem('test.change-view-reload')) {
+              assertView('change-view');
+              document.querySelector('#result').textContent='PASS';return;
+            }
+            for(const mode of ['krea2-assisted-lab','krea2-edit-lab','qwen-edit-lab']) {
+              visible()[0].querySelector('[data-image-lab-mode="'+mode+'"]').click();assertView(mode);
+              visible()[0].querySelector('[data-image-lab-mode="change-view"]').click();assertView('change-view');
+            }
+            sessionStorage.setItem('test.change-view-reload','1');location.reload();
+          }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}});
+        """
+        self.run_browser(self.browser(), markup + '<script>' + source + '</script><script>' + scenario + '</script>')
+
     def test_reload_keeps_workshop_submode_and_initializes_only_the_restored_mode(self):
         markup = '''<meta charset="utf-8"><pre id="result">PENDING</pre>
         <button data-lab-view="change-view">Image</button><button data-lab-view="i2v-direct">H3</button>

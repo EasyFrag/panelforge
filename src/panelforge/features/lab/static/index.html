@@ -7,9 +7,11 @@
   <link rel="stylesheet" href="/static/lab.css?v=20260920.2">
   <script src="/static/lab.js?v=20260918.3" defer></script>
   <script src="/static/work-queue.js?v=20260920.2" defer></script>
-  <script src="/static/lab-core.js?v=20260918.1" defer></script>
+  <script src="/static/lab-core.js?v=20260922.2" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260920.3">
-  <script src="/static/stories.js?v=20260920.6" defer></script>
+  <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
+  <script src="/static/story-continuity.js?v=20260922.1" defer></script>
+  <script src="/static/stories.js?v=20260922.1" defer></script>
   <script src="/static/stories-help.js?v=20260920.3" defer></script>
   <link rel="stylesheet" href="/static/episodes.css?v=20260920.2">
   <script src="/static/dlss-image-comparison.js?v=20260913.2" defer></script>
@@ -33,12 +35,14 @@
   <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260919.1" defer></script>
-  <script src="/static/episodes.js?v=20260920.5" defer></script>
+  <script src="/static/episodes.js?v=20260922.1" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260919.1" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
+  <link rel="stylesheet" href="/static/qwen-edit.css?v=20260922.1">
+  <script src="/static/qwen-edit.js?v=20260922.2" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -108,6 +112,7 @@
           <h2>Quelle histoire veux-tu raconter ?</h2>
           <p class="muted">Une phrase suffit. Tu pourras orienter le récit après la première proposition.</p>
           <label><span id="story-brief-label">Ton idée · facultative</span><textarea id="story-brief" rows="4" maxlength="12000" placeholder="Un rendez-vous tourne au règlement de comptes quand arrive l’addition…"></textarea></label>
+          <details data-story-long-only hidden><summary>Continuer une histoire · contexte précédent</summary><label>Ce qui s’est déjà passé<textarea id="story-prior-story" rows="4" maxlength="60000" placeholder="Colle le résumé ou le scénario de l’épisode précédent ici."></textarea></label><p class="muted">Ce texte sert de mémoire. Écris dans « Ton idée » ce que tu souhaites pour le nouvel épisode.</p></details>
           <div class="story-example-row"><span>Essayer un point de départ</span><button type="button" data-story-example="social">L’addition qui dérape</button><button type="button" data-story-example="melodrama">Les gouttes d’eau</button><button type="button" data-story-example="fantasy">Le temps de vie</button></div>
           <fieldset class="story-narrative-switch">
             <legend>Construction</legend>
@@ -204,6 +209,7 @@
           <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-next-episode" type="button">Créer l’épisode suivant</button><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary" aria-describedby="story-fabrication-reason">Valider et préparer la fabrication</button></div>
           <aside id="story-fabrication-gate" class="story-diagnostics" hidden><strong>Avant la fabrication</strong><p id="story-fabrication-reason" role="status" aria-live="polite"></p><button id="story-fabrication-next" type="button">Continuer les vérifications</button></aside>
           <p id="story-logline"></p>
+          <div id="story-visual-continuity"></div>
           <aside id="story-diagnostics" class="story-diagnostics" hidden><strong>Diagnostic sans appel LLM</strong><ul id="story-diagnostic-list"></ul></aside>
           <details><summary>Personnages et décors</summary><div id="story-cast"></div></details>
           <label class="story-check"><input id="story-include-duration" type="checkbox" checked>Inclure la durée dans les intentions copiées</label>
@@ -235,6 +241,7 @@
         <button id="episode-refresh" type="button">Actualiser</button>
       </div>
       <p id="episode-source" class="muted"></p>
+      <div id="episode-continuity"></div>
       <p id="episode-message" role="status" aria-live="polite"></p>
       <nav class="episode-tabs" aria-label="Étapes de fabrication">
         <button id="episode-tab-references" type="button" aria-pressed="true">1 · Références</button>
@@ -242,7 +249,7 @@
       </nav>
       <section id="episode-references" class="story-panel">
         <details id="episode-batch-panel" class="episode-batch-panel" open>
-          <summary>Générer tous les personnages et décors</summary>
+          <summary>Générer les références · personnages, décors et objets suivis</summary>
           <p class="muted">Les prompts sont rédigés un par un sur la machine locale. Chaque image rejoint la file distante dès que son prompt est prêt. La vidéo reste verrouillée jusqu’à ta validation humaine.</p>
           <details id="episode-visual-panel" class="episode-visual-panel" open><summary>Direction artistique et réglages KREA2 communs</summary>
             <div class="episode-style-grid">
@@ -421,6 +428,7 @@
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
     </nav>
     <aside class="controls">
       <div class="title-row">
@@ -530,6 +538,7 @@
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
     </nav>
 
     <aside class="controls krea2-image-lab-controls">
@@ -620,6 +629,7 @@
       <button class="active" type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
     </nav>
 
     <aside class="controls krea2-assisted-controls">
@@ -865,6 +875,7 @@
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
     </nav>
 
     <aside class="controls krea2-batch-controls">
@@ -983,11 +994,133 @@
     </div>
   </main>
 
+  <main id="qwen-edit-lab-workspace" class="qwen-workspace" hidden>
+    <nav class="image-lab-modebar" aria-label="Modes Image Lab">
+      <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+    </nav>
+    <header class="qw-toolbar">
+      <div><small>ATELIER IMAGE</small><h1>Modifier avec Qwen <span class="qw-chip qw-render">2.1</span></h1></div>
+      <div class="qw-toolbar-actions"><label class="sr-only" for="qw-projects">Mes projets Qwen</label>
+        <select id="qw-projects"><option value="">Mes projets…</option></select>
+        <button id="qw-new" type="button">＋ Nouveau projet</button>
+        <button id="qw-refresh" type="button" aria-label="Actualiser les projets">↻</button>
+      </div>
+    </header>
+    <div id="qw-error" class="qw-error" role="alert" hidden></div>
+    <div id="qw-local-draft" class="qw-notice" hidden>Un brouillon local n’a pas été enregistré.
+      <button id="qw-local-restore" type="button">Reprendre ce brouillon</button>
+      <button id="qw-local-dismiss" type="button">Garder la version enregistrée</button>
+    </div>
+    <section id="qw-empty" class="qw-empty">
+      <div class="qw-empty-icon" aria-hidden="true">✦</div>
+      <h2>Une image, de nouvelles possibilités.</h2>
+      <p>Décris tes modifications, montre tes inspirations et construis ton image étape par étape.</p>
+      <div class="qw-start-options">
+        <button id="qw-start-edit" class="qw-start-card" type="button"><strong>Modifier une image</strong><span>Importer une base et conserver ce qui compte.</span></button>
+        <button id="qw-start-composition" class="qw-start-card" type="button"><strong>Nouvelle composition</strong><span>Réunir des personnages ou des objets de plusieurs images.</span></button>
+      </div>
+      <p class="qw-muted">PNG, JPEG ou WebP · 25 Mo par image · projets enregistrés automatiquement</p>
+    </section>
+    <input id="qw-source-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    <section id="qw-editor" hidden>
+      <div class="qw-project-bar">
+        <label class="qw-project-name"><span class="sr-only">Nom du projet</span><input id="qw-name" maxlength="120" placeholder="Nom du projet"></label>
+        <span id="qw-save-state" class="qw-muted" role="status">Enregistré</span>
+        <a id="qw-download" class="qw-link" href="#">Télécharger le projet</a>
+      </div>
+      <nav id="qw-timeline" class="qw-timeline" aria-label="Étapes du projet"></nav>
+      <div id="qw-history-notice" class="qw-notice" hidden>Cette étape est conservée dans l’historique.
+        <button id="qw-resume" type="button">Reprendre d’ici dans une nouvelle version</button>
+      </div>
+      <div class="qw-stage-heading"><label><span id="qw-stage-number">Étape 1</span><input id="qw-label" maxlength="120" aria-label="Nom de cette étape"></label>
+        <span id="qw-stage-status" role="status"></span></div>
+      <div class="qw-workbench">
+        <div class="qw-visual-column">
+          <section class="qw-panel qw-image-panel" aria-label="Comparaison avant et après">
+            <div class="qw-compare-toolbar">
+              <label>Avant <select id="qw-before"></select></label>
+              <label>Après <select id="qw-after"></select></label>
+              <button id="qw-zoom" type="button">Agrandir</button>
+            </div>
+            <div id="qw-compare" class="qw-compare" style="--qw-split:50%">
+              <img id="qw-before-image" alt="Image avant modification" hidden>
+              <img id="qw-after-image" class="qw-after-image" alt="Résultat Qwen" hidden>
+              <div id="qw-image-placeholder" class="qw-image-placeholder"><span aria-hidden="true">✦</span><p>Ajoute tes références pour composer une nouvelle image.</p></div>
+              <span id="qw-before-tag" class="qw-image-tag">Avant</span><span id="qw-after-tag" class="qw-image-tag qw-right">Après</span>
+              <div id="qw-divider" class="qw-divider" aria-hidden="true"></div>
+            </div>
+            <label id="qw-slider-label" class="qw-slider-label"><span>Avant / après</span><input id="qw-split" type="range" min="0" max="100" value="50" aria-label="Séparation avant après"></label>
+            <div class="qw-image-footer"><span id="qw-preview-note" class="qw-muted"></span><a id="qw-image-download" download href="#" hidden>Télécharger l’image</a></div>
+          </section>
+          <section id="qw-render-drop" class="qw-panel qw-references" aria-label="Images utilisées pour le rendu">
+            <div class="qw-panel-heading"><div><h2>Images utilisées pour le rendu <button type="button" class="qw-info" data-qw-help="render" aria-label="À quoi servent les références de génération ?">ⓘ</button></h2><p id="qw-render-count" class="qw-muted"></p></div>
+              <button id="qw-add-render" type="button">＋ Référence</button></div>
+            <div id="qw-render-images" class="qw-reference-list"></div>
+            <p class="qw-drop-hint">Dépose ici les personnages, vêtements ou objets que Qwen doit voir.</p>
+          </section>
+          <section class="qw-panel qw-attempt-panel"><div class="qw-panel-heading"><h2>Essais de cette étape</h2><span id="qw-attempt-count" class="qw-muted"></span></div>
+            <div id="qw-attempts" class="qw-attempts"></div>
+            <div class="qw-selection-actions"><button id="qw-restore-attempt" type="button">Reprendre ces réglages</button>
+              <button id="qw-accept" type="button" class="qw-primary">Valider et continuer →</button></div>
+          </section>
+          <p id="qw-export-note" class="qw-muted qw-export-note"></p>
+          <button id="qw-export" type="button" class="qw-link">Enregistrer une copie du projet</button>
+        </div>
+        <aside class="qw-panel qw-conversation-panel" aria-label="Conversation de cette étape">
+          <div class="qw-panel-heading"><div><h2>Construisons cette étape</h2><p class="qw-muted">Échange en français · instruction Qwen en anglais</p></div>
+            <button type="button" class="qw-info" data-qw-help="assistant" aria-label="Comment guider l’assistant avec une image ?">ⓘ</button></div>
+          <details class="qw-assistant-settings"><summary>Assistant <span id="qw-model-summary" class="qw-muted"></span></summary>
+            <label>Modèle avec vision<select id="qw-model"></select></label>
+            <label class="qw-check"><input type="checkbox" data-llm-local-for="qw-model">Modèles locaux</label>
+            <p class="qw-muted">Le modèle doit accepter les images. La limite de son serveur peut être inférieure à celle de Qwen.</p>
+          </details>
+          <div id="qw-messages" class="qw-messages" aria-live="polite"></div>
+          <div id="qw-assistant-drop" class="qw-composer">
+            <div class="qw-composer-caption"><span>Inspirations pour l’assistant</span><button id="qw-reuse" type="button" class="qw-link">Réutiliser une image</button></div>
+            <div id="qw-assistant-images" class="qw-reference-list qw-assistant-images"></div>
+            <div id="qw-feedback-wrap" hidden><label class="qw-check"><input id="qw-feedback" type="checkbox">Montrer aussi l’essai sélectionné à l’assistant</label><small class="qw-muted">Pour expliquer un défaut ; la source reste celle de cette étape.</small></div>
+            <label class="sr-only" for="qw-draft">Ta demande pour cette étape</label>
+            <textarea id="qw-draft" rows="4" maxlength="12000" placeholder="Décris ce qui change et ce qu’il faut garder… Tu peux joindre une inspiration ou citer @un personnage."></textarea>
+            <div class="qw-composer-actions"><button id="qw-add-assistant" type="button">＋ Joindre une image</button><button id="qw-send" type="button" class="qw-primary">Envoyer ↑</button></div>
+            <p class="qw-muted qw-composer-note">Les images jointes ici guident le LLM. Elles ne sont pas envoyées à Qwen.</p>
+          </div>
+          <div class="qw-prompt-panel"><div class="qw-panel-heading"><h3>Instruction prévue</h3><span id="qw-prompt-status" class="qw-chip"></span></div>
+            <p id="qw-summary" class="qw-summary"></p>
+            <details id="qw-prompt-details"><summary>Voir ou modifier le prompt</summary>
+              <label for="qw-prompt" class="sr-only">Prompt anglais envoyé à Qwen</label><textarea id="qw-prompt" rows="7" maxlength="24000" spellcheck="false"></textarea>
+              <div id="qw-prompt-mapping" class="qw-muted"></div><button id="qw-save-prompt" type="button">Enregistrer ce prompt</button>
+            </details>
+          </div>
+          <details class="qw-render-settings"><summary>Réglages du rendu <span id="qw-settings-summary" class="qw-muted"></span></summary>
+            <div class="qw-settings-grid">
+              <label>Résolution <button type="button" class="qw-info" data-qw-help="resolution" aria-label="Effet de la résolution">ⓘ</button><select id="qw-resolution"><option value="source">Taille de la source</option><option value="1">1 MP · essai rapide</option><option value="2">2 MP</option><option value="4">4 MP</option></select></label>
+              <label id="qw-ratio-wrap">Format <select id="qw-ratio"><option>1:1</option><option>3:2</option><option>2:3</option><option>16:9</option><option>9:16</option></select></label>
+              <label>Steps <button type="button" class="qw-info" data-qw-help="steps" aria-label="Effet des steps">ⓘ</button><input id="qw-steps" type="number" min="1" max="100" value="25"></label>
+              <label class="qw-seed-label">Seed <button type="button" class="qw-info" data-qw-help="seed" aria-label="Effet de la seed">ⓘ</button><input id="qw-seed" inputmode="numeric" pattern="[0-9]+" maxlength="20"></label>
+            </div>
+            <div class="qw-seed-actions"><label class="qw-check"><input id="qw-reuse-seed" type="checkbox" checked>Réutiliser la seed</label><button id="qw-new-seed" type="button">Nouvelle variation</button></div>
+            <details class="qw-advanced"><summary>Avancé</summary><label>CFG <button type="button" class="qw-info" data-qw-help="cfg" aria-label="Effet du CFG">ⓘ</button><input id="qw-cfg" type="number" min="1" max="10" step="0.1" value="1"></label>
+              <label id="qw-negative-wrap" hidden>Prompt négatif<textarea id="qw-negative" rows="2" maxlength="12000"></textarea></label>
+              <p class="qw-muted">Euler · Simple · denoise 1<br>Modèle, encodeur et VAE Qwen 2.1 configurés par la recette.</p>
+            </details>
+          </details>
+          <div class="qw-generate-bar"><span id="qw-generate-note" class="qw-muted"></span><button id="qw-generate" class="qw-primary" type="button">Générer l’image ✦</button></div>
+        </aside>
+      </div>
+    </section>
+    <input id="qw-attachment-files" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+  </main>
+  <dialog id="qw-dialog" class="qw-dialog" aria-labelledby="qw-dialog-title"><div class="qw-dialog-heading"><h2 id="qw-dialog-title"></h2><button id="qw-dialog-close" type="button" aria-label="Fermer">✕</button></div><div id="qw-dialog-body"></div></dialog>
+
   <main id="krea2-edit-lab-workspace" class="krea2-edit-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button class="active" type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
     </nav>
 
     <aside class="controls krea2-edit-controls">

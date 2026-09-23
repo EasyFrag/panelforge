@@ -23,6 +23,8 @@
     return `${speaker}${indication ? ` — ${indication}` : ""} : « ${line.text} »`;
   };
   const ref = () => state.data?.references.find(r => r.id === state.refId);
+  const activeReferences = () => (state.data?.references || []).filter(r => !r.continuity_archived);
+  const kindLabel = kind => ({character: "Personnage", location: "Décor", object: "Objet"}[kind] || kind);
   const scene = () => state.data?.scenes.find(s => s.id === state.sceneId);
   const prep = () => scene()?.preparations.find(p => p.id === state.prepId);
   const api = (suffix = "", id = state.data?.episode_id) => `/api/episodes/${encodeURIComponent(id)}${suffix}`;
@@ -67,7 +69,10 @@
     finally { state.busy = false; controls(); schedule(); }
   }
   function controls() {
-    const r = ref(), s = scene(), busyRef = state.busy || jobRunning(r), busyScene = state.busy || jobRunning(s);
+    drawContinuity();
+    const r = ref(), s = scene(), continuityBusy = state.data?.continuity_version === 1
+      && (videoChainRunning() || batchRunning() || state.data.references.some(jobRunning));
+    const busyRef = state.busy || jobRunning(r) || continuityBusy, busyScene = state.busy || jobRunning(s);
     for (const id of ["story-projects", "story-new", "story-fabrication"]) document.getElementById(id).disabled = state.busy;
     document.getElementById("story-validate").disabled = state.busy || !state.story?.document?.scenario
       || (state.story?.narrative_engine?.version === "2.0.0" && !state.story?.long_status?.fabrication_ready)
@@ -254,6 +259,7 @@
     drawBatchLoras(); drawBatch();
   }
   function batchProfileSummary(kind) {
+    if (kind === "object") kind = "character";
     if (!state.catalog || !state.models.length) return "Catalogue en cours de chargement";
     const prefix = `batch-${kind}`, settings = batchSettings(kind), workflowId = workflowKey(settings.workflow), modelId = settings.model_id;
     const workflow = state.catalog.workflows.find(item => item.id === workflowId);
@@ -272,14 +278,14 @@
       el(`batch-${kind}-summary`).textContent = batchProfileSummary(kind);
     }
     const selectedItems = new Map((batch?.items || []).map(item => [item.reference_id, item]));
-    el("batch-selection").replaceChildren(...state.data.references.map(reference => {
+    el("batch-selection").replaceChildren(...activeReferences().map(reference => {
       const label = node("label"), checkbox = document.createElement("input"); checkbox.type = "checkbox";
       checkbox.checked = active ? selectedItems.has(reference.id) : state.batchSelection.has(reference.id);
       checkbox.disabled = active; checkbox.addEventListener("change", () => {
         if (checkbox.checked) state.batchSelection.add(reference.id); else state.batchSelection.delete(reference.id);
         controls();
       });
-      label.append(checkbox, node("b", `${reference.kind === "character" ? "Personnage" : "Décor"} · ${reference.name}`),
+      label.append(checkbox, node("b", `${reference.continuity_state_id ? "Variante" : kindLabel(reference.kind)} · ${reference.name}`),
         node("span", batchProfileSummary(reference.kind), "muted"));
       return label;
     }));
@@ -299,7 +305,7 @@
     }
     el("batch-results").replaceChildren(...items.map(item => {
       const card = node("article", "", "episode-batch-result");
-      card.append(node("b", `${item.kind === "character" ? "Personnage" : "Décor"} · ${item.name}`));
+      card.append(node("b", `${kindLabel(item.kind)} · ${item.name}`));
       if (item.output_asset_id) { const image = document.createElement("img"); image.src = assetUrl(item.output_asset_id); image.alt = item.name; card.append(image); }
       card.append(node("p", item.phase || item.status), node("p", item.error || "", item.error ? "error" : "muted"));
       const actions = node("div", "", "story-actions");
@@ -381,15 +387,60 @@
     state.dirtyRef = true;
     return true;
   }
+  async function continuityAction(id, work) {
+    if (state.busy || id !== state.data?.episode_id) throw new Error("Attends la fin de l’action en cours, puis réessaie.");
+    state.busy = true; controls();
+    try {
+      await flushRender(); await saveReference(); await saveScene();
+      return await work();
+    } finally { state.busy = false; controls(); schedule(); }
+  }
+  function drawContinuity() {
+    const data = state.data, host = el("continuity");
+    host.hidden = !data;
+    if (!data) return;
+    const id = data.episode_id;
+    window.PanelForgeContinuity.render(host, {identity: id, revision: data.continuity_revision || 1,
+      data: data.visual_continuity, characters: data.scenario.characters, scenes: data.scenario.scenes,
+      references: data.references, disabled: state.busy || batchRunning() || videoChainRunning() || imageRunning()
+        || data.references.some(jobRunning),
+      onSave: (visual_continuity, expected_revision) => continuityAction(id, async () => {
+        const previous = new Set(state.data.references.map(r => r.id));
+        const result = await core.request(api("/continuity", id), send("PUT", {expected_revision, visual_continuity}));
+        result.references.filter(r => !r.continuity_archived && !r.continuity_state_id && !previous.has(r.id)).forEach(r => state.batchSelection.add(r.id));
+        accept(result); drawScene(true);
+        message("Continuité enregistrée. Les préparations touchées sont signalées à actualiser.");
+      }),
+      onReference: r => continuityAction(id, async () => {
+        state.refId = r.id; state.imageProject = null; state.dirtyRef = false;
+        await tab("references"); drawLists(); drawReference(true); await imageProject(); storeContext();
+        el("reference").scrollIntoView({behavior: "smooth", block: "center"});
+      }),
+      onVariant: data.qwen_variants_available ? r => continuityAction(id, async () => {
+        if (!window.PanelForgeQwenEdit) throw new Error("Actualise la page pour charger l’atelier Qwen.");
+        const latest = state.data.references.find(item => item.id === r.id);
+        const result = await core.request(api(`/references/${r.id}/variant`, id), send("POST", {expected_revision: latest.revision}));
+        accept(result.episode);
+        await window.PanelForgeQwenEdit.open(result.project_id);
+      }) : null,
+      onResults: r => continuityAction(id, async () => {
+        const result = await core.request(api(`/references/${r.id}/variant-results`, id));
+        const revision = state.data.references.find(item => item.id === r.id).revision;
+        window.PanelForgeContinuity.resultsDialog(result.results, asset_id => continuityAction(id, async () => {
+          accept(await core.request(api(`/references/${r.id}/variant-select`, id), send("POST", {expected_revision: revision, asset_id})));
+          message("Variante sélectionnée pour les scènes où cet état est acquis.");
+        }));
+      })});
+  }
   function drawLists() {
     if (!state.data) return;
     el("versions").replaceChildren(...state.list.map(e => new Option(`Scénario v${e.story_revision} · ${e.title}`, e.episode_id)));
     el("versions").value = state.data.episode_id;
     el("source").textContent = `Scénario v${state.data.story_revision} · ${state.data.references.length} fiches · ${state.data.scenes.length} scènes.`
       + (state.data.story_changed ? " L’histoire a changé depuis cette validation ; cette fabrication conserve sa version." : "");
-    el("reference").replaceChildren(...state.data.references.map(r => new Option(`${r.kind === "character" ? "Personnage" : "Décor"} · ${r.name}${r.image_asset_id ? " ✓" : ""}${r.prompt_style_stale || r.image_style_status === "outdated" ? " · Style à actualiser" : ""}`, r.id)));
+    el("reference").replaceChildren(...activeReferences().map(r => new Option(`${kindLabel(r.kind)} · ${r.name}${r.image_asset_id ? " ✓" : ""}${r.continuity_image_stale ? " · État à actualiser" : ""}${r.prompt_style_stale || r.image_style_status === "outdated" ? " · Style à actualiser" : ""}`, r.id)));
     el("reference").value = state.refId;
-    el("reference-count").textContent = `${state.data.references.filter(r => r.image_asset_id).length} / ${state.data.references.length} images retenues`;
+    el("reference-count").textContent = `${activeReferences().filter(r => r.image_asset_id).length} / ${activeReferences().length} images retenues`;
     el("scene").replaceChildren(...state.data.scenes.map(s => new Option(`${s.index + 1} · ${s.title} · ${renderDuration(s)} s · ${
       s.stale ? "À actualiser" : jobRunning(s) ? promptActivity(s) : statuses[s.video_status] || statuses[s.preparations.at(-1)?.status] || "À préparer"}`, s.id)));
     el("scene").value = state.sceneId;
@@ -402,6 +453,7 @@
     heading.append(title, meta);
     const planStatus = node("p", "", "muted"), writerStatus = node("p", "", "muted");
     const videoStatus = node("p"), dlssStatus = node("p");
+    const continuityNote = node("p", "", "episode-continuity-note"), durationNote = node("p", "", "episode-duration-note");
     const error = node("p", "", "error"); error.hidden = true;
     const media = node("div", "", "episode-video-media");
     const dlss = node("div", "", "episode-video-dlss");
@@ -413,8 +465,8 @@
       drawLists(); drawScene(true); drawVideoOverview(); await openRender(); storeContext();
     }));
     actions.append(open);
-    card.append(heading, planStatus, writerStatus, videoStatus, dlssStatus, error, media, dlss, actions);
-    card._refs = {title, meta, planStatus, writerStatus, videoStatus, dlssStatus, error, media, dlss, actions, open};
+    card.append(heading, planStatus, writerStatus, videoStatus, dlssStatus, continuityNote, durationNote, error, media, dlss, actions);
+    card._refs = {title, meta, planStatus, writerStatus, videoStatus, dlssStatus, continuityNote, durationNote, error, media, dlss, actions, open};
     return card;
   }
   function updateStage(element, label, status, text) {
@@ -454,6 +506,12 @@
   }
   function updateVideoCard(card, value, item) {
     const refs = card._refs, attempt = value.video_attempt;
+    refs.continuityNote.textContent = (value.continuity_warnings || []).join(" · ");
+    if (!refs.continuityNote.textContent && value.continuity_states?.length)
+      refs.continuityNote.textContent = "Continuité : " + value.continuity_states.map(row => row.name).join(" · ");
+    refs.continuityNote.hidden = !refs.continuityNote.textContent;
+    refs.continuityNote.title = (value.continuity_states || []).map(row => `${row.name} : ${row.start || row.description}`).join("\n");
+    refs.durationNote.textContent = value.duration_warning || ""; refs.durationNote.hidden = !value.duration_warning;
     refs.title.textContent = `${value.index + 1} \u00b7 ${value.title}`;
     refs.meta.textContent = `${renderDuration(value)} s \u00b7 ${value.inherit_video_settings ? "r\u00e9glages communs" : "personnalis\u00e9s"}`;
     const preparation = value.preparations.at(-1);
@@ -603,11 +661,12 @@
       ? "Cette image provient d’une ancienne direction de style. Elle reste retenue jusqu’à ton prochain choix."
       : r.image_style_status === "current" ? "Image préparée avec le style commun actuel."
       : "Style de cette image non documenté : vérifie sa cohérence avec l’épisode.");
+    if (r.continuity_image_stale) el("image-style-note").textContent = "L’état décrit a changé. Choisis une nouvelle image, ou confirme l’image existante si elle correspond encore. Vérifie aussi le prompt de la fiche.";
     el("asset-status").textContent = r.job?.error || (jobRunning(r) ? r.job.phase : imageRunning() ? "Image en cours de génération…" : "");
     el("image-calls").hidden = !r.krea_project_id; el("image-open").hidden = !r.krea_project_id;
     const items = [...r.images.map(i => ({...i, status: "succeeded", output_asset_id: i.asset_id})), ...(state.imageProject?.attempts || [])];
     el("image-attempts").replaceChildren(...items.slice().reverse().map(a => {
-      const selected = a.output_asset_id === r.image_asset_id;
+      const selected = a.output_asset_id === r.image_asset_id && !r.continuity_image_stale;
       const card = node("article", "", `episode-image-card${selected ? " selected" : ""}`);
       if (a.output_asset_id) {
         const link = node("a"), img = node("img"); link.href = assetUrl(a.output_asset_id); link.target = "_blank"; link.rel = "noopener";
@@ -631,17 +690,29 @@
     }));
   }
   function drawBindings() {
-    const used = new Set(state.bindings.map(b => b.reference_id));
-    el("add-reference").replaceChildren(...state.data.references.filter(r => !used.has(r.id)).map(r => new Option(r.name, r.id)));
-    el("reference-limit").textContent = `${state.bindings.length} / 9 images`;
-    el("scene-references").replaceChildren(...state.bindings.map((binding, index) => {
+    // Keep the editable identity bindings separate from the derived timeline.
+    // Merely opening/saving a scene must not pin its current visual variant.
+    const resolved = !state.dirtyScene ? (scene()?.resolved_references || state.bindings) : state.bindings;
+    const used = new Set([...state.bindings, ...resolved].map(b => b.reference_id));
+    el("add-reference").replaceChildren(...activeReferences().filter(r => !used.has(r.id)).map(r => new Option(r.name, r.id)));
+    el("reference-limit").textContent = `${resolved.length} / 9 images${state.dirtyScene ? " · Enregistre pour recalculer la continuité" : ""}`;
+    el("scene-references").replaceChildren(...resolved.map((binding, index) => {
       const r = state.data.references.find(r => r.id === binding.reference_id), card = node("article", "", "episode-reference-card");
+      const original = state.bindings[index];
+      const automatic = !original || original.reference_id !== binding.reference_id;
       if (r.image_asset_id) { const img = node("img"); img.src = assetUrl(r.image_asset_id); img.alt = r.name; card.append(img); }
       else card.append(node("p", "Image à préparer", "muted"));
       card.append(node("strong", `<Picture ${index + 1}> · ${r.name}`));
+      if (automatic) {
+        card.append(node("p", "Référence choisie par la continuité de cette scène.", "muted"), button("Ajuster dans Continuité", () => {
+          const details = el("continuity").querySelector("details"); if (details) details.open = true;
+          el("continuity").scrollIntoView({behavior: "smooth", block: "start"});
+        }));
+        return card;
+      }
       const select = node("select"); select.setAttribute("aria-label", `Rôle de ${r.name}`);
       select.append(...Object.entries(roles).map(([key, label]) => new Option(label, key))); select.value = binding.role;
-      select.addEventListener("change", () => { binding.role = select.value; state.dirtyScene = true; controls(); }); card.append(select);
+      select.addEventListener("change", () => { original.role = select.value; state.dirtyScene = true; controls(); }); card.append(select);
       const actions = node("div", "", "story-actions");
       const move = offset => { const target = index + offset; if (target < 0 || target >= state.bindings.length) return;
         [state.bindings[index], state.bindings[target]] = [state.bindings[target], state.bindings[index]]; state.dirtyScene = true; drawBindings(); };
@@ -674,6 +745,7 @@
     controls();
   }
   function accept(data) {
+    if (state.data?.episode_id === data.episode_id && (state.data.continuity_revision || 1) > (data.continuity_revision || 1)) return;
     // A poll may have started just before a settings save completed. Keep the
     // newer local snapshot until the next response includes its revision.
     if (state.data?.episode_id === data.episode_id && state.data.visual_revision > (data.visual_revision || 1))
@@ -688,6 +760,8 @@
       }
     }
     state.data = data;
+    if (!activeReferences().some(r => r.id === state.refId)) { state.refId = activeReferences()[0]?.id || ""; state.dirtyRef = false; }
+    state.batchSelection = new Set([...state.batchSelection].filter(id => activeReferences().some(r => r.id === id)));
     for (const s of data.scenes) { const key = `${data.episode_id}:${s.id}`;
       state.renderRevision.set(key, Math.max(s.render_revision, state.renderRevision.get(key) || 0)); }
     drawLists(); drawVisual(); drawReference(); drawScene(); hydrateBatchProfiles(); drawBatch(); drawVideoOverview(); controls();
@@ -900,7 +974,7 @@
     state.dlssPanels.clear();
     state.videoCards.clear(); el("video-cards").replaceChildren();
     state.batchProfileKey = ""; state.batchThermalKey = "";
-    state.batchSelection = new Set(data.references.filter(reference => !reference.image_asset_id).map(reference => reference.id));
+    state.batchSelection = new Set(data.references.filter(reference => !reference.continuity_archived && !reference.continuity_state_id && !reference.image_asset_id).map(reference => reference.id));
     el("style-preset").value = "";
     state.refId = data.references.some(r => r.id === saved?.ref) ? saved.ref : data.references[0].id;
     state.sceneId = data.scenes.some(s => s.id === saved?.scene) ? saved.scene : data.scenes[0].id;
@@ -984,7 +1058,7 @@
     await saveReference(); const r = ref(), body = new FormData(); body.append("image", file); body.append("expected_revision", r.revision);
     accept(await core.request(api(`/references/${r.id}/image`), {method: "POST", body})); el("image-import").value = ""; message("Image importée et retenue."); }));
   el("add").addEventListener("click", () => { const r = state.data.references.find(r => r.id === el("add-reference").value); if (!r || state.bindings.length >= 9) return;
-    state.bindings.push({reference_id: r.id, role: r.kind === "character" ? "subject_reference" : "environment_reference"}); state.dirtyScene = true; drawBindings(); });
+    state.bindings.push({reference_id: r.id, role: r.kind === "location" ? "environment_reference" : "subject_reference"}); state.dirtyScene = true; drawBindings(); });
   async function prepareScene(resume) {
     await saveScene(); const s = scene();
     accept(await core.request(api(`/scenes/${s.id}/prompt`), send("POST", {expected_revision: s.revision, request_id: crypto.randomUUID(), resume})));

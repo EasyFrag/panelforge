@@ -5,14 +5,14 @@ from datetime import UTC, datetime
 
 def archive_job(project):
     job = project.get("job") or {}
-    if not job.get("draft") and not job.get("format_repair", {}).get("draft"):
+    if not job.get("draft") and not job.get("reasoning") and not job.get("format_repair", {}).get("draft"):
         return
     history = project.setdefault("draft_history", [])
     if any(item.get("request_id") == job.get("request_id") for item in history):
         return
     keys = ("request_id", "operation", "status", "call_id", "draft", "original_draft", "normalized_draft", "format_repair",
             "error", "source_error", "draft_diagnostics", "narrative_input_hash", "response_contract_version",
-            "started_at", "finished_at", "feedback_target", "model_role", "normalizations", "output_mode")
+            "started_at", "finished_at", "feedback_target", "model_role", "normalizations", "output_mode", "reasoning")
     history.append({key: deepcopy(job[key]) for key in keys if key in job})
 
 

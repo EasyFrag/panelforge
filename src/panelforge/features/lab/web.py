@@ -947,6 +947,7 @@ def create_app(
     krea2_lab: Krea2LabRunner | None = None,
     krea2_batch: Krea2BatchService | None = None,
     krea2_edit: Krea2EditService | None = None,
+    qwen_edit=None,
     krea2_assisted: Krea2AssistedService | None = None,
     dlss=None,
     social_lab: SocialLabService | None = None,
@@ -974,13 +975,19 @@ def create_app(
     async def lifespan(_app):
         if krea2_assisted is not None:
             krea2_assisted.start_render_worker()
+        if qwen_edit is not None:
+            qwen_edit.start_worker()
         try:
             yield
         finally:
+            if qwen_edit is not None:
+                await asyncio.to_thread(qwen_edit.stop_worker)
             if krea2_assisted is not None:
                 await asyncio.to_thread(krea2_assisted.stop_render_worker)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
+    from .qwen_edit_web import qwen_edit_router
+    app.include_router(qwen_edit_router(qwen_edit))
     from .prompt_recipes_web import prompt_recipes_router
     app.include_router(prompt_recipes_router(prompt_recipes, llm_traces, prompt_composition, h3_render, stories=stories))
     from .stories_web import stories_router

@@ -8,6 +8,7 @@
     krea2AssistedLab: $("#krea2-assisted-lab-workspace"),
     krea2BatchLab: $("#krea2-batch-lab-workspace"),
     krea2EditLab: $("#krea2-edit-lab-workspace"),
+    qwenEditLab: $("#qwen-edit-lab-workspace"),
     i2vDirect: $("#i2vd-workspace"),
     ref2vDirect: $("#ref2vd-workspace"),
     videoLab: $("#video-lab-workspace"),
@@ -27,6 +28,7 @@
     ["change-view", elements.changeView], ["krea2-image-lab", elements.krea2ImageLab],
     ["krea2-assisted-lab", elements.krea2AssistedLab], ["krea2-batch-lab", elements.krea2BatchLab],
     ["krea2-edit-lab", elements.krea2EditLab], ["i2v-direct", elements.i2vDirect],
+    ["qwen-edit-lab", elements.qwenEditLab],
     ["ref2v-direct", elements.ref2vDirect], ["video-lab", elements.videoLab],
     ["social-lab", elements.socialLab], ["media-analysis", elements.mediaAnalysis],
     ["stories", elements.stories],
@@ -48,6 +50,7 @@
       "krea2-assisted-lab",
       "krea2-batch-lab",
       "krea2-edit-lab",
+      "qwen-edit-lab",
     ].includes(view);
     workspaces.forEach((element, name) => {
       if (element) element.hidden = name !== view;
@@ -82,6 +85,9 @@
           ? "social-lab"
           : button.dataset.labView,
     ));
+  });
+  elements.imageLabModes.forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.imageLabMode));
   });
   elements.videoLabModes.forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.videoLabMode));

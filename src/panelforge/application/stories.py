@@ -14,7 +14,7 @@ from panelforge.domain.stories import (
     scenario_text, scene_intention, story_diagnostics, story_recipe_selection,
     story_recipe_spec, story_recipe_specs, validate_fruit_story_contract, validate_scenario,
 )
-from .prompt_lab import CompletionRequest, StreamEventKind, LlmCallApplicationOutcome, truncated_response_message
+from .prompt_lab import CompletionRequest, StreamEventKind, LlmCallApplicationOutcome
 from .revised_documents import strip_markdown_fence
 from panelforge.domain import long_stories as long_narrative
 from panelforge.domain.story_response_recovery import StoryJsonError, decode_response
@@ -24,6 +24,7 @@ from panelforge.domain.story_diagnostics import normalize_scene_state, project_q
 from . import story_attempts
 from .long_stories import request as long_story_request
 from .story_workflow import StoryWorkflow, new_workflow
+from .story_stream import story_truncation_message
 
 
 _MAX_LIVE_DRAFT_CHARS = 240_000
@@ -256,11 +257,13 @@ class StoryService:
                architect_model_id="", writer_model_id="", creation_mode="ideas",
                dialogue_register=0, dialogue_language=DEFAULT_DIALOGUE_LANGUAGE,
                narrative_format=DEFAULT_NARRATIVE_FORMAT, parent_story_id=None, long_options=None,
-               workflow_mode=None, visual_universe="", target_seconds=None):
+               workflow_mode=None, visual_universe="", target_seconds=None, prior_story=""):
         if not isinstance(title, str) or not title.strip() or len(title) > 160:
             raise ValueError("Donnez un nom à cette histoire (160 caractères maximum).")
         if not isinstance(brief, str):
             raise ValueError("Point de départ invalide.")
+        if not isinstance(prior_story, str) or len(prior_story) > 60000:
+            raise ValueError("L'épisode précédent doit tenir dans 60 000 caractères.")
         if type(clip_seconds) is not int or not 5 <= clip_seconds <= 15 or type(scene_count) is not int or not 1 <= scene_count <= 12:
             raise ValueError("Choisissez 1 à 12 micro-scènes de 5 à 15 secondes.")
         if creation_mode not in {"ideas", "script", "continuation", "adapt"}:
@@ -318,6 +321,13 @@ class StoryService:
                             episode_scenarios={}, episode_formats={})
         if creation_mode == "continuation":
             document.update(continuity=None, continuity_source=None)
+        if parent_story_id:
+            from panelforge.domain.story_continuity import carry_forward
+            parent = self.store.get(parent_story_id)
+            previous = parent.get("document", {}).get("scenario")
+            if previous:
+                document["prior_story_snapshot"] = deepcopy(previous)
+                document["visual_state_inherited"] = carry_forward(previous)
         value = dict(project_id=f"story-{uuid4().hex}", title=title.strip(), brief=brief.strip(),
             clip_seconds=clip_seconds, scene_count=scene_count, document=document,
             revisions=[], turns=[], job=None, model_id=writer_model_id.strip(), recipe=recipe,
@@ -325,6 +335,8 @@ class StoryService:
             creation_mode=creation_mode, dialogue_register=dialogue_register,
             dialogue_language=dialogue_language, narrative_format=narrative_format,
             parent_story_id=parent_story_id)
+        if prior_story.strip():
+            value["prior_story"] = prior_story.strip()
         if long_options is not None:
             value.update(narrative_engine=deepcopy(long_narrative.ENGINE), long_options=long_options)
             value.update(visual_universe=visual_universe.strip(), target_seconds=target_seconds,
@@ -361,7 +373,7 @@ class StoryService:
                         decoded, _ = decode_response(strip_markdown_fence(self._received_draft(job).strip()))
                         if not isinstance(decoded, dict):
                             raise ValueError("Un brouillon narratif doit être un objet JSON.")
-                        if job.get("response_contract_version") == story_contracts.VERSION:
+                        if story_contracts.structured(project):
                             decoded = story_contracts.canonical_response(project, decoded)
                         job["draft_preview"] = decoded.get("scenario")
                         job["draft_diagnostics"] += quality_issues(project, scenario=decoded.get("scenario"),
@@ -500,6 +512,33 @@ class StoryService:
             document["selected_episode_id"] = episode_id
             document["scenario"] = deepcopy(existing) if existing else None
             self._snapshot(project, f"Ouverture de {episode_id}")
+            return self.store.save(project)
+
+    def edit_continuity(self, project_id, expected_version, visual_continuity):
+        from panelforge.domain.story_continuity import normalize
+        with self._lock:
+            project = self._editable(project_id, expected_version)
+            doc = project["document"]
+            scenario = deepcopy(doc.get("scenario"))
+            if not scenario:
+                raise ValueError("Développe d'abord le scénario pour organiser sa continuité.")
+            target = doc.get("selected_episode_id")
+            reviewed = bool(long_narrative.is_v2(project) and long_narrative.review_current(project, target))
+            approvals = (project.get("workflow") or {}).get("approvals", {})
+            approved = bool(reviewed and approvals.get(target) == long_narrative.source_hash(project, target))
+            scenario["visual_continuity"] = normalize(visual_continuity, scenario)
+            scenario["visual_continuity"].pop("warnings", None)
+            doc["scenario"] = scenario
+            if target:
+                doc["episode_scenarios"][target] = deepcopy(scenario)
+            if reviewed:
+                # The author validates this visual ledger; the playable text is
+                # untouched. Keep its review without spending another model call.
+                doc["reviews"][target]["source_hash"] = long_narrative.source_hash(project, target)
+                doc["reviews"][target]["visual_continuity_edited_by_author"] = True
+                if approved:
+                    approvals[target] = long_narrative.source_hash(project, target)
+            self._snapshot(project, "Continuité visuelle ajustée par l'auteur")
             return self.store.save(project)
 
     def edit_scene(self, project_id, index, expected_version, changes):
@@ -1242,7 +1281,7 @@ class StoryService:
                 if len(raw) > _MAX_LIVE_DRAFT_CHARS:
                     raise ValueError("Réponse trop volumineuse. Le brouillon est conservé.")
                 if event.kind is StreamEventKind.TRUNCATED:
-                    raise ValueError(truncated_response_message(request.max_tokens))
+                    raise ValueError(story_truncation_message(request.max_tokens, draft=raw, reasoning=reasoning))
                 if event.kind is StreamEventKind.COMPLETED:
                     if event.result is None:
                         raise ValueError("Le modèle n’a pas fourni de réponse finale.")

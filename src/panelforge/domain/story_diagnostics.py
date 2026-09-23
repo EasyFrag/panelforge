@@ -59,6 +59,8 @@ def episode_issues(project, scenario, state):
     line["properties"].update(dialogue_id=string(120), delivery_note=string(240))
     canonical = obj(title=string(), logline=string(), characters=array(character_schema(project), 1, 12),
         locations=array(obj(id=string(120), name=string(120), description=string()), 1, 8), scenes=array(scene, 1, fmt["scene_count"]))
+    from .story_continuity import schema as continuity_schema
+    canonical["properties"]["visual_continuity"] = continuity_schema(fmt["scene_count"])
     memory = state_schema(project)
     # Historical empty-secret entries are handled by the existing lossless compatibility rule.
     if not outline["secrets"]:
@@ -142,6 +144,25 @@ def episode_issues(project, scenario, state):
 def quality_issues(project, *, scenario=None, state=None, target=None, outline=None):
     """Heuristics are explicit estimates; only a large timing excess blocks approval."""
     issues = []
+    if isinstance(scenario, dict):
+        visual = scenario.get("visual_continuity")
+        if isinstance(visual, dict) and isinstance(visual.get("warnings"), list):
+            for note in visual["warnings"]:
+                if isinstance(note, str):
+                    issues.append(issue("visual_continuity_incomplete", "scenario.visual_continuity", note, "warning"))
+    if isinstance(scenario, dict) and isinstance(scenario.get("scenes"), list) and isinstance(scenario.get("characters"), list):
+        # Warnings only: a character's name may describe an off-screen memory.
+        # Do not turn prose heuristics into an automatic cast rewrite or a loop.
+        from .story_continuity import missing_mentions
+        try:
+            for index in range(len(scenario["scenes"])):
+                for char in missing_mentions(scenario, index):
+                    issues.append(issue("visible_cast_check", f"scenario.scenes[{index}].character_ids",
+                        f"Clip {index + 1} : {char['name']} est cité dans la mise en scène mais absent du casting déclaré. "
+                        "Vérifier sa présence visible, y compris sans dialogue.", "warning",
+                        scene_index=index, target_id=f"scene-{index + 1}"))
+        except (KeyError, TypeError, AttributeError):
+            pass  # Structural diagnostics describe malformed drafts separately.
     if isinstance(scenario, dict) and isinstance(state, dict):
         fmt = project["document"].get("episode_formats", {}).get(target, {})
         seconds = fmt.get("clip_seconds", project["clip_seconds"])

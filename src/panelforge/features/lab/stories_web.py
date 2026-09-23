@@ -21,6 +21,7 @@ class StoryCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(default="Nouvelle histoire", min_length=1, max_length=160)
     brief: str = Field(default="", max_length=60000)
+    prior_story: str = Field(default="", max_length=60000)
     clip_seconds: int = Field(default=10, ge=5, le=15, strict=True)
     scene_count: int = Field(default=6, ge=1, le=12, strict=True)
     recipe_id: str = Field(default=RECIPE_ID, min_length=1, max_length=128)
@@ -63,6 +64,10 @@ class StoryRestore(BaseModel):
 class StoryVersion(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1, strict=True)
+
+
+class StoryContinuityEdit(StoryVersion):
+    visual_continuity: dict
 
 
 class StoryAdvance(StoryVersion):
@@ -203,6 +208,10 @@ def stories_router(service):
         expected_version = values.pop("expected_version")
         return invoke(lambda: current().select_series_episode(
             project_id, episode_id, expected_version, **values))
+
+    @router.put("/projects/{project_id}/continuity")
+    def edit_continuity(project_id: str, body: StoryContinuityEdit):
+        return invoke(lambda: current().edit_continuity(project_id, body.expected_version, body.visual_continuity))
 
     @router.patch("/projects/{project_id}/scenes/{index}")
     def edit_scene(project_id: str, index: int, body: StorySceneEdit):

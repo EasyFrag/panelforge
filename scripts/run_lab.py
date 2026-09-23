@@ -86,6 +86,11 @@ from panelforge.infrastructure.presets.dlss import DlssWorkflow
 from panelforge.infrastructure.presets.image_upscale import load_image_upscale_workflow
 from panelforge.infrastructure.presets.firered_edit import load_firered_edit_workflow
 from panelforge.infrastructure.edit_images import PillowEditImages
+from panelforge.application.qwen_edit import QwenEditService
+from panelforge.infrastructure.presets.qwen_edit import load_qwen_edit_workflow
+from panelforge.infrastructure.qwen_edit_images import PillowQwenEditImages
+from panelforge.infrastructure.qwen_project_exports import LocalQwenProjectExporter
+from panelforge.infrastructure.storage.qwen_edits import LocalQwenEditStore
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
 from panelforge.infrastructure.h3_lora_resources import H3LoraResourceCatalog
@@ -492,6 +497,16 @@ def build_app(args: argparse.Namespace):
         poll_interval=args.poll_interval,
         work_coordinator=machine_work,
     )
+    qwen_edit = QwenEditService(
+        gateway=gateway,
+        workflow=load_qwen_edit_workflow(PROJECT_ROOT / "workflows/image.edit/qwen-image-2.1/1.0.0"),
+        comfy=krea2_edit_comfy, assets=assets, projects=LocalQwenEditStore(args.workspace),
+        images=PillowQwenEditImages(),
+        exporter=LocalQwenProjectExporter(Path(getattr(args, "krea2_projects_root",
+            Path(r"D:\AI\PanelForge\KREA2 Projects"))).parent / "Qwen Projects"),
+        work_coordinator=machine_work, run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+    )
     prompt_lab = PromptLabService(
         gateway=gateway,
         profiles=LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles"),
@@ -652,7 +667,7 @@ def build_app(args: argparse.Namespace):
     )
     episodes = EpisodeService(stories=stories, store=LocalEpisodeStore(args.workspace),
         krea=krea2_assisted, prompt_lab=prompt_lab, composition=prompt_composition,
-        render=h3_render, assets=assets, dlss=dlss, work_coordinator=machine_work)
+        render=h3_render, assets=assets, dlss=dlss, work_coordinator=machine_work, qwen_edit=qwen_edit)
     return create_app(
         runner,
         prompt_recipes=prompt_recipes,
@@ -667,6 +682,7 @@ def build_app(args: argparse.Namespace):
         krea2_lab=krea2_lab,
         krea2_batch=krea2_batch,
         krea2_edit=krea2_edit,
+        qwen_edit=qwen_edit,
         krea2_assisted=krea2_assisted,
         social_lab=social_lab,
         media_analysis=media_analysis,

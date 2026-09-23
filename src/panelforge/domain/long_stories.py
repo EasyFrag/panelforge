@@ -425,14 +425,22 @@ def parse(project, value):
     operation, target = project["job"]["operation"], scope(project)
     if not isinstance(value, dict):
         raise ValueError("Objet JSON narratif attendu.")
-    value = normalize_episode_response(value)
+    value = normalize_episode_response(deepcopy(value))
+    continuity_warning = None
     if project["job"].get("response_contract_version") == contracts.VERSION:
+        from .story_continuity import isolate_optional_ledger
+        continuity_warning = isolate_optional_ledger(project, value)
+    if contracts.structured(project):
         schema = contracts.response_schema(project)
         if schema is not None:
             problems = contracts.structural_issues(value, schema)
             if problems:
                 raise contracts.StoryValidationError(problems)
         value = contracts.canonical_response(project, value)
+        if continuity_warning and "scenario" in value:
+            from .story_continuity import empty
+            visual = value["scenario"].setdefault("visual_continuity", empty())
+            visual["warnings"] = (visual.get("warnings", []) + [continuity_warning])[-4:]
     reply = text(value.get("reply"), "réponse", 12000)
     if operation == "discuss":
         fields(value, "reply discussion_only", "Discussion")
@@ -489,8 +497,8 @@ def parse(project, value):
         previous = project["document"]["episode_scenarios"][target]
         previous_memory = normalize_scene_state(project, previous,
             project["document"]["episode_states"][target])[0]["scene_events"]
-        metadata_changed = {key: value for key, value in scenario.items() if key != "scenes"} != {
-            key: value for key, value in previous.items() if key != "scenes"}
+        metadata_changed = {key: value for key, value in scenario.items() if key not in {"scenes", "visual_continuity"}} != {
+            key: value for key, value in previous.items() if key not in {"scenes", "visual_continuity"}}
         if metadata_changed or len(scenario["scenes"]) != len(previous["scenes"]) or any(
                 scene != previous["scenes"][index] or state["scene_events"][index] != previous_memory[index]
                 for index, scene in enumerate(scenario["scenes"]) if index != scene_index):
@@ -511,7 +519,10 @@ def normalize_episode_response(value):
 
 
 def input_hash(project):
-    return fingerprint([project["document"], project["brief"], project["long_options"]])
+    parts = [project["document"], project["brief"], project["long_options"]]
+    if project.get("prior_story"):
+        parts.append(project["prior_story"])
+    return fingerprint(parts)
 
 
 def apply_document(project, incoming):

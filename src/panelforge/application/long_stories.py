@@ -5,6 +5,7 @@ import json
 from panelforge.domain import long_stories as narrative
 from panelforge.domain import story_contracts as contracts
 from panelforge.domain.story_diagnostics import project_quality
+from panelforge.domain import story_continuity as continuity
 from panelforge.domain.stories import response_contract, story_recipe_spec
 from .prompt_lab import CompletionRequest
 
@@ -14,7 +15,7 @@ def request(project, package, language_policy, register_policy=""):
     target = narrative.scope(project)
     review = operation.startswith("review_")
     stage = "review" if review or operation == "edit_outline" else "ideas" if target == "ideas" else "outline" if target == "outline" else "write"
-    structured = project["job"].get("response_contract_version") == contracts.VERSION
+    structured = contracts.structured(project)
     family = story_recipe_spec(project["recipe"]["id"], project["recipe"]["version"])
     context = {"operation": operation, "brief": project["brief"], "creation_mode": project["creation_mode"],
         "long_options": project["long_options"], "visual_family": family,
@@ -28,6 +29,10 @@ def request(project, package, language_policy, register_policy=""):
         "visual_universe": project.get("visual_universe", ""),
         "target_seconds_total": project.get("target_seconds"),
         "selected_concept": next((c for c in doc["concepts"] if c["id"] == doc["selected_id"]), None)}
+    if project.get("prior_story"):
+        context["previous_story_read_only"] = project["prior_story"]
+    if doc.get("prior_story_snapshot"):
+        context["previous_episode_read_only"] = doc["prior_story_snapshot"]
     outline = doc.get("series_outline")
     if target == "ideas":
         context["response_contract"] = response_contract("ideas", False, project["recipe"]["id"],
@@ -63,6 +68,11 @@ def request(project, package, language_policy, register_policy=""):
              "reviewed": narrative.review_clear(project, identity),
              "ending_state": doc["episode_scenarios"][identity]["scenes"][-1]["ending_state"]}
             for identity in narrative.previous_ids(project, target)]
+        prior = narrative.previous_ids(project, target)
+        if prior:
+            context["visual_state_inherited"] = continuity.carry_forward(doc["episode_scenarios"][prior[-1]])
+        elif doc.get("visual_state_inherited"):
+            context["visual_state_inherited"] = deepcopy(doc["visual_state_inherited"])
         past = set(narrative.previous_ids(project, target)) | {target}
         context["future_reservations"] = [{"id": u["id"], "promise": u["promise"], "ending_type": u["ending_type"],
                                           "events": u["events"]} for u in outline["episodes"] if u["id"] not in past]
@@ -87,6 +97,25 @@ def request(project, package, language_policy, register_policy=""):
     if outline and target != "ideas":
         context["local_diagnostics"] = ({identity: project_quality(project, identity) for identity in project["job"].get("review_unit_ids", [])}
             if target == "block" else project_quality(project, target))
+    reader_mode = review and target not in {"outline", "ideas"} and project["job"].get("response_contract_version") == contracts.VERSION
+    if reader_mode:
+        identities = project["job"].get("review_unit_ids", []) if target == "block" else [target]
+        # Unlike a prompt asking the reader to "forget" the bible, this projection
+        # actually withholds the secrets, metadata evidence and declared outcomes.
+        context = {k: v for k, v in context.items() if k in {
+            "operation", "dialogue_language", "dialogue_register", "clip_budget", "local_diagnostics"}}
+        def readable_diagnostics(items):
+            return [item for item in items if not item.get("path", "").startswith("scenario.visual_continuity")]
+        diagnostics = context.get("local_diagnostics", [])
+        context["local_diagnostics"] = ({identity: readable_diagnostics(items) for identity, items in diagnostics.items()}
+            if isinstance(diagnostics, dict) else readable_diagnostics(diagnostics))
+        context["reader_units"] = [dict(unit_id=identity, **continuity.reader_view(doc["episode_scenarios"][identity]),
+            allowed_review_targets=sorted(narrative.review_targets(project, identity))) for identity in identities]
+        previous = narrative.previous_ids(project, identities[0]) if identities else []
+        context["reader_history"] = [dict(unit_id=identity, **continuity.reader_view(doc["episode_scenarios"][identity]))
+            for identity in previous if identity in doc["episode_scenarios"]]
+        if doc.get("prior_story_snapshot"):
+            context["reader_history"].insert(0, dict(unit_id="previous-story", **continuity.reader_view(doc["prior_story_snapshot"])))
     if review:
         context["response_contract"] = narrative.review_example()
         context["review_target"] = target
@@ -103,6 +132,16 @@ def request(project, package, language_policy, register_policy=""):
     profile_prompt = package["profiles"].get(profile) or ("Choisis le profil adapté parmi : " + json.dumps(package["profiles"], ensure_ascii=False))
     system = "\n\n".join([package["prompts"]["common"], profile_prompt,
                               package["prompts"][stage], language_policy, register_policy])
+    if reader_mode:
+        system += ("\nRELECTURE SPECTATEUR : reader_units contient uniquement les situations jouables, gestes et paroles. "
+            "La bible, les secrets et les conclusions du scénariste sont volontairement absents. "
+            "reader_history contient les épisodes déjà vus : ne redemande pas une présentation déjà claire dans ce passé. "
+            "Dans summary, explique brièvement qui est lié à qui, le changement réellement compris et ce qui reste ambigu, "
+            "avec la parole ou le geste qui t'a permis de le comprendre. Ne complète pas les maillons manquants par une supposition. "
+            "Priorité : relations indispensables, désir, occasion, acte ou ellipse lisible, conséquence. "
+            "Un clin d'œil ne prouve pas à lui seul une liaison ; une proximité ne nomme pas forcément un couple. "
+            "Signale les participants visibles non déclarés et les changements physiques sans raccord. "
+            "Une information volontairement cachée n'est pas un défaut. Les préférences de style sont des warnings, jamais une invitation à complexifier.")
     system += ("\nFORMAT : uniquement du JSON, jamais d’expression de code ou de méthode comme .replace(). "
                "Écris directement les chaînes finales. Respecte les IDs autorisés et laisse les listes facultatives vides lorsqu’elles ne s’appliquent pas.")
     if "outline_entry_contracts" in context:
@@ -143,18 +182,18 @@ def request(project, package, language_policy, register_policy=""):
     elif operation == "discuss":
         context["response_contract"] = {"reply": "Réponse à la question, sans réécrire le document", "discussion_only": True}
         system += "\nQUESTION DE L'AUTEUR : réponds uniquement avec reply et discussion_only:true. Ne modifie aucun document."
-    if context["feedback_target"]:
+    if context.get("feedback_target"):
         system += ("\nLe retour courant ne s'applique qu'à feedback_target. Préserve le reste ; explique les conséquences utiles. "
                    "Si une demande locale exige de changer l'architecture, réponds en discussion_only plutôt que de changer silencieusement les événements réservés.")
-    if context["visual_universe"]:
+    if context.get("visual_universe"):
         system += "\nUnivers explicitement choisi par l'auteur : " + context["visual_universe"] + ". Cet univers prévaut sur celui de la famille par défaut."
     if family.get("dialogue_policy") == "forbidden":
         system += "\nFamille muette : dialogue reste vide dans chaque scène."
-    if project["recipe"]["id"] == "story.brainrot" and not context["visual_universe"]:
+    if project["recipe"]["id"] == "story.brainrot" and not context.get("visual_universe"):
         system += "\nPar défaut : fruits anthropomorphes, noms fruités inventés en un mot, espèce visuelle explicite. Préserve les noms et identités explicitement imposés par le brief. Aucun quota de répliques."
     schema = contracts.response_schema(project) if structured else None
     if structured:
-        context["contract_version"] = contracts.VERSION
+        context["contract_version"] = project["job"]["response_contract_version"]
         context["response_contract"] = contracts.wire_example(project, context["response_contract"])
         context["response_schema"] = schema
         if target not in {"outline", "block", "ideas"} and not review and operation != "discuss":
@@ -164,6 +203,21 @@ def request(project, package, language_policy, register_policy=""):
                 "doit viser une scène antérieure par anchor_scene_index (index à partir de zéro). "
                 "Ne recopie ni characters dans scenario ni scene_events dans episode_state : l’application les assemble. "
                 "Suis speech_budget ; une phrase naturelle courte et une réaction valent mieux que trois longues répliques.")
+            if project["job"].get("response_contract_version") == contracts.VERSION:
+                system += ("\nCONTINUITÉ VISUELLE 1 : fournis visual_continuity dans scenario (ou à la racine avec scene_edits). "
+                    "dramatic_summary résume en une phrase le drame compris par le public et la croyance éventuelle du héros. "
+                    "elements ne contient que les personnages qui changent d'apparence/tenue et les objets importants à reconnaître ou transmettre. "
+                    "Ne fiche pas tous les accessoires. Pour un personnage, id est son ID canonique ; chaque objet distinct a son propre ID stable. "
+                    "description décrit l'identité visuelle stable, reason explique l'utilité du suivi. scene_indices liste les scènes où il est visible, "
+                    "même muet ; déclare aussi tous les participants visibles dans character_ids. "
+                    "states décrit les changements datés : scene_index commence à zéro, at=start pour un état déjà acquis à l'ouverture, "
+                    "at=end pour un état acquis pendant cette scène. appearance suit le physique ou l'état de l'objet, clothing suit la tenue, "
+                    "holder_id suit la possession (ID personnage ou none pour aucun). null signifie conserver la valeur précédente, jamais revenir à zéro. "
+                    "tracking=text suffit normalement ; tracking=reference justifie une image, et state.reference=true une variante majeure persistante. "
+                    "Sans nouvelle variante, la dernière ancre visuelle reste utilisée avec les états textuels actualisés ; demande une nouvelle variante pour un changement majeur, y compris un retour à l'apparence initiale. "
+                    "Une seule identité avec plusieurs états, jamais plusieurs Citron concurrents. Une pièce cassée échangée contre une invention reste un autre objet. "
+                    "Réutilise visual_state_inherited pour la suite sans rejouer les acquisitions ; ses anciens scene_indices ne concernent pas la nouvelle unité. "
+                    "Ne décris pas une émotion par une transformation involontaire : abattu=attitude découragée, pas corps au sol ; humilié, pas rétréci.")
         if "scene_edits" in context["response_contract"]:
             system += ("\nCORRECTION LOCALE : renvoie uniquement les scènes changées dans scene_edits, avec leur scene_index et leur scène complète. "
                 "Les autres scènes et décors sont conservés automatiquement. episode_state actualise seulement les faits et connaissances effectivement joués. "
@@ -173,7 +227,7 @@ def request(project, package, language_policy, register_policy=""):
         user_prompt=json.dumps(context, ensure_ascii=False), max_tokens=80_000,
         temperature=.3 if review or operation == "edit_outline" else .75 if stage == "ideas" else .6, include_reasoning=True,
         output_schema=schema,
-        operation_id=f"story.long.{operation}@{contracts.VERSION if structured else '2.0.0'}",
+        operation_id=f"story.long.{operation}@{project['job']['response_contract_version'] if structured else '2.0.0'}",
         trace_context=dict(project_id=project["project_id"], stage=f"story_long_{operation}",
             cookbook_id="story.long", cookbook_version="2.0.0", recipe_revision=package["revision"],
             turn_id=project["job"]["request_id"]))

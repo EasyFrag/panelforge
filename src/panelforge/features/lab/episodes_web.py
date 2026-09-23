@@ -36,6 +36,14 @@ class ReferenceBody(RevisionBody):
     inherit_image_settings: bool | None = Field(default=None, strict=True)
 
 
+class ContinuityBody(RevisionBody):
+    visual_continuity: dict
+
+
+class VariantSelectionBody(RevisionBody):
+    asset_id: str = Field(min_length=1, max_length=120)
+
+
 class BindingBody(StrictBody):
     reference_id: str = Field(min_length=1, max_length=80)
     role: str = Field(min_length=1, max_length=80)
@@ -241,6 +249,22 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
             raise HTTPException(422, str(error)) from error
         finally:
             await image.close()
+
+    @router.put("/{identity}/continuity")
+    def continuity(identity: str, body: ContinuityBody):
+        return invoke(lambda: current().update_continuity(identity, body.expected_revision, body.visual_continuity))
+
+    @router.post("/{identity}/references/{ref_id}/variant")
+    def create_variant(identity: str, ref_id: str, body: RevisionBody):
+        return invoke(lambda: current().create_continuity_variant(identity, ref_id, body.expected_revision))
+
+    @router.get("/{identity}/references/{ref_id}/variant-results")
+    def variant_results(identity: str, ref_id: str):
+        return invoke(lambda: current().continuity_variant_results(identity, ref_id))
+
+    @router.post("/{identity}/references/{ref_id}/variant-select")
+    def variant_select(identity: str, ref_id: str, body: VariantSelectionBody):
+        return invoke(lambda: current().select_continuity_variant(identity, ref_id, body.expected_revision, body.asset_id))
 
     @router.put("/{identity}/references/{ref_id}")
     def update_reference(identity: str, ref_id: str, body: ReferenceBody):

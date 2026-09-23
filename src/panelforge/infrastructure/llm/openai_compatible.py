@@ -172,85 +172,91 @@ class OpenAICompatibleGateway:
         reasoning_filter = (
             _ReasoningTraceFilter() if request.include_reasoning else None
         )
-        for chunk in stream:
-            chunk_model = getattr(chunk, "model", None)
-            if isinstance(chunk_model, str) and chunk_model:
-                model_id = chunk_model
-            usage = getattr(chunk, "usage", None)
-            if usage is not None:
-                prompt_tokens = getattr(usage, "prompt_tokens", prompt_tokens)
-                completion_tokens = getattr(
-                    usage,
-                    "completion_tokens",
-                    completion_tokens,
-                )
-            choices = getattr(chunk, "choices", None) or ()
-            if not choices:
-                continue
-            choice = choices[0]
-            chunk_finish_reason = _finish_reason(
-                getattr(choice, "finish_reason", None)
-            )
-            if chunk_finish_reason is not None:
-                finish_reason = chunk_finish_reason
-            delta = getattr(choice, "delta", None)
-            if delta is None:
-                continue
-            reasoning = _reasoning_text(delta)
-            if reasoning and not generating:
-                loading_buffer = (loading_buffer + reasoning)[-4096:]
-                model_name = _llama_swap_model_name(loading_buffer)
-                if model_name is not None and not loading_announced:
-                    loading_announced = True
-                    yield CompletionStreamEvent(
-                        kind=StreamEventKind.STATUS,
-                        phase=StreamPhase.LOADING,
-                        text=f"Chargement du modèle {model_name}…",
+        try:
+            for chunk in stream:
+                chunk_model = getattr(chunk, "model", None)
+                if isinstance(chunk_model, str) and chunk_model:
+                    model_id = chunk_model
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    prompt_tokens = getattr(usage, "prompt_tokens", prompt_tokens)
+                    completion_tokens = getattr(
+                        usage,
+                        "completion_tokens",
+                        completion_tokens,
                     )
-                if loading_announced:
-                    new_queue_position = _llama_swap_queue_position(loading_buffer)
-                    if (
-                        new_queue_position is not None
-                        and new_queue_position != queue_position
-                    ):
-                        queue_position = new_queue_position
+                choices = getattr(chunk, "choices", None) or ()
+                if not choices:
+                    continue
+                choice = choices[0]
+                chunk_finish_reason = _finish_reason(
+                    getattr(choice, "finish_reason", None)
+                )
+                if chunk_finish_reason is not None:
+                    finish_reason = chunk_finish_reason
+                delta = getattr(choice, "delta", None)
+                if delta is None:
+                    continue
+                reasoning = _reasoning_text(delta)
+                if reasoning and not generating:
+                    loading_buffer = (loading_buffer + reasoning)[-4096:]
+                    model_name = _llama_swap_model_name(loading_buffer)
+                    if model_name is not None and not loading_announced:
+                        loading_announced = True
                         yield CompletionStreamEvent(
                             kind=StreamEventKind.STATUS,
-                            phase=StreamPhase.QUEUED,
-                            text=f"Position dans la file : {queue_position}",
+                            phase=StreamPhase.LOADING,
+                            text=f"Chargement du modèle {model_name}…",
                         )
-            if reasoning and reasoning_filter is not None:
-                visible_reasoning = reasoning_filter.feed(reasoning)
-                if visible_reasoning:
-                    yield CompletionStreamEvent(
-                        kind=StreamEventKind.REASONING,
-                        phase=StreamPhase.GENERATING,
-                        text=visible_reasoning,
-                    )
-            text = getattr(delta, "content", None)
-            if isinstance(text, str) and text:
-                if not generating:
-                    if reasoning_filter is not None:
-                        visible_reasoning = reasoning_filter.finish()
-                        if visible_reasoning:
+                    if loading_announced:
+                        new_queue_position = _llama_swap_queue_position(loading_buffer)
+                        if (
+                            new_queue_position is not None
+                            and new_queue_position != queue_position
+                        ):
+                            queue_position = new_queue_position
                             yield CompletionStreamEvent(
-                                kind=StreamEventKind.REASONING,
-                                phase=StreamPhase.GENERATING,
-                                text=visible_reasoning,
+                                kind=StreamEventKind.STATUS,
+                                phase=StreamPhase.QUEUED,
+                                text=f"Position dans la file : {queue_position}",
                             )
-                    generating = True
+                if reasoning and reasoning_filter is not None:
+                    visible_reasoning = reasoning_filter.feed(reasoning)
+                    if visible_reasoning:
+                        yield CompletionStreamEvent(
+                            kind=StreamEventKind.REASONING,
+                            phase=StreamPhase.GENERATING,
+                            text=visible_reasoning,
+                        )
+                text = getattr(delta, "content", None)
+                if isinstance(text, str) and text:
+                    if not generating:
+                        if reasoning_filter is not None:
+                            visible_reasoning = reasoning_filter.finish()
+                            if visible_reasoning:
+                                yield CompletionStreamEvent(
+                                    kind=StreamEventKind.REASONING,
+                                    phase=StreamPhase.GENERATING,
+                                    text=visible_reasoning,
+                                )
+                        generating = True
+                        yield CompletionStreamEvent(
+                            kind=StreamEventKind.STATUS,
+                            phase=StreamPhase.GENERATING,
+                            text="Génération…",
+                        )
+                    content_parts.append(text)
                     yield CompletionStreamEvent(
-                        kind=StreamEventKind.STATUS,
+                        kind=StreamEventKind.DELTA,
                         phase=StreamPhase.GENERATING,
-                        text="Génération…",
+                        text=text,
                     )
-                content_parts.append(text)
-                yield CompletionStreamEvent(
-                    kind=StreamEventKind.DELTA,
-                    phase=StreamPhase.GENERATING,
-                    text=text,
-                )
 
+        finally:
+            # Closing the consumer must also close the provider HTTP response.
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
         if reasoning_filter is not None:
             visible_reasoning = reasoning_filter.finish()
             if visible_reasoning:

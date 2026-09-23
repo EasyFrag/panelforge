@@ -451,15 +451,34 @@
     state.parentStoryId = null;
     state.loading = false; storage.set("project", ""); el("projects").value = "";
     el("title").value = ""; el("brief").value = ""; el("creation-mode").value = "ideas";
+    el("prior-story").value = "";
     el("format-short").checked = true; el("format-long").checked = false;
     el("dialogue-register").value = "0"; el("dialogue-language").value = "French";
     for (const role of roles) preferredModel(role);
     refreshStartMode(); paint(); el("brief").focus();
   }
+  function paintVisualContinuity(project) {
+    const host = el("visual-continuity"), scenario = project?.document?.scenario;
+    host.hidden = !scenario || project.narrative_format !== "long";
+    if (host.hidden) { host.replaceChildren(); delete host._continuityKey; return; }
+    const id = project.project_id;
+    window.PanelForgeContinuity.render(host, {identity: id, revision: project.version,
+      data: scenario.visual_continuity, characters: scenario.characters, scenes: scenario.scenes,
+      disabled: blocked(), onSave: async (visual_continuity, expected_version) => {
+        if (state.project?.project_id !== id) throw new Error("Cette histoire n’est plus ouverte.");
+        if (blocked()) throw new Error("Attends la fin de l’écriture avant de modifier la continuité.");
+        state.saving = true; controls();
+        try {
+          const result = await request(path(id, "/continuity"), send("PUT", {expected_version, visual_continuity}));
+          if (state.project?.project_id === id) { state.project = result; state.paintKey = ""; }
+        } finally { state.saving = false; paint(); }
+      }});
+  }
   function paint() {
     const project = state.project, doc = project?.document;
     paintWorkflow();
     const longProject = project?.narrative_format === "long";
+    paintVisualContinuity(project);
     window.dispatchEvent(new CustomEvent("panelforge:story", {detail: project}));
     el("create-form").hidden = !!project; el("conversation-panel").hidden = !project;
     el("empty").hidden = !!(doc?.concepts.length || doc?.series_outline || doc?.scenario); el("versions-panel").hidden = !project?.revisions.length;
@@ -481,8 +500,9 @@
       const episodes = doc.series_outline?.episodes || [];
       const currentEpisode = episodes.findIndex(item => item.id === doc.selected_episode_id);
       const hasNextEpisode = currentEpisode >= 0 && currentEpisode < episodes.length - 1;
-      el("next-episode").hidden = !hasNextEpisode;
-      el("next-episode").textContent = unitLabel() === "Séquence" ? "Développer la séquence suivante" : "Développer l’épisode suivant";
+      el("next-episode").hidden = false;
+      el("next-episode").textContent = hasNextEpisode
+        ? (unitLabel() === "Séquence" ? "Développer la séquence suivante" : "Développer l’épisode suivant") : "Créer une suite";
     } else {
       el("next-episode").hidden = false;
       el("next-episode").textContent = "Créer l’épisode suivant";
@@ -763,12 +783,13 @@
       const episodes = source.document.series_outline.episodes;
       const current = episodes.findIndex(item => item.id === source.document.selected_episode_id);
       const next = episodes[current + 1];
-      if (!next) return;
-      const format = source.document.episode_formats?.[next.id]
-        || {scene_count: source.scene_count, clip_seconds: source.clip_seconds};
-      openSeriesEpisode(next.id, format.scene_count, format.clip_seconds,
-        !source.document.episode_scenarios?.[next.id]);
-      return;
+      if (next) {
+        const format = source.document.episode_formats?.[next.id]
+          || {scene_count: source.scene_count, clip_seconds: source.clip_seconds};
+        openSeriesEpisode(next.id, format.scene_count, format.clip_seconds,
+          !source.document.episode_scenarios?.[next.id]);
+        return;
+      }
     }
     const values = {recipe: recipeKey(source.recipe), title: `${source.title} · suite`, brief: continuationSource(source),
       scenes: source.scene_count, duration: source.clip_seconds,
@@ -778,6 +799,16 @@
     state.parentStoryId = source.project_id;
     el("recipe").value = values.recipe; el("creation-mode").value = "continuation";
     el("title").value = values.title; el("brief").value = values.brief;
+    if (source.narrative_format === "long") {
+      el("format-long").checked = true; el("format-short").checked = false;
+      el("creation-mode").value = "ideas"; el("prior-story").value = values.brief; el("brief").value = "";
+      el("long-profile").value = source.long_options.profile;
+      el("long-narration").value = source.long_options.narration;
+      el("long-delivery").value = "continuous";
+      el("target-seconds").value = source.scene_count * source.clip_seconds;
+      el("universe").value = source.visual_universe || "";
+      el("workflow-mode").value = source.workflow?.mode || "manual";
+    }
     el("scene-count").value = values.scenes; el("duration").value = values.duration;
     el("dialogue-register").value = values.register;
     el("dialogue-language").value = values.language;
@@ -906,6 +937,7 @@
         creation_mode: mode, dialogue_register: mode === "script" || dialogueForbidden() ? 0 : dialogueRegister(),
         dialogue_language: dialogueLanguage(), narrative_format: narrativeFormat(), parent_story_id: state.parentStoryId,
         long_options: narrativeFormat() === "long" ? longOptions() : null,
+        prior_story: narrativeFormat() === "long" ? el("prior-story").value.trim() : "",
         workflow_mode: narrativeFormat() === "long" ? el("workflow-mode").value : null,
         visual_universe: narrativeFormat() === "long" ? el("universe").value.trim() : "",
         target_seconds: narrativeFormat() === "long" ? Number(el("target-seconds").value) : null}));

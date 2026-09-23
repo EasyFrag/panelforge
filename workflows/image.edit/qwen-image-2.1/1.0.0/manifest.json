@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "operation_id": "image.edit",
+  "recipe_id": "qwen.image_edit",
+  "version": "1.0.0",
+  "engine": "qwen",
+  "display_name": "Qwen Image 2.1",
+  "workflow_file": "workflow.json",
+  "workflow_sha256": "8e907d83e6d102ec8243a3cfa41247155bf23e45a963816a36b69b43f5fb9bee",
+  "inputs": {
+    "prompt": {
+      "node_id": "64",
+      "input": "prompt"
+    },
+    "negative_prompt": {
+      "node_id": "64",
+      "input": "negative_prompt"
+    },
+    "resolution": {
+      "node_id": "64",
+      "input": "resolution"
+    },
+    "seed": {
+      "node_id": "3",
+      "input": "seed"
+    },
+    "steps": {
+      "node_id": "3",
+      "input": "steps"
+    },
+    "cfg": {
+      "node_id": "3",
+      "input": "cfg"
+    },
+    "output_prefix": {
+      "node_id": "56",
+      "input": "filename_prefix"
+    }
+  },
+  "components": {
+    "model": {
+      "node_id": "37",
+      "input": "unet_name"
+    },
+    "clip": {
+      "node_id": "38",
+      "input": "clip_name"
+    },
+    "vae": {
+      "node_id": "39",
+      "input": "vae_name"
+    }
+  },
+  "image_slots": [
+    {
+      "node_id": "78",
+      "input": "images.image_1"
+    },
+    {
+      "node_id": "qwen_reference_2",
+      "input": "images.image_2"
+    },
+    {
+      "node_id": "qwen_reference_3",
+      "input": "images.image_3"
+    },
+    {
+      "node_id": "qwen_reference_4",
+      "input": "images.image_4"
+    },
+    {
+      "node_id": "qwen_reference_5",
+      "input": "images.image_5"
+    },
+    {
+      "node_id": "qwen_reference_6",
+      "input": "images.image_6"
+    },
+    {
+      "node_id": "qwen_reference_7",
+      "input": "images.image_7"
+    },
+    {
+      "node_id": "qwen_reference_8",
+      "input": "images.image_8"
+    },
+    {
+      "node_id": "qwen_reference_9",
+      "input": "images.image_9"
+    },
+    {
+      "node_id": "qwen_reference_10",
+      "input": "images.image_10"
+    },
+    {
+      "node_id": "qwen_reference_11",
+      "input": "images.image_11"
+    },
+    {
+      "node_id": "qwen_reference_12",
+      "input": "images.image_12"
+    },
+    {
+      "node_id": "qwen_reference_13",
+      "input": "images.image_13"
+    },
+    {
+      "node_id": "qwen_reference_14",
+      "input": "images.image_14"
+    },
+    {
+      "node_id": "qwen_reference_15",
+      "input": "images.image_15"
+    },
+    {
+      "node_id": "qwen_reference_16",
+      "input": "images.image_16"
+    }
+  ],
+  "conditioning_node": "64",
+  "sampler_node": "3",
+  "latent_node": "62",
+  "replaced_nodes": [
+    "76",
+    "77"
+  ],
+  "output": {
+    "node_id": "56",
+    "history_field": "images",
+    "media_type": "image/png"
+  }
+}

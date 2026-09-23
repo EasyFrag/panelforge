@@ -30,18 +30,21 @@ from panelforge.domain.h3_render import (
     H3RenderAttemptStatus, H3VideoLoraSelection, H3VideoLoraStack,
 )
 from .prompt_lab import NewReference, StreamEventKind
+from .episode_continuity import EpisodeContinuityActions
+from panelforge.domain import episode_continuity, story_continuity
 
 
 class EpisodeConflict(ValueError):
     pass
 
 
-class EpisodeService:
+class EpisodeService(EpisodeContinuityActions):
     def __init__(self, *, stories, store, krea, prompt_lab, composition, render, assets,
-                 dlss=None, work_coordinator=None, sleep=time.sleep):
+                 dlss=None, work_coordinator=None, sleep=time.sleep, qwen_edit=None):
         self.stories, self.store, self.krea = stories, store, krea
         self.prompt_lab, self.composition, self.render, self.assets = prompt_lab, composition, render, assets
         self.dlss = dlss
+        self.qwen_edit = qwen_edit
         self.work_coordinator, self._sleep = work_coordinator, sleep
         self._lock, self._active = RLock(), set()
         self._active_batches = set()
@@ -88,21 +91,38 @@ class EpisodeService:
         sources.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
         inherited = 0
         for target in episode["references"]:
-            if target["kind"] != "character" or target.get("image_asset_id"):
+            if target["kind"] not in {"character", "object"} or target.get("image_asset_id") or target.get("continuity_state_id"):
                 continue
             target_name = self._identity_key(target["name"])
             chosen = None
             for _, _, _, same_story, source in sources:
                 matches = [reference for reference in source.get("references", [])
-                           if reference.get("kind") == "character" and reference.get("image_asset_id")
-                           and ((same_story and reference.get("source_id") == target.get("source_id"))
-                                or self._identity_key(reference.get("name")) == target_name)]
+                           if reference.get("kind") == target["kind"] and reference.get("image_asset_id")
+                           and not reference.get("continuity_state_id") and not reference.get("continuity_archived")
+                           and not reference.get("continuity_image_stale")
+                           and (((same_story or target["kind"] == "object") and reference.get("source_id") == target.get("source_id"))
+                                or (target["kind"] == "character" and self._identity_key(reference.get("name")) == target_name))]
                 if len(matches) == 1:
                     chosen = (source, matches[0])
                     break
             if chosen is None:
                 continue
             source, reference = chosen
+            # An accepted visual variant can carry the acquired state into a
+            # subsequent unit. Only reuse it when the explicit body/outfit agree.
+            old_element = next((e for e in story_continuity.elements(source["scenario"])
+                if e["id"] == reference["source_id"]), None)
+            new_element = next((e for e in story_continuity.elements(episode["scenario"])
+                if e["id"] == target["source_id"]), None)
+            if old_element and new_element:
+                before = story_continuity.state_at(old_element, len(source["scenes"]) - 1, end=True)
+                after = story_continuity.state_at(new_element, 0)
+                if before["reference_state_id"] and all(before[k] == after[k] for k in ("appearance", "clothing")):
+                    variant_id = story_continuity.reference_id(old_element["id"], before["reference_state_id"])
+                    variant = next((r for r in source["references"] if r["id"] == variant_id and r.get("image_asset_id")
+                                    and not r.get("continuity_image_stale")), None)
+                    if variant:
+                        reference = variant
             asset_id = reference["image_asset_id"]
             target["images"] = [{"asset_id": asset_id,
                                  "label": f"Référence héritée · {reference['name']}"}]
@@ -193,6 +213,9 @@ class EpisodeService:
         view.setdefault("video_defaults", video_defaults(value))
         view.setdefault("video_revision", 1)
         view.setdefault("video_chain", None)
+        view.setdefault("continuity_revision", 1)
+        view["visual_continuity"] = deepcopy(value["scenario"].get("visual_continuity", story_continuity.empty()))
+        view["qwen_variants_available"] = self.qwen_edit is not None
         if self.work_coordinator is not None:
             view["machine_work"] = self.work_coordinator.public_status()
         view["image_defaults"] = image_defaults(value)
@@ -223,6 +246,12 @@ class EpisodeService:
         for scene in view["scenes"]:
             scene["inherit_video_settings"] = inherits_video_settings(scene)
             scene["effective_render_setup"] = effective_video_setup(value, scene)
+            scene["continuity_states"] = episode_continuity.snapshot(value, scene)
+            scene["resolved_references"] = episode_continuity.bindings(value, scene)
+            scene["continuity_warnings"] = episode_continuity.scene_warnings(value, scene)
+            rendered_seconds = scene["effective_render_setup"]["settings"]["duration_seconds"]
+            scene["duration_warning"] = (f"Prompt prévu pour {scene['duration']:g} s ; rendu réglé à {rendered_seconds:g} s. "
+                "Les paroles et gestes restent ceux du prompt enregistré." if abs(rendered_seconds - scene["duration"]) > .01 else None)
             try:
                 inputs = scene_inputs(value, scene)
                 scene["resolved_intention"] = inputs["source_text"]
@@ -577,6 +606,8 @@ class EpisodeService:
             raise ValueError("Une image est requise.")
         with self._lock:
             value, ref = self._editable(identity, "references", ref_id, expected_revision)
+            if episode_continuity.active(value):
+                self._continuity_editable(value)
             available = {i["asset_id"] for i in ref["images"]}
             selected_attempt = None
             if ref["krea_project_id"]:
@@ -585,7 +616,7 @@ class EpisodeService:
                 selected_attempt = next((a for a in project.attempts if a.output_asset_id == asset_id), None)
             if asset_id not in available:
                 raise ValueError("Cette image n’appartient pas à cette fiche. Importez-la d’abord.")
-            ref.update(image_asset_id=asset_id, revision=ref["revision"] + 1)
+            ref.update(image_asset_id=asset_id, continuity_image_stale=False, revision=ref["revision"] + 1)
             record = next((r for r in ref.get("image_runs", []) if selected_attempt and r["attempt_id"] == selected_attempt.attempt_id), None)
             ref["image_style"] = deepcopy(record.get("prompt_style")) if record else None
             self.store.save(value)
@@ -594,9 +625,11 @@ class EpisodeService:
     def import_image(self, identity, ref_id, expected_revision, content, media_type, filename):
         with self._lock:
             value, ref = self._editable(identity, "references", ref_id, expected_revision)
+            if episode_continuity.active(value):
+                self._continuity_editable(value)
             asset = self.assets.create(content, media_type=media_type, source_run_id=identity)
             ref["images"].append(dict(asset_id=asset.asset_id, label=filename))
-            ref.update(image_asset_id=asset.asset_id, image_style=None, revision=ref["revision"] + 1)
+            ref.update(image_asset_id=asset.asset_id, image_style=None, continuity_image_stale=False, revision=ref["revision"] + 1)
             self.store.save(value)
         return self.get(identity)
 
@@ -650,7 +683,8 @@ class EpisodeService:
             visual = style_context(value)
             brief = (f"Crée une image de référence pour un épisode. {ref['name']} : {ref['description']}\n"
                      + ("Personnage seul, entier et lisible, apparence et tenue stables, fond neutre simple. "
-                        if ref["kind"] == "character" else "Décor seul, sans personnage, repères spatiaux lisibles. ")
+                        if ref["kind"] == "character" else "Objet seul, forme et matériaux reconnaissables, fond neutre, sans personnage. "
+                        if ref["kind"] == "object" else "Décor seul, sans personnage, repères spatiaux lisibles. ")
                      + f"Sans texte ni planche multiple. Style commun actuel : {value['style'] or 'Respecter la description de la fiche.'}\n{instruction}"
                      + "\nCette direction visuelle remplace les consignes et exemples de style des échanges précédents.")
             if visual["image"] or visual["preset"]:
@@ -762,7 +796,7 @@ class EpisodeService:
                     raise ValueError("Une fiche ne peut apparaître qu’une fois dans le lot.")
                 seen.add(ref_id)
                 ref = self._item(value, "references", ref_id)
-                profile = profiles.get(ref["kind"])
+                profile = profiles.get("character" if ref["kind"] == "object" else ref["kind"])
                 if profile is None:
                     raise ValueError(f"Le profil {ref['kind']} est manquant.")
                 public_settings = self._batch_render_settings(profile["settings"], profile.get("seed"))
@@ -872,7 +906,7 @@ class EpisodeService:
                     self._batch_change(identity, batch_id, lambda _value, current, ref_id=ref_id:
                         self._batch_item(current, ref_id).update(status="prompt_ready", phase="Prompt prêt", error=None))
                     current = self._item(self.store.get(identity), "references", ref_id)
-                    profile = profiles[current["kind"]]
+                    profile = profiles["character" if current["kind"] == "object" else current["kind"]]
                     self.render_reference(identity, ref_id, current["revision"],
                         f"{batch_id}-render-{ref_id}", profile["settings"], profile.get("seed"),
                         expected_visual_revision=self.store.get(identity).get("visual_revision", 1))

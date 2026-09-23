@@ -90,6 +90,8 @@ class StoryWorkflow:
             return self._stop(project, "paused", "Enchaînement suspendu. Écris ton retour ou continue quand tu veux.")
         job = project.get("job") or {}
         if job.get("status") in {"failed", "interrupted", "cancelled"} and job.get("narrative_input_hash") in {None, narrative.input_hash(project)}:
+            if not (job.get("draft") or "").strip():
+                return self._stop(project, "blocked", "L’étape a été arrêtée avant réception d’un scénario. Les détails sont conservés ; reprends l’étape pour faire un nouvel essai.")
             return self._stop(project, "blocked", "L’étape a été arrêtée. Le résultat et les détails sont conservés ; revalide le brouillon ou reprends l’étape.")
         if not doc.get("series_outline"):
             return self._call(project, "compose")

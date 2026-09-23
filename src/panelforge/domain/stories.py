@@ -622,6 +622,9 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
         if recipe_spec.get("dialogue_policy") == "forbidden" and scene["dialogue"]:
             raise ValueError("Cette famille est strictement sans paroles : dialogue doit rester vide.")
         result["scenes"].append(scene)
+    if "visual_continuity" in value:
+        from .story_continuity import normalize
+        result["visual_continuity"] = normalize(value["visual_continuity"], result)
     return result
 
 

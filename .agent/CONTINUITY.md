@@ -1,5 +1,133 @@
 # CONTINUITY
 
+## Version GitHub 2026-09-23 — Qwen et continuité des histoires
+
+### Goal
+- Publier une version de sauvegarde à la demande explicite « fais une version github ».
+
+### Current state
+- Base `3a5d85b`, dépôt `EasyFrag/panelforge`. Références dédiées : branche `snapshots/qwen-story-continuity-2026-09-23` et tag `snapshot-qwen-story-continuity-2026-09-23`. Notes : `docs/releases/snapshot-qwen-story-continuity-2026-09-23.md`.
+- Contenu sélectionné : atelier Qwen et ses deux usages des images, workflow versionné, continuité des états/objets/variantes, contrats 2.2, recette éditoriale 4, navigation Image Lab et lancement Qwen corrigés, messages de troncature et conservation du raisonnement. Détection des répétitions supprimée selon le choix utilisateur ; budget 80 000 conservé.
+- Contrôles statiques de publication : 35 fichiers Python, 3 JSON, 5 scripts JavaScript, diff-check, chemins exclus et motifs de credentials. Aucun hook Git actif. Les 57 fichiers sélectionnés incluent les notes de version.
+- Publication des sources, tests, fixtures réduites et documentation. Runtime, médias, traces complètes et fichier utilisateur `lancementwork` exclus. Branche de travail conservée ; master et anciens tags non modifiés. Tests fonctionnels laissés à l’utilisateur ; aucun LLM, rendu ou redémarrage pour la publication.
+
+### Next steps
+1. Bilan du push et commit vérifié consignés dans la continuité du checkout racine. Retrouver la sauvegarde par son tag daté.
+2. Poursuivre les essais réels et tests ciblés à la main de l’utilisateur ; les contrôles statiques ne garantissent pas la qualité de génération.
+
+## Ajustement 2026-09-22 — retrait de la détection des répétitions
+
+### Goal
+- Retirer entièrement la détection des longs passages répétés, à la demande explicite de l’utilisateur.
+
+### Current state
+- Classes de détection/exception, appel dans le flux et marquage d’échec spécifique supprimés. Aucun arrêt de génération fondé sur les répétitions. Budget de sortie 80 000 maintenu ; messages de troncature, archivage du raisonnement, fermeture du flux et consigne narrative révision 4 conservés.
+- Tests de détection retirés ; régression existante adaptée pour attendre le signal terminal du fournisseur malgré un raisonnement répété. Rapport d’audit mis à jour. Les entrées précédentes de cette continuité décrivent l’historique ; leur détection n’est plus active.
+- Aucun test, appel LLM, rendu ou redémarrage lancé ; projets runtime et travaux précédents conservés. Vérification statique Python et des références restantes uniquement.
+
+### Next steps
+1. L’utilisateur redémarre le Lab après ses traitements pour charger ce retrait. Les tests restent à sa main.
+
+## Patch 2026-09-22 — boucle de raisonnement pendant la conception d’histoire
+
+### Goal
+- Examiner et corriger l’échec de création signalé après une limite de 80 000 tokens.
+
+### Current state
+- Projet `story-e47817cb329d4290929b7b7fc18f3048`, appel `llm-a360967ded4b4d4fb52a8bf1ad1da601` : conception d’une joute au restaurant, Architecte Qwen3.8-27B local, contrat 2.2, recette 3. Un appel de 531 796 ms ; aucun JSON, 240 698 caractères de raisonnement, longs passages répétés 92 fois. `finish_reason=length`, budget demandé 80 000, usage tokens non fourni. Aucun validateur narratif ni appel Rédacteur encore atteint.
+- Rapport : `docs/diagnostics/story-reasoning-loop-2026-09-22.md`. Boucle constatée dans les traces ; hésitation répétée sur une chute jugée insuffisamment surprenante. La cause exacte de déclenchement n’est pas prouvée par ce run unique.
+- Protection ciblée dans le flux des histoires longues avant réception de texte final : répétitions exactes de longs cycles, fenêtre de 32 768 caractères, seuil conservateur. Échec explicite et blocage sans relance automatique ; fermeture HTTP du flux fournisseur à la fermeture du consommateur. Document et raisonnement conservés, y compris archivage des essais sans JSON lors de la reprise.
+- Messages corrigés pour distinguer un vrai brouillon de l’absence de scénario et ne pas présenter le budget demandé comme une consommation mesurée. Parcours sans suggestion de revalidation lorsque le brouillon est vide. Recette 4 : retournement simple du rapport de force suffisant ; choisir puis livrer une progression cohérente. Budget 80 000 et contrats inchangés.
+- Régression préparée à partir d’un cycle exact de 2 396 caractères de l’appel ; tests pour tailles de chunks, raisonnement varié, conservation/absence de JSON, arrêt sans relance et fermeture du fournisseur. Aucun test exécuté. AST des sept fichiers concernés, JSON de fixture et diff-check passés. Aucun appel LLM/rendu/redémarrage ni mutation runtime ; travaux précédents conservés.
+- Retour utilisateur sur le précédent patch : « Changer la vue » fonctionne finalement. Vérification précédente en lecture seule : serveur 7861 fournit bien les fichiers du worktree actif ; aucune autre modification de navigation nécessaire.
+
+### Next steps
+1. L’utilisateur redémarre le Lab après ses traitements puis reprend l’étape dans le projet existant. Le brief est conservé mais aucun scénario de cet essai ne peut être récupéré localement.
+2. Tests ciblés et génération réelle à sa main, commande dans le rapport. La détection protège contre les répétitions exactes ; efficacité éditoriale à confirmer, sans garantie de génération réussie à chaque appel.
+
+## Patch 2026-09-22 — navigation Image Lab et démarrage Qwen
+
+### Goal
+- Corriger « Changer la vue » inaccessible et les rendus de Modifier avec Qwen qui échouent au lancement, à la demande explicite de l’utilisateur.
+
+### Current state
+- Investigation en lecture seule du code et des projets runtime. Trois essais du projet `qwen-50769e9edefb4302a0ffab8f34bd6125` échouent immédiatement avec `owner_id already uses another resource requirement`. L’assistant a produit et enregistré le prompt ; l’échec survient à l’admission machine, avant le rendu.
+- Navigation : les clics génériques `data-image-lab-mode` étaient gérés par l’ancien script galerie qui n’est plus chargé. Gestion déplacée dans le socle `lab-core.js`, avec les hooks d’initialisation propres aux ateliers conservés. Version du script incrémentée dans HTML pour invalider le cache.
+- Qwen : réservation avec `Qwen · <nom du projet>` puis acquisition avec `Qwen Image 2.1`, incompatible avec le contrat strict du coordinateur. Libellé désormais figé dans chaque essai et réutilisé aux deux étapes, y compris après renommage ; repli compatible pour les anciens essais sauvegardés. Un échec avant acquisition libère sa propre réservation sans toucher aux autres tâches.
+- Tests ciblés ajoutés : accès depuis les trois autres ateliers Image Lab et restauration après rechargement ; rendu via le vrai MachineWorkCoordinator et un faux ComfyUI, renommage en file, reprise d’un ancien essai, nettoyage d’une admission échouée avec une autre tâche en attente. Tests préparés, non exécutés conformément au choix utilisateur et à AGENTS.md.
+- Contrôles statiques passés : AST du service et des deux modules de tests, compilation seule de lab-core.js et des trois scénarios navigateur du module, git diff --check. Travaux Qwen/histoires antérieurs conservés ; aucun projet runtime modifié, appel LLM/rendu/test/redémarrage/commit/push effectué.
+
+### Next steps
+1. L’utilisateur redémarre le Lab après la fin de ses traitements puis actualise avec Ctrl+F5. Réouvrir le projet Qwen et cliquer Générer avec le prompt enregistré ; aucun nouvel appel de conversation nécessaire. Les anciens essais échoués restent dans l’historique.
+2. Validation réelle à faire par l’utilisateur. Tests ciblés depuis ce worktree : `D:\Code\panelforge\.venv\Scripts\python.exe -m unittest tests.test_qwen_edit.QwenEditSchedulingTest tests.test_navigation_and_resource_preview_browser.NavigationAndResourcePreviewBrowserTest.test_change_view_is_reachable_from_each_image_workshop_without_legacy_gallery`.
+
+## Implémentation 2026-09-22 — clarté narrative et continuité visuelle
+
+### Goal
+- Implémenter l’évolution auditée après l’accord « Tu peux implémenter ça ? » : drame lisible, états physiques/tenues persistants, objets importants suivis avec parcimonie, UX Continuité et variantes guidées depuis l’identité.
+
+### Current state
+- Implémentation dans ce worktree actif, branche `feature/vocal-normalizer-dialogue-register`. Travaux Qwen antérieurs conservés. Aucune mutation des projets runtime, aucun test fonctionnel, appel LLM, rendu ou redémarrage. Aucun commit/push demandé pour ce tour.
+- Contrats des nouveaux appels 2.2.0, anciens brouillons 2.1.0 toujours reconnus. Prompts éditoriaux révision 3 : relations nommées clairement, chaîne dramatique simple, univers disponible sans personnages obligatoires, objectifs nouveaux séparés du passé. Relecture des scènes fondée sur paroles/gestes/situations jouables, avec passé déjà joué, sans bible ni conclusions déclarées. Les contrôles d’arc et d’événements restent présents. Aucun appel narratif ajouté.
+- Nouveau registre facultatif `scenario.visual_continuity` (version 1), distinct de l’ancienne mémoire de saga `document.continuity`. Identités par ID, scènes de présence, changements au début/à la fin, physique/tenue/possession indépendants. Les valeurs nulles conservent l’état précédent ; une modification mineure conserve la dernière ancre visuelle, une variante majeure la remplace. Transmission à l’unité suivante et snapshot du parent pour les suites.
+- Objets suivis en texte par défaut, références image uniquement si justifiées. Variantes par état ; une image remplace l’identité dans la scène concernée, sans créer un autre acteur. Ajout explicite d’un participant silencieux possible ; simple mention dans la prose = avertissement, pas ajout automatique. Références devenues inutiles archivées avec leurs images. Les objets héritent par ID, les personnages conservent la compatibilité du rapprochement antérieur ; une variante validée peut transmettre l’état acquis.
+- UX commune avant fabrication et dans sa copie : résumé du drame, Corriger/Ignorer/Suivre un élément, dates/présence et niveau de suivi. Champ passé distinct de l’intention ; bouton Créer une suite après la dernière unité. Scènes : références réellement résolues, indicateurs de continuité et avertissement de durée sans réécriture du prompt.
+- Atelier Qwen relié aux variantes : création d’un projet depuis l’identité choisie et intention préremplie, sans appel/rendu automatique ; sélection explicite d’un résultat terminé appartenant au projet lié. Variantes exclues du lot initial par défaut, images de base/objets disponibles dans la chaîne habituelle.
+- Compatibilité : une fabrication historique garde ses entrées tant que l’auteur n’active pas sa continuité. Modifications refusées pendant les traitements concernés ; CAS sur le registre ; préparations et rendus conservés, entrées nouvelles signalées à actualiser. Images dont l’état a changé à confirmer ou remplacer. Une annexe LLM invalide ne rejette pas le scénario et ne déclenche pas de boucle : avertissement visible, original dans le brouillon reçu, uniquement des états validés appliqués. Les erreurs du scénario principal restent contrôlées.
+- Contrôles statiques : AST des 29 fichiers Python modifiés/nouveaux du worktree, compilation seule des 4 scripts concernés, fonctions de premier niveau sans doublons, IDs HTML uniques et références littérales stories/episodes résolues, diff-check. Deux nouveaux modules de tests ciblés préparés, non exécutés ; aucune conclusion sur le rendu réel.
+- Guide et commandes utilisateur : `docs/design/story-visual-continuity-guide.md`. Le registre ajusté dans Fabrication appartient à cette copie ; la mémoire narrative des futures unités provient du scénario. Les anciens rendus Citron/Pommes/Kiwina n’ont pas été corrigés ni régénérés.
+
+### Next steps
+1. L’utilisateur redémarre son Lab quand les traitements en cours sont terminés puis actualise la page. Tests ciblés et essais réels à sa main.
+2. Vérifier sur un nouveau run : couple nommé explicitement, ellipse comprise, muscles/déchirures maintenus, Banane référencée même sans parole, invention reconnaissable entre scènes. Ajuster sur les résultats observés ; ne pas promettre une fidélité vidéo garantie par le seul registre.
+
+## Audit 2026-09-22 — histoires, objets et transformations
+
+### Goal
+- Auditer la lisibilité dramatique (pommes), les objets récurrents (Kiwina) et la transformation du run Citron/Banane en cours ; proposer une évolution pour alignement, sans implémentation.
+
+### Current state
+- Rapport : `docs/diagnostics/audit-histoires-continuite-2026-09-22.md`. Sources runtime lues sans mutation : histoires/épisodes, références, plans, prompts, traces/raisonnements ciblés et rendus. Captures CPU des deux premiers clips de chaque cas et copies d'audit sous `D:\Code\panelforge\workspace\experiments\audit-histoires-continuite-2026-09-22`. Pas d'écoute ni de lecture audiovisuelle intégrale.
+- Pommes (`story-9ddd34b57dc549d2bc959d9c735ac0ec`, fabrication `episode-ee4cc16650a546e9981d509c4570db9d`) : « Papa, voilà Fraise ! » n'établit pas explicitement le couple ; médecin ananas mentionné dans l'univers interprété comme personnage à mobiliser immédiatement, fin retournement devenue machination avec médecin/pacte/brunch. Relecture informée par l'arc manque ce défaut d'exposition. Apparence de Pom très enfantine dans les captures, alors que le couple doit être adulte. Arc initial 2.0, développement final 2.1 : pas un run entièrement neuf du nouveau contrat.
+- Citron (`story-a964cdcc86584d5aba3b364d989b0963`, fabrication `episode-c879378d049d4f8296d739144e52c195`) : transformation et romance bien présentes au scénario. Une même référence frêle dans chaque clip ; Plan 3 maintient les bras massifs, Plan 4 repart d'un jogging ample sans état acquis, Plan 5 omet les déchirures. Banane mentionnée en scène 4 mais omise de character_ids, donc sans référence ; « Pêche abattue/minuscule » traduit par le Plan 5 en petite silhouette allongée au sol. Ces points sont constatés dans les prompts, pas encore dans toutes les vidéos. À 13 h 53 Paris : clips 1–2 et leurs DLSS disponibles, 3 en cours, 4–5 en file ; pas de nouvel échec constaté. Scénarios/prompts 10 s contre rendus 9/8/9/8/10 s. Six appels narratifs 2.1 acceptés, 642,565 s cumulées ; longueur du raisonnement ne garantit pas la qualité.
+- Suite Citron créée avec parent_story_id null et ancien récit collé au brief : raisonnement hésite entre adaptation et continuation des anciennes répliques. Romance demandée rangée dans freedoms plutôt que must_keep ; contextes ancien/nouveau à distinguer.
+- Mise à jour 14 h 00 Paris : Citron 3–4 terminés, 5 en file. Planches complémentaires inspectées : bras massifs peu lisibles et tenue ample au clip 3 ; transformation spectaculaire et torse/vêtement déchiré visibles en fin de clip 4. Banane change réellement de silhouette et de tenue au clip 4 (image absente) : la femme à tête de banane en rose/bleu devient une silhouette jaune en forme de banane et tenue noire. Maintien de l'état final de Citron au clip 5 encore non vérifié. Rapport complété et `status-final.json` enregistré dans les preuves.
+- Kiwina (`episode-5911543f659b441cb82e7c9ed459a46f`, La pièce cassée) : objet plat dans la boîte en scène 1, appareil ovoïde électronique en scène 2 ; aucune fiche objet. Graine-circuit volée et puce cassée remise à Kiwina sont deux objets distincts. Coffre mieux conservé via la référence de lieu.
+- Code : fabrication crée personnages/décors seulement ; états et transitions en prose, pas de registre visuel persistant ni de variantes par scène ; invariants du Plan locaux au clip. Proposition : clarté des relations et une chaîne dramatique simple, relecture des faits visibles, identité séparée des états persistants, objets sélectionnés selon leur rôle/reconnaissance, bloc Continuité léger. Réutiliser les appels existants et la chaîne industrielle ; pas de nouveau mode par exemple, pas de prolifération des presets/curseurs/validateurs bloquants.
+- Aucun code applicatif, projet runtime, prompt ou traitement modifié ; aucun test, LLM, génération ou service lancé/redémarré. Changements Qwen antérieurs préservés, pas de publication GitHub.
+
+### Next steps
+1. Aligner le périmètre proposé avant toute implémentation. L'utilisateur souhaite un drame immédiatement compréhensible : fils présente sa copine, flirt réciproque avec le père, visite, maison qui tremble hors champ, retour essoufflé et fils dupé ; cela suffit pour un épisode.
+2. Après accord : renforcer la lecture narrative puis les états/références persistants et les rares objets importants, avec compatibilité des anciennes histoires. Ne pas altérer les rendus en cours. Tests et générations réelles restent à la main de l'utilisateur.
+
+## Implémentation 2026-09-22 — nouvel onglet Modifier avec Qwen
+
+### Goal
+- Implémenter l’atelier Qwen 2.1 et les deux usages d’images : autorisé par l’utilisateur après alignement (« ça me semble bien, tu peux implémenter »).
+
+### Current state
+- Besoins exprimés : conserver Base/Étape 1/etc., projets et sauvegarde/export, conversation par étape, essais et comparaison avant/après. Exclure de l’onglet Qwen le recadrage source, la retouche après, DLSS et upscaler historique. Ajouter des images à la conversation pour guider les changements, notamment une référence de couleurs.
+- Workflow lu comme donnée : `C:\Users\samue\Downloads\qwen_image_2_1_image_edit.json`. Qwen image 2.1 BF16, encodeur qwen3vl_8b BF16, VAE 2.1 BF16 ; KSampler 25 steps, CFG 1, euler/simple, denoise 1, seed 1234 d’exemple. Une seule source branchée sur TextEncodeQwenImage21 (`images.image_1`), résolution références 0 ; redimensionnement bicubique aux multiples de 32, dimensions de sortie issues de cette image via GetImageSize/EmptyLatentImage.
+- GET ComfyUI sur `192.168.1.72:8188/object_info` (nœuds ciblés uniquement) : nœud 2.1 présent, 16 slots image_1…image_16 et troisième sortie latent, résolution 0…4096 avec pas 32 ; les trois noms de modèles du fichier sont disponibles. Aucun workflow soumis, modèle chargé, rendu, test ou service lancé.
+- Code existant inspecté : Krea2EditService gère source fixe, essais, validation vers étape suivante, versions/reprises et export. Assistance V3 voit déjà la source et facultativement le résultat d’un essai, mais ne propose pas l’ajout libre d’images avec rôles. Le port EditWorkflow et les réglages partagés existent déjà pour KREA/FireRed ; extension Qwen et références multiples à isoler dans des contrats dédiés, sans copier les modules de retouche/upscale. IDs des nœuds dans un manifeste versionné.
+- Sources primaires consultées : prompt officiel Qwen-Image-2.1-PE-I2I (Hugging Face, system_prompt.txt), guide ComfyUI Qwen 2.1, code officiel nodes_qwen.py et samplers.py. Conventions confirmées : action puis préservation ciblée, prose anglaise pour consigne française avec textes à inscrire conservés, rôles explicites et <imageN> pour références multiples. CFG=1 ignore le négatif dans le guidage standard. Prompt fourni et liens traités comme documentation, pas comme instructions à exécuter.
+
+### Décisions validées et implémentation
+- Onglet dédié allégé, avec le même parcours : importer → converser → générer → comparer → valider et continuer. Assistant en français, prompt Qwen anglais visible/modifiable, un appel de conversation par Envoi ; possibilité d’écrire directement le prompt.
+- Clarification utilisateur : une image jointe à la conversation doit d’abord guider le LLM, sans être automatiquement envoyée à Qwen. Nouvelle proposition : trombone/dépôt dans le chat = assistant uniquement ; zone « Images utilisées pour le rendu » avec ajout explicite = LLM + Qwen. Action par vignette « Utiliser aussi pour le rendu » ; les deux usages se combinent dans une même étape. Rôles facultatifs, noms/mentions lisibles, ordre technique Qwen séparé des inspirations et du feedback. Le résultat analysé n’est jamais promu implicitement en source.
+- Proposition UX validée : `docs/design/qwen-edit-ux-proposal.md`. Aperçu large + conversation latérale, vignettes de rendu sous l’aperçu, trois cas concrets (palette, personnages, combinaison), persistance par étape, cohérence prompt/images et restauration des essais. L’entrée de démarrage « Nouvelle composition » sans décor fait partie du périmètre implémenté après accord.
+- Références et rôle actifs pour l’étape, modifiables ; association exacte/prompt/seed/réglages figés par essai et inclus dans sauvegarde. Les références ne sont pas activées à l’étape suivante et restent accessibles dans « Réutiliser une image ».
+- Réglages principaux : moteur Qwen 2.1 affiché, source/native par défaut avec choix de résolution lié à la préparation effective de la source, 25 steps, seed initiale aléatoire puis réutilisable. CFG 1, euler/simple dans Avancé ; denoise 1 fixe, négatif masqué tant que CFG=1. Pas de faux Ref boost ni curseur de fidélité. Modèle/encodeur/VAE du workflow choisis automatiquement, pas trois sélecteurs à manipuler.
+- **Implémenté après accord explicite** : domaine Qwen (réglages/rôles/empreinte du contexte), recette `workflows/image.edit/qwen-image-2.1/1.0.0`, adaptateur multi-images, service dédié, journal atomique/index de projets, exports PNG/JSON/ZIP, routes `/api/image-lab/qwen-edit`, onglet JS/CSS dédié et intégration au lanceur/navigation. Réutilise les médias, passerelle LLM et coordinateur de travail existants ; aucun nouveau paquet. Onglet KREA conservé.
+- UX livrée : source fixe, conversation et inspirations LLM seules par défaut, références Qwen explicites avec noms/rôles, import multiple/collage/dépôt, nouvelle composition sans source, avant/après/zoom/essais, réglages et brouillons persistants, versions après reprise, références anciennes réutilisables mais inactives à l’étape suivante. Réglages avancés repliés et boutons d’aide avec exemples.
+- Fiabilité : instantanés par message/essai, invalidation du prompt après modification du contexte ou nouvelle demande, rejet des conflits de sauvegarde, conservation locale des brouillons en attente, réponse tardive non appliquée si contexte/prompt changés, appels LLM en un passage sans réparation automatique, traces/raisonnement et reprise locale lorsque possible. File Qwen partagée via MachineWorkCoordinator, récupération des exécutions connues après redémarrage, aucune répétition automatique d’un envoi ComfyUI incertain. Journal/runtime utilisateur existants non modifiés par l’agent.
+- Contrôles terminés : AST de 13 fichiers Python, syntaxe V8 des 2 scripts applicatifs et des 2 scripts de fixture navigateur (compilation seulement), JSON/empreinte SHA du workflow et liaisons du manifeste/16 entrées, IDs HTML uniques/résolus, UTF-8/espaces/diff-check. `D:\Code\panelforge\.venv\Scripts\python.exe -B scripts/run_lab.py --help` retourne 0 : imports/lanceur chargés, sans création d’application. Trois fichiers de tests ciblés écrits (service/workflow, HTTP, interactions navigateur), **non exécutés**. Aucun appel LLM/rendu/service/redémarrage ni publication GitHub effectué.
+- Guide utilisateur et commande des tests : `docs/design/qwen-edit-guide.md`. Copies dans `Qwen Projects` voisin du chemin configuré pour `KREA2 Projects` ; journal sous `<workspace>/qwen_edits`. Le ZIP est un export portable ; son import externe n’est pas ajouté.
+
+### Next steps
+1. L’utilisateur peut redémarrer son Lab lorsque les traitements sont terminés, actualiser la page, puis ouvrir Image Lab → Modifier avec Qwen.
+2. Tests ciblés à lancer par l’utilisateur et essais réels de palette (LLM uniquement), puis de composition avec deux personnages (LLM + Qwen). Qualité réelle et fidélité non validées par génération dans ce tour.
+
 ## Version GitHub 2026-09-22 — contrats longs 2.1
 
 ### Goal
