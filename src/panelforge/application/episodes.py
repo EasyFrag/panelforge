@@ -31,6 +31,7 @@ from panelforge.domain.h3_render import (
 )
 from .prompt_lab import NewReference, StreamEventKind
 from .episode_continuity import EpisodeContinuityActions
+from .episode_localization import EpisodeLocalizationActions
 from panelforge.domain import episode_continuity, story_continuity
 
 
@@ -38,7 +39,7 @@ class EpisodeConflict(ValueError):
     pass
 
 
-class EpisodeService(EpisodeContinuityActions):
+class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
     def __init__(self, *, stories, store, krea, prompt_lab, composition, render, assets,
                  dlss=None, work_coordinator=None, sleep=time.sleep, qwen_edit=None):
         self.stories, self.store, self.krea = stories, store, krea
@@ -49,6 +50,7 @@ class EpisodeService(EpisodeContinuityActions):
         self._lock, self._active = RLock(), set()
         self._active_batches = set()
         self._active_video_chains = set()
+        self._active_localizations = set()
 
     @staticmethod
     def _identity_key(value):
@@ -183,6 +185,7 @@ class EpisodeService(EpisodeContinuityActions):
             if batch and batch.get("status") in {"running", "rendering", "cancelling"} and identity not in self._active_batches:
                 batch.update(status="interrupted", phase="Traitement interrompu", error="Le serveur a redémarré pendant la production en lot.")
                 value = self.store.save(value)
+            value = self._reconcile_localization(value)
             value = self._reconcile_reference_batch(value)
             chain = value.get("video_chain")
             if chain:
@@ -230,19 +233,22 @@ class EpisodeService(EpisodeContinuityActions):
             image_style = ref.get("image_style")
             ref["image_style_status"] = ("unknown" if image_style is None else
                 "current" if fingerprint(image_style) == fingerprint(active_style) else "outdated")
-        try:
-            story = self.stories.store.get(value["story_id"])
-            series_episode_id = value.get("series_episode_id")
-            source_scenario = ((story["document"].get("episode_scenarios") or {}).get(series_episode_id)
-                               if series_episode_id else story["document"].get("scenario"))
-            if is_v2(story):
-                source_scenario = fabrication_scenario(story, episode_id=series_episode_id, require_review=False)
-            source_value = [series_episode_id, source_scenario] if series_episode_id else source_scenario
-            view["story_changed"] = fingerprint(source_value) != value["source_hash"]
-            if is_v2(story):
-                view["story_changed"] |= not long_story_status(story)["units"].get(series_episode_id, {}).get("ready", False)
-        except FileNotFoundError:
-            view["story_changed"] = True
+        if value.get("localization"):
+            view["story_changed"] = False
+        else:
+            try:
+                story = self.stories.store.get(value["story_id"])
+                series_episode_id = value.get("series_episode_id")
+                source_scenario = ((story["document"].get("episode_scenarios") or {}).get(series_episode_id)
+                                   if series_episode_id else story["document"].get("scenario"))
+                if is_v2(story):
+                    source_scenario = fabrication_scenario(story, episode_id=series_episode_id, require_review=False)
+                source_value = [series_episode_id, source_scenario] if series_episode_id else source_scenario
+                view["story_changed"] = fingerprint(source_value) != value["source_hash"]
+                if is_v2(story):
+                    view["story_changed"] |= not long_story_status(story)["units"].get(series_episode_id, {}).get("ready", False)
+            except FileNotFoundError:
+                view["story_changed"] = True
         for scene in view["scenes"]:
             scene["inherit_video_settings"] = inherits_video_settings(scene)
             scene["effective_render_setup"] = effective_video_setup(value, scene)
@@ -291,6 +297,7 @@ class EpisodeService(EpisodeContinuityActions):
             chain["prompts_complete"] = prompts_complete
         for scene in view["scenes"]:
             scene["dlss_ready"] = bool(prompts_complete and scene.get("video_status") == "succeeded")
+        self._localization_view(view)
         return view
 
     def _reconcile_reference_batch(self, value):
@@ -462,10 +469,16 @@ class EpisodeService(EpisodeContinuityActions):
             raise KeyError("Fiche ou scène introuvable.")
         return item
 
+    @staticmethod
+    def _require_original_fabrication(value):
+        if value.get("localization"):
+            raise EpisodeConflict("Cette copie conserve la mise en scène et ses images. Modifiez ses dialogues dans 3 · Multilangue.")
+
     def _editable(self, identity, collection, item_id, expected_revision):
         if (identity, collection, item_id) in self._active:
             raise EpisodeConflict("Un traitement est en cours sur cette fiche ou cette scène.")
         value = self.store.get(identity)
+        self._require_original_fabrication(value)
         item = self._item(value, collection, item_id)
         if item["revision"] != expected_revision:
             raise EpisodeConflict("Cette fiche ou scène a changé. Rechargez-la avant d’enregistrer.")
@@ -542,6 +555,7 @@ class EpisodeService(EpisodeContinuityActions):
     def set_style(self, identity, style, expected_style):
         with self._lock:
             value = self.store.get(identity)
+            self._require_original_fabrication(value)
             if value["style"] != expected_style:
                 raise EpisodeConflict("Le style commun a changé. Rechargez la fabrication.")
             value["style"] = style
@@ -551,6 +565,7 @@ class EpisodeService(EpisodeContinuityActions):
 
     def _visual_edit(self, identity, expected_revision):
         value = self.store.get(identity)
+        self._require_original_fabrication(value)
         if value.get("visual_revision", 1) != expected_revision:
             raise EpisodeConflict("Le style ou les réglages communs ont changé. Actualisez la fabrication.")
         value["visual_revision"] = expected_revision + 1
@@ -789,6 +804,7 @@ class EpisodeService(EpisodeContinuityActions):
         )
         with self._lock:
             value = self.store.get(identity)
+            self._require_original_fabrication(value)
             existing = value.get("reference_batch")
             if existing and existing.get("request_id") == request_id:
                 return self.get(identity)
@@ -1016,6 +1032,7 @@ class EpisodeService(EpisodeContinuityActions):
                     render_project_id=None, attempt_id=None, output_asset_id=None, prompt_attempt=0,
                     dlss_job_id=None, dlss_status=None, dlss_error=None, dlss_resume_pending=False,
                     render_setup=effective_video_setup(value, scene)) for scene in chosen])
+            self._reuse_localized_chain(value)
             self.store.save(value)
             self._active_video_chains.add(identity)
             try:
@@ -1150,6 +1167,8 @@ class EpisodeService(EpisodeContinuityActions):
                     and any(item["scene_id"] == scene_id for item in chain.get("items", []))):
                 raise EpisodeConflict("Cette scène est déjà prise en charge par la chaîne vidéo.")
             preparation = self._refresh_scene_reference_images(value, scene, scene_inputs(value, scene))
+            if value.get("localization") and prompt != self.render.projects.get(preparation["render_project_id"]).current_prompt:
+                raise EpisodeConflict("Modifiez uniquement les répliques depuis 3 · Multilangue.")
             project = self._prepare_render_attempt(preparation["render_project_id"], prompt, setup)
             return project, preparation["id"]
 
@@ -1177,6 +1196,8 @@ class EpisodeService(EpisodeContinuityActions):
             latest = scene["preparations"][-1] if scene["preparations"] else None
             if latest and latest.get("status") == "ready" and latest.get("input_hash") == inputs_hash:
                 return latest
+            if value.get("localization"):
+                raise EpisodeConflict("Injectez les traductions depuis 3 · Multilangue avant de produire cette scène.")
             attached_job = (scene.get("job") or {}).get("status") == "running"
             if (not attached_job and latest and latest.get("status") == "ready"
                     and latest.get("render_project_id")
@@ -1353,11 +1374,19 @@ class EpisodeService(EpisodeContinuityActions):
                         dlss_resume_pending=False,
                     ))
                 return
+            if _value.get("localization"):
+                project = self.render.projects.get(project_id)
+                if any(a.dlss and a.dlss.root_attempt_id == attempt_id for a in project.attempts):
+                    self._video_chain_change(identity, chain_id, lambda _value, current:
+                        self._video_item(current, scene_id).update(dlss_status="succeeded", dlss_error=None, dlss_resume_pending=False))
+                    return
             jobs = self.dlss.list(owner="ref2v", owner_id=project_id)
             job = next((candidate for candidate in jobs if (
                 (candidate.get("snapshot") or {}).get("root_attempt_id") == attempt_id
                 or (candidate.get("request") or {}).get("attempt_id") == attempt_id
             )), None)
+            if _value.get("localization") and job is not None and job.get("status") in {"failed", "unconfirmed", "cancelled"}:
+                job = self.dlss.retry(job["job_id"])
             if job is None:
                 request_key = f"{chain_id}:{scene_id}:{attempt_id}"
                 request_id = "episode-" + hashlib.sha256(request_key.encode()).hexdigest()[:32]

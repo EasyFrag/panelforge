@@ -26,6 +26,39 @@ class LocalStoryStore:
             raise ValueError("Lien de stockage non autorisé.")
         return path
 
+    def exists(self, project_id):
+        return self._path(project_id).is_file()
+
+    def _followup_path(self, identity):
+        if not isinstance(identity, str) or not re.fullmatch(r"followup-[a-f0-9]{32}", identity):
+            raise ValueError("Identifiant de préparation invalide.")
+        directory = self.root / "followups"
+        path = directory / f"{identity}.json"
+        if directory.is_symlink() or path.is_symlink():
+            raise ValueError("Lien de stockage non autorisé.")
+        return path
+
+    def get_followup(self, identity):
+        with self._lock:
+            path = self._followup_path(identity)
+            if not path.is_file():
+                raise FileNotFoundError(identity)
+            value = _read_json_object(path)
+            if value.get("schema_version") != 1 or value.get("id") != identity:
+                raise ValueError("Préparation de suite invalide.")
+            return value
+
+    def save_followup(self, draft):
+        with self._lock:
+            path = self._followup_path(draft["id"])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            value = deepcopy(draft)
+            value["revision"] = value.get("revision", 0) + 1
+            value["updated_at"] = datetime.now(UTC).isoformat()
+            value["schema_version"] = 1
+            _atomic_write(path, _json_bytes(value))
+            return value
+
     def get(self, project_id):
         with self._lock:
             value = _read_json_object(self._path(project_id))

@@ -726,6 +726,10 @@ class Krea2AssistedPromptExampleBody(BaseModel):
     expected_branch_id: str
 
 
+class Krea2AssistedExpectedBranchBody(BaseModel):
+    expected_branch_id: str
+
+
 class Krea2AssistedRecipeDraftBody(BaseModel):
     recipe_id: str
     display_name: str
@@ -2728,6 +2732,7 @@ def create_app(
                           "default_instruction": RESTAGING_INSTRUCTION},
             "assistance_recipes": service.list_assistance_recipes(),
             "prompt_library": service.prompt_example_library_status(),
+            "wildcard_library": service.prompt_wildcard_library_status(),
             **image_catalogs.read(service.resources, service, _serialize_llm_model, refresh=refresh),
             "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
             "defaults": {
@@ -2760,7 +2765,7 @@ def create_app(
         model_id: Annotated[str, Form()],
         intention: Annotated[str, Form()] = "",
         reference: Annotated[UploadFile | None, File()] = None,
-        assistance_recipe_version: Annotated[str, Form()] = "1.0.0",
+        assistance_recipe_version: Annotated[str, Form()] = "3.0.0",
         style_preset_id: Annotated[str | None, Form()] = None,
         prompt_language: Annotated[str | None, Form()] = None,
     ) -> dict[str, object]:
@@ -2897,6 +2902,36 @@ def create_app(
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="Projet ou exemple introuvable.") from error
         except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/prompt-example/variant")
+    def recompile_krea2_prompt_example(
+        project_id: str,
+        body: Krea2AssistedExpectedBranchBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            project = service.recompile_prompt_example(
+                project_id,
+                expected_branch_id=body.expected_branch_id,
+            )
+            return {"project": serialize_krea2_assisted_project(project)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Template introuvable.") from error
+        except (RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-assisted/wildcard-preview")
+    def get_krea2_wildcard_preview(template_id: str) -> FileResponse:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return FileResponse(
+                service.prompt_template_preview(template_id),
+                media_type="image/png",
+            )
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Aperçu de template introuvable.") from error
+        except RuntimeError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post(
@@ -5597,6 +5632,20 @@ def serialize_krea2_assisted_project(
                 "positions": list(example.positions),
                 "framings": list(example.framings),
                 "settings": list(example.settings),
+                "source_kind": example.source_kind,
+                "template_id": example.template_id,
+                "variant_seed": (
+                    str(example.variant_seed)
+                    if example.variant_seed is not None
+                    else None
+                ),
+                "recommended_aspect_ratio": example.recommended_aspect_ratio,
+                "preview_url": (
+                    "/api/image-lab/krea2-assisted/wildcard-preview?template_id="
+                    + example.template_id
+                    if example.source_kind == "wildcard" and example.template_id
+                    else None
+                ),
                 "selected": example.example_id == project.selected_prompt_example_id,
             }
             for example in project.prompt_examples

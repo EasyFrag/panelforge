@@ -102,11 +102,15 @@ def previous_ids(project, episode_id):
 
 def dependency_hash(project, episode_id):
     doc = project["document"]
-    return fingerprint({"outline": doc.get("series_outline"), "options": project["long_options"],
+    inputs = {"outline": doc.get("series_outline"), "options": project["long_options"],
         "format": doc.get("episode_formats", {}).get(episode_id),
         "previous": [{"id": identity, "scenario": doc.get("episode_scenarios", {}).get(identity),
                       "state": doc.get("episode_states", {}).get(identity)}
-                     for identity in previous_ids(project, episode_id)]})
+                     for identity in previous_ids(project, episode_id)]}
+    direction = doc.get("continuation_directions", {}).get(episode_id)
+    if direction:
+        inputs["author_direction"] = direction["brief"]
+    return fingerprint(inputs)
 
 
 def source_hash(project, target):

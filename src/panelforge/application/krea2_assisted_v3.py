@@ -14,7 +14,7 @@ from .krea2_assisted_v2 import (
 
 
 VERSION = "3.0.0"
-LABEL = "V3 · corrections visuelles · expérimental"
+LABEL = "V3 · STABLE"
 MAX_TOKENS = krea2_assisted_v2.MAX_TOKENS
 CREATION_OPERATION = "krea2.assisted.creation_chat@3.0.0"
 RECIPE_OPERATION = "krea2.assisted.recipe_chat@3.0.0"

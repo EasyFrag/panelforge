@@ -4,14 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260923.3">
+  <link rel="stylesheet" href="/static/lab.css?v=20260924.2">
   <script src="/static/lab.js?v=20260918.3" defer></script>
   <script src="/static/work-queue.js?v=20260920.2" defer></script>
   <script src="/static/lab-core.js?v=20260922.2" defer></script>
-  <link rel="stylesheet" href="/static/stories.css?v=20260920.3">
+  <link rel="stylesheet" href="/static/stories.css?v=20260924.1">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
   <script src="/static/story-continuity.js?v=20260922.1" defer></script>
-  <script src="/static/stories.js?v=20260923.1" defer></script>
+  <link rel="stylesheet" href="/static/story-followup.css?v=20260924.1">
+  <script src="/static/story-followup.js?v=20260924.1" defer></script>
+  <script src="/static/stories.js?v=20260924.1" defer></script>
   <script src="/static/stories-help.js?v=20260920.3" defer></script>
   <link rel="stylesheet" href="/static/episodes.css?v=20260920.2">
   <script src="/static/dlss-image-comparison.js?v=20260923.1" defer></script>
@@ -27,7 +29,7 @@
   <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260923.1" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260924.1" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
   <script src="/static/social-lab.js?v=20260902.1" defer></script>
   <script src="/static/ref2v-direct.js?v=20260919.1" defer></script>
@@ -35,10 +37,12 @@
   <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
   <script src="/static/krea2-resource-ui.js?v=20260919.1" defer></script>
-  <script src="/static/episodes.js?v=20260923.1" defer></script>
+  <link rel="stylesheet" href="/static/episode-localization.css?v=20260923.1">
+  <script src="/static/episode-localization.js?v=20260923.1" defer></script>
+  <script src="/static/episodes.js?v=20260923.2" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260923.3" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260924.4" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
   <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260923.1">
@@ -83,7 +87,7 @@
   <main id="stories-workspace" hidden>
     <div class="story-heading">
       <div><small>ATELIER NARRATIF · FAMILLES ISOLÉES</small><h1>Histoires</h1><p>Développe une histoire à partir de ton intention, ou transforme fidèlement un script complet.</p></div>
-      <div class="story-actions"><button id="story-recipes" type="button">Consignes LLM</button><button id="story-fabrication" type="button" hidden>Fabrication</button><button id="story-new" type="button">Nouvelle histoire</button></div>
+      <div class="story-actions"><button id="story-recipes" type="button">Consignes LLM</button><button id="story-fabrication" type="button" hidden>Fabrication</button><button id="story-next-episode" type="button" hidden>Créer l’épisode suivant</button><button id="story-new" type="button">Nouvelle histoire</button></div>
     </div>
     <div class="story-toolbar">
       <div class="story-project-control">
@@ -206,7 +210,7 @@
         </section>
         <button id="story-develop" class="primary" type="button" hidden>Développer cette histoire</button>
         <div id="story-scenario" hidden>
-          <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-next-episode" type="button">Créer l’épisode suivant</button><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary" aria-describedby="story-fabrication-reason">Valider et préparer la fabrication</button></div>
+          <div class="story-actions"><h2 id="story-scenario-title"></h2><button id="story-export" type="button">Télécharger le scénario</button><button id="story-validate" type="button" class="primary" aria-describedby="story-fabrication-reason">Valider et préparer la fabrication</button></div>
           <aside id="story-fabrication-gate" class="story-diagnostics" hidden><strong>Avant la fabrication</strong><p id="story-fabrication-reason" role="status" aria-live="polite"></p><button id="story-fabrication-next" type="button">Continuer les vérifications</button></aside>
           <p id="story-logline"></p>
           <div id="story-visual-continuity"></div>
@@ -217,6 +221,34 @@
         </div>
       </section>
     </div>
+    <dialog id="story-followup" class="story-followup" aria-labelledby="sf-title">
+      <header class="sf-header"><div><small>HISTOIRES · ÉPISODE SUIVANT</small><h2 id="sf-title">Préparer la suite</h2><p id="sf-source" class="muted"></p></div><button id="sf-close" type="button" aria-label="Fermer la préparation">Fermer</button></header>
+      <div id="sf-source-warning" class="sf-warning" hidden><p>L’histoire source a changé. Actualise le contexte puis relis la direction avant d’écrire.</p><button id="sf-refresh-source" type="button">Actualiser le contexte</button></div>
+      <p id="sf-existing" class="sf-warning" hidden>Cet épisode est déjà écrit. Tu peux l’ouvrir dans le parcours habituel ; son scénario est conservé.</p>
+      <div class="sf-layout">
+        <section class="sf-chat" aria-label="Discussion pour la suite">
+          <div class="sf-model-row"><label>Modèle de discussion<select id="sf-model" aria-describedby="sf-model-help"></select></label><button id="sf-model-refresh" type="button" aria-label="Actualiser les modèles">↻</button></div>
+          <small id="sf-model-help" class="muted">Qwen par défaut. Ce choix concerne uniquement la discussion.</small>
+          <div id="sf-turns" class="sf-turns" role="log" aria-label="Messages de préparation"></div>
+          <form id="sf-chat-form"><label for="sf-message">Ta direction ou ta question</label><textarea id="sf-message" rows="3" maxlength="12000" placeholder="Je voudrais une réconciliation, mais pas tout de suite…"></textarea><div class="sf-chat-actions"><button id="sf-suggest" type="button">Propose-moi une suite</button><button id="sf-send" type="submit" class="primary">Envoyer</button></div></form>
+          <div id="sf-working" hidden><progress aria-label="Discussion en cours"></progress><span>L’échange continue même si tu fermes ce panneau.</span><button id="sf-cancel" type="button">Arrêter l’échange</button></div>
+          <details id="sf-raw-panel" hidden><summary>Réponse conservée après erreur</summary><pre id="sf-raw"></pre></details>
+        </section>
+        <section class="sf-direction" aria-labelledby="sf-direction-title"><h3 id="sf-direction-title">Direction de l’épisode</h3><p class="muted">Ajuste ces grandes lignes directement ou dans le chat. Elles guideront l’écriture.</p>
+          <label>Point de départ<textarea id="sf-start" rows="3" maxlength="1500"></textarea></label>
+          <label>Moments importants<textarea id="sf-beats" rows="5" maxlength="4000" placeholder="Trois à cinq moments simples et visibles…"></textarea></label>
+          <label>Fin souhaitée<textarea id="sf-ending" rows="2" maxlength="1500"></textarea></label>
+          <label>Contraintes<textarea id="sf-constraints" rows="2" maxlength="2000" placeholder="Ce qu’il faut conserver ou éviter…"></textarea></label>
+          <details class="sf-settings"><summary>Réglages repris de l’histoire</summary><p id="sf-format-note" class="muted"></p><div class="sf-settings-grid">
+            <label>Langue parlée<select id="sf-language"><option value="French">Français</option><option value="English">English</option><option value="Korean">Coréen</option><option value="Japanese">Japonais</option><option value="Russian">Russe</option></select></label>
+            <label>Accompagnement<select id="sf-mode"><option value="automatic">Automatique</option><option value="manual">Manuel guidé</option></select></label>
+            <label>Durée visée · secondes<input id="sf-target" type="number" min="10" max="2160" step="1"></label><label>Plafond de scènes<input id="sf-scenes" type="number" min="1" max="12" step="1"></label><label>Secondes par scène<input id="sf-seconds" type="number" min="5" max="15" step="1"></label>
+            <label>Modèle de conception<select id="sf-architect"></select></label><label>Modèle de rédaction<select id="sf-writer"></select></label>
+          </div><p id="sf-budget" class="muted"></p></details>
+        </section>
+      </div>
+      <footer class="sf-footer"><div><p id="sf-status" role="status" aria-live="polite"></p><small id="sf-saved" class="muted"></small></div><div class="sf-footer-actions"><button id="sf-reload" type="button">Recharger la préparation</button><button id="sf-write" type="button" class="primary">Écrire cet épisode</button></div></footer>
+    </dialog>
     <dialog id="story-help" class="story-help"><h2 id="story-help-title"></h2><div id="story-help-content"></div><form method="dialog"><button type="submit">Compris</button></form></dialog>
     <dialog id="story-scene-editor" class="story-scene-editor">
       <form id="story-scene-form">
@@ -246,6 +278,7 @@
       <nav class="episode-tabs" aria-label="Étapes de fabrication">
         <button id="episode-tab-references" type="button" aria-pressed="true">1 · Références</button>
         <button id="episode-tab-scenes" type="button" aria-pressed="false">2 · Scènes</button>
+        <button id="episode-tab-localization" type="button" aria-pressed="false">3 · Multilangue <small>optionnel</small></button>
       </nav>
       <section id="episode-references" class="story-panel">
         <details id="episode-batch-panel" class="episode-batch-panel" open>
@@ -362,10 +395,11 @@
           </div>
         </div>
       </section>
+      <section id="episode-localization" hidden></section>
       <section id="episode-scenes" hidden>
         <div class="story-panel episode-video-overview">
-          <div class="episode-bar"><div><h2>Prompts et vidéos de l’épisode</h2>
-            <p class="muted">Toutes les scènes restent visibles. Les prompts sont rédigés un par un ; les vidéos démarrent automatiquement sur le serveur distant.</p></div>
+          <div class="episode-bar"><div><h2 id="episode-overview-title">Prompts et vidéos de l’épisode</h2>
+            <p id="episode-overview-hint" class="muted">Toutes les scènes restent visibles. Les prompts sont rédigés un par un ; les vidéos démarrent automatiquement sur le serveur distant.</p></div>
             <div class="story-actions"><button id="episode-video-start" type="button" class="primary">Lancer prompts + vidéos</button>
               <button id="episode-video-pause" type="button" title="Laisse finir uniquement les traitements qui utilisent déjà une machine et retire les réservations suivantes." hidden>Pause après les traitements actifs</button>
               <button id="episode-video-drain" class="text-button" type="button" title="N’ajoute plus de travail mais termine toutes les réservations déjà placées dans les files." hidden>Finir la file puis suspendre</button>
@@ -373,7 +407,7 @@
           <p class="episode-video-cooldown muted">Le repos entre vidéos et la protection thermique suivent les paramètres globaux. <button id="episode-video-global-settings" type="button">Modifier</button></p>
           <div id="episode-video-progress" class="episode-video-progress" hidden>
             <div class="episode-video-lanes">
-              <section><b>LLM local</b><progress id="episode-video-prompt-progress-bar" max="1" value="0"></progress><span id="episode-video-prompt-lane">En attente</span></section>
+              <section><b id="episode-prompt-lane-title">LLM local</b><progress id="episode-video-prompt-progress-bar" max="1" value="0"></progress><span id="episode-video-prompt-lane">En attente</span></section>
               <section><b>GPU distant</b><progress id="episode-video-progress-bar" max="1" value="0"></progress><span id="episode-video-render-lane">En attente</span></section>
             </div>
             <span id="episode-video-chain-phase" role="status"></span>
@@ -389,7 +423,7 @@
             <button id="episode-add" type="button">Ajouter une référence</button><span id="episode-reference-limit" class="muted"></span></div>
           <label>Intention · actions et réactions<textarea id="episode-intention" rows="5" maxlength="16000"></textarea></label>
           <details open><summary>Dialogues du scénario · ajoutés automatiquement</summary><div id="episode-dialogues"></div></details>
-          <details><summary>Préparation du prompt · Classique expérimental, deux appels</summary>
+          <details class="localization-narrative-controls"><summary>Préparation du prompt · Classique expérimental, deux appels</summary>
             <div class="episode-grid">
               <div><label>1 · Plan JSON<select id="episode-plan-model"></select></label><label class="llm-local-toggle"><input id="episode-plan-local" type="checkbox" data-llm-local-for="episode-plan-model" checked> Local</label></div>
               <div><label>2 · Rédaction du prompt<select id="episode-writer-model"></select></label><label class="llm-local-toggle"><input id="episode-writer-local" type="checkbox" data-llm-local-for="episode-writer-model" checked> Local</label></div>
@@ -657,7 +691,7 @@
           </div>
           <small id="krea2-assisted-new-preset-note" class="muted"></small>
           <small class="muted">Avec une image seule, le LLM propose un prompt pour en reproduire le sujet, la composition et l’ambiance.</small>
-          <label>Recette d’assistance<select id="krea2-assisted-assistance-recipe" required><option value="1.0.0">V1 · classique</option><option value="2.0.0">V2 · sujet et contexte compact · expérimental</option><option value="3.0.0">V3 · corrections visuelles · expérimental</option><option value="4.0.0" selected>V4 · inspiration locale · expérimental</option></select></label>
+          <label>Recette d’assistance<select id="krea2-assisted-assistance-recipe" required><option value="1.0.0">V1 · classique</option><option value="2.0.0">V2 · sujet et contexte compact · expérimental</option><option value="3.0.0" selected>V3 · STABLE</option><option value="4.0.0">V4 · inspiration locale · expérimental</option><option value="5.0.0">V5 · templates KREA2 · expérimental</option></select></label>
           <div id="krea2-assisted-library-row" class="krea2-assisted-library-row"><small id="krea2-assisted-library-status">Bibliothèque locale : vérification…</small><button id="krea2-assisted-library-index" type="button">Indexer</button></div>
           <label>Modèle LLM<select id="krea2-assisted-llm" required><option value="">Chargement…</option></select></label>
           <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm" checked> Local · Unsloth</label>
@@ -684,7 +718,8 @@
         <div id="krea2-assisted-warnings" class="krea2-batch-warnings" hidden></div>
         <details id="krea2-assisted-example-panel" class="krea2-assisted-example-panel" hidden>
           <summary>Inspiration locale · <b id="krea2-assisted-example-summary">exemple épinglé</b></summary>
-          <p class="muted">Trois scènes proches ont été trouvées localement. Une seule sert d’exemple complet au modèle.</p>
+          <p id="krea2-assisted-example-assessment" class="muted">Trois scènes proches ont été trouvées localement. Une seule sert d’exemple complet au modèle.</p>
+          <button id="krea2-assisted-example-variant" class="krea2-assisted-example-variant" type="button" hidden>Nouvelle variante du template</button>
           <div id="krea2-assisted-example-candidates" class="krea2-assisted-example-candidates"></div>
           <details><summary>Voir le prompt source complet</summary><pre id="krea2-assisted-example-prompt"></pre></details>
         </details>

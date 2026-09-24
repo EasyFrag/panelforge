@@ -126,6 +126,38 @@ class StorySceneEdit(BaseModel):
     visual_transition: StoryVisualTransition | None = None
 
 
+class FollowupOpen(StoryVersion):
+    source_unit_id: str | None = Field(default=None, pattern="^(standalone|episode-([1-9]|1[0-2]))$")
+
+
+class FollowupVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1, strict=True)
+
+
+class FollowupSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    dialogue_language: str
+    scene_count: int = Field(ge=1, le=12, strict=True)
+    clip_seconds: int = Field(ge=5, le=15, strict=True)
+    target_seconds: int = Field(ge=10, le=2160, strict=True)
+    workflow_mode: str = Field(pattern="^(automatic|manual)$")
+    architect_model_id: str = Field(max_length=300)
+    writer_model_id: str = Field(max_length=300)
+
+
+class FollowupEdit(FollowupVersion):
+    direction: dict
+    model_id: str = Field(max_length=300)
+    settings: FollowupSettings
+
+
+class FollowupMessage(FollowupVersion):
+    instruction: str = Field(default="", max_length=12000)
+    automatic: bool = False
+    request_id: str = Field(min_length=8, max_length=100)
+
+
 def stories_router(service):
     router = APIRouter(prefix="/api/stories")
 
@@ -143,6 +175,34 @@ def stories_router(service):
             raise HTTPException(409, str(error)) from error
         except (TypeError, ValueError) as error:
             raise HTTPException(422, str(error)) from error
+
+    @router.post("/projects/{project_id}/followup")
+    def open_followup(project_id: str, body: FollowupOpen):
+        return invoke(lambda: current().followups.open(project_id, **body.model_dump()))
+
+    @router.get("/followups/{identity}")
+    def get_followup(identity: str):
+        return invoke(lambda: current().followups.get(identity))
+
+    @router.put("/followups/{identity}")
+    def edit_followup(identity: str, body: FollowupEdit):
+        return invoke(lambda: current().followups.update(identity, **body.model_dump()))
+
+    @router.post("/followups/{identity}/refresh")
+    def refresh_followup(identity: str, body: FollowupVersion):
+        return invoke(lambda: current().followups.refresh(identity, **body.model_dump()))
+
+    @router.post("/followups/{identity}/messages", status_code=202)
+    def discuss_followup(identity: str, body: FollowupMessage):
+        return invoke(lambda: current().followups.start(identity, **body.model_dump()))
+
+    @router.post("/followups/{identity}/cancel")
+    def cancel_followup(identity: str):
+        return invoke(lambda: current().followups.cancel(identity))
+
+    @router.post("/followups/{identity}/commit")
+    def commit_followup(identity: str, body: FollowupVersion):
+        return invoke(lambda: current().followups.commit(identity, **body.model_dump()))
 
     @router.get("/models")
     def models():

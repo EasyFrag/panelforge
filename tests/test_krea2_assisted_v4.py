@@ -22,6 +22,7 @@ from panelforge.domain.krea2_assisted import (
 )
 from panelforge.infrastructure.prompt_examples import (
     _classify,
+    _content_compatibility_adjustment,
     _metadata_adjustment,
     _near_duplicate,
     _read_examples,
@@ -264,6 +265,57 @@ class Krea2AssistedV4Test(unittest.TestCase):
         )
         self.assertEqual(_relevance_label(query, relevant, 0.55), "strong")
         self.assertEqual(_relevance_label(query, generic, 0.72), "weak")
+
+    def test_missing_footjob_action_cannot_become_a_strong_match(self):
+        query_text = (
+            "A woman gives her partner a footjob. actions: footjob. "
+            "interactions: feet massaging/stimulating. positions: sitting."
+        )
+        query = _classify(query_text)
+        stockings_only = {
+            "prompt": "A woman sits on a sofa wearing pink fishnet stockings and heels.",
+            **_classify("A woman sits on a sofa wearing pink fishnet stockings and heels."),
+        }
+        self.assertIn("footjob", query["actions"])
+        self.assertIn("foot_contact", query["interactions"])
+        self.assertLess(_metadata_adjustment(query, stockings_only), -0.5)
+        self.assertEqual(
+            _relevance_label(query, stockings_only, 0.82, query_text=query_text),
+            "weak",
+        )
+
+    def test_explicit_example_is_penalized_only_for_non_explicit_query(self):
+        item = {
+            "prompt": "An explicit nude couple scene with vaginal penetration.",
+            **_classify("An explicit nude couple scene with vaginal penetration."),
+        }
+        self.assertEqual(
+            _content_compatibility_adjustment("A giant tree made of wool.", item),
+            -0.45,
+        )
+        self.assertEqual(
+            _content_compatibility_adjustment("An adult vaginal penetration scene.", item),
+            0.0,
+        )
+        self.assertEqual(
+            _relevance_label(
+                _classify("A giant tree made of wool."),
+                item,
+                0.80,
+                query_text="A giant tree made of wool.",
+            ),
+            "weak",
+        )
+        innocent = {
+            "prompt": "Warm sunlight penetrates the tree canopy above a model wearing nude pink lipstick.",
+            **_classify(
+                "Warm sunlight penetrates the tree canopy above a model wearing nude pink lipstick."
+            ),
+        }
+        self.assertEqual(
+            _content_compatibility_adjustment("A giant tree made of wool.", innocent),
+            0.0,
+        )
 
     def test_near_duplicate_variants_do_not_consume_two_candidate_slots(self):
         clean_text = (

@@ -20,8 +20,7 @@
 #story-workflow-message { margin-bottom: 0; }
 #story-feedback-context { font-size: .8rem; border-left: 3px solid var(--green); padding-left: .65rem; }
 #stories-workspace.story-guided #story-outline,
-#stories-workspace.story-guided #story-ideas,
-#stories-workspace.story-guided #story-next-episode { display: none; }
+#stories-workspace.story-guided #story-ideas { display: none; }
 #stories-workspace.story-guided .story-layout { grid-template-columns: minmax(0, 1.65fr) minmax(300px, .85fr); }
 #stories-workspace.story-guided .story-document { grid-column: 1; grid-row: 1; }
 #stories-workspace.story-guided .story-conversation { grid-column: 2; grid-row: 1; position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow-y: auto; }

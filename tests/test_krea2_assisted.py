@@ -164,6 +164,7 @@ class Krea2AssistedServiceTest(unittest.TestCase):
                 name="Zodiaque",
                 intention="Créer un tigre du zodiaque chinois.",
                 model_id="Qwen3.8-27B",
+                assistance_recipe_version="1.0.0",
                 reference_asset_id=reference.asset_id,
                 reference_filename="tiger.png",
             )
@@ -270,6 +271,7 @@ class Krea2AssistedServiceTest(unittest.TestCase):
                 name="Tigre chinois",
                 intention="Créer un tigre céleste.",
                 model_id="Qwen3.8-27B",
+                assistance_recipe_version="1.0.0",
             )
             project_path = root / "krea2_assisted" / project.project_id / "project.json"
             legacy = json.loads(project_path.read_text(encoding="utf-8"))

@@ -156,6 +156,42 @@ class PauseVideoChainBody(StrictBody):
     mode: Literal["after_active", "after_queue"] = "after_active"
 
 
+class LocalizationChoiceBody(StrictBody):
+    scene_id: str
+    preparation_id: str
+    project_id: str
+    attempt_id: str | None = None
+    token: str = Field(min_length=64, max_length=64)
+
+
+class LocalizationSourceBody(StrictBody):
+    episode_id: str
+    scenes: list[LocalizationChoiceBody] = Field(min_length=1, max_length=200)
+
+
+class LocalizationCreateBody(StrictBody):
+    language: str
+    model_id: str = Field(min_length=1, max_length=240)
+    request_id: str = Field(min_length=8, max_length=80)
+    selections: list[LocalizationSourceBody] = Field(min_length=1, max_length=50)
+
+
+class LocalizationStartBody(StrictBody):
+    expected_revisions: dict[str, int]
+    model_id: str = Field(min_length=1, max_length=240)
+    mode: Literal["translate", "all", "produce"]
+    request_id: str = Field(min_length=8, max_length=80)
+
+
+class TranslationLineBody(StrictBody):
+    id: str
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class LocalizedDialoguesBody(RevisionBody):
+    lines: list[TranslationLineBody] = Field(max_length=100)
+
+
 def episodes_router(service, *, serialize_image_project, validate_image, image_body, render_body, serialize_render_project):
     router = APIRouter(prefix="/api/episodes")
 
@@ -210,6 +246,22 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
     @router.post("/stories/{story_id}", status_code=201)
     def create(story_id: str, body: CreateBody):
         return invoke(lambda: current().create(story_id, body.expected_version))
+
+    @router.get("/{identity}/localizations")
+    def localization_catalog(identity: str, include_sources: bool = True):
+        return invoke(lambda: current().localization_catalog(identity, include_sources=include_sources))
+
+    @router.post("/{identity}/localizations", status_code=201)
+    def create_localization(identity: str, body: LocalizationCreateBody):
+        return invoke(lambda: current().create_localization(identity, **body.model_dump()))
+
+    @router.post("/{identity}/localizations/start", status_code=202)
+    def start_localization(identity: str, body: LocalizationStartBody):
+        return invoke(lambda: current().start_localization(identity, **body.model_dump()))
+
+    @router.put("/{identity}/scenes/{scene_id}/localized-dialogues")
+    def save_localized_dialogues(identity: str, scene_id: str, body: LocalizedDialoguesBody):
+        return invoke(lambda: current().save_localized_dialogues(identity, scene_id, **body.model_dump()))
 
     @router.get("/{identity}")
     def get(identity: str):

@@ -210,6 +210,8 @@ class StoryService:
         self._lock = RLock()
         self._active = {}
         self.workflow = StoryWorkflow(self)
+        from .story_followup import StoryFollowupService
+        self.followups = StoryFollowupService(self)
 
     @staticmethod
     def _normalize(project):
@@ -257,7 +259,8 @@ class StoryService:
                architect_model_id="", writer_model_id="", creation_mode="ideas",
                dialogue_register=0, dialogue_language=DEFAULT_DIALOGUE_LANGUAGE,
                narrative_format=DEFAULT_NARRATIVE_FORMAT, parent_story_id=None, long_options=None,
-               workflow_mode=None, visual_universe="", target_seconds=None, prior_story=""):
+               workflow_mode=None, visual_universe="", target_seconds=None, prior_story="",
+               continuation_origin=None):
         if not isinstance(title, str) or not title.strip() or len(title) > 160:
             raise ValueError("Donnez un nom à cette histoire (160 caractères maximum).")
         if not isinstance(brief, str):
@@ -346,6 +349,14 @@ class StoryService:
             if workflow_mode is not None:
                 value["workflow"] = new_workflow(workflow_mode)
             value["llm_usage"] = dict(calls=0, elapsed_ms=0, repair_calls=0, since=_now(), earlier_calls_unknown=False)
+        if continuation_origin is not None:
+            # Internal continuation hand-off: one atomic creation, stable destination ID.
+            value["project_id"] = continuation_origin["project_id"]
+            value["continuation_origin"] = deepcopy(continuation_origin["provenance"])
+            previous = deepcopy(continuation_origin["scenario"])
+            document["prior_story_snapshot"] = previous
+            from panelforge.domain.story_continuity import carry_forward
+            document["visual_state_inherited"] = carry_forward(previous)
         return self._normalize(self.store.save(value))
 
     def get(self, project_id):
@@ -989,6 +1000,11 @@ class StoryService:
                     " Les dialogues déjà validés restent inchangés sauf si la demande de révision vise explicitement "
                     "leur formulation ; applique surtout ce registre aux nouvelles répliques."
                 )
+        unit_direction = project["document"].get("continuation_directions", {}).get(
+            project["document"].get("selected_episode_id"))
+        if unit_direction:
+            context["author_episode_direction"] = unit_direction["brief"]
+            system_prompt += "\nRespecte author_episode_direction pour cette unité, dans le cadre des faits acquis et de l’arc."
         return CompletionRequest(model_id=project["model_id"], system_prompt=system_prompt,
             user_prompt=json.dumps(context, ensure_ascii=False), temperature=.8 if operation == "ideas" else (.35 if operation == "script" else .65),
             max_tokens=24000, include_reasoning=True,

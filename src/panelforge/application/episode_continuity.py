@@ -6,6 +6,7 @@ from panelforge.domain.episodes import DEFAULT_PLAN_MODEL, fingerprint
 class EpisodeContinuityActions:
     def _continuity_editable(self, value):
         from .episodes import EpisodeConflict
+        self._require_original_fabrication(value)
         identity = value["episode_id"]
         if any(key[0] == identity for key in self._active) or identity in self._active_batches or identity in self._active_video_chains:
             raise EpisodeConflict("La fabrication travaille encore. Modifie la continuité après la fin des traitements.")

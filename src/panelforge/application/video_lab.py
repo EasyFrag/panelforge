@@ -173,6 +173,7 @@ class VideoLabRunner:
         self,
         *,
         recipe: VideoLabRecipe,
+        historical_recipes: tuple[VideoLabRecipe, ...] = (),
         comfy: VideoComfyGateway,
         assets: VideoAssetStore,
         runs: VideoRunStore,
@@ -189,6 +190,7 @@ class VideoLabRunner:
         if poll_interval <= 0:
             raise ValueError("poll_interval must be greater than zero")
         self.recipe = recipe
+        self._recipes = {value.reference: value for value in (*historical_recipes, recipe)}
         self.comfy = comfy
         self.assets = assets
         self.runs = runs
@@ -256,7 +258,7 @@ class VideoLabRunner:
                 if (
                     candidate.status is VideoLabRunStatus.RUNNING
                     and candidate.run_id not in self._claimed
-                    and candidate.recipe == self.recipe.reference
+                    and candidate.recipe in self._recipes
                 )
                 else candidate
                 for candidate in candidates
@@ -293,7 +295,7 @@ class VideoLabRunner:
                 return run
             if run.status is not VideoLabRunStatus.QUEUED:
                 raise ValueError(f"run {run_id!r} is not queued")
-            self._require_current_recipe(run)
+            recipe = self._require_current_recipe(run)
             if run_id in self._claimed:
                 raise ValueError(f"run {run_id!r} is already being executed")
             self._claimed.add(run_id)
@@ -315,7 +317,7 @@ class VideoLabRunner:
 
             if self._is_cancelled(run_id):
                 return self.runs.get(run_id)
-            workflow = self.recipe.build_workflow(
+            workflow = recipe.build_workflow(
                 source_images=uploaded_values,
                 prompt=run.prompt,
                 settings=run.settings,
@@ -338,8 +340,8 @@ class VideoLabRunner:
                 return self.runs.get(run_id)
             output_ref = extract_bound_video(
                 history_run,
-                node_id=self.recipe.output_node_id,
-                history_field=self.recipe.output_history_field,
+                node_id=recipe.output_node_id,
+                history_field=recipe.output_history_field,
             )
             output_content = self.comfy.download_output(
                 filename=output_ref["filename"],
@@ -399,7 +401,7 @@ class VideoLabRunner:
             if (
                 run.status is VideoLabRunStatus.RUNNING
                 and run.run_id not in self._claimed
-                and run.recipe == self.recipe.reference
+                and run.recipe in self._recipes
             ):
                 run = self._refresh_detached_running(run)
                 if run.status is not VideoLabRunStatus.RUNNING:
@@ -428,7 +430,7 @@ class VideoLabRunner:
             if (
                 run.status is VideoLabRunStatus.RUNNING
                 and run_id not in self._claimed
-                and run.recipe == self.recipe.reference
+                and run.recipe in self._recipes
             ):
                 run = self._refresh_detached_running(run)
             return run
@@ -479,11 +481,13 @@ class VideoLabRunner:
             VideoLabRunStatus.CANCEL_PENDING,
         }
 
-    def _require_current_recipe(self, run: VideoLabRun) -> None:
-        if run.recipe != self.recipe.reference:
+    def _require_current_recipe(self, run: VideoLabRun) -> VideoLabRecipe:
+        recipe = self._recipes.get(run.recipe)
+        if recipe is None:
             raise ValueError(
                 "the run recipe version is not loaded; create a new Video Lab run"
             )
+        return recipe
 
     def _stop_remote_after_failure(
         self,
@@ -527,6 +531,7 @@ class VideoLabRunner:
     def _refresh_detached_running(self, run: VideoLabRun) -> VideoLabRun:
         """Reconcile one persisted Comfy execution after a process restart."""
         assert run.execution_id is not None
+        recipe = self._require_current_recipe(run)
         try:
             history = self.comfy.get_history(run.execution_id)
         except Exception:
@@ -545,8 +550,8 @@ class VideoLabRunner:
             try:
                 output_ref = extract_bound_video(
                     candidate,
-                    node_id=self.recipe.output_node_id,
-                    history_field=self.recipe.output_history_field,
+                    node_id=recipe.output_node_id,
+                    history_field=recipe.output_history_field,
                 )
                 content = self.comfy.download_output(
                     filename=output_ref["filename"],

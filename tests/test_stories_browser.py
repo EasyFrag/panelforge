@@ -9,7 +9,7 @@ from tests.test_media_analysis_browser import MediaAnalysisBrowserTest, STATIC
 class StoriesBrowserTest(unittest.TestCase):
     run_browser = MediaAnalysisBrowserTest.run_browser
 
-    def test_next_episode_prefills_the_cumulative_memory_and_latest_scenario(self):
+    def test_next_episode_opens_preparation_with_current_story_and_models(self):
         browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
         if not browsers:
             self.skipTest("local Chromium not installed")
@@ -32,6 +32,7 @@ class StoriesBrowserTest(unittest.TestCase):
             recipe:{id:'story.brainrot',version:'1.0.0'},architect_model_id:gemma,writer_model_id:gemma,model_id:gemma,
             document:{concepts:[],selected_id:'concept-1',scenario,continuity:memory,continuity_source:memory},
             turns:[],job:null,revisions:[{revision:1,label:'Scénario',document:{}}],diagnostics:[]};
+          let followupInput=null; window.PanelForgeStoryFollowup={open(value){followupInput=value;}};
           window.fetch=async(url)=>{
             if(url==='/api/stories/models')return new Response(JSON.stringify({models:[{id:gemma,label:'Gemma',source:'local'}]}));
             if(url==='/api/stories/spec')return new Response(JSON.stringify({recipes:[]}));
@@ -47,13 +48,12 @@ class StoriesBrowserTest(unittest.TestCase):
             check(!document.getElementById('story-continuity').hidden,'cumulative memory is visible');
             check(document.getElementById('story-continuity-content').textContent.includes('Les colis restent cachés.'),'open thread displayed');
             document.getElementById('story-next-episode').click();
-            const brief=document.getElementById('story-brief');
-            check(document.getElementById('story-creation-mode').value==='continuation','next project uses continuation mode');
-            check(brief.value.includes('MÉMOIRE CUMULATIVE VALIDÉE'),'cumulative memory carried forward');
-            check(brief.value.includes('ÉPISODE LE PLUS RÉCENT'),'latest episode remains detailed');
-            check(brief.value.includes('Citron retourne le colis'),'latest action preserved');
-            check(brief.maxLength===60000&&brief.required,'continuation input contract restored');
-            check(document.getElementById('story-scene-count').value==='3','episode format carried forward');
+            check(followupInput.project.project_id===pid,'preparation receives source identity');
+            check(followupInput.project.document.continuity.series_summary===memory.series_summary,'memory retained');
+            check(followupInput.project.document.scenario.scenes[0].action.includes('retourne le colis'),'written boundary retained');
+            check(followupInput.architect===gemma && followupInput.writer===gemma,'writing model choices retained');
+            check(followupInput.models.length===1,'model catalog available');
+            check(window.PanelForgeStories.current().project_id===pid,'opening preparation preserves source project');
             document.querySelector('#result').textContent='PASS';
           }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}})();
         """

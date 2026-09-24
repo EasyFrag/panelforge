@@ -1,5 +1,240 @@
 # CONTINUITY
 
+## Version 2026-09-24 — suites, multilangue, KREA2 V5 et VAE INT8
+
+### Goal
+- Créer la version GitHub du code actuel demandée par l'utilisateur, sans implémenter les derniers alignements UX/états visuels.
+
+### Current state
+- Snapshot du worktree actif depuis e081adda, sur la branche de travail feature/vocal-normalizer-dialogue-register. Références de publication dédiées : branche snapshots/stories-followup-multilang-krea5-2026-09-24 et tag annoté snapshot-stories-followup-multilang-krea5-2026-09-24.
+- 68 fichiers : préparation d'épisode suivant et correctif de portée des IDs, fabrication multilangue et stockage, KREA2 V5/templates et réglages initiaux, variantes VAE H3 INT8, tests et documentation. Notes : docs/releases/snapshot-stories-followup-multilang-krea5-2026-09-24.md.
+- Contrôles du contenu exact préparé : AST de 49 Python, compilation syntaxique seule de 6 JavaScript, 1 JSON et 1 TOML, 18 empreintes sources/variantes VAE, diff-check et sélection. Aucun motif de credential détecté dans les ajouts ; aucun hook actif. Tests fonctionnels non exécutés, aucun LLM, rendu ou redémarrage.
+- Runtime, médias, modèles, corpus/index et fichiers de lancement personnels exclus. Master et snapshots précédents préservés. Le résultat du push doit être confirmé par lecture des références distantes ; cette note décrit le contenu versionné.
+- Intention > Histoire > Scénario et références des deux états pendant une transformation restent à l'alignement. Aucun changement de ces fonctionnalités pour cette publication ; préserver l'organisation Références / Scènes / Multilangue.
+
+### Next steps
+1. Confirmer les références distantes après le push atomique de la branche et du tag.
+2. Tests et essais réels à la main de l'utilisateur, commandes dans les notes de version.
+3. Reprendre l'alignement UX/états visuels ; attendre une demande d'implémentation.
+
+## Alignement 2026-09-24 — personnage et états visuels avant/après
+
+### Goal
+- Discuter d'états de référence par personnage (robe verte/rose, Citron gringalet/musclé), avec les deux états dans le clip de transformation puis uniquement le nouvel état dans les suivants. Pas d'implémentation.
+- Confirmer trois étapes d'écriture très visibles et une progression explicite. Préserver l'organisation de Références / Scènes / Multilangue.
+
+### Current state
+- Vérifié : episode_continuity.bindings résout l'ancre de l'état au début du clip (before.reference_state_id) ; ne joint pas automatiquement une variante d'arrivée. Un choix manuel de variante prime. Les entrées des scènes transmettent les états textuels avant/après ; limite locale de neuf images par scène, personnages et décor compris.
+- Proposition : une identité stable, des états visuels nommés et des transitions explicites. Clip stable = état courant ; transformation visible = état départ + état arrivée avec rôles temporels du même personnage ; clip suivant = arrivée seule. Une ellipse commence directement dans l'état acquis. Réutiliser les états déjà connus lors d'un retour (robe propre après réparation).
+- Deux références REF2V ne garantissent pas une interpolation exacte ni des première/dernière images imposées. Prévoir un essai utilisateur pour vérifier identité, absence de doublon et transition. La proposition requiert une évolution ciblée des entrées/consignes vidéo, distincte de la refonte UX d'écriture ; pas de refonte des écrans de fabrication.
+- Critère proposé pour une image d'état : changement visuel important, rôle narratif et persistance/besoin de raccord. Robe tachée pertinente dans Le jus acide car sabotage puis réaction et réparation ; expressions fugaces restent textuelles. Éviter une multiplication systématique des variantes, préserver les attributs qui ne changent pas.
+- UX : Intention > Histoire > Scénario avec statut réel par étape ; sélection distincte d'achèvement. Texte écrit ne signifie pas relu/validé. Activité précise, attente auteur distincte d'erreur technique, étapes précédentes conservées, une action contextuelle. Avancement fondé sur états et résultats disponibles, pas de pourcentage de temps inventé.
+- Code/runtime/UI inchangés ; aucun test, LLM, média ou redémarrage. Notes de continuité seules mises à jour.
+
+### Next steps
+1. Poursuivre l'alignement sur la sélection des états importants, la transition et les trois étapes d'écriture.
+2. Obtenir une instruction d'implémentation avant de modifier le comportement ou l'interface.
+
+## Alignement 2026-09-24 — périmètre écriture et robe de Pêchette
+
+### Goal
+- Limiter la refonte UX à Intention > Histoire > Scénario. L'utilisateur est satisfait de Références / Scènes / Multilangue et interdit de les modifier dans cette refonte. Alignement seulement.
+- Vérifier si la robe de Pêchette nécessite une variante persistante après transformation.
+
+### Current state
+- Dernier récit identifié : Le jus acide, story-1014534a9138f1270404f57ba364cbad ; fabrication episode-87234c1e5d1e4d28a8abc197e290fbed. Scène 4 La réparation : action explicite éclat rose et brillant ; scène 5 Le Triomphe : état transmis Robe feuille de soie brillante, couleur omise.
+- Le registre contient déjà plusieurs états de tenue, mais Pêchette est tracking=text et tous ses états reference=false. Aucune variante d'image de tenue demandée. Les préparations utilisent la même image asset-4eafab256c7b48c08d543cfe52759a55 ; inspection visuelle d'une miniature en mémoire : robe verte en feuilles.
+- Prompt effectivement enregistré pour h3-render-98fea2234df14eeb9f7848555447e973 : glossy silk-leaf dress, pink skin/glow ; aucune couleur rose explicite de la robe. Le retour au vert rapporté par l'utilisateur est cohérent avec cette référence verte et l'omission de couleur, plutôt qu'avec une absence totale de transmission des états. Vidéo elle-même non visionnée.
+- Le problème existe en amont : l'épisode parent Le Glow-up de Pêchette déclare aussi le glowup en suivi textuel sans variante, et transmet une robe neuve/brillante sans sa couleur. La description de référence dans la fabrication de la suite mentionne rose, mais ce texte ne remplace ni l'image sélectionnée ni la description de tenue du registre.
+- Proposition : faire déclarer et conserver les attributs déterminants (couleur, matière, forme) par l'écriture, demander une variante de référence pour une transformation majeure durable ; réutiliser cette variante sur les scènes suivantes avec le mécanisme existant. Les altérations mineures peuvent rester textuelles ; pas de variante systématique pour chaque geste/accessoire. Dans Scénario, présentation lisible des Changements à conserver, sans étape supplémentaire.
+- Aucun code, donnée runtime, prompt ou image modifié ; aucun test, génération, LLM ou redémarrage. Seules ces notes consignent le diagnostic et l'alignement.
+
+### Next steps
+1. Aligner les trois écrans d'écriture et la présentation des transformations persistantes.
+2. Aucune implémentation avant nouvelle autorisation. Préserver les écrans et parcours Références / Scènes / Multilangue.
+
+## Alignement UX 2026-09-24 — étapes du mode Histoire
+
+### Goal
+- Expliquer les grandes étapes réelles et proposer une présentation plus simple. Discussion uniquement, aucune implémentation UX.
+
+### Current state
+- Parcours vérifié dans story_workflow.py, stories.js/index.html et episodes.py : conception + édition de l'arc, développement et relecture des séquences, puis fabrication avec références validées humainement, préparation des prompts, vidéo et DLSS optionnel. Automatique = jusqu'au scénario prêt ; manuel = validation de la direction puis des séquences relues. Une correction automatique bornée avant arrêt si difficulté persistante.
+- Confusion identifiée : étapes éditoriales, commandes techniques et dépannage présentés ensemble ; messages bloquants assimilés trop facilement à un choix narratif. L'indication Prêt à fabriquer est un jalon, pas une tâche supplémentaire pour l'auteur.
+- Proposition à discuter : cinq étapes visibles Intention > Histoire > Scénario > Références > Vidéos, même parcours automatique/accompagné, une action principale contextualisée. Résultat courant lisible, assistant ciblé, réglages et journal repliés ; distinguer validation attendue, choix narratif, incident technique, avertissement et file d'attente. Suites et multilangue restent des chemins facultatifs.
+- Lecture seule du code ; aucun changement applicatif, test, appel LLM/média ou redémarrage. Seules les notes de continuité consignent cet alignement.
+
+### Next steps
+1. Aligner le découpage des étapes et les moments où l'auteur veut intervenir.
+2. Détailler ensuite la présentation d'une étape normale et d'un blocage, avant tout code UX.
+
+## Correctif 2026-09-24 — identifiants locaux des suites
+
+### Goal
+- Corriger uniquement la confusion des IDs entre une histoire source et sa suite. L'évolution UX du mode Histoire reste à aligner, sans code d'interface pour le moment.
+
+### Current state
+- Correctif dans le worktree actif `D:\Code\panelforge-krea2-flux`, `application/long_stories.py` : contexte story_id_scope et consigne conditionnelle quand un passé externe est fourni. Les IDs unité/événement sont locaux au projet ; episode-1 peut réapparaître dans un nouveau projet. La stabilité et les dépendances restent obligatoires dans l'arc courant. Les IDs déjà enregistrés ne sont pas renumérotés.
+- Conception, édition, relecture d'arc, correction, écriture et discussion reçoivent cette distinction ; historique externe et canonical_history courant distingués. Continuité narrative/visuelle et identités héritées conservées. Histoires sans passé externe et projection spectateur inchangées.
+- Aucun assouplissement de validateur, migration de données, modification de runtime/UI, appel LLM/média ou redémarrage. Travaux antérieurs préservés. Quatre tests ciblés préparés dans tests/test_story_identifier_scope.py, NON exécutés selon AGENTS.md et préférence utilisateur ; contrôles AST et diff-check seulement.
+- Reprise documentée dans docs/diagnostics/story-followup-2026-09-24.md. L'ancienne remarque sauvegardée n'est pas supprimée automatiquement ; il faut une nouvelle relecture avec les nouvelles consignes. Aucun essai LLM réel du correctif.
+
+### Next steps
+1. L'utilisateur peut lancer `python -m unittest discover -s tests -p "test_story_identifier_scope.py"` dans le worktree actif.
+2. Une fois les traitements terminés, redémarrer le Lab puis ouvrir l'histoire bloquée : Détails de continuité et de vérification > Relire l'arc. Si les remarques bloquantes sont levées, Continuer le parcours.
+3. Aligner séparément l'évolution du parcours/écran de blocage ; aucune implémentation UX autorisée pour cette étape.
+
+## Diagnostic 2026-09-24 - faux blocage des IDs dans une suite
+
+### Goal
+- Expliquer le message de blocage et les actions possibles, sans modifier le traitement en cours.
+
+### Current state
+- Projet concerne : story-1014534a9138f1270404f57ba364cbad (Le jus acide), suite du projet story-d15f53a697b142e3948bdd2a84983250.
+- Faux conflit de relecture : previous_story_read_only contient episode-1/event-1... du parent ; la nouvelle histoire utilise ses propres IDs locaux. Le contrat et le validateur imposent episode-1 pour une nouvelle histoire a une unite. Le renommage episode-2 demande par le LLM serait incompatible.
+- La transmission du contexte historique ne precise pas assez cette portee par projet. La correction editoriale ne peut pas modifier ces IDs via allowed_edit_paths. Continuer ne contourne pas les problemes bloquants.
+- Au dernier releve, une correction repair_outline lancee par l'utilisateur etait en cours. Aucun code ni runtime modifie ; aucun test, appel LLM ou redemarrage lance par cet audit.
+
+### Next steps
+1. Correctif cible a prevoir : expliciter dans le contexte et les consignes la portee des IDs d'unite/evenement du projet courant et du projet parent ; conserver la continuite narrative et les identites des personnages.
+2. Apres correction, relire l'arc existant pour lever le faux diagnostic, sans renommer arbitrairement les IDs ni reecrire l'histoire precedente.
+
+## Mini-patch 2026-09-24 — défaut KREA2 Assisted et aperçus complets
+
+### Goal
+- Afficher les miniatures de templates en entier et utiliser par défaut KREA2 + Flux Klein avec CielBleu dans Création assistée, sans écraser un preset sélectionné.
+
+### Current state
+- Les aperçus V5 utilisent désormais `object-fit: contain` sur fond sombre : l’image de catalogue entière reste visible dans la carte.
+- Un projet Assisted neuf choisit `krea2-flux-klein@1.0.0`, son preset de sampling déclaré (`Moody · Beta`) et `Krea2/cielbleuKrea2_v1bf16.safetensors` lorsqu’il est disponible, y compris après navigation depuis un autre projet. Un ancien essai ou un brouillon persistant conserve toujours son propre snapshot.
+- Un preset de style continue de remplacer uniquement checkpoint et LoRA ; sur un projet neuf il garde ces ressources tout en adoptant Flux Klein + Moody, car le preset ne mémorise pas une famille de workflow. Sa copie persistée reste prioritaire sur CielBleu. Le template V5 reste une inspiration structurelle textuelle indépendante. Cache CSS/Assisted incrémenté ; régression statique adaptée. Tests NON exécutés selon AGENTS.md ; aucun LLM, rendu, redémarrage, commit ou push.
+
+### Next steps
+1. Lancer manuellement `python -m unittest discover -s tests -p "test_krea2_assisted_ui.py"` et `python -m unittest discover -s tests -p "test_krea2_assisted_sampling_browser.py"`.
+2. Redémarrer le Lab puis faire `Ctrl+F5` ; ouvrir un projet neuf sans preset et vérifier Flux Klein, CielBleu et Moody.
+3. Créer ensuite un projet avec preset : son checkpoint/LoRA doivent remplacer CielBleu, tandis que le template sélectionné reste celui de la scène.
+
+## Implémentation 2026-09-24 — préparation de l’épisode suivant
+
+### Goal
+- Implémenter l’alignement validé : bouton visible, discussion Qwen interchangeable, piste automatique unique, direction éditable et sauvegardée, lancement explicite de l’écriture existante.
+
+### Current state
+- Implémenté dans `D:\Code\panelforge-krea2-flux`. Panneau responsive « Préparer la suite », Qwen proposé depuis le catalogue, autosauvegarde séparée, reprise du chat, direction manuelle, réglages repliés et bouton « Écrire cet épisode ». Aucun appel LLM à l’ouverture.
+- Origine/unité/version/empreinte explicites ; passé écrit et arc prévu distingués, état visuel final transmis. L’épisode prévu utilise l’arc ; une nouvelle suite longue est créée comme un épisode continu lié au parent. Les épisodes déjà écrits s’ouvrent sans réécriture.
+- Révisions optimistes, contexte source actualisable sans perte de direction, brouillon brut conservé après erreur, arrêt/reprise et destination idempotente. Direction validée transmise au rédacteur et aux relectures ; anciennes empreintes inchangées en l’absence de direction.
+- 16 nouvelles régressions service/API/navigateur préparées, ancienne régression d’ouverture adaptée. Tests NON exécutés selon AGENTS.md. AST de dix fichiers Python, compilation syntaxique seule de douze scripts JS et IDs HTML vérifiés ; diff-check sans erreur. Aucun LLM, média, runtime, redémarrage, commit ou push.
+- Changements multilangues/KREA/VAE existants préservés. Note : `docs/diagnostics/story-followup-2026-09-24.md`.
+
+### Next steps
+1. Exécuter les tests ciblés indiqués dans la note.
+2. Après les traitements en cours, redémarrer le Lab puis Ctrl+F5 ; ouvrir une histoire écrite et « Créer l’épisode suivant ».
+3. Essai utilisateur : question simple, proposition automatique, modification manuelle, fermeture/reprise, puis écriture ; vérifier la continuité et les références lors de la fabrication.
+
+
+## Patch 2026-09-24 — classement structurel des templates KREA2 V5
+
+### Goal
+- Empêcher un template ajoutant une action ou une topologie de participants non demandée de devenir l’inspiration V5 prioritaire.
+
+### Current state
+- Les identifiants et routeurs stables des templates enrichissent désormais leur signature : oral, pénétration/doggystyle, groupe/threesome, couple, POV et principales variantes explicites sont reconnus avant classement.
+- Les briefs V5 récupèrent la topologie `solo` / `pair` / `group` depuis leur champ structuré `participants` lorsque la taxonomie lexicale seule ne suffit pas. Une action structurelle supplémentaire, une action demandée absente ou une topologie contradictoire reçoit un fort malus et force la pertinence faible ; décor, lumière et style restent des préférences souples.
+- Le routage hybride, les trois cartes, l’inspiration unique épinglée, le rédacteur, V3 et V4 sont inchangés. Régressions préparées pour oral POV, doggystyle POV contre oral-threesome et demande de threesome réellement compatible. Tests NON exécutés selon AGENTS.md ; aucun LLM, rendu, redémarrage, commit ou push.
+
+### Next steps
+1. Lancer manuellement `python -m unittest discover -s tests -p "test_krea2_assisted_v5.py"`.
+2. Redémarrer le Lab puis relancer les deux intentions elfe/orc : oral POV doit conserver son template exact ; doggystyle POV doit sélectionner `action-partner-doggystyle-pov`.
+3. Observer quelques requêtes multi-actions avant d’ajuster les malus structurels de `2.4`.
+
+## Implémentation 2026-09-24 — KREA2 Assisted V5 wildcard
+
+### Goal
+- Créer V5 avec la logique des nouveaux templates wildcard, sans les corpus chinois ; renommer V3 en STABLE et la sélectionner par défaut.
+
+### Current state
+- Implémenté dans `D:\Code\panelforge-krea2-flux`. V3 est le défaut UI/API/service ; V4 reste intacte et V5 est une option expérimentale.
+- V5 réutilise les deux appels LLM de V4. Le moteur local charge en lecture seule les 15 YAML de templates et quatre fichiers partagés, valide toutes les références, classe les archétypes puis compile au plus un template parmi trois inspirations avec seed et ratio persistés. Aucun appel LLM, corpus chinois, base de données ou nœud Impact Pack supplémentaire.
+- Routage : template fort + deux scènes, template moyen en second, template faible écarté. Aperçus locaux, distinction Template/Scène et bouton « Nouvelle variante du template » sans appel LLM. Le ratio reste indicatif.
+- Source par défaut : `%USERPROFILE%\Downloads\SFW15000QwenZImage15000_porV20500010000`, surchargeable par argument ou variable d’environnement. Pack réel lu avec succès : 358 templates, zéro référence manquante ; oral POV fort, catalogue partiel, scène hors domaine faible. Les corpus chinois sont ignorés.
+- Schéma Assisted 14 rétrocompatible 1–13 ; PyYAML déclaré. AST et diff-check validés. Le contrôle JavaScript par Node n’a pas été possible car Node n’est pas installé ; tests préparés mais NON exécutés selon AGENTS.md. Aucun LLM, rendu, runtime, redémarrage, commit ou push. Travaux H3/histoires parallèles et `lancementwork` préservés.
+- Note : `docs/diagnostics/krea2-assisted-v5-wildcards-2026-09-24.md`.
+
+### Next steps
+1. Après les traitements en cours, redémarrer le Lab et faire Ctrl+F5.
+2. Lancer les tests ciblés de la note à la main, puis comparer V3 STABLE et V5 sur une action couverte et une scène libre.
+3. Si le comportement réel est concluant, déplacer éventuellement le pack hors de Downloads et configurer `PANELFORGE_KREA2_WILDCARDS_ROOT`.
+
+## Evolution 2026-09-24 — VAE video MiniMax H3 INT8 ConvRot
+
+### Goal
+- Appliquer l'accord utilisateur : nouveau VAE pour les prochains essais, y compris les projets existants, en conservant les essais historiques.
+
+### Current state
+- Implemente dans `D:\Code\panelforge-krea2-flux`. Manifeste de variantes `workflows/video.vae/minimax-h3-int8-convrot/1.0.0/manifest.json` : 18 sources explicites, loader video et empreintes sources/resultantes ; suffixe `+vae-int8-convrot.1`.
+- Adaptateur limite au remplacement de `inputs.vae_name` par `minimax_h3_video_vae_int8_convrot.safetensors` (nom sans prefixe confirme sur Bucket). Graphes/manifeste sources intacts ; audio, sampling, LoRA, checkpoint, resolutions, upscale et preview conserves.
+- Lanceur et services : nouvelles selections/anciens IDs resolus vers la variante ; essais deja crees/en file conservent leur recette archivee et leur empreinte. Video Lab conserve aussi ses anciennes recettes 0.2.1/0.2.0 ; aucun bypass ajoute a 0.2.1.
+- Restauration UI adaptee aux alias sans perdre les controles ; cache H3 `20260924.1`. Reprise multilangue adaptee a la variante pour ne pas regenerer une video reussie seulement parce que le setup conserve l'ancien ID.
+- AST de huit fichiers Python, compilation syntaxique seule du JS et de sa fixture, 18 empreintes sources/resultantes et diff controles. Six regressions ciblees preparees + test de construction Lab actualise, NON executes selon AGENTS.md. Aucun LLM, rendu, runtime, redemarrage, commit ou push.
+- Travaux multilangues/KREA et fichier utilisateur `lancementwork` preserves. Note : `docs/diagnostics/minimax-h3-int8-vae-2026-09-24.md`.
+
+### Next steps
+1. Tests utilisateur : commandes ciblees dans la note, notamment `python -m unittest discover -s tests -p "test_h3_video_vae*.py"`.
+2. Apres les traitements en cours, redemarrer le Lab et Ctrl+F5 ; les nouveaux essais enregistreront la variante INT8. Aucun essai historique a migrer.
+3. Observer le prochain rendu utilisateur ; compatibilite/performance GPU non retestee pendant cette implementation.
+
+
+## Patch 2026-09-24 — pertinence de la bibliothèque KREA2 V4
+
+### Goal
+- Empêcher une proximité de vêtements ou de posture de masquer l’absence de l’action demandée, et éviter qu’une scène explicite hors sujet remonte dans une intention SFW, sans modifier ni filtrer le corpus.
+
+### Current state
+- `footjob` et son interaction de pieds sont reconnus dans la taxonomie. Une action spécifique absente reçoit désormais un malus structurant et ne peut jamais être étiquetée forte, tandis que les interactions restent souples pour ne pas rejeter les variantes lexicales.
+- Les exemples sexuellement explicites reçoivent un malus uniquement lorsque la requête ne contient aucun signal explicite. Le corpus reste intégralement interrogeable ; la règle ne dépend pas du nom de fichier et évite les faux positifs photographiques `sunlight penetrates` / cosmétiques `nude pink lipstick`.
+- Le panneau V4 distingue correspondances proches, partielles et absence de correspondance exacte. Cache Assisted passé à `20260924.1`.
+- Vérification réelle sur l’index existant : le run Footjob retourne trois résultats faibles (`0.218`, `0.215`, `0.204`) ; l’exemple NSFW hors sujet disparaît du top 3 de l’arbre en laine. Aucun corpus ni index réécrit, aucun LLM/rendu/redémarrage.
+- Validation : 30 tests ciblés V4/UI verts, contrôle comportemental sur les deux projets audités, syntaxe Python et `git diff --check`. Suite complète non exécutée.
+
+### Next steps
+1. Redémarrer PanelForge puis faire `Ctrl+F5` pour charger le backend et `krea2-assisted-lab.js?v=20260924.1`.
+2. Relancer Footjob et l’arbre en laine : le premier doit annoncer l’absence de correspondance exacte ; le second ne doit plus proposer la scène explicite hors sujet.
+3. Observer quelques intentions courantes avant d’ajuster de nouveau le poids d’action `0.58`.
+
+## Correctif 2026-09-23 — faux « invalid JSON » à la création multilangue
+
+### Goal
+- Diagnostiquer et corriger le blocage signalé sur `episode-b7e6cc46cf41dc9b5b7acda5a2f3dc2f.json`.
+
+### Current state
+- Cause identifiée : le fichier cible n’existe pas encore. La vérification d’idempotence de la copie attend `FileNotFoundError`, mais `LocalEpisodeStore.get()` appelait directement `_read_json_object()`, qui transforme également les erreurs système en `StorageCorruptionError("invalid JSON…")`.
+- Correctif minimal dans le worktree actif `D:\Code\panelforge-krea2-flux` : vérification `_require_regular_file()` avant lecture JSON. Absence et corruption sont désormais distinguées ; le lecteur partagé et les documents existants restent inchangés.
+- Deux régressions de stockage ajoutées (`tests/test_episode_storage.py`). Fixture `test_episode_localization.py` corrigée pour retenir la version retournée par `LocalStoryStore.save()` avant création de fabrication. Les tests restent à la main de l’utilisateur.
+- AST des trois fichiers Python concernés et diff-check vérifiés. Aucun test exécuté, appel LLM, génération, modification du runtime, redémarrage, commit ou push. La note multilangue contient le diagnostic.
+
+### Next steps
+1. Recharger le backend du Lab au moment approprié, puis réessayer « Créer la copie » ; aucune récupération ou suppression de fichier nécessaire.
+2. Tests utilisateur : `python -m unittest discover -s tests -p "test_episode_storage.py"`, puis `python -m unittest discover -s tests -p "test_episode_localization*.py"`.
+
+## Implémentation 2026-09-23 — Fabrication multilangue
+
+### Goal
+- Implémenter l’accord utilisateur : onglet optionnel « 3 · Multilangue », copies de fabrication traduisant uniquement les dialogues et recyclant prompts/références/vidéos muettes.
+
+### Current state
+- Implémenté dans `D:\Code\panelforge-krea2-flux`, branche `feature/vocal-normalizer-dialogue-register`, à partir du snapshot publié `e081adda`. Aucun commit/push de cette évolution.
+- Nouvel onglet avec langue, modèle (Gemma 4 local par défaut), choix des épisodes et essais sources, prévisualisation, comparaison Original/Traduction modifiable, « Traduire pour relire », « Tout lancer » et production seule. Copies indépendantes dans les fabrications du même projet, avec progression Traduction/Injection → Vidéo → DLSS.
+- Sources figées depuis les essais choisis : prompt exact, références, durée, seed en chaîne, recette/checkpoint/LoRA. Un appel par épisode incomplet ; sortie à IDs fixes, injection déterministe uniquement des blocs de dialogue. Aucun Plan/Rédacteur. Histoires originales inchangées, corrections limitées à la scène concernée, anciens essais accessibles.
+- Scènes muettes : vidéos et DLSS partagés comme médias immuables dans un atelier indépendant. Relances conservent les résultats valides ; un changement de paramètres impose une nouvelle vidéo. Reprise des erreurs DLSS et des traductions interrompues via les files habituelles.
+- Schéma H3 17 rétrocompatible 1–16, provenance explicite `localization_parent_project_id`, protection serveur contre réécriture du prompt et modification des références d’une copie. Ancien extracteur de citations du Plan laissé intact.
+- Vérifications : AST de 16 fichiers Python modifiés/ajoutés, compilation syntaxique des 2 scripts JS et des scripts de la fixture navigateur sans exécution, unicité des IDs HTML, diff-check. 20 régressions ciblées ajoutées (domaine/service/API/navigateur), NON exécutées ; assertions de schéma H3 actualisées. Aucun LLM, rendu, modification du runtime ou redémarrage. Fichier utilisateur `lancementwork` intact.
+- Note d’utilisation/limites/commandes : `D:\Code\panelforge-krea2-flux\docs\diagnostics\story-multilanguage-2026-09-23.md`.
+
+### Next steps
+1. Tests à la main de l’utilisateur : `python -m unittest discover -s tests -p "test_episode_localization*.py"`, puis les tests épisodes/références indiqués dans la note.
+2. Après les générations en cours, redémarrer le Lab et Ctrl+F5. Créer une copie English, traduire pour relire, vérifier une scène parlée et une scène muette, corriger une réplique puis produire.
+3. Valider le débit réel et le rendu en langue cible ; aucune validation fonctionnelle ou génération réelle n’a été effectuée pendant cette implémentation.
+
 ## Version GitHub 2026-09-23 — KREA2 V4, Qwen V2 et correctifs Histoires
 
 ### Goal

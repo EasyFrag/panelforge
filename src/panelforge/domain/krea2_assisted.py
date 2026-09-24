@@ -378,6 +378,10 @@ class Krea2PromptExample:
     positions: tuple[str, ...] = ()
     framings: tuple[str, ...] = ()
     settings: tuple[str, ...] = ()
+    source_kind: str = "scene"
+    template_id: str | None = None
+    variant_seed: int | None = None
+    recommended_aspect_ratio: str | None = None
 
     def __post_init__(self) -> None:
         _text(self.example_id, "example_id")
@@ -390,6 +394,20 @@ class Krea2PromptExample:
             raise TypeError("example score must be numeric")
         if self.relevance not in {"strong", "medium", "weak"}:
             raise ValueError("example relevance must be strong, medium or weak")
+        if self.source_kind not in {"scene", "wildcard"}:
+            raise ValueError("example source_kind must be scene or wildcard")
+        if self.source_kind == "wildcard":
+            _text(self.template_id, "template_id")
+            if (
+                isinstance(self.variant_seed, bool)
+                or not isinstance(self.variant_seed, int)
+                or self.variant_seed < 0
+            ):
+                raise ValueError("wildcard variant_seed must be a non-negative integer")
+        elif self.template_id is not None or self.variant_seed is not None:
+            raise ValueError("scene examples cannot carry wildcard identity")
+        if self.recommended_aspect_ratio is not None:
+            _text(self.recommended_aspect_ratio, "recommended_aspect_ratio")
         for values, label in (
             (self.actions, "example actions"),
             (self.participants, "example participants"),
@@ -687,7 +705,7 @@ class Krea2AssistedProject:
         brief: Krea2PromptSearchBrief,
     ) -> Krea2AssistedProject:
         if len(examples) != 3:
-            raise ValueError("V4 retrieval must return exactly three prompt examples")
+            raise ValueError("local retrieval must return exactly three prompt examples")
         return replace(
             self,
             prompt_examples=examples,

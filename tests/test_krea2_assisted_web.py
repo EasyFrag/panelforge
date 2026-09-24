@@ -341,7 +341,11 @@ class Krea2AssistedWebTest(unittest.TestCase):
             self.assertLess(monotonic(), deadline, "fake catalog refresh timed out")
             sleep(.005)
             spec = self.client.get("/api/image-lab/krea2-assisted/spec")
-        self.assertEqual([item["version"] for item in spec.json()["assistance_recipes"]], ["1.0.0", "2.0.0", "3.0.0", "4.0.0"])
+        self.assertEqual(
+            [item["version"] for item in spec.json()["assistance_recipes"]],
+            ["1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"],
+        )
+        self.assertIn("wildcard_library", spec.json())
         self.assertEqual(spec.json()["prompt_library"]["state"], "unavailable")
         self.assertEqual(spec.json()["limits"]["lora_count"], 10)
         model = spec.json()["render_models"][0]["comfy_name"]
@@ -353,7 +357,7 @@ class Krea2AssistedWebTest(unittest.TestCase):
             files={"reference": ("tiger.png", PNG, "image/png")},
         )
         self.assertEqual(created.status_code, 201)
-        self.assertEqual(created.json()["project"]["assistance_recipe_version"], "1.0.0")
+        self.assertEqual(created.json()["project"]["assistance_recipe_version"], "3.0.0")
         project_id = created.json()["project"]["project_id"]
         self.assertTrue(created.json()["project"]["reference_url"])
         self.assertEqual(created.json()["project"]["prompt_language"], "en")
@@ -379,7 +383,7 @@ class Krea2AssistedWebTest(unittest.TestCase):
         )
         self.assertEqual(streamed.status_code, 200)
         terminal = decode_sse(streamed.text)[-1]
-        self.assertTrue(all(turn["assistance_recipe_version"] == "1.0.0" for turn in terminal["project"]["turns"]))
+        self.assertTrue(all(turn["assistance_recipe_version"] == "3.0.0" for turn in terminal["project"]["turns"]))
         self.assertEqual(terminal["project"]["current_prompt"], PROMPT)
         self.assertEqual(terminal["project"]["prompt_language"], "en")
         self.assertEqual(

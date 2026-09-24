@@ -344,6 +344,8 @@
   function controls() {
     const project = state.project, busy = blocked(), doc = project?.document;
     el("recipes").hidden = longV2() || (!project && narrativeFormat() === "long");
+    el("next-episode").hidden = !doc?.scenario;
+    el("next-episode").disabled = busy || !doc?.scenario;
     const mode = creationMode(), scriptStart = mode === "script", sourceRequired = ["script", "continuation", "adapt"].includes(mode);
     const conversationRole = project?.narrative_format === "long" && doc?.series_outline && !doc?.scenario
       ? "architect" : "writer";
@@ -377,7 +379,7 @@
     el("series-episodes").querySelectorAll("button,input").forEach(item => { item.disabled = busy || item.dataset.locked === "true"; });
     el("scenes").querySelectorAll("button").forEach(item => { item.disabled = busy; });
     if (el("validate")) el("validate").disabled = busy || !doc?.scenario || (longV2() && !project.long_status?.fabrication_ready);
-    if (el("next-episode")) el("next-episode").disabled = busy || !doc?.scenario || (longV2() && !project.long_status?.fabrication_ready);
+    if (el("next-episode")) el("next-episode").disabled = busy || !doc?.scenario;
     const unitState = project?.long_status?.units?.[doc?.selected_episode_id];
     for (const [id, locked, role] of [
       ["review-outline", !doc?.series_outline, "architect"],
@@ -502,17 +504,8 @@
       : dialogueRegisters[scriptProject ? 0 : (project.dialogue_register || 0)][0];
     const projectLanguage = recipe.dialogue_policy === "forbidden" ? "Sans paroles"
       : dialogueLanguages[project.dialogue_language || "French"] || dialogueLanguages.French;
-    if (longProject) {
-      const episodes = doc.series_outline?.episodes || [];
-      const currentEpisode = episodes.findIndex(item => item.id === doc.selected_episode_id);
-      const hasNextEpisode = currentEpisode >= 0 && currentEpisode < episodes.length - 1;
-      el("next-episode").hidden = false;
-      el("next-episode").textContent = hasNextEpisode
-        ? (unitLabel() === "Séquence" ? "Développer la séquence suivante" : "Développer l’épisode suivant") : "Créer une suite";
-    } else {
-      el("next-episode").hidden = false;
-      el("next-episode").textContent = "Créer l’épisode suivant";
-    }
+    el("next-episode").hidden = !doc?.scenario;
+    el("next-episode").textContent = "Créer l’épisode suivant";
     paintContinuity(doc?.continuity || doc?.continuity_source);
     const startLabel = scriptProject ? "Script fidèle" : continuationProject ? "Suite d’une histoire" : "Histoire proposée";
     el("project-brief").textContent = `${recipe.label} · ${longProject ? "Histoire longue · 4 épisodes" : "Histoire courte"} · ${startLabel} · Dialogues : ${projectLanguage} · ${projectRegister}\n${project.brief || "Idées libres"}\n${project.scene_count} micro-scènes par défaut · ${project.clip_seconds} s par clip`;
@@ -771,55 +764,11 @@
     el("continuity-content").replaceChildren(content);
   }
 
-  function continuationSource(project) {
-    const scenario = project.document?.scenario, memory = project.document?.continuity;
-    const latest = JSON.stringify(scenario, null, 2);
-    let history = memory ? `MÉMOIRE CUMULATIVE VALIDÉE\n${JSON.stringify(memory, null, 2)}`
-      : `HISTORIQUE ANTÉRIEUR FOURNI AU PROJET PRÉCÉDENT\n${project.brief || "Aucun résumé disponible."}`;
-    const suffix = `\n\nRÈGLE DE PRIORITÉ — en cas d’écart, l’épisode détaillé ci-dessous prévaut sur la mémoire résumée.\n\nÉPISODE LE PLUS RÉCENT — SOURCE DÉTAILLÉE\n${latest}`;
-    const maximum = 60000, available = maximum - suffix.length;
-    if (history.length > available) history = `[… historique ancien tronqué pour respecter la limite …]\n${history.slice(-Math.max(0, available - 64))}`;
-    return (history + suffix).slice(0, maximum);
-  }
-
   function prepareNextEpisode() {
-    const source = state.project;
-    if (!source?.document?.scenario || blocked()) return;
-    if (source.narrative_format === "long" && source.document.series_outline) {
-      const episodes = source.document.series_outline.episodes;
-      const current = episodes.findIndex(item => item.id === source.document.selected_episode_id);
-      const next = episodes[current + 1];
-      if (next) {
-        const format = source.document.episode_formats?.[next.id]
-          || {scene_count: source.scene_count, clip_seconds: source.clip_seconds};
-        openSeriesEpisode(next.id, format.scene_count, format.clip_seconds,
-          !source.document.episode_scenarios?.[next.id]);
-        return;
-      }
-    }
-    const values = {recipe: recipeKey(source.recipe), title: `${source.title} · suite`, brief: continuationSource(source),
-      scenes: source.scene_count, duration: source.clip_seconds,
-      register: source.dialogue_register || 0, language: source.dialogue_language || "French",
-      architect: el("architect-model").value, writer: el("writer-model").value};
-    newProject();
-    state.parentStoryId = source.project_id;
-    el("recipe").value = values.recipe; el("creation-mode").value = "continuation";
-    el("title").value = values.title; el("brief").value = values.brief;
-    if (source.narrative_format === "long") {
-      el("format-long").checked = true; el("format-short").checked = false;
-      el("creation-mode").value = "ideas"; el("prior-story").value = values.brief; el("brief").value = "";
-      el("long-profile").value = source.long_options.profile;
-      el("long-narration").value = source.long_options.narration;
-      el("long-delivery").value = "continuous";
-      el("target-seconds").value = source.scene_count * source.clip_seconds;
-      el("universe").value = source.visual_universe || "";
-      el("workflow-mode").value = source.workflow?.mode || "manual";
-    }
-    el("scene-count").value = values.scenes; el("duration").value = values.duration;
-    el("dialogue-register").value = values.register;
-    el("dialogue-language").value = values.language;
-    chooseModel("architect", values.architect); chooseModel("writer", values.writer);
-    paintRecipeDescription(); refreshStartMode(); paint(); el("brief").focus();
+    if (!state.project?.document?.scenario || blocked()) return;
+    window.PanelForgeStoryFollowup?.open({project: state.project, models: state.models,
+      architect: selectedModel("architect"), writer: selectedModel("writer"),
+      onWritten: async project => { await openProject(project.project_id); }});
   }
   function openSceneEditor(index) {
     const scenario = state.project?.document?.scenario, scene = scenario?.scenes[index]; if (!scene) return;

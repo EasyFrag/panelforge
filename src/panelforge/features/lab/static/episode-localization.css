@@ -1,0 +1,29 @@
+
+.localization-sources { display:grid; gap:12px; margin:16px 0; }
+.localization-source { border:1px solid var(--border, #d8d2c5); border-radius:12px; padding:14px; min-width:0; }
+.localization-choice { display:flex; align-items:center; gap:10px; }
+.localization-choice input { width:auto; }
+.localization-source-row { display:grid; grid-template-columns:minmax(140px,1fr) minmax(170px,2fr) 100px; align-items:center; gap:12px; padding:8px 0; }
+.localization-source-row select { min-width:0; width:100%; }
+.localization-source-row video { max-width:100px; max-height:110px; border-radius:8px; }
+.localization-groups { display:grid; gap:16px; }
+.localization-episode + .localization-episode { border-top:1px solid #d8d2c5; margin-top:16px; padding-top:16px; }
+.localization-progress { display:grid; grid-template-columns:1.3fr 1.5fr 1fr 1fr; gap:12px; padding:9px 0; align-items:start; }
+.localization-dialogues { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.localization-dialogues textarea { width:100%; min-width:0; box-sizing:border-box; }
+.localization-dialogues blockquote { margin:0; padding:12px; background:#f5f3ed; border-radius:8px; white-space:pre-wrap; }
+.localization-lines { padding:12px 0; border-bottom:1px solid #d8d2c5; }
+.localization-lines button { margin-top:10px; }
+.episode-localized #episode-scenes .localization-narrative-controls,
+.episode-localized #episode-render-host .h3-render-conversation,
+.episode-localized #episode-save-scene,
+.episode-localized #episode-prepare,
+.episode-localized #episode-resume,
+.episode-localized #episode-add-reference,
+.episode-localized #episode-add { display:none; }
+@media (max-width:760px) {
+  .localization-source-row { grid-template-columns:1fr; }
+  .localization-progress { grid-template-columns:1fr 1fr; }
+  .localization-dialogues { grid-template-columns:1fr; }
+  .localization-dialogues > b { display:none; }
+}

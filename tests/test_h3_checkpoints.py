@@ -224,7 +224,7 @@ class H3CheckpointServiceTest(unittest.TestCase):
         attempt = H3RenderAttempt("attempt", 1, PROMPT, PROMPT, settings, False, (), recipe=recipe("h3", old=True).reference)
         project = H3RenderProject("project", "session", "revision", "fake", H3RenderInputMode.T2VA, PROMPT, attempts=(attempt,))
         raw = _serialize(project)
-        self.assertEqual(raw["schema_version"], 14)
+        self.assertEqual(raw["schema_version"], 17)
         raw["schema_version"] = 10
         raw["attempts"][0].pop("checkpoint")
         raw["attempts"][0].pop("model_loading")

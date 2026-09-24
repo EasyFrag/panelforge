@@ -580,6 +580,7 @@ class H3RenderProject:
     combat_settings: CombatSettings | None = None
     cinematic_settings: ClassicCinematicSettings | None = None
     sensual_settings: SensualSettings | None = None
+    localization_parent_project_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.preparation, VideoPreparationRef):
@@ -589,6 +590,10 @@ class H3RenderProject:
         validate_sensual_settings(self.preparation, self.sensual_settings)
         if type(self.dialogue_level) is not int or not 0 <= self.dialogue_level <= 3:
             raise ValueError("dialogue_level must be between 0 and 3")
+        if self.localization_parent_project_id is not None:
+            _text(self.localization_parent_project_id, "localization_parent_project_id")
+            if self.localization_parent_project_id == self.project_id:
+                raise ValueError("localization parent must be another project")
         if self.reference_parent_project_id is not None:
             _text(self.reference_parent_project_id, "reference_parent_project_id")
             if self.reference_parent_project_id == self.project_id:

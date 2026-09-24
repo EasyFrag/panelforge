@@ -78,10 +78,22 @@ def request(project, package, language_policy, register_policy=""):
         "visual_universe": project.get("visual_universe", ""),
         "target_seconds_total": project.get("target_seconds"),
         "selected_concept": next((c for c in doc["concepts"] if c["id"] == doc["selected_id"]), None)}
+    directions = doc.get("continuation_directions", {})
+    if directions:
+        # Review sees these too; no change for stories without a prepared continuation.
+        context["author_episode_directions"] = {identity: item["brief"] for identity, item in directions.items()}
     if project.get("prior_story"):
         context["previous_story_read_only"] = project["prior_story"]
     if doc.get("prior_story_snapshot"):
         context["previous_episode_read_only"] = doc["prior_story_snapshot"]
+    if project.get("prior_story") or doc.get("prior_story_snapshot"):
+        # Historical IDs belong to other projects; never renumber the current arc.
+        context["story_id_scope"] = dict(
+            current_project_id=project["project_id"],
+            previous_project_id=project.get("parent_story_id")
+                or (project.get("continuation_origin") or {}).get("source_story_id"),
+            current_unit_ids=[f"episode-{i}" for i in range(1, project["long_options"]["unit_count"] + 1)],
+            historical_fields=[key for key in ("previous_story_read_only", "previous_episode_read_only") if key in context])
     outline = doc.get("series_outline")
     if target == "ideas":
         context["response_contract"] = response_contract("ideas", False, project["recipe"]["id"],
@@ -304,6 +316,25 @@ def request(project, package, language_policy, register_policy=""):
             system += ("\nCORRECTION LOCALE : renvoie uniquement les scènes changées dans scene_edits, avec leur scene_index et leur scène complète. "
                 "Les autres scènes et décors sont conservés automatiquement. episode_state actualise seulement les faits et connaissances effectivement joués. "
                 "Reprends base_hash exactement. N’invente pas une correction de contenu lorsqu’une métadonnée suffit.")
+    if directions:
+        system += ("\nLes author_episode_directions sont les orientations validées par l’auteur pour les unités nommées. "
+                   "Applique celle de l’unité traitée sans modifier les épisodes écrits ni anticiper les faits futurs. "
+                   "Conserve les événements obligatoires de l’arc ; signale une incompatibilité à la relecture.")
+    if context.get("story_id_scope"):
+        system += ("\nPORTÉE DES IDENTIFIANTS : story_id_scope sépare le projet courant du passé externe. "
+            "Les IDs d'unités et d'événements sont locaux à chaque projet. Les historical_fields appartiennent "
+            "aux projets précédents, y compris leurs historiques imbriqués ; ils ne font pas partie de l'arc courant. "
+            "L'episode-1 du projet courant est une nouvelle unité, pas une réécriture de l'episode-1 précédent. "
+            "Respecte current_unit_ids : la numérotation des unités repart à episode-1 dans chaque nouveau projet. "
+            "Un event-1 du projet courant peut désigner un autre fait que l'event-1 du passé externe. "
+            "Ce seul partage d'ID entre projets n'est pas un problème bloquant et ne justifie aucun renommage. "
+            "Réévalue toute ancienne remarque de collision avec cette portée ; ne demande pas d'ouvrir des paths d'ID. "
+            "Dans le projet courant, conserve les IDs déjà établis, leur unicité et leurs liens de causalité ; "
+            "ne renumérote pas un arc existant pour le faire repartir à event-1. "
+            "depends_on et les liens d'événements des nouvelles scènes ciblent uniquement les événements de l'arc courant, "
+            "jamais les anciens événements du passé externe. canonical_history reste le passé écrit du projet courant. "
+            "Cette séparation technique n'efface aucun fait acquis : conserve les relations, savoirs et états visuels hérités, "
+            "ainsi que les noms et IDs des personnages et objets réutilisés. Ne rejoue pas les anciens événements.")
     return CompletionRequest(model_id=project["model_id"], system_prompt=system,
         # Reasoning and the final JSON share the same output budget.
         user_prompt=json.dumps(context, ensure_ascii=False), max_tokens=80_000,

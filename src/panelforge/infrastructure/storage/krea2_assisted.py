@@ -114,7 +114,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
     branches = project.conversation_branches()
     turns = {turn.turn_id: turn for branch in branches for turn in branch.turns}
     return {
-        "schema_version": 13,
+        "schema_version": 14,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "name": project.name,
@@ -141,6 +141,14 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
                 "positions": list(example.positions),
                 "framings": list(example.framings),
                 "settings": list(example.settings),
+                "source_kind": example.source_kind,
+                "template_id": example.template_id,
+                "variant_seed": (
+                    str(example.variant_seed)
+                    if example.variant_seed is not None
+                    else None
+                ),
+                "recommended_aspect_ratio": example.recommended_aspect_ratio,
             }
             for example in project.prompt_examples
         ],
@@ -213,7 +221,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
-    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}:
+    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}:
         raise ValueError("unsupported KREA2 assisted project schema")
     branch_fields: dict[str, Any] = {}
     if value["schema_version"] >= 4:
@@ -261,6 +269,14 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
                 positions=tuple(item.get("positions", [])),
                 framings=tuple(item.get("framings", [])),
                 settings=tuple(item.get("settings", [])),
+                source_kind=item.get("source_kind", "scene"),
+                template_id=item.get("template_id"),
+                variant_seed=(
+                    int(item["variant_seed"])
+                    if item.get("variant_seed") is not None
+                    else None
+                ),
+                recommended_aspect_ratio=item.get("recommended_aspect_ratio"),
             )
             for item in value.get("prompt_examples", [])
         ),

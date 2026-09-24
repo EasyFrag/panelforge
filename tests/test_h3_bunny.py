@@ -254,7 +254,7 @@ class BunnyServiceTest(unittest.TestCase):
         old = self.service.prepare_attempt("project", prompt=PROMPT, settings=self.settings)
         path = Path(self.temp.name) / "h3_render_projects/project/project.json"
         data = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(data["schema_version"], 6)
+        self.assertEqual(data["schema_version"], 17)
         for version in range(1, 5):
             data["schema_version"] = version
             for item in data["attempts"]:

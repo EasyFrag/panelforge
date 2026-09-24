@@ -199,6 +199,7 @@
         const at = key.lastIndexOf("@");
         const spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}&recipe_id=${encodeURIComponent(key.slice(0, at))}&recipe_version=${encodeURIComponent(key.slice(at + 1))}`);
         state.specCache.set(key, spec);
+        state.specCache.set(recipeKey(spec.recipe), spec);
       }
       if (token !== state.recipeToken || project !== projectId()) return;
       state.spec = state.specCache.get(key);
@@ -210,8 +211,9 @@
         restoreControls(draft.fields);
         loraEditor?.restore(draft.video_loras);
       } else restoreControls(common);
-      elements.recipe.value = key;
+      elements.recipe.value = recipeKey(state.spec.recipe);
       syncBunny(); syncVideoLoraControls(); renderWarnings();
+      return {key: recipeKey(state.spec.recipe), token};
     } catch (error) {
       if (token === state.recipeToken) { elements.recipe.value = previous; setStatus(error.message, "error"); }
       throw error;
@@ -385,10 +387,11 @@
 
   async function fillSettings(attempt, {rememberCurrent = true} = {}) {
     if (!attempt) return;
-    const owner = projectId(), key = recipeKey(attempt.recipe);
+    const owner = projectId();
     if (rememberCurrent) rememberRecipe();
-    await switchRecipe(recipeKey(attempt.recipe), { restoreDraft: false, remember: false });
-    if (owner !== projectId() || (elements.recipe && recipeKey(state.spec.recipe) !== key)) return;
+    const selection = await switchRecipe(recipeKey(attempt.recipe), { restoreDraft: false, remember: false });
+    if (!selection || owner !== projectId() || selection.token !== state.recipeToken
+        || recipeKey(state.spec.recipe) !== selection.key) return;
     checkpointPicker?.set(attempt.checkpoint);
     const settings = attempt.settings;
     elements.ratio.value = settings.aspect_ratio;

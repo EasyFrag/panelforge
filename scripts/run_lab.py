@@ -15,6 +15,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 from panelforge.infrastructure.combat_preparation import load_combat_revision_policy
 from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
+from panelforge.infrastructure.presets.h3_video_vae import H3VideoVaeUpdates
 from panelforge.application.media_analysis import MediaAnalysisService
 from panelforge.application.stories import StoryService
 from panelforge.infrastructure.storage.stories import LocalStoryStore, LocalStoryRecipeStore
@@ -93,6 +94,7 @@ from panelforge.infrastructure.qwen_project_exports import LocalQwenProjectExpor
 from panelforge.infrastructure.storage.qwen_edits import LocalQwenEditStore
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
 from panelforge.infrastructure.prompt_examples import LocalPromptExampleLibrary
+from panelforge.infrastructure.krea2_wildcards import LocalKrea2WildcardLibrary
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
 from panelforge.infrastructure.h3_lora_resources import H3LoraResourceCatalog
 from panelforge.infrastructure.local_gpu import NvidiaSmiMonitor
@@ -166,6 +168,11 @@ DEFAULT_KREA2_MODELS_ROOT = Path(
 DEFAULT_KREA2_LORAS_ROOT = Path(
     r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\loras\krea2"
 )
+DEFAULT_KREA2_WILDCARDS_ROOT = (
+    Path.home()
+    / "Downloads"
+    / "SFW15000QwenZImage15000_porV20500010000"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -204,6 +211,15 @@ def parse_args() -> argparse.Namespace:
             "PANELFORGE_KREA2_LORAS_ROOT",
             str(DEFAULT_KREA2_LORAS_ROOT),
         )),
+    )
+    parser.add_argument(
+        "--krea2-wildcards-root",
+        type=Path,
+        default=Path(os.environ.get(
+            "PANELFORGE_KREA2_WILDCARDS_ROOT",
+            str(DEFAULT_KREA2_WILDCARDS_ROOT),
+        )),
+        help="Read-only KREA2 wildcard template pack (default: %(default)s)",
     )
     parser.add_argument(
         "--krea2-projects-root",
@@ -270,6 +286,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_app(args: argparse.Namespace):
+    video_vae_updates = H3VideoVaeUpdates(
+        PROJECT_ROOT / "workflows",
+        PROJECT_ROOT / "workflows/video.vae/minimax-h3-int8-convrot/1.0.0/manifest.json",
+    )
     recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
     video_recipe = VideoLabPresetRecipe(
         load_video_lab_workflow(VIDEO_PRESET_DIRECTORY)
@@ -362,6 +382,9 @@ def build_app(args: argparse.Namespace):
         work_coordinator=machine_work,
     )
     prompt_examples.start_indexing()
+    prompt_wildcards = LocalKrea2WildcardLibrary(
+        getattr(args, "krea2_wildcards_root", DEFAULT_KREA2_WILDCARDS_ROOT),
+    )
     runner = ChangeViewRunner(
         recipe=recipe,
         comfy=comfy,
@@ -372,7 +395,8 @@ def build_app(args: argparse.Namespace):
         work_coordinator=machine_work,
     )
     video_lab = VideoLabRunner(
-        recipe=video_recipe,
+        recipe=video_vae_updates.upgrade(video_recipe),
+        historical_recipes=(video_recipe, VideoLabPresetRecipe(load_video_lab_workflow(HISTORICAL_REF2V_DIRECTORY))),
         comfy=video_comfy,
         assets=assets,
         runs=video_runs,
@@ -458,6 +482,7 @@ def build_app(args: argparse.Namespace):
     krea2_assisted = Krea2AssistedService(
         gateway=gateway,
         prompt_examples=prompt_examples,
+        prompt_wildcards=prompt_wildcards,
         presets=LocalKrea2StylePresetStore(args.workspace),
         recipes=krea2_visual_recipes,
         workflow=krea2_assisted_default_workflow,
@@ -540,6 +565,7 @@ def build_app(args: argparse.Namespace):
         assets=assets,
     )
     h3_render = H3RenderService(
+        recipe_upgrade=video_vae_updates.upgrade,
         prompt_recipes=prompt_recipes,
         llm_traces=llm_traces,
         combat_revision_policies=tuple(load_combat_revision_policy(PROJECT_ROOT / "prompt_cookbooks" / "_blocks", version)

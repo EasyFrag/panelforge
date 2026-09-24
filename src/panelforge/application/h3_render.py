@@ -294,16 +294,26 @@ class H3RenderService:
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         work_coordinator=None,
+        recipe_upgrade: Callable[[Any], Any] | None = None,
     ) -> None:
         if run_timeout <= 0 or poll_interval <= 0:
             raise ValueError("timeouts must be positive")
         self.combat_revision_policies = {policy.preparation: policy for policy in combat_revision_policies}
         self.gateway = gateway
-        self.workflow = workflow
-        self.ref2v_workflow = ref2v_workflow
-        self.additional_workflows = additional_workflows
-        self.historical_ref2v_workflows = historical_ref2v_workflows
-        self.historical_h3_workflows = historical_h3_workflows
+        upgrade = recipe_upgrade or (lambda recipe: recipe)
+        self._legacy_workflow = workflow
+        self._legacy_ref2v_workflow = ref2v_workflow
+        self._archived_recipes = {
+            recipe.reference: recipe for recipe in (
+                workflow, ref2v_workflow, *additional_workflows,
+                *historical_ref2v_workflows, *historical_h3_workflows,
+            ) if recipe is not None
+        }
+        self.workflow = upgrade(workflow)
+        self.ref2v_workflow = upgrade(ref2v_workflow) if ref2v_workflow is not None else None
+        self.additional_workflows = tuple(map(upgrade, additional_workflows))
+        self.historical_ref2v_workflows = tuple(map(upgrade, historical_ref2v_workflows))
+        self.historical_h3_workflows = tuple(map(upgrade, historical_h3_workflows))
         self.checkpoints = checkpoints
         self.comfy = comfy
         self.assets = assets
@@ -507,6 +517,27 @@ class H3RenderService:
                 revision_draft=None, revision_error=None, revision_draft_version=None,
             ))
 
+    def fork_localization(self, project_id, *, prompt, reuse_attempt_id=None):
+        """Independent workshop; immutable media may be shared by silent scenes."""
+        with self._lock:
+            source = self.projects.get(project_id)
+            if source.input_mode is not H3RenderInputMode.REF2VA or source.adaptation is not None:
+                raise ValueError("La localisation nécessite un atelier REF2V de fabrication.")
+            attempts = ()
+            if reuse_attempt_id:
+                root = next(a for a in source.attempts if a.attempt_id == reuse_attempt_id)
+                if root.dlss or root.status is not H3RenderAttemptStatus.SUCCEEDED or root.prompt != prompt:
+                    raise ValueError("Seule une vidéo réussie avec le même prompt peut être réutilisée.")
+                attempts = tuple(a for a in source.attempts if a.attempt_id == root.attempt_id
+                                 or (a.dlss and a.dlss.root_attempt_id == root.attempt_id))
+            return self.projects.create(replace(source,
+                project_id=self._project_id_factory(), current_prompt=prompt,
+                localization_parent_project_id=source.project_id, attempts=attempts,
+                camera_clauses=extract_compiled_camera_clauses(prompt),
+                planned_cut_times_ms=extract_prompt_cut_times_ms(prompt) or source.planned_cut_times_ms,
+                feedback_attempt_id=None, turns=(), warnings=(),
+                revision_draft=None, revision_error=None, revision_draft_version=None))
+
     def get(self, project_id: str) -> H3RenderProject:
         with self._lock:
             return self._refresh_detached(self.projects.get(project_id))
@@ -523,7 +554,8 @@ class H3RenderService:
     ) -> H3RenderRecipe | Ref2VRenderRecipe:
         if recipe_id is not None:
             for recipe in self.recipes_for_mode(input_mode):
-                if recipe.reference.recipe_id == recipe_id and recipe.reference.version == recipe_version:
+                references = (recipe.reference, getattr(recipe, "source_reference", recipe.reference))
+                if any(ref.recipe_id == recipe_id and ref.version == recipe_version for ref in references):
                     return recipe
             raise ValueError("Recette de rendu ou version indisponible pour ce mode.")
         if recipe_version is not None:
@@ -540,8 +572,15 @@ class H3RenderService:
 
     def recipe_for_attempt(self, project, attempt):
         if attempt.recipe is None:
-            return self.workflow_for_mode(project.input_mode)
+            legacy = (self._legacy_ref2v_workflow if project.input_mode is H3RenderInputMode.REF2VA
+                      else self._legacy_workflow)
+            if legacy is None:
+                raise ValueError("the integrated Ref2V workflow is not configured")
+            return legacy
         recipe = self.workflow_for_mode(project.input_mode, attempt.recipe.recipe_id, attempt.recipe.version)
+        archived = self._archived_recipes.get(attempt.recipe)
+        if archived is not None:
+            return archived
         if recipe.reference != attempt.recipe:
             raise ValueError("La recette enregistrée de cet essai ne correspond plus au workflow disponible.")
         return recipe
@@ -588,6 +627,8 @@ class H3RenderService:
         repair_draft: str | None = None
         with self._lock:
             project = self.projects.get(project_id)
+            if project.localization_parent_project_id:
+                raise ValueError("Modifiez les répliques de cette copie depuis 3 · Multilangue, sans réécrire le prompt.")
             if repair_rejected:
                 if project.revision_error is None:
                     raise ValueError("there is no rejected H3 revision to repair")
@@ -804,6 +845,8 @@ class H3RenderService:
             raise TypeError("video_lora must be an H3VideoLoraSelection or None")
         with self._lock:
             project = self.projects.get(project_id)
+            if project.localization_parent_project_id and prompt != project.current_prompt:
+                raise ValueError("Le prompt de cette copie est conservé. Modifiez ses répliques dans 3 · Multilangue.")
             recipe = self.workflow_for_mode(project.input_mode, recipe_id, recipe_version)
             model_loading = recipe.model_loading(project.input_mode, checkpoint) if getattr(recipe, "supports_checkpoint_selection", False) else None
             if project.adaptation is not None and project.adaptation.status != "ready":

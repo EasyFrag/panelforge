@@ -150,6 +150,8 @@ class RunLabBuildTest(unittest.TestCase):
                     spec = client.get("/api/image-lab/krea2/spec")
                     h3_render_spec = client.get("/api/h3-render/spec")
                     ref2v_render_spec = client.get("/api/h3-render/spec?mode=ref2va")
+                    old_recipe_spec = client.get("/api/h3-render/spec?mode=ref2va&recipe_id=minimax-h3-ref2v&recipe_version=0.2.1")
+                    video_spec = client.get("/api/video-lab/spec")
                     edit_spec = client.get("/api/image-lab/krea2-edit/spec")
                     history = client.get("/api/image-lab/krea2/runs?limit=1")
                     args.dlss_output_root.mkdir()
@@ -171,6 +173,10 @@ class RunLabBuildTest(unittest.TestCase):
             self.assertEqual(spec.json()["defaults"]["model_id"], DEFAULT_MODEL)
             self.assertEqual(h3_render_spec.status_code, 200)
             self.assertEqual(ref2v_render_spec.status_code, 200)
+            self.assertEqual(old_recipe_spec.status_code, 200)
+            self.assertEqual(old_recipe_spec.json()["recipe"]["version"], "0.2.1+vae-int8-convrot.1")
+            self.assertEqual(video_spec.status_code, 200)
+            self.assertEqual(video_spec.json()["recipe"]["version"], "0.2.1+vae-int8-convrot.1")
             self.assertEqual(
                 h3_render_spec.json()["revision_versions"],
                 [
@@ -212,21 +218,21 @@ class RunLabBuildTest(unittest.TestCase):
                 ref2v_render_spec.json()["limits"]["reference_images"],
                 {"minimum": 1, "maximum": 9},
             )
-            self.assertEqual(ref2v_render_spec.json()["recipe"]["version"], "0.2.3")
+            self.assertEqual(ref2v_render_spec.json()["recipe"]["version"], "0.2.5+vae-int8-convrot.1")
             self.assertEqual(ref2v_render_spec.json()["defaults"]["megapixels"], 0.2)
             self.assertEqual(ref2v_render_spec.json()["defaults"]["initial_megapixels"], 0.2)
             self.assertTrue(ref2v_render_spec.json()["defaults"]["seed_locked"])
             self.assertEqual(ref2v_render_spec.json()["defaults"]["duration_seconds"], 10.0)
-            self.assertEqual(h3_render_spec.json()["recipe"]["version"], "0.1.5")
+            self.assertEqual(h3_render_spec.json()["recipe"]["version"], "0.1.7+vae-int8-convrot.1")
             self.assertEqual([item["id"] for item in h3_render_spec.json()["render_recipes"]],
-                             ["minimax-h3-latent-speed", "minimax-h3-bunny", "minimax-h3-bunny", "minimax-h3-bunny", "minimax-h3-latent-speed", "minimax-h3-latent-speed"])
+                             ["minimax-h3-latent-speed", *(["minimax-h3-bunny"] * 4), *(["minimax-h3-latent-speed"] * 4)])
             self.assertEqual([item["id"] for item in ref2v_render_spec.json()["render_recipes"]],
-                             ["minimax-h3-ref2v", "minimax-h3-bunny", "minimax-h3-bunny", "minimax-h3-bunny", "minimax-h3-ref2v", "minimax-h3-ref2v", "minimax-h3-ref2v"])
+                             ["minimax-h3-ref2v", *(["minimax-h3-bunny"] * 4), *(["minimax-h3-ref2v"] * 5)])
             self.assertTrue(h3_render_spec.json()["video_lora_stack"]["supported"])
             self.assertTrue(ref2v_render_spec.json()["video_lora_stack"]["supported"])
             self.assertFalse(h3_render_spec.json()["video_lora_stack"]["defaults"]["enabled"])
             self.assertEqual(ref2v_render_spec.json()["render_recipes"][-1]["label"], "Historique")
-            self.assertEqual(ref2v_render_spec.json()["render_recipes"][-1]["version"], "0.2.0")
+            self.assertEqual(ref2v_render_spec.json()["render_recipes"][-1]["version"], "0.2.0+vae-int8-convrot.1")
             self.assertTrue(h3_render_spec.json()["checkpoint_selection"]["supported"])
             self.assertTrue(ref2v_render_spec.json()["checkpoint_selection"]["supported"])
             self.assertEqual(h3_render_spec.json()["defaults"]["megapixels"], 0.2)
@@ -236,7 +242,7 @@ class RunLabBuildTest(unittest.TestCase):
             self.assertIn("initial_megapixels", ref2v_render_spec.json()["limits"])
             self.assertEqual(
                 h3_render_spec.json()["recipe"]["workflow_sha256"],
-                "3b4566a209275c2c77fdeab7beacd54f144d23569c85c16ace397f951c0ffab5",
+                "ebbcc11094decbd691aa23f49dfc42db4137e29b70bf94555b234b32ea692515",
             )
             self.assertNotIn("preview_ws_url", spec.json())
             self.assertEqual(len(BuildProjectExporter.instances), 1)

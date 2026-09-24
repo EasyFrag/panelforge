@@ -176,6 +176,9 @@ def only_reference_images_changed(previous, current):
 
 def scene_inputs(episode, scene, *, require_images=True):
     from . import episode_continuity, story_continuity
+    if episode.get("localization"):
+        from .episode_localization import frozen_inputs
+        return frozen_inputs(scene)
     axes = CreativeFreedomAxes(**scene.get("creative_axes", DEFAULT_CREATIVE_AXES))
     refs = {r["id"]: r for r in episode["references"]}
     bindings = episode_continuity.bindings(episode, scene)

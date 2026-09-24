@@ -1066,6 +1066,8 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-assisted-example-panel > p { margin: .4rem 0; font-size: .58rem; }
 .krea2-assisted-example-candidates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
 .krea2-assisted-example-candidate { display: grid; min-width: 0; gap: .22rem; padding: .45rem; text-align: left; background: white; }
+.krea2-assisted-example-candidate img { width: 100%; height: 7rem; border-radius: 6px; object-fit: contain; background: #18231d; }
+.krea2-assisted-example-variant { margin: 0 0 .45rem; padding: .3rem .5rem; font-size: .58rem; }
 .krea2-assisted-example-candidate[aria-pressed="true"] { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
 .krea2-assisted-example-candidate b, .krea2-assisted-example-candidate small, .krea2-assisted-example-candidate span { display: block; min-width: 0; }
 .krea2-assisted-example-candidate b { font-size: .62rem; }

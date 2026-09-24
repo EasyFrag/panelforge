@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from threading import RLock
 
-from .local import _atomic_write, _json_bytes, _read_json_object
+from .local import _atomic_write, _json_bytes, _read_json_object, _require_regular_file
 
 
 class LocalEpisodeStore:
@@ -23,7 +23,11 @@ class LocalEpisodeStore:
 
     def get(self, identity):
         with self._lock:
-            value = _read_json_object(self._path(identity))
+            path = self._path(identity)
+            # A new localization checks its future ID before creating the copy.
+            # Missing documents must not be reported as malformed JSON.
+            _require_regular_file(path)
+            value = _read_json_object(path)
         if value.get("schema_version") != 1 or value.get("episode_id") != identity:
             raise ValueError("Format de fabrication indisponible.")
         return value
@@ -45,7 +49,10 @@ class LocalEpisodeStore:
                 try:
                     value = self.get(path.stem)
                     if value["story_id"] == story_id:
-                        result.append({k: value[k] for k in ("episode_id", "story_id", "title", "story_revision", "source_hash", "updated_at")})
+                        summary = {k: value[k] for k in ("episode_id", "story_id", "title", "story_revision", "source_hash", "updated_at")}
+                        if value.get("localization"):
+                            summary["localization"] = {k: value["localization"][k] for k in ("group_id", "language", "source_episode_id")}
+                        result.append(summary)
                 except (OSError, ValueError):
                     continue
             return sorted(result, key=lambda item: item["updated_at"], reverse=True)

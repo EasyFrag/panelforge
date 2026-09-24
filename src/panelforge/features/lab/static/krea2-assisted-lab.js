@@ -58,6 +58,8 @@
     warnings: $("krea2-assisted-warnings"),
     examplePanel: $("krea2-assisted-example-panel"),
     exampleSummary: $("krea2-assisted-example-summary"),
+    exampleAssessment: $("krea2-assisted-example-assessment"),
+    exampleVariant: $("krea2-assisted-example-variant"),
     exampleCandidates: $("krea2-assisted-example-candidates"),
     examplePrompt: $("krea2-assisted-example-prompt"),
     conversationLayout: $("krea2-assisted-conversation-layout"),
@@ -124,7 +126,8 @@
   }));
   let samplingVersion = "1.0.0";
   let samplingCatalogSignature = null;
-  let activeWorkflowId = "krea2-sampling@1.0.0";
+  const defaultAssistedWorkflowId = "krea2-flux-klein@1.0.0";
+  let activeWorkflowId = defaultAssistedWorkflowId;
   const workflowSamplingDrafts = new Map();
 
   function defaultSampling() {
@@ -216,11 +219,44 @@
   }
 
   function loadWorkflow(value) {
-    const workflowId = value || "krea2-sampling@1.0.0";
+    const workflows = state.spec?.workflows || [];
+    const workflowId = value
+      || workflows.find((item) => item.id === defaultAssistedWorkflowId)?.id
+      || workflows[0]?.id
+      || "krea2-sampling@1.0.0";
     ensureMissingOption(elements.workflow, workflowId);
     elements.workflow.value = workflowId;
     activeWorkflowId = workflowId;
     updateWorkflowSummary();
+  }
+
+  function loadDefaultWorkflow() {
+    loadWorkflow(null);
+    const selected = workflowSpec();
+    const preset = state.spec?.sampling?.presets.find(
+      item => item.id === selected?.default_sampling_preset_id,
+    );
+    loadSampling(preset?.settings || defaultSampling());
+  }
+
+  function preferredRenderModel(models) {
+    return models.find((item) => /cielbleukrea2_v1bf16/i.test(item.comfy_name)
+        || /cielbleu krea2/i.test(item.display_name || ""))
+      || models.find((item) => /krea2gptgrandpussytruth/i.test(item.comfy_name))
+      || models.find((item) => /krea2_turbo_bf16/i.test(item.comfy_name))
+      || models[0]
+      || null;
+  }
+
+  function loadDefaultRenderSettings() {
+    loadDefaultWorkflow();
+    const model = preferredRenderModel(state.spec?.render_models || []);
+    if (model) {
+      elements.model.value = model.comfy_name;
+      resourceUi.syncModelPicker(elements.model);
+    }
+    state.loraSlots = [];
+    renderLoraStack();
   }
 
   function configureWorkflows(workflows) {
@@ -340,9 +376,12 @@
     const llmReady = Boolean(state.spec?.llm_models?.length && elements.llm.value);
     const modelsReady = Boolean(state.spec?.render_models?.some(m => m.comfy_name === elements.model.value));
     const lorasReady = state.loraSlots.every(slot => !slot.name || state.spec?.loras?.some(lora => lora.comfy_name === slot.name));
-    const v4Selected = elements.assistanceRecipe.value === "4.0.0";
+    const localRecipe = ["4.0.0", "5.0.0"].includes(elements.assistanceRecipe.value);
+    const v5Selected = elements.assistanceRecipe.value === "5.0.0";
     const libraryReady = state.spec?.prompt_library?.state === "ready";
-    elements.create.disabled = value || !llmReady || (v4Selected && !libraryReady);
+    const wildcardsReady = state.spec?.wildcard_library?.state === "ready";
+    elements.create.disabled = value || !llmReady
+      || (localRecipe && !libraryReady) || (v5Selected && !wildcardsReady);
     elements.assistanceRecipe.disabled = value;
     elements.libraryIndex.disabled = value || ["queued", "indexing"].includes(state.spec?.prompt_library?.state);
     elements.llm.disabled = value;
@@ -372,6 +411,7 @@
     elements.presetManager.querySelectorAll("button,select").forEach((control) => { control.disabled = value; });
     elements.gallery.querySelectorAll("button").forEach((button) => { button.disabled = value; });
     elements.exampleCandidates.querySelectorAll("button").forEach((button) => { button.disabled = value; });
+    elements.exampleVariant.disabled = value;
     updateLanguageControls();
     renderStatus();
     if (!value && state.project && ((state.renderQueue.items || []).length
@@ -400,15 +440,19 @@
 
   function renderLibraryStatus() {
     const library = state.spec?.prompt_library || { state: "unavailable", progress: 0 };
+    const wildcards = state.spec?.wildcard_library || { state: "unavailable", template_count: 0 };
     const percent = Math.round(Number(library.progress || 0) * 100);
     const labels = {
-      ready: `Bibliothèque locale · ${library.example_count || 0} scènes · prête`,
+      ready: `Bibliothèques locales · ${library.example_count || 0} scènes · ${wildcards.template_count || 0} templates`,
       queued: "Bibliothèque locale · en attente dans la file locale",
       indexing: `Bibliothèque locale · indexation ${percent} %`,
       failed: `Bibliothèque locale · échec : ${library.error || "erreur inconnue"}`,
       unavailable: "Bibliothèque locale · index absent",
     };
     elements.libraryStatus.textContent = labels[library.state] || labels.unavailable;
+    if (library.state === "ready" && wildcards.state !== "ready") {
+      elements.libraryStatus.textContent += ` · templates V5 indisponibles : ${wildcards.error || "source absente"}`;
+    }
     elements.libraryRow.dataset.state = library.state || "unavailable";
     elements.libraryIndex.textContent = library.state === "ready" ? "Reconstruire" : "Indexer";
     elements.libraryIndex.hidden = ["queued", "indexing"].includes(library.state);
@@ -424,7 +468,7 @@
       const payload = await request(`/api/image-lab/krea2-assisted/prompt-library/index?force=${force}`, { method: "POST" });
       state.spec.prompt_library = payload.prompt_library;
       renderLibraryStatus();
-      setNewMessage("La bibliothèque V4 est traitée localement ; le suivi global montre son avancement.", false);
+      setNewMessage("La bibliothèque de scènes V4/V5 est traitée localement ; le suivi global montre son avancement.", false);
     } catch (error) { setNewMessage(error.message); }
     finally { setBusy(false); }
   }
@@ -443,6 +487,20 @@
     finally { setBusy(false); }
   }
 
+  async function recompilePromptExample() {
+    if (!state.project || state.busy) return;
+    setBusy(true);
+    try {
+      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/prompt-example/variant`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_branch_id: state.project.active_branch_id }),
+      });
+      renderProject(payload.project, { preservePrompt: true });
+      setMessage("Nouvelle variante compilée avec le même template.");
+    } catch (error) { setMessage(error.message, true); }
+    finally { setBusy(false); }
+  }
+
   function renderPromptExamples() {
     const examples = state.project?.prompt_examples || [];
     const relevanceLabels = {
@@ -452,12 +510,30 @@
     };
     elements.examplePanel.hidden = !examples.length;
     elements.exampleCandidates.replaceChildren();
-    if (!examples.length) { elements.examplePrompt.textContent = ""; return; }
+    if (!examples.length) {
+      elements.examplePrompt.textContent = "";
+      elements.exampleAssessment.textContent = "";
+      elements.exampleVariant.hidden = true;
+      return;
+    }
+    const relevance = new Set(examples.map(example => example.relevance || "medium"));
+    const hasTemplate = examples.some(example => example.source_kind === "wildcard");
+    elements.exampleAssessment.textContent = relevance.has("strong")
+      ? (hasTemplate
+        ? "Un template de structure précis et des scènes proches ont été trouvés. Une seule inspiration sert d’exemple complet au modèle."
+        : "Des scènes proches ont été trouvées localement. Une seule sert d’exemple complet au modèle.")
+      : relevance.has("medium")
+        ? "Correspondances partielles : utilisez ces scènes comme inspirations visuelles, pas comme équivalents exacts."
+        : "Aucune correspondance exacte dans le corpus : les propositions sont uniquement des inspirations visuelles faibles.";
     const selected = examples.find(example => example.selected)
       || examples.find(example => example.example_id === state.project.selected_prompt_example_id)
       || examples[0];
-    elements.exampleSummary.textContent = `${selected.source_file} · ligne ${selected.source_line}`;
+    elements.exampleSummary.textContent = selected.source_kind === "wildcard"
+      ? `${selected.template_id.split("/").pop()} · variante ${selected.variant_seed}${selected.recommended_aspect_ratio ? ` · ${selected.recommended_aspect_ratio}` : ""}`
+      : `${selected.source_file} · ligne ${selected.source_line}`;
     elements.examplePrompt.textContent = selected.prompt;
+    elements.exampleVariant.hidden = selected.source_kind !== "wildcard"
+      || state.project?.assistance_recipe_version !== "5.0.0";
     examples.forEach((example, index) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -468,7 +544,17 @@
         ...(example.interactions || []), ...(example.positions || []),
         ...(example.framings || []), ...(example.settings || []),
       ];
-      const title = document.createElement("b"); title.textContent = `Option ${index + 1}`;
+      if (example.preview_url) {
+        const preview = document.createElement("img");
+        preview.src = `${example.preview_url.split("?")[0]}?template_id=${encodeURIComponent(example.template_id)}`;
+        preview.alt = `Aperçu du template ${example.template_id.split("/").pop()}`;
+        preview.loading = "lazy";
+        button.append(preview);
+      }
+      const title = document.createElement("b");
+      title.textContent = example.source_kind === "wildcard"
+        ? `Template · ${example.template_id.split("/").pop()}`
+        : `Scène · option ${index + 1}`;
       const relevance = document.createElement("small");
       relevance.className = `krea2-assisted-example-relevance ${example.relevance || "medium"}`;
       relevance.textContent = relevanceLabels[example.relevance] || relevanceLabels.medium;
@@ -493,13 +579,6 @@
     elements.convertLanguage.hidden = !canConvert;
     elements.convertLanguage.textContent = `Convertir en ${promptLanguageLabel(target)}`;
     elements.convertLanguage.disabled = state.busy || !canConvert;
-  }
-
-  function preferredRenderModel(models) {
-    return models.find((item) => /krea2gptgrandpussytruth/i.test(item.comfy_name))
-      || models.find((item) => /krea2_turbo_bf16/i.test(item.comfy_name))
-      || models[0]
-      || null;
   }
 
   function preferredNewProjectLlm(models) {
@@ -1109,15 +1188,15 @@
     const recipe = (state.spec?.assistance_recipes || []).find((item) => item.version === recipeVersion);
     elements.activeRecipe.textContent = `Assistance : ${recipe?.label || recipeVersion} · liée au projet`;
     elements.activeRecipe.title = `Recette d’assistance ${recipeVersion}`;
-    const usesV4Examples = recipeVersion === "4.0.0";
-    elements.chat.textContent = usesV4Examples
+    const usesLocalExamples = ["4.0.0", "5.0.0"].includes(recipeVersion);
+    elements.chat.textContent = usesLocalExamples
       ? "Affiner + actualiser l’inspiration"
       : "Affiner le prompt";
-    elements.chatWithoutRefresh.hidden = !usesV4Examples || !(project.prompt_examples || []).length;
+    elements.chatWithoutRefresh.hidden = !usesLocalExamples || !(project.prompt_examples || []).length;
     elements.promptLanguage.value = project.prompt_language || "en";
     if (changed) {
       workflowSamplingDrafts.clear();
-      activeWorkflowId = "krea2-sampling@1.0.0";
+      activeWorkflowId = defaultAssistedWorkflowId;
       clearGuidance();
       elements.message.value = "";
       reasoningTrace.reset();
@@ -1159,14 +1238,17 @@
   function restoreRenderState(project) {
     if (project.render_settings) {
       loadAttemptSettings({ prompt: project.current_prompt || "", settings: project.render_settings, seed: project.render_seed });
+      // A style preset stores portable style resources, not a workflow family.
+      // On a fresh preset-backed project, retain its checkpoint/LoRA but use the
+      // current Assisted default workflow and sampling instead of legacy 8+2.
+      if (!(project.attempts || []).length && project.style_preset) loadDefaultWorkflow();
       return;
     }
     const last = [...(project.attempts || [])].reverse().find(
       (a) => (a.conversation_branch_id || "main") === (project.active_branch_id || "main"),
     );
     if (last) loadAttemptSettings(last);
-    else loadSampling(null);
-    if (!last && !project.render_settings) loadWorkflow(null);
+    else loadDefaultRenderSettings();
     // A newer conversational prompt can exist after the last render.
     elements.prompt.value = project.current_prompt || last?.prompt || "";
   }
@@ -1307,13 +1389,13 @@
     configureSampling(next.sampling);
     configureWorkflows(next.workflows);
     const signature = JSON.stringify([next.render_models, next.loras, next.llm_models,
-      next.prompt_library, next.assistance_recipes]);
+      next.prompt_library, next.wildcard_library, next.assistance_recipes]);
     if (state.catalogSignature === signature && !force) {
       renderLibraryStatus();
       catalogStatus.observe(next);
       return;
     }
-    const previousRecipe = elements.assistanceRecipe.value || "4.0.0";
+    const previousRecipe = elements.assistanceRecipe.value || "3.0.0";
     elements.assistanceRecipe.replaceChildren();
     for (const recipe of state.spec.assistance_recipes || []) {
       const option = document.createElement("option");
@@ -1870,6 +1952,7 @@
   elements.newForm.addEventListener("submit", createProject);
   elements.assistanceRecipe.addEventListener("change", () => setBusy(state.busy));
   elements.libraryIndex.addEventListener("click", indexPromptLibrary);
+  elements.exampleVariant.addEventListener("click", recompilePromptExample);
   elements.llm.addEventListener("change", () => { state.newProjectLlmTouched = true; setBusy(state.busy); });
   elements.refreshAll.addEventListener("click", refreshAllResources);
   elements.model.addEventListener("change", () => setBusy(state.busy));

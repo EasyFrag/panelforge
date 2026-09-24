@@ -46,9 +46,19 @@ _TAXONOMY: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "masturbation": (
             "masturbat", "fingers herself", "fingering herself", "fingers her",
-            "self pleasure", "se masturbe", "se doigte",
+            "solo fingering", "solo toy", "hitachi", "self pleasure",
+            "se masturbe", "se doigte",
         ),
-        "oral_sex": ("oral sex", "fellatio", "cunnilingus", "blowjob", "fellation"),
+        "oral_sex": (
+            "oral sex", "fellatio", "cunnilingus", "blowjob", "fellation",
+            "giving oral", "partner oral", "deepthroat",
+        ),
+        "handjob": ("handjob", "hand job", "manual stimulation"),
+        "footjob": (
+            "footjob", "foot job", "foot-job", "foot stimulation",
+            "feet massaging/stimulating", "stimulating with her feet",
+            "stimulating with his feet", "masturbation with feet",
+        ),
         "kissing": ("kissing", "kiss", "embrasse", "baiser passionne"),
         "hugging": ("hugging", "embracing", "cuddling", "enlace", "calin"),
         "exposure": ("exposed genitals", "public exposure", "exhibitionist", "exhibe"),
@@ -80,6 +90,11 @@ _TAXONOMY: dict[str, dict[str, tuple[str, ...]]] = {
         "group_contact": (
             "gangbang", "group sex", "multiple partners", "several partners", "several men",
             "multiple men", "plusieurs partenaires", "plusieurs hommes",
+        ),
+        "foot_contact": (
+            "footjob", "foot job", "foot-job", "foot stimulation",
+            "feet massaging/stimulating", "stimulating with her feet",
+            "stimulating with his feet", "masturbation with feet",
         ),
     },
     "positions": {
@@ -124,6 +139,7 @@ _TAXONOMY: dict[str, dict[str, tuple[str, ...]]] = {
         "forest": ("forest", "woods", "forêt"),
         "street": ("street", "city sidewalk", "rue"),
         "car": ("inside a car", "car interior", "dans une voiture"),
+        "bus": ("inside a bus", "bus interior", "bus seat", "dans un bus"),
         "subway": (
             "subway car", "subway carriage", "metro car", "metro carriage", "train carriage",
             "inside a subway", "inside the metro", "wagon de metro", "dans le metro",
@@ -141,6 +157,23 @@ _RERANK_WEIGHTS = {
     "settings": 0.08,
     "framings": 0.04,
 }
+
+_GENERIC_ACTIONS = {"penetration"}
+_EXPLICIT_ACTIONS = {
+    "anal_penetration", "vaginal_penetration", "penetration", "masturbation",
+    "oral_sex", "footjob", "handjob", "exposure",
+}
+_REQUIRED_MISMATCH_PENALTIES = {
+    "actions": 0.58,
+}
+_EXPLICIT_SEXUAL = re.compile(
+    r"\b(?:anal\s+sex|blow[\s-]?job|cock|cum|cunnilingus|dick|ejaculat\w*|"
+    r"bare\s+(?:breasts?|genitals?)|fellatio|fellation|foot[\s-]?job|fuck\w*|handjob|"
+    r"masturbat\w*|naked|(?:fully|completely)\s+nude|"
+    r"nude\s+(?:body|couple|man|model|portrait|woman)|oral\s+sex|"
+    r"penis|pussy|vagina\w*)\b",
+    re.IGNORECASE,
+)
 
 
 class LocalPromptExampleLibrary:
@@ -235,7 +268,11 @@ class LocalPromptExampleLibrary:
             row = int(eligible[int(local_index)])
             item = examples[row]
             semantic_score = float(semantic[int(local_index)])
-            score = semantic_score + _metadata_adjustment(query_tags, item)
+            score = (
+                semantic_score
+                + _metadata_adjustment(query_tags, item)
+                + _content_compatibility_adjustment(query, item)
+            )
             ranked.append((score, semantic_score, row))
         ranked.sort(reverse=True)
         selected: list[tuple[float, float, int]] = []
@@ -253,7 +290,9 @@ class LocalPromptExampleLibrary:
         return tuple(
             _domain_example(
                 examples[row], score,
-                _relevance_label(query_tags, examples[row], semantic_score),
+                _relevance_label(
+                    query_tags, examples[row], semantic_score, query_text=query,
+                ),
             )
             for score, semantic_score, row in selected
         )
@@ -520,11 +559,35 @@ def _metadata_adjustment(query: dict[str, list[str]], item: dict[str, Any]) -> f
         present = set(item.get(category, []))
         overlap = len(requested & present) / len(requested)
         adjustment += weight * overlap
-        if not present:
+        required = _required_values(category, requested)
+        required_overlap = len(required & present) / len(required) if required else overlap
+        if required and not required_overlap:
+            adjustment -= _REQUIRED_MISMATCH_PENALTIES.get(category, weight * 0.5)
+        elif not present:
             adjustment -= weight * 0.15
         elif not overlap:
             adjustment -= weight * 0.5
     return adjustment
+
+
+def _required_values(category: str, requested: set[str]) -> set[str]:
+    if category == "actions":
+        specific = requested - _GENERIC_ACTIONS
+        return specific or requested
+    return set()
+
+
+def _content_compatibility_adjustment(query_text: str, item: dict[str, Any]) -> float:
+    """Keep explicit examples searchable without letting them hijack an SFW request."""
+    query_is_explicit = bool(
+        _EXPLICIT_ACTIONS & set(_classify(query_text)["actions"])
+    ) or _EXPLICIT_SEXUAL.search(_normalized_search_text(query_text)) is not None
+    item_is_explicit = bool(
+        _EXPLICIT_ACTIONS & set(item.get("actions", []))
+    ) or _EXPLICIT_SEXUAL.search(
+        _normalized_search_text(str(item.get("prompt", "")))
+    ) is not None
+    return -0.45 if item_is_explicit and not query_is_explicit else 0.0
 
 
 def _metadata_coverage(query: dict[str, list[str]], item: dict[str, Any]) -> float | None:
@@ -544,7 +607,15 @@ def _relevance_label(
     query: dict[str, list[str]],
     item: dict[str, Any],
     semantic_score: float,
+    *,
+    query_text: str | None = None,
 ) -> str:
+    if query_text is not None and _content_compatibility_adjustment(query_text, item) < 0:
+        return "weak"
+    for category in _REQUIRED_MISMATCH_PENALTIES:
+        requested = _required_values(category, set(query.get(category, [])))
+        if requested and requested.isdisjoint(set(item.get(category, []))):
+            return "weak"
     coverage = _metadata_coverage(query, item)
     if coverage is None:
         return "strong" if semantic_score >= 0.65 else "medium" if semantic_score >= 0.48 else "weak"

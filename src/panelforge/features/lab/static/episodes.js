@@ -3,6 +3,7 @@
   const core = window.PanelForgeLabCore, picker = window.PanelForgeModelPicker, resources = window.PanelForgeKrea2ResourceUi;
   const root = document.getElementById("episode-workshop"), el = id => document.getElementById(`episode-${id}`);
   if (!root || !core || !picker || !resources || !window.PanelForgeH3Render) return;
+  let localization = null;
   const state = { story: null, data: null, list: [], refId: "", sceneId: "", prepId: "", tab: "references",
     models: [], catalog: null, imageProject: null, busy: false, token: 0, timer: null,
     dirtyRef: false, dirtyScene: false, dirtyCommon: false, inheritImages: true, loras: [], commonLoras: [], presets: [],
@@ -56,7 +57,7 @@
   function show(visible) {
     root.hidden = !visible; document.getElementById("story-writing").hidden = visible;
     document.querySelectorAll("#stories-workspace .story-model-control").forEach(control => { control.hidden = visible; });
-    if (!visible) { clearTimeout(state.timer); renderer.close(); state.renderContext = ""; }
+    if (!visible) { localization?.close(); clearTimeout(state.timer); renderer.close(); state.renderContext = ""; }
   }
   async function action(work) {
     if (state.busy) return;
@@ -69,6 +70,9 @@
     finally { state.busy = false; controls(); schedule(); }
   }
   function controls() {
+    if (!state.data?.localization) el("references").querySelectorAll("[data-localization-disabled]").forEach(n => {
+      n.disabled = n.dataset.localizationDisabled === "true"; delete n.dataset.localizationDisabled;
+    });
     drawContinuity();
     const r = ref(), s = scene(), continuityBusy = state.data?.continuity_version === 1
       && (videoChainRunning() || batchRunning() || state.data.references.some(jobRunning));
@@ -117,6 +121,26 @@
     drawLoras();
     drawBatchLoras();
     renderer.refreshControls?.();
+    const localized = !!state.data?.localization;
+    root.classList.toggle("episode-localized", localized);
+    const promptControl = document.getElementById("episoder-prompt");
+    if (promptControl) promptControl.readOnly = localized;
+    el("video-start").textContent = localized ? "Produire vidéos + DLSS" : "Lancer prompts + vidéos";
+    el("overview-title").textContent = localized ? "Dialogues adaptés et vidéos de l’épisode" : "Prompts et vidéos de l’épisode";
+    el("overview-hint").textContent = localized ? "Les prompts sont conservés. Les répliques se relisent dans 3 · Multilangue ; seules les vidéos nécessaires sont produites."
+      : "Toutes les scènes restent visibles. Les prompts sont rédigés un par un ; les vidéos démarrent automatiquement sur le serveur distant.";
+    el("prompt-lane-title").textContent = localized ? "Prompts conservés" : "LLM local";
+    if (localized) {
+      for (const id of ["intention", "duration", "plan-model", "writer-model", "plan-local", "writer-local", "shots", "audacity", ...Object.values(axesIds), "add-reference", "save-scene", "prepare", "resume", "add"])
+        el(id).disabled = true;
+      el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = true; });
+      el("references").querySelectorAll("button,input,select,textarea").forEach(n => {
+        if (!Object.hasOwn(n.dataset, "localizationDisabled")) n.dataset.localizationDisabled = String(n.disabled);
+        n.disabled = n.id !== "episode-reference";
+      });
+      el("video-start").disabled ||= state.data.scenes.some(s => s.localization.status !== "ready")
+        || ["queued", "running"].includes(state.data.localization.job?.status);
+    }
   }
   function fillModel(id, value) {
     const select = el(id);
@@ -479,6 +503,10 @@
     element.textContent = `${marker}${label} : ${text}`;
   }
   function updateDlssStage(card, value, item) {
+    if (value.localization_dlss?.status === "succeeded") {
+      updateStage(card._refs.dlssStatus, "DLSS", "succeeded", value.localization_dlss.reused ? "réutilisé" : "terminé");
+      return;
+    }
     const attempt = value.video_attempt;
     const live = attempt && window.PanelForgeDlss?.progress?.({owner: "ref2v",
       ownerId: value.preparations.at(-1)?.render_project_id, attempt});
@@ -546,6 +574,15 @@
     const processing = [plan, writer, videoStage].some(status => ["starting", "submitting", "running", "receiving", "importing"].includes(status));
     card.className = `episode-video-card${value.id === state.sceneId ? " selected" : ""}${processing ? " processing" : ""}`;
     if (processing) card.setAttribute("aria-busy", "true"); else card.removeAttribute("aria-busy");
+    if (value.localization) {
+      const info = value.localization, job = state.data.localization.job;
+      const translation = info.status === "ready" ? "ready" : job?.status || "pending";
+      updateStage(refs.planStatus, info.slots.length ? "Traduction" : "Prompt conservé", translation,
+        info.status === "ready" ? (info.slots.length ? "prête" : "sans dialogue") : statuses[translation] || "à préparer");
+      updateStage(refs.writerStatus, "Injection", info.status, info.status === "ready" ? "prête · sans LLM" : "après traduction");
+      refs.planStatus.title = refs.writerStatus.title = "";
+      if (value.video_reused) videoText = "réutilisée";
+    }
     updateStage(refs.videoStatus, "Vidéo", videoStage, videoText);
     updateDlssStage(card, value, item);
     const error = item?.error || value.job?.error;
@@ -731,11 +768,15 @@
     }
     const source = state.data.scenario.scenes[s.index], names = Object.fromEntries(state.data.scenario.characters.map(c => [c.id, c.name]));
     el("dialogues").textContent = source.dialogue.map(d => dialogueLabel(d, names[d.speaker_id])).join("\n") || "Aucun dialogue.";
+    if (s.localization) el("dialogues").textContent = s.localization.slots.map(slot =>
+      s.localization.translations[slot.id] || `${slot.text} · à traduire`).join("\n") || "Aucun dialogue.";
     el("resolved-intention").textContent = s.resolved_intention || s.input_error;
     el("scene-state").textContent = s.input_error || (s.image_refresh_names?.length
       ? `Images modifiées : ${s.image_refresh_names.join(", ")}. Elles seront utilisées à la prochaine génération, avec le même prompt et sans appel LLM. Les anciens rendus restent dans leur préparation.`
       : s.stale ? "L’intention ou les références de la scène ont changé. Prépare un nouveau prompt avant de relancer le rendu ; les anciens rendus restent conservés."
       : "Les références sont prêtes. Les dialogues sont ajoutés automatiquement.");
+    if (s.localization) el("scene-state").textContent = s.localization.warning
+      || "Mise en scène et références conservées. Modifie les répliques dans 3 · Multilangue ; les réglages vidéo restent accessibles ci-dessous.";
     el("prompt-status").textContent = s.job?.error || (jobRunning(s) ? s.job.phase : "");
     el("preparation-label").hidden = !s.preparations.length;
     el("preparation").replaceChildren(...[...s.preparations].reverse().map((p, index) => new Option(`Préparation ${s.preparations.length - index} · ${p.images_refreshed ? "Images actualisées · prompt conservé" : statuses[p.status] || p.status}`, p.id)));
@@ -790,13 +831,15 @@
   function schedule() {
     clearTimeout(state.timer);
     if (root.hidden || !state.data || document.getElementById("stories-workspace").hidden) return;
-    const running = [...state.data.references, ...state.data.scenes].some(jobRunning) || imageRunning() || batchRunning() || videoChainRunning();
+    const running = [...state.data.references, ...state.data.scenes].some(jobRunning) || imageRunning() || batchRunning() || videoChainRunning()
+      || ["queued", "running"].includes(state.data.localization?.job?.status);
     if (!running) return;
     const token = state.token;
     state.timer = setTimeout(async () => { try { if (!state.busy) await refresh(); } catch (error) { message(error.message, true); }
       finally { if (token === state.token) schedule(); } }, 2000);
   }
   async function saveCommon() {
+    if (state.data?.localization) return;
     if (!state.data || (!state.dirtyCommon && (state.data.image_defaults?.model_id || !state.catalog || !el("common-model").value))) return;
     if (!state.catalog || !el("common-model").value) throw new Error("Attends le catalogue ou choisis un checkpoint commun avant d’enregistrer.");
     const data = await core.request(api("/visual"), send("PUT", {expected_revision: state.data.visual_revision || 1,
@@ -804,6 +847,7 @@
     state.dirtyCommon = false; accept(data);
   }
   async function saveReference() {
+    if (state.data?.localization) return;
     await saveCommon();
     if (!state.dirtyRef) return;
     const r = ref(), payload = {expected_revision: r.revision, description: el("description").value.trim(),
@@ -832,7 +876,7 @@
   }
   async function saveScene() {
     await flushRender();
-    if (!state.dirtyScene) return;
+    if (state.data?.localization || !state.dirtyScene) return;
     const s = scene(), data = await core.request(api(`/scenes/${s.id}`), send("PUT", {expected_revision: s.revision,
       intention: el("intention").value.trim(), duration: Number(el("duration").value), references: state.bindings,
       plan_model_id: el("plan-model").value, writer_model_id: el("writer-model").value,
@@ -854,6 +898,7 @@
     renderActionState(context) {
       const s = state.data?.scenes.find(value => value.id === context?.scene_id);
       if (!s) return {};
+      if (s.localization && s.localization.status !== "ready") return {disabled: true, label: "Traduire dans 3 · Multilangue"};
       if (context.preparation_id !== s.preparations.at(-1)?.id)
         return {disabled: true, label: "Sélectionner la dernière préparation pour générer"};
       if (s.input_error || (s.stale && !s.image_refresh_names?.length))
@@ -863,6 +908,7 @@
     },
     onSetupRender: (parameters, context) => startSceneVideoChain(parameters, context),
     setupActionState(context) {
+      if (state.data?.localization) return {disabled: true, label: "Traduire dans 3 · Multilangue"};
       const chain = state.data?.video_chain;
       const item = chain?.items?.find(value => value.scene_id === context?.scene_id);
       if (item?.status === "prompt_failed") {
@@ -997,12 +1043,17 @@
   }
   async function tab(name) {
     await flushRender(); await saveReference(); await saveScene();
+    localization?.guardDirty();
     state.tab = name; el("references").hidden = name !== "references"; el("scenes").hidden = name !== "scenes";
     el("tab-references").setAttribute("aria-pressed", String(name === "references")); el("tab-scenes").setAttribute("aria-pressed", String(name === "scenes"));
     if (name === "scenes") await openRender(); else { await renderer.close(); state.renderContext = ""; state.activeRender = null; }
+    el("localization").hidden = name !== "localization";
+    el("tab-localization").setAttribute("aria-pressed", String(name === "localization"));
+    if (name === "localization") await localization?.open(); else localization?.close();
     storeContext(); schedule();
   }
   async function openEpisode(id, saved = null) {
+    localization?.guardDirty();
     await flushRender(); await renderer.close(); state.activeRender = null;
     const token = ++state.token; clearTimeout(state.timer);
     const data = await core.request(api("", id)); if (token !== state.token) return;
@@ -1017,8 +1068,22 @@
     state.renderContext = ""; state.bindings = [];
     accept(data); show(true);
     if (!state.catalog || !state.models.length) catalog().catch(error => message(error.message, true));
-    await tab(saved?.tab === "scenes" ? "scenes" : "references"); await imageProject(); schedule();
+    await tab(["scenes", "localization"].includes(saved?.tab) ? saved.tab : data.localization ? "localization" : "references"); await imageProject(); schedule();
   }
+  localization = window.PanelForgeEpisodeLocalization?.mount({
+    current: () => state.data, models: () => state.models,
+    visible: () => !root.hidden && !document.getElementById("stories-workspace").hidden,
+    refresh: async () => {
+      const id = state.data?.story_id; if (!id) return;
+      state.list = (await core.request(`/api/episodes/stories/${encodeURIComponent(id)}`)).episodes;
+      await refresh();
+    },
+    open: async (id, name) => {
+      const storyId = state.data.story_id;
+      state.list = (await core.request(`/api/episodes/stories/${encodeURIComponent(storyId)}`)).episodes;
+      await openEpisode(id, {tab: name});
+    },
+  });
   async function storyChanged(project) {
     if (state.story?.project_id === project?.project_id) { state.story = project; return; }
     state.story = project; ++state.token; show(false); state.data = null; state.dirtyRef = state.dirtyScene = state.dirtyCommon = false;
@@ -1040,15 +1105,16 @@
     const id = state.list.some(e => e.episode_id === saved?.id) ? saved.id : state.list[0]?.episode_id;
     if (id) await openEpisode(id, saved);
   }));
-  el("back").addEventListener("click", () => action(async () => { await flushRender(); await saveReference(); await saveScene(); state.activeRender = null; show(false); }));
+  el("back").addEventListener("click", () => action(async () => { localization?.guardDirty(); await flushRender(); await saveReference(); await saveScene(); state.activeRender = null; show(false); }));
   el("refresh").addEventListener("click", () => action(refresh));
   el("versions").addEventListener("change", () => action(async () => { const id = el("versions").value; await saveReference(); await saveScene(); await openEpisode(id); }));
   el("tab-references").addEventListener("click", () => action(() => tab("references")));
   el("tab-scenes").addEventListener("click", () => action(() => tab("scenes")));
+  el("tab-localization").addEventListener("click", () => action(() => tab("localization")));
   el("reference").addEventListener("change", () => action(async () => { const id = el("reference").value, template = referenceSettingsTemplate();
     await saveReference(); state.refId = id;
     state.imageProject = null; state.dirtyRef = false; el("asset-feedback").value = ""; drawLists(); drawReference(true);
-    if (adoptReferenceSettings(template)) message("Réglages LLM et image repris pour cette fiche vierge.");
+    if (!state.data?.localization && adoptReferenceSettings(template)) message("Réglages LLM et image repris pour cette fiche vierge.");
     await imageProject(); storeContext(); }));
   el("scene").addEventListener("change", () => action(async () => { const id = el("scene").value; await saveScene(); state.sceneId = id;
     state.prepId = ""; state.dirtyScene = false; drawLists(); drawScene(true); await openRender(); storeContext(); }));

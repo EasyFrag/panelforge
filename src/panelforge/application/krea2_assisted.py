@@ -27,6 +27,7 @@ from panelforge.domain.krea2_assisted import (
     Krea2AssistedTurn,
     Krea2AssistedTurnMode,
     Krea2AssistedTurnRole,
+    Krea2PromptExample,
     Krea2PromptSearchBrief,
 )
 from panelforge.domain.krea2_batch import (
@@ -42,7 +43,13 @@ from panelforge.domain.recipes import RecipeRef
 from panelforge.domain.production import ComputeResource, ProductionWorkload
 from panelforge.infrastructure.krea2_batch_recipes import Krea2VisualRecipe
 
-from . import krea2_assisted_v1, krea2_assisted_v2, krea2_assisted_v3, krea2_assisted_v4
+from . import (
+    krea2_assisted_v1,
+    krea2_assisted_v2,
+    krea2_assisted_v3,
+    krea2_assisted_v4,
+    krea2_assisted_v5,
+)
 from .production_resources import ResourceWaitCancelled
 from .prompt_lab import (
     CompletionRequest,
@@ -78,7 +85,13 @@ class _RenderFailed(Exception):
 
 
 def assistance_recipe(version):
-    for recipe in (krea2_assisted_v1, krea2_assisted_v2, krea2_assisted_v3, krea2_assisted_v4):
+    for recipe in (
+        krea2_assisted_v1,
+        krea2_assisted_v2,
+        krea2_assisted_v3,
+        krea2_assisted_v4,
+        krea2_assisted_v5,
+    ):
         if version == recipe.VERSION:
             return recipe
     raise ValueError(f"unsupported KREA2 assistance recipe: {version}")
@@ -140,6 +153,13 @@ class Krea2PromptExamples(Protocol):
     def search(self, query: str, *, limit: int = 3) -> tuple[object, ...]: ...
 
 
+class Krea2PromptWildcards(Protocol):
+    def status(self) -> dict[str, object]: ...
+    def search(self, query: str, *, limit: int = 3) -> tuple[object, ...]: ...
+    def recompile(self, example: object) -> object: ...
+    def preview_path(self, template_id: str): ...
+
+
 class Krea2StylePresetStore(Protocol):
     def list(self) -> tuple[Krea2StylePreset, ...]: ...
     def get(self, preset_id: str) -> Krea2StylePreset: ...
@@ -183,6 +203,7 @@ class Krea2AssistedService:
         exporter: Krea2CreationExporter | None = None,
         presets: Krea2StylePresetStore | None = None,
         prompt_examples: Krea2PromptExamples | None = None,
+        prompt_wildcards: Krea2PromptWildcards | None = None,
         application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
         run_timeout: float = 3600.0,
         poll_interval: float = 1.0,
@@ -223,6 +244,7 @@ class Krea2AssistedService:
         self.exporter = exporter
         self.presets = presets
         self.prompt_examples = prompt_examples
+        self.prompt_wildcards = prompt_wildcards
         self.application_outcomes = application_outcomes
         self.run_timeout = run_timeout
         self.poll_interval = poll_interval
@@ -270,7 +292,7 @@ class Krea2AssistedService:
         model_id: str,
         reference_asset_id: str | None = None,
         reference_filename: str | None = None,
-        assistance_recipe_version: str = "1.0.0",
+        assistance_recipe_version: str = "3.0.0",
         style_preset_id: str | None = None,
         prompt_language: Krea2PromptLanguage | None = None,
     ) -> Krea2AssistedProject:
@@ -289,12 +311,14 @@ class Krea2AssistedService:
         intention = _bounded_text(intention, "intention", 12_000)
         model_id = _bounded_text(model_id, "model_id", 300)
         examples = ()
-        if assistance_recipe_version == krea2_assisted_v4.VERSION:
-            if self.prompt_examples is None:
-                raise RuntimeError("La bibliothèque locale V4 n’est pas configurée.")
-            examples = self.prompt_examples.search(intention, limit=3)
-            if len(examples) != 3:
-                raise RuntimeError("La bibliothèque locale V4 doit proposer trois exemples.")
+        if assistance_recipe_version in {
+            krea2_assisted_v4.VERSION,
+            krea2_assisted_v5.VERSION,
+        }:
+            examples = self._search_prompt_inspirations(
+                assistance_recipe_version,
+                intention,
+            )
         if reference_asset_id is not None:
             asset = self.assets.get(reference_asset_id)
             if not asset.media_type.startswith("image/"):
@@ -402,7 +426,13 @@ class Krea2AssistedService:
     @staticmethod
     def list_assistance_recipes() -> list[dict[str, str]]:
         return [{"version": recipe.VERSION, "label": recipe.LABEL}
-                for recipe in (krea2_assisted_v1, krea2_assisted_v2, krea2_assisted_v3, krea2_assisted_v4)]
+                for recipe in (
+                    krea2_assisted_v1,
+                    krea2_assisted_v2,
+                    krea2_assisted_v3,
+                    krea2_assisted_v4,
+                    krea2_assisted_v5,
+                )]
 
     def prompt_example_library_status(self) -> dict[str, object]:
         if self.prompt_examples is None:
@@ -417,6 +447,41 @@ class Krea2AssistedService:
         self.prompt_examples.start_indexing(force=force)
         return self.prompt_examples.status()
 
+    def prompt_wildcard_library_status(self) -> dict[str, object]:
+        if self.prompt_wildcards is None:
+            return {
+                "state": "unavailable",
+                "error": "Bibliothèque de templates non configurée.",
+                "template_count": 0,
+                "eligible_count": 0,
+                "source_count": 0,
+            }
+        return self.prompt_wildcards.status()
+
+    def _search_prompt_inspirations(
+        self,
+        recipe_version: str,
+        query: str,
+    ) -> tuple[Krea2PromptExample, ...]:
+        if self.prompt_examples is None:
+            raise RuntimeError("La bibliothèque locale de scènes n’est pas configurée.")
+        scenes = self.prompt_examples.search(query, limit=3)
+        if len(scenes) != 3:
+            raise RuntimeError("La bibliothèque locale doit proposer trois scènes.")
+        if recipe_version == krea2_assisted_v4.VERSION:
+            return scenes
+        if recipe_version != krea2_assisted_v5.VERSION:
+            raise ValueError("La recherche locale est réservée à V4 et V5.")
+        if self.prompt_wildcards is None:
+            raise RuntimeError("La bibliothèque de templates V5 n’est pas configurée.")
+        templates = self.prompt_wildcards.search(query, limit=3)
+        if not templates or templates[0].relevance == "weak":
+            return scenes
+        template = templates[0]
+        if template.relevance == "strong":
+            return (template, scenes[0], scenes[1])
+        return (scenes[0], template, scenes[1])
+
     def select_prompt_example(
         self,
         project_id: str,
@@ -427,9 +492,44 @@ class Krea2AssistedService:
         with self._lock:
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
-            if project.assistance_recipe_version != krea2_assisted_v4.VERSION:
-                raise ValueError("Les exemples locaux appartiennent uniquement à V4.")
+            if project.assistance_recipe_version not in {
+                krea2_assisted_v4.VERSION,
+                krea2_assisted_v5.VERSION,
+            }:
+                raise ValueError("Les inspirations locales appartiennent uniquement à V4 et V5.")
             return self.projects.save(project.select_prompt_example(example_id))
+
+    def recompile_prompt_example(
+        self,
+        project_id: str,
+        *,
+        expected_branch_id: str,
+    ) -> Krea2AssistedProject:
+        with self._lock:
+            project = self.projects.get(project_id)
+            self._check_conversation_change(project, expected_branch_id)
+            if project.assistance_recipe_version != krea2_assisted_v5.VERSION:
+                raise ValueError("Les variantes wildcard appartiennent uniquement à V5.")
+            selected = project.selected_prompt_example
+            if selected is None or selected.source_kind != "wildcard":
+                raise ValueError("Sélectionnez d’abord une inspiration wildcard.")
+            if self.prompt_wildcards is None:
+                raise RuntimeError("La bibliothèque de templates V5 n’est pas configurée.")
+            variant = self.prompt_wildcards.recompile(selected)
+            examples = tuple(
+                variant if value.example_id == selected.example_id else value
+                for value in project.prompt_examples
+            )
+            return self.projects.save(replace(
+                project,
+                prompt_examples=examples,
+                selected_prompt_example_id=variant.example_id,
+            ))
+
+    def prompt_template_preview(self, template_id: str):
+        if self.prompt_wildcards is None:
+            raise RuntimeError("La bibliothèque de templates V5 n’est pas configurée.")
+        return self.prompt_wildcards.preview_path(template_id)
 
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]:
         with self._lock:
@@ -501,7 +601,10 @@ class Krea2AssistedService:
         try:
             if (
                 mode is Krea2AssistedTurnMode.CREATION
-                and project.assistance_recipe_version == krea2_assisted_v4.VERSION
+                and project.assistance_recipe_version in {
+                    krea2_assisted_v4.VERSION,
+                    krea2_assisted_v5.VERSION,
+                }
                 and refresh_prompt_examples
             ):
                 yield Krea2AssistedStreamEvent(
@@ -517,11 +620,10 @@ class Krea2AssistedService:
                     if (brief_result.finish_reason or "").casefold() in {"length", "max_tokens"}:
                         raise ValueError(truncated_response_message(brief_request.max_tokens))
                     brief = _parse_prompt_search_brief(brief_result.content, message)
-                    if self.prompt_examples is None:
-                        raise RuntimeError("La bibliothèque locale V4 n’est pas configurée.")
-                    examples = self.prompt_examples.search(brief.retrieval_query, limit=3)
-                    if len(examples) != 3:
-                        raise RuntimeError("La bibliothèque locale V4 doit proposer trois exemples.")
+                    examples = self._search_prompt_inspirations(
+                        project.assistance_recipe_version,
+                        brief.retrieval_query,
+                    )
                     with self._lock:
                         project = self.projects.save(
                             self.projects.get(project_id).replace_prompt_examples(examples, brief)
@@ -1059,7 +1161,12 @@ class Krea2AssistedService:
                 "TURN GUIDANCE IMAGE",
             ))
         recipe = assistance_recipe(project.assistance_recipe_version)
-        if recipe in (krea2_assisted_v2, krea2_assisted_v3, krea2_assisted_v4):
+        if recipe in (
+            krea2_assisted_v2,
+            krea2_assisted_v3,
+            krea2_assisted_v4,
+            krea2_assisted_v5,
+        ):
             # Do not inject unrelated recipes or fetch a resource catalogue for
             # a purely visual correction. Publication still receives its memory.
             memory = (_recipe_memory(self.recipes.current())
@@ -1079,10 +1186,13 @@ class Krea2AssistedService:
             resources=resources,
             language_instruction=_prompt_language_instruction(project.prompt_language),
         )
-        if recipe is krea2_assisted_v4 and mode is Krea2AssistedTurnMode.CREATION:
+        if recipe in {
+            krea2_assisted_v4,
+            krea2_assisted_v5,
+        } and mode is Krea2AssistedTurnMode.CREATION:
             example = project.selected_prompt_example
             if example is None:
-                raise RuntimeError("Le projet V4 n’a pas d’exemple local épinglé.")
+                raise RuntimeError("Le projet n’a pas d’inspiration locale épinglée.")
             user += recipe.example_context(example)
         if project.preset_pending and project.style_preset is not None:
             preset = project.style_preset
@@ -1145,20 +1255,21 @@ class Krea2AssistedService:
                 self.assets.read_bytes(asset.asset_id),
                 "TURN SUBJECT OR REFERENCE IMAGE",
             ))
+        recipe = assistance_recipe(project.assistance_recipe_version)
         return CompletionRequest(
             model_id=project.revision_model_id or project.model_id,
-            system_prompt=krea2_assisted_v4.retrieval_system_prompt(),
-            user_prompt=krea2_assisted_v4.retrieval_user_prompt(
+            system_prompt=recipe.retrieval_system_prompt(),
+            user_prompt=recipe.retrieval_user_prompt(
                 intention=project.intention,
                 current_prompt=project.current_prompt,
                 newest_request=message,
             ),
             images=tuple(images),
             temperature=0.1,
-            max_tokens=krea2_assisted_v4.RETRIEVAL_MAX_TOKENS,
-            operation_id=krea2_assisted_v4.RETRIEVAL_OPERATION,
+            max_tokens=recipe.RETRIEVAL_MAX_TOKENS,
+            operation_id=recipe.RETRIEVAL_OPERATION,
             include_reasoning=False,
-            output_schema=krea2_assisted_v4.RETRIEVAL_OUTPUT_SCHEMA,
+            output_schema=recipe.RETRIEVAL_OUTPUT_SCHEMA,
         )
 
     def _accept_chat_response(
