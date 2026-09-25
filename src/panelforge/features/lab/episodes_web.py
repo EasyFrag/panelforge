@@ -367,7 +367,7 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
     @router.post("/{identity}/reference-batches", status_code=202)
     def start_reference_batch(identity: str, body: ReferenceBatchBody):
         def start():
-            if set(body.profiles) != {"character", "location"}:
+            if body.profiles and set(body.profiles) != {"character", "location"}:
                 raise ValueError("Configurez exactement un profil Personnages et un profil Décors.")
             profiles = {}
             for kind, profile in body.profiles.items():

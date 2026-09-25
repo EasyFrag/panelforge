@@ -30,6 +30,7 @@ from panelforge.domain.h3_render import (
     H3RenderAttemptStatus, H3VideoLoraSelection, H3VideoLoraStack,
 )
 from .prompt_lab import NewReference, StreamEventKind
+from .episode_state_images import EpisodeStateImages
 from .episode_continuity import EpisodeContinuityActions
 from .episode_localization import EpisodeLocalizationActions
 from panelforge.domain import episode_continuity, story_continuity
@@ -39,7 +40,7 @@ class EpisodeConflict(ValueError):
     pass
 
 
-class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
+class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocalizationActions):
     def __init__(self, *, stories, store, krea, prompt_lab, composition, render, assets,
                  dlss=None, work_coordinator=None, sleep=time.sleep, qwen_edit=None, thumbnails=None):
         self.stories, self.store, self.krea = stories, store, krea
@@ -94,7 +95,11 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
         sources.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
         inherited = 0
         for target in episode["references"]:
-            if target["kind"] not in {"character", "object"} or target.get("image_asset_id") or target.get("continuity_state_id"):
+            if target["kind"] not in {"character", "object"} or target.get("image_asset_id"):
+                continue
+            if target.get("continuity_state_id"):
+                if self._is_state_image(episode, target):
+                    inherited += self._inherit_state_image(episode, target, sources)
                 continue
             target_name = self._identity_key(target["name"])
             chosen = None
@@ -123,7 +128,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 if before["reference_state_id"] and all(before[k] == after[k] for k in ("appearance", "clothing")):
                     variant_id = story_continuity.reference_id(old_element["id"], before["reference_state_id"])
                     variant = next((r for r in source["references"] if r["id"] == variant_id and r.get("image_asset_id")
-                                    and not r.get("continuity_image_stale")), None)
+                                    and not r.get("continuity_archived") and not episode_continuity.variant_stale(source, r)), None)
                     if variant:
                         reference = variant
             asset_id = reference["image_asset_id"]
@@ -226,6 +231,16 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
         for ref in view["references"]:
             ref["inherit_image_settings"] = inherits_images(ref)
             ref["effective_image_settings"] = effective_image_settings(value, ref)
+            if self._is_state_image(value, ref):
+                base = episode_continuity.variant_base(value, ref)
+                ref["continuity_image_stale"] = episode_continuity.variant_stale(value, ref)
+                ref["state_source_name"] = base["name"] if base else ref["name"]
+                ref["state_source_ready"] = bool(base and base.get("image_asset_id"))
+                signature = episode_continuity.variant_signature(value, ref)
+                for image in ref["images"]:
+                    image["source_stale"] = bool(image.get("source_signature") and image["source_signature"] != signature)
+                ref["state_scene_indices"] = [s["index"] for s in value["scenes"]
+                    if ref["id"] in episode_continuity.required_bindings(value, s)]
             previous = ref.get("prompt_style")
             active_style = style_context(value)
             ref["prompt_style_stale"] = bool(ref["prompt"] and (
@@ -253,6 +268,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
         for scene in view["scenes"]:
             scene["inherit_video_settings"] = inherits_video_settings(scene)
             scene["effective_render_setup"] = effective_video_setup(value, scene)
+            scene["required_references"] = episode_continuity.missing_requirements(value, scene)
             scene["continuity_states"] = episode_continuity.snapshot(value, scene)
             scene["resolved_references"] = episode_continuity.bindings(value, scene)
             scene["continuity_warnings"] = episode_continuity.scene_warnings(value, scene)
@@ -311,6 +327,9 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
             ref = refs.get(item["reference_id"])
             if ref is None:
                 continue
+            if item.get("qwen_project_id"):
+                changed |= self._reconcile_state_image(value, item, ref)
+                continue
             output_id = item.get("output_asset_id")
             selected_asset = ref.get("image_asset_id")
             selection_changed = selected_asset and (
@@ -363,6 +382,8 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
         for item in chain.get("items", []):
             scene = scenes.get(item.get("scene_id"))
             if scene is None:
+                continue
+            if item.get("status") == "waiting_reference":
                 continue
             latest = scene.get("preparations", [])[-1] if scene.get("preparations") else None
             latest_is_current = False
@@ -639,10 +660,17 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 selected_attempt = next((a for a in project.attempts if a.output_asset_id == asset_id), None)
             if asset_id not in available:
                 raise ValueError("Cette image n’appartient pas à cette fiche. Importez-la d’abord.")
+            if self._is_state_image(value, ref):
+                selected_image = next((i for i in ref["images"] if i["asset_id"] == asset_id), {})
+                signature = episode_continuity.variant_signature(value, ref)
+                if selected_image.get("source_signature") and selected_image["source_signature"] != signature:
+                    raise EpisodeConflict("Cette variante utilise une ancienne identité ou un ancien état. Prépare une nouvelle image.")
+                ref["continuity_source_signature"] = signature
             ref.update(image_asset_id=asset_id, continuity_image_stale=False, revision=ref["revision"] + 1)
             record = next((r for r in ref.get("image_runs", []) if selected_attempt and r["attempt_id"] == selected_attempt.attempt_id), None)
             ref["image_style"] = deepcopy(record.get("prompt_style")) if record else None
             self.store.save(value)
+        self._resume_state_dependencies(identity)
         return self.get(identity)
 
     def import_image(self, identity, ref_id, expected_revision, content, media_type, filename):
@@ -652,8 +680,12 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 self._continuity_editable(value)
             asset = self.assets.create(content, media_type=media_type, source_run_id=identity)
             ref["images"].append(dict(asset_id=asset.asset_id, label=filename))
+            if self._is_state_image(value, ref):
+                ref["continuity_source_signature"] = episode_continuity.variant_signature(value, ref)
+                ref["images"][-1]["source_signature"] = ref["continuity_source_signature"]
             ref.update(image_asset_id=asset.asset_id, image_style=None, continuity_image_stale=False, revision=ref["revision"] + 1)
             self.store.save(value)
+        self._resume_state_dependencies(identity)
         return self.get(identity)
 
     def reference_project(self, identity, ref_id):
@@ -699,6 +731,8 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
             ref = self._item(value, "references", ref_id)
             if (ref.get("job") or {}).get("request_id") == request_id:
                 return self.get(identity)
+            if self._is_state_image(value, ref):
+                raise ValueError("Prépare cette variante avec Qwen depuis le lot de références ou importe son image.")
             value, ref = self._editable(identity, "references", ref_id, expected_revision)
             if expected_visual_revision is not None and value.get("visual_revision", 1) != expected_visual_revision:
                 raise EpisodeConflict("Le style commun a changé. Actualisez avant de préparer le prompt.")
@@ -752,6 +786,8 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
             ref = self._item(value, "references", ref_id)
             if (ref.get("job") or {}).get("request_id") == request_id:
                 return self.get(identity)
+            if self._is_state_image(value, ref):
+                raise ValueError("Prépare cette variante avec Qwen depuis le lot de références ou importe son image.")
             value, ref = self._editable(identity, "references", ref_id, expected_revision)
             if expected_visual_revision is not None and value.get("visual_revision", 1) != expected_visual_revision:
                 raise EpisodeConflict("Les réglages communs ont changé. Actualisez avant de générer l’image.")
@@ -820,6 +856,9 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                     raise ValueError("Une fiche ne peut apparaître qu’une fois dans le lot.")
                 seen.add(ref_id)
                 ref = self._item(value, "references", ref_id)
+                if self._is_state_image(value, ref):
+                    selected.append(ref)
+                    continue
                 profile = profiles.get("character" if ref["kind"] == "object" else ref["kind"])
                 if profile is None:
                     raise ValueError(f"Le profil {ref['kind']} est manquant.")
@@ -829,6 +868,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 selected.append(ref)
             if not selected:
                 raise ValueError("Choisissez au moins un personnage ou un décor.")
+            selected.sort(key=lambda ref: bool(self._is_state_image(value, ref)))
             public_profiles = {
                 kind: dict(model_id=profile["model_id"],
                            inherit_technical=bool(profile.get("inherit_technical", False)),
@@ -836,7 +876,8 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 for kind, profile in profiles.items()
             }
             batch_id = f"reference-batch-{uuid4().hex}"
-            value["reference_profiles"] = deepcopy(public_profiles)
+            if public_profiles:
+                value["reference_profiles"] = deepcopy(public_profiles)
             value["reference_batch"] = dict(
                 batch_id=batch_id, request_id=request_id, status="running", phase="Préparation des prompts",
                 error=None, cancel_requested=False, profiles=deepcopy(public_profiles), thermal=asdict(policy),
@@ -857,7 +898,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
         return self.get(identity)
 
     def cancel_reference_batch(self, identity, batch_id):
-        attempts = []
+        attempts, qwen_attempts = [], []
         with self._lock:
             value = self.store.get(identity)
             batch = value.get("reference_batch")
@@ -869,9 +910,16 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
             refs = {ref["id"]: ref for ref in value["references"]}
             for item in batch["items"]:
                 ref = refs.get(item["reference_id"])
-                if item.get("attempt_id") and ref and ref.get("krea_project_id"):
+                if item.get("qwen_project_id") and item.get("attempt_id"):
+                    qwen_attempts.append((item["qwen_project_id"], item["qwen_stage_id"], item["attempt_id"]))
+                elif item.get("attempt_id") and ref and ref.get("krea_project_id"):
                     attempts.append((ref["krea_project_id"], item["attempt_id"]))
             self.store.save(value)
+        for project_id, stage_id, attempt_id in qwen_attempts:
+            try:
+                self.qwen_edit.cancel_attempt(project_id, stage_id, attempt_id)
+            except (KeyError, FileNotFoundError, ValueError):
+                pass
         for project_id, attempt_id in attempts:
             try:
                 self.krea.cancel_attempt(project_id, attempt_id)
@@ -915,6 +963,17 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 ref_id = original["reference_id"]
                 if self._batch_cancelled(identity, batch_id):
                     break
+                if original["status"] not in {"pending", "waiting_source"}:
+                    continue
+                value = self.store.get(identity)
+                ref = self._item(value, "references", ref_id)
+                if self._is_state_image(value, ref):
+                    try:
+                        self._queue_state_image(identity, batch_id, ref_id)
+                    except Exception as error:
+                        self._batch_change(identity, batch_id, lambda _value, current, error=error:
+                            self._batch_item(current, ref_id).update(status="failed", phase="Échec variante Qwen", error=str(error)))
+                    continue
                 self._batch_change(identity, batch_id, lambda _value, current, ref_id=ref_id:
                     self._batch_item(current, ref_id).update(status="prompting", phase="Rédaction LLM", error=None))
                 current = self._item(self.store.get(identity), "references", ref_id)
@@ -952,7 +1011,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                     current.update(status="cancelled", phase="Annulé", error=None))
                 return
             self._batch_change(identity, batch_id, lambda _value, current:
-                current.update(status="rendering", phase="Rendus KREA2 en cours"))
+                current.update(status="rendering", phase="Rendus des références en cours"))
             while True:
                 with self._lock:
                     value = self.store.get(identity)
@@ -974,6 +1033,8 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
         finally:
             with self._lock:
                 self._active_batches.discard(identity)
+            # A source may have been accepted as this worker was finishing.
+            self._resume_state_dependencies(identity)
 
     def start_video_chain(
         self,
@@ -1018,7 +1079,10 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 scene = self._item(value, "scenes", scene_id)
                 if ((scene.get("job") or {}).get("status") == "running" and len(requested_scene_ids) != 1):
                     raise EpisodeConflict(f"Le prompt de la scène {scene['index'] + 1} est déjà en cours.")
-                scene_inputs(value, scene)
+                try:
+                    scene_inputs(value, scene)
+                except episode_continuity.RequiredReferenceMissing:
+                    pass
                 chosen.append(scene)
             if not chosen:
                 raise ValueError("Choisissez au moins une scène.")
@@ -1082,8 +1146,9 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                          pause_requested=False, pause_mode=None)
             for item in chain.get("items", []):
                 item["admission_wait"] = None
-                if item.get("status") == "prompt_failed":
+                if item.get("status") in {"prompt_failed", "waiting_reference"}:
                     item.update(status="pending", phase="À reprendre", error=None,
+                                attempt_id=None, render_project_id=None,
                                 prompt_attempt=int(item.get("prompt_attempt", 0)) + 1)
                 elif item.get("status") == "video_failed":
                     item.update(status="prompt_ready", phase="Prompt prêt · vidéo à reprendre", error=None,
@@ -1541,6 +1606,10 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                     self._video_chain_change(identity, chain_id, lambda _value, chain:
                         self._video_item(chain, scene_id).update(status="prompt_ready", phase="Prompt prêt",
                             preparation_id=preparation["id"], render_project_id=preparation["render_project_id"], error=None))
+                except episode_continuity.RequiredReferenceMissing as error:
+                    self._video_chain_change(identity, chain_id, lambda _value, chain, error=error:
+                        self._video_item(chain, scene_id).update(status="waiting_reference", phase="Référence à préparer", error=str(error)))
+                    continue
                 except Exception as error:
                     self._video_chain_change(identity, chain_id, lambda _value, chain, error=error:
                         self._video_item(chain, scene_id).update(status="prompt_failed", phase="Échec du prompt", error=str(error)))
@@ -1570,9 +1639,10 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 return
             _value, chain = self._video_chain_snapshot(identity, chain_id)
             failed = any(item["status"] in {"prompt_failed", "video_failed"} for item in chain["items"])
+            waiting = any(item["status"] == "waiting_reference" for item in chain["items"])
             self._video_chain_change(identity, chain_id, lambda _value, current:
-                current.update(status="completed_with_errors" if failed else "completed",
-                    phase="Chaîne terminée avec des erreurs" if failed else "Toutes les vidéos sont terminées",
+                current.update(status="paused" if waiting else "completed_with_errors" if failed else "completed",
+                    phase="Références à préparer · reprendre après validation" if waiting else "Chaîne terminée avec des erreurs" if failed else "Toutes les vidéos sont terminées",
                     error=None, pause_requested=False))
         except Exception as error:
             try:

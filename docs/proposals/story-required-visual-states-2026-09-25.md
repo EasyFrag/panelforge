@@ -1,6 +1,6 @@
 # Proposition — états visuels nécessaires aux prochaines histoires
 
-Statut : proposition à aligner, pas implémentée. Version du code actuel conservée séparément le 25 septembre 2026.
+Statut : implémenté le 25 septembre 2026 pour les nouvelles histoires longues et suites. Version antérieure conservée dans le snapshot `386a194`. Tests fonctionnels préparés, à exécuter par l’utilisateur ; aucune génération réelle effectuée pour vérifier ce patch.
 
 ## Objectif et périmètre
 
@@ -49,3 +49,31 @@ Aucun changement des prompts vidéo archivés, médias ou copies multilangues ex
 3. Contrôle des références requises au lancement, états d’attente lisibles et routage par scène.
 
 Régressions ciblées à préparer : état acquis avant l’épisode ; état hérité réutilisé sans doublon ; grossesse annoncée seulement ; personnage hors champ ; muscles persistants et tenue inchangée ; correction de registre sans modification narrative ; sortie LLM invalide conservant le scénario ; image source remplacée en cours de préparation ; variante manquante sans repli silencieux ; ancien projet inchangé ; pas d’appel supplémentaire à l’ouverture. Tests exécutés par l’utilisateur conformément aux consignes du projet.
+
+## Utilisation de la version implémentée
+
+Après redémarrage du Lab par l’utilisateur, une nouvelle histoire longue reçoit `visual_state_policy=1`. Ses nouveaux jobs utilisent le contrat `2.3.0`. Les anciens projets restent en `2.2.0` pour leurs prochains appels et les jobs archivés conservent leur version. La lecture d’un projet n’active pas le nouveau parcours. Une suite créée comme nouveau projet bénéficie du patch. Si le bouton de suite ouvre une unité déjà planifiée dans un ancien projet, ce projet conserve son contrat historique : aucun basculement implicite de ses épisodes déjà écrits.
+
+Dans la relecture habituelle, `visual_patch` est facultatif et borne la correction à des éléments complets du registre avec un `base_hash`. Le scénario, ses répliques, sa chronologie et sa mémoire narrative ne sont pas réécrits. Les éléments non concernés et les identités existantes restent conservés. Un patch invalide est écarté avec une remarque informative ; le scénario et le dernier registre valide sont gardés. Aucun appel de relecture supplémentaire n’est ajouté.
+
+Dans Références, les états requis apparaissent dans la sélection du lot. Pour une fiche d’état seule, le bouton **Préparer cet état · Qwen** utilise également ce lot. Il n’exige aucun modèle de rédaction ni profil KREA : Qwen reçoit l’image d’identité choisie et une instruction construite localement depuis la description d’état. Les identités et décors ordinaires suivent leurs profils habituels.
+
+Si l’identité manque, le lot affiche **En attente de l’image validée de…** et **Choisir l’image d’identité**. Accepter/importer cette identité reprend les variantes déjà demandées dans ce lot. Aucun rendu n’est lancé simplement en consultant un projet. Le résultat Qwen attend ensuite **Valider cette image**, comme les références habituelles. Une variante importée peut aussi satisfaire le besoin. Les références héritées strictement identiques (apparence et tenue, même identité) sont réutilisées si elles sont disponibles et à jour.
+
+La fiche conserve les IDs du projet, de l’étape et de l’essai Qwen, ainsi que la signature image source + description. Relancer un lot interrompu retrouve un essai existant au lieu de le soumettre deux fois. Un changement d’identité ou d’état invalide les anciens résultats pour une nouvelle sélection ; leur historique reste accessible. Une annulation du lot passe par l’annulation Qwen existante.
+
+Dans Scènes, **Préparer la référence** ouvre la fiche requise. Une scène privée de sa variante attend explicitement ; les scènes indépendantes peuvent terminer. La chaîne se met ensuite en pause, sans boucle d’attente. Après validation des images, **Reprendre la chaîne** traite les scènes restantes en conservant celles qui ont réussi. Une présence uniquement vocale/hors champ n’impose pas la variante physique : pour les nouveaux projets, les `scene_indices` du registre définissent ses apparitions visibles.
+
+Les copies multilangues continuent d’utiliser leurs références figées. Aucun ancien scénario, prompt, média ou fabrication n’est modifié. Les transitions avec deux images départ/arrivée ne font pas partie de cette version.
+
+## Vérification laissée à l’utilisateur
+
+Contrôles réalisés : lecture statique Python/JavaScript et des fixtures DOM, inspection des contrats/branches historiques, `git diff --check`. Pas de tests fonctionnels, appel LLM, image/vidéo/DLSS ni redémarrage.
+
+Tests isolés à lancer depuis le worktree avec l’environnement Python du projet :
+
+```powershell
+D:\Code\panelforge\.venv\Scripts\python.exe -m unittest tests.test_required_visual_states tests.test_required_state_images tests.test_story_visual_continuity tests.test_episode_visual_continuity tests.test_long_stories tests.test_story_workflow tests.test_episodes tests.test_episodes_browser
+```
+
+Essai réel conseillé : nouvelle suite dont un personnage apparaît dès le début avec une grossesse visiblement avancée ou une robe transformée. Vérifier la fiche d’état et les scènes concernées ; lancer le lot, choisir l’identité puis valider la variante Qwen. Vérifier que la scène suivante utilise cette variante. Un second cas avec annonce téléphonique seule ne doit pas imposer une silhouette de grossesse.

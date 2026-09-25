@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 from panelforge.application.stories import StoryService
 from panelforge.application.episodes import EpisodeService
 from panelforge.domain import long_stories as narrative
-from panelforge.domain.story_contracts import VERSION, wire_scene
+from panelforge.domain.story_contracts import wire_scene
+from panelforge.domain.story_visual_states import CONTRACT_VERSION as VERSION
 from panelforge.domain.episodes import initial_episode, scene_inputs
 from panelforge.features.lab.stories_web import stories_router
 from panelforge.infrastructure.long_story_recipes import LongStoryRecipes

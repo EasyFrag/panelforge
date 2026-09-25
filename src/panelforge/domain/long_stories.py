@@ -422,7 +422,7 @@ def validate_review(project, value, target=None):
                 problem=diagnostic["message"], suggestion="Corriger localement ce passage et vérifier sa faisabilité.",
                 code=diagnostic["code"], path=diagnostic["path"]))
     return dict(summary=text(value["summary"], "bilan", 6000), issues=issues,
-                source_hash=source_hash(project, target), contract_version=contracts.VERSION)
+                source_hash=source_hash(project, target), contract_version=(project.get("job") or {}).get("response_contract_version", contracts.VERSION))
 
 
 def parse(project, value):
@@ -430,8 +430,13 @@ def parse(project, value):
     if not isinstance(value, dict):
         raise ValueError("Objet JSON narratif attendu.")
     value = normalize_episode_response(deepcopy(value))
+    from . import story_visual_states
+    visual_changes, visual_warnings = story_visual_states.extract_review_patches(project, value)
+    review_project = deepcopy(project)
+    for identity, visual in visual_changes.items():
+        review_project["document"]["episode_scenarios"][identity]["visual_continuity"] = visual
     continuity_warning = None
-    if project["job"].get("response_contract_version") == contracts.VERSION:
+    if contracts.has_continuity(project):
         from .story_continuity import isolate_optional_ledger
         continuity_warning = isolate_optional_ledger(project, value)
     if contracts.structured(project):
@@ -484,11 +489,18 @@ def parse(project, value):
             identity = item["unit_id"]
             if identity not in identities or identity in reviews:
                 raise ValueError("Une relecture est requise pour chaque séquence du bloc, sans doublon.")
-            reviews[identity] = validate_review(project, {k: item[k] for k in ("summary", "issues")}, identity)
-        return reply, {"block_reviews": reviews}
+            reviews[identity] = validate_review(review_project, {k: item[k] for k in ("summary", "issues")}, identity)
+            if identity in visual_warnings:
+                reviews[identity]["issues"].append(dict(severity="warning", target_id=identity,
+                    problem=visual_warnings[identity], suggestion="Vérifier le registre dans Continuité."))
+        return reply, {"block_reviews": reviews, "visual_ledgers": visual_changes}
     if operation.startswith("review_"):
         fields(value, "reply review", "Réponse de relecture")
-        return reply, {"review": validate_review(project, value["review"])}
+        result = validate_review(review_project, value["review"])
+        if target in visual_warnings:
+            result["issues"].append(dict(severity="warning", target_id=target,
+                problem=visual_warnings[target], suggestion="Vérifier le registre dans Continuité."))
+        return reply, {"review": result, "visual_ledgers": visual_changes}
     if target == "outline":
         fields(value, "reply series_outline", "Réponse d’arc")
         return reply, {"series_outline": validate_outline(project, value["series_outline"])}
@@ -531,6 +543,14 @@ def input_hash(project):
 
 def apply_document(project, incoming):
     doc, target = project["document"], scope(project)
+    for identity, visual in incoming.get("visual_ledgers", {}).items():
+        doc["episode_scenarios"][identity]["visual_continuity"] = deepcopy(visual)
+        if doc.get("selected_episode_id") == identity:
+            doc["scenario"] = deepcopy(doc["episode_scenarios"][identity])
+    # Both units of a reviewed block were checked together against the corrected visible states.
+    if incoming.get("visual_ledgers"):
+        for identity in incoming.get("block_reviews", {}):
+            doc.setdefault("episode_provenance", {})[identity] = dependency_hash(project, identity)
     if "resolved_options" in incoming:
         project["long_options"] = incoming["resolved_options"]
     if "concepts" in incoming:

@@ -1,5 +1,91 @@
 # CONTINUITY
 
+## Dernier alignement 2026-09-25 — boutons Envoyer à l’usine
+
+### Goal
+- Fixer les points d’entrée de l’usine avec l’utilisateur ; échange présenté comme Dernier alignement, sans démarrer l’implémentation pendant cette discussion.
+
+### Current state
+- Emplacements explicitement demandés, captures fournies : dans les résultats KREA2, remplacer le bouton Replacer dans… devenu inutilisé par Envoyer à l’usine ; dans H3 et REF2V, ajouter Envoyer à l’usine à côté de Créer le parcours ; dans Histoires, l’ajouter à côté de Lancer prompts + vidéos.
+- Couleur spécifique demandée : violet, identique sur les quatre points d’entrée, pour repérer rapidement cette action. Les actions de lancement immédiat existantes restent accessibles.
+- Comportement retenu de l’usine : envoi dans Préparation, image seule À compléter, configuration complète Prête ; aucune génération à l’envoi. H3/REF2V doivent pouvoir transmettre les champs/images/rôles actuels avant de créer le parcours. Une histoire de cinq scènes produit cinq lignes regroupées.
+- Retour discret proposé : Ajouté à l’usine · Ouvrir, sans quitter l’atelier. Protection contre le double clic/envoi accidentel ; duplication volontaire depuis l’usine. Ces détails complètent la proposition, sans prétendre être implémentés.
+- Aucun code applicatif ni maquette modifiés ; notes de continuité seules actualisées. Les trois onglets, quatre presets et étapes visibles discutés précédemment restent la base de conception.
+
+### Next steps
+1. Confirmer dans le retour utilisateur la carte des boutons et la distinction envoyer/préparer/lancer, sans redemander les décisions déjà données.
+2. À la demande de réalisation, reprendre l’ensemble des décisions d’alignement pour réviser la maquette ou intégrer l’usine ; la maquette précédente est désormais dépassée sur plusieurs points.
+
+## Alignement UX 2026-09-25 — réponses concrètes aux difficultés d’usage
+
+### Goal
+- Préciser avec l’utilisateur les comportements d’interface avant de revoir la maquette. Discussion toujours en cours, aucune implémentation demandée.
+
+### Current state
+- L’utilisateur accueille favorablement la simplification précédente : trois onglets Préparation / Production / Résultats, suppression de Finir la file puis suspendre, lancement explicite et commandes Pause / Reprendre / Annuler.
+- Propositions concrètes à discuter : sélection multiple et barre d’actions par lot ; états À compléter / Prêt et filtres dans Préparation ; groupes d’histoire avec une ligne par scène et lien source ; cinq étapes visibles avec état et motif d’attente ; action Modifier sur une ligne en attente pour la sortir de production ; reprise ciblée et sorties partielles accessibles ; badges d’erreur persistants ; panneau de réglages compact avec avancés repliés.
+- Les modifications par lot doivent toucher uniquement les champs choisis, montrer le nombre de lignes concernées et rester annulables. Un preset incompatible ne doit pas être appliqué silencieusement. La reprise conserve les résultats dont les entrées sont inchangées ; modifier une entrée invalide les résultats dépendants.
+- Quatre choix de preset conservés, sans gestionnaire supplémentaire : Réglages source / Lèvres / Petits hommes / Personnalisé. Toute proposition UX nouvelle reste à confirmer dans la discussion.
+- Aucun fichier de maquette ou code applicatif modifié ; continuité seule actualisée.
+
+### Next steps
+1. Aligner les réponses concrètes aux difficultés d’usage, puis préciser les éventuels points restants.
+2. Réviser la maquette uniquement à la demande de l’utilisateur ; conserver l’objectif de discussion actuel.
+
+## Revue pragmatique 2026-09-25 — simplifier l’usine
+
+### Goal
+- Discuter les simplifications et les difficultés d’usage avant toute modification de la maquette ou implémentation.
+
+### Current state
+- L’utilisateur demande une critique pragmatique et relève la redondance de Finir la file puis suspendre : les éléments en préparation/revue ne sont jamais admis automatiquement en production.
+- Recommandation présentée, à valider : supprimer cette commande et fusionner préparation/revue dans un onglet Préparation avec états À compléter / Prêt ; conserver Production et Résultats. La revue précède directement Lancer la sélection, sans transfert ou validation intermédiaire obligatoire.
+- Sémantique proposée : Envoyer à l’usine prépare uniquement ; Lancer ajoute explicitement à la file de production ; les nouveaux lancements rejoignent la file, sauf pause explicite qui reste active jusqu’à Reprendre. Une file vide n’a pas besoin d’un mode de suspension spécial.
+- Priorités UX proposées : réglages par lot, groupes d’histoire avec une ligne par scène, résumé des étapes et attente expliquée, reprise uniquement des étapes manquantes, sorties partielles accessibles, retours en préparation des lignes en attente à modifier, erreurs visibles depuis tous les onglets.
+- Aucune simplification encore approuvée ; les quatre presets, IG anglais à l’activation et un plan par défaut pour Lèvres restent les choix déjà exprimés. Aucun fichier de maquette ou code applicatif modifié ; continuité seule actualisée.
+
+### Next steps
+1. Aligner la proposition à trois onglets et les commandes Envoyer / Lancer / Pause / Reprendre / Annuler.
+2. Après accord, mettre à jour la maquette avec les décisions de discussion ; ne pas implémenter le moteur de production avant demande.
+
+## Alignement 2026-09-25 — usine, scènes et cycle de préparation
+
+### Goal
+- Poursuivre la discussion produit et prendre du recul avant une nouvelle maquette ou toute implémentation. L’utilisateur demande explicitement de se mettre d’accord d’abord.
+
+### Current state
+- Correction explicite : une histoire de cinq scènes produit cinq lignes vidéo dans l’usine, pas une ligne d’épisode final. Le regroupement visuel par histoire peut rester proposé, sans fusionner les traitements.
+- Points d’entrée demandés : image KREA2 à paramétrer sans présumer son usage ; H3/FL2V et REF2V avec réglages existants ; Histoires, bouton Envoyer à l’usine à côté de Lancer prompts + vidéos. Le Portrait atelier fictif illustre finalement bien l’entrée depuis H3/REF2V.
+- Quatre presets seulement : Réglages source déjà paramétrés, Lèvres (H3, dernière frame, un plan, prompt type), Petits hommes (réglages historiques à retrouver avant intégration), Personnalisé dès modification. Nombre de plans : Auto possible, un par défaut pour Lèvres.
+- Texte IG désactivé par défaut ; à l’activation anglais, Gemma 4 local, trois variantes, langue modifiable. Demande de rendre visibles sur chaque ligne Plan / Prompt / Vidéo / DLSS / Texte IG. Activation par défaut du DLSS encore non tranchée.
+- Organisation demandée : À paramétrer ; Prêts à lancer avec dernière revue ; En traitement incluant les attentes ; Terminés / erreurs. Proposition à discuter : quatre vues d’un même flux persistant, admission explicite de la sélection en production.
+- Contrôles demandés : pause après les traitements actifs, annulation des traitements en cours, relance de chaîne ; capture jointe montre aussi Finir la file puis suspendre. Sémantique proposée, non encore validée : pause après étapes actives sur les deux machines, terminer seulement le lot admis pour vider la file, reprise à la première étape manquante sans refaire les sorties valides.
+- Évolution envisagée par l’utilisateur : blocs de génération d’histoire ou de nouvel épisode mis en file. Prévoir des types de flux et dépendances ; ne pas construire maintenant un éditeur générique de workflows.
+- Aucun changement de maquette ou code applicatif pendant cet échange, aucun test ni traitement réel. Notes de continuité seules actualisées, autres travaux simultanés préservés. La maquette précédente représente encore l’ancienne hypothèse d’une ligne par épisode.
+
+### Next steps
+1. Discuter le cycle de préparation/revue/admission, les étapes visibles et la portée précise des commandes de file.
+2. Clarifier, si nécessaire, le traitement d’assemblage final d’un épisode et le texte IG par scène ou par épisode ; ne pas les confondre avec les cinq lignes scènes.
+3. Après accord, réviser la maquette autour des quatre vues et des choix confirmés ; retrouver le preset Petits hommes avant de renseigner ses paramètres. Aucune implémentation de l’usine n’est encore demandée.
+
+## Implémentation 2026-09-25 — états visuels requis des nouvelles histoires
+
+### Goal
+- Implémenter le patch approuvé pour les apparences durables importantes (grossesse explicitement visible, muscles, tenue transformée), leur contrôle et leurs variantes Qwen ; aucune réparation des anciens épisodes.
+
+### Current state
+- Code dans D:/Code/panelforge-krea2-flux. Nouvelles histoires longues et suites créées comme nouveaux projets : visual_state_policy=1, appels versionnés 2.3.0. Anciennes histoires/jobs gardent leurs contrats ; une unité encore planifiée dans un ancien projet conserve ce parcours, sans migration implicite. Snapshot antérieur publié : 386a194, branche snapshots/stories-library-thumbnails-2026-09-25 et tag homonyme snapshot-.
+- Consigne ciblée sur états importants déjà acquis ou transformés, persistance de tenue/silhouette, ancre héritée, pas de variante déduite d’un mot isolé ou d’une émotion. Relecture existante enrichie par une projection des états sans résumé dramatique/raison/bible secrète. visual_patch facultatif, IDs et base_hash vérifiés, validation atomique par registre ; corrections limitées au registre, identité et scénario préservés. Patch invalide : remarque informative, aucun nouvel appel de réparation systématique.
+- Fiches requises incluses dans le lot Références. Variante = édition Qwen depuis l’identité choisie, instruction déterministe sans LLM de rédaction supplémentaire, file GPU Qwen existante. Attente explicite de l’identité puis reprise des variantes déjà demandées au choix/import de la source. Validation humaine de l’image conservée. Héritage identique réutilisé, provenance et signature source/description, reprise par IDs et request_id, rejet lisible des anciens résultats obsolètes, annulation via Qwen.
+- Routage par présence visible et état au début du clip, conservation de l’ordre et des rôles des références. Une référence requise manquante/obsolète met seulement les scènes concernées en attente ; les scènes indépendantes continuent. Chaîne ensuite en pause avec action Préparer la référence et reprise explicite après validation. Prompts historiques, scènes terminées et références figées multilangues préservés. Les deux images avant/après pendant une transformation restent hors de ce patch.
+- Tests ciblés préparés : test_required_visual_states.py et test_required_state_images.py (contrats historiques, relecture bornée, registre invalide/périmé, annonces seulement, voix hors champ, héritage, source remplacée, lot Qwen, réservation interrompue, reprise vidéo, annulation et API). Fixture DOM complétée ; attentes de version des tests de nouveaux projets alignées. Syntaxe AST Python, Node/fixture DOM et git diff --check vérifiés. Tests fonctionnels non exécutés selon AGENTS.md et préférence utilisateur ; aucun appel LLM, génération, changement de données runtime ou redémarrage. Aucun commit/push demandé pour cette implémentation.
+- Guide et commande de tests : docs/proposals/story-required-visual-states-2026-09-25.md. Cache episodes.js 20260925.2.
+
+### Next steps
+1. L’utilisateur exécute les tests ciblés du guide, puis redémarre le Lab lorsqu’il n’a plus de traitement en cours et fait Ctrl+F5.
+2. Valider sur une nouvelle histoire : état durable visible dès l’ouverture, fiche dédiée, choix de l’identité, lot Qwen puis validation ; contrôle des références des scènes suivantes. Comparer à une annonce uniquement téléphonique qui ne requiert aucune silhouette de grossesse.
+3. Évaluer le premier rendu réel pour ajuster si nécessaire les consignes de détection/édition ; la qualité des images Qwen n’a pas été vérifiée par génération pendant ce patch.
+
 ## Version et proposition 2026-09-25 — bibliothèque, miniatures et prochains états visuels
 
 ### Goal

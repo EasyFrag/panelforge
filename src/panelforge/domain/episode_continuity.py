@@ -58,7 +58,7 @@ def bindings(episode, scene):
         if ref["kind"] == "character" and ref["source_id"] in extra and "continuity_element_id" not in ref:
             if not any(b["reference_id"] == ref["id"] for b in result):
                 result.append(dict(reference_id=ref["id"], role="subject_reference"))
-    for row in ledger.scene_rows(scenario, index):
+    for row in ledger.scene_rows(scenario, index, explicit_presence=required_states(episode)):
         if row["tracking"] != "reference":
             continue
         state_id = row["before"]["reference_state_id"]
@@ -84,6 +84,20 @@ def bindings(episode, scene):
                         result.remove(binding)
                     else:
                         binding["reference_id"] = desired
+    if required_states(episode):
+        for desired in required_bindings(episode, scene):
+            ref = refs.get(desired)
+            if ref:
+                resolved, replaced = [], False
+                for binding in result:
+                    if refs.get(binding["reference_id"], {}).get("source_id") != ref["source_id"]:
+                        resolved.append(binding)
+                    elif not replaced:
+                        resolved.append(dict(reference_id=desired, role=binding["role"]))
+                        replaced = True
+                if not replaced:
+                    resolved.append(dict(reference_id=desired, role="subject_reference"))
+                result = resolved
     return result
 
 
@@ -102,4 +116,54 @@ def scene_warnings(episode, scene):
 
 
 def snapshot(episode, scene):
-    return ledger.scene_rows(episode["scenario"], scene["index"]) if active(episode) else []
+    return ledger.scene_rows(episode["scenario"], scene["index"], explicit_presence=required_states(episode)) if active(episode) else []
+
+
+def required_states(episode):
+    return episode.get("visual_state_policy") == 1 and active(episode)
+
+
+def variant_base(episode, ref):
+    return next((r for r in episode["references"] if r["source_id"] == ref["source_id"]
+                 and not r.get("continuity_state_id") and not r.get("continuity_archived")), None)
+
+
+def variant_signature(episode, ref):
+    from .episodes import fingerprint
+    base = variant_base(episode, ref)
+    return fingerprint([base.get("image_asset_id") if base else None, ref["description"]])
+
+
+def variant_stale(episode, ref):
+    return bool(ref.get("continuity_image_stale") or (required_states(episode)
+        and ref.get("continuity_source_signature")
+        and ref["continuity_source_signature"] != variant_signature(episode, ref)))
+
+
+def required_bindings(episode, scene):
+    """A required state is authoritative even when a manual scene binding omits its identity."""
+    result = []
+    if not required_states(episode) or episode.get("localization"):
+        return result
+    for row in ledger.scene_rows(episode["scenario"], scene["index"], explicit_presence=required_states(episode)):
+        if row["tracking"] == "reference":
+            state_id = row["before"]["reference_state_id"]
+            if state_id or row["kind"] == "object":
+                result.append(ledger.reference_id(row["element_id"], state_id))
+    return result
+
+
+class RequiredReferenceMissing(ValueError):
+    pass
+
+
+def missing_requirements(episode, scene):
+    refs = {r["id"]: r for r in episode["references"]}
+    result = []
+    for identity in required_bindings(episode, scene):
+        ref = refs.get(identity)
+        if not ref or not ref.get("image_asset_id") or variant_stale(episode, ref):
+            result.append(dict(reference_id=identity, name=ref["name"] if ref else "État visuel",
+                message=("Référence à actualiser : " if ref and ref.get("image_asset_id") else "Référence à préparer : ")
+                        + (ref["name"] if ref else "État visuel") + ". Ouvre Références pour préparer ou choisir son image."))
+    return result

@@ -8,8 +8,12 @@ import math
 
 from .stories import story_recipe_spec
 
-VERSION = "2.2.0"
-SUPPORTED_VERSIONS = {"2.1.0", VERSION}
+VERSION = "2.2.0"  # Default retained for existing projects; visual-state opt-in uses 2.3.0.
+SUPPORTED_VERSIONS = {"2.1.0", VERSION, "2.3.0"}
+
+
+def has_continuity(project):
+    return (project.get("job") or {}).get("response_contract_version") in {VERSION, "2.3.0"}
 
 
 def structured(project):
@@ -160,8 +164,12 @@ def outline_edit_targets(project):
 
 def review_schema(project, target=None):
     from .long_stories import review_targets
-    return obj(summary=string(6000), issues=array(obj(severity=choice(["blocking", "warning"]),
+    result = obj(summary=string(6000), issues=array(obj(severity=choice(["blocking", "warning"]),
         target_id=choice(sorted(review_targets(project, target))), problem=string(), suggestion=string()), 0, 5))
+    from . import story_visual_states
+    if story_visual_states.enabled(project) and target not in {None, "outline", "ideas"}:
+        result["properties"]["visual_patch"] = nullable(story_visual_states.patch_schema(project, target))
+    return result
 
 
 def response_schema(project):
@@ -186,7 +194,10 @@ def response_schema(project):
         entries = []
         for identity in identities:
             review = review_schema(project, identity)
-            entries.append(obj(unit_id=choice([identity]), **review["properties"]))
+            entry = obj(unit_id=choice([identity]), **review["properties"])
+            if "visual_patch" in entry["required"]:
+                entry["required"].remove("visual_patch")
+            entries.append(entry)
         return obj(reply=reply, reviews=array({"anyOf": entries}, len(identities), len(identities)))
     if operation.startswith("review_"):
         return obj(reply=reply, review=review_schema(project, target))
@@ -206,7 +217,7 @@ def response_schema(project):
         schema = obj(reply=reply, scenario=obj(title=string(), logline=string(), locations=array(location, 1, 8),
             scenes=array(scene_schema(project), 1, project["document"]["episode_formats"][target]["scene_count"])),
             episode_state=state_schema(project))
-    if project.get("job", {}).get("response_contract_version") == VERSION and "episode_state" in schema.get("properties", {}):
+    if has_continuity(project) and "episode_state" in schema.get("properties", {}):
         from .story_continuity import schema as continuity_schema
         visual = continuity_schema(project["document"]["episode_formats"][target]["scene_count"])
         if "scene_edits" in schema["properties"]:
@@ -243,16 +254,22 @@ def wire_example(project, example):
         state = {k: deepcopy(v) for k, v in doc["episode_states"][target].items() if k != "scene_events"}
         result = dict(reply="Corrections ciblées.", base_hash=source_hash(project, target),
                       scene_edits=[dict(scene_index=index, scene=scene)], episode_state=state)
-        if project["job"].get("response_contract_version") == VERSION:
+        if has_continuity(project):
             result["visual_continuity"] = deepcopy(doc["episode_scenarios"][target].get("visual_continuity", {
                 "version": 1, "dramatic_summary": "Ce que le public doit comprendre ; ce que le héros ignore.", "elements": []}))
         return result
     result = deepcopy(example)
+    from . import story_visual_states
+    if story_visual_states.enabled(project):
+        for review in result.get("reviews", []):
+            review["visual_patch"] = None
+        if "review" in result and target not in {"outline", "ideas"}:
+            result["review"]["visual_patch"] = None
     if "scenario" in result and "episode_state" in result:
         result["scenario"].pop("characters", None)
         metadata = result["episode_state"].pop("scene_events")
         result["scenario"]["scenes"] = [wire_scene(scene, metadata[i]) for i, scene in enumerate(result["scenario"]["scenes"])]
-        if project["job"].get("response_contract_version") == VERSION:
+        if has_continuity(project):
             result["scenario"].setdefault("visual_continuity", dict(version=1, dramatic_summary="Le drame compréhensible à l'écran.", elements=[]))
     return result
 
@@ -303,12 +320,13 @@ def canonical_response(project, value):
         result["scenario"]["characters"] = deepcopy(project["document"]["series_outline"]["characters"])
         result["episode_state"]["scene_events"] = [dict(scene_index=i, **scene.pop("narrative"))
             for i, scene in enumerate(result["scenario"]["scenes"])]
-    if "scenario" in result and project.get("job", {}).get("response_contract_version") == VERSION:
+    if "scenario" in result and has_continuity(project):
         from .long_stories import previous_ids
         from .story_continuity import carry_forward, inherit, empty, normalize
         doc = project["document"]
         previous = previous_ids(project, target)
-        inherited = carry_forward(doc["episode_scenarios"][previous[-1]]) if previous else doc.get("visual_state_inherited")
+        inherited = carry_forward(doc["episode_scenarios"][previous[-1]],
+            require_references=project.get("visual_state_policy") == 1) if previous else doc.get("visual_state_inherited")
         result["scenario"].setdefault("visual_continuity", empty())
         try:
             merged = inherit(result["scenario"], inherited)

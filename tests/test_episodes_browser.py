@@ -221,7 +221,17 @@ class EpisodesBrowserTest(unittest.TestCase):
             episode.video_chain.items[0].status='pending';episode.video_chain.items[0].admission_wait=null;
             get('refresh').click();await settle();
             check(queuedCard.textContent.includes('en attente du lancement')&&!queuedCard.textContent.includes('en attente du prompt'),'translated scenes do not pretend to await prompt writing');
-            delete episode.localization;episode.scenes.forEach(s=>delete s.localization);episode.video_chain=beforeChain;
+            delete episode.localization;episode.scenes.forEach(s=>delete s.localization);
+            episode.video_chain.items[0].status='waiting_reference';
+            queuedScene.required_references=[{reference_id:'character-1',name:'État musclé',message:'Référence à préparer : État musclé.'}];
+            get('refresh').click();await settle();
+            check(queuedCard.textContent.includes('en attente d’une référence')&&queuedCard.textContent.includes('État musclé'),'state dependency has a clear visible reason');
+            const dependencyButton=[...queuedCard.querySelectorAll('button')].find(b=>b.textContent==='Préparer la référence');
+            check(dependencyButton&&!dependencyButton.hidden,'waiting scene provides a reference action');
+            dependencyButton.click();await settle();
+            check(get('reference').value==='character-1'&&!get('references').hidden,'reference action opens the relevant sheet');
+            delete queuedScene.required_references;episode.video_chain=beforeChain;
+            get('tab-scenes').click();await settle();
             get('refresh').click();await settle();
             const duration=document.getElementById('episoder-duration');
             duration.value='8';duration.dispatchEvent(new Event('input',{bubbles:true}));

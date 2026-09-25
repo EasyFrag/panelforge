@@ -88,14 +88,22 @@ class EpisodeContinuityActions:
             if a["status"] == "succeeded" and a.get("output_asset_id")], project_id=project["id"])
 
     def select_continuity_variant(self, identity, ref_id, expected_revision, asset_id):
+        from .episodes import EpisodeConflict
         with self._lock:
             value, ref = self._editable(identity, "references", ref_id, expected_revision)
             self._continuity_editable(value)
+            if episode_continuity.required_states(value):
+                signature = episode_continuity.variant_signature(value, ref)
+                if (ref.get("qwen_variant") or {}).get("signature") != signature:
+                    raise EpisodeConflict("L’identité ou l’état a changé depuis cette variante. Prépare une nouvelle image.")
+                ref["continuity_source_signature"] = signature
             available = self.continuity_variant_results(identity, ref_id)["results"]
             if asset_id not in {a["asset_id"] for a in available}:
                 raise ValueError("Choisis un résultat terminé de l'atelier lié à cette variante.")
             if not any(a["asset_id"] == asset_id for a in ref["images"]):
                 ref["images"].append(dict(asset_id=asset_id, label="Variante Qwen validée"))
+            if episode_continuity.required_states(value):
+                next(i for i in ref["images"] if i["asset_id"] == asset_id)["source_signature"] = signature
             ref.update(image_asset_id=asset_id, image_style=None, continuity_image_stale=False, revision=ref["revision"] + 1)
             self.store.save(value)
         return self.get(identity)

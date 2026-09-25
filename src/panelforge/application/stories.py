@@ -335,7 +335,7 @@ class StoryService:
             previous = parent.get("document", {}).get("scenario")
             if previous:
                 document["prior_story_snapshot"] = deepcopy(previous)
-                document["visual_state_inherited"] = carry_forward(previous)
+                document["visual_state_inherited"] = carry_forward(previous, require_references=long_options is not None)
         value = dict(project_id=f"story-{uuid4().hex}", title=title.strip(), brief=brief.strip(),
             clip_seconds=clip_seconds, scene_count=scene_count, document=document,
             revisions=[], turns=[], job=None, model_id=writer_model_id.strip(), recipe=recipe,
@@ -347,7 +347,7 @@ class StoryService:
             value["prior_story"] = prior_story.strip()
         if long_options is not None:
             value.update(narrative_engine=deepcopy(long_narrative.ENGINE), long_options=long_options,
-                         fruit_naming_version=1)
+                         fruit_naming_version=1, visual_state_policy=1)
             value.update(visual_universe=visual_universe.strip(), target_seconds=target_seconds,
                          narrative_preferences=deepcopy(long_options))
             document.update(episode_states={}, episode_provenance={}, reviews={})
@@ -361,7 +361,7 @@ class StoryService:
             previous = deepcopy(continuation_origin["scenario"])
             document["prior_story_snapshot"] = previous
             from panelforge.domain.story_continuity import carry_forward
-            document["visual_state_inherited"] = carry_forward(previous)
+            document["visual_state_inherited"] = carry_forward(previous, require_references=long_options is not None)
         return self._normalize(self.store.save(value))
 
     def get(self, project_id):
@@ -726,7 +726,7 @@ class StoryService:
                 project["workflow"].update(status="paused", pause_requested=False)
             if v2:
                 project["job"].update(narrative_engine=deepcopy(long_narrative.ENGINE),
-                                      response_contract_version=story_contracts.VERSION,
+                                      response_contract_version="2.3.0" if project.get("visual_state_policy") == 1 else story_contracts.VERSION,
                                       editorial_fingerprint=package["fingerprint"],
                                       narrative_input_hash=long_narrative.input_hash(project))
                 if project.get("workflow"):

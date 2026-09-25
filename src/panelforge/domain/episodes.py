@@ -155,6 +155,8 @@ def initial_episode(story, identity):
         reference_profiles={}, reference_batch=None,
         video_defaults=default_render_setup(clip_seconds), video_revision=1, video_chain=None,
         cookbook=dict(id=REF2V_COOKBOOK[0], version=REF2V_COOKBOOK[1]))
+    if story.get("visual_state_policy") == 1:
+        result["visual_state_policy"] = 1
     if "visual_continuity" in scenario:
         from .episode_continuity import sync_references
         result.update(continuity_version=1, continuity_revision=1)
@@ -179,6 +181,10 @@ def scene_inputs(episode, scene, *, require_images=True):
     if episode.get("localization"):
         from .episode_localization import frozen_inputs
         return frozen_inputs(scene)
+    if require_images:
+        missing = episode_continuity.missing_requirements(episode, scene)
+        if missing:
+            raise episode_continuity.RequiredReferenceMissing(" ".join(item["message"] for item in missing))
     axes = CreativeFreedomAxes(**scene.get("creative_axes", DEFAULT_CREATIVE_AXES))
     refs = {r["id"]: r for r in episode["references"]}
     bindings = episode_continuity.bindings(episode, scene)
@@ -214,7 +220,8 @@ def scene_inputs(episode, scene, *, require_images=True):
         lines.append(f"Décor : {location['name']}. {location['description']}")
     lines.append(scene["intention"])
     if episode_continuity.active(episode):
-        continuity_text = story_continuity.instructions(episode["scenario"], scene["index"])
+        continuity_text = story_continuity.instructions(episode["scenario"], scene["index"],
+            explicit_presence=episode_continuity.required_states(episode))
         if continuity_text:
             lines.append(continuity_text)
         lines.append("Les images ancrent les identités. Les états acquis ci-dessus déterminent le corps, la tenue et les objets à cet instant. "

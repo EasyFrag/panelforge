@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Usine à vidéo · Maquette PanelForge</title>
+  <link rel="stylesheet" href="factory.css">
+  <script src="factory.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><b>PF</b><span>PanelForge <small>LAB</small></span></div>
+    <nav aria-label="Ateliers"><span>Image Lab</span><span>H3 Base</span><span>Ref2V</span><span>Video Lab</span><span>Histoires</span><strong aria-current="page">Usine à vidéo</strong></nav>
+    <span class="prototype">MAQUETTE INTERACTIVE</span>
+  </header>
+  <main>
+    <div class="heading">
+      <div><div class="eyebrow">PRODUCTION EN SÉRIE</div><h1>Usine à vidéo<span class="title-dot"></span></h1><p>Prépare tes vidéos. L’usine s’occupe de la suite.</p></div>
+      <div class="actions"><button id="add">＋ Ajouter une image exemple</button><button id="launch" class="primary">▶ Lancer les vidéos prêtes</button></div>
+    </div>
+    <section class="machine-bar" aria-label="Activité simulée des machines">
+      <div class="machine"><span class="led" id="remote-led"></span><div><small>SERVEUR · VIDÉO</small><strong id="remote-state">Disponible</strong></div></div>
+      <div class="machine"><span class="led" id="local-led"></span><div><small>LOCAL · PROMPTS & TEXTE</small><strong id="local-state">Disponible</strong></div></div>
+      <div class="policy"><span>↳</span><div><strong>Priorité aux premières lignes</strong><small>Une ligne attend ? La suivante avance.</small></div></div>
+      <button id="pause" disabled>Ⅱ Mettre en pause</button>
+    </section>
+    <div class="workspace">
+      <section class="queue panel" aria-label="Vidéos à produire">
+        <div class="queue-top"><div class="filters" role="group" aria-label="Filtrer la liste"><button data-filter="all" class="active">Toutes</button><button data-filter="ready">Prêtes</button><button data-filter="attention">À compléter</button><button data-filter="done">Terminées</button></div><span id="count" class="muted"></span></div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Ordre</th><th scope="col">Vidéo à produire</th><th scope="col">Preset</th><th scope="col">Avancement</th><th scope="col">Texte IG</th></tr></thead><tbody id="rows"></tbody></table></div>
+        <div id="empty" class="empty" hidden>Aucune vidéo dans cette vue.</div>
+        <div class="queue-foot"><span>Une ligne = une vidéo finale</span><span>↑ ↓ pour changer la priorité</span></div>
+        <section class="how-it-works"><div class="eyebrow">DE L’IDÉE À LA VIDÉO</div><div class="route"><span>Images & rôles</span><i>→</i><span>Prompt</span><i>→</i><span>Rendu vidéo</span><i>→</i><span>Finition</span><i>→</i><span class="optional">Texte Instagram <small>optionnel</small></span></div><p>Les histoires conservent leurs scènes, références et réglages. Les images seules peuvent recevoir un preset en un clic.</p></section>
+        <details class="scheduler" open><summary>Comprendre l’ordonnancement <span>Simulation</span></summary><p id="scheduler-message">Lance les lignes prêtes pour voir les deux machines travailler ensemble.</p><div class="simulation-actions"><button id="step" disabled>Faire avancer d’une étape →</button><button id="reset" class="text-button">Réinitialiser la démo</button></div><ol id="events" aria-label="Dernières actions simulées"></ol></details>
+      </section>
+      <aside class="inspector panel" aria-label="Réglages de la vidéo sélectionnée" id="inspector"></aside>
+    </div>
+    <footer>PROPOSITION · 25 SEPTEMBRE 2026 <span>Données d’exemple · aucune génération réelle · modifications conservées jusqu’au rechargement</span></footer>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="preset-dialog"><form id="preset-form"><div class="eyebrow">PRESET PERSONNEL</div><h2>Garder ces réglages</h2><p>Le preset conserve le mode, les rôles, le prompt, le rendu et l’option Instagram. Les images restent propres à chaque vidéo.</p><label>Nom du preset<input id="preset-name" required maxlength="50" placeholder="Ex. Lèvres · mouvement doux"></label><div class="actions"><button type="button" id="cancel-preset">Annuler</button><button class="primary" type="submit">Enregistrer dans la démo</button></div></form></dialog>
+</body>
+</html>

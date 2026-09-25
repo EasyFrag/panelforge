@@ -149,10 +149,10 @@ def state_description(state, characters):
     return " · ".join(p for p in parts if p)
 
 
-def scene_rows(scenario, index):
+def scene_rows(scenario, index, *, explicit_presence=False):
     rows = []
     for e in elements(scenario):
-        if index not in e["scene_indices"] and not (e["kind"] == "character" and e["id"] in present_ids(scenario, index)):
+        if index not in e["scene_indices"] and (explicit_presence or not (e["kind"] == "character" and e["id"] in present_ids(scenario, index))):
             continue
         before, after = state_at(e, index), state_at(e, index, end=True)
         rows.append(dict(element_id=e["id"], name=e["name"], kind=e["kind"], reason=e["reason"],
@@ -189,8 +189,8 @@ def reference_specs(scenario):
     return result
 
 
-def instructions(scenario, index):
-    rows = scene_rows(scenario, index)
+def instructions(scenario, index, *, explicit_presence=False):
+    rows = scene_rows(scenario, index, explicit_presence=explicit_presence)
     if not rows:
         return ""
     lines = ["CONTINUITÉ VISUELLE — états acquis, prioritaires sur l'apparence initiale des images :"]
@@ -214,7 +214,7 @@ def reader_view(scenario):
                      dialogue=deepcopy(s["dialogue"])) for i, s in enumerate(scenario["scenes"])])
 
 
-def carry_forward(scenario):
+def carry_forward(scenario, *, require_references=False):
     """Carry the ledger at the last written boundary, never its earlier variants."""
     if not scenario.get("visual_continuity"):
         return None
@@ -225,7 +225,8 @@ def carry_forward(scenario):
         e["scene_indices"] = []
         inherited_id = "inherited-" + hashlib.sha256(e["id"].encode()).hexdigest()[:16]
         e["states"] = [dict(id=inherited_id, scene_index=0,
-            at="start", **{k: state[k] for k in ATTRIBUTES}, reference=False)]
+            at="start", **{k: state[k] for k in ATTRIBUTES},
+            reference=bool(require_references and state["reference_state_id"]))]
         result["elements"].append(e)
     return result
 
@@ -255,6 +256,9 @@ def inherit(scenario, previous):
             for key in ATTRIBUTES:
                 if opening.get(key) is None:
                     opening[key] = baseline.get(key)
+            if baseline.get("reference") and all(opening.get(k) == baseline.get(k) for k in ("appearance", "clothing")):
+                opening["reference"] = True
+                entry["tracking"] = "reference"
         else:
             entry["states"].insert(0, baseline)
     return result

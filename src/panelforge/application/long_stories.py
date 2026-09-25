@@ -158,7 +158,7 @@ def request(project, package, language_policy, register_policy=""):
     if outline and target != "ideas":
         context["local_diagnostics"] = ({identity: project_quality(project, identity) for identity in project["job"].get("review_unit_ids", [])}
             if target == "block" else project_quality(project, target))
-    reader_mode = review and target not in {"outline", "ideas"} and project["job"].get("response_contract_version") == contracts.VERSION
+    reader_mode = review and target not in {"outline", "ideas"} and contracts.has_continuity(project)
     if reader_mode:
         identities = project["job"].get("review_unit_ids", []) if target == "block" else [target]
         # Unlike a prompt asking the reader to "forget" the bible, this projection
@@ -172,6 +172,9 @@ def request(project, package, language_policy, register_policy=""):
             if isinstance(diagnostics, dict) else readable_diagnostics(diagnostics))
         context["reader_units"] = [dict(unit_id=identity, **continuity.reader_view(doc["episode_scenarios"][identity]),
             allowed_review_targets=sorted(narrative.review_targets(project, identity))) for identity in identities]
+        from panelforge.domain import story_visual_states
+        if story_visual_states.enabled(project):
+            context["visual_state_review"] = [story_visual_states.projection(project, identity) for identity in identities]
         previous = narrative.previous_ids(project, identities[0]) if identities else []
         context["reader_history"] = [dict(unit_id=identity, **continuity.reader_view(doc["episode_scenarios"][identity]))
             for identity in previous if identity in doc["episode_scenarios"]]
@@ -297,7 +300,7 @@ def request(project, package, language_policy, register_policy=""):
                 "doit viser une scène antérieure par anchor_scene_index (index à partir de zéro). "
                 "Ne recopie ni characters dans scenario ni scene_events dans episode_state : l’application les assemble. "
                 "Suis speech_budget ; une phrase naturelle courte et une réaction valent mieux que trois longues répliques.")
-            if project["job"].get("response_contract_version") == contracts.VERSION:
+            if contracts.has_continuity(project):
                 system += ("\nCONTINUITÉ VISUELLE 1 : fournis visual_continuity dans scenario (ou à la racine avec scene_edits). "
                     "dramatic_summary résume en une phrase le drame compris par le public et la croyance éventuelle du héros. "
                     "elements ne contient que les personnages qui changent d'apparence/tenue et les objets importants à reconnaître ou transmettre. "
@@ -316,6 +319,12 @@ def request(project, package, language_policy, register_policy=""):
             system += ("\nCORRECTION LOCALE : renvoie uniquement les scènes changées dans scene_edits, avec leur scene_index et leur scène complète. "
                 "Les autres scènes et décors sont conservés automatiquement. episode_state actualise seulement les faits et connaissances effectivement joués. "
                 "Reprends base_hash exactement. N’invente pas une correction de contenu lorsqu’une métadonnée suffit.")
+    from panelforge.domain import story_visual_states
+    if story_visual_states.enabled(project):
+        if reader_mode:
+            system += "\n" + story_visual_states.REVIEW_POLICY
+        elif not review and target not in {"outline", "block", "ideas"} and operation != "discuss":
+            system += "\n" + story_visual_states.WRITING_POLICY
     if directions:
         system += ("\nLes author_episode_directions sont les orientations validées par l’auteur pour les unités nommées. "
                    "Applique celle de l’unité traitée sans modifier les épisodes écrits ni anticiper les faits futurs. "

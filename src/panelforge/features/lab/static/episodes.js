@@ -42,6 +42,7 @@
     return active ? `${active === "plan" ? "Plan" : "Rédacteur"} · ${stages[active] === "starting" ? "démarrage" : "en cours"}`
       : "Planifié · en attente du LLM";
   };
+  const isStateReference = r => state.data?.visual_state_policy === 1 && !!r?.continuity_state_id;
   const batchRunning = () => ["running", "rendering", "cancelling"].includes(state.data?.reference_batch?.status);
   const videoRecoveryRunning = () => state.data?.scenes?.some(value => jobRunning(value)
     || ["queued", "running", "cancel_pending"].includes(value.video_status));
@@ -88,7 +89,9 @@
       el(id).disabled = state.busy || !state.data;
     el("style-use-reference").disabled = state.busy || !r?.image_asset_id;
     el("style-remove").disabled = state.busy || !state.data?.style_image;
-    el("asset-prompt").disabled = busyRef || !r || !knownModel(el("asset-model").value);
+    el("asset-prompt").disabled = busyRef || !r || (isStateReference(r) ? !state.data.qwen_variants_available : !knownModel(el("asset-model").value));
+    el("asset-prompt").textContent = isStateReference(r) ? "Préparer cet état · Qwen" : "Préparer le prompt";
+    el("image-render").hidden = isStateReference(r);
     el("image-render").disabled = busyRef || !r || imageRunning() || !el("asset-text").value.trim()
       || !(state.catalog?.render_models || []).some(m => m.comfy_name === imageSettings().model_id);
     for (const id of ["intention", "duration", "plan-model", "writer-model", "plan-local", "writer-local", "shots", "audacity", ...Object.values(axesIds), "add-reference", "save-scene"])
@@ -99,12 +102,13 @@
     el("resume").disabled = busyScene || state.dirtyScene;
     el("scene-calls").hidden = !prep()?.session_id;
     el("image-attempts").querySelectorAll("button[data-image-choice]").forEach(button => {
-      button.disabled = state.busy || jobRunning(r) || button.dataset.selected === "true";
+      button.disabled = state.busy || continuityBusy || jobRunning(r) || button.dataset.selected === "true" || button.dataset.obsolete === "true";
     });
     el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = busyScene; });
     el("batch-panel").querySelectorAll("select,input").forEach(n => { n.disabled = state.busy || batchRunning(); });
     for (const kind of ["character", "location"]) el(`batch-${kind}-toggle`).disabled = state.busy || batchRunning();
-    el("batch-start").disabled = state.busy || batchRunning() || !state.catalog || !state.models.length || !state.batchSelection.size;
+    const onlyStates = state.batchSelection.size && [...state.batchSelection].every(id => isStateReference(state.data?.references.find(r => r.id === id)));
+    el("batch-start").disabled = state.busy || batchRunning() || (!onlyStates && (!state.catalog || !state.models.length)) || !state.batchSelection.size;
     el("batch-cancel").hidden = !batchRunning();
     el("batch-cancel").disabled = state.busy || state.data?.reference_batch?.status === "cancelling";
     const chain = state.data?.video_chain, chainStatus = chain?.status;
@@ -312,7 +316,9 @@
         controls();
       });
       label.append(checkbox, node("b", `${reference.continuity_state_id ? "Variante" : kindLabel(reference.kind)} · ${reference.name}`),
-        node("span", batchProfileSummary(reference.kind), "muted"));
+        node("span", isStateReference(reference)
+          ? `Qwen · depuis ${reference.state_source_name} · scènes ${(reference.state_scene_indices || []).map(i => i + 1).join(", ") || "à confirmer"}${reference.state_source_ready ? "" : " · choisir l’image d’identité d’abord"}`
+          : batchProfileSummary(reference.kind), "muted"));
       return label;
     }));
     const machine = state.data.machine_work?.machines || {};
@@ -339,7 +345,12 @@
         await saveReference(); state.refId = item.reference_id; state.imageProject = null; state.dirtyRef = false;
         drawLists(); drawReference(true); await imageProject();
       })));
-      if (item.output_asset_id && item.status !== "validated") actions.append(button("Valider cette image", () => action(async () => {
+      if (item.status === "waiting_source") actions.append(button("Choisir l’image d’identité", () => action(async () => {
+        const variant = state.data.references.find(r => r.id === item.reference_id);
+        const base = state.data.references.find(r => r.source_id === variant.source_id && !r.continuity_state_id);
+        if (base) { await saveReference(); state.refId = base.id; state.imageProject = null; drawLists(); drawReference(true); await imageProject(); }
+      })));
+      if (item.output_asset_id && item.status !== "validated" && item.status !== "failed") actions.append(button("Valider cette image", () => action(async () => {
         const reference = state.data.references.find(value => value.id === item.reference_id);
         accept(await core.request(api(`/references/${reference.id}/select`), send("POST", {expected_revision: reference.revision, asset_id: item.output_asset_id})));
       })));
@@ -433,7 +444,7 @@
       onSave: (visual_continuity, expected_revision) => continuityAction(id, async () => {
         const previous = new Set(state.data.references.map(r => r.id));
         const result = await core.request(api("/continuity", id), send("PUT", {expected_revision, visual_continuity}));
-        result.references.filter(r => !r.continuity_archived && !r.continuity_state_id && !previous.has(r.id)).forEach(r => state.batchSelection.add(r.id));
+        result.references.filter(r => !r.continuity_archived && (!r.continuity_state_id || isStateReference(r)) && !previous.has(r.id)).forEach(r => state.batchSelection.add(r.id));
         accept(result); drawScene(true);
         message("Continuité enregistrée. Les préparations touchées sont signalées à actualiser.");
       }),
@@ -490,9 +501,17 @@
       await saveScene(); state.sceneId = sceneId; state.prepId = ""; state.dirtyScene = false;
       drawLists(); drawScene(true); drawVideoOverview(); await openRender(); storeContext();
     }));
-    actions.append(open);
+    const prepareReference = button("Préparer la référence", () => action(async () => {
+      const current = state.data.scenes.find(s => s.id === card.dataset.sceneId);
+      const needed = current?.required_references?.[0];
+      if (!needed) return;
+      await saveReference(); state.refId = needed.reference_id; state.imageProject = null;
+      await tab("references"); drawLists(); drawReference(true); await imageProject();
+    }));
+    prepareReference.hidden = true;
+    actions.append(open, prepareReference);
     card.append(heading, planStatus, writerStatus, videoStatus, dlssStatus, continuityNote, durationNote, error, media, dlss, actions);
-    card._refs = {title, meta, planStatus, writerStatus, videoStatus, dlssStatus, continuityNote, durationNote, error, media, dlss, actions, open};
+    card._refs = {title, meta, planStatus, writerStatus, videoStatus, dlssStatus, continuityNote, durationNote, error, media, dlss, actions, open, prepareReference};
     return card;
   }
   function updateStage(element, label, status, text) {
@@ -536,6 +555,7 @@
   }
   function updateVideoCard(card, value, item) {
     const refs = card._refs, attempt = value.video_attempt;
+    refs.prepareReference.hidden = !value.required_references?.length;
     refs.continuityNote.textContent = (value.continuity_warnings || []).join(" · ");
     if (!refs.continuityNote.textContent && value.continuity_states?.length)
       refs.continuityNote.textContent = "Continuité : " + value.continuity_states.map(row => row.name).join(" · ");
@@ -548,7 +568,7 @@
     const explicitStages = preparation?.prompt_stages || {};
     const phase = value.job?.phase || item?.phase || "";
     const fallbackStage = stage => {
-      if (preparation?.status === "ready" || (item && !["pending", "prompting", "prompt_failed"].includes(item.status))) return "ready";
+      if (preparation?.status === "ready" || (item && !["pending", "prompting", "prompt_failed", "waiting_reference"].includes(item.status))) return "ready";
       if (stage === "plan" && phase.startsWith("1/2")) return "queued";
       if (stage === "plan" && phase.startsWith("2/2")) return "ready";
       if (stage === "writer" && phase.startsWith("2/2")) return "queued";
@@ -565,7 +585,7 @@
     let videoText = videoByStatus[item?.status] || statuses[value.video_status] || "\u00e0 g\u00e9n\u00e9rer";
     if (item?.status === "rendering" && attempt?.status === "running") videoText = "rendu en cours";
     else if (item?.status === "rendering" && attempt?.status === "cancel_pending") videoText = "annulation en cours";
-    const videoStage = item?.status === "video_failed" ? "failed"
+    let videoStage = item?.status === "video_failed" ? "failed"
       : item?.status === "succeeded" ? "succeeded"
       : ["pending", "prompting", "prompt_ready"].includes(item?.status) ? "planned"
       : attempt?.status || value.video_status || "pending";
@@ -587,10 +607,13 @@
       if (value.video_reused) videoText = "réutilisée";
     }
     if (item?.status === "prompt_ready" && item.admission_wait) videoText = "planifiée · un autre rendu H3 est encore actif";
+    if (value.required_references?.length || item?.status === "waiting_reference") {
+      videoStage = "planned"; videoText = "en attente d’une référence";
+    }
     updateStage(refs.videoStatus, "Vidéo", videoStage, videoText);
     refs.videoStatus.title = item?.admission_wait || "";
     updateDlssStage(card, value, item);
-    const error = item?.error || value.job?.error;
+    const error = (value.required_references || []).map(r => r.message).join(" ") || item?.error || value.job?.error;
     refs.error.hidden = !error; refs.error.textContent = error || "";
     const assetId = attempt?.output_asset_id || "";
     if (refs.media.dataset.assetId !== assetId) {
@@ -649,6 +672,8 @@
       const videoFailed = chainItems.filter(item => item.status === "video_failed").length;
       const pause = chain.status === "pausing"
         ? "Pause demand\u00e9e : les t\u00e2ches nomm\u00e9es ci-dessus terminent ; aucune nouvelle t\u00e2che ne d\u00e9marrera."
+        : chain.status === "paused" && chainItems.some(i => i.status === "waiting_reference")
+          ? "Choisis les références manquantes, puis clique sur Reprendre la chaîne. Les scènes terminées sont conservées."
         : chain.status === "paused" ? "Cha\u00eene en pause. Reprenez-la pour lancer la prochaine t\u00e2che." : chain.phase;
       el("video-chain-phase").textContent = `${pause} \u00b7 Prompts ${promptReady}/${chainItems.length} \u00b7 Vid\u00e9os ${videoDone}/${chainItems.length}`
         + (promptFailed ? ` \u00b7 ${promptFailed} erreur(s) prompt` : "")
@@ -704,8 +729,12 @@
       ? "Cette image provient d’une ancienne direction de style. Elle reste retenue jusqu’à ton prochain choix."
       : r.image_style_status === "current" ? "Image préparée avec le style commun actuel."
       : "Style de cette image non documenté : vérifie sa cohérence avec l’épisode.");
-    if (r.continuity_image_stale) el("image-style-note").textContent = "L’état décrit a changé. Choisis une nouvelle image, ou confirme l’image existante si elle correspond encore. Vérifie aussi le prompt de la fiche.";
-    el("asset-status").textContent = r.job?.error || (jobRunning(r) ? r.job.phase : imageRunning() ? "Image en cours de génération…" : "");
+    if (r.continuity_image_stale) el("image-style-note").textContent = isStateReference(r)
+      ? "L’identité ou l’état a changé. Prépare une nouvelle variante Qwen ou importe une image adaptée. L’ancienne reste dans l’historique."
+      : "L’état décrit a changé. Choisis une nouvelle image, ou confirme l’image existante si elle correspond encore. Vérifie aussi le prompt de la fiche.";
+    el("asset-status").textContent = isStateReference(r)
+      ? `État visuel · scènes ${(r.state_scene_indices || []).map(i => i + 1).join(", ")} · ${r.state_source_ready ? "Qwen conserve l’identité de " : "En attente de l’image validée de "}${r.state_source_name}.`
+      : r.job?.error || (jobRunning(r) ? r.job.phase : imageRunning() ? "Image en cours de génération…" : "");
     el("image-calls").hidden = !r.krea_project_id; el("image-open").hidden = !r.krea_project_id;
     const items = [...r.images.map(i => ({...i, status: "succeeded", output_asset_id: i.asset_id})), ...(state.imageProject?.attempts || [])];
     el("image-attempts").replaceChildren(...items.slice().reverse().map(a => {
@@ -715,7 +744,7 @@
         const link = node("a"), img = node("img"); link.href = assetUrl(a.output_asset_id); link.target = "_blank"; link.rel = "noopener";
         img.src = link.href; img.alt = a.label || "Proposition de référence"; img.loading = "lazy"; link.append(img); card.append(link);
       }
-      card.append(node("p", `${a.label || `Essai ${a.index}`} · ${statuses[a.status] || a.status}`));
+      card.append(node("p", `${a.label || `Essai ${a.index}`} · ${a.source_stale ? "Ancienne identité ou ancien état" : statuses[a.status] || a.status}`));
       if (a.pre_flux_url) {
         const preFlux = node("a", "Voir / télécharger la sortie KREA2 avant Flux");
         preFlux.href = a.pre_flux_url; preFlux.target = "_blank"; preFlux.rel = "noopener"; preFlux.download = "";
@@ -727,8 +756,8 @@
       if (a.output_asset_id) { const b = button(selected ? "Image retenue" : "Utiliser cette image", () => action(async () => {
         const data = await core.request(api(`/references/${r.id}/select`), send("POST", {expected_revision: ref().revision, asset_id: a.output_asset_id}));
         accept(data); message("Référence retenue. Les nouvelles préparations utiliseront cette image.");
-      })); b.dataset.imageChoice = "true"; b.dataset.selected = String(selected);
-        b.disabled = selected || state.busy || jobRunning(r); card.append(b); }
+      })); b.dataset.imageChoice = "true"; b.dataset.selected = String(selected); b.dataset.obsolete = String(!!a.source_stale);
+        b.disabled = selected || !!a.source_stale || state.busy || jobRunning(r); card.append(b); }
       return card;
     }));
   }
@@ -862,10 +891,12 @@
       render_settings: state.catalog && imageSettings().model_id && el("image-ratio").value ? imageSettings() : r.render_settings};
     const data = await core.request(api(`/references/${r.id}`), send("PUT", payload)); state.dirtyRef = false; accept(data);
   }
-  async function startReferenceBatch() {
+  async function startReferenceBatch(referenceIds = null) {
     await saveReference();
+    const selected = referenceIds || [...state.batchSelection];
+    const onlyStates = selected.every(id => isStateReference(state.data.references.find(r => r.id === id)));
     const profiles = {};
-    for (const kind of ["character", "location"]) {
+    for (const kind of (onlyStates ? [] : ["character", "location"])) {
       const prefix = `batch-${kind}`;
       if (!knownModel(el(`${prefix}-llm`).value)) throw new Error(`Choisis un LLM disponible pour le profil ${kind === "character" ? "Personnages" : "Décors"}.`);
       const settings = batchSettings(kind);
@@ -876,7 +907,7 @@
     }
     const data = await core.request(api("/reference-batches"), send("POST", {
       expected_visual_revision: state.data.visual_revision, request_id: crypto.randomUUID(),
-      reference_ids: [...state.batchSelection], profiles,
+      reference_ids: selected, profiles,
     }));
     accept(data); el("batch-panel").open = true;
   }
@@ -1067,7 +1098,7 @@
     state.dlssPanels.clear();
     state.videoCards.clear(); el("video-cards").replaceChildren();
     state.batchProfileKey = ""; state.batchThermalKey = "";
-    state.batchSelection = new Set(data.references.filter(reference => !reference.continuity_archived && !reference.continuity_state_id && !reference.image_asset_id).map(reference => reference.id));
+    state.batchSelection = new Set(data.references.filter(reference => !reference.continuity_archived && (!reference.continuity_state_id || data.visual_state_policy === 1) && (!reference.image_asset_id || reference.continuity_image_stale)).map(reference => reference.id));
     el("style-preset").value = "";
     state.refId = data.references.some(r => r.id === saved?.ref) ? saved.ref : data.references[0].id;
     state.sceneId = data.scenes.some(s => s.id === saved?.scene) ? saved.scene : data.scenes[0].id;
@@ -1155,6 +1186,7 @@
   el("save-reference").addEventListener("click", () => action(async () => { await saveReference(); message("Fiche enregistrée."); }));
   el("save-scene").addEventListener("click", () => action(async () => { await saveScene(); message("Scène enregistrée."); }));
   el("asset-prompt").addEventListener("click", () => action(async () => { await saveReference(); const r = ref();
+    if (isStateReference(r)) { await startReferenceBatch([r.id]); return; }
     accept(await core.request(api(`/references/${r.id}/prompt`), send("POST", {expected_revision: r.revision, expected_visual_revision: state.data.visual_revision,
       request_id: crypto.randomUUID(), instruction: el("asset-feedback").value.trim()})));
     el("prompt-panel").open = true;
@@ -1225,7 +1257,7 @@
   el("prompt-recipes").addEventListener("click", () => window.PanelForgePromptRecipes.open({key: "minimax.h3.ref2v.classic.cinematic.planned", version: "1.0.0"}));
   el("image-calls").addEventListener("click", () => window.PanelForgePromptRecipes.showHistory(api(`/references/${ref().id}/calls`)));
   el("image-open").addEventListener("click", () => window.PanelForgeKrea2AssistedLab?.open(ref().krea_project_id));
-  el("batch-start").addEventListener("click", () => action(startReferenceBatch));
+  el("batch-start").addEventListener("click", () => action(() => startReferenceBatch()));
   el("batch-global-settings").addEventListener("click", () => window.PanelForgeWorkQueue?.open());
   el("batch-cancel").addEventListener("click", () => action(async () => {
     const batch = state.data.reference_batch; if (!batch) return;
