@@ -23,12 +23,18 @@ class WorkQueueBrowserTest(unittest.TestCase):
         const calls=[];
         const settings={thermal:{stop_temperature_c:85,resume_temperature_c:40,cooldown_seconds:120,
           monitor_local:true,monitor_remote:true,pause_when_unavailable:false},
+          local_cooldown_temperature_c:80,local_cooldown_seconds:80,
           remote_video_cooldown_seconds:30,pause_after_failure:false,history_limit:30};
         const status={settings,recent:[{resource:'local_gpu',operation:'Ancien prompt',status:'failed',
-          error_type:'RuntimeError',error:'Serveur LLM indisponible'}],machines:{
-          local_gpu:{state:'busy',paused:false,active:{operation:'DLSS vidÃ©o',workload:'dlss',stage:'Upscale',progress:.5},
+          error_type:'RuntimeError',error:'Serveur LLM indisponible'}],
+          temperature_history:{window_seconds:3600,bucket_seconds:15,series:{
+            local_gpu:[{age_seconds:15,max_temperature_c:78},{age_seconds:0,max_temperature_c:81}],
+            remote_gpu:[{age_seconds:15,max_temperature_c:64},{age_seconds:0,max_temperature_c:66}]}},
+          machines:{
+          local_gpu:{state:'busy',temperature_c:81,paused:false,active:{operation:'ScÃ©nario long',workload:'llm',
+            stage:'GÃ©nÃ©ration en cours',progress:.5,llm_metrics:{tokens_per_second:42.7,thinking_tokens:22000,writing_tokens:100,estimated:true}},
             queue_count:1,queue:[{position:1,operation:'Prompt scÃ¨ne 2',workload:'llm'}]},
-          remote_gpu:{state:'paused',paused:true,active:null,queue_count:1,
+          remote_gpu:{state:'paused',temperature_c:66,paused:true,active:null,queue_count:1,
             queue:[{position:1,operation:'KREA2 Â· LÃ©a',workload:'image_render'}]},
         }};
         window.fetch=async(url,options={})=>{
@@ -44,8 +50,10 @@ class WorkQueueBrowserTest(unittest.TestCase):
           const pause=()=>new Promise(resolve=>setTimeout(resolve,20));
           const until=async fn=>{for(let i=0;i<80&&!fn();i++)await pause();check(fn(),'timed out');};
           const floating=document.querySelector('.work-queue-background');
-          check(!floating.hidden&&floating.textContent.includes('DLSS vidÃ©o'),'active local work is visible');
+          check(!floating.hidden&&floating.textContent.includes('ScÃ©nario long'),'active local work is visible');
           check(floating.textContent.includes('Working')&&floating.textContent.includes('50 %'),'working state and progress are visible');
+          check(floating.textContent.includes('42,7 tok/s')&&floating.textContent.includes('Th : 22,0k')&&floating.textContent.includes('Wr : 0,1k'),'live LLM metrics are visible');
+          check(floating.querySelectorAll('.work-queue-temperature-chart').length===2&&floating.textContent.includes('pic 81 °C'),'both one-hour temperature charts are visible');
           check(floating.textContent.includes('1 en attente')&&floating.querySelectorAll('[data-compact] progress').length===2,'both queue meters are visible');
           floating.querySelector('[data-minimize]').click();
           check(floating.classList.contains('minimized'),'monitor can be minimized');
@@ -66,7 +74,8 @@ class WorkQueueBrowserTest(unittest.TestCase):
           form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
           await until(()=>calls.some(call=>call.url==='/api/work-scheduler/settings'&&call.method==='PUT'));
           const saved=calls.find(call=>call.url==='/api/work-scheduler/settings'&&call.method==='PUT').body;
-          check(saved.remote_video_cooldown_seconds===45&&saved.thermal.stop_temperature_c===85,'global settings are posted');
+          check(saved.remote_video_cooldown_seconds===45&&saved.thermal.stop_temperature_c===85&&
+            saved.local_cooldown_temperature_c===80&&saved.local_cooldown_seconds===80,'global settings are posted');
           window.PanelForgeWorkQueue.notice('Admission DLSS interrompue',{id:'dlss:test'});
           check(floating.textContent.includes('Admission DLSS interrompue'),'client-side admission errors use the global monitor');
           window.dispatchEvent(new CustomEvent('panelforge:work-scheduler-status',{detail:{...status,machines:{

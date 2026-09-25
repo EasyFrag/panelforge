@@ -410,6 +410,15 @@ class QwenEditTest(QwenEditFixture):
         self.assertEqual(self.comfy.submitted[-1]["3"]["inputs"]["latent_image"], ["62", 0])
         self.assertEqual(self.comfy.submitted[-1]["62"]["inputs"]["width"], 1024)
 
+    def test_workflow_composition_accepts_portrait_grid_dimensions(self):
+        settings = QwenEditSettings(resolution="2", aspect_ratio="3:4")
+        dimensions = settings.dimensions()
+        graph = self.workflow.build(images=["reference.png"], prompt="An expressive portrait.",
+            settings=settings, dimensions=dimensions, composition=True, output_prefix="test/grid-cover")
+        latent = graph[self.workflow.manifest["latent_node"]]["inputs"]
+        self.assertEqual((latent["width"], latent["height"]), (1248, 1664))
+        self.assertEqual(dimensions, (1248, 1664))
+
     def test_workflow_handles_all_slots_and_native_edit_latent_without_orphans(self):
         graph = self.workflow.build(images=[f"image-{i}.png" for i in range(16)], prompt="Use every reference.",
             settings=QwenEditSettings(), dimensions=(160, 96), composition=False, output_prefix="test/result")

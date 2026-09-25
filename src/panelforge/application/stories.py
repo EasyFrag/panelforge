@@ -245,7 +245,12 @@ class StoryService:
             project["job"].setdefault("reasoning", "")
         if long_narrative.is_v2(project):
             project["long_status"] = long_narrative.status(project)
-            project["diagnostics"] = [d for d in project["diagnostics"] if d["code"] not in {"clip_load", "language_residue", "estimated_clip_load"}]
+            # Diagnostics are derived from the current unit, never accumulated across reads.
+            # Rebuild also removes persisted duplicates and obsolete warnings in older projects.
+            fmt = StoryService._active_episode_format(project)
+            project["diagnostics"] = [d for d in story_diagnostics(project["document"].get("scenario"),
+                clip_seconds=fmt["clip_seconds"], target_scene_count=fmt["scene_count"], recipe_id=recipe["id"])
+                if d["code"] != "scene_count"]
             target = project["document"].get("selected_episode_id") or "outline"
             project["diagnostics"].extend(project_quality(project, target))
         return project

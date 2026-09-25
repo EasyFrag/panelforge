@@ -699,9 +699,16 @@ def build_app(args: argparse.Namespace):
         },
         work_coordinator=machine_work,
     )
-    episodes = EpisodeService(stories=stories, store=LocalEpisodeStore(args.workspace),
+    from panelforge.application.episode_thumbnails import EpisodeThumbnailService
+    from panelforge.infrastructure.episode_thumbnail_images import EpisodeThumbnailImages
+    from panelforge.infrastructure.storage.episode_thumbnails import LocalEpisodeThumbnailStore
+    episode_store = LocalEpisodeStore(args.workspace)
+    thumbnails = EpisodeThumbnailService(store=LocalEpisodeThumbnailStore(args.workspace),
+        stories=stories.store, episodes=episode_store, assets=assets,
+        images=EpisodeThumbnailImages(), qwen=qwen_edit)
+    episodes = EpisodeService(stories=stories, store=episode_store,
         krea=krea2_assisted, prompt_lab=prompt_lab, composition=prompt_composition,
-        render=h3_render, assets=assets, dlss=dlss, work_coordinator=machine_work, qwen_edit=qwen_edit)
+        render=h3_render, assets=assets, dlss=dlss, work_coordinator=machine_work, qwen_edit=qwen_edit, thumbnails=thumbnails)
     return create_app(
         runner,
         prompt_recipes=prompt_recipes,

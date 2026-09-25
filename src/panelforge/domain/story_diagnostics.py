@@ -158,8 +158,8 @@ def quality_issues(project, *, scenario=None, state=None, target=None, outline=N
             for index in range(len(scenario["scenes"])):
                 for char in missing_mentions(scenario, index):
                     issues.append(issue("visible_cast_check", f"scenario.scenes[{index}].character_ids",
-                        f"Clip {index + 1} : {char['name']} est cité dans la mise en scène mais absent du casting déclaré. "
-                        "Vérifier sa présence visible, y compris sans dialogue.", "warning",
+                        f"Clip {index + 1} : le nom {char['name']} apparaît dans le texte, sans être dans le casting. "
+                        "À vérifier seulement si ce personnage est visible à l’image ; une mention, un message ou un objet lui appartenant ne suffit pas.", "warning",
                         scene_index=index, target_id=f"scene-{index + 1}"))
         except (KeyError, TypeError, AttributeError):
             pass  # Structural diagnostics describe malformed drafts separately.

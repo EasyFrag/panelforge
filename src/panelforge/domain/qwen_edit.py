@@ -10,7 +10,7 @@ import re
 MAX_RENDER_IMAGES = 16
 MAX_ASSISTANT_IMAGES = 32
 ACTIVE_ATTEMPTS = {"queued", "running", "cancel_pending"}
-RATIOS = ("1:1", "3:2", "2:3", "16:9", "9:16")
+RATIOS = ("1:1", "3:2", "2:3", "3:4", "16:9", "9:16")
 
 
 @dataclass(frozen=True, slots=True)

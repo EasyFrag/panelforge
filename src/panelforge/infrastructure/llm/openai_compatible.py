@@ -131,6 +131,7 @@ class OpenAICompatibleGateway:
             prompt_tokens=getattr(usage, "prompt_tokens", None),
             completion_tokens=getattr(usage, "completion_tokens", None),
             finish_reason=finish_reason,
+            reasoning_tokens=_usage_reasoning_tokens(usage),
         )
 
     def stream(
@@ -150,6 +151,7 @@ class OpenAICompatibleGateway:
             messages=_messages(request),
             temperature=request.temperature,
             stream=True,
+            stream_options={"include_usage": True},
         )
         output_tokens = self._output_tokens(request)
         if output_tokens is not None:
@@ -165,6 +167,7 @@ class OpenAICompatibleGateway:
         model_id = request.model_id
         prompt_tokens = None
         completion_tokens = None
+        reasoning_tokens = None
         loading_buffer = ""
         loading_announced = False
         queue_position: str | None = None
@@ -185,6 +188,7 @@ class OpenAICompatibleGateway:
                         "completion_tokens",
                         completion_tokens,
                     )
+                    reasoning_tokens = _usage_reasoning_tokens(usage, reasoning_tokens)
                 choices = getattr(chunk, "choices", None) or ()
                 if not choices:
                     continue
@@ -275,6 +279,7 @@ class OpenAICompatibleGateway:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             finish_reason=finish_reason,
+            reasoning_tokens=reasoning_tokens,
         )
         if finish_reason == "length":
             yield CompletionStreamEvent(
@@ -352,6 +357,24 @@ def _reasoning_text(delta) -> str | None:
             if isinstance(value, str) and value:
                 return value
     return None
+
+
+def _usage_reasoning_tokens(usage, fallback: int | None = None) -> int | None:
+    if usage is None:
+        return fallback
+    details = getattr(usage, 'completion_tokens_details', None)
+    if details is None:
+        extra = getattr(usage, 'model_extra', None)
+        if isinstance(extra, dict):
+            details = extra.get('completion_tokens_details')
+    value = (
+        details.get('reasoning_tokens')
+        if isinstance(details, dict)
+        else getattr(details, 'reasoning_tokens', None)
+    )
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return fallback
 
 
 def _finish_reason(value) -> str | None:

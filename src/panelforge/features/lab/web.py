@@ -858,6 +858,8 @@ class WorkSchedulerThermalBody(BaseModel):
 
 class WorkSchedulerSettingsBody(BaseModel):
     thermal: WorkSchedulerThermalBody = Field(default_factory=WorkSchedulerThermalBody)
+    local_cooldown_temperature_c: float = Field(default=80.0, ge=30, le=110, allow_inf_nan=False)
+    local_cooldown_seconds: int = Field(default=80, ge=0, le=3_600, strict=True)
     remote_video_cooldown_seconds: int = Field(default=30, ge=0, le=3_600, strict=True)
     pause_after_failure: bool = False
     history_limit: int = Field(default=30, ge=5, le=200, strict=True)
@@ -983,6 +985,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app):
+        if machine_work is not None:
+            machine_work.start_temperature_sampling()
         if krea2_assisted is not None:
             krea2_assisted.start_render_worker()
         if qwen_edit is not None:
@@ -990,6 +994,8 @@ def create_app(
         try:
             yield
         finally:
+            if machine_work is not None:
+                await asyncio.to_thread(machine_work.stop_temperature_sampling)
             if qwen_edit is not None:
                 await asyncio.to_thread(qwen_edit.stop_worker)
             if krea2_assisted is not None:
@@ -1002,7 +1008,11 @@ def create_app(
     app.include_router(prompt_recipes_router(prompt_recipes, llm_traces, prompt_composition, h3_render, stories=stories))
     from .stories_web import stories_router
     app.include_router(stories_router(stories))
+    from .story_library_web import story_library_router
+    app.include_router(story_library_router(stories, episodes))
     from .episodes_web import episodes_router
+    from .episode_thumbnails_web import episode_thumbnails_router
+    app.include_router(episode_thumbnails_router(episodes))
     app.include_router(episodes_router(episodes, serialize_image_project=serialize_krea2_assisted_project,
         validate_image=detect_image_media_type, image_body=Krea2AssistedAttemptBody,
         render_body=H3RenderAttemptBody, serialize_render_project=serialize_h3_render_project))
@@ -1110,6 +1120,8 @@ def create_app(
         try:
             settings = WorkSchedulerSettings(
                 thermal=ThermalPolicy(**body.thermal.model_dump()),
+                local_cooldown_temperature_c=body.local_cooldown_temperature_c,
+                local_cooldown_seconds=body.local_cooldown_seconds,
                 remote_video_cooldown_seconds=body.remote_video_cooldown_seconds,
                 pause_after_failure=body.pause_after_failure,
                 history_limit=body.history_limit,

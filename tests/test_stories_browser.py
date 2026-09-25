@@ -62,6 +62,7 @@ class StoriesBrowserTest(unittest.TestCase):
                 '<section id="krea2-assisted-lab-workspace"></section>' + markup
                 + '<script>' + setup + '</script><script>' + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
                 + '</script><script>' + (STATIC / 'lab-core.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'story-writing.js').read_text(encoding='utf8')
                 + '</script><script>' + (STATIC / 'stories.js').read_text(encoding='utf8')
                 + '</script><script>' + scenario + '</script>')
         self.run_browser(browsers[-1], html)
@@ -159,6 +160,7 @@ class StoriesBrowserTest(unittest.TestCase):
                 '<section id="krea2-assisted-lab-workspace"></section>' + markup
                 + '<script>' + setup + '</script><script>' + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
                 + '</script><script>' + (STATIC / 'lab-core.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'story-writing.js').read_text(encoding='utf8')
                 + '</script><script>' + (STATIC / 'stories.js').read_text(encoding='utf8')
                 + '</script><script>' + scenario + '</script>')
         self.run_browser(browsers[-1], html)
@@ -228,6 +230,7 @@ class StoriesBrowserTest(unittest.TestCase):
                 '<section id="krea2-assisted-lab-workspace"></section>' + markup
                 + '<script>' + setup + '</script><script>' + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
                 + '</script><script>' + (STATIC / 'lab-core.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'story-writing.js').read_text(encoding='utf8')
                 + '</script><script>' + (STATIC / 'stories.js').read_text(encoding='utf8')
                 + '</script><script>' + scenario + '</script>')
         self.run_browser(browsers[-1], html)
@@ -294,6 +297,7 @@ class StoriesBrowserTest(unittest.TestCase):
                 '<section id="krea2-assisted-lab-workspace"></section>' + markup
                 + '<script>' + setup + '</script><script>' + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
                 + '</script><script>' + (STATIC / 'lab-core.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'story-writing.js').read_text(encoding='utf8')
                 + '</script><script>' + (STATIC / 'stories.js').read_text(encoding='utf8')
                 + '</script><script>' + scenario + '</script>')
         self.run_browser(browsers[-1], html)

@@ -31,6 +31,11 @@ class CoordinatedMultimodalGateway:
         ):
             self._coordinator.report_stage(owner, "Génération LLM")
             result = self._delegate.complete(request)
+            self._coordinator.reconcile_llm_tokens(
+                owner,
+                result.completion_tokens,
+                result.reasoning_tokens,
+            )
             self._coordinator.report_progress(owner, 1.0, "Réponse LLM terminée")
             return result
 
@@ -48,11 +53,24 @@ class CoordinatedMultimodalGateway:
             terminal_was_yielded = False
             try:
                 for event in self._delegate.stream(request):
+                    if event.kind is StreamEventKind.REASONING and event.text:
+                        self._coordinator.report_llm_tokens(owner, 'thinking')
+                    elif event.kind is StreamEventKind.DELTA and event.text:
+                        self._coordinator.report_llm_tokens(owner, 'writing')
                     self._coordinator.report_progress(
                         owner,
                         event.progress,
                         getattr(event.phase, "value", event.phase) if event.phase else "Génération LLM",
                     )
+                    if (
+                        event.kind in {StreamEventKind.COMPLETED, StreamEventKind.TRUNCATED}
+                        and event.result is not None
+                    ):
+                        self._coordinator.reconcile_llm_tokens(
+                            owner,
+                            event.result.completion_tokens,
+                            event.result.reasoning_tokens,
+                        )
                     terminal_was_yielded = event.kind in {
                         StreamEventKind.COMPLETED,
                         StreamEventKind.TRUNCATED,

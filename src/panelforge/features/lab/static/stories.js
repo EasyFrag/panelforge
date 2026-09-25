@@ -114,16 +114,221 @@
     if (!target || target.unit_id === "outline") return "L’histoire complète";
     return `${unitLabel()} ${target.unit_id.replace("episode-", "")}${target.scene_index == null ? "" : ` · scène ${target.scene_index + 1}`}`;
   }
-  function focusFeedback(unitId, sceneIndex = null) {
-    el("feedback-target").value = unitId + (sceneIndex == null ? "" : `:${sceneIndex}`);
-    paintFeedbackHint(); el("instruction").scrollIntoView({behavior: "smooth", block: "center"}); el("instruction").focus();
+  function focusFeedback(unitId, sceneIndex = null, instruction = "") {
+    const value = unitId + (sceneIndex == null ? "" : `:${sceneIndex}`);
+    if (![...el("feedback-target").options].some(option => option.value === value)) return;
+    chooseWritingStage(unitId === "outline" ? "story" : "scenario");
+    el("feedback-target").value = value;
+    syncFeedbackDraft();
+    // A shortcut must never overwrite the author's unsent feedback for this target.
+    if (instruction && !el("instruction").value.trim()) {
+      el("instruction").value = instruction;
+      el("instruction").dispatchEvent(new Event("input", {bubbles: true}));
+    }
+    paintFeedbackHint(); controls(); el("instruction").scrollIntoView({behavior: "smooth", block: "center"}); el("instruction").focus();
+  }
+  function issueSceneIndex(issue, unitId) {
+    const match = /^scene-(\d+)$/.exec(issue.target_id || "");
+    const index = Number.isInteger(issue.scene_index) ? issue.scene_index : match ? Number(match[1]) - 1 : null;
+    const scenes = state.project?.document.episode_scenarios?.[unitId]?.scenes;
+    return Number.isInteger(index) && index >= 0 && index < (scenes?.length || 0) ? index : null;
+  }
+  function correctionInstruction(unitId, sceneIndex, issues) {
+    const scope = targetLabel({unit_id: unitId, scene_index: sceneIndex});
+    const boundary = sceneIndex == null ? "Préserve les éléments qui ne sont pas concernés." : "Conserve les autres scènes inchangées.";
+    return `Corrige uniquement les points bloquants suivants dans ${scope}. ${boundary}\n\n`
+      + issues.map(issue => `${issue.problem}${issue.suggestion ? `\nProposition : ${issue.suggestion}` : ""}`).join("\n\n");
+  }
+  function feedbackShortcut(label, unitId, sceneIndex, instruction = "") {
+    const action = button(label, () => focusFeedback(unitId, sceneIndex, instruction));
+    action.dataset.feedbackShortcut = "true"; action.disabled = blocked();
+    action.title = "Ouvrir le retour ciblé, sans appel LLM. La modification ne démarre qu’après ton envoi.";
+    return action;
+  }
+  function syncFeedbackDraft() {
+    if (!longV2()) return;
+    const id = state.project.project_id, scope = el("feedback-target").value || "outline";
+    const key = `draft.${id}.${scope}`, old = state.feedbackDraftKey;
+    if (old !== key) {
+      const sameProject = old?.startsWith(`draft.${id}.`);
+      if (sameProject) storage.set(old, el("instruction").value);
+      el("instruction").value = storage.get(key) ?? (sameProject ? "" : el("instruction").value);
+      state.feedbackDraftKey = key;
+    }
+    storage.set(`feedback-target.${id}`, scope);
+    storage.set(`draft.${id}`, el("instruction").value);
   }
   function paintFeedbackHint() {
     const target = feedbackTarget();
-    el("feedback-context").textContent = `Cible : ${targetLabel(target)}. ${running() ? "Ton texte reste en brouillon. Reprends la main pour l’envoyer après l’appel actif." : "Une question conserve le texte et le mode choisi. Demander une modification réécrit la cible. Pour approuver, utilise le bouton Valider / Continuer."}`;
+    el("feedback-context").textContent = `Cible : ${targetLabel(target)}. ${running() ? "Ton texte reste en brouillon. Reprends la main pour l’envoyer après l’appel actif." : "Une question conserve le texte et le mode choisi. Demander une modification réécrit la cible. Pour approuver, utilise le bouton Valider / Continuer dans le bandeau de l’étape."}`;
     el("instruction").placeholder = target.unit_id === "outline" ? "Question : pourquoi cette fin ? Modification : garde cette idée, mais change la fin…"
       : target.scene_index == null ? "Question : que comprend le public ici ? Modification : rends la négociation plus tendue…"
       : "Question : pourquoi ce refus ? Modification : montre plus clairement le refus dans cette scène…";
+  }
+  const writingPlacements = new Map();
+  function arrangeWriting(guided) {
+    // Move existing controls, retaining listeners and the legacy short-story layout.
+    for (const id of ["recovery-panel", "retry-actions", "draft-history", "versions-panel", "continuity", "long-review", "live-panel", "calls", "call-summary"]) {
+      const item = el(id);
+      if (!writingPlacements.has(id)) {
+        const anchor = document.createComment(`writing:${id}`);
+        item.before(anchor); writingPlacements.set(id, anchor);
+      }
+      const anchor = writingPlacements.get(id);
+      const destination = el(id === "live-panel" ? "writing-status" : "writing-details");
+      if (guided && item.parentElement !== destination) {
+        if (id === "live-panel") el("writing-issues").before(item);
+        else destination.append(item);
+      } else if (!guided && item.previousSibling !== anchor) anchor.after(item);
+    }
+  }
+  function readingStage() {
+    return state.writingView || window.PanelForgeStoryWriting.describe(state.project).stage;
+  }
+  function chooseWritingStage(stage, focus = false) {
+    state.writingView = stage;
+    if (state.project) storage.set(`reading.${state.project.project_id}`, stage || "");
+    paintWriting();
+    if (focus && !el("writing-reader").hidden) el("reading-title").focus({preventScroll: true});
+  }
+  function paintWriting() {
+    const guided = longV2(), visible = guided || (!state.project && narrativeFormat() === "long");
+    el("writing-header").hidden = !visible;
+    el("writing-reader").hidden = !guided; el("writing-details").hidden = !guided;
+    root.classList.toggle("story-writing-guided", guided);
+    arrangeWriting(guided);
+    if (!visible) {
+      delete root.dataset.writingStage;
+      el("chat-title").textContent = "Façonner l’histoire";
+      el("validate").hidden = false; el("validate").classList.add("primary");
+      el("validate").textContent = "Valider et préparer la fabrication";
+      el("saved-intention").hidden = el("scenario-selector").hidden = true;
+      return;
+    }
+    const project = state.project, view = window.PanelForgeStoryWriting.describe(project);
+    const id = project?.project_id || "new";
+    if (state.writingProject !== id) {
+      state.writingProject = id;
+      const stored = storage.get(`reading.${id}`);
+      state.writingView = ["intention", "story", "scenario"].includes(stored) ? stored : null;
+    }
+    const stage = project ? readingStage() : "intention";
+    root.dataset.writingStage = stage;
+    const statuses = window.PanelForgeStoryWriting.statuses;
+    const setText = (id, value) => { if (el(id).textContent !== value) el(id).textContent = value; };
+    for (const item of el("writing-steps").querySelectorAll("button")) {
+      const step = item.dataset.writingStage, status = view.steps[step], [symbol, label] = statuses[status];
+      item.dataset.state = status; item.disabled = !project && step !== "intention";
+      if (step === stage) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
+      const caption = `${symbol} ${label}`;
+      if (item.querySelector("small").textContent !== caption) item.querySelector("small").textContent = caption;
+    }
+    el("writing-status").hidden = !project;
+    if (!project) return;
+    // Keep the existing ability to fabricate a ready unit before the entire serial story is complete.
+    el("validate").hidden = el("validate").disabled || view.action === "validate";
+    el("validate").classList.remove("primary"); el("validate").textContent = "Fabriquer cette séquence";
+    el("writing-status").dataset.state = view.kind;
+    setText("writing-state", `${statuses[view.kind][0]} ${statuses[view.kind][1]}`);
+    setText("writing-title", view.title); setText("writing-message", view.message); setText("writing-saved", view.saved);
+    const issueKey = JSON.stringify([project.project_id, view.target, view.issues]);
+    if (state.writingIssueKey !== issueKey) {
+      state.writingIssueKey = issueKey;
+      el("writing-issues").replaceChildren(...view.issues.map(issue => {
+        const item = node("li"); item.append(node("p", issue.problem || "Point signalé par la vérification."));
+        if (issue.suggestion) item.append(node("p", `Proposition : ${issue.suggestion}`, "muted"));
+        const index = issueSceneIndex(issue, view.target);
+        if (index != null) item.append(feedbackShortcut(`Écrire ma consigne · scène ${index + 1}`, view.target, index,
+          correctionInstruction(view.target, index, [issue])));
+        return item;
+      }));
+    }
+    el("writing-issues").hidden = !view.issues.length;
+    const action = el("next-action");
+    action.hidden = !view.action;
+    action.dataset.action = view.action || ""; action.textContent = view.label;
+    action.disabled = state.saving || state.loading || (view.action && el(view.action)?.disabled)
+      || (view.action === "correct-and-continue" && (!selectedModel("architect") || !selectedModel("writer"))) || false;
+    action.title = view.action === "correct-and-continue" ? "Lancer une correction ciblée et sa relecture avec les modèles choisis. Une seule tentative ; arrêt si un blocage subsiste." : "";
+    if (view.action && action.disabled && !blocked() && ["advance", "retry", "correct-and-continue"].includes(view.action)
+        && (!selectedModel("architect") || !selectedModel("writer"))) {
+      action.dataset.action = "models"; action.textContent = "Choisir les modèles d’écriture"; action.disabled = false;
+    }
+    const secondary = el("writing-secondary");
+    secondary.hidden = !view.secondary; secondary.dataset.action = view.secondary || "";
+    secondary.textContent = view.secondary === "feedback" ? "Écrire ma consigne"
+      : view.secondary === "details" ? "Voir le brouillon et les détails" : "Relire ce point · appel LLM";
+    // A review of a sequence must target the open sequence, never an unrelated one.
+    secondary.disabled = state.saving || state.loading || (view.secondary?.startsWith("review-") &&
+      (el(view.secondary).disabled || (view.secondary === "review-episode" && project.document.selected_episode_id !== view.target)));
+    secondary.title = view.secondary === "review-episode" && project.document.selected_episode_id !== view.target
+      ? "Examine d’abord le point avec l’assistant pour ouvrir la séquence concernée." : "";
+    el("writing-current").hidden = stage === view.stage;
+    el("saved-intention").hidden = stage !== "intention";
+    setText("intention-text", project.brief || "Intention libre : laisser le modèle proposer l’histoire.");
+    setText("intention-settings", el("project-brief").textContent);
+    const descriptions = {intention: ["Le point de départ", "Ton intention et les réglages enregistrés. Les retours sur la direction se font dans la discussion de l’histoire."],
+      story: ["La progression de l’histoire", "Lis les événements, les personnages et la fin avant leur mise en scènes."],
+      scenario: ["Les scènes et leurs dialogues", "Lis le déroulé concret. Le bouton « Commenter cette scène » cible directement ton retour."]};
+    setText("reading-label", `${["intention", "story", "scenario"].indexOf(stage) + 1} / 3 · ${stage === "intention" ? "INTENTION" : stage === "story" ? "HISTOIRE" : "SCÉNARIO"}`);
+    setText("reading-title", descriptions[stage][0]); setText("reading-help", descriptions[stage][1]);
+    el("discuss-current").disabled = !project.document.series_outline && !project.document.scenario;
+    setText("chat-title", "Discuter et ajuster");
+    for (const card of el("series-episodes").querySelectorAll("[data-unit-id]")) {
+      const unit = view.units.find(unit => unit.id === card.dataset.unitId);
+      if (!unit) continue;
+      const [kind, label] = view.unitStatus(unit), caption = card.querySelector("small");
+      caption.classList.add("story-state-label"); caption.dataset.state = kind;
+      caption.textContent = `${unit.label.split(" · ")[0]} · ${statuses[kind][0]} ${label}`;
+    }
+    const unitSelect = el("reading-unit"), unitKey = JSON.stringify([project.document.selected_episode_id, view.units]);
+    el("scenario-selector").hidden = stage !== "scenario" || view.units.length < 2;
+    if (state.readingUnitKey !== unitKey) {
+      state.readingUnitKey = unitKey;
+      unitSelect.replaceChildren(...view.units.map(unit => {
+        const option = new Option(unit.label, unit.id); option.disabled = !unit.written; return option;
+      }));
+      unitSelect.value = project.document.selected_episode_id || "";
+    }
+    unitSelect.disabled = blocked();
+    const selected = view.units.find(unit => unit.id === project.document.selected_episode_id);
+    if (selected) {
+      const [kind, label] = view.unitStatus(selected);
+      el("reading-unit-status").dataset.state = kind;
+      setText("reading-unit-status", `${statuses[kind][0]} ${label}`);
+    }
+    el("empty").hidden = stage === "intention" || (stage === "story" ? !!project.document.series_outline : !!project.document.scenario);
+    if (!el("empty").hidden) {
+      setText("empty-title", stage === "story" ? "L’histoire apparaîtra ici" : "Les scènes apparaîtront ici");
+      setText("empty-copy", stage === "story" ? "Le bandeau ci-dessus indique la prochaine action." : "La direction de l’histoire doit être relue et validée avant le développement des scènes.");
+    }
+  }
+  async function writingAction(action) {
+    const projectId = state.project?.project_id;
+    const view = window.PanelForgeStoryWriting.describe(state.project);
+    if (action === "correct-and-continue") {
+      chooseWritingStage(null);
+      await workflowAction("correct-and-continue", {unit_id: view.target, mode: el("active-mode").value,
+        architect_model_id: selectedModel("architect"), writer_model_id: selectedModel("writer")});
+    } else if (action === "feedback") {
+      chooseWritingStage(view.stage);
+      if (view.target !== "outline" && view.target !== state.project.document.selected_episode_id
+          && state.project.document.episode_scenarios?.[view.target] && !blocked()) {
+        await openSeriesEpisode(view.target, state.project.scene_count, state.project.clip_seconds, false);
+      }
+      if (state.project?.project_id !== projectId) return;
+      const index = view.issues.length === 1 ? issueSceneIndex(view.issues[0], view.target) : null;
+      focusFeedback(view.target, index, view.issues.length ? correctionInstruction(view.target, index, view.issues) : "");
+    } else if (action === "details") {
+      el("writing-details").open = true;
+      el("writing-details").scrollIntoView({behavior: "smooth", block: "start"});
+      el("writing-details").querySelector("summary").focus();
+    } else if (action === "models") {
+      el("model-settings").open = true; el("model-settings").scrollIntoView({behavior: "smooth", block: "center"}); el(!selectedModel("architect") ? "architect-model" : "writer-model").focus();
+    } else if (action && el(action) && !el(action).disabled) {
+      chooseWritingStage(null);
+      el(action).click();
+    }
   }
   function paintWorkflow() {
     const project = state.project, guided = longV2(), doc = project?.document;
@@ -153,8 +358,7 @@
     const issues = flow?.status === "blocked" ? doc.reviews?.[flow.wait_target || "outline"]?.issues?.filter(item => item.severity === "blocking") || [] : [];
     el("workflow-issues").hidden = !issues.length;
     el("workflow-issues").replaceChildren(...issues.map(item => node("li", `${item.problem} ${item.suggestion}`)));
-    el("progress").textContent = !doc.series_outline ? "① Histoire → ② Scénario → ③ Prêt à fabriquer"
-      : flow?.status === "ready" ? "✓ Histoire → ✓ Scénario → ✓ Prêt à fabriquer" : "✓ Histoire → ② Scénario → ③ Prêt à fabriquer";
+    el("progress").textContent = "Intention → Histoire → Scénario";
     el("advance").textContent = flow?.status === "awaiting_author" ? (flow.wait_target === "outline" ? (written ? "Valider l’histoire et continuer" : "Valider et développer le scénario") : "Valider et continuer")
       : flow?.status === "ready" ? "Scénario terminé" : !doc.series_outline ? "Imaginer mon histoire" : "Continuer le parcours";
     el("pause").hidden = !running();
@@ -167,9 +371,11 @@
     }
     el("feedback-target").replaceChildren(...options);
     const selected = flow?.wait_target || (doc.scenario ? doc.selected_episode_id : "outline"), key = `${project.project_id}:${selected}`;
-    el("feedback-target").value = state.feedbackKey === key && options.some(item => item.value === previous) ? previous : selected;
-    state.feedbackKey = key;
-    paintFeedbackHint();
+    el("feedback-target").value = (state.feedbackKey === key || (state.feedbackProject === project.project_id && el("instruction").value.trim())) && options.some(item => item.value === previous) ? previous : selected;
+    const remembered = storage.get(`feedback-target.${project.project_id}`);
+    if (state.feedbackProject !== project.project_id && options.some(item => item.value === remembered)) el("feedback-target").value = remembered;
+    state.feedbackKey = key; state.feedbackProject = project.project_id;
+    syncFeedbackDraft(); paintFeedbackHint();
   }
   function paintFabricationGate() {
     const project = state.project, doc = project?.document, status = project?.long_status;
@@ -227,7 +433,7 @@
       const result = await request(path(id, `/${action}`), json(action === "pause" ? {} : {...body, expected_version: state.project.version}));
       if (token !== state.token) return;
       state.project = result;
-      if (clearFeedback) { el("instruction").value = ""; storage.set(`draft.${id}`, ""); }
+      if (clearFeedback) { el("instruction").value = ""; storage.set(`draft.${id}`, ""); if (state.feedbackDraftKey) storage.set(state.feedbackDraftKey, ""); }
       paint(); schedule(); recent().catch(() => {});
     } catch (error) { if (token === state.token) message(error.message, true); }
     finally { if (token === state.token) { state.saving = false; controls(); } }
@@ -378,6 +584,7 @@
     el("concepts").querySelectorAll("button").forEach(item => { item.disabled = busy || item.dataset.selected === "true"; });
     el("series-episodes").querySelectorAll("button,input").forEach(item => { item.disabled = busy || item.dataset.locked === "true"; });
     el("scenes").querySelectorAll("button").forEach(item => { item.disabled = busy; });
+    root.querySelectorAll("[data-feedback-shortcut]").forEach(item => { item.disabled = busy; });
     if (el("validate")) el("validate").disabled = busy || !doc?.scenario || (longV2() && !project.long_status?.fabrication_ready);
     if (el("next-episode")) el("next-episode").disabled = busy || !doc?.scenario;
     const unitState = project?.long_status?.units?.[doc?.selected_episode_id];
@@ -390,6 +597,7 @@
       ["rewrite-episode", !doc?.scenario || !unitState?.previous_ready || !project?.long_status?.outline_reviewed, "writer"],
     ]) el(id).disabled = busy || locked || !selectedModel(role);
     paintFabricationGate();
+    paintWriting();
   }
   async function specs() {
     try {
@@ -524,7 +732,7 @@
       }));
       el("turns").scrollTop = el("turns").scrollHeight;
     }
-    const key = `${project.project_id}:${project.revisions.length}:${doc.selected_episode_id || ""}`;
+    const key = `${project.project_id}:${project.revisions.length}:${doc.selected_episode_id || ""}:${JSON.stringify(project.long_status || {})}`;
     if (state.paintKey !== key) {
       state.paintKey = key;
       el("versions").replaceChildren(...[...project.revisions].reverse().map(revision => new Option(`v${revision.revision} · ${revision.label}`, revision.revision)));
@@ -533,10 +741,8 @@
     const job = project.job;
     paintRecovery(project);
     paintDiagnostics(project.diagnostics || []);
-    if (job) message(longV2() && job.status === "failed" && job.draft_diagnostics?.length
-      ? (job.can_revalidate ? "Le brouillon peut être récupéré sans nouvel appel. Consulte les vérifications restantes dans le document."
-        : "Le brouillon est conservé. Les problèmes détectés sont regroupés dans le document.")
-      : job.revalidation_error || job.error || [job.phase, ...(job.normalizations || [])].filter(Boolean).join(" · "), !!job.error);
+    if (longV2()) message("");
+    else if (job) message(job.revalidation_error || job.error || [job.phase, ...(job.normalizations || [])].filter(Boolean).join(" · "), !!job.error);
     else message(scriptProject ? "Script enregistré. Tu peux lancer sa structuration fidèle."
       : continuationProject ? "Historique enregistré. L’Architecte peut maintenant construire la mémoire de saga et les suites."
       : "Histoire enregistrée. Tu peux maintenant demander sa création.");
@@ -547,8 +753,25 @@
       el("live-summary").textContent = live ? "Trace du modèle · en direct"
         : job?.status === "succeeded" ? "Trace du dernier échange"
         : "Dernière trace · réponse non appliquée";
-      el("reasoning-panel").hidden = !reasoning; el("reasoning").textContent = reasoning;
-      el("draft-panel").hidden = !draft; el("draft").textContent = draft;
+      const traceKey = `${project.project_id}:${job?.request_id || job?.started_at || job?.operation || ""}`;
+      const newTrace = state.liveTraceKey !== traceKey;
+      if (newTrace) {
+        state.liveTraceKey = traceKey;
+        if (live && longV2()) el("live-panel").open = true;
+      }
+      const started = Date.parse(job?.started_at), ended = Date.parse(job?.finished_at);
+      const seconds = Number.isFinite(started) ? Math.max(0, Math.floor(((live || !Number.isFinite(ended) ? Date.now() : ended) - started) / 1000)) : null;
+      const duration = seconds === null ? "" : `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, "0")} s · `;
+      el("live-metrics").textContent = `${duration}${reasoning.length.toLocaleString("fr-FR")} caractères de raisonnement · ${draft.length.toLocaleString("fr-FR")} caractères de réponse`;
+      el("reasoning-panel").hidden = !reasoning;
+      el("draft-panel").hidden = !draft;
+      for (const [id, text] of [["reasoning", reasoning], ["draft", draft]]) {
+        const pre = el(id), follow = newTrace || pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+        if (pre.textContent !== text) {
+          pre.textContent = text;
+          if (live && follow) requestAnimationFrame(() => { if (state.liveTraceKey === traceKey) pre.scrollTop = pre.scrollHeight; });
+        }
+      }
       el("draft-title").textContent = live ? "Réponse JSON en cours"
         : job?.status === "succeeded" ? "Réponse JSON du dernier échange"
         : "Réponse JSON reçue · non appliquée";
@@ -679,15 +902,17 @@
     const scenarios = doc.episode_scenarios || {}, formats = doc.episode_formats || {};
     el("series-episodes").replaceChildren(...outline.episodes.map((episode, index) => {
       const complete = !!scenarios[episode.id], selected = doc.selected_episode_id === episode.id;
-      const card = node("article", "", `story-series-episode${selected ? " selected" : ""}${complete ? " complete" : ""}`);
       const unitState = state.project.long_status?.units?.[episode.id];
+      const card = node("article", "", `story-series-episode${selected ? " selected" : ""}${(longV2() ? unitState?.ready : complete) ? " complete" : ""}`);
+      card.dataset.unitId = episode.id;
       const progress = unitState?.stale ? "À RÉÉCRIRE · PASSÉ MODIFIÉ" : unitState?.ready ? "RELU" : complete ? "À RELIRE" : "PLANIFIÉ";
       card.append(node("small", `${unitLabel().toUpperCase()} ${index + 1} · ${longV2() ? progress : complete ? "DÉVELOPPÉ" : "PLANIFIÉ"}`),
         node("h3", episode.title), node("p", episode.promise), node("p", `Obstacle : ${episode.conflict}`));
-      const details = node("details"), list = node("ol"); details.append(node("summary", "Étapes et payoff"));
-      if (longV2()) episode.events.forEach(event => list.append(node("li", `${event.id} · ${event.trigger}\nChangement : ${event.change}\nÀ montrer ou entendre : ${event.evidence}\nPréparé par : ${event.depends_on.join(", ") || "situation initiale"}`)));
+      const details = node("details"), list = node("ol"); details.append(node("summary", "Aboutissement et raccord"));
+      if (longV2()) episode.events.forEach(event => list.append(node("li", `${event.trigger}\n${event.change}\nÀ montrer : ${event.evidence}`)));
       else episode.beats.forEach(beat => list.append(node("li", beat)));
-      details.append(list, node("p", `Payoff local : ${episode.local_payoff}`),
+      if (longV2()) card.append(list); else details.append(list);
+      details.append(node("p", `Aboutissement : ${episode.local_payoff}`),
         node("p", `Fin : ${episode.ending_state}`), node("p", `Suite : ${episode.carry_forward}`)); card.append(details);
       const format = formats[episode.id] || {scene_count: state.project.scene_count, clip_seconds: state.project.clip_seconds};
       const controls = node("div", "", "story-series-format");
@@ -702,6 +927,7 @@
       const action = button(complete ? (selected ? `${unitLabel()} ouvert${label === "séquence" ? "e" : ""}` : `Ouvrir ${article} ${label}`) : `Développer ${article} ${label}`, () => {
         const sceneCount = Math.max(1, Math.min(12, Number(scenes.value) || state.project.scene_count));
         const clipSeconds = Math.max(5, Math.min(15, Number(duration.value) || state.project.clip_seconds));
+        if (longV2()) chooseWritingStage("scenario");
         openSeriesEpisode(episode.id, sceneCount, clipSeconds, !complete);
       });
       action.dataset.selected = String(selected && complete);
@@ -715,8 +941,37 @@
     }));
   }
   function paintDiagnostics(items) {
-    el("diagnostics").hidden = !items.length;
-    el("diagnostic-list").replaceChildren(...items.map(item => node("li", item.message, item.level || "info")));
+    // Older servers/projects may still return accumulated diagnostics until restarted.
+    const unique = [...new Map(items.map(item => [JSON.stringify([item.code, item.path, item.scene_index, item.level, item.message]), item])).values()];
+    const timedScenes = new Set(unique.filter(item => item.code === "clip_load").map(item => item.scene_index));
+    const visible = unique.filter(item => item.level === "blocking" || item.code !== "dialogue_density" || !timedScenes.has(item.scene_index));
+    const unitId = state.project?.document.selected_episode_id;
+    const view = longV2() ? window.PanelForgeStoryWriting.describe(state.project) : null;
+    const mainIssues = view?.target === unitId && view.kind === "attention" ? view.issues : [];
+    const blockers = visible.filter(item => item.level === "blocking" && !mainIssues.some(issue => issue.problem === item.message));
+    const observations = visible.filter(item => item.level !== "blocking");
+    el("diagnostics").hidden = !blockers.length && !observations.length;
+    const scope = `${state.project?.project_id}:${unitId}`;
+    if (state.diagnosticScope !== scope) {
+      state.diagnosticScope = scope; el("diagnostic-observations").open = false;
+    }
+    const key = JSON.stringify([scope, longV2(), blockers, observations]);
+    if (state.diagnosticKey === key) return;
+    state.diagnosticKey = key;
+    el("diagnostic-blockers").hidden = !blockers.length;
+    el("diagnostic-observations").hidden = !observations.length;
+    el("diagnostics").classList.toggle("story-observations-only", !blockers.length);
+    el("diagnostic-title").textContent = `Observations facultatives · ${observations.length}`;
+    el("diagnostic-summary").textContent = "Ces indications ne déclenchent pas de correction automatique. Une mention de personnage ou une estimation de durée peut être normale."
+      + (longV2() ? " Les points retenus comme bloquants par la relecture figurent dans le bandeau de l’étape." : "");
+    const row = item => {
+      const result = node("li", "", item.level || "info"); result.append(node("span", item.message));
+      const index = longV2() ? issueSceneIndex(item, unitId) : null;
+      if (index != null) result.append(feedbackShortcut(`Écrire un retour · scène ${index + 1}`, unitId, index));
+      return result;
+    };
+    el("diagnostic-blocker-list").replaceChildren(...blockers.map(row));
+    el("diagnostic-list").replaceChildren(...observations.map(row));
   }
   function paintScenario(scenario) {
     if (!scenario) { paintDiagnostics([]); return; }
@@ -878,6 +1133,19 @@
     controls();
   }
 
+  el("writing-steps").addEventListener("click", event => {
+    const button = event.target.closest("button[data-writing-stage]");
+    if (button && !button.disabled) chooseWritingStage(button.dataset.writingStage, true);
+  });
+  el("next-action").addEventListener("click", () => writingAction(el("next-action").dataset.action));
+  el("writing-secondary").addEventListener("click", () => writingAction(el("writing-secondary").dataset.action));
+  el("writing-current").addEventListener("click", () => chooseWritingStage(null, true));
+  el("discuss-current").addEventListener("click", () => focusFeedback(readingStage() === "scenario" ? state.project.document.selected_episode_id || "outline" : "outline"));
+  el("reading-unit").addEventListener("change", () => {
+    const id = el("reading-unit").value;
+    if (state.project?.document?.episode_scenarios?.[id] && !blocked()) openSeriesEpisode(id, state.project.scene_count, state.project.clip_seconds, false);
+  });
+
   el("create-form").addEventListener("submit", async event => {
     event.preventDefault();
     const mode = creationMode();
@@ -906,7 +1174,7 @@
   });
   el("chat-form").addEventListener("submit", event => { event.preventDefault(); if (longV2()) sendFeedback(true); else write("revise", el("instruction").value.trim()); });
   el("send").addEventListener("click", () => { if (longV2()) sendFeedback(false); });
-  el("feedback-target").addEventListener("change", paintFeedbackHint);
+  el("feedback-target").addEventListener("change", () => { syncFeedbackDraft(); paintFeedbackHint(); controls(); });
   el("advance").addEventListener("click", () => workflowAction("advance", {mode: el("active-mode").value,
     architect_model_id: selectedModel("architect"), writer_model_id: selectedModel("writer")}));
   el("fabrication-next").addEventListener("click", () => {
@@ -939,7 +1207,11 @@
   }));
   el("scene-form").addEventListener("submit", event => { event.preventDefault(); saveSceneEdit().catch(error => message(error.message, true)); });
   el("scene-close").addEventListener("click", () => { state.editScene = null; el("scene-editor").close(); });
-  el("instruction").addEventListener("input", () => { if (state.project) storage.set(`draft.${state.project.project_id}`, el("instruction").value); controls(); });
+  el("instruction").addEventListener("input", () => {
+    if (state.project) storage.set(`draft.${state.project.project_id}`, el("instruction").value);
+    if (longV2() && state.feedbackDraftKey) storage.set(state.feedbackDraftKey, el("instruction").value);
+    controls();
+  });
   el("brief").addEventListener("input", controls);
   el("creation-mode").addEventListener("change", () => { refreshStartMode(); controls(); });
   for (const input of document.querySelectorAll('input[name="story-narrative-format"]'))
@@ -983,7 +1255,8 @@
   el("recipes").addEventListener("click", () => { const recipe = currentRecipe(); window.PanelForgePromptRecipes?.open({key: recipe.id, version: recipe.version}); });
   el("calls").addEventListener("click", () => { if (state.project) window.PanelForgePromptRecipes?.showHistory(path(state.project.project_id, "/calls")); });
   new MutationObserver(activate).observe(root, {attributes: true, attributeFilter: ["hidden"]});
-  window.PanelForgeStories = Object.freeze({current: () => state.project});
+  window.PanelForgeStories = Object.freeze({current: () => state.project, open: openProject, createNew: newProject,
+    refreshList: recent, canSwitch: () => !state.loading && !state.saving && !el("projects").disabled});
   for (const role of roles) preferredModel(role);
   refreshStartMode(); paint(); activate();
 })();

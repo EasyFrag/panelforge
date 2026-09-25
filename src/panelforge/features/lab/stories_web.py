@@ -76,6 +76,10 @@ class StoryAdvance(StoryVersion):
     writer_model_id: str | None = Field(default=None, min_length=1, max_length=300)
 
 
+class StoryCorrection(StoryAdvance):
+    unit_id: str = Field(pattern="^episode-([1-9]|1[0-2])$")
+
+
 class StoryFeedback(StoryVersion):
     unit_id: str = Field(pattern="^(outline|episode-([1-9]|1[0-2]))$")
     scene_index: int | None = Field(default=None, ge=0, le=11, strict=True)
@@ -236,6 +240,10 @@ def stories_router(service):
     @router.post("/projects/{project_id}/advance", status_code=202)
     def advance(project_id: str, body: StoryAdvance):
         return invoke(lambda: current().workflow.advance(project_id, **body.model_dump()))
+
+    @router.post("/projects/{project_id}/correct-and-continue", status_code=202)
+    def correct_and_continue(project_id: str, body: StoryCorrection):
+        return invoke(lambda: current().workflow.correct_and_continue(project_id, **body.model_dump()))
 
     @router.post("/projects/{project_id}/pause")
     def pause(project_id: str):

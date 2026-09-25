@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 import math
-from threading import RLock
+from threading import Event, RLock, Thread
 import time
 from typing import Callable, Iterator, Protocol
 
@@ -22,6 +23,12 @@ from .production_resources import (
     ResourceRequirement,
     ResourceWaitCancelled,
 )
+
+
+_TEMPERATURE_HISTORY_SECONDS = 3_600
+_TEMPERATURE_BUCKET_SECONDS = 15
+_TEMPERATURE_SAMPLE_SECONDS = 2.0
+_LLM_RATE_WINDOW_SECONDS = 5.0
 
 
 class WorkSchedulerSettingsStore(Protocol):
@@ -82,6 +89,16 @@ class MachineWorkCoordinator:
         self._last_completed: dict[tuple[ComputeResource, ProductionWorkload], float] = {}
         self._activities: dict[str, dict[str, object]] = {}
         self._recent: list[dict[str, object]] = []
+        self._temperature_history: dict[ComputeResource, deque[tuple[float, float]]] = {
+            resource: deque() for resource in ComputeResource
+        }
+        self._latest_thermal_snapshot = None
+        self._latest_thermal_at: float | None = None
+        self._temperature_sampler_stop = Event()
+        self._temperature_sampler_thread: Thread | None = None
+        self._thermal_read_lock = RLock()
+        self._llm_token_windows: dict[str, deque[tuple[float, int]]] = {}
+        self._llm_started_at: dict[str, float] = {}
 
     def configure(self, policy: ThermalPolicy) -> ThermalPolicy:
         """Compatibility entry point; global UI should update all settings."""
@@ -109,6 +126,40 @@ class MachineWorkCoordinator:
             if len(self._recent) > settings.history_limit:
                 self._recent = self._recent[-settings.history_limit:]
         return settings
+
+    def start_temperature_sampling(self) -> None:
+        if self.thermal_monitor is None:
+            return
+        with self._lock:
+            thread = self._temperature_sampler_thread
+            if thread is not None and thread.is_alive():
+                return
+            self._temperature_sampler_stop.clear()
+            thread = Thread(
+                target=self._temperature_sampling_loop,
+                name='panelforge-temperature-history',
+                daemon=True,
+            )
+            self._temperature_sampler_thread = thread
+        thread.start()
+
+    def stop_temperature_sampling(self) -> None:
+        self._temperature_sampler_stop.set()
+        with self._lock:
+            thread = self._temperature_sampler_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=7.0)
+        with self._lock:
+            if self._temperature_sampler_thread is thread:
+                self._temperature_sampler_thread = None
+
+    def _temperature_sampling_loop(self) -> None:
+        while not self._temperature_sampler_stop.is_set():
+            try:
+                self._thermal_snapshot(force=True)
+            except Exception:
+                pass
+            self._temperature_sampler_stop.wait(_TEMPERATURE_SAMPLE_SECONDS)
 
     def pause(self, resource: ComputeResource) -> None:
         self.leases.set_paused(resource, True)
@@ -178,6 +229,72 @@ class MachineWorkCoordinator:
             raise ValueError("execution_id must not be empty")
         self._update_activity(owner_id, execution_id=execution_id.strip())
 
+    def report_llm_tokens(self, owner_id: str, channel: str, count: int = 1) -> None:
+        if channel not in {'thinking', 'writing'}:
+            raise ValueError('channel must be thinking or writing')
+        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+            raise ValueError('count must be a positive integer')
+        now = self._monotonic()
+        with self._lock:
+            activity = self._activities.get(owner_id)
+            if activity is None:
+                return
+            metrics = activity.setdefault('llm_metrics', {
+                'thinking_tokens': 0,
+                'writing_tokens': 0,
+                'tokens_per_second': 0.0,
+                'estimated': True,
+            })
+            key = f'{channel}_tokens'
+            metrics[key] = int(metrics[key]) + count
+            started = self._llm_started_at.setdefault(owner_id, now)
+            window = self._llm_token_windows.setdefault(owner_id, deque())
+            window.append((now, count))
+            cutoff = now - _LLM_RATE_WINDOW_SECONDS
+            while window and window[0][0] < cutoff:
+                window.popleft()
+            elapsed = max(1.0, min(_LLM_RATE_WINDOW_SECONDS, now - started))
+            metrics['tokens_per_second'] = round(sum(value for _, value in window) / elapsed, 1)
+            activity['updated_at'] = self._timestamp()
+
+    def reconcile_llm_tokens(
+        self,
+        owner_id: str,
+        total_tokens: int | None,
+        reasoning_tokens: int | None = None,
+    ) -> None:
+        if total_tokens is None:
+            return
+        if isinstance(total_tokens, bool) or not isinstance(total_tokens, int) or total_tokens < 0:
+            return
+        if (
+            reasoning_tokens is not None
+            and (
+                isinstance(reasoning_tokens, bool)
+                or not isinstance(reasoning_tokens, int)
+                or not 0 <= reasoning_tokens <= total_tokens
+            )
+        ):
+            reasoning_tokens = None
+        with self._lock:
+            activity = self._activities.get(owner_id)
+            metrics = activity.get('llm_metrics') if activity is not None else None
+            if not isinstance(metrics, dict):
+                return
+            thinking = int(metrics.get('thinking_tokens') or 0)
+            writing = int(metrics.get('writing_tokens') or 0)
+            observed = thinking + writing
+            if reasoning_tokens is not None:
+                metrics['thinking_tokens'] = reasoning_tokens
+                metrics['writing_tokens'] = total_tokens - reasoning_tokens
+            elif observed:
+                exact_thinking = round(total_tokens * thinking / observed)
+                metrics['thinking_tokens'] = exact_thinking
+                metrics['writing_tokens'] = max(0, total_tokens - exact_thinking)
+            else:
+                metrics['writing_tokens'] = total_tokens
+            metrics['estimated'] = reasoning_tokens is None and thinking > 0
+
     @contextmanager
     def lease(
         self,
@@ -224,6 +341,7 @@ class MachineWorkCoordinator:
                     if started:
                         with self._lock:
                             self._last_completed[(resource, workload)] = self._monotonic()
+                        self._schedule_local_cooldown(owner_id, requirement)
         except ResourceWaitCancelled:
             self._finish(owner_id, "cancelled")
             raise
@@ -282,6 +400,23 @@ class MachineWorkCoordinator:
         *,
         cancelled: Callable[[], bool],
     ) -> None:
+        with self._lock:
+            fixed_deadline = self._fixed_cooldown_until[requirement.resource]
+        fixed_remaining = (
+            fixed_deadline - self._monotonic()
+            if fixed_deadline is not None
+            else 0
+        )
+        if fixed_remaining > 0:
+            while fixed_remaining > 0:
+                if cancelled():
+                    raise ResourceWaitCancelled()
+                self._sleep(min(self.monitor_interval, fixed_remaining))
+                fixed_remaining = fixed_deadline - self._monotonic()
+            with self._lock:
+                if self._fixed_cooldown_until[requirement.resource] == fixed_deadline:
+                    self._fixed_cooldown_until[requirement.resource] = None
+                    self._fixed_cooldown_operation[requirement.resource] = None
         seconds = (
             self.settings.remote_video_cooldown_seconds
             if requirement.resource is ComputeResource.REMOTE_GPU
@@ -301,6 +436,31 @@ class MachineWorkCoordinator:
                 cancelled=cancelled,
             )
 
+    def _schedule_local_cooldown(
+        self,
+        owner_id: str,
+        requirement: ResourceRequirement,
+    ) -> None:
+        settings = self.settings
+        if (
+            requirement.resource is not ComputeResource.LOCAL_GPU
+            or not settings.thermal.monitor_local
+            or settings.local_cooldown_seconds == 0
+        ):
+            return
+        with self._lock:
+            activity = self._activities.get(owner_id)
+            peak = activity.get('peak_temperature_c') if activity is not None else None
+            if peak is None or float(peak) < settings.local_cooldown_temperature_c:
+                return
+            self._fixed_cooldown_until[ComputeResource.LOCAL_GPU] = (
+                self._monotonic() + settings.local_cooldown_seconds
+            )
+            self._fixed_cooldown_operation[ComputeResource.LOCAL_GPU] = (
+                f'Refroidissement local après un pic à {round(float(peak))} °C'
+            )
+            activity['cooldown_triggered'] = True
+
     def _wait_until_safe(
         self,
         resource: ComputeResource,
@@ -308,10 +468,14 @@ class MachineWorkCoordinator:
         cancelled: Callable[[], bool],
         on_thermal: Callable[[], None] | None,
     ) -> None:
-        if self.thermal_monitor is None or not self._monitored(resource):
+        if (
+            resource is ComputeResource.LOCAL_GPU
+            or self.thermal_monitor is None
+            or not self._monitored(resource)
+        ):
             return
         policy = self.policy
-        snapshot = self.thermal_monitor.snapshot()
+        snapshot = self._thermal_snapshot()
         temperature = self._temperature(snapshot, resource)
         unavailable = temperature is None
         if not ((temperature is not None and temperature >= policy.stop_temperature_c)
@@ -326,7 +490,7 @@ class MachineWorkCoordinator:
             while True:
                 if cancelled():
                     raise ResourceWaitCancelled()
-                snapshot = self.thermal_monitor.snapshot()
+                snapshot = self._thermal_snapshot(force=True)
                 temperature = self._temperature(snapshot, resource)
                 safe = (
                     temperature is not None and temperature <= policy.resume_temperature_c
@@ -343,11 +507,84 @@ class MachineWorkCoordinator:
             with self._lock:
                 self._thermal_state[resource] = None
 
+    def _thermal_snapshot(self, *, force: bool = False):
+        if self.thermal_monitor is None:
+            return None
+        now = self._monotonic()
+        with self._lock:
+            cached = self._latest_thermal_snapshot
+            cached_at = self._latest_thermal_at
+        if not force and cached is not None and cached_at is not None:
+            if now - cached_at < _TEMPERATURE_SAMPLE_SECONDS:
+                return cached
+        with self._thermal_read_lock:
+            now = self._monotonic()
+            with self._lock:
+                cached = self._latest_thermal_snapshot
+                cached_at = self._latest_thermal_at
+            if not force and cached is not None and cached_at is not None:
+                if now - cached_at < _TEMPERATURE_SAMPLE_SECONDS:
+                    return cached
+            snapshot = self.thermal_monitor.snapshot()
+            self._record_temperature_snapshot(snapshot, self._monotonic())
+            return snapshot
+
+    def _record_temperature_snapshot(self, snapshot, observed_at: float) -> None:
+        owners = self.leases.owners()
+        cutoff = observed_at - _TEMPERATURE_HISTORY_SECONDS
+        with self._lock:
+            self._latest_thermal_snapshot = snapshot
+            self._latest_thermal_at = observed_at
+            for resource in ComputeResource:
+                temperature = self._temperature(snapshot, resource)
+                if temperature is None or not math.isfinite(float(temperature)):
+                    continue
+                history = self._temperature_history[resource]
+                history.append((observed_at, float(temperature)))
+                while history and history[0][0] < cutoff:
+                    history.popleft()
+                owner = owners.get(resource)
+                activity = self._activities.get(owner.job_id) if owner is not None else None
+                if activity is None or activity.get('status') != 'running':
+                    continue
+                previous = activity.get('peak_temperature_c')
+                activity['peak_temperature_c'] = max(float(previous or temperature), float(temperature))
+
+    def _temperature_history_view(self) -> dict[str, object]:
+        now = self._monotonic()
+        cutoff = now - _TEMPERATURE_HISTORY_SECONDS
+        series: dict[str, list[dict[str, float]]] = {}
+        with self._lock:
+            for resource in ComputeResource:
+                history = self._temperature_history[resource]
+                while history and history[0][0] < cutoff:
+                    history.popleft()
+                buckets: dict[int, float] = {}
+                for observed_at, temperature in history:
+                    age = max(0.0, now - observed_at)
+                    bucket = min(
+                        int(age // _TEMPERATURE_BUCKET_SECONDS),
+                        (_TEMPERATURE_HISTORY_SECONDS // _TEMPERATURE_BUCKET_SECONDS) - 1,
+                    )
+                    buckets[bucket] = max(buckets.get(bucket, temperature), temperature)
+                series[resource.value] = [
+                    {
+                        'age_seconds': float(bucket * _TEMPERATURE_BUCKET_SECONDS),
+                        'max_temperature_c': round(buckets[bucket], 1),
+                    }
+                    for bucket in sorted(buckets, reverse=True)
+                ]
+        return {
+            'window_seconds': _TEMPERATURE_HISTORY_SECONDS,
+            'bucket_seconds': _TEMPERATURE_BUCKET_SECONDS,
+            'series': series,
+        }
+
     def public_status(self) -> dict[str, object]:
         owners = self.leases.owners()
         waiters = self.leases.waiters()
         paused = self.leases.paused()
-        snapshot = self.thermal_monitor.snapshot() if self.thermal_monitor is not None else None
+        snapshot = self._thermal_snapshot()
         settings = self.settings
         policy = settings.thermal
         machines: dict[str, object] = {}
@@ -359,16 +596,23 @@ class MachineWorkCoordinator:
                 fixed_deadline = self._fixed_cooldown_until[resource]
                 fixed_operation = self._fixed_cooldown_operation[resource]
                 activity = dict(self._activities.get(owner.job_id, {})) if owner else None
+                if activity is not None and isinstance(activity.get('llm_metrics'), dict):
+                    activity['llm_metrics'] = dict(activity['llm_metrics'])
             fixed_remaining = (
                 max(0, math.ceil(fixed_deadline - self._monotonic()))
                 if fixed_deadline is not None
                 else 0
             )
+            hot_threshold = (
+                settings.local_cooldown_temperature_c
+                if resource is ComputeResource.LOCAL_GPU
+                else policy.stop_temperature_c
+            )
             state = (
                 ComputeResourceState.COOLING.value if thermal_state or fixed_remaining else
                 ComputeResourceState.BUSY.value if owner is not None else
                 ComputeResourceState.PAUSED.value if resource in paused else
-                ComputeResourceState.HOT.value if temperature is not None and temperature >= policy.stop_temperature_c else
+                ComputeResourceState.HOT.value if temperature is not None and temperature >= hot_threshold else
                 ComputeResourceState.UNAVAILABLE.value if snapshot is not None and temperature is None else
                 ComputeResourceState.IDLE.value
             )
@@ -393,7 +637,9 @@ class MachineWorkCoordinator:
             }
         with self._lock:
             recent = [dict(value) for value in reversed(self._recent)]
+        temperature_history = self._temperature_history_view()
         return {
+            'temperature_history': temperature_history,
             "settings": self._settings_dict(settings),
             "policy": asdict(policy),
             "machines": machines,
@@ -450,6 +696,8 @@ class MachineWorkCoordinator:
     ) -> None:
         with self._lock:
             activity = self._activities.pop(owner_id, None)
+            self._llm_token_windows.pop(owner_id, None)
+            self._llm_started_at.pop(owner_id, None)
             if activity is None:
                 return
             timestamp = self._timestamp()
@@ -490,6 +738,8 @@ class MachineWorkCoordinator:
     @staticmethod
     def _settings_dict(settings: WorkSchedulerSettings) -> dict[str, object]:
         return {
+            'local_cooldown_temperature_c': settings.local_cooldown_temperature_c,
+            'local_cooldown_seconds': settings.local_cooldown_seconds,
             "thermal": asdict(settings.thermal),
             "remote_video_cooldown_seconds": settings.remote_video_cooldown_seconds,
             "pause_after_failure": settings.pause_after_failure,

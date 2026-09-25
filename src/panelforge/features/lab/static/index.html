@@ -4,17 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260924.2">
+  <link rel="stylesheet" href="/static/lab.css?v=20260924.3">
   <script src="/static/lab.js?v=20260918.3" defer></script>
-  <script src="/static/work-queue.js?v=20260920.2" defer></script>
+  <script src="/static/work-queue.js?v=20260924.1" defer></script>
   <script src="/static/lab-core.js?v=20260922.2" defer></script>
-  <link rel="stylesheet" href="/static/stories.css?v=20260924.1">
+  <link rel="stylesheet" href="/static/stories.css?v=20260924.6">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
   <script src="/static/story-continuity.js?v=20260922.1" defer></script>
   <link rel="stylesheet" href="/static/story-followup.css?v=20260924.1">
   <script src="/static/story-followup.js?v=20260924.1" defer></script>
-  <script src="/static/stories.js?v=20260924.1" defer></script>
+  <script src="/static/story-writing.js?v=20260924.6" defer></script>
+  <script src="/static/stories.js?v=20260924.7" defer></script>
   <script src="/static/stories-help.js?v=20260920.3" defer></script>
+  <link rel="stylesheet" href="/static/story-library.css?v=20260924.2">
+  <script src="/static/story-library.js?v=20260924.2" defer></script>
+  <link rel="stylesheet" href="/static/episode-thumbnails.css?v=20260924.4">
   <link rel="stylesheet" href="/static/episodes.css?v=20260920.2">
   <script src="/static/dlss-image-comparison.js?v=20260923.1" defer></script>
   <script src="/static/dlss-lab.js?v=20260923.1" defer></script>
@@ -39,7 +43,9 @@
   <script src="/static/krea2-resource-ui.js?v=20260919.1" defer></script>
   <link rel="stylesheet" href="/static/episode-localization.css?v=20260923.1">
   <script src="/static/episode-localization.js?v=20260923.1" defer></script>
-  <script src="/static/episodes.js?v=20260923.2" defer></script>
+  <script src="/static/episode-thumbnail-layout.js?v=20260924.1" defer></script>
+  <script src="/static/episode-thumbnails.js?v=20260924.4" defer></script>
+  <script src="/static/episodes.js?v=20260925.1" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260924.4" defer></script>
@@ -91,8 +97,8 @@
     </div>
     <div class="story-toolbar">
       <div class="story-project-control">
-        <label for="story-projects">Mes histoires</label>
-        <div class="story-select-row"><select id="story-projects"><option value="">Nouvelle histoire</option></select>
+        <label id="story-library-label" for="story-projects">Mes histoires</label>
+        <div class="story-select-row"><button id="story-library-open" type="button" aria-haspopup="dialog" hidden>Parcourir mes histoires</button><select id="story-projects"><option value="">Nouvelle histoire</option></select>
           <button id="story-refresh-projects" type="button" title="Actualiser les histoires enregistrées">Actualiser</button></div>
       </div>
       <details id="story-model-settings" class="story-settings"><summary>Modèles d’écriture</summary><div class="story-settings-grid"><div class="story-model-control">
@@ -111,6 +117,26 @@
     <p id="story-model-message" class="muted" role="status"></p>
     <p id="story-message" role="status" aria-live="polite"></p>
     <div id="story-writing" class="story-layout">
+      <div id="story-writing-header" hidden>
+        <nav id="story-writing-steps" aria-label="Étapes de l’écriture">
+          <button type="button" data-writing-stage="intention"><span class="story-step-number">1</span><span><strong>Intention</strong><small></small></span></button>
+          <button type="button" data-writing-stage="story"><span class="story-step-number">2</span><span><strong>Histoire</strong><small></small></span></button>
+          <button type="button" data-writing-stage="scenario"><span class="story-step-number">3</span><span><strong>Scénario</strong><small></small></span></button>
+        </nav>
+        <section id="story-writing-status" aria-labelledby="story-writing-title">
+          <div role="status" aria-live="polite" aria-atomic="true"><p id="story-writing-state" class="story-state-label"></p><h2 id="story-writing-title"></h2><p id="story-writing-message"></p></div>
+          <ol id="story-writing-issues" hidden></ol>
+          <p id="story-writing-saved" class="muted"></p>
+          <div class="story-actions"><button id="story-next-action" type="button" class="primary"></button><button id="story-writing-secondary" type="button" hidden></button><button id="story-writing-current" type="button" hidden>Revenir à l’étape en cours</button></div>
+          <section id="story-guided-tools" class="story-guided-tools" hidden>
+            <nav id="story-progress" aria-label="Progression de l’histoire">Intention → Histoire → Scénario</nav>
+            <div class="story-actions"><label>Accompagnement<select id="story-active-mode"><option value="manual">Manuel guidé</option><option value="automatic">Automatique</option></select></label><button id="story-advance" type="button" class="primary">Continuer</button><button id="story-pause" type="button">Reprendre la main</button></div>
+            <p id="story-workflow-message" role="status" aria-live="polite"></p>
+            <p id="story-call-summary" class="muted"></p>
+            <ul id="story-workflow-issues" hidden></ul>
+          </section>
+        </section>
+      </div>
       <section class="story-panel story-conversation" aria-label="Création et conversation">
         <form id="story-create-form">
           <h2>Quelle histoire veux-tu raconter ?</h2>
@@ -153,7 +179,7 @@
           <p id="story-create-note" class="muted"></p>
         </form>
         <div id="story-conversation-panel" hidden>
-          <h2>Façonner l’histoire</h2>
+          <h2 id="story-chat-title">Façonner l’histoire</h2>
           <details><summary>Point de départ et format</summary><p id="story-project-brief"></p></details>
           <div id="story-turns" aria-label="Échanges avec le LLM"></div>
           <form id="story-chat-form"><label id="story-feedback-target-row" hidden>Ton retour porte sur<select id="story-feedback-target"><option value="outline">L’histoire complète</option></select></label><p id="story-feedback-context" class="muted" hidden></p><label>Ton retour<textarea id="story-instruction" rows="4" maxlength="12000" placeholder="Le méchant est trop gentil. Garde le retournement, mais rends ses actes plus excessifs…"></textarea></label>
@@ -167,6 +193,7 @@
           </div>
           <details id="story-live-panel" class="story-live" hidden>
             <summary id="story-live-summary">Trace du modèle · en direct</summary>
+            <p id="story-live-metrics" class="muted"></p>
             <p id="story-live-empty" class="muted">En attente des premiers tokens du modèle…</p>
             <section id="story-reasoning-panel" hidden><h3>Plan / raisonnement exposé par le modèle</h3><pre id="story-reasoning"></pre></section>
             <section id="story-draft-panel" hidden><h3 id="story-draft-title">Réponse JSON en cours</h3><pre id="story-draft"></pre></section>
@@ -174,13 +201,10 @@
         </div>
       </section>
       <section class="story-panel story-document" aria-label="Propositions et scénario">
-        <section id="story-guided-tools" class="story-guided-tools" hidden>
-          <nav id="story-progress" aria-label="Progression de l’histoire">Histoire → Scénario → Prêt à fabriquer</nav>
-          <div class="story-actions"><label>Accompagnement<select id="story-active-mode"><option value="manual">Manuel guidé</option><option value="automatic">Automatique</option></select></label><button id="story-advance" type="button" class="primary">Continuer</button><button id="story-pause" type="button">Reprendre la main</button></div>
-          <p id="story-workflow-message" role="status" aria-live="polite"></p>
-          <p id="story-call-summary" class="muted"></p>
-          <ul id="story-workflow-issues" hidden></ul>
-        </section>
+        <header id="story-writing-reader" hidden><div><small id="story-reading-label"></small><h2 id="story-reading-title" tabindex="-1"></h2><p id="story-reading-help" class="muted"></p></div><button id="story-discuss-current" type="button">Discuter de cette étape</button></header>
+        <section id="story-saved-intention" hidden><p id="story-intention-text"></p><details><summary>Réglages de départ</summary><p id="story-intention-settings"></p></details></section>
+        <div id="story-scenario-selector" hidden><label>Séquence à lire<select id="story-reading-unit"></select></label><p id="story-reading-unit-status" class="story-state-label"></p></div>
+
         <aside id="story-recovery-panel" class="story-diagnostics" hidden>
           <strong id="story-recovery-title">Brouillon conservé</strong>
           <p id="story-recovery-help"></p>
@@ -214,13 +238,28 @@
           <aside id="story-fabrication-gate" class="story-diagnostics" hidden><strong>Avant la fabrication</strong><p id="story-fabrication-reason" role="status" aria-live="polite"></p><button id="story-fabrication-next" type="button">Continuer les vérifications</button></aside>
           <p id="story-logline"></p>
           <div id="story-visual-continuity"></div>
-          <aside id="story-diagnostics" class="story-diagnostics" hidden><strong>Diagnostic sans appel LLM</strong><ul id="story-diagnostic-list"></ul></aside>
+          <aside id="story-diagnostics" class="story-diagnostics" hidden>
+            <div id="story-diagnostic-blockers" hidden><strong>Points bloquants dans cette séquence</strong><ul id="story-diagnostic-blocker-list"></ul></div>
+            <details id="story-diagnostic-observations"><summary id="story-diagnostic-title">Observations facultatives</summary><p id="story-diagnostic-summary" class="muted"></p><ul id="story-diagnostic-list"></ul></details>
+          </aside>
           <details><summary>Personnages et décors</summary><div id="story-cast"></div></details>
           <label class="story-check"><input id="story-include-duration" type="checkbox" checked>Inclure la durée dans les intentions copiées</label>
           <div id="story-scenes"></div>
         </div>
+        <details id="story-writing-details" hidden><summary>Historique et vérifications avancées</summary><p class="muted">Les relectures et corrections ci-dessous font un appel LLM. La récupération du brouillon et la restauration d’une version n’en font pas.</p></details>
       </section>
     </div>
+    <dialog id="story-library" aria-labelledby="story-library-title">
+      <header class="sl-header"><div><small>MES HISTOIRES</small><h2 id="story-library-title">Bibliothèque</h2><p>Séries, épisodes et avancement de la fabrication.</p></div><div class="sl-actions"><button id="sl-new" type="button">Nouvelle histoire</button><button id="sl-close" type="button" aria-label="Fermer la bibliothèque">Fermer</button></div></header>
+      <div class="sl-tools"><label>Rechercher<input id="sl-search" type="search" placeholder="Série ou épisode…" autocomplete="off"></label><label>Afficher<select id="sl-filter"><option value="all">Toutes</option><option value="favorites">Favoris</option><option value="active">En cours</option><option value="completed">Terminées</option><option value="trash">Corbeille</option></select></label><label>Trier par<select id="sl-sort" title="Le tri par date utilise la dernière modification d’une histoire ou de sa fabrication. Les épisodes restent dans leur ordre."><option value="recent">Plus récentes</option><option value="oldest">Plus anciennes</option><option value="title">Titre A–Z</option><option value="favorites">Favoris d’abord</option></select></label><button id="sl-refresh" type="button">Actualiser</button></div>
+      <p id="sl-status" role="status" aria-live="polite"></p>
+      <div id="sl-undo-bar" hidden><span id="sl-undo-text"></span><button id="sl-undo" type="button">Annuler</button></div>
+      <p id="sl-trash-help" class="muted" hidden>Les éléments retirés peuvent être restaurés. Les scénarios, médias et références partagés sont conservés.</p>
+      <form id="sl-editor" hidden><h3 id="sl-editor-title"></h3><label id="sl-title-row">Titre de la série<input id="sl-title" maxlength="160"></label><label id="sl-group-row">Série<select id="sl-group"></select></label><label id="sl-number-row">Numéro de l’épisode<input id="sl-number" type="number" min="1" max="9999" step="1"></label><p id="sl-editor-help" class="muted"></p><div class="sl-actions"><button id="sl-save" type="submit" class="primary">Enregistrer</button><button id="sl-editor-cancel" type="button">Annuler</button></div></form>
+      <div id="sl-list" aria-label="Séries et épisodes"></div>
+      <p id="sl-empty" hidden>Aucune histoire ne correspond à cette recherche.</p>
+      <footer class="muted">Une vidéo par scène, pour la version suivie. Les anciens essais ne s’additionnent pas. Le DLSS reste facultatif.</footer>
+    </dialog>
     <dialog id="story-followup" class="story-followup" aria-labelledby="sf-title">
       <header class="sf-header"><div><small>HISTOIRES · ÉPISODE SUIVANT</small><h2 id="sf-title">Préparer la suite</h2><p id="sf-source" class="muted"></p></div><button id="sf-close" type="button" aria-label="Fermer la préparation">Fermer</button></header>
       <div id="sf-source-warning" class="sf-warning" hidden><p>L’histoire source a changé. Actualise le contexte puis relis la direction avant d’écrire.</p><button id="sf-refresh-source" type="button">Actualiser le contexte</button></div>
@@ -405,6 +444,7 @@
               <button id="episode-video-drain" class="text-button" type="button" title="N’ajoute plus de travail mais termine toutes les réservations déjà placées dans les files." hidden>Finir la file puis suspendre</button>
               <button id="episode-video-resume" type="button" hidden>Relancer les scènes incomplètes</button></div></div>
           <p class="episode-video-cooldown muted">Le repos entre vidéos et la protection thermique suivent les paramètres globaux. <button id="episode-video-global-settings" type="button">Modifier</button></p>
+          <label class="episode-thumbnail-toggle"><input id="episode-include-thumbnail" type="checkbox" checked> Préparer la miniature si elle manque</label>
           <div id="episode-video-progress" class="episode-video-progress" hidden>
             <div class="episode-video-lanes">
               <section><b id="episode-prompt-lane-title">LLM local</b><progress id="episode-video-prompt-progress-bar" max="1" value="0"></progress><span id="episode-video-prompt-lane">En attente</span></section>
@@ -1146,7 +1186,7 @@
           <summary><b>Paramètres du rendu</b><small id="qv2-settings-summary">Qwen 2.1 · harmonisation source</small></summary>
           <div class="qv2-settings-grid">
             <label>Résolution<select id="qv2-resolution"><option value="source">Taille de la source</option><option value="1">1 MP</option><option value="2">2 MP</option><option value="4">4 MP</option></select></label>
-            <label id="qv2-ratio-wrap">Format<select id="qv2-ratio"><option>1:1</option><option>3:2</option><option>2:3</option><option>16:9</option><option>9:16</option></select></label>
+            <label id="qv2-ratio-wrap">Format<select id="qv2-ratio"><option>1:1</option><option>3:2</option><option>2:3</option><option>3:4</option><option>16:9</option><option>9:16</option></select></label>
             <label>Steps<input id="qv2-steps" type="number" min="1" max="100"></label>
             <label>Seed<input id="qv2-seed" inputmode="numeric" pattern="[0-9]+" maxlength="20"></label>
             <label class="qv2-seed-option"><input id="qv2-reuse-seed" type="checkbox"> Réutiliser la seed</label><button id="qv2-new-seed" type="button">Nouvelle variation</button>
@@ -2901,6 +2941,88 @@
   <dialog id="production-image-dialog" class="production-image-dialog">
     <div class="production-image-dialog-head"><strong id="production-image-dialog-title">Aperçu</strong><button id="production-image-dialog-close" type="button" aria-label="Fermer">×</button></div>
     <img id="production-image-dialog-content" alt="">
+  </dialog>
+  <dialog id="episode-thumbnail-dialog" aria-labelledby="episode-thumbnail-heading">
+    <form id="episode-thumbnail-form">
+      <div class="episode-thumbnail-dialog-header"><h2 id="episode-thumbnail-heading">Miniature de l’épisode</h2>
+        <button id="episode-thumbnail-close" type="button" aria-label="Fermer les réglages de miniature">Fermer</button></div>
+      <p class="muted">Un modèle reconnaissable pour la série, un numéro pour chaque épisode. Les miniatures déjà créées sont conservées.</p>
+      <label>Modèle visuel<select id="episode-thumbnail-source"></select></label>
+      <section id="episode-thumbnail-gallery" aria-label="Modèles enregistrés">
+        <div class="episode-thumbnail-gallery-tools">
+          <label>Afficher<select id="episode-thumbnail-gallery-filter">
+            <option value="series">Cette série</option><option value="unused">Essais non retenus de cette série</option>
+            <option value="all">Toutes les séries</option><option value="trash">Corbeille</option>
+          </select></label>
+          <label>Trier<select id="episode-thumbnail-gallery-sort">
+            <option value="recent">Plus récent</option><option value="oldest">Plus ancien</option><option value="title">Titre</option>
+          </select></label>
+          <label>Rechercher<input id="episode-thumbnail-gallery-search" type="search" placeholder="Titre du modèle…"></label>
+        </div>
+        <div class="episode-thumbnail-actions"><p id="episode-thumbnail-gallery-count" class="muted" role="status"></p>
+          <button id="episode-thumbnail-gallery-refresh" type="button">Actualiser la galerie</button></div>
+        <div id="episode-thumbnail-gallery-items" class="episode-thumbnail-gallery-items"></div>
+        <p class="muted">Les essais vont dans une corbeille restaurable. Les modèles utilisés sont conservés. Les fichiers et l’historique restent disponibles.</p>
+      </section>
+      <img id="episode-thumbnail-template-preview" alt="Modèle visuel sélectionné" hidden>
+      <div class="episode-thumbnail-fields">
+        <label>Titre public de la série<input id="episode-thumbnail-title" maxlength="80" required></label>
+        <label>Épisode<input id="episode-thumbnail-number" type="number" min="1" max="9999" step="1" required></label>
+      </div>
+      <label>Traitement du titre<select id="episode-thumbnail-title-mode">
+        <option id="episode-thumbnail-artwork-option" value="artwork">Qwen · titre stylisé dans l’image</option>
+        <option value="overlay">Police intégrée · titre exact ajouté par l’application</option>
+      </select></label>
+      <label>Habillage du titre<select id="episode-thumbnail-title-style">
+        <option value="pop">Pop contrasté · lettres massives, contour et relief citron vert</option>
+        <option value="cinema">Affiche cinéma · lettres condensées, ivoire et ombre ambrée</option>
+      </select></label>
+      <div id="episode-thumbnail-title-sample" class="episode-thumbnail-title-sample" data-style="pop" aria-hidden="true">GLOW UP</div>
+      <p id="episode-thumbnail-title-help" class="muted"></p>
+      <fieldset id="episode-thumbnail-generation">
+        <legend>Références de la composition · jusqu’à 16 images</legend>
+        <p class="muted">Donne un rôle aux images retenues. Par exemple : Kiwina et Frambella au premier plan, les autres personnages à l’arrière-plan, puis le décor. Deux ou trois personnages principaux gardent l’affiche lisible.</p>
+        <p id="episode-thumbnail-reference-count" role="status"></p>
+        <div id="episode-thumbnail-references"></div>
+        <label>Direction visuelle · facultatif<textarea id="episode-thumbnail-direction" rows="2" maxlength="1500" placeholder="Une affiche lumineuse, les deux personnages face à face…"></textarea></label>
+      </fieldset>
+      <label id="episode-thumbnail-upload" hidden>Image modèle<input id="episode-thumbnail-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <p id="episode-thumbnail-editor-note" class="muted"></p>
+      <p id="episode-thumbnail-format-note" class="muted">PNG 1080 × 1440 · 3:4. Numéro en Outfit gras. Ce fichier reste séparé de la vidéo.</p>
+      <p id="episode-thumbnail-editor-error" class="episode-thumbnail-error" role="alert"></p>
+      <button id="episode-thumbnail-submit" type="submit" class="primary">Préparer la miniature</button>
+    </form>
+  </dialog>
+  <dialog id="episode-thumbnail-badge-dialog" aria-labelledby="episode-thumbnail-badge-heading">
+    <form id="episode-thumbnail-badge-form">
+      <div class="episode-thumbnail-dialog-header"><h2 id="episode-thumbnail-badge-heading">Déplacer le bandeau épisode</h2>
+        <button id="episode-thumbnail-badge-close" type="button">Fermer</button></div>
+      <p>Glisse le bandeau pour dégager le titre. Le fond et le titre sont conservés, sans appel Qwen.</p>
+      <div class="episode-thumbnail-badge-workspace">
+        <div id="episode-thumbnail-badge-stage" class="episode-thumbnail-badge-stage">
+          <img id="episode-thumbnail-badge-background" alt="Image et titre sans bandeau épisode">
+          <button id="episode-thumbnail-badge-handle" type="button" aria-label="Position du bandeau. Utilise les flèches du clavier ou glisse-le.">
+            <img id="episode-thumbnail-badge-image" alt="Bandeau épisode" draggable="false">
+          </button>
+        </div>
+        <div class="episode-thumbnail-badge-controls">
+          <div class="episode-thumbnail-actions">
+            <button type="button" data-badge-preset="8">En haut</button>
+            <button type="button" data-badge-preset="50">Au centre</button>
+            <button type="button" data-badge-preset="90">En bas</button>
+          </div>
+          <label>Horizontal<input id="episode-thumbnail-badge-x" type="range" min="0" max="100" step="0.1"></label>
+          <label>Vertical<input id="episode-thumbnail-badge-y" type="range" min="0" max="100" step="0.1"></label>
+          <button id="episode-thumbnail-badge-reset" type="button">Position d’origine</button>
+          <label class="episode-thumbnail-badge-remember"><input id="episode-thumbnail-badge-remember" type="checkbox" checked>
+            Garder cette position pour les prochains épisodes de cette série utilisant ce modèle</label>
+          <p class="muted">Les autres miniatures déjà produites restent inchangées. L’ancienne version de celle-ci est conservée dans l’historique.</p>
+        </div>
+      </div>
+      <p id="episode-thumbnail-badge-status" class="muted" role="status"></p>
+      <p id="episode-thumbnail-badge-error" class="episode-thumbnail-error" role="alert"></p>
+      <button id="episode-thumbnail-badge-save" type="submit" class="primary">Enregistrer la position · sans IA</button>
+    </form>
   </dialog>
 </body>
 </html>

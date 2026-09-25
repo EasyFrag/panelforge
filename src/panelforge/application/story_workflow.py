@@ -42,12 +42,46 @@ class StoryWorkflow:
             project = self.service.store.save(project)
             return self.tick(project)
 
+    def correct_and_continue(self, project_id, *, expected_version, unit_id, mode=None,
+                             architect_model_id=None, writer_model_id=None):
+        """One explicit repair, then a mandatory review before resuming the chosen mode."""
+        with self.service._lock:
+            project = self.service._editable(project_id, expected_version)
+            flow, doc = project.get("workflow"), project["document"]
+            if (not narrative.is_v2(project) or not flow or flow["status"] != "blocked"
+                    or flow.get("wait_target") != unit_id or unit_id == "outline"
+                    or unit_id not in doc.get("episode_scenarios", {})):
+                raise ValueError("Ouvre la séquence bloquée avant de demander sa correction.")
+            if not narrative.review_current(project, unit_id):
+                raise ValueError("Le scénario a changé depuis sa relecture. Relis cette séquence avant de la corriger.")
+            if not any(i["severity"] == "blocking" for i in doc["reviews"][unit_id]["issues"]):
+                raise ValueError("Cette séquence ne présente que des observations facultatives : aucune correction automatique à lancer.")
+            status = narrative.status(project)
+            if (not status["outline_reviewed"] or not status["units"][unit_id]["previous_ready"]
+                    or status["units"][unit_id]["stale"]):
+                raise ValueError("Valide d’abord l’histoire et les séquences précédentes ; cette séquence doit être à jour.")
+            for role, model in (("architect_model_id", architect_model_id), ("writer_model_id", writer_model_id)):
+                if model is not None:
+                    if not isinstance(model, str) or not model.strip() or len(model) > 300:
+                        raise ValueError("Choisissez un modèle disponible pour chaque rôle.")
+                    project[role] = model.strip()
+            if mode is not None:
+                if mode not in {"manual", "automatic"}:
+                    raise ValueError("Mode de rédaction inconnu.")
+                flow["mode"] = mode
+            flow.update(status="running", pause_requested=False, budget_calls=0,
+                        correction=dict(unit_id=unit_id, phase="repair"))
+            # Consume the allowance up front: continuing or reloading cannot silently repair again.
+            flow["repairs"][unit_id] = flow["repairs"].get(unit_id, 0) + 1
+            return self._call(project, "repair_episode", target=unit_id)
+
     def pause(self, project_id):
         with self.service._lock:
             project = self.service.get(project_id)
             flow = project.get("workflow")
             if not flow:
                 raise ValueError("Cette histoire n’utilise pas encore le parcours guidé.")
+            flow.pop("correction", None)
             flow.update(mode="manual", pause_requested=True,
                         message="Reprise en main demandée : l’appel actif termine, puis l’enchaînement s’arrête.")
             if project_id not in self.service._active:
@@ -55,6 +89,7 @@ class StoryWorkflow:
             return self.service.store.save(project)
 
     def _stop(self, project, status, message, target=None):
+        project["workflow"].pop("correction", None)
         project["workflow"].update(status=status, message=message, wait_target=target)
         if target and target != "outline" and project["document"]["episode_scenarios"].get(target):
             project["document"]["selected_episode_id"] = target
@@ -93,6 +128,21 @@ class StoryWorkflow:
             if not (job.get("draft") or "").strip():
                 return self._stop(project, "blocked", "L’étape a été arrêtée avant réception d’un scénario. Les détails sont conservés ; reprends l’étape pour faire un nouvel essai.")
             return self._stop(project, "blocked", "L’étape a été arrêtée. Le résultat et les détails sont conservés ; revalide le brouillon ou reprends l’étape.")
+        correction = flow.get("correction")
+        if correction:
+            target = correction["unit_id"]
+            if correction["phase"] == "repair":
+                if job.get("operation") != "repair_episode" or job.get("status") != "succeeded":
+                    return self._stop(project, "blocked", "La correction n’a pas abouti. Le scénario précédent est conservé.", target)
+                correction["phase"] = "review"
+                return self._call(project, "review_block", target=target, block=[target])
+            if not narrative.review_current(project, target):
+                return self._stop(project, "blocked", "La relecture de la correction n’a pas abouti. Relis cette séquence pour poursuivre.", target)
+            if not narrative.review_clear(project, target):
+                return self._stop(project, "blocked", "Des points bloquants subsistent après cette correction et sa relecture. Aucune autre correction n’a été lancée.", target)
+            # The explicit 'continue' approves only this corrected unit. Other manual checkpoints stay intact.
+            flow["approvals"][target] = narrative.source_hash(project, target)
+            flow.pop("correction", None)
         if not doc.get("series_outline"):
             return self._call(project, "compose")
         if not narrative.review_current(project, "outline"):

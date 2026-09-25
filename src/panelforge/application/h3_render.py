@@ -1563,7 +1563,21 @@ class H3RenderService:
         if current != project:
             current = self.projects.save(current)
         for attempt in current.attempts:
-            if (
+            # QUEUED has never been submitted to ComfyUI. Its FIFO ticket is local
+            # to this process; after a restart it cannot keep admission locked.
+            # Keep both live reservations and claimed workers untouched.
+            if (attempt.status is H3RenderAttemptStatus.QUEUED
+                    and attempt.execution_id is None
+                    and self.work_coordinator is not None
+                    and (current.project_id, attempt.attempt_id) not in self._claimed
+                    and not self.work_coordinator.has_activity(self._activity_id(current.project_id, attempt.attempt_id))):
+                interrupted = current.attempt(attempt.attempt_id).fail(
+                    "Mise en file interrompue : la réservation locale de cet essai n’existe plus. "
+                    "Aucune vidéo n’avait été envoyée à ComfyUI. Le prompt et les réglages sont conservés ; "
+                    "vous pouvez reprendre la production."
+                )
+                current = self.projects.save(current.replace_attempt(interrupted))
+            elif (
                 attempt.status in {H3RenderAttemptStatus.RUNNING, H3RenderAttemptStatus.CANCEL_PENDING}
                 and (current.project_id, attempt.attempt_id) not in self._claimed
             ):

@@ -211,6 +211,18 @@ class EpisodesBrowserTest(unittest.TestCase):
             get('refresh').click();await settle();
             check(queuedCard.textContent.includes('● Plan : en cours')&&queuedCard.classList.contains('processing'),'admitted plan becomes blue and active');
             queuedScene.job=null;queuedScene.preparations=[];get('refresh').click();await settle();
+            const beforeChain=episode.video_chain;
+            episode.video_chain={chain_id:'chain-wait',status:'running',phase:'Attente d’un rendu H3 déjà actif',items:[
+              {scene_id:'scene-2',status:'prompt_ready',phase:'Attente d’un autre rendu H3',admission_wait:'Ancien atelier encore actif',error:null}]};
+            get('refresh').click();await settle();
+            check(queuedCard.textContent.includes('un autre rendu H3 est encore actif'),'admission wait is visible instead of falsely ready to start');
+            episode.localization={language:'English',job:null};
+            episode.scenes.forEach(s=>s.localization={status:'ready',slots:[],translations:{}});
+            episode.video_chain.items[0].status='pending';episode.video_chain.items[0].admission_wait=null;
+            get('refresh').click();await settle();
+            check(queuedCard.textContent.includes('en attente du lancement')&&!queuedCard.textContent.includes('en attente du prompt'),'translated scenes do not pretend to await prompt writing');
+            delete episode.localization;episode.scenes.forEach(s=>delete s.localization);episode.video_chain=beforeChain;
+            get('refresh').click();await settle();
             const duration=document.getElementById('episoder-duration');
             duration.value='8';duration.dispatchEvent(new Event('input',{bubbles:true}));
             get('scene').value='scene-2';change(get('scene'));await settle();

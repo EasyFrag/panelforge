@@ -105,6 +105,40 @@ class LongStoriesTest(unittest.TestCase):
         self.assertEqual(project["job"]["status"], "succeeded", project["job"].get("error"))
         return project
 
+    def test_normalization_rebuilds_current_diagnostics_without_accumulation(self):
+        project = self.written_unit()
+        scenario = project["document"]["scenario"]
+        scenario["characters"].append(dict(id="c-observer", name="Observateur", description="Un passant."))
+        scenario["scenes"][0]["action"] = "Observateur surveille discrètement la porte au fond du couloir."
+        project["document"]["episode_scenarios"]["episode-1"] = deepcopy(scenario)
+        normalized = self.service._normalize(project)
+        expected = deepcopy(normalized["diagnostics"])
+        mentions = [d for d in expected if d["code"] == "visible_cast_check"]
+        self.assertEqual(len(mentions), 1)
+        self.assertEqual(mentions[0]["level"], "warning")
+        # Simulate persisted diagnostics from the old append-on-read behavior.
+        normalized["diagnostics"].extend(deepcopy(mentions) * 6)
+        normalized["diagnostics"].append(dict(code="language_residue", level="warning", message="Ancien texte"))
+        for _ in range(5):
+            normalized = self.service._normalize(normalized)
+            self.assertEqual(normalized["diagnostics"], expected)
+        normalized["document"]["scenario"]["scenes"][0]["action"] = "La porte se ferme doucement et laisse le couloir entièrement vide."
+        normalized["document"]["episode_scenarios"]["episode-1"] = deepcopy(normalized["document"]["scenario"])
+        normalized = self.service._normalize(normalized)
+        self.assertFalse(any(d["code"] == "visible_cast_check" for d in normalized["diagnostics"]))
+
+    def test_normalization_uses_selected_format_and_preserves_real_blockers(self):
+        project = self.written_unit()
+        scenario = project["document"]["scenario"]
+        scenario["scenes"][0]["dialogue"] = [dict(speaker_id=scenario["characters"][0]["id"], text="bonjour " * 60)]
+        project["document"]["episode_scenarios"]["episode-1"] = deepcopy(scenario)
+        project["document"]["episode_formats"]["episode-1"] = dict(clip_seconds=5, scene_count=6)
+        normalized = self.service._normalize(project)
+        density = next(d for d in normalized["diagnostics"] if d["code"] == "dialogue_density")
+        self.assertIn("pour 5 s", density["message"])
+        self.assertTrue(any(d["code"] == "clip_load" and d["level"] == "blocking" for d in normalized["diagnostics"]))
+        self.assertFalse(any(d["code"] == "scene_count" for d in normalized["diagnostics"]))
+
     def reviewed_unit(self, project=None):
         project = self.written_unit(project)
         project = self.write(project, "review_episode", CLEAR_REVIEW)

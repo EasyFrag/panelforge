@@ -913,12 +913,16 @@ class LabWebTest(unittest.TestCase):
                     "monitor_remote": True,
                     "pause_when_unavailable": False,
                 },
+                "local_cooldown_temperature_c": 80,
+                "local_cooldown_seconds": 80,
                 "remote_video_cooldown_seconds": 45,
                 "pause_after_failure": True,
                 "history_limit": 20,
             })
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()["remote_video_cooldown_seconds"], 45)
+            self.assertEqual(response.json()["local_cooldown_temperature_c"], 80)
+            self.assertEqual(response.json()["local_cooldown_seconds"], 80)
             paused = client.post("/api/work-scheduler/local_gpu/pause").json()
             self.assertTrue(paused["machines"]["local_gpu"]["paused"])
             resumed = client.post("/api/work-scheduler/local_gpu/resume").json()

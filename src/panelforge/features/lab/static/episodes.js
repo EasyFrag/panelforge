@@ -4,6 +4,7 @@
   const root = document.getElementById("episode-workshop"), el = id => document.getElementById(`episode-${id}`);
   if (!root || !core || !picker || !resources || !window.PanelForgeH3Render) return;
   let localization = null;
+  const thumbnails = window.PanelForgeEpisodeThumbnails?.create({request: (...args) => core.request(...args)});
   const state = { story: null, data: null, list: [], refId: "", sceneId: "", prepId: "", tab: "references",
     models: [], catalog: null, imageProject: null, busy: false, token: 0, timer: null,
     dirtyRef: false, dirtyScene: false, dirtyCommon: false, inheritImages: true, loras: [], commonLoras: [], presets: [],
@@ -57,7 +58,7 @@
   function show(visible) {
     root.hidden = !visible; document.getElementById("story-writing").hidden = visible;
     document.querySelectorAll("#stories-workspace .story-model-control").forEach(control => { control.hidden = visible; });
-    if (!visible) { localization?.close(); clearTimeout(state.timer); renderer.close(); state.renderContext = ""; }
+    if (!visible) { thumbnails?.close(); localization?.close(); clearTimeout(state.timer); renderer.close(); state.renderContext = ""; }
   }
   async function action(work) {
     if (state.busy) return;
@@ -107,6 +108,7 @@
     el("batch-cancel").hidden = !batchRunning();
     el("batch-cancel").disabled = state.busy || state.data?.reference_batch?.status === "cancelling";
     const chain = state.data?.video_chain, chainStatus = chain?.status;
+    if (el("include-thumbnail")) el("include-thumbnail").disabled = state.busy || videoChainRunning();
     el("video-start").disabled = state.busy || videoChainRunning() || !state.data?.scenes?.length;
     el("video-pause").hidden = chainStatus !== "running";
     el("video-pause").disabled = state.busy;
@@ -581,9 +583,12 @@
         info.status === "ready" ? (info.slots.length ? "prête" : "sans dialogue") : statuses[translation] || "à préparer");
       updateStage(refs.writerStatus, "Injection", info.status, info.status === "ready" ? "prête · sans LLM" : "après traduction");
       refs.planStatus.title = refs.writerStatus.title = "";
+      if (info.status === "ready" && item?.status === "pending") videoText = "planifiée · en attente du lancement";
       if (value.video_reused) videoText = "réutilisée";
     }
+    if (item?.status === "prompt_ready" && item.admission_wait) videoText = "planifiée · un autre rendu H3 est encore actif";
     updateStage(refs.videoStatus, "Vidéo", videoStage, videoText);
+    refs.videoStatus.title = item?.admission_wait || "";
     updateDlssStage(card, value, item);
     const error = item?.error || value.job?.error;
     refs.error.hidden = !error; refs.error.textContent = error || "";
@@ -650,6 +655,7 @@
         + (videoFailed ? ` \u00b7 ${videoFailed} erreur(s) vid\u00e9o` : "") + (chain.error ? ` \u00b7 ${chain.error}` : "");
     }
     const container = el("video-cards"), valid = new Set(state.data.scenes.map(value => value.id));
+    thumbnails?.mount(container, state.data);
     for (const [sceneId, card] of state.videoCards) if (!valid.has(sceneId)) { card.remove(); state.videoCards.delete(sceneId); }
     for (const value of state.data.scenes) {
       let card = state.videoCards.get(value.id);
@@ -1172,6 +1178,7 @@
       expected_video_revision: state.data.video_revision, request_id: crypto.randomUUID(),
       scene_ids: state.data.scenes.map(value => value.id),
       auto_dlss: true,
+      include_thumbnail: !!el("include-thumbnail")?.checked,
     }));
     accept(data); message("Chaîne lancée. Tu peux la mettre en pause après les tâches déjà en cours.");
   }
@@ -1272,5 +1279,19 @@
     if (state.data?.video_chain && cooldownRemaining(state.data.video_chain) > 0) drawVideoOverview();
   }, 1000);
   window.addEventListener("beforeunload", () => { clearTimeout(state.timer); clearTimeout(renderSaveTimer); clearInterval(state.cooldownTicker); });
+  // Navigation only: reuse the existing fabrication reader and its save/dirty guards.
+  window.PanelForgeEpisodes = Object.freeze({
+    async prepareLibraryNavigation() {
+      if (state.busy) throw new Error("Attends la fin de l’enregistrement en cours.");
+      localization?.guardDirty(); await flushRender(); await saveReference(); await saveScene();
+    },
+    async openFromLibrary(storyId, episodeId) {
+      if (window.PanelForgeStories?.current()?.project_id !== storyId) return;
+      await storyChanged(window.PanelForgeStories.current());
+      state.list = (await core.request(`/api/episodes/stories/${encodeURIComponent(storyId)}`)).episodes;
+      if (!state.list.some(item => item.episode_id === episodeId)) throw new Error("Cette fabrication n’est plus disponible.");
+      await openEpisode(episodeId, {tab: "scenes"});
+    }
+  });
   storyChanged(window.PanelForgeStories?.current()).catch(error => message(error.message, true));
 })();

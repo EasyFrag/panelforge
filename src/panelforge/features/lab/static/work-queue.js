@@ -43,17 +43,35 @@
     <details class="work-queue-settings">
       <summary>Paramètres globaux des machines</summary>
       <form data-settings-form>
-        <div class="work-queue-settings-grid">
-          <label>Pause thermique à partir de °C<input name="stop_temperature_c" type="number" min="30" max="110" step="1" required></label>
-          <label>Reprise sous °C<input name="resume_temperature_c" type="number" min="15" max="109" step="1" required></label>
-          <label>Stabilisation thermique<input name="cooldown_seconds" type="number" min="0" max="86400" step="1" required><small>secondes</small></label>
-          <label>Repos entre vidéos<input name="remote_video_cooldown_seconds" type="number" min="0" max="3600" step="1" required><small>secondes</small></label>
-          <label>Historique visible<input name="history_limit" type="number" min="5" max="200" step="1" required><small>traitements</small></label>
+        <div class="work-queue-machine-settings">
+          <section>
+            <h3>Local</h3>
+            <p class="muted">Après une tâche ayant atteint le seuil, la suivante attend le cooldown indiqué.</p>
+            <div class="work-queue-settings-grid">
+              <label>Cooldown à partir de °C<input name="local_cooldown_temperature_c" type="number" min="30" max="110" step="1" value="80" required></label>
+              <label>Durée du cooldown<input name="local_cooldown_seconds" type="number" min="0" max="3600" step="1" value="80" required><small>secondes</small></label>
+            </div>
+            <div class="work-queue-checks">
+              <label><input name="monitor_local" type="checkbox"> Surveiller la température locale</label>
+            </div>
+          </section>
+          <section>
+            <h3>Serveur</h3>
+            <p class="muted">La reprise attend une température sûre et stable avant d’admettre la tâche.</p>
+            <div class="work-queue-settings-grid">
+              <label>Pause thermique à partir de °C<input name="stop_temperature_c" type="number" min="30" max="110" step="1" required></label>
+              <label>Reprise sous °C<input name="resume_temperature_c" type="number" min="15" max="109" step="1" required></label>
+              <label>Stabilisation thermique<input name="cooldown_seconds" type="number" min="0" max="86400" step="1" required><small>secondes</small></label>
+              <label>Repos entre vidéos<input name="remote_video_cooldown_seconds" type="number" min="0" max="3600" step="1" required><small>secondes</small></label>
+            </div>
+            <div class="work-queue-checks">
+              <label><input name="monitor_remote" type="checkbox"> Surveiller la température distante</label>
+              <label><input name="pause_when_unavailable" type="checkbox"> Suspendre si la température est indisponible</label>
+            </div>
+          </section>
         </div>
-        <div class="work-queue-checks">
-          <label><input name="monitor_local" type="checkbox"> Surveiller la température locale</label>
-          <label><input name="monitor_remote" type="checkbox"> Surveiller la température distante</label>
-          <label><input name="pause_when_unavailable" type="checkbox"> Suspendre si la température est indisponible</label>
+        <div class="work-queue-general-settings">
+          <label>Historique visible<input name="history_limit" type="number" min="5" max="200" step="1" required><small>traitements</small></label>
           <label><input name="pause_after_failure" type="checkbox"> Suspendre la file après une erreur non interceptée</label>
         </div>
         <button class="primary" type="submit">Enregistrer les paramètres globaux</button>
@@ -72,7 +90,15 @@
         <button type="button" data-minimize aria-label="Minimiser le suivi des traitements" title="Minimiser">−</button>
       </div>
     </div>
-    <div class="work-queue-compact-lanes" data-compact></div>
+    <div class="work-queue-compact-body">
+      <div class="work-queue-compact-lanes" data-compact></div>
+      <section class="work-queue-temperatures" aria-label="Températures GPU de la dernière heure">
+        <div class="work-queue-temperature-head">
+          <strong>Températures</strong><small>max. / 15 s · 1 h</small>
+        </div>
+        <div data-temperature-charts></div>
+      </section>
+    </div>
     <div data-notices></div>
     <button class="work-queue-minimized" type="button" data-restore aria-label="Agrandir le suivi des traitements" title="Agrandir le suivi"></button>`;
   document.body.append(floating);
@@ -154,10 +180,114 @@
     summary.setAttribute("aria-label", `Agrandir le suivi des traitements. Local ${stateLabel(local)}, serveur ${stateLabel(remote)}.`);
   }
 
+  const temperatureColor = value => value >= 90 ? "#7f1d1d"
+    : value >= 80 ? "#d13b2e" : value >= 70 ? "#c47b08" : "#23895a";
+
+  function temperatureChart(resource, machine) {
+    const history = status?.temperature_history || {};
+    const windowSeconds = Number(history.window_seconds || 3600);
+    const values = Array.isArray(history?.series?.[resource])
+      ? history.series[resource].filter(value => Number.isFinite(Number(value.max_temperature_c)))
+      : [];
+    const current = machine?.temperature_c == null
+      ? Number.NaN
+      : Number(machine.temperature_c);
+    const temperatures = values.map(value => Number(value.max_temperature_c));
+    if (Number.isFinite(current)) temperatures.push(current);
+    const peak = temperatures.length ? Math.max(...temperatures) : null;
+
+    const article = document.createElement("article");
+    article.className = "work-queue-temperature-chart";
+    const head = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = resource === "local_gpu" ? "Local" : "Serveur";
+    const reading = document.createElement("span");
+    reading.textContent = Number.isFinite(current)
+      ? `${Math.round(current)} °C · pic ${Math.round(peak)} °C`
+      : peak == null ? "Température indisponible" : `— · pic ${Math.round(peak)} °C`;
+    if (Number.isFinite(current)) reading.style.color = temperatureColor(current);
+    head.append(name, reading);
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 330 108");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `Historique thermique ${name.textContent}, de 0 à 100 degrés sur une heure`);
+    const node = (tag, attributes, text = null) => {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
+      if (text != null) element.textContent = text;
+      svg.append(element);
+      return element;
+    };
+    const left = 28;
+    const right = 324;
+    const top = 5;
+    const bottom = 81;
+    for (let temperature = 0; temperature <= 100; temperature += 20) {
+      const y = bottom - (temperature / 100) * (bottom - top);
+      node("line", {x1: left, y1: y, x2: right, y2: y, class: "work-queue-temperature-grid"});
+      node("text", {x: left - 4, y: y + 3, "text-anchor": "end"}, temperature);
+    }
+    for (const minutes of [60, 45, 30, 15, 0]) {
+      const x = left + ((60 - minutes) / 60) * (right - left);
+      node("line", {x1: x, y1: top, x2: x, y2: bottom, class: "work-queue-temperature-grid vertical"});
+      node("text", {x, y: 101, "text-anchor": minutes === 60 ? "start" : minutes === 0 ? "end" : "middle"},
+        minutes === 0 ? "maint." : `-${minutes} min`);
+    }
+    const points = values.map(value => {
+      const age = Math.max(0, Math.min(windowSeconds, Number(value.age_seconds || 0)));
+      const temperature = Math.max(0, Math.min(100, Number(value.max_temperature_c)));
+      return {
+        x: left + (1 - age / windowSeconds) * (right - left),
+        y: bottom - (temperature / 100) * (bottom - top),
+        temperature,
+        age,
+      };
+    }).sort((a, b) => b.age - a.age);
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const point = points[index];
+      if (previous.age - point.age > Number(history.bucket_seconds || 15) * 2.5) continue;
+      node("line", {
+        x1: previous.x, y1: previous.y, x2: point.x, y2: point.y,
+        stroke: temperatureColor(Math.max(previous.temperature, point.temperature)),
+        class: "work-queue-temperature-segment",
+      });
+    }
+    if (!points.length) node("text", {x: (left + right) / 2, y: 47, "text-anchor": "middle", class: "empty"}, "En attente de relevés");
+    article.append(head, svg);
+    return article;
+  }
+
+  function renderTemperatures() {
+    const unavailable = {temperature_c: null};
+    floating.querySelector("[data-temperature-charts]").replaceChildren(
+      temperatureChart("local_gpu", status?.machines?.local_gpu || unavailable),
+      temperatureChart("remote_gpu", status?.machines?.remote_gpu || unavailable),
+    );
+  }
+
   function activityStage(activity, queued = false) {
     return queued ? "◷ Planifié · en attente de la machine" : ({queued: "Planifié · en attente du LLM",
       starting: "Démarrage du LLM", preparing: "Préparation de l’appel", loading: "Chargement du modèle",
       generating: "Génération en cours"}[activity.stage] || activity.stage || "Traitement en cours");
+  }
+  const tokenAmount = value => `${(Math.max(0, Number(value) || 0) / 1000).toLocaleString("fr-FR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}k`;
+  function llmMetricsView(activity) {
+    const metrics = activity?.llm_metrics;
+    if (!metrics) return null;
+    const row = document.createElement("p");
+    row.className = "work-queue-llm-metrics";
+    const speed = Math.max(0, Number(metrics.tokens_per_second) || 0).toLocaleString("fr-FR", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
+    row.textContent = `${speed} tok/s · Th : ${tokenAmount(metrics.thinking_tokens)} · Wr : ${tokenAmount(metrics.writing_tokens)}`;
+    if (metrics.estimated) row.title = "Répartition thinking/writing estimée depuis les événements du flux ; total réconcilié à la fin.";
+    return row;
   }
   function activityView(activity, {queued = false} = {}) {
     const item = document.createElement("article");
@@ -177,7 +307,10 @@
     else progress.value = Math.max(0, Math.min(1, Number(activity.progress)));
     const progressLabel = document.createElement("span");
     progressLabel.textContent = queued ? "Planifié" : value == null ? "Progression non mesurable" : `${value} %`;
-    item.append(title, stage, progress, progressLabel);
+    item.append(title, stage);
+    const metrics = llmMetricsView(activity);
+    if (metrics) item.append(metrics);
+    item.append(progress, progressLabel);
     return item;
   }
 
@@ -265,7 +398,10 @@
       : tone === "cooling" ? (machine?.cooldown_remaining_seconds ? `${machine.cooldown_remaining_seconds} s` : "—")
       : "0 %";
     meter.append(progress, progressLabel);
-    lane.append(head, operation, meter);
+    lane.append(head, operation);
+    const metrics = resource === "local_gpu" ? llmMetricsView(machine?.active) : null;
+    if (metrics) lane.append(metrics);
+    lane.append(meter);
     return lane;
   }
 
@@ -277,7 +413,8 @@
       if (field(name).type === "checkbox") field(name).checked = Boolean(thermal[name]);
       else field(name).value = String(thermal[name]);
     }
-    for (const name of ["remote_video_cooldown_seconds", "history_limit", "pause_after_failure"]) {
+    for (const name of ["local_cooldown_temperature_c", "local_cooldown_seconds",
+      "remote_video_cooldown_seconds", "history_limit", "pause_after_failure"]) {
       if (settings[name] === undefined) continue;
       if (field(name).type === "checkbox") field(name).checked = Boolean(settings[name]);
       else field(name).value = String(settings[name]);
@@ -286,6 +423,7 @@
 
   function render() {
     renderMinimized();
+    renderTemperatures();
     if (!status?.machines) {
       const unavailable = {state: "unavailable", active: null, queue_count: 0, queue: []};
       floating.querySelector("[data-compact]").replaceChildren(
@@ -408,6 +546,8 @@
             monitor_remote: field("monitor_remote").checked,
             pause_when_unavailable: field("pause_when_unavailable").checked,
           },
+          local_cooldown_temperature_c: Number(field("local_cooldown_temperature_c").value),
+          local_cooldown_seconds: Number(field("local_cooldown_seconds").value),
           remote_video_cooldown_seconds: Number(field("remote_video_cooldown_seconds").value),
           pause_after_failure: field("pause_after_failure").checked,
           history_limit: Number(field("history_limit").value),

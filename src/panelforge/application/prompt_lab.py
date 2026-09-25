@@ -162,6 +162,7 @@ class CompletionResult:
     finish_reason: str | None = None
     call_id: str | None = None
     reasoning_text: str = ""
+    reasoning_tokens: int | None = None
 
 
 class StreamEventKind(StrEnum):

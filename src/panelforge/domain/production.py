@@ -150,11 +150,22 @@ class WorkSchedulerSettings:
     """Global admission and hardware-protection policy for both machines."""
 
     thermal: ThermalPolicy = field(default_factory=ThermalPolicy)
+    local_cooldown_temperature_c: float = 80.0
+    local_cooldown_seconds: int = 80
     remote_video_cooldown_seconds: int = 30
     pause_after_failure: bool = False
     history_limit: int = 30
 
     def __post_init__(self) -> None:
+        _finite(self.local_cooldown_temperature_c, 'local_cooldown_temperature_c')
+        if not 30 <= float(self.local_cooldown_temperature_c) <= 110:
+            raise ValueError('local_cooldown_temperature_c must be between 30 and 110')
+        if (
+            isinstance(self.local_cooldown_seconds, bool)
+            or not isinstance(self.local_cooldown_seconds, int)
+            or not 0 <= self.local_cooldown_seconds <= 3_600
+        ):
+            raise ValueError('local_cooldown_seconds must be between 0 and 3600')
         if not isinstance(self.thermal, ThermalPolicy):
             raise TypeError("thermal must be a ThermalPolicy")
         if (

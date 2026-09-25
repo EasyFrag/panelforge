@@ -42,6 +42,16 @@ class LocalEpisodeStore:
             _atomic_write(path, _json_bytes(value))
             return value
 
+    def catalog(self):
+        result, unreadable = [], 0
+        with self._lock:
+            for path in self.root.glob("episode-*.json"):
+                try:
+                    result.append(self.get(path.stem))
+                except (OSError, ValueError):
+                    unreadable += 1
+        return dict(items=result, unreadable=unreadable)
+
     def list(self, story_id):
         with self._lock:
             result = []

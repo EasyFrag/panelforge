@@ -481,6 +481,39 @@ class EpisodeTest(unittest.TestCase):
         self.assertEqual(original_project.current_prompt, "Generated video prompt")
         self.assertEqual(original_project.attempts[-1].settings.duration_seconds, 8)
 
+    def test_thumbnail_is_queued_before_prompt_and_finishes_before_video(self):
+        value = self.ready(); identity = value["episode_id"]
+        order = []
+        def start_cover(*_args, **_kwargs):
+            self.assertEqual(self.composition.calls, [])
+            order.append("cover-queued")
+            return {"status": "queued"}
+        def finish_cover(*_args):
+            self.assertTrue(self.composition.calls)
+            self.assertFalse(any(p.attempts for p in self.rendered.values()))
+            order.append("cover-ready")
+            return {"status": "ready"}
+        self.service.thumbnails = NS(prepare=start_cover, get=finish_cover)
+        result = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],
+            request_id="thumbnail-chain", scene_ids=["scene-1"], include_thumbnail=True)
+        self.assertEqual(order, ["cover-queued", "cover-ready"])
+        self.assertEqual(result["video_chain"]["status"], "completed")
+        self.assertEqual(result["video_chain"]["thumbnail_status"], "ready")
+        self.assertEqual(result["scenes"][0]["video_status"], "succeeded")
+
+    def test_thumbnail_failure_does_not_prevent_scenes_or_dlss(self):
+        value = self.ready(); identity = value["episode_id"]
+        def failed_cover(*_args, **_kwargs):
+            raise ValueError("Erreur miniature simulée")
+        self.service.thumbnails = NS(prepare=failed_cover)
+        result = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],
+            request_id="failed-thumbnail-chain", scene_ids=["scene-1"], include_thumbnail=True, auto_dlss=True)
+        self.assertEqual(result["video_chain"]["status"], "completed")
+        self.assertEqual(result["video_chain"]["thumbnail_status"], "failed")
+        self.assertIn("miniature", result["video_chain"]["thumbnail_error"])
+        self.assertEqual(result["scenes"][0]["video_status"], "succeeded")
+        self.assertTrue(self.dlss.calls)
+
     def test_video_chain_prepares_prompt_renders_and_unlocks_manual_dlss(self):
         value = self.ready(); identity = value["episode_id"]
         result = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],
@@ -492,6 +525,31 @@ class EpisodeTest(unittest.TestCase):
         self.assertTrue(result["scenes"][0]["dlss_ready"])
         self.assertEqual(result["scenes"][0]["video_status"], "succeeded")
         self.assertEqual(self.dlss.calls, [])
+
+    def test_admission_wait_is_visible_then_cleared_without_rewriting_prompt(self):
+        value = self.ready(); identity = value["episode_id"]
+        queue = self.service.render.queue_attempt
+        calls, waits = [], []
+        def busy_then_queue(project_id, attempt_id, **options):
+            calls.append((project_id, attempt_id))
+            if len(calls) == 1:
+                raise ValueError("Un rendu H3/REF2V est déjà actif : essai 1 dans l’atelier précédent (running).")
+            return queue(project_id, attempt_id, **options)
+        def waiting(_seconds):
+            chain = self.service.store.get(identity)["video_chain"]
+            waits.append(chain)
+        self.service.render.queue_attempt = busy_then_queue
+        self.service._sleep = waiting
+        result = self.service.start_video_chain(identity, expected_video_revision=value["video_revision"],
+            request_id="admission-wait", scene_ids=["scene-1"])
+        self.assertEqual(len(waits), 1)
+        self.assertIn("Attente", waits[0]["phase"])
+        self.assertIn("atelier précédent", waits[0]["items"][0]["admission_wait"])
+        self.assertEqual(waits[0]["items"][0]["status"], "prompt_ready")
+        self.assertEqual(calls[0], calls[1])
+        self.assertEqual(result["video_chain"]["status"], "completed")
+        self.assertIsNone(result["video_chain"]["items"][0]["admission_wait"])
+        self.assertEqual(len(result["scenes"][0]["preparations"]), 1)
 
     def test_global_video_chain_queues_quick_dlss_once_after_video_success(self):
         value = self.ready(); identity = value["episode_id"]

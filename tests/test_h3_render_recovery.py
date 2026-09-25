@@ -3,6 +3,7 @@
 from dataclasses import replace
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from panelforge.application.h3_render import H3RenderService
@@ -87,6 +88,54 @@ class H3RenderRecoveryTest(unittest.TestCase):
             sessions=object(), compositions=object(),
         )
         return service, target, old
+
+    def queued_service(self, root, *, live_ticket=False, claimed=False, coordinator=True, same_project=False):
+        comfy = RecoveryComfy()
+        service, target, old = self.setup_service(root, comfy, same_project=same_project)
+        queued = replace(old, status=H3RenderAttemptStatus.QUEUED, execution_id=None, compiled_workflow_sha256=None)
+        source = service.projects.get("project-old")
+        service.projects.save(source.replace_attempt(queued))
+        tickets = {"h3:project-old:attempt-old"} if live_ticket else set()
+        if coordinator:
+            service.work_coordinator = SimpleNamespace(
+                has_activity=lambda key: key in tickets,
+                enqueue=lambda key, *args, **kwargs: tickets.add(key))
+        if claimed:
+            service._claimed.add(("project-old", "attempt-old"))
+        return service, target, queued, comfy, tickets
+
+    def test_abandoned_queued_attempt_is_terminal_and_does_not_block_new_admission(self):
+        for same_project in (False, True):
+            with self.subTest(same_project=same_project), tempfile.TemporaryDirectory() as root:
+                service, target, original, comfy, tickets = self.queued_service(root, same_project=same_project)
+                new = service.queue_attempt(target, "attempt-new")
+                old = service.projects.get("project-old").attempt("attempt-old")
+                self.assertEqual(old.status, H3RenderAttemptStatus.FAILED)
+                self.assertIn("réservation locale", old.error)
+                self.assertIsNone(old.execution_id)
+                self.assertEqual((old.prompt, old.settings), (original.prompt, original.settings))
+                self.assertEqual(new.attempt("attempt-new").status, H3RenderAttemptStatus.QUEUED)
+                self.assertIn(f"h3:{target}:attempt-new", tickets)
+                self.assertEqual(service.get("project-old").attempt("attempt-old").status, H3RenderAttemptStatus.FAILED)
+                self.assertEqual(comfy.reads, [])
+
+    def test_queued_attempt_with_live_fifo_ticket_is_never_recovered(self):
+        with tempfile.TemporaryDirectory() as root:
+            service, target, _, comfy, tickets = self.queued_service(root, live_ticket=True)
+            service.queue_attempt(target, "attempt-new")
+            self.assertEqual(service.get("project-old").attempt("attempt-old").status, H3RenderAttemptStatus.QUEUED)
+            self.assertIn("h3:project-old:attempt-old", tickets)
+            self.assertEqual(len(tickets), 2)
+            self.assertEqual(comfy.reads, [])
+
+    def test_queued_attempt_with_claim_or_without_coordinator_is_not_declared_abandoned(self):
+        for options in ({"claimed": True}, {"coordinator": False}):
+            with self.subTest(options=options), tempfile.TemporaryDirectory() as root:
+                service, target, _, comfy, _ = self.queued_service(root, **options)
+                with self.assertRaisesRegex(ValueError, "déjà actif"):
+                    service.queue_attempt(target, "attempt-new")
+                self.assertEqual(service.projects.get("project-old").attempt("attempt-old").status, H3RenderAttemptStatus.QUEUED)
+                self.assertEqual(comfy.reads, [])
 
     def test_missing_remote_attempt_releases_admission_and_stays_terminal(self):
         for same_project in (False, True):

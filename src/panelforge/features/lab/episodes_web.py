@@ -150,6 +150,7 @@ class VideoChainBody(StrictBody):
     scene_ids: list[str] = Field(min_length=1)
     inter_video_cooldown_seconds: int = Field(default=30, ge=1, le=3600, strict=True)
     auto_dlss: bool = Field(default=False, strict=True)
+    include_thumbnail: bool = Field(default=False, strict=True)
 
 
 class PauseVideoChainBody(StrictBody):
@@ -451,7 +452,7 @@ def episodes_router(service, *, serialize_image_project, validate_image, image_b
             expected_video_revision=body.expected_video_revision, request_id=body.request_id,
             scene_ids=body.scene_ids,
             inter_video_cooldown_seconds=body.inter_video_cooldown_seconds,
-            auto_dlss=body.auto_dlss))
+            auto_dlss=body.auto_dlss, include_thumbnail=body.include_thumbnail))
 
     @router.post("/{identity}/video-chains/{chain_id}/pause", status_code=202)
     def pause_video_chain(identity: str, chain_id: str, body: PauseVideoChainBody | None = None):

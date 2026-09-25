@@ -18,7 +18,7 @@ class LongStoriesBrowserTest(unittest.TestCase):
         setup = r"""
           localStorage.clear();sessionStorage.clear();
           const model='local::HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP';
-          const creates=[],advances=[],feedbacks=[];let project=null;
+          const creates=[],advances=[],feedbacks=[],corrections=[];let project=null;
           const cast=[{id:'c1',name:'Citronito',description:'Citron anthropomorphe.'}];
           const scene={title:'Le refus',location_id:'l1',character_ids:['c1'],opening_state:'La note arrive.',
             action:'Citronito refuse le partage.',dialogue:[],ending_state:'La serveuse conserve la note.'};
@@ -60,6 +60,14 @@ class LongStoriesBrowserTest(unittest.TestCase):
               }
               return new Response(JSON.stringify(project),{status:202});
             }
+            if(url.endsWith('/correct-and-continue')){
+              const body=JSON.parse(options.body);corrections.push(body);snap();
+              project.document.reviews['episode-1']={source_hash:'corrected',issues:[]};
+              project.long_status.reviews['episode-1']={current:true};
+              project.long_status.fabrication_ready=true;project.long_status.units['episode-1']={written:true,ready:true,previous_ready:true};
+              project.workflow={mode:body.mode,status:'ready',approvals:{'episode-1':'corrected'}};
+              return new Response(JSON.stringify(project),{status:202});
+            }
             if(url.endsWith('/feedback')){
               const body=JSON.parse(options.body);feedbacks.push(body);snap();
               const target={unit_id:body.unit_id,scene_index:body.scene_index};
@@ -89,10 +97,24 @@ class LongStoriesBrowserTest(unittest.TestCase):
             check(creates[0].workflow_mode==='manual'&&creates[0].visual_universe==='Fruits anthropomorphes','workflow and universe submitted');
             check(!el('guided-tools').hidden&&el('advance').textContent==='Valider et développer le scénario','clear author checkpoint');
             check(el('feedback-target').value==='outline','feedback targets the story first');
-            el('advance').click();await settle();
+            check(el('writing-steps').querySelector('[data-writing-stage=story]').dataset.state==='approval','outline exists but author approval remains');
+            const beforeBrowse=advances.length;
+            el('instruction').value='Garde ce refus.';input(el('instruction'));
+            el('writing-steps').querySelector('[data-writing-stage=intention]').click();
+            check(el('saved-intention').hidden===false&&advances.length===beforeBrowse,'reading intention makes no call');
+            el('writing-steps').querySelector('[data-writing-stage=story]').click();
+            check(el('instruction').value==='Garde ce refus.','browsing preserves unsent feedback');
+            el('instruction').value='';input(el('instruction'));
+            check(el('next-action').dataset.action==='advance'&&!el('next-action').disabled,'single contextual approval action');
+            el('next-action').click();await settle();
             check(advances.length===2&&el('feedback-target').value==='episode-1','sequence checkpoint');
             const comment=[...el('scenes').querySelectorAll('button')].find(b=>b.textContent==='Commenter cette scène');comment.click();
             check(el('feedback-target').value==='episode-1:0','comment selects exact scene');
+            el('instruction').value='Retour de scène conservé.';input(el('instruction'));
+            el('feedback-target').value='outline';el('feedback-target').dispatchEvent(new Event('change'));
+            check(el('instruction').value==='','switching target does not attach a scene draft to the story');
+            el('feedback-target').value='episode-1:0';el('feedback-target').dispatchEvent(new Event('change'));
+            check(el('instruction').value==='Retour de scène conservé.','targeted draft is restored');
             check(el('send').textContent==='Demander une modification'&&el('send').type==='button','revision is explicit');
             check(el('question').type==='submit'&&el('feedback-context').textContent.includes('Valider / Continuer'),'question is default and approval is separate');
             const before=project.document.scenario.scenes[0].action;
@@ -123,6 +145,58 @@ class LongStoriesBrowserTest(unittest.TestCase):
             check(project.document.scenario.scenes[0].action===existingAction,'resume preserves written scenes');
             check(!el('validate').disabled&&el('fabrication-gate').hidden,'review unlocks fabrication despite advisory diagnostic');
             check(!el('diagnostics').hidden,'advisory warning remains visible');
+            project.workflow={mode:'manual',status:'blocked',wait_target:'outline',message:'Un choix reste à préciser.'};
+            project.document.reviews.outline={source_hash:'arc',issues:[{severity:'blocking',problem:'Identifiants ambigus.',suggestion:'Relire dans le périmètre courant.'}]};
+            project.long_status.outline_reviewed=false;project.long_status.reviews.outline={current:true};snap();
+            el('refresh-projects').click();await settle();
+            check(el('writing-issues').textContent.includes('Identifiants ambigus'),'exact review reason is prominent');
+            check(!el('writing-message').textContent.includes('Un choix reste'),'technical ambiguity is not recast as artistic approval');
+            check(el('next-action').dataset.action==='feedback'&&el('writing-secondary').dataset.action==='review-outline','block has discussion and explicit re-review actions');
+            const stoppedCalls=advances.length;el('next-action').click();
+            check(advances.length===stoppedCalls&&el('feedback-target').value==='outline'&&document.activeElement===el('instruction'),'examine scopes chat without calling LLM');
+            // Duplicated diagnostics from an older server: one hint per issue, exact scene shortcut.
+            const mention={code:'visible_cast_check',level:'warning',scene_index:0,path:'scenario.scenes[0].character_ids',message:'Personnage cité : vérifier sa présence.'};
+            project.diagnostics=[mention,structuredClone(mention),structuredClone(mention),
+              {code:'dialogue_density',level:'warning',scene_index:0,message:'Dialogue dense.'},
+              {code:'clip_load',level:'warning',scene_index:0,message:'Charge estimée.'}];
+            project.workflow={mode:'automatic',status:'blocked',wait_target:'episode-1',repairs:{'episode-1':1}};
+            project.document.reviews['episode-1']={issues:[{severity:'blocking',target_id:'scene-1',problem:'Réplique trop longue.',suggestion:'Raccourcir la réplique.'}]};
+            project.long_status.reviews['episode-1']={current:true};project.long_status.outline_reviewed=true;snap();
+            el('refresh-projects').click();await settle();
+            check(el('diagnostic-list').children.length===2,'duplicate hints and overlapping duration messages are removed');
+            check(el('diagnostic-title').textContent==='Observations facultatives · 2','optional hints are separate from review blockers');
+            check(!el('diagnostic-observations').open,'optional observations are initially collapsed');
+            check(el('writing-title').textContent==='1 point à corriger pour continuer','one clear blocking count');
+            check(!el('diagnostics').textContent.includes('0 point bloquant'),'no contradictory local zero count');
+            el('diagnostic-observations').open=true;
+            const beforeShortcut=feedbacks.length;
+            const shortcut=el('diagnostic-list').querySelector('button');
+            check(shortcut&&!shortcut.disabled,'diagnostic scene has an actionable button');
+            shortcut.click();
+            check(el('feedback-target').value==='episode-1:0'&&document.activeElement===el('instruction'),'diagnostic shortcut selects and focuses the exact scene');
+            check(feedbacks.length===beforeShortcut,'reading a diagnostic makes no LLM call');
+            el('instruction').value='';input(el('instruction'));
+            check(el('next-action').dataset.action==='correct-and-continue'&&el('next-action').textContent==='Corriger et continuer','one primary correction action');
+            check(el('writing-secondary').dataset.action==='feedback','manual feedback remains available');
+            el('writing-secondary').click();
+            check(el('feedback-target').value==='episode-1:0'&&el('instruction').value.includes('Raccourcir la réplique.'),'single blocker prepares a correction for its scene');
+            check(feedbacks.length===beforeShortcut,'preparing correction does not submit it');
+            el('instruction').value='Ma consigne personnelle.';input(el('instruction'));
+            el('writing-issues').querySelector('button').click();
+            check(el('instruction').value==='Ma consigne personnelle.','shortcut preserves an existing author draft');
+            const expectedVersion=project.version;
+            el('next-action').click();el('next-action').click();await settle();
+            check(corrections.length===1,'double click starts only one correction request');
+            check(corrections[0].unit_id==='episode-1'&&corrections[0].expected_version===expectedVersion,'request carries exact target and version');
+            check(corrections[0].architect_model_id===model&&corrections[0].writer_model_id===model,'chosen models are respected');
+            check(feedbacks.length===beforeShortcut&&el('instruction').value==='Ma consigne personnelle.','grouped correction preserves unsent manual feedback');
+            check(project.workflow.status==='ready'&&el('next-action').dataset.action==='validate','accepted correction reaches existing fabrication action');
+            project.workflow={mode:'manual',status:'blocked',wait_target:'outline'};
+            project.job={status:'failed',operation:'edit_outline',draft:'partial',can_revalidate:true,error:'JSON invalide'};snap();
+            el('refresh-projects').click();await settle();
+            check(el('next-action').dataset.action==='revalidate'&&!el('next-action').disabled,'recover without LLM is the primary action');
+            el('writing-secondary').click();check(el('writing-details').open,'recovery details have an accessible entry');
+            check(el('writing-steps').querySelector('[data-writing-stage=story]').dataset.state==='error','technical failure is distinct from approval');
             document.querySelector('#result').textContent='PASS';
           }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}})();
         """
@@ -131,6 +205,8 @@ class LongStoriesBrowserTest(unittest.TestCase):
                 '<section id="krea2-assisted-lab-workspace"></section>' + markup
                 + '<script>' + setup + '</script><script>' + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
                 + '</script><script>' + (STATIC / 'lab-core.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'story-continuity.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'story-writing.js').read_text(encoding='utf8')
                 + '</script><script>' + (STATIC / 'stories.js').read_text(encoding='utf8')
                 + '</script><script>' + (STATIC / 'stories-help.js').read_text(encoding='utf8')
                 + '</script><script>' + scenario + '</script>')

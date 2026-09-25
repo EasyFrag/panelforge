@@ -199,6 +199,114 @@ class StoryWorkflowTest(unittest.TestCase):
         project = self.advance(project)
         self.assertEqual(len(self.gateway.requests), calls)
 
+    def blocked_project(self, mode="automatic", count=1):
+        self.gateway.blocking = True
+        self.gateway.warnings = True
+        project = self.advance(self.create(mode, count))
+        if mode == "manual":
+            project = self.advance(project)
+        self.assertEqual(project["workflow"]["status"], "blocked")
+        return project
+
+    def test_explicit_correction_reviews_once_then_continues_without_optional_edits(self):
+        project = self.blocked_project()
+        project["document"]["reviews"]["episode-1"]["issues"].append(dict(severity="blocking", target_id="scene-1",
+            problem="Le geste ne montre pas le refus.", suggestion="Clarifier le geste."))
+        project = self.service.store.save(project)
+        before = len(self.gateway.requests)
+        self.gateway.blocking = False
+        self.service.workflow.correct_and_continue(project["project_id"], expected_version=project["version"], unit_id="episode-1")
+        project = self.settle(project)
+        calls = [json.loads(r.user_prompt) for r in self.gateway.requests[before:]]
+        self.assertEqual([c["operation"] for c in calls], ["repair_episode", "review_block"])
+        self.assertTrue(all(i["severity"] == "blocking" for i in calls[0]["review_to_address"]["issues"]))
+        self.assertEqual(len(calls[0]["review_to_address"]["issues"]), 2)
+        self.assertNotIn("Retirer le propriétaire", json.dumps(calls[0], ensure_ascii=False))
+        self.assertEqual(calls[1]["review_followup"][0]["unit_id"], "episode-1")
+        self.assertEqual(project["workflow"]["status"], "ready")
+        self.assertEqual(project["workflow"]["mode"], "automatic")
+        self.assertNotIn("correction", project["workflow"])
+        self.assertTrue(project["long_status"]["fabrication_ready"])
+
+    def test_explicit_correction_does_not_repeat_when_the_review_still_blocks(self):
+        project = self.blocked_project()
+        for _ in range(2):
+            before = len(self.gateway.requests)
+            self.service.workflow.correct_and_continue(project["project_id"], expected_version=project["version"], unit_id="episode-1")
+            project = self.settle(project)
+            calls = [json.loads(r.user_prompt)["operation"] for r in self.gateway.requests[before:]]
+            self.assertEqual(calls, ["repair_episode", "review_block"])
+            self.assertEqual(project["workflow"]["status"], "blocked")
+            self.assertFalse(project["long_status"]["fabrication_ready"])
+            self.assertNotIn("correction", project["workflow"])
+            count = len(self.gateway.requests)
+            project = self.advance(project)
+            self.assertEqual(len(self.gateway.requests), count)
+
+    def test_correction_reviews_before_developing_next_unit_and_preserves_manual_mode(self):
+        project = self.blocked_project(mode="manual", count=2)
+        self.gateway.blocking = False
+        before = len(self.gateway.requests)
+        self.service.workflow.correct_and_continue(project["project_id"], expected_version=project["version"], unit_id="episode-1")
+        project = self.settle(project)
+        calls = [json.loads(r.user_prompt) for r in self.gateway.requests[before:]]
+        self.assertEqual([c["operation"] for c in calls], ["repair_episode", "review_block", "develop", "review_block"])
+        self.assertEqual(calls[1]["response_contract"]["reviews"][0]["unit_id"], "episode-1")
+        self.assertEqual(project["workflow"]["mode"], "manual")
+        self.assertEqual(project["workflow"]["status"], "awaiting_author")
+        self.assertEqual(project["workflow"]["wait_target"], "episode-2")
+        self.assertEqual(project["workflow"]["approvals"]["episode-1"], narrative.source_hash(project, "episode-1"))
+
+    def test_correction_rejects_outdated_reviews_and_optional_only_reviews_without_calls(self):
+        project = self.blocked_project()
+        original = deepcopy(project)
+        project["document"]["episode_scenarios"]["episode-1"]["scenes"][0]["action"] += " Le regard change."
+        project = self.service.store.save(project)
+        before = len(self.gateway.requests)
+        with self.assertRaisesRegex(ValueError, "changé depuis sa relecture"):
+            self.service.workflow.correct_and_continue(project["project_id"], expected_version=project["version"], unit_id="episode-1")
+        original["document"]["reviews"]["episode-1"]["issues"] = [i for i in original["document"]["reviews"]["episode-1"]["issues"] if i["severity"] == "warning"]
+        original["version"] = project["version"]
+        project = self.service.store.save(original)
+        with self.assertRaisesRegex(ValueError, "observations facultatives"):
+            self.service.workflow.correct_and_continue(project["project_id"], expected_version=project["version"], unit_id="episode-1")
+        self.assertEqual(len(self.gateway.requests), before)
+        self.assertEqual(self.service.store.get(project["project_id"])["version"], project["version"])
+
+    def test_correction_failure_does_not_rewrite_again_or_run_review(self):
+        project = self.blocked_project()
+        document = deepcopy(project["document"])
+        self.gateway.fail_operation = "repair_episode"
+        before = len(self.gateway.requests)
+        self.service.workflow.correct_and_continue(project["project_id"], expected_version=project["version"], unit_id="episode-1")
+        project = self.settle(project)
+        self.assertEqual(len(self.gateway.requests), before + 1)
+        self.assertEqual(project["job"]["status"], "failed")
+        self.assertEqual(project["workflow"]["status"], "blocked")
+        self.assertNotIn("correction", project["workflow"])
+        self.assertEqual(project["document"], document)
+
+    def test_correction_route_rejects_double_click_and_can_be_paused(self):
+        project = self.blocked_project()
+        app = FastAPI()
+        app.include_router(stories_router(self.service))
+        client = TestClient(app)
+        url = f"/api/stories/projects/{project['project_id']}/correct-and-continue"
+        body = dict(expected_version=project["version"], unit_id="episode-1")
+        self.gateway.entered.clear()
+        self.gateway.release.clear()
+        self.addCleanup(self.gateway.release.set)
+        before = len(self.gateway.requests)
+        self.assertEqual(client.post(url, json=body).status_code, 202)
+        self.assertTrue(self.gateway.entered.wait(2))
+        self.assertEqual(client.post(url, json=body).status_code, 409)
+        self.service.workflow.pause(project["project_id"])
+        self.gateway.release.set()
+        project = self.settle(project)
+        self.assertEqual(len(self.gateway.requests), before + 1)
+        self.assertEqual(project["workflow"]["status"], "paused")
+        self.assertNotIn("correction", project["workflow"])
+
     def test_nested_state_is_recovered_and_raw_is_preserved(self):
         self.gateway.nested = True
         project = self.advance(self.create("manual", 1))

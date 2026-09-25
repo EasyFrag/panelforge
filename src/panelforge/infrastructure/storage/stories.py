@@ -9,6 +9,7 @@ from panelforge.domain.stories import (
     RECIPE_ID, RECIPE_VERSION, story_recipe_spec,
 )
 from .local import _atomic_write, _json_bytes, _read_json_object
+from panelforge.domain.story_library import LibraryConflict, empty_metadata
 from .prompt_recipes import LocalPromptRecipeStore
 from panelforge.domain.long_stories import ENGINE, is_v2
 
@@ -82,15 +83,53 @@ class LocalStoryStore:
             _atomic_write(path, _json_bytes(persisted))
             return value
 
+    def library_metadata(self):
+        with self._lock:
+            path = self.root / "library.json"
+            if path.is_symlink():
+                raise ValueError("Lien de bibliothèque non autorisé.")
+            if not path.exists():
+                return empty_metadata()
+            value = _read_json_object(path)
+            if value.get("schema_version") != 1 or type(value.get("revision")) is not int or not all(
+                    isinstance(value.get(key), dict) for key in ("projects", "groups")):
+                raise ValueError("Métadonnées de bibliothèque invalides.")
+            return value
+
+    def save_library_metadata(self, value, expected_revision):
+        with self._lock:
+            current = self.library_metadata()
+            if current["revision"] != expected_revision:
+                raise LibraryConflict("La bibliothèque a changé. Actualise-la avant de réessayer.")
+            result = deepcopy(value)
+            result.update(schema_version=1, revision=current["revision"] + 1)
+            self.root.mkdir(parents=True, exist_ok=True)
+            _atomic_write(self.root / "library.json", _json_bytes(result))
+            return result
+
+    def catalog(self):
+        """Read-only, uncapped snapshot for family resolution; no service reconciliation."""
+        result, unreadable = [], 0
+        with self._lock:
+            for path in self.root.glob("story-*.json"):
+                try:
+                    result.append(self.get(path.stem))
+                except (ValueError, OSError):
+                    unreadable += 1
+        return dict(items=result, unreadable=unreadable)
+
     def list(self, limit=30):
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("Limite de liste invalide.")
         with self._lock:
             paths = sorted(self.root.glob("story-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
             results = []
+            preferences = self.library_metadata()["projects"]
             for path in paths:
                 try:
                     value = self.get(path.stem)
+                    if preferences.get(value["project_id"], {}).get("trashed"):
+                        continue
                     results.append({k: value[k] for k in ("project_id", "title", "updated_at", "version")})
                 except (ValueError, OSError):
                     continue

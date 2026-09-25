@@ -41,11 +41,12 @@ class EpisodeConflict(ValueError):
 
 class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
     def __init__(self, *, stories, store, krea, prompt_lab, composition, render, assets,
-                 dlss=None, work_coordinator=None, sleep=time.sleep, qwen_edit=None):
+                 dlss=None, work_coordinator=None, sleep=time.sleep, qwen_edit=None, thumbnails=None):
         self.stories, self.store, self.krea = stories, store, krea
         self.prompt_lab, self.composition, self.render, self.assets = prompt_lab, composition, render, assets
         self.dlss = dlss
         self.qwen_edit = qwen_edit
+        self.thumbnails = thumbnails
         self.work_coordinator, self._sleep = work_coordinator, sleep
         self._lock, self._active = RLock(), set()
         self._active_batches = set()
@@ -983,7 +984,10 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
         scene_ids,
         inter_video_cooldown_seconds=30,
         auto_dlss=False,
+        include_thumbnail=False,
     ):
+        if type(include_thumbnail) is not bool:
+            raise ValueError("include_thumbnail must be a boolean")
         if type(auto_dlss) is not bool:
             raise ValueError("auto_dlss must be a boolean")
         if auto_dlss and self.dlss is None:
@@ -1022,13 +1026,14 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
             attached_prompt = (chosen[0].get("job") or {}).get("status") == "running"
             value["video_chain"] = dict(chain_id=chain_id, request_id=request_id, status="running",
                 phase="Prompt en cours · rendu armé" if attached_prompt else "Préparation des prompts",
-                error=None, pause_requested=False, pause_mode=None, auto_dlss=auto_dlss,
+                error=None, pause_requested=False, pause_mode=None, auto_dlss=auto_dlss, include_thumbnail=include_thumbnail,
+                thumbnail_status="pending" if include_thumbnail else "skipped", thumbnail_error=None,
                 inter_video_cooldown_seconds=inter_video_cooldown_seconds,
                 cooldown_until=None, cooldown_scene_id=None,
                 items=[dict(scene_id=scene["id"], index=scene["index"], title=scene["title"],
                     status="prompting" if (scene.get("job") or {}).get("status") == "running" else "pending",
                     phase="Prompt en cours · rendu armé" if (scene.get("job") or {}).get("status") == "running" else "En attente",
-                    error=None, preparation_id=None,
+                    error=None, admission_wait=None, preparation_id=None,
                     render_project_id=None, attempt_id=None, output_asset_id=None, prompt_attempt=0,
                     dlss_job_id=None, dlss_status=None, dlss_error=None, dlss_resume_pending=False,
                     render_setup=effective_video_setup(value, scene)) for scene in chosen])
@@ -1076,6 +1081,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
             chain.update(status="running", phase="Reprise de la chaîne", error=None,
                          pause_requested=False, pause_mode=None)
             for item in chain.get("items", []):
+                item["admission_wait"] = None
                 if item.get("status") == "prompt_failed":
                     item.update(status="pending", phase="À reprendre", error=None,
                                 prompt_attempt=int(item.get("prompt_attempt", 0)) + 1)
@@ -1287,6 +1293,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
             self._video_chain_change(identity, chain_id, lambda _value, chain:
                 self._video_item(chain, scene_id).update(status="rendering", phase="Rendu vidéo en cours", error=None))
             return project_id, attempt.attempt_id, scene_id
+        last_admission_wait = None
         while True:
             if self._video_chain_paused(identity, chain_id):
                 return None
@@ -1300,6 +1307,13 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
             except ValueError as error:
                 if "déjà actif" not in str(error):
                     raise
+                message = str(error)
+                if message != last_admission_wait:
+                    def waiting(_value, chain):
+                        self._video_item(chain, scene_id).update(phase="Attente d’un autre rendu H3", admission_wait=message)
+                        chain.update(phase="Attente d’un rendu H3 déjà actif")
+                    self._video_chain_change(identity, chain_id, waiting)
+                    last_admission_wait = message
                 self._sleep(0.5)
         if self._video_chain_pause_mode(identity, chain_id) == "after_active":
             attempt = self.render.projects.get(project_id).attempt(attempt.attempt_id)
@@ -1313,8 +1327,10 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                         attempt_id=None, error=None,
                     ))
                 return None
-        self._video_chain_change(identity, chain_id, lambda _value, chain:
-            self._video_item(chain, scene_id).update(status="rendering", phase="Rendu vidéo en cours", error=None))
+        def admitted(_value, chain):
+            self._video_item(chain, scene_id).update(status="rendering", phase="Rendu vidéo en cours", error=None, admission_wait=None)
+            chain.update(phase="Production vidéo")
+        self._video_chain_change(identity, chain_id, admitted)
         Thread(target=self._execute_chain_attempt,
                args=(identity, chain_id, scene_id, project_id, attempt.attempt_id, cooldown_after), daemon=True,
                name=f"episode-video-{scene_id}").start()
@@ -1474,10 +1490,38 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                             dlss_resume_pending=True,
                         ))
 
+    def _chain_thumbnail(self, identity, chain_id, *, start=False):
+        """Enqueue the cover first, then allow CPU prompt work while its GPU job runs."""
+        _value, chain = self._video_chain_snapshot(identity, chain_id)
+        if not chain.get("include_thumbnail") or chain.get("thumbnail_status") in {"ready", "failed", "skipped"}:
+            return False
+        try:
+            if self.thumbnails is None:
+                raise ValueError("Le service de miniatures n’est pas disponible.")
+            result = (self.thumbnails.prepare(identity, request_id=chain_id + "-thumbnail")
+                      if start else self.thumbnails.get(identity))
+            status, error = result["status"], result.get("error")
+        except Exception as exception:
+            status, error = "failed", str(exception)
+        if status != chain.get("thumbnail_status") or error != chain.get("thumbnail_error"):
+            self._video_chain_change(identity, chain_id, lambda _value, current:
+                current.update(thumbnail_status=status, thumbnail_error=error))
+        return status in {"queued", "running"}
+
+    def _wait_chain_thumbnail(self, identity, chain_id):
+        while self._chain_thumbnail(identity, chain_id):
+            if self._video_chain_paused(identity, chain_id):
+                return
+            self._sleep(1)
+
     def _video_chain_worker(self, identity, chain_id):
         active_videos = []
         try:
             _value, initial = self._video_chain_snapshot(identity, chain_id)
+            if self._video_chain_paused(identity, chain_id):
+                self._pause_video_chain_now(identity, chain_id)
+                return
+            self._chain_thumbnail(identity, chain_id, start=True)
             for original in initial["items"]:
                 scene_id = original["scene_id"]
                 _value, current_chain = self._video_chain_snapshot(identity, chain_id)
@@ -1501,6 +1545,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                     self._video_chain_change(identity, chain_id, lambda _value, chain, error=error:
                         self._video_item(chain, scene_id).update(status="prompt_failed", phase="Échec du prompt", error=str(error)))
                     continue
+                self._wait_chain_thumbnail(identity, chain_id)
                 if self._video_chain_paused(identity, chain_id):
                     for active_video in active_videos:
                         self._wait_chain_video(identity, chain_id, active_video)
@@ -1517,6 +1562,7 @@ class EpisodeService(EpisodeContinuityActions, EpisodeLocalizationActions):
                 except Exception as error:
                     self._video_chain_change(identity, chain_id, lambda _value, chain, error=error:
                         self._video_item(chain, scene_id).update(status="video_failed", phase="Échec vidéo", error=str(error)))
+            self._wait_chain_thumbnail(identity, chain_id)
             for active_video in active_videos:
                 self._wait_chain_video(identity, chain_id, active_video)
             if self._video_chain_paused(identity, chain_id):

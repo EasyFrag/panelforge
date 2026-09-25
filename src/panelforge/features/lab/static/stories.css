@@ -126,6 +126,14 @@
 .story-diagnostics ul { margin: .5rem 0 0; padding-left: 1.2rem; }
 .story-diagnostics li.warning { color: #8a4b18; }
 .story-diagnostics li.blocking { color: #a52626; font-weight: 700; }
+#story-diagnostic-list li { padding: .55rem .65rem; margin: .4rem 0; overflow-wrap: anywhere; }
+#story-diagnostic-list li > button { display: block; margin-top: .45rem; font-size: .85rem; }
+#story-diagnostic-summary { font-size: .85rem; }
+#story-diagnostics.story-observations-only { border-color: var(--line); background: transparent; }
+#story-diagnostic-observations > summary { cursor: pointer; font-weight: 600; }
+#story-diagnostic-blocker-list li { margin: .5rem 0; }
+#story-diagnostic-blocker-list button { display: block; margin-top: .4rem; }
+#story-chat-form:focus-within { outline: 2px solid var(--green); outline-offset: .5rem; border-radius: 6px; }
 #story-recovery-panel { overflow-wrap: anywhere; }
 #story-readable-scenes { max-height: 55vh; overflow: auto; }
 #story-draft-history-items { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
@@ -143,3 +151,81 @@
 .story-long-review .warning { color: #83500f; }
 .story-long-review button { margin: .25rem 0; }
 @media(max-width: 850px) { .story-layout { grid-template-columns: 1fr; }#stories-workspace { padding: 1rem; }#story-turns { max-height: 350px; }.story-narrative-switch, #story-series-episodes { grid-template-columns: 1fr; } }
+
+/* Three writing steps. Fabrication has its own unchanged layout and controls. */
+#story-writing-header { grid-column: 1 / -1; min-width: 0; }
+#story-writing-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; margin-bottom: 1rem; }
+#stories-workspace #story-writing-steps button { display: flex; align-items: center; gap: .8rem; text-align: left; padding: .85rem 1rem; min-width: 0; }
+#story-writing-steps strong, #story-writing-steps small { display: block; }
+#story-writing-steps strong { font-size: 1rem; }
+#story-writing-steps small { margin-top: .2rem; font-size: .8rem; }
+#story-writing-steps button[aria-current="step"] { outline: 2px solid var(--green); outline-offset: -2px; background: var(--green-soft); }
+.story-step-number { flex: none; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; width: 1.8rem; height: 1.8rem; font-weight: 700; }
+#story-writing-steps [data-state="done"] small, #story-writing [data-state="done"].story-state-label { color: #146344; font-weight: 750; }
+#story-writing-steps [data-state="running"] small, #story-writing [data-state="running"].story-state-label { color: #155caa; }
+#story-writing-steps [data-state="error"] small, #story-writing [data-state="error"].story-state-label { color: #a52626; font-weight: 750; }
+#story-writing-steps [data-state="attention"] small, #story-writing-steps [data-state="approval"] small,
+#story-writing [data-state="attention"].story-state-label, #story-writing [data-state="approval"].story-state-label { color: #85520c; font-weight: 700; }
+#story-writing-steps [data-state="planned"] small, #story-writing [data-state="planned"].story-state-label { color: #5d4b91; }
+#story-writing-status { padding: 1rem 1.2rem; border: 1px solid var(--line); border-left: 4px solid var(--green); border-radius: 12px; background: var(--panel); overflow-wrap: anywhere; }
+#story-writing-status h2 { margin: .25rem 0; }
+#story-writing-status p { margin: .35rem 0; }
+#story-writing-status[data-state="error"] { border-left-color: #a52626; }
+#story-writing-status[data-state="running"] { border-left-color: #155caa; }
+#story-writing-status[data-state="attention"], #story-writing-status[data-state="approval"] { border-left-color: #b87714; }
+#story-writing-status[data-state="error"] #story-writing-state { color: #a52626; }
+#story-writing-status[data-state="running"] #story-writing-state { color: #155caa; }
+#story-writing-status[data-state="done"] #story-writing-state { color: #146344; }
+#story-writing-status[data-state="attention"] #story-writing-state, #story-writing-status[data-state="approval"] #story-writing-state { color: #85520c; }
+#story-writing-status[data-state="planned"] #story-writing-state { color: #5d4b91; }
+.story-state-label { font-size: .8rem; font-weight: 700; }
+#story-writing-saved { font-size: .8rem; }
+#story-writing-status > .story-actions { margin-top: .8rem; }
+#story-writing-status > .story-live { margin: .8rem 0; min-width: 0; }
+#story-writing-status .story-live h3 { margin: .4rem 0; font-size: .85rem; }
+#story-writing-status .story-live pre { max-height: 12rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; line-height: 1.5; }
+#story-live-metrics { font-size: .78rem; font-variant-numeric: tabular-nums; }
+#story-writing-issues { padding-left: 1.4rem; max-height: 19rem; overflow-y: auto; }
+#story-writing-issues li { padding: .4rem .6rem; margin: .4rem 0; border-radius: 7px; background: #fff4df; }
+#story-writing-issues li p { font-size: .9rem; }
+#stories-workspace.story-writing-guided #story-guided-tools { margin: .8rem 0 0; padding: .7rem 0 0; border: 0; border-top: 1px solid var(--line); }
+#stories-workspace.story-writing-guided #story-guided-tools label { display: flex; align-items: center; gap: .7rem; }
+#stories-workspace.story-writing-guided #story-guided-tools select { width: auto; }
+#stories-workspace.story-writing-guided #story-progress,
+#stories-workspace.story-writing-guided #story-workflow-message,
+#stories-workspace.story-writing-guided #story-workflow-issues,
+#stories-workspace.story-writing-guided #story-advance,
+#stories-workspace.story-writing-guided #story-fabrication-gate { display: none; }
+#stories-workspace.story-writing-guided .story-document { grid-row: 2; }
+#stories-workspace.story-writing-guided .story-conversation { grid-row: 2; }
+#story-writing-reader { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: .6rem; border-bottom: 1px solid var(--line); padding-bottom: .9rem; }
+#story-reading-label { color: var(--muted); font-size: .75rem; letter-spacing: .05em; }
+#story-writing-reader h2 { margin: .25rem 0; }
+#story-writing-reader p { margin: .4rem 0 0; max-width: 65ch; font-size: .85rem; }
+#story-intention-text, #story-intention-settings { white-space: pre-wrap; overflow-wrap: anywhere; }
+#stories-workspace.story-writing-guided[data-writing-stage="intention"] #story-series,
+#stories-workspace.story-writing-guided[data-writing-stage="intention"] #story-scenario,
+#stories-workspace.story-writing-guided[data-writing-stage="story"] #story-scenario,
+#stories-workspace.story-writing-guided[data-writing-stage="scenario"] #story-series { display: none; }
+#stories-workspace.story-writing-guided #story-series { padding: 0; border: 0; background: transparent; }
+#stories-workspace.story-writing-guided #story-series-episodes { grid-template-columns: 1fr; }
+#stories-workspace.story-writing-guided #story-series-episodes li { margin: .4rem 0; white-space: pre-wrap; }
+#story-scenario-selector { margin: 1rem 0; }
+#story-writing-details { border-top: 1px solid var(--line); padding-top: 1rem; }
+#story-writing-details > summary { font-size: .85rem; }
+#story-writing-details > p { font-size: .8rem; }
+#stories-workspace.story-writing-guided .story-conversation > div > details:first-of-type { display: none; }
+#stories-workspace.story-writing-guided #story-turns { max-height: 35vh; }
+#stories-workspace #story-writing button:focus-visible { outline: 3px solid #155caa; outline-offset: 2px; }
+@media (max-width: 900px) {
+  #stories-workspace.story-writing-guided #story-writing-header { order: 0; width: 100%; }
+  #story-writing-steps { gap: .4rem; }
+  #stories-workspace #story-writing-steps button { padding: .65rem .4rem; gap: .45rem; }
+  #story-writing-steps strong { font-size: .9rem; }
+  .story-step-number { width: 1.4rem; height: 1.4rem; font-size: .8rem; }
+}
+@media (max-width: 480px) {
+  #stories-workspace #story-writing-steps button { flex-direction: column; align-items: start; }
+  #story-writing-status { padding: .8rem; }
+  #story-writing-status > .story-actions > button { width: 100%; }
+}

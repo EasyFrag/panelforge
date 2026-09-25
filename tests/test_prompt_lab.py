@@ -821,6 +821,7 @@ class FakeCompletions:
                         usage=SimpleNamespace(
                             prompt_tokens=7,
                             completion_tokens=2,
+                            completion_tokens_details=SimpleNamespace(reasoning_tokens=1),
                         ),
                     ),
                 )
@@ -983,6 +984,8 @@ class OpenAICompatibleGatewayTest(unittest.TestCase):
         self.assertEqual(completed.result.content, "Bonjour")
         self.assertEqual(completed.result.prompt_tokens, 7)
         self.assertEqual(completed.result.completion_tokens, 2)
+        self.assertEqual(completed.result.reasoning_tokens, 1)
+        self.assertEqual(completions.kwargs["stream_options"], {"include_usage": True})
 
     def test_opt_in_streams_reasoning_without_proxy_artifacts_or_final_text(self):
         class ReasoningCompletions:

@@ -1,5 +1,380 @@
 # CONTINUITY
 
+## Version et proposition 2026-09-25 — bibliothèque, miniatures et prochains états visuels
+
+### Goal
+- Conserver une version GitHub du code actuel avant une prochaine évolution des états visuels. Proposer le patch pour les nouvelles histoires et suites uniquement ; aucune réparation d’ancien épisode demandée.
+
+### Current state
+- Proposition docs/proposals/story-required-visual-states-2026-09-25.md : états majeurs déjà acquis ou transformés, contrôle visuel dans la relecture existante sans secrets narratifs, corrections bornées au registre, préparation Qwen des variantes avec dépendance à l’identité, attente de fabrication explicite si une image requise manque. Aucun nouvel appel systématique ni migration ; ancien parcours et jobs conservés. Évolution non implémentée.
+- Snapshot depuis 9b52feb : bibliothèque et portraits/tri/favoris/archives, trois étapes d’écriture et correction explicite, miniatures 3:4 et galerie/corbeille/bandeau déplaçable, métriques LLM/thermiques et refroidissement local, récupération des réservations H3 abandonnées en multilangue. Polices applicatives et licences incluses, données runtime/médias générés/configurations personnelles exclus.
+- Branche dédiée snapshots/stories-library-thumbnails-2026-09-25 ; tag snapshot-stories-library-thumbnails-2026-09-25. Notes docs/releases/snapshot-stories-library-thumbnails-2026-09-25.md. Master préservée. Contrôles statiques de sélection/syntaxe avant publication ; aucun test fonctionnel, appel LLM, génération ou redémarrage.
+
+### Next steps
+1. En cas de reprise interrompue de publication, vérifier la présence et la cible de la branche/tag sur origin avant de recommencer.
+2. Aligner la proposition des états visuels, puis implémenter uniquement sur instruction utilisateur.
+3. L’utilisateur conserve la main sur les tests fonctionnels et la mise en service de cette version.
+
+## Audit 2026-09-25 — grossesse sans variante dans Jus de trahison, suite
+
+### Goal
+- Expliquer pourquoi Fraise enceinte ne dispose pas d’une référence dédiée dans la suite de Jus de trahison. Analyse seule demandée ; ne modifier ni scénario ni fabrication ni code.
+
+### Current state
+- Suite retrouvée : story-3137e1e0b0d631c3bbabc2ee49744d9d « La famille refaite », enfant de story-9ddd34b57dc549d2bc959d9c735ac0ec « Jus de trahison ». Fabrication episode-c31f47b2563646cfac0befc71586e9fc « Le bébé de Pom », créée le 24/09 à 15:57 UTC, continuity_version=1. Les IDs internes repartent à episode-1 dans le projet enfant ; ne pas les confondre avec le numéro éditorial de la série.
+- Pas un vieux contrat sans continuité : développement story.long.develop@2.2.0 du 24/09, Gemma 4, appel llm-bfab65e51b8c4f70b514b4f8f0e9a74e. Archive vérifiée : les consignes de variantes majeures persistantes étaient présentes, avec tracking=text conseillé par défaut. Réponse brute et scénario/fabrication concordants : registre limité à Pom (Triste puis Choqué et figé), cadeaux et dossier médical, tout en text/reference=false. Fraise complètement absente du registre ; aucune annexe rejetée ni variante perdue à la fabrication.
+- La référence Fraise est exactement asset-d8232695e4ca4a68aff7a514f3d9956a, déjà utilisée au parent. Consultation visuelle en mémoire : personnage en robe rose, sans grossesse visiblement représentée. Réutilisée dans les scènes 1, 3 et 4 ; aucune variante enregistrée. Scène 1 : annonce téléphonique seulement. Scène 3 : aucune indication de grossesse dans le prompt final. Scène 4 : belly/caresse du ventre, sans description explicite de ventre de grossesse. Scène 5 : départ de Fraise dans la prose, mais référence absente (casting déjà signalé par la relecture).
+- Cause : omission de l’état physique par le rédacteur, consigne trop générale/biais textuel, absence de contrôle de couverture récit/états/références. La relecture Qwen llm-2c87dc39529e47e09a2774de2761fb4a porte sur reader_units (gestes/paroles), sans registre visuel ni images ; elle signale casting et durée, pas cette omission.
+- Le code sait créer une fiche si tracking=reference ET state.reference=true, puis résoudre cet état au début des scènes. Il ne déduit pas des variantes depuis le mot enceinte. Les variantes restent hors sélection par défaut du lot image et passent actuellement par Qwen guidé/import. L’évolution avec deux images avant/après pendant une transformation discutée le 24/09 est restée distincte de la refonte visuelle des trois étapes d’écriture ; pas implémentée dans ce patch UX.
+- Aucun code, prompt, scénario, réglage ou média modifié. Aucun test, appel LLM, génération, redémarrage ou reprise. Notes de continuité seules actualisées.
+
+### Next steps
+1. Expliquer la différence entre grossesse annoncée et apparence enceinte explicitement requise ; l’intention utilisateur actuelle appelle une variante physique persistante, sans réécriture de l’histoire.
+2. Proposition à aligner : état Fraise enceinte à ventre visiblement arrondi, identité/tenue préservées, une image dédiée dès sa première apparition visible et réutilisation sur les scènes concernées. Pas de transition corporelle à inventer ici ; scène téléphonique hors champ n’impose pas deux images.
+3. Amélioration minimale à proposer avant code : préciser le critère de variante pour changements majeurs persistants, vérifier la couverture des états avant fabrication et rendre la préparation de l’image explicite. Ne pas appliquer une heuristique aveugle au mot enceinte (grossesse seulement évoquée/mensonge/pas encore visible).
+
+## Correctif 2026-09-25 — admission H3 bloquée en multilangue
+
+### Goal
+- Diagnostiquer et corriger la copie anglaise bloquée après traduction/injection, avec des files local/serveur vides.
+
+### Current state
+- Patch ciblé dans D:/Code/panelforge-krea2-flux, changements simultanés préservés. Audit runtime en lecture : épisode episode-874e7709066e6797c5d02acd1fb5ca34, 7 scènes / 14 répliques toutes prêtes ; première tentative CREATED sans execution_id, miniature exclue.
+- Cause confirmée : ancienne tentative QUEUED du 24/09, scène 2 « Le barrage de Frambosa » de « L’éclat de la scène », sans ticket FIFO ni execution_id ; elle bloquait l’admission globale H3. Coordinateur et ComfyUI vides lors du diagnostic. La chaîne réessayait silencieusement le refus « déjà actif ».
+- H3 récupère désormais les QUEUED abandonnés uniquement en présence du coordinateur, sans ticket ni worker revendiqué ni exécution ComfyUI. Échec explicite conservant prompt/réglages, sans resoumission. Tickets actifs et récupération RUNNING protégés.
+- EpisodeService conserve le motif d’attente d’admission et le remet à zéro à la reprise/admission. Cartes multilangues : injection prête implique « en attente du lancement » ; attente réelle derrière H3 explicite, détail en infobulle. Cache episodes.js 20260925.1.
+- Régressions préparées dans test_h3_render_recovery.py, test_episodes.py et test_episodes_browser.py. AST de 5 Python, syntaxe JS et fixture DOM, git diff --check réussis. Tests non exécutés selon AGENTS.md/préférence utilisateur. Aucun appel LLM, génération, changement runtime, redémarrage, commit ou push.
+- Diagnostic détaillé : docs/diagnostics/multilang-queue-orphan-2026-09-25.md.
+
+### Next steps
+1. L’utilisateur redémarre le Lab quand ses autres traitements sont terminés, puis Ctrl+F5.
+2. Copie anglaise → Scènes → Reprendre la chaîne. Réutiliser traductions et prompts existants ; aucune nouvelle adaptation nécessaire.
+3. Vérifier la soumission effective de la première vidéo lors de cette reprise ; les tests ciblés restent à exécuter par l’utilisateur.
+
+## Implémentation 2026-09-24 — bandeau déplaçable et galerie avec corbeille
+
+### Goal
+- Corriger manuellement le chevauchement sur une miniature existante, sans nouvelle composition Qwen, et désencombrer les modèles non retenus.
+
+### Current state
+- Patch dans D:/Code/panelforge-krea2-flux, travaux simultanés préservés. Bouton Déplacer le bandeau sur chaque miniature prête : aperçu original sans ancien badge, glisser-déposer souris/tactile, clavier, curseurs horizontal/vertical et positions En haut / Au centre / En bas / origine. Géométrie normalisée, bornée à l’image et arrondie de façon cohérente avec le PNG.
+- Enregistrement local depuis le modèle original, titre conservé, nouvelle image PNG et ancienne sortie dans l’historique. Aucune tâche Qwen/LLM/vidéo/DLSS. Position persistée par épisode ; case explicite cochée par défaut pour mémoriser le placement des futures miniatures de la série avec le même modèle. Les épisodes existants ne sont pas régénérés ; un autre modèle repart de sa géométrie par défaut.
+- Deux aperçus PNG locaux (fond/titre sans badge et badge transparent) fournis par des endpoints en lecture sans création d’asset. L’enregistrement exige une miniature prête et sa révision attendue ; request_id rend le double envoi idempotent. Les vues anciennes et les anciens gabarits 9:16 restent compatibles.
+- Galerie dans Modifier le modèle : aperçu, titre, date, format, état Actuel / Utilisé par N épisodes / Retenu pour une série / Essai non retenu. Série courante par défaut, modèle actuel en tête, filtres Cette série / Essais non retenus / Toutes les séries / Corbeille, recherche et tri récent/ancien/titre. Sélectionner une carte ne lance aucun traitement ; application explicite séparée.
+- Corbeille restaurable pour les modèles prêts non utilisés. Contrôle serveur sous verrou des liens série, épisode, ancienne image encore affichée et fallback d’un traitement en cours ; refus si utilisé. Révision par modèle pour les éditions concurrentes. Assets, projets Qwen et historiques préservés : la corbeille ne libère pas le disque. Les modèles archivés ne peuvent plus être appliqués avant restauration.
+- Actualisation de galerie explicite ; réponses de lecture obsolètes ignorées après une mutation locale. CSS responsive, manipulation au clavier et états de chargement/erreur. Nouveau script episode-thumbnail-layout.js 20260924.1, episode-thumbnails.js/css 20260924.4 ; index et docs/episode-thumbnails.md actualisés.
+- Contrôles statiques réussis : AST de 7 Python, compilation Node de 2 JS et fixture DOM, 40 raccordements HTML, unicité des IDs, ordre des scripts, espaces finaux et git diff --check. Tests préparés pour déplacement depuis l’original, historique/idempotence, préférence de série, anciens formats, aperçu sans écriture, coordonnées invalides/révisions, protection/restauration de corbeille, API et parcours DOM (pointeur/clavier inclus).
+- Aucun test fonctionnel exécuté selon AGENTS.md et la préférence utilisateur, aucun appel LLM, génération réelle, modification des données runtime ou redémarrage. Aucun commit ni push demandé.
+
+### Next steps
+1. L’utilisateur redémarre le Lab quand ses traitements sont terminés, puis Ctrl+F5.
+2. Sur la miniature concernée, Déplacer le bandeau → En haut ou glisser vers une zone libre → Enregistrer la position · sans IA. Il n’est pas nécessaire de recréer le modèle.
+3. Modifier le modèle → Essais non retenus de cette série pour nettoyer la galerie ; Corbeille pour restaurer.
+4. L’utilisateur peut lancer les tests ciblés de docs/episode-thumbnails.md, puis vérifier un déplacement réel et la reprise sur un prochain épisode de la série.
+
+## Alignement 2026-09-24 — chevauchement du titre et nettoyage des modèles
+
+### Goal
+- Expliquer et contourner le chevauchement avant de développer un sélecteur visuel avec retrait des essais non retenus.
+
+### Current state
+- Observation uniquement : les trois derniers modèles « Le Muscle de Citron » du registre D:/Code/panelforge/workspace/episode-thumbnails/index.json utilisent grid-cover-v3 et title_mode=artwork. Un essai comporte déjà la direction « mettre le titre en haut ». Le registre comporte 11 modèles ; le sélecteur actuel liste tous les modèles prêts avec leur seul titre, sans filtre par série ni indication d’utilisation.
+- Le titre est incorporé aux pixels par Qwen ; l’application dessine ensuite le badge à position fixe, sans détection de texte. Le format 3:4 et les zones demandées par prompt ne garantissent pas le placement par Qwen. Une simple réapplication du modèle conserve donc le chevauchement.
+- Solution immédiatement disponible à expliquer : Modifier le modèle → Nouveau modèle avec Qwen → Police intégrée → Pop contrasté. Qwen compose sans texte, puis le titre et le numéro sont ajoutés dans des zones distinctes. Une composition existante contenant du texte nécessiterait d’abord son retrait pour pouvoir recevoir ce traitement sans doublon.
+- Proposition à aligner : galerie avec aperçu, série courante par défaut, modèle actuel en premier, tri récent, état Actuel / Utilisé par N épisodes / Essai non retenu, retrait des essais via corbeille restaurable et conservation des images utilisées/historiques. Ne pas confondre modèle et PNG d’épisode ; pas de suppression physique aveugle d’assets partagés.
+- Aucun code applicatif, réglage ou donnée runtime modifié. Aucun test, appel LLM, génération ou redémarrage. Demande « avant ça dis-moi » traitée comme une explication avant implémentation.
+
+### Next steps
+1. Présenter les réglages actuels permettant un placement déterministe du titre et la limite du mode Qwen.
+2. Aligner l’évolution du sélecteur et le comportement de retrait/restauration avant de coder.
+
+## Correctif 2026-09-24 — miniature 3:4 et titre sans ONCE
+
+### Goal
+- Retirer l’instruction ayant fait imprimer ONCE et rapprocher titre/numéro du centre pour le cadrage de grille montré par l’utilisateur.
+
+### Current state
+- Correctif dans D:/Code/panelforge-krea2-flux. Ancien prompt « Write exactly [titre] ONCE » remplacé par des consignes séparées du titre exact, cité seul en dernière ligne. Pas de suppression automatique d’un mot appartenant réellement à un titre.
+- Nouveau gabarit grid-cover-v3 : PNG 1080 × 1440 (3:4), Qwen composition native 3:4 / 2 MP (1248 × 1664), puis réduction. Ratio 3:4 ajouté au contrat Qwen et au sélecteur existant, sans changement de workflow. Format choisi d’après la capture utilisateur, sans affirmer un format universel TikTok.
+- Prompt : titre entre 10 et 29 % de hauteur, marge latérale 9 %, visages entre 33 et 72 %, zone numéro entre 80 et 91 %. Police intégrée : zone haute recentrée et badge à y=1150–1310, avec 130 pixels dessous. En titre Qwen, ces positions restent des instructions interprétées par le modèle.
+- Anciens gabarits outfit-cover-v1 / poster-cover-v2 conservés en 9:16, sans modification des images existantes. Métadonnées de format exposées par l’API et affichées dans la carte/éditeur ; aperçu au ratio naturel. Nouvelle génération explicitement nécessaire pour enlever ONCE d’une image déjà produite.
+- Aucun appel LLM de rédaction ajouté ; PNG toujours séparé, jamais inséré au montage. Sélection/rôles de 16 références et habillages précédents conservés. Assets episode-thumbnails.js/css 20260924.3. Guide docs/episode-thumbnails.md mis à jour.
+- Contrôles statiques réussis : AST de 7 fichiers Python, compilation Node du JS et de la fixture DOM, 21 raccordements HTML et unicité des IDs, git diff --check. Tests préparés pour format natif, métadonnées, maintien V2, isolement du titre, zones V3 et DOM. Aucun test fonctionnel exécuté, appel LLM, rendu, modification runtime ou redémarrage. Autres travaux simultanés préservés.
+
+### Next steps
+1. Quand les traitements sont terminés, redémarrage du Lab par l’utilisateur et Ctrl+F5.
+2. Modifier le modèle → Nouveau modèle avec Qwen pour refaire la couverture contenant ONCE et bénéficier du 3:4. Police intégrée pour un titre/placement exacts.
+3. Exécuter les régressions utilisateur indiquées dans docs/episode-thumbnails.md et évaluer le rendu réel du nouveau cadrage.
+
+## Implémentation 2026-09-24 — monitoring LLM et thermique détaillé
+
+### Goal
+- Afficher en direct le débit et les jetons de réflexion/rédaction du LLM local, ajouter un historique thermique local/serveur sur une heure et protéger le GPU local par un délai fixe après une génération chaude.
+
+### Current state
+- Implémenté dans D:/Code/panelforge-krea2-flux en préservant les changements non commités déjà présents. Le panneau flottant est élargi avec une colonne Température et deux graphes Local / Serveur : échantillonnage toutes les 2 secondes, maximum par tranche de 15 secondes, conservation en mémoire sur une heure, axe X temporel et axe Y fixe 0–100 °C. Couleurs : vert sous 70 °C, orange de 70 à 79 °C, rouge de 80 à 89 °C, rouge sombre à partir de 90 °C.
+- La ligne locale expose le débit glissant sur 5 secondes et les compteurs Th / Wr. Les événements du flux donnent l’estimation en direct ; le total final est réconcilié avec l’usage fournisseur. La ventilation réflexion/rédaction est exacte si le serveur expose reasoning_tokens, sinon elle reste une estimation proportionnelle clairement signalée dans l’infobulle.
+- Le refroidissement local est indépendant de la politique serveur. Si la température locale atteint le seuil pendant une tâche GPU locale, la tâche courante se termine puis le coordinateur attend le délai configuré avant la suivante. Valeurs par défaut : 80 °C et 80 secondes. Aucun délai n’est ajouté si le seuil n’a pas été atteint. Le délai programmé reste applicable même si une tâche en attente est annulée.
+- Les paramètres globaux sont réorganisés en sections Local et Serveur. Local contient le seuil et la durée de refroidissement ainsi que la surveillance locale. Serveur conserve seuil de pause, seuil de reprise, stabilisation, repos entre vidéos et surveillance distante. Les anciens fichiers de réglages restent compatibles avec les nouvelles valeurs par défaut.
+- Le collecteur thermique démarre et s’arrête avec le Lab. La pause/reprise thermique distante existante est conservée. L’historique est volontairement volatil et repart à zéro au redémarrage.
+- Tests unitaires et navigateur préparés pour le cooldown, les agrégats thermiques, les métriques LLM, la persistance, l’API et le DOM. Contrôles statiques réussis : AST de 11 fichiers Python et git diff --check. Node.js n’est pas disponible pour une compilation JS locale. Conformément aux instructions du projet, aucun test fonctionnel, appel LLM, rendu, modification runtime ou redémarrage n’a été lancé.
+- Assets actualisés : lab.css 20260924.3 et work-queue.js 20260924.1.
+
+### Next steps
+1. Redémarrer le Lab quand les traitements en cours sont terminés, puis recharger la page avec Ctrl+F5.
+2. Lancer les tests ciblés : python -m unittest tests.test_machine_work tests.test_lab_web tests.test_prompt_lab tests.test_work_queue_browser.
+3. Vérifier sur un flux réel si le fournisseur renvoie reasoning_tokens, puis observer un passage à 80 °C pour confirmer le compte à rebours avant la tâche locale suivante.
+
+## Évolution 2026-09-24 — miniatures : distribution des rôles et titre plus affirmé
+
+### Goal
+- Permettre davantage de références, personnages importants au premier plan et secondaires derrière, avec un titre moderne et lisible, sans appel au LLM de rédaction.
+
+### Current state
+- Lecture des deux exemples utilisateur : titre masqué par le bandeau dans le premier, titre blanc assez discret dans le second. La limite UI de quatre images était locale : le contrat et les manifests Qwen existants acceptent 16 références. Aucun workflow Qwen modifié.
+- Miniatures : jusqu’à 16 références. Chaque sélection dispose d’un rôle explicite Premier plan / Arrière-plan / Décor / Objet important / Style seulement. Compteur par plan, limite interactive, rôles persistés dans la version du modèle et injectés directement dans le prompt et les rôles Qwen. Sélection automatique conservatrice inchangée (deux personnages distincts + décor) ; l’utilisateur peut ajouter les personnages secondaires.
+- Deux habillages Pop contrasté et Affiche cinéma, aperçu avec vraies polices via endpoint limité aux deux styles. Mode Qwen : consignes de lettrage graphique détaillées. Mode Police intégrée : Outfit Black ou Barlow Condensed Black, contours/ombres/relief locaux et titre exact. Nouvelle police Barlow originale intégrée avec licence OFL et empreinte, sans dépendance ajoutée.
+- Nouveau gabarit poster-cover-v2 : titre dans une zone haute, visages au centre, badge épisode compact en bas ; zones réservées transmises à Qwen. Le placement d’un titre généré reste interprété ; le mode Police intégrée fixe réellement le placement. Les anciens modèles outfit-cover-v1 et leurs sorties restent inchangés. Il faut choisir Modifier le modèle → Nouveau modèle avec Qwen pour modifier la composition ou l’habillage d’un modèle déjà enregistré.
+- API miniature accepte reference_roles et title_style. Réutilisation de modèle conserve rôles/style/font/layout ; pas de rédaction LLM supplémentaire, une seule composition Qwen pour le nouveau modèle puis numérotation locale habituelle.
+- Vérifications statiques passées : AST de 7 Python, compilation JS applicatif et fixture DOM, unicité/raccordement IDs HTML, git diff --check (uniquement avertissements git de fins de lignes sur travaux partagés). Tests préparés/étendus : 16 références, ordre/roles des tags, refus dépassement/roles invalides, conservation inter-épisodes, typographie V2 et conservation V1, API/font whitelist, soumission UI. Aucun test exécuté, aucun appel LLM, rendu, donnée runtime ou redémarrage.
+- Assets episode-thumbnails.js/css 20260924.2. Guide actualisé : docs/episode-thumbnails.md. Travaux d’autres tâches en cours (file de traitements, etc.) préservés.
+
+### Next steps
+1. Redémarrage du Lab par l’utilisateur quand ses traitements sont terminés, puis Ctrl+F5.
+2. Choisir Nouveau modèle avec Qwen, deux protagonistes au premier plan, secondaires à l’arrière-plan, puis essayer Pop contrasté ; Police intégrée pour une police exacte et un placement fixe.
+3. L’utilisateur lance les régressions préparées et évalue la composition réelle avec plusieurs références ; ajuster le prompt selon ce retour sans réécrire les scènes.
+
+
+## Implémentation 2026-09-24 — miniatures indépendantes par série
+
+### Goal
+- Livrer le fonctionnement validé : première passe de miniature manquante, modèle commun par série, numéro injecté avec une police moderne ; aucune insertion au montage.
+
+### Current state
+- Implémenté dans D:/Code/panelforge-krea2-flux, en préservant tous les changements précédents non commités. Aucune publication GitHub demandée pour ce patch.
+- Nouvelle carte Miniature avant Scène 1 dans Fabrication / Scènes. Case Préparer la miniature si elle manque cochée par défaut au lancement global ; lancement individuel d’une scène inchangé. États à préparer / planifiée / en cours / prête / erreur ; aperçu et téléchargement PNG indépendant.
+- Fenêtre Modifier le modèle : modèle actuel de série, modèles enregistrés, nouveau modèle Qwen, import image ; titre public, numéro éditorial, jusqu’à quatre références et direction visuelle facultative. Par défaut deux personnages distincts et un décor disponibles, en excluant références archivées/obsolètes. Les états d’un même personnage ne sont pas choisis deux fois automatiquement.
+- Qwen compose un modèle 9:16 à 2 MP avec ses réglages existants (25 steps, CFG 1), sans appel de conversation/rédaction supplémentaire. Titre stylisé Qwen par défaut ; alternative titre exact en Outfit. Le numéro est toujours dessiné en Outfit gras, police variable originale intégrée avec sa licence SIL OFL. PNG final 1080 × 1920 ; visuel et titre inchangés entre épisodes, seul numéro différent.
+- EpisodeThumbnailService et registre atomique workspace/episode-thumbnails/index.json : liens explicites série/modèle/fabrication/assets, versions de modèles conservées, historique des anciennes miniatures, numéro de bibliothèque (suites, unités serial/continuous, langues). Reprise du projet/essai Qwen par ID/request_id sans nouvelle génération ; concurrence sérialisée, requête idempotente et révision attendue pour l’édition.
+- EpisodeService réserve la miniature via la file Qwen existante avant ses vidéos. Le premier prompt peut s’écrire pendant la composition ; rendu vidéo après fin de miniature. Échec local de miniature non bloquant pour vidéo/DLSS. Une pause arrête les prochaines scènes ; la tâche Qwen indépendante déjà réservée peut finir. Les modèles importés ou prêts n’utilisent ni LLM ni GPU. Aucun prompt vidéo, référence, scénario ou montage modifié par le service de miniatures.
+- Nouveau modèle sélectionné pour les prochains épisodes ; sorties existantes conservées. Échec d’une nouvelle composition : restauration du modèle de série précédent, ancienne miniature téléchargeable avec son numéro d’origine. Import d’un modèle sans ancien numéro ; recadrage central 9:16 annoncé.
+- Contrôles statiques uniquement : AST de 13 Python, compilation de deux JS applicatifs et d’une fixture navigateur, TOML, unicité/raccordement des IDs HTML, ordre des scripts et git diff --check. Tests préparés : réutilisation/numérotation, concurrence, idempotence, reprise et erreurs, import, typographie déterministe, HTTP/DOM, ordre de chaîne et poursuite après erreur. Aucun test fonctionnel exécuté conformément à AGENTS.md et au choix précédent de l’utilisateur.
+- Aucun appel LLM, génération réelle, modification des données runtime ou redémarrage. Assets : episodes.js 20260924.2 ; episode-thumbnails.js/css 20260924.1. Documentation et commandes ciblées : docs/episode-thumbnails.md.
+
+### Next steps
+1. L’utilisateur redémarre le Lab du worktree actif quand ses générations sont terminées, puis recharge avec Ctrl+F5.
+2. Exécuter les tests ciblés préparés selon docs/episode-thumbnails.md, puis vérifier une première composition et la réutilisation sur l’épisode suivant.
+3. Ajuster l’habillage du premier modèle selon le retour visuel, sans modifier les scènes ni insérer de miniature au montage.
+
+
+## Alignement 2026-09-24 — miniature séparée, modèle et typographie
+
+### Goal
+- Intégrer la précision explicite de l’auteur : aucune insertion de miniature dans le montage. Première passe de fabrication seulement si la miniature manque ; possibilité de choisir un modèle existant et d’y injecter le numéro d’épisode. Typographie très moderne souhaitée ; génération du texte par Qwen envisagée.
+
+### Current state
+- Discussion uniquement. La proposition antérieure d’une éventuelle insertion dans l’export vidéo est annulée par l’auteur : produire un fichier image indépendant, sans toucher au montage ni aux vidéos.
+- Parcours proposé : miniature de l’épisode déjà présente -> réutilisation ; sinon modèle de série disponible -> application du numéro ; sinon créer ou importer/choisir le modèle. Toujours repartir du modèle de série, pas de la miniature modifiée de l’épisode précédent.
+- Typographie à aligner : Qwen peut créer le titre et l’habillage stylisés du modèle initial. Un titre raster généré n’est pas une police réutilisable. Proposition privilégiée : conserver ce titre/visuel puis dessiner le numéro avec une vraie police moderne choisie et enregistrée. Variante pour modèle importé aplati : Qwen Edit peut remplacer le numéro, avec possibilité de légères variations ailleurs ; ne pas promettre une conservation pixel à pixel. Aucun choix de police spécifique ni appel de génération effectué.
+- Aucun code applicatif, runtime, montage, image ou réglage modifié ; notes de continuité seules mises à jour. Aucun test, appel LLM ou rendu lancé.
+
+### Next steps
+1. Confirmer le partage entre lettrage Qwen du modèle initial et injection du numéro avec une police enregistrée, ou retouche Qwen du modèle importé.
+2. Attendre une demande d’implémentation ; l’exclusion de toute insertion au montage est ferme.
+
+## Alignement 2026-09-24 — miniatures d’épisodes dans la fabrication
+
+### Goal
+- Proposer, sans coder, la création de miniatures au début de la fabrication, avec un habillage reconnaissable partagé par les épisodes d’une même série pour faciliter leur repérage sur Instagram/TikTok.
+
+### Current state
+- Lecture du code : drawVideoOverview dans episodes.js correspond au tableau montré. QwenEditService compose à partir de références et utilise déjà la file coordonnée du GPU distant ; la chaîne vidéo utilise ce même coordinateur. La bibliothèque possède des groupes explicites et une numérotation éditoriale (indépendante des numéros de scènes/séquences). Pillow est déjà disponible pour dessiner un texte exact avec une police enregistrée.
+- Proposition : carte Miniature de l’épisode avant la scène 1, dans Fabrication/Scènes, après disponibilité des références. Miniature distincte des scènes narratives et de leurs compteurs. Premier épisode : génération d’un visuel maître sans texte via Qwen (décor + 1 à 3 personnages sélectionnés, ou image importée), puis titre de série et grand numéro dessinés par l’application. Épisodes suivants : réemploi exact du visuel et du gabarit, changement du numéro sans LLM ni GPU par défaut.
+- Parcours simple : case Inclure la miniature au lancement de la chaîne, états à préparer/planifiée/en cours/prête/erreur, actions Voir/Modifier/Télécharger. La tâche image passe avant les rendus vidéo de la chaîne lorsque le GPU est disponible ; les prompts peuvent se préparer parallèlement. Pas de préemption d’un rendu déjà actif, pas de blocage des scènes si seule la miniature échoue. Validation facultative du premier habillage, pas de validation répétée pour chaque épisode.
+- Habillage commun = visuel de fond et personnages, palette, police/positions, titre public stable. Épisode = numéro éditorial bien visible et éventuellement sous-titre court secondaire. V1 conseillée : même visuel exactement et seul numéro variable. Aperçu miniature/grille pour contrôler la lisibilité et le cadrage ; pas de dépendance à un recadrage universel supposé pour les plateformes. Conserver la version de l’habillage utilisée par chaque miniature, sans modifier rétroactivement les exports existants.
+- Point publication vérifié : l’aide officielle TikTok décrit une couverture choisie comme une image de la vidéo (support.tiktok.com/en/using-tiktok/creating-videos/editing-posting-and-deleting). Distinguer le PNG de couverture du premier plan de la vidéo ; prévoir un export incluant une image sélectionnable si ce parcours de publication l’exige. Ne pas promettre qu’un PNG séparé peut être importé sur tous les parcours TikTok. Aucune spécification de recadrage Instagram affirmée, aide Meta inaccessible derrière connexion.
+- Aucun code applicatif, réglage, runtime, média, test ou service modifié ; aucun appel LLM/image/vidéo. Notes de continuité seules mises à jour. Travaux précédents préservés.
+
+### Next steps
+1. Aligner la V1 : visuel fixe de série + titre + grand numéro, carte prioritaire dans Fabrication/Scènes ; personnalisation détaillée dans un panneau compact.
+2. Lors d’une demande d’implémentation, connecter le visuel/gabarit partagé à la bibliothèque et la tâche miniature à la file existante sans changer les scènes vidéo.
+3. Aligner séparément l’intégration de la couverture à l’export vidéo selon le parcours de publication de l’utilisateur.
+
+## Diagnostic 2026-09-24 — chargements locaux Unsloth et vision CPU
+
+### Goal
+- Expliquer les attentes Unsloth et vérifier l'hypothèse du --fit off supplémentaire que l'utilisateur vient de retirer.
+
+### Current state
+- Diagnostic en lecture seule des journaux et du code installé. Aucune configuration, aucun code applicatif ni runtime modifié ; aucun test, appel LLM ou redémarrage lancé. Travaux existants préservés.
+- Gemma avec une image à 16:54:11 Paris : appel 180,607 s, préparation native 171,334 s, génération 8,607 s à 121 tokens/s ; modèle chargé depuis 16:30. Unsloth avait explicitement placé la vision sur CPU, contexte 131072. Texte précédent : 6,743 s.
+- Après les changements utilisateur : chargement manuel Gemma terminé à 17:04:24 en 11,577 s. L'argument supplémentaire --fit off a disparu, mais Unsloth le génère encore. GPU sélectionné, plus de --no-mmproj-offload, estimation KV 6,2 Go contre 14,0 Go, load-mode none. La bascule automatique Gemma suivante reprend ces paramètres. Plusieurs réglages ont changé : pas de preuve isolant le seul flag fit.
+- Les bascules Gemma/Qwen ajoutent du chargement ; deux rechargements à 17:00:35 et 17:03:53 annulent des générations. Charger une variante Hauhau manuellement ne change pas le modèle standard demandé par PanelForge. Dernier Qwen observé vers 100–117 tokens/s après démarrage.
+- Latence occasionnelle de 7–13 s avant création du processus natif non localisée. L'affichage ne sépare pas précisément chargement, vision et préparation. Aucun benchmark image après changement.
+- Note : D:/Code/panelforge-krea2-flux/docs/diagnostics/llm-loading-unsloth-2026-09-24.md. Garde-fou GPU strict toujours reporté.
+
+### Next steps
+1. Observer les prochains appels image normaux pour confirmer le gain et le maintien du placement GPU lors des bascules automatiques.
+2. Si demandé, détailler les phases d'attente dans PanelForge et instrumenter le délai avant création du processus ; ne pas attribuer toutes les attentes au chargement des poids.
+
+## Implémentation 2026-09-24 — Corriger et continuer
+
+### Goal
+- Ajouter l’action validée Corriger et continuer pour les blocages du scénario, avec correction groupée, relecture et reprise ; présenter les observations facultatives repliées et supprimer le compteur local contradictoire.
+
+### Current state
+- Worktree actif D:\Code\panelforge-krea2-flux ; modifications non commitées après 9b52feb, travaux précédents préservés.
+- Nouvelle route POST /api/stories/projects/{project_id}/correct-and-continue, version attendue, unité explicite et modèles/mode choisis. Refuse une relecture obsolète, une unité périmée, un mauvais périmètre, les seuls warnings et un appel concurrent. Réutilise repair_episode et son contrat de corrections partielles, déjà limité aux blocages ; pas de nouvelle recette ni de nouvelle écriture complète.
+- StoryWorkflow réserve une tentative au clic et enregistre correction={unit_id,phase}. Après réparation : relecture immédiate de cette unité avant toute scène suivante, même en mode continu. Après relecture claire : approbation de cette seule unité et reprise dans le mode choisi. Les checkpoints manuels suivants restent présents. Échec, critique persistante ou pause : arrêt et suppression du marqueur ; continuer seul ne remet pas le compteur de réparations à zéro. Un nouveau clic explicite ouvre une nouvelle passe bornée.
+- UI étape Scénario : N points à corriger pour continuer, Corriger et continuer en action principale, Écrire ma consigne en secondaire. Bouton inactif pendant la requête ; modèles absents conduisent au sélecteur. Le brouillon manuel n’est pas envoyé ni effacé par la correction groupée. La correction de l’arc reste sur son parcours existant.
+- Diagnostics : Observations facultatives repliées par défaut avec nombre de remarques ; aucun « 0 point bloquant » concurrent du bilan de relecture. Les vrais blocages locaux restent visibles (ou déjà présents dans le bandeau principal), les doublons restent éliminés. Les raccourcis de retour manuel sont conservés. Références, Scènes de fabrication et Multilangue inchangés.
+- Contrôles statiques effectués : AST de cinq Python, compilation seule de deux JS applicatifs et trois scripts fixtures, unicité/raccordement des IDs HTML, balisage suite inchangé et git diff --check. Six régressions de workflow préparées, plus fixtures UI : réussite avec plusieurs blocages, arrêt après une passe, ordre de relecture, mode manuel, refus des avis obsolètes/facultatifs, échec technique, double clic et pause. Aucun test fonctionnel exécuté.
+- Aucun appel LLM, génération, modification des histoires runtime ou redémarrage. Assets : stories.js 20260924.7 ; stories.css et story-writing.js 20260924.6.
+
+### Next steps
+1. L’auteur redémarre le Lab après ses traitements pour charger la nouvelle route, puis actualise la page avec Ctrl+F5.
+2. Sur le scénario bloqué, cliquer Corriger et continuer. Une passe de correction et une relecture sont lancées ; arrêt explicite si les critiques persistent. Les essais fonctionnels restent à la charge de l’utilisateur.
+3. Les réglages VRAM et les consignes de personnages pour les suites restent reportés.
+
+## Correctif 2026-09-24 — diagnostics répétés et accès aux scènes
+
+### Goal
+- Corriger l’accumulation des avertissements et rendre les scènes signalées directement accessibles pour un retour ciblé. Préserver les vrais contrôles et l’histoire existante.
+
+### Current state
+- Worktree actif D:\Code\panelforge-krea2-flux, modifications non commitées après 9b52feb, travaux précédents préservés.
+- Cause confirmée dans StoryService._normalize : seuls certains codes étaient retirés avant project_quality ; visible_cast_check et visual_continuity_incomplete pouvaient s’accumuler à chaque lecture/sauvegarde. En V2, diagnostics désormais reconstruits depuis le scénario courant et son format, sans réutiliser la liste persistée. Les remarques devenues obsolètes disparaissent, les blocages réels restent calculés. Les valeurs enregistrées du scénario ne sont pas modifiées.
+- Frontend : dédoublonnage de secours compatible avec le backend encore chargé ; indication du nombre de blocages locaux/remarques indicatives ; pas de double avertissement densité/charge sur la même scène. Chaque diagnostic de scène offre Écrire un retour · scène N. Les points bloquants avec target_id scene-N ont Corriger la scène N ; le bouton principal Préparer la correction cible directement une scène si un seul problème la concerne et prépare une consigne éditable. Aucun appel avant envoi explicite ; le brouillon de retour existant est conservé. Cibles déterminées par IDs/indices, jamais par le texte des remarques.
+- Le message de casting souligne la limite de l’heuristique : mention, message ou objet appartenant à un personnage ne prouvent pas sa présence visible. Aucun changement aux seuils, validations, personnages, prompts d’écriture, références, fabrication ou multilangue. Le blocage narratif de durée doit encore être corrigé par l’auteur via l’interface.
+- Contrôles effectués : AST de quatre Python, compilation seule de stories.js/story-writing.js et scripts fixtures, unicité/raccordements des IDs HTML, balisage suite inchangé, git diff --check. Deux tests de normalisation et régressions navigateur ciblées ajoutés pour exécution utilisateur ; aucun test fonctionnel exécuté.
+- Aucun LLM, génération, modification runtime ou redémarrage. Frontend stories.js 20260924.6 ; stories.css et story-writing.js 20260924.5. Le backend actuel reste inchangé jusqu’au redémarrage utilisateur ; le dédoublonnage d’affichage et les boutons s’appliquent après actualisation de la page.
+
+### Next steps
+1. L’auteur actualise la page (Ctrl+F5) pour les boutons et la liste dédoublonnée. Charger le correctif serveur par redémarrage du Lab une fois les traitements terminés.
+2. Cliquer Corriger la scène 1 ou Préparer la correction, relire la consigne puis Demander une modification ; après relecture favorable, valider la séquence. Aucun changement automatique déjà appliqué à l’histoire.
+3. Les réglages VRAM et les consignes d’introduction de personnages dans une suite restent hors de ce patch.
+
+## Diagnostic 2026-09-24 — suite et blocage de L’odeur envoyée
+
+### Goal
+- Mettre le garde-fou VRAM de côté. Expliquer l’avertissement sur les nouveaux personnages et guider l’auteur pour débloquer le scénario courant, sans modifier le code ni lancer de traitement.
+
+### Current state
+- Lecture seule du projet story-362831f6ca4b34f0b3d1d6748d8e45fa et des traces de suite : la règle « Aucun personnage extérieur n’intervient » provient du world_rules de l’épisode source, pas de l’intention initiale. Le contexte de suite reprend tout planned_arc alors que next_unit=null ; le modèle a traité cette limite locale et l’ancienne fin ouverte comme un contrat pour la nouvelle suite. Trace llm-7ee106896a1a45478a9dc8f816f211e3 : avertissement mais proposition effective avec l’amie ; Kiwina figure bien dans le nouvel arc accepté et le scénario.
+- Blocage courant distinct : review_episode llm-84ad1c6b14c3450a8c164a0feeac7783, scène 1, environ 25 mots et actions, estimation locale 14,4 s / 10 s. Le diagnostic local est un warning, élevé à blocking par la relecture LLM. Workflow automatic/blocked, repairs.episode-1=1 : une correction automatique consommée, aucun traitement actif dans l’état inspecté. Relire lance un contrôle sans raccourcir le texte.
+- Chemin actuel vérifié : Examiner ce point avec l’assistant ouvre/focalise le chat sur la séquence ; sélectionner Scène 1 — L’arrêt nécessaire, saisir la correction puis Demander une modification. Poser une question ne modifie pas le texte. Une modification passe en mode manuel, réécrit puis relit ; après acceptation, Valider cette séquence et poursuivre permet d’avancer. Les autres scènes restent hors de la cible de la demande.
+- Proposition minimale à aligner : expliciter la portée des contraintes de l’ancien épisode dans le prompt de suite ; autoriser l’ajout de personnages/lieux/faits futurs sans altérer le passé. En blocage, afficher correction déjà tentée et une action claire Corriger ce point et relire, avec cible/proposition visibles ; garder discussion et relecture seule en actions secondaires. Ne pas multiplier les corrections automatiques sans borne.
+- Aucun code applicatif, réglage ou runtime modifié ; aucun test, appel LLM, rendu ni redémarrage. Notes de continuité seules mises à jour. Travaux précédents non commités préservés.
+
+### Next steps
+1. L’auteur peut effectuer la correction ciblée de la première scène depuis le chat actuel, puis valider après relecture.
+2. Attendre l’alignement sur le petit correctif des consignes de suite et des actions en cas de blocage. Le garde-fou VRAM reste reporté.
+
+## Alignement 2026-09-24 — refus du chargement partiel en VRAM
+
+### Goal
+- Répondre à la possibilité de refuser le chargement d’un modèle qui ne tient pas entièrement sur GPU. Discussion uniquement, aucune modification des réglages Unsloth.
+
+### Current state
+- Version locale Unsloth vérifiée : dans core/inference/llama_cpp.py (vers 26095), gpu_memory_mode=manual et gpu_layers>=0 imposent le nombre de couches et --fit off. Le mode auto peut réactiver --fit on après échec d’une estimation full GPU (vers 28480), donc constater un lancement auto --fit off ne constitue pas une politique stricte persistante.
+- Les arguments supplémentaires Unsloth gpu-layers exigent actuellement un entier (llama_server_args.py:902) ; ne pas recopier aveuglément la valeur symbolique all documentée par llama.cpp. Dans le mode manuel de cette version, gpu_layers=-1 reste une sélection automatique, pas un réglage strict de toutes les couches.
+- openai_auto_switch_settings.py:330 et 511 : réglages par modèle persistés/repris côté API ; les préférences globales stockées uniquement dans le navigateur ne sont pas toutes héritées lors d’un auto-switch. Politique à appliquer aux modèles Architecte/Rédacteur et à vérifier sur un modèle déjà résident.
+- Proposition : mode GPU strict, précontrôle mémoire poids/cache/réserves, placement GPU imposé sans repli, vérification du placement avant génération et refus explicite si mémoire insuffisante/placement partiel. La RAM occupée par le processus ne suffit pas à diagnostiquer un calcul CPU ; le contrôle de débit reste utile pour d’autres causes de lenteur ou le paging du pilote.
+- Aucun code, runtime, modèle ou réglage modifié ; aucun test, génération ou redémarrage.
+
+### Next steps
+1. Aligner l’application de la politique GPU strict aux modèles locaux et aux chargements automatiques Unsloth.
+2. Attendre une demande de configuration/implémentation avant toute mutation du service.
+
+
+## Diagnostic 2026-09-24 — Qwen lent et trace live d’écriture
+
+### Goal
+- Expliquer la longue construction de l’histoire, afficher le raisonnement en haut du cadre et proposer un garde-fou contre le chargement mixte RAM/GPU ou un débit anormalement bas. Garde-fou : discussion seulement.
+
+### Current state
+- Projet story-362831f6ca4b34f0b3d1d6748d8e45fa : un compose Qwen, 721,18 s, 28 815 caractères de raisonnement, zéro réponse finale ; erreur vide puis workflow bloqué. Journaux natifs : tâche 2765 à 11,46 tokens/s, contexte lent ; chargement avec 19 571 Mio VRAM libres et --fit on pour des poids de 23,6 Go avant cache. À 13:47:30 UTC Unsloth a annulé une génération lors du déchargement du modèle, expliquant la réponse vide. Après rechargement avec 32 140 Mio libres, placement complet GPU et débit environ 100 tokens/s. Actions de rechargement externes, aucune initiée par l’agent.
+- Compteur global gen_tok_s peu fiable en live (souvent zéro jusqu’à fin) ; decode_calls_s n’est pas un compte de tokens. Logs natifs n_gen/tg/tg_3s utilisables avec attribution processus/modèle/slot/tâche. Détection placement et débit soutenu recommandée ; seuil initial proposé 20 tokens/s pendant 45 s après prétraitement/grâce pour ce Qwen, à aligner. Aucun garde-fou automatique ajouté.
+- Patch UX seul dans worktree actif D:\Code\panelforge-krea2-flux : trace existante placée dans le cadre d’état des histoires longues, ouverte au nouvel appel, durée/volumes de texte, défilement respectant la lecture, erreur vide expliquée. Histoires courtes et fabrication préservées ; aucun changement backend, prompt ou modèle.
+- Vérifications statiques : compilation seule de stories.js et story-writing.js ; IDs HTML, balisage suites/fabrication, diff-check. Aucun test fonctionnel, LLM, média, runtime ou redémarrage. Notes : docs/diagnostics/story-runtime-slow-2026-09-24.md.
+
+### Next steps
+1. Actualiser la page pour le suivi live (stories.js 20260924.5, styles/présentateur 20260924.4) ; pas besoin de redémarrer le backend pour cet ajout.
+2. Aligner le garde-fou local : placement GPU strict si mesurable, surveillance des tokens réels propre au modèle, arrêt de la requête seulement et reprise explicite après libération VRAM. Ne rien développer de ce garde-fou sans suite de l’utilisateur.
+
+
+## Complément 2026-09-24 — tris et portraits de la bibliothèque
+
+### Goal
+- Ajouter les tris demandés et jusqu’à trois miniatures de personnages sur les blocs histoire, sans génération de nouvelles images.
+
+### Current state
+- Worktree actif `D:\Code\panelforge-krea2-flux`, changements non commités après 9b52feb. Modifications précédentes préservées.
+- Tri côté interface : Plus récentes par défaut, Plus anciennes, Titre A–Z, Favoris d’abord ; préférence locale mémorisée. Dates = dernière modification enregistrée du récit ou de ses fabrications. Numéros et ordre des épisodes préservés.
+- En-têtes repliés enrichis : entrées, vidéos prêtes/attendues dans les langues affichées, activité et trois portraits maximum avec noms. Images issues des références personnages sélectionnées de la fabrication suivie ; variantes d’un personnage dédupliquées, objets/décors/archives exclus. Chargement différé via média existant, remplacement visuel si fichier absent.
+- Champs API en lecture seule : last_activity_at par entrée et characters par variante. Aucun changement aux scénarios, références sélectionnées ni processus de fabrication. Génération des miniatures de vidéos toujours reportée.
+- Contrôles statiques : AST Python, compilation seule du JS, unicité/raccordements des IDs HTML et balisage suites/fabrication identique à HEAD ; diff-check. Aucun test fonctionnel exécuté, aucun LLM, rendu, modification runtime ou redémarrage. Documentation bibliothèque mise à jour.
+
+### Next steps
+1. À la fin des traitements, l’utilisateur recharge le backend (redémarrage Lab) et actualise la page pour les assets story-library 20260924.2.
+2. Vérifier visuellement les tris, leur mémorisation et les portraits de personnages déjà sélectionnés. Ajuster selon retour utilisateur.
+
+
+## Implémentation 2026-09-24 — bibliothèque des histoires
+
+### Goal
+- Implémenter uniquement la bibliothèque validée : séries/épisodes, recherche, favoris, corbeille restaurable, progression des cinq étapes et compteurs par langue. Miniatures reportées.
+
+### Current state
+- Worktree actif `D:\Code\panelforge-krea2-flux`, patch non commité après 9b52feb ; refonte d’écriture précédente conservée.
+- Nouveau domaine/service/route story_library et UI story-library.js/css. Regroupement par parent_story_id, numéros éditoriaux stables et variantes ; renommage de série et rattachement manuel d’une entrée, sans déplacer silencieusement ses suites déjà présentes. Projets sériels multiples présentés comme plages ; séquences continues non comptées comme nouveaux épisodes.
+- Favoris et corbeille dans stories/library.json, séparés des récits, avec sauvegarde atomique et révision attendue. La croix masque l’entrée, sans purge de fichiers ; Annuler/Restaurer présents. Traitements actifs connus protégés. GET bibliothèque lit les dépôts sans réveiller de workers ni réconcilier les générations.
+- Cinq jalons et compteurs références/prompts/vidéos/DLSS. Une fabrication suivie par unité/langue, priorité au scénario courant ; aucune somme des anciennes tentatives. Dernière vidéo hors DLSS et filiation du DLSS ; états planifié/actif et éléments obsolètes séparés. Langues sous la même entrée, accès à leur fabrication.
+- Balisage Références/Scènes/Multilangue et suites conservé. Seul ajout à episodes.js : accès de navigation réutilisant sauvegardes et lecteur existants. Export open/createNew/refreshList/canSwitch dans stories.js ; ancien sélecteur gardé en secours.
+- Contrôles statiques : AST de 8 Python, compilation seule de 5 sources JS (3 applicatifs + 2 scripts fixture), unicité des IDs et présence des contrôles, comparaison du balisage protégé et du code production hors accès ajouté, diff-check. Aucun test fonctionnel exécuté, aucun LLM/rendu, aucune modification du runtime ni redémarrage. Tests ciblés préparés.
+- Notes : docs/diagnostics/story-library-2026-09-24.md. Nouveau backend à charger par redémarrage utilisateur après les traitements ; frontend prévoit un message et le sélecteur historique si les routes ne sont pas encore disponibles.
+
+### Next steps
+1. L’utilisateur redémarre le Lab une fois les traitements terminés puis actualise la page.
+2. Essais utilisateur : recherche/favori, numéros des suites, corbeille/restauration, compteurs FR/EN, navigation vers fabrication. Tests ciblés test_story_library.py et test_story_library_browser.py non exécutés.
+3. Ajuster selon les retours ; miniatures partagées non implémentées dans ce patch.
+
+## Alignement 2026-09-24 — bibliothèque d’histoires et miniatures de série
+
+### Goal
+- Proposer une bibliothèque regroupée par histoire/série, épisodes préfixés, favoris, suppression de vieux essais et avancement global ; proposer des miniatures cohérentes entre épisodes. Discussion uniquement, aucun code fonctionnel autorisé dans ce tour.
+
+### Current state
+- Lecture du code : LocalStoryStore.list fournit seulement project_id/title/updated_at/version, alors que parent_story_id existe sur les projets et est renseigné par les suites. Les fabrications sont liées par story_id/series_episode_id ; les adaptations portent source_episode_id/group_id/language. Les statuts détaillés des références, prompts, vidéos et DLSS existent mais ne sont pas agrégés dans le sélecteur d’histoires.
+- Proposition à valider : remplacer la liste native par un sélecteur ouvrant une bibliothèque avec recherche, filtre favoris/en cours/terminés/corbeille ; regrouper par identité de série, titre commun éditable, numérotation éditoriale stable. Réutiliser les liens explicites existants ; ne pas déduire les familles des titres. Anciennes histoires non liées restent autonomes, rattachement manuel possible. Distinguer épisodes publiés, séquences internes, versions de fabrication et langues ; ne pas numéroter les adaptations comme de nouveaux épisodes.
+- Afficher les cinq jalons Intention/Histoire/Scénario/Références/Vidéos et des compteurs de références validées, prompts prêts, vidéos et DLSS terminés pour la fabrication courante. Ne pas cumuler les anciens essais ni masquer les éléments à actualiser ; DLSS facultatif.
+- Favori proposé sur la série/histoire. Croix par épisode/essai : corbeille réversible avec annulation, sans purge des médias ou références partagés ; empêcher le retrait d’un traitement actif. Numéros conservés après suppression. Une purge physique réclamerait un périmètre distinct, non proposé comme action implicite de la croix.
+- Miniatures : action facultative Miniatures de la série dans la bibliothèque. Visuel maître créé/importé ou composé avec Qwen à partir du décor et de personnages choisis, puis texte dessiné par l’application à partir d’un gabarit (titre commun, numéro, police, placement, couleurs). Réutiliser exactement le fond et le gabarit pour les épisodes suivants ; changer le numéro ne nécessite pas de nouvelle génération. Variante visuelle par épisode envisageable ensuite, toujours avec le même habillage typographique.
+- Le parcours Qwen existant sait distinguer images de conseil à l’assistant et références envoyées au rendu ; réutilisable pour la composition du visuel maître. Aucun service de miniatures de série identifié dans les éléments inspectés.
+- Aucun code applicatif, runtime, média, test, génération ou redémarrage modifié/lancé. Notes de continuité seules mises à jour ; refonte des trois étapes déjà implémentée préservée.
+
+### Next steps
+1. Aligner la bibliothèque, la sémantique de la corbeille et le gabarit partagé des miniatures.
+2. Attendre l’autorisation avant tout patch ; proposition en deux livraisons bibliothèque puis miniatures.
+
+## Implémentation 2026-09-24 — trois étapes d’écriture
+
+### Goal
+- Implémenter la refonte visuelle autorisée : Intention > Histoire > Scénario, progression fidèle et actions compréhensibles. Préserver Références / Scènes / Multilangue et le moteur d’écriture.
+
+### Current state
+- Patch dans `D:\Code\panelforge-krea2-flux`, après `9b52feb`, non commité/non publié. Nouveau présentateur UI `static/story-writing.js`, intégré dans `stories.js`, `stories.css` et le seul balisage d’écriture de `index.html`.
+- Trois étapes consultables sans appel LLM, choix de lecture mémorisé ; états réels distincts (à préparer, planifié, actif, validation attendue, terminé, erreur/point à examiner). L’existence du texte ne suffit plus à cocher une étape terminée. Validation manuelle et empreintes des relectures prises en compte.
+- Bandeau avec action contextuelle : validation, discussion du blocage, relecture explicite ou récupération locale/reprise LLM. Remarques bloquantes courantes visibles ; historique, traces et commandes avancées repliés. La discussion conserve des brouillons séparés par projet/cible. L’examen d’un blocage ouvre sa séquence déjà écrite si nécessaire.
+- Accès à une séquence prête conservé même si les autres restent à écrire. UI des histoires courtes conservée. Moteur, prompts, modèles et seuils inchangés ; aucun nouvel appel automatique. Les deux références avant/après transformation restent une évolution séparée.
+- Contrôles : AST de 3 fichiers de tests Python, compilation syntaxique seule de 13 sources JS (2 scripts applicatifs et scripts des fixtures), IDs HTML uniques, balisage de préparation de suite et fabrication identique à HEAD, diff-check. Tests fonctionnels préparés/non exécutés selon AGENTS.md et choix utilisateur. Aucun LLM, génération, modification runtime ni redémarrage.
+- Notes et commandes utilisateur : `docs/diagnostics/story-writing-ux-2026-09-24.md`. La disposition et les interactions dans le navigateur réel restent à confirmer par l’utilisateur.
+
+### Next steps
+1. Actualiser le navigateur pour charger les assets d’écriture versionnés 20260924.3 ; ouvrir une histoire longue existante, parcourir les trois étapes et essayer les brouillons de retours sans envoi.
+2. L’utilisateur peut lancer les suites ciblées `test_story_writing_browser.py`, `test_long_stories_browser.py`, `test_stories_browser.py` ; aucun test n’a été exécuté par l’agent.
+3. Ajuster selon les retours visuels. Références avant/après : chantier distinct ; pas d’implémentation dans ce patch.
+
 ## Version 2026-09-24 — suites, multilangue, KREA2 V5 et VAE INT8
 
 ### Goal

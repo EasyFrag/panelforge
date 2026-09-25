@@ -97,16 +97,82 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
 
     def test_thermal_gate_waits_for_resume_threshold(self):
         monitor = Monitor([
-            ThermalSnapshot(local_temperature_c=90, remote_temperature_c=40),
-            ThermalSnapshot(local_temperature_c=70, remote_temperature_c=40),
-            ThermalSnapshot(local_temperature_c=39, remote_temperature_c=40),
-            ThermalSnapshot(local_temperature_c=39, remote_temperature_c=40),
+            ThermalSnapshot(local_temperature_c=40, remote_temperature_c=90),
+            ThermalSnapshot(local_temperature_c=40, remote_temperature_c=70),
+            ThermalSnapshot(local_temperature_c=40, remote_temperature_c=39),
+            ThermalSnapshot(local_temperature_c=40, remote_temperature_c=39),
         ])
         coordinator = MachineWorkCoordinator(thermal_monitor=monitor,
             policy=ThermalPolicy(stop_temperature_c=85, resume_temperature_c=40, cooldown_seconds=0,
                                  pause_when_unavailable=False), monitor_interval=.01, sleep=lambda _: None)
-        with coordinator.lease("llm", ComputeResource.LOCAL_GPU, ProductionWorkload.LLM, "LLM"):
-            self.assertEqual(coordinator.public_status()["machines"]["local_gpu"]["state"], "busy")
+        with coordinator.lease("video", ComputeResource.REMOTE_GPU, ProductionWorkload.VIDEO_RENDER, "H3"):
+            self.assertEqual(coordinator.public_status()["machines"]["remote_gpu"]["state"], "busy")
+
+    def test_local_peak_schedules_fixed_cooldown_before_next_job(self):
+        now, sleeps = [100.0], []
+
+        class HotLocal:
+            def snapshot(self):
+                return ThermalSnapshot(local_temperature_c=81, remote_temperature_c=40)
+
+        def monotonic():
+            return now[0]
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds
+
+        coordinator = MachineWorkCoordinator(
+            thermal_monitor=HotLocal(),
+            settings=WorkSchedulerSettings(
+                thermal=ThermalPolicy(pause_when_unavailable=False),
+                local_cooldown_temperature_c=80,
+                local_cooldown_seconds=80,
+                remote_video_cooldown_seconds=0,
+            ),
+            monitor_interval=10,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+        with coordinator.lease("llm-1", ComputeResource.LOCAL_GPU, ProductionWorkload.LLM, "Histoire"):
+            coordinator.public_status()
+        cooling = coordinator.public_status()["machines"]["local_gpu"]
+        self.assertEqual(cooling["state"], "cooling")
+        self.assertEqual(cooling["cooldown_remaining_seconds"], 80)
+        self.assertIn("81 °C", cooling["operation"])
+
+        with coordinator.lease("llm-2", ComputeResource.LOCAL_GPU, ProductionWorkload.LLM, "Scénario"):
+            pass
+        self.assertEqual(sum(sleeps), 80)
+
+    def test_temperature_history_keeps_fifteen_second_maxima(self):
+        now = [100.0]
+
+        class ChangingLocal:
+            def __init__(self):
+                self.temperature = 70
+
+            def snapshot(self):
+                return ThermalSnapshot(local_temperature_c=self.temperature, remote_temperature_c=50)
+
+        monitor = ChangingLocal()
+        coordinator = MachineWorkCoordinator(
+            thermal_monitor=monitor,
+            monitor_interval=1,
+            monotonic=lambda: now[0],
+        )
+        coordinator.public_status()
+        monitor.temperature = 78
+        now[0] += 5
+        coordinator.public_status()
+        monitor.temperature = 74
+        now[0] += 11
+        history = coordinator.public_status()["temperature_history"]
+
+        self.assertEqual(history["window_seconds"], 3600)
+        self.assertEqual(history["bucket_seconds"], 15)
+        local = history["series"]["local_gpu"]
+        self.assertEqual([value["max_temperature_c"] for value in local], [70.0, 78.0])
 
     def test_waiters_keep_fifo_order(self):
         coordinator = MachineWorkCoordinator(monitor_interval=.01)
@@ -319,6 +385,8 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
             settings = WorkSchedulerSettings(
                 thermal=ThermalPolicy(stop_temperature_c=82, resume_temperature_c=45,
                                       cooldown_seconds=15, pause_when_unavailable=False),
+                local_cooldown_temperature_c=79,
+                local_cooldown_seconds=81,
                 remote_video_cooldown_seconds=42,
                 pause_after_failure=True,
                 history_limit=12,
@@ -347,6 +415,41 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         self.assertFalse(complete_entered.wait(.05))
         release_stream.set(); self.assertTrue(complete_entered.wait(2))
         stream.join(2); complete.join(2)
+
+    def test_llm_gateway_reports_live_thinking_writing_and_speed(self):
+        class Gateway:
+            def list_models(self):
+                return ()
+
+            def complete(self, _request):
+                raise AssertionError("not used")
+
+            def stream(self, _request):
+                yield CompletionStreamEvent(StreamEventKind.REASONING, StreamPhase.GENERATING, text="plan")
+                yield CompletionStreamEvent(StreamEventKind.DELTA, StreamPhase.GENERATING, text="answer")
+                yield CompletionStreamEvent(
+                    StreamEventKind.COMPLETED,
+                    StreamPhase.COMPLETED,
+                    result=CompletionResult("model", "answer", completion_tokens=4, reasoning_tokens=3),
+                )
+
+        coordinator = MachineWorkCoordinator(monitor_interval=.01)
+        gateway = CoordinatedMultimodalGateway(Gateway(), coordinator)
+        stream = gateway.stream(CompletionRequest("model", "system", "user"))
+        next(stream)
+        next(stream)
+        next(stream)
+        metrics = coordinator.public_status()["machines"]["local_gpu"]["active"]["llm_metrics"]
+        self.assertEqual(metrics["thinking_tokens"], 1)
+        self.assertEqual(metrics["writing_tokens"], 0)
+        self.assertGreater(metrics["tokens_per_second"], 0)
+        next(stream)
+        next(stream)
+        reconciled = coordinator.public_status()["machines"]["local_gpu"]["active"]["llm_metrics"]
+        self.assertEqual(reconciled["thinking_tokens"], 3)
+        self.assertEqual(reconciled["writing_tokens"], 1)
+        self.assertFalse(reconciled["estimated"])
+        stream.close()
 
     def test_waiting_stream_announces_queue_before_the_delegate_can_start(self):
         waiting, entered = Event(), Event()
