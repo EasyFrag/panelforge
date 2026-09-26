@@ -1,5 +1,22 @@
 # CONTINUITY
 
+## Implémentation 2026-09-26 — preset Lèvres, dépôt strictement au contact
+
+### Goal
+- Implémenter et versionner le changement de prompt validé : deux passages complets et apparition immédiate de l’ornement exclusivement dans la trace du stick.
+
+### Current state
+- LIPS_INTENT modifié dans le checkout actif D:\Code\panelforge-krea2-flux. Bas puis haut en sens inverse, de commissure à commissure, contact visible ; haut nu pendant le bas, arrêt du dépôt quand le stick se soulève et après retrait. Décor posé stable, aucune propagation ni apparition différée. Matières adaptées à la référence, ASMR et sourire franc tenu conservés ; davantage du plan consacré aux deux passages.
+- Consigne explicite de conserver les deux actions et trois états dans Plan et Prompt. Le parcours existant _sequence_request_scoped transmet déjà USER INTENTION aux deux appels et PLAN TO PRESERVE au Writer. Aucun changement des recettes générales ou des paramètres de rendu.
+- Point de retour Git créé : defb8be, ancien bloc d’intention uniquement. Correctif préparé en commit ciblé, en conservant hors index les autres patches usine et les travaux KREA2 déjà présents. Cette version ciblée ne sauvegarde pas tout le checkout non commité.
+- Guide et note docs/proposals/video-factory-lips-contact-release-2026-09-26.md actualisés. Diagnostic antérieur conservé. Contrôles statiques : syntaxe/import Python, comparaison du fichier avant/après hors LIPS_INTENT et diff Git ; aucun nouveau test miroir ajouté pour ce changement de texte.
+- Aucun preset/traitement existant dans le runtime réécrit, aucun appel LLM/rendu, service redémarré ou test fonctionnel exécuté (AGENTS.md : tests à la charge de l’utilisateur sauf demande explicite).
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, recharger et réappliquer Lèvres aux lignes de Préparation souhaitées ; cette action reprend les réglages du preset, donc rétablir ensuite d’éventuels réglages personnalisés. Pour un résultat terminé, Dupliquer puis appliquer Lèvres à la nouvelle préparation.
+2. Les tests existants peuvent être lancés par l’utilisateur : python -m unittest tests.test_video_factory tests.test_video_factory_patch3. Pour valider la qualité, comparer avec la même image et les mêmes réglages ; le texte n’est pas une garantie de respect spatial par H3.
+3. Ne pas migrer ni relancer automatiquement les anciens prompts. Les prochaines vérifications du patch Archives restent documentées ci-dessous.
+
 ## Correction visuelle 2026-09-25 — bouton usine dans Histoires
 
 ### Goal

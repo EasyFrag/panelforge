@@ -16,7 +16,14 @@ Une scène correspond à une ligne : cinq scènes d’histoire donnent cinq vid�
 
 Exactement quatre presets : Réglages source, Lèvres, Petits hommes, Personnalisé. Une modification devient Personnalisé en conservant l’origine. Réglages source restaure la copie capturée à l’envoi.
 
-- Lèvres : H3, une image de fin, un plan et une intention de mouvement éditable.
+- Lèvres : H3, une image de fin, un plan de 10 s. Deux passages complets du rouge
+  à lèvres, d’abord en bas puis en haut : dépôt immédiat uniquement derrière le
+  contact, haut nu pendant le premier passage, arrêt du dépôt quand le stick se
+  soulève. Retrait de la main puis sourire franc tenu sur la fin. La règle et les
+  états intermédiaires sont demandés explicitement au Plan et au Prompt.
+  Matières/couleurs adaptées à la référence. DLSS et IG anglais (trois variantes)
+  actifs ; axes 1/1/1, dialogue 0 et audace 1. Réappliquer le preset pour mettre
+  à jour une ancienne ligne. Choisir une image finale avec le sourire souhaité.
 - Petits hommes : H3, image de départ, un plan, huit secondes, intervention d’une main géante qui aide les petits personnages. Ce preset reprend les constantes retrouvées dans les anciens parcours H3 ; l’action précise se complète dans l’intention.
 - Les deux presets utilisent Bunny et Motion Repair, avec les réglages actuels de fabrication. Ils exigent une seule image et refusent un lot incompatible sans modification partielle.
 - Le nombre de plans accepte Auto ou 1 à 6. H3 accepte première / dernière frame ; REF2V conserve les références et leurs rôles.
