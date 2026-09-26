@@ -23,8 +23,26 @@ ROLE_USES = {**{key: key.removesuffix("_reference") for key in ROLES},
              "keyframe_reference": "keyframe"}
 PLAN_MODEL = "local::unsloth/Qwen3.8-27B-GGUF"
 WRITER_MODEL = "local::unsloth/gemma-4-31B-it-qat-GGUF"
-LIPS_INTENT = ("Gros plan sur les lèvres. Un seul plan continu, un mouvement lent et naturel. "
-               "Rejoindre l’image de fin en conservant l’identité, la lumière et les textures.")
+LIPS_INTENT = (
+    "Un unique plan beauté ASMR transforme progressivement des lèvres nues vers l’image de fin. "
+    "Déduire de cette référence l’identité, le cadrage du nez au menton sans les yeux, la lumière, "
+    "les couleurs, matières, motifs, reliefs et finitions des lèvres à reproduire. "
+    "Adapter le rouge à lèvres, son tube, les ongles et les bijoux de la main à cet univers. "
+    "Au départ, les lèvres sont naturelles, nues et fermées. Une main tient près du menton un rouge "
+    "à lèvres dont le raisin porte la matière ou l’ornement visible sur les lèvres de référence. "
+    "Un très léger travelling avant lent accompagne l’approche du raisin ; les lèvres s’entrouvrent. "
+    "Le contact provoque une légère compression visible sur la lèvre inférieure. Le raisin glisse "
+    "lentement sur la lèvre inférieure puis supérieure ; la matière se propage depuis les zones "
+    "réellement touchées jusqu’à couvrir les deux lèvres comme dans la référence. Le raisin garde "
+    "son propre aspect intact. Achever l’application puis abaisser entièrement main et tube hors "
+    "du cadre avant le dernier tiers du plan. La femme ouvre ensuite un sourire franc et nettement "
+    "marqué : commissures relevées, joues soulevées et dents supérieures clairement visibles. "
+    "Installer ce sourire avant le dernier cinquième de la vidéo et le tenir jusqu’à la fin, "
+    "caméra stable, ornement conservé et aucune main ni tube dans le cadre. Le dernier instant "
+    "retrouve le cadrage, la matière et l’expression de l’image de fin. Choisir une référence "
+    "avec un sourire ouvert compatible avec cette cible. Ambiance ASMR discrète, léger son "
+    "de contact et accent sonore délicat adapté à la matière, sans parole ni musique."
+)
 LITTLE_MEN_INTENT = (
     "Sur un plan de 8 secondes, les petits hommes tentent de résoudre le problème visible "
     "dans l’image. Une main géante arrive du ciel et intervient pour les aider. "
