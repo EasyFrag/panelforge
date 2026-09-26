@@ -1,5 +1,79 @@
 # CONTINUITY
 
+## Correction visuelle 2026-09-25 — bouton usine dans Histoires
+
+### Goal
+- Afficher Envoyer à l’usine en violet également dans Histoires, conformément au repère de destination commun demandé par l’utilisateur.
+
+### Current state
+- Le bouton portait déjà la classe factory-button. Les règles `#stories-workspace button` et leur survol dans stories.css avaient une spécificité supérieure au style violet partagé et l’écrasaient.
+- Correction limitée à video-factory.css : la règle partagée inclut maintenant explicitement `#stories-workspace button.factory-button` pour les états normal, survol et focus clavier. Violet #7351a2, texte blanc et survol #593c83 identiques aux autres envois à l’usine.
+- Cache de video-factory.css porté à `20260925.factory2` dans index.html. Changements réalisés dans le checkout actif `D:\Code\panelforge-krea2-flux`, en préservant les travaux existants.
+- Sélecteurs et diff vérifiés statiquement. Aucun test fonctionnel, génération ou redémarrage effectué.
+
+### Next steps
+1. Ctrl+F5 pour charger le correctif et voir le bouton violet dans Histoires, également au survol.
+
+## Implémentation visuelle 2026-09-25 — couleur par atelier
+
+### Goal
+- Appliquer la palette validée par l’utilisateur aux onglets actifs et au halo du fond, avec une identité sobre par famille d’atelier.
+
+### Current state
+- Implémentation réalisée dans le checkout actif `D:\Code\panelforge-krea2-flux`. Fichiers applicatifs touchés pour cette tâche uniquement : `lab.css`, `lab-core.js`, `video-factory.css`, `index.html` dans `src/panelforge/features/lab/static`.
+- Palette : Image Lab vert émeraude #17634c ; H3 Base bleu ardoise #4269a8 ; REF2V turquoise #206f78 ; Video Lab ocre #805c24 ; Histoires terracotta #95543e ; Usine violet de navigation existant #63438e, avec halo lavande #e9e0f0. Fonds d’onglet pâles assortis ; onglets inactifs toujours discrets.
+- Variables CSS dédiées `--workshop-accent`, `--workshop-soft`, `--workshop-glow`, limitées aux onglets de navigation et au halo. La navigation existante pose `body.dataset.workshop` selon l’atelier parent, y compris à la restauration de session et à l’ouverture programmée d’une source. Les sous-ateliers Image Lab et Video Lab héritent de leur famille.
+- Halo conservé à sa position/étendue initiales (`circle at 80% 0`, transparent à 32rem), avec teinte dynamique. Fond crème, couleurs fonctionnelles des statuts, moniteur et boutons d’action conservés. Les boutons Envoyer à l’usine restent violets #7351a2 partout. La règle de navigation spécifique de video-factory.css est remplacée par la palette commune, avec ses mêmes couleurs de texte/fond pour Usine.
+- Versions de cache `20260925.palette1` pour lab.css, lab-core.js et video-factory.css. Un Ctrl+F5 suffit ; aucune modification backend et aucun redémarrage nécessaire.
+- Vérification : `node --check` de lab-core.js et `git diff --check` passent ; contrastes calculés texte/fond des onglets entre 4,63:1 et 6,35:1. Aucun test fonctionnel exécuté selon AGENTS.md, aucun appel de génération ni redémarrage. Les travaux usine et historique thermique déjà présents ont été préservés.
+
+### Next steps
+1. Recharger la page avec Ctrl+F5 et apprécier les six teintes au changement d’atelier ; ajuster leur intensité uniquement si l’utilisateur le souhaite.
+2. Les essais fonctionnels de l’usine et de l’historique thermique restent ceux des tâches précédentes ; cette modification visuelle ne les a pas exécutés.
+
+## Implémentation 2026-09-25 — usine à vidéo et sauvegarde GitHub
+
+### Goal
+- Créer une sauvegarde GitHub avant travaux, puis implémenter l’usine convenue : préparation explicite, une ligne par vidéo/scène, quatre presets, étapes visibles et file pilotable.
+
+### Current state
+- Checkout applicatif actif : `D:\Code\panelforge-krea2-flux`, branche `feature/video-factory-2026-09-25`. Le checkout `D:\Code\panelforge` reste ancien ; ne pas y reporter aveuglément les fichiers applicatifs.
+- Sauvegarde AVANT implémentation publiée et vérifiée sur `https://github.com/EasyFrag/panelforge.git` : branche `snapshots/pre-video-factory-2026-09-25`, tag annoté `snapshot-pre-video-factory-2026-09-25`, commit `8e91ed424ce51b508746ac0d239d9187d8a45c16`. Elle inclut l’état des références visuelles et les propositions UX présentes avant le chantier. L’implémentation suivante reste locale, non commitée/non poussée.
+- Nouveaux contrats domaine, journal atomique avec verrou de processus, service d’ordonnancement et adaptateur vers les services Prompt/H3/DLSS/Social existants. Une étape active par ligne ; priorité à la première ligne exécutable sur chaque ressource disponible ; le coordinateur existant conserve son autorité et ses règles thermiques.
+- Trois onglets Préparation / Production / Résultats ; cinq étapes Plan / Prompt / Vidéo / DLSS / Texte IG par ligne ; regroupement et sélection des scènes par histoire. Presets limités à Réglages source, Lèvres, Petits hommes, Personnalisé. Petits hommes a été retrouvé dans les historiques H3 grâce à l’indication utilisateur « prompts avec une main géante » : image de départ, un plan, huit secondes, aide apportée aux petits personnages. Lèvres utilise une image de fin et un plan. Bunny + Motion Repair par défaut.
+- Boutons violets : remplace Replacer dans… sur KREA2 ; à côté de Créer le parcours dans H3/REF2V ; à côté de Lancer prompts + vidéos dans Histoires. H3/REF2V copient fichiers, références, rôles, intention, modèle, recette et réglages visibles avant même la création du parcours. Envoi sans génération ni création de parcours, reçu avec lien Ouvrir, dédoublonnage et duplication volontaire.
+- Réglages individuels et par lot, contrôles avancés, Auto/1–6 plans, rôles éditables, révisions optimistes, annulation des modifications avec restauration des sorties correspondantes, historique des sorties, brouillons conservés au rafraîchissement. Image brute sans rôle présumé. Les sources d’histoire incomplètes sont signalées et peuvent être rechargées après correction.
+- Lancement explicite seulement. Pause après les étapes actives, reprise, annulation, retour en préparation et reprise des seules étapes manquantes. Pas de commande Finir la file puis suspendre. Journal et identifiants enfants persistés ; réconciliation vidéo/DLSS au redémarrage ; une préparation LLM interrompue exige une reprise explicite et réutilise ses documents enregistrés.
+- IG désactivé par défaut ; activation anglais, Gemma 4 local, trois variantes, langue/nombre éditables. Vidéo H3 associée automatiquement ; branche IG indépendante d’une erreur DLSS. Accès aux résultats et à l’atelier IG. Les vidéos issues d’histoires sont rattachées à leur scène si les entrées/préparations sont inchangées, sans écraser un travail concurrent.
+- Guide : `docs/video-factory.md`. 24 tests ciblés ajoutés dans `tests/test_video_factory.py` et `tests/test_video_factory_web.py` : domaine, file, HTTP, stockage, reprise et fixture Chromium sans backend réel. Contrôles exécutés : analyse syntaxique Python et imports, `node --check` sur les huit scripts concernés, inspection statique HTML (29 IDs usine uniques, quatre presets, chemins scripts), `git diff --check`. Aucun test fonctionnel exécuté selon AGENTS.md, aucun appel LLM ni génération, aucun service redémarré, aucune donnée runtime de production modifiée.
+- Des changements concurrents au moniteur / historique thermique 24 h sont apparus pendant ce chantier (machine_work, work-queue, lab.css, stockage thermique, tests et fichiers partagés). Ils ont été conservés ; ne pas les inclure implicitement dans un commit usine ni les annuler.
+
+### Next steps
+1. L’utilisateur lance les tests ciblés depuis le checkout actif avec son environnement Python : `python -m unittest tests.test_video_factory tests.test_video_factory_web`, puis la suite projet au besoin.
+2. Après le prochain redémarrage habituel du Lab et Ctrl+F5, vérifier l’envoi depuis les quatre ateliers, une histoire de cinq scènes, Lèvres/Petits hommes, les réglages IG anglais/3, la pause, l’annulation et la reprise sans refaire une vidéo réussie. Ne pas redémarrer le Lab sans demande explicite.
+3. Après validation, séparer les changements usine des travaux thermiques concurrents avant un éventuel commit/push de l’implémentation. Les futurs blocs de génération d’histoire/épisode restent une extension, hors cette version.
+
+## Implémentation 2026-09-25 — monitor stable et historique thermique 24 h
+
+### Goal
+- Uniformiser le comportement du monitor dans Qwen et livrer deux historiques thermiques 24 h persistants, pleine largeur et annotés par type de traitement.
+
+### Current state
+- Le repli automatique propre à Modifier avec Qwen venait de deux sélecteurs CSS qui traduisaient le panneau vers le bas hors survol/focus. Ces deux règles ont été supprimées : le monitor conserve maintenant le même état partout et ne se minimise que par son bouton explicite. Cache de qwen-edit-v2.css porté à 20260925.1.
+- La vue flottante conserve son historique léger d’une heure en mémoire. Dans Détails, la fenêtre passe à 96 vw / 1500 px maximum et affiche deux graphes 24 h distincts empilés verticalement, chacun sur toute la largeur : Machine locale puis Serveur distant. Axe fixe 0–100 °C, zones et segments vert/orange/rouge, trous réels si la télémétrie manque.
+- Chaque graphe possède sa piste d’événements séparée : P = LLM/prompt et D = DLSS en local ; I = image et V = vidéo sur le serveur. Le libellé compact Evt occupe la marge gauche du graphe ; la piste réutilise exactement les marges du tracé (4 % à gauche, 1 % à droite) et les marqueurs ne subissent plus de décalage artificiel aux extrémités. Les marqueurs proches sont regroupés par créneau de 30 minutes. Survol, focus ou clic affiche heure, libellé court, durée, statut et pic thermique ; aucun contenu de prompt n’est enregistré.
+- Nouveau journal append-only versionné workspace/system/thermal-history.jsonl : timestamps UTC, maximum local/distant par tranche de 15 secondes, rétention glissante de 24 h et compactage horaire. La dernière ligne incomplète est ignorée sans contaminer la suivante. Les événements ouverts lors d’un arrêt sont marqués interrompus au démarrage suivant. Le bucket courant est vidé lors de l’arrêt propre.
+- La collecte toutes les 2 secondes reste en mémoire pour le direct et le cooldown. L’écriture disque n’a lieu qu’une fois par bucket de 15 secondes. Une panne du journal n’interrompt jamais un traitement et son avertissement disparaît après reprise des écritures.
+- Endpoint séparé GET /api/work-scheduler/thermal-history, appelé seulement à l’ouverture de Détails puis au plus une fois par minute ou via Actualiser. Le polling /status à une seconde ne transporte pas les 24 h.
+- L’historique commence à s’accumuler au prochain démarrage ; aucune donnée antérieure n’est inventée ou reconstruite. Une extinction volontaire produit un trou visible entre sessions, tandis que les mesures déjà écrites restent disponibles.
+- Tests préparés : persistance entre instances, rétention, ligne tronquée, récupération d’événement ouvert, maxima 15 secondes, marqueur typé, API dédiée et deux graphes/pistes DOM. Contrôles statiques réussis : AST de 8 fichiers Python, raccordements et git diff --check. Aucun test fonctionnel, service, appel LLM, génération ou donnée runtime lancé/modifié conformément aux instructions du projet.
+- Assets actualisés : lab.css et work-queue.js 20260925.2 ; qwen-edit-v2.css reste 20260925.1 pour le correctif de repli.
+
+### Next steps
+1. Redémarrer le Lab lorsque les traitements en cours sont terminés, puis recharger avec Ctrl+F5 ; le journal 24 h commence alors à se remplir.
+2. L’utilisateur lance les tests préparés : python -m unittest tests.test_thermal_history tests.test_machine_work tests.test_lab_web tests.test_work_queue_browser.
+3. Vérifier en usage réel les trous de télémétrie, les regroupements P/D/I/V et l’absence de repli automatique dans Qwen.
+
 ## Dernier alignement 2026-09-25 — boutons Envoyer à l’usine
 
 ### Goal

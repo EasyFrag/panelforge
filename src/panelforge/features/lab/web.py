@@ -969,6 +969,7 @@ def create_app(
     production: ProductionService | None = None,
     production_v2: ProductionV2Service | None = None,
     machine_work=None,
+    video_factory=None,
     model_runtime: ModelRuntimeControl | None = None,
     llm_activity_monitor: Any | None = None,
     comfy_runtime: Any | None = None,
@@ -991,9 +992,13 @@ def create_app(
             krea2_assisted.start_render_worker()
         if qwen_edit is not None:
             qwen_edit.start_worker()
+        if video_factory is not None:
+            video_factory.start()
         try:
             yield
         finally:
+            if video_factory is not None:
+                await asyncio.to_thread(video_factory.stop)
             if machine_work is not None:
                 await asyncio.to_thread(machine_work.stop_temperature_sampling)
             if qwen_edit is not None:
@@ -1002,6 +1007,8 @@ def create_app(
                 await asyncio.to_thread(krea2_assisted.stop_render_worker)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
+    from .video_factory_web import video_factory_router
+    app.include_router(video_factory_router(video_factory, validate_image=detect_image_media_type))
     from .qwen_edit_web import qwen_edit_router
     app.include_router(qwen_edit_router(qwen_edit))
     from .prompt_recipes_web import prompt_recipes_router
@@ -1106,6 +1113,12 @@ def create_app(
         if machine_work is None:
             raise HTTPException(status_code=503, detail="Ordonnanceur global indisponible.")
         return machine_work.public_status()
+
+    @app.get("/api/work-scheduler/thermal-history")
+    def work_scheduler_thermal_history() -> dict[str, object]:
+        if machine_work is None:
+            raise HTTPException(status_code=503, detail="Ordonnanceur global indisponible.")
+        return machine_work.thermal_history()
 
     @app.get("/api/work-scheduler/settings")
     def work_scheduler_settings() -> dict[str, object]:

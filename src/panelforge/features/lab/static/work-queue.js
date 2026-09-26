@@ -12,6 +12,10 @@
   let status = null;
   let saving = false;
   let notices = [];
+  let thermalHistory24h = null;
+  let thermalHistoryLoading = false;
+  let thermalHistoryLoadedAt = 0;
+  let thermalHistoryError = "";
   const minimizedStorageKey = "panelforge.workQueue.minimized";
   let minimized = false;
   try {
@@ -40,6 +44,14 @@
     <p class="muted">Une tâche au maximum par machine. Les files locale et distante restent indépendantes.</p>
     <p data-error class="error-text" role="alert"></p>
     <div class="work-queue-lanes" data-lanes></div>
+    <section class="work-queue-thermal-history">
+      <div class="work-queue-thermal-history-head">
+        <div><h3>Températures · dernières 24 heures</h3><p>Maxima par tranche de 15 secondes. Les interruptions de mesure restent visibles.</p></div>
+        <button type="button" data-refresh-thermal-history>Actualiser</button>
+      </div>
+      <p class="error-text" data-thermal-history-error role="alert"></p>
+      <div data-thermal-history aria-live="polite"></div>
+    </section>
     <details class="work-queue-settings">
       <summary>Paramètres globaux des machines</summary>
       <form data-settings-form>
@@ -265,6 +277,204 @@
       temperatureChart("local_gpu", status?.machines?.local_gpu || unavailable),
       temperatureChart("remote_gpu", status?.machines?.remote_gpu || unavailable),
     );
+  }
+
+  const eventStatusLabel = status => ({
+    completed: "terminé",
+    failed: "échec",
+    cancelled: "annulé",
+    interrupted: "interrompu par un arrêt",
+    running: "en cours",
+  }[status] || status || "état inconnu");
+
+  function eventDescription(value) {
+    const started = Date.parse(value.started_at);
+    const finished = Date.parse(value.finished_at);
+    const time = Number.isFinite(started)
+      ? new Date(started).toLocaleString("fr-FR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})
+      : "heure inconnue";
+    const duration = Number.isFinite(started) && Number.isFinite(finished) && finished >= started
+      ? Math.max(1, Math.round((finished - started) / 60000)) : null;
+    const peak = value.peak_temperature_c == null ? Number.NaN : Number(value.peak_temperature_c);
+    return `${time} · ${value.marker || "?"} ${labels[value.workload] || value.workload || "Traitement"}`
+      + ` · ${value.operation || "Traitement sans libellé"}`
+      + `${duration == null ? "" : ` · ${duration} min`}`
+      + ` · ${eventStatusLabel(value.status)}`
+      + `${Number.isFinite(peak) ? ` · pic ${Math.round(peak)} °C` : ""}`;
+  }
+
+  function clusteredEvents(values, from, to) {
+    const width = Math.max(1, to - from);
+    const clusterDuration = 30 * 60 * 1000;
+    const groups = new Map();
+    values.forEach(value => {
+      const started = Date.parse(value.started_at);
+      if (!Number.isFinite(started) || started < from || started > to) return;
+      const slot = Math.floor((started - from) / clusterDuration);
+      if (!groups.has(slot)) groups.set(slot, []);
+      groups.get(slot).push(value);
+    });
+    return [...groups.values()].map(events => ({
+      events,
+      ratio: Math.max(0, Math.min(1,
+        (events.reduce((sum, value) => sum + Date.parse(value.started_at), 0) / events.length - from) / width)),
+    }));
+  }
+
+  function longTemperatureChart(resource, history) {
+    const from = Date.parse(history?.from);
+    const to = Date.parse(history?.to);
+    const windowEnd = Number.isFinite(to) ? to : Date.now();
+    const windowStart = Number.isFinite(from) ? from : windowEnd - 24 * 60 * 60 * 1000;
+    const values = Array.isArray(history?.series?.[resource])
+      ? history.series[resource].map(value => ({
+        timestamp: Date.parse(value.timestamp),
+        temperature: Number(value.max_temperature_c),
+      })).filter(value => Number.isFinite(value.timestamp) && Number.isFinite(value.temperature)
+        && value.timestamp >= windowStart && value.timestamp <= windowEnd)
+        .sort((a, b) => a.timestamp - b.timestamp)
+      : [];
+    const events = Array.isArray(history?.events?.[resource]) ? history.events[resource] : [];
+    const article = document.createElement("article");
+    article.className = "work-queue-long-temperature-chart";
+
+    const head = document.createElement("div");
+    const heading = document.createElement("div");
+    const title = document.createElement("h4");
+    title.textContent = resource === "local_gpu" ? "Machine locale" : "Serveur distant";
+    const legend = document.createElement("small");
+    legend.textContent = resource === "local_gpu" ? "P = Prompt/LLM · D = DLSS" : "I = Image · V = Vidéo";
+    heading.append(title, legend);
+    const reading = document.createElement("strong");
+    const peak = values.length ? Math.max(...values.map(value => value.temperature)) : null;
+    const latest = values.length ? values[values.length - 1].temperature : null;
+    reading.textContent = latest == null ? "Aucun relevé"
+      : `${Math.round(latest)} °C · pic ${Math.round(peak)} °C`;
+    if (latest != null) reading.style.color = temperatureColor(latest);
+    head.append(heading, reading);
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 1200 250");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `Température de ${title.textContent}, de 0 à 100 degrés sur les dernières 24 heures`);
+    const svgNode = (tag, attributes, text = null) => {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
+      if (text != null) element.textContent = text;
+      svg.append(element);
+      return element;
+    };
+    const left = 48;
+    const right = 1188;
+    const top = 8;
+    const bottom = 205;
+    const y = temperature => bottom - (temperature / 100) * (bottom - top);
+    for (const [minimum, maximum, fill] of [
+      [0, 70, "#eaf6ef"], [70, 80, "#fff2d7"], [80, 90, "#fde5e0"], [90, 100, "#f4ceca"],
+    ]) {
+      svgNode("rect", {x: left, y: y(maximum), width: right - left, height: y(minimum) - y(maximum), fill});
+    }
+    for (let temperature = 0; temperature <= 100; temperature += 20) {
+      const lineY = y(temperature);
+      svgNode("line", {x1: left, y1: lineY, x2: right, y2: lineY, class: "work-queue-temperature-grid"});
+      svgNode("text", {x: left - 8, y: lineY + 4, "text-anchor": "end"}, temperature);
+    }
+    for (const hours of [24, 18, 12, 6, 0]) {
+      const x = left + ((24 - hours) / 24) * (right - left);
+      svgNode("line", {x1: x, y1: top, x2: x, y2: bottom, class: "work-queue-temperature-grid vertical"});
+      svgNode("text", {x, y: 235, "text-anchor": hours === 24 ? "start" : hours === 0 ? "end" : "middle"},
+        hours === 0 ? "maint." : `-${hours} h`);
+    }
+    const width = Math.max(1, windowEnd - windowStart);
+    const points = values.map(value => ({
+      x: left + ((value.timestamp - windowStart) / width) * (right - left),
+      y: y(Math.max(0, Math.min(100, value.temperature))),
+      ...value,
+    }));
+    const maximumGap = Number(history?.bucket_seconds || 15) * 1600;
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const point = points[index];
+      if (point.timestamp - previous.timestamp > maximumGap) continue;
+      svgNode("line", {
+        x1: previous.x, y1: previous.y, x2: point.x, y2: point.y,
+        stroke: temperatureColor(Math.max(previous.temperature, point.temperature)),
+        class: "work-queue-long-temperature-segment",
+      });
+    }
+    if (!points.length) svgNode("text", {x: (left + right) / 2, y: 108, "text-anchor": "middle", class: "empty"}, "Aucun relevé enregistré sur cette période");
+
+    const track = document.createElement("div");
+    track.className = "work-queue-event-track";
+    const trackLabel = document.createElement("span");
+    trackLabel.textContent = "Evt";
+    trackLabel.title = "Événements";
+    trackLabel.setAttribute("aria-label", "Événements");
+    const markers = document.createElement("div");
+    markers.className = "work-queue-event-markers";
+    const detail = document.createElement("p");
+    detail.className = "work-queue-event-detail";
+    detail.textContent = events.length
+      ? "Survole, sélectionne ou clique sur un marqueur pour afficher son traitement."
+      : "Aucun traitement enregistré sur cette période.";
+    for (const cluster of clusteredEvents(events, windowStart, windowEnd)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.style.left = `${cluster.ratio * 100}%`;
+      const kinds = [...new Set(cluster.events.map(value => value.marker).filter(Boolean))];
+      button.textContent = kinds.length === 1
+        ? `${kinds[0]}${cluster.events.length > 1 ? `×${cluster.events.length}` : ""}`
+        : kinds.join("/");
+      const descriptions = cluster.events.map(eventDescription);
+      button.title = descriptions.join("\n");
+      button.setAttribute("aria-label", descriptions.join(". "));
+      const show = () => { detail.textContent = descriptions.join(" | "); };
+      button.addEventListener("mouseenter", show);
+      button.addEventListener("focus", show);
+      button.addEventListener("click", show);
+      markers.append(button);
+    }
+    track.append(trackLabel, markers);
+    article.append(head, svg, track, detail);
+    return article;
+  }
+
+  function renderThermalHistory24h() {
+    const host = dialog.querySelector("[data-thermal-history]");
+    const errorHost = dialog.querySelector("[data-thermal-history-error]");
+    errorHost.textContent = thermalHistoryError;
+    if (thermalHistoryLoading && !thermalHistory24h) {
+      host.replaceChildren(Object.assign(document.createElement("p"), {className: "muted", textContent: "Chargement de l’historique thermique…"}));
+      return;
+    }
+    if (!thermalHistory24h) {
+      host.replaceChildren(Object.assign(document.createElement("p"), {className: "muted", textContent: "L’historique sera chargé à l’ouverture de cette fenêtre."}));
+      return;
+    }
+    host.replaceChildren(
+      longTemperatureChart("local_gpu", thermalHistory24h),
+      longTemperatureChart("remote_gpu", thermalHistory24h),
+    );
+  }
+
+  async function loadThermalHistory24h({force = false} = {}) {
+    if (thermalHistoryLoading) return;
+    if (!force && thermalHistory24h && Date.now() - thermalHistoryLoadedAt < 60_000) return;
+    thermalHistoryLoading = true;
+    thermalHistoryError = "";
+    renderThermalHistory24h();
+    try {
+      thermalHistory24h = await request("/api/work-scheduler/thermal-history");
+      thermalHistoryLoadedAt = Date.now();
+      thermalHistoryError = thermalHistory24h?.error
+        ? `Certaines mesures n’ont pas pu être enregistrées : ${thermalHistory24h.error}` : "";
+    } catch (reason) {
+      thermalHistoryError = reason.message;
+    } finally {
+      thermalHistoryLoading = false;
+      renderThermalHistory24h();
+    }
   }
 
   function activityStage(activity, queued = false) {
@@ -510,6 +720,7 @@
       }
     }
     if (!dialog.open) dialog.showModal();
+    await loadThermalHistory24h();
   }
 
   dialog.addEventListener("click", event => {
@@ -517,6 +728,7 @@
     if (button) control(button.dataset.resource, button.dataset.action);
   });
   dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+  dialog.querySelector("[data-refresh-thermal-history]").addEventListener("click", () => loadThermalHistory24h({force: true}));
   dialog.addEventListener("cancel", event => { event.preventDefault(); dialog.close(); });
   floating.querySelector("[data-open]").addEventListener("click", open);
   floating.querySelector("[data-minimize]").addEventListener("click", () => setMinimized(true));
@@ -617,5 +829,9 @@
     open,
     notice,
   });
+  window.setInterval(() => {
+    if (dialog.open) loadThermalHistory24h();
+  }, 60_000);
+  renderThermalHistory24h();
   render();
 })();

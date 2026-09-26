@@ -1909,12 +1909,47 @@
     elements.intention.focus({ preventScroll: true });
   }
 
-  window.PanelForgeH3Base = Object.freeze({ prefillFirstFrame, prefillAnalysis });
+  window.PanelForgeH3Base = Object.freeze({ prefillFirstFrame, prefillAnalysis, open: async id => {
+    window.PanelForgeLabNavigation?.switchView("i2v-direct");
+    await initialize();
+    if (id) await openSession({id});
+  } });
 
   elements.imageInput.addEventListener("change", () => selectFile("first"));
   elements.lastImageInput.addEventListener("change", () => selectFile("last"));
   elements.removeFirstImage.addEventListener("click", () => removeSelectedFile("first"));
   elements.removeLastImage.addEventListener("click", () => removeSelectedFile("last"));
+  async function sendToFactory() {
+    const factory = window.PanelForgeVideoFactory;
+    const button = document.getElementById("i2vd-factory");
+    if (!factory || button.disabled || interactionLocked()) return;
+    button.disabled = true;
+    setBusy(true);
+    try {
+      const profile = selectedProfile(), cookbook = state.cookbook;
+      if (!profile || !cookbook) throw new Error("Attends le chargement des réglages du parcours.");
+      const references = (state.session?.references || state.forkSource?.references || []).map(ref => ({
+        asset_id: ref.asset_id, role: ref.role, label: ref.label, evidence_policy: ref.evidence_policy || "full",
+      }));
+      for (const [file, role] of [[state.firstFile, "first_frame"], [state.lastFile, "last_frame"]]) {
+        if (file) references.push({...(await factory.upload(file)), role, evidence_policy: "full"});
+      }
+      const cinematic = cinematicControls.payload(), combat = combatControls.payload(), sensual = sensualControls.payload();
+      const config = {
+        mode: "h3", references, intention: currentSourceText(),
+        profile: {id: profile.id, version: profile.version}, cookbook: {id: cookbook.id, version: cookbook.version},
+        plan_model_id: elements.model.value, writer_model_id: writerModels.value() || elements.model.value,
+        cinematic_settings: cinematic, combat_settings: combat, sensual_settings: sensual,
+        shot_count: (cinematic || combat || sensual)?.shot_count ?? null,
+        ...creativePayload(), ...creativeBriefPayload(), ...factory.renderSetup("h3", state.session?.id),
+      };
+      await factory.send({source_kind: "h3", session_id: state.session?.id || null,
+        name: config.intention.split("\n")[0].slice(0, 100) || "Parcours h3", config}, button);
+    } catch (error) { showSetupMessage(error.message); }
+    finally { setBusy(false); button.disabled = false; }
+  }
+  document.getElementById("i2vd-factory")?.addEventListener("click", sendToFactory);
+
   elements.form.addEventListener("submit", createSession);
   elements.refreshModels.addEventListener("click", refreshModels);
   document.querySelectorAll('[data-lab-view="i2v-direct"]').forEach((button) => {

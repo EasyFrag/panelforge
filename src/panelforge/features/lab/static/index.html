@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260924.3">
+  <link rel="stylesheet" href="/static/lab.css?v=20260925.palette1">
   <script src="/static/lab.js?v=20260918.3" defer></script>
-  <script src="/static/work-queue.js?v=20260924.1" defer></script>
-  <script src="/static/lab-core.js?v=20260922.2" defer></script>
+  <script src="/static/work-queue.js?v=20260925.2" defer></script>
+  <script src="/static/lab-core.js?v=20260925.palette1" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260924.6">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
   <script src="/static/story-continuity.js?v=20260922.1" defer></script>
@@ -29,14 +29,14 @@
   <script src="/static/prompt-recipes.js?v=20260916.1" defer></script>
   <script src="/static/prompt-writer-model.js?v=20260918.1" defer></script>
   <script src="/static/chinese-prompt-variant.js?v=20260918.2" defer></script>
-  <script src="/static/i2v-direct.js?v=20260919.1" defer></script>
+  <script src="/static/i2v-direct.js?v=20260925.factory1" defer></script>
   <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260924.1" defer></script>
+  <script src="/static/h3-render-lab.js?v=20260925.factory1" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
-  <script src="/static/social-lab.js?v=20260902.1" defer></script>
-  <script src="/static/ref2v-direct.js?v=20260919.1" defer></script>
+  <script src="/static/social-lab.js?v=20260925.factory1" defer></script>
+  <script src="/static/ref2v-direct.js?v=20260925.factory1" defer></script>
   <script src="/static/media-analysis-media.js?v=20260910.11" defer></script>
   <script src="/static/media-analysis-speech.js?v=20260911.1" defer></script>
   <script src="/static/media-analysis.js?v=20260911.2" defer></script>
@@ -45,14 +45,16 @@
   <script src="/static/episode-localization.js?v=20260923.1" defer></script>
   <script src="/static/episode-thumbnail-layout.js?v=20260924.1" defer></script>
   <script src="/static/episode-thumbnails.js?v=20260924.4" defer></script>
-  <script src="/static/episodes.js?v=20260925.2" defer></script>
+  <script src="/static/episodes.js?v=20260925.factory1" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260924.4" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260925.factory1" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
-  <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260923.1">
+  <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260925.1">
   <script src="/static/qwen-edit-v2.js?v=20260923.2" defer></script>
+  <link rel="stylesheet" href="/static/video-factory.css?v=20260925.factory2">
+  <script src="/static/video-factory.js?v=20260925.1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -63,6 +65,7 @@
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
       <button type="button" data-lab-view="video-lab">Video Lab</button>
       <button type="button" data-lab-view="stories">Histoires</button>
+      <button type="button" data-lab-view="video-factory">Usine <span id="vf-nav-errors" hidden></span></button>
     </nav>
     <div class="topbar-actions">
       <div id="runtime-monitor" class="runtime-monitor" title="Statistiques globales des GPU ; la VRAM n’est pas attribuée par processus.">
@@ -89,6 +92,38 @@
       </span>
     </div>
   </header>
+
+
+  <main id="video-factory-workspace" class="vf-workspace" hidden>
+    <header class="vf-heading"><div><small>PRODUCTION EN SÉRIE</small><h1>Usine à vidéo</h1><p>Prépare les vidéos, puis lance les étapes restantes.</p></div>
+      <div class="vf-actions"><button id="vf-refresh" type="button">Actualiser</button><button id="vf-pause" type="button">Pause après les étapes actives</button></div></header>
+    <nav class="vf-tabs" aria-label="Étapes de l’usine"><button type="button" data-vf-tab="preparation" class="active">Préparation <span></span></button><button type="button" data-vf-tab="production">Production <span></span></button><button type="button" data-vf-tab="results">Résultats <span></span></button></nav>
+    <div id="vf-message" role="status" aria-live="polite"></div>
+    <div id="vf-machines" class="vf-machines"></div>
+    <div class="vf-toolbar">
+      <label class="vf-select"><input id="vf-select-all" type="checkbox"> <span id="vf-selected-count">Sélection</span></label>
+      <select id="vf-filter" aria-label="Filtrer les traitements"><option value="all">Tous</option><option value="ready">Prêts</option><option value="incomplete">À compléter</option><option value="failed">En erreur</option></select>
+      <select id="vf-bulk-preset" aria-label="Appliquer un preset à la sélection"><option value="">Appliquer un preset…</option><option value="source">Réglages source</option><option value="lips">Lèvres</option><option value="little_men">Petits hommes</option><option value="custom">Personnalisé</option></select>
+      <button id="vf-bulk-settings" type="button">Réglages du lot</button>
+      <button id="vf-up" type="button" title="Remonter la sélection">↑ Priorité</button><button id="vf-down" type="button" title="Descendre la sélection">↓</button>
+      <button id="vf-launch" type="button" class="factory-button">Lancer la sélection</button>
+      <button id="vf-cancel" type="button">Annuler la sélection</button><button id="vf-retry" type="button">Reprendre les chaînes</button>
+    </div>
+    <div class="vf-layout"><section class="vf-panel vf-list" aria-label="Traitements">
+      <div class="vf-table-wrap"><table><thead><tr><th scope="col">Ordre</th><th scope="col">Vidéo / source</th><th scope="col">Plan</th><th scope="col">Prompt</th><th scope="col">Vidéo</th><th scope="col">DLSS</th><th scope="col">Texte IG</th><th scope="col">État</th></tr></thead><tbody id="vf-rows"></tbody></table></div>
+      <div id="vf-empty" class="vf-empty">Envoie une image, un parcours H3 / REF2V ou les scènes d’une histoire à l’usine.</div>
+    </section><aside id="vf-inspector" class="vf-panel" aria-label="Réglages du traitement"><p class="vf-empty">Sélectionne une vidéo pour voir ses réglages.</p></aside></div>
+    <p class="vf-help">Une ligne = une vidéo. L’ordre de la liste donne la priorité à la première étape disponible sur chaque machine.</p>
+  </main>
+  <div id="vf-notice" role="status" aria-live="polite" hidden></div>
+  <dialog id="vf-detail-dialog"><header><h2 id="vf-detail-title">Détail</h2><button type="button" data-vf-close aria-label="Fermer">×</button></header><div id="vf-detail-content"></div></dialog>
+  <dialog id="vf-bulk-dialog"><form id="vf-bulk-form"><header><h2>Réglages du lot</h2><button type="button" data-vf-close aria-label="Fermer">×</button></header><p id="vf-bulk-summary"></p>
+    <p>Seuls les champs renseignés seront modifiés.</p>
+    <label>Durée (secondes)<input name="duration" type="number" min="5" max="15" step="0.5" placeholder="Conserver les valeurs actuelles"></label>
+    <label>Plans<select name="plans"><option value="">Conserver</option><option value="auto">Auto</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
+    <label>Texte Instagram<select name="social"><option value="">Conserver</option><option value="on">Activer · anglais · 3 variantes</option><option value="off">Désactiver</option></select></label>
+    <label>DLSS<select name="dlss"><option value="">Conserver</option><option value="on">Activer</option><option value="off">Désactiver</option></select></label>
+    <button type="submit" class="factory-button">Appliquer à la sélection</button></form></dialog>
 
   <main id="stories-workspace" hidden>
     <div class="story-heading">
@@ -439,7 +474,7 @@
         <div class="story-panel episode-video-overview">
           <div class="episode-bar"><div><h2 id="episode-overview-title">Prompts et vidéos de l’épisode</h2>
             <p id="episode-overview-hint" class="muted">Toutes les scènes restent visibles. Les prompts sont rédigés un par un ; les vidéos démarrent automatiquement sur le serveur distant.</p></div>
-            <div class="story-actions"><button id="episode-video-start" type="button" class="primary">Lancer prompts + vidéos</button>
+            <div class="story-actions"><button id="episode-video-start" type="button" class="primary">Lancer prompts + vidéos</button><button id="episode-video-factory" type="button" class="factory-button">Envoyer à l’usine</button>
               <button id="episode-video-pause" type="button" title="Laisse finir uniquement les traitements qui utilisent déjà une machine et retire les réservations suivantes." hidden>Pause après les traitements actifs</button>
               <button id="episode-video-drain" class="text-button" type="button" title="N’ajoute plus de travail mais termine toutes les réservations déjà placées dans les files." hidden>Finir la file puis suspendre</button>
               <button id="episode-video-resume" type="button" hidden>Relancer les scènes incomplètes</button></div></div>
@@ -1633,7 +1668,7 @@
           <input id="i2vd-show-reasoning" type="checkbox">
           <span><b>Afficher la trace transmise par le modèle</b><small>Debug uniquement · n’active pas le raisonnement du modèle et ne le sauvegarde pas.</small></span>
         </label>
-        <button id="i2vd-start" class="primary" type="submit" disabled>Créer le parcours</button>
+        <div class="factory-entry-actions"><button id="i2vd-start" class="primary" type="submit" disabled>Créer le parcours</button><button id="i2vd-factory" class="factory-button" type="button">Envoyer à l’usine</button></div>
         <div id="i2vd-quick-status" class="quick-mode-status" role="status" aria-live="polite" hidden>
           <span id="i2vd-quick-status-label"></span>
           <button id="i2vd-quick-resume" class="text-button" type="button" hidden>Reprendre</button>
@@ -2046,7 +2081,7 @@
           <input id="ref2vd-show-reasoning" type="checkbox">
           <span><b>Afficher la trace transmise par le modèle</b><small>Debug uniquement · n’active pas le raisonnement du modèle et ne le sauvegarde pas.</small></span>
         </label>
-        <button id="ref2vd-start" class="primary" type="submit" disabled>Créer le parcours</button>
+        <div class="factory-entry-actions"><button id="ref2vd-start" class="primary" type="submit" disabled>Créer le parcours</button><button id="ref2vd-factory" class="factory-button" type="button">Envoyer à l’usine</button></div>
         <div id="ref2vd-quick-status" class="quick-mode-status" role="status" aria-live="polite" hidden>
           <span id="ref2vd-quick-status-label"></span>
           <button id="ref2vd-quick-resume" class="text-button" type="button" hidden>Reprendre</button>

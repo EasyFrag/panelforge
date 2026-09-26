@@ -120,6 +120,7 @@ from panelforge.infrastructure.storage import (
     LocalSocialLabStore,
     LocalVideoRunStore,
     LocalWorkSchedulerSettings,
+    LocalThermalHistoryStore,
 )
 
 
@@ -375,6 +376,7 @@ def build_app(args: argparse.Namespace):
     machine_work = MachineWorkCoordinator(
         thermal_monitor=production_thermal_monitor,
         settings_store=LocalWorkSchedulerSettings(args.workspace),
+        thermal_history_store=LocalThermalHistoryStore(args.workspace),
         monitor_interval=max(0.2, args.poll_interval),
     )
     prompt_examples = LocalPromptExampleLibrary(
@@ -709,8 +711,16 @@ def build_app(args: argparse.Namespace):
     episodes = EpisodeService(stories=stories, store=episode_store,
         krea=krea2_assisted, prompt_lab=prompt_lab, composition=prompt_composition,
         render=h3_render, assets=assets, dlss=dlss, work_coordinator=machine_work, qwen_edit=qwen_edit, thumbnails=thumbnails)
+    from panelforge.application.video_factory import VideoFactoryService
+    from panelforge.application.video_factory_workflows import FactoryWorkflows
+    from panelforge.infrastructure.storage.video_factory import LocalVideoFactoryStore
+    video_factory = VideoFactoryService(store=LocalVideoFactoryStore(args.workspace),
+        adapter=FactoryWorkflows(prompt_lab=prompt_lab, composition=prompt_composition,
+            render=h3_render, dlss=dlss, social=social_lab, episodes=episodes,
+            assets=assets, coordinator=machine_work), coordinator=machine_work)
     return create_app(
         runner,
+        video_factory=video_factory,
         prompt_recipes=prompt_recipes,
         llm_traces=llm_traces,
         dlss=dlss,

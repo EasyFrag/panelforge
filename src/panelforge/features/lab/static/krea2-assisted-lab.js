@@ -1133,13 +1133,9 @@
         actions.append(feedback, save);
         if (window.PanelForgeDlss) actions.append(window.PanelForgeDlss.button({ owner: "assisted", ownerId: project.project_id, attempt }));
         if (window.PanelForgeDlss?.comparisonButton) actions.append(window.PanelForgeDlss.comparisonButton({ owner: "assisted", ownerId: project.project_id, attempt }));
-        if (state.spec?.restaging?.enabled) {
-          const compose = document.createElement("button");
-          compose.type = "button";
-          compose.textContent = "Replacer dans un décor";
-          compose.addEventListener("click", () => restagingEditor.open(state.project, attempt));
-          actions.append(compose);
-        }
+        if (window.PanelForgeVideoFactory) actions.append(window.PanelForgeVideoFactory.imageButton({
+          assetId: attempt.output_asset_id, name: project.name || "Image KREA 2", sourceId: project.project_id,
+        }));
         const preset = document.createElement("button");
         preset.type = "button";
         preset.textContent = "Créer un preset";

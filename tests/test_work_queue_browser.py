@@ -37,9 +37,17 @@ class WorkQueueBrowserTest(unittest.TestCase):
           remote_gpu:{state:'paused',temperature_c:66,paused:true,active:null,queue_count:1,
             queue:[{position:1,operation:'KREA2 Â· LÃ©a',workload:'image_render'}]},
         }};
+        const thermal24={window_seconds:86400,bucket_seconds:15,
+          from:'2026-09-24T12:00:00Z',to:'2026-09-25T12:00:00Z',persistent:true,error:null,
+          series:{
+            local_gpu:[{timestamp:'2026-09-25T10:00:00Z',max_temperature_c:76},{timestamp:'2026-09-25T10:00:15Z',max_temperature_c:82}],
+            remote_gpu:[{timestamp:'2026-09-25T09:00:00Z',max_temperature_c:68},{timestamp:'2026-09-25T09:00:15Z',max_temperature_c:73}]},
+          events:{
+            local_gpu:[{id:'p1',marker:'P',workload:'llm',operation:'Synopsis',started_at:'2026-09-25T10:00:00Z',finished_at:'2026-09-25T10:02:00Z',status:'completed',peak_temperature_c:82}],
+            remote_gpu:[{id:'v1',marker:'V',workload:'video_render',operation:'H3 scene 1',started_at:'2026-09-25T09:00:00Z',finished_at:'2026-09-25T09:12:00Z',status:'completed',peak_temperature_c:73}]}};
         window.fetch=async(url,options={})=>{
           calls.push({url,method:options.method||'GET',body:options.body?JSON.parse(options.body):null});
-          const value=url.endsWith('/pause')?{...status,machines:{...status.machines,
+          const value=url==='/api/work-scheduler/thermal-history'?thermal24:url.endsWith('/pause')?{...status,machines:{...status.machines,
             local_gpu:{...status.machines.local_gpu,paused:true}}}:url==='/api/work-scheduler/settings'&&options.method==='PUT'
             ? options.body?JSON.parse(options.body):settings:status;
           return {ok:true,json:async()=>value};
@@ -65,6 +73,10 @@ class WorkQueueBrowserTest(unittest.TestCase):
           await window.PanelForgeWorkQueue.open();
           const dialog=document.querySelector('.work-queue-dialog');
           check(dialog.open&&dialog.querySelectorAll('.work-queue-lane').length===2,'both lanes open');
+          check(dialog.querySelectorAll('.work-queue-long-temperature-chart').length===2,'two separate 24 hour charts are visible');
+          check(dialog.querySelectorAll('.work-queue-event-markers button').length===2,'local and remote event markers are visible');
+          check(dialog.textContent.includes('P = Prompt/LLM')&&dialog.textContent.includes('I = Image'),'event legends are visible');
+          check(calls.some(call=>call.url==='/api/work-scheduler/thermal-history'),'24 hour history uses its dedicated request');
           check(dialog.textContent.includes('Prompt scÃ¨ne 2')&&dialog.textContent.includes('KREA2 Â· LÃ©a'),'upcoming jobs are described');
           check(dialog.textContent.includes('Serveur LLM indisponible'),'real failure detail is visible');
           dialog.querySelector('[data-resource=local_gpu]').click();

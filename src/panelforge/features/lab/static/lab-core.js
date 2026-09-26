@@ -15,6 +15,7 @@
     socialLab: $("#social-lab-workspace"),
     mediaAnalysis: $("#media-analysis-workspace"),
     stories: $("#stories-workspace"),
+    videoFactory: $("#video-factory-workspace"),
     recipeBadge: $("#recipe-badge"),
     i2vDirectNewRun: $("#i2vd-topbar-new"),
     ref2vDirectNewRun: $("#ref2vd-topbar-new"),
@@ -31,7 +32,7 @@
     ["qwen-edit-lab", elements.qwenEditLab],
     ["ref2v-direct", elements.ref2vDirect], ["video-lab", elements.videoLab],
     ["social-lab", elements.socialLab], ["media-analysis", elements.mediaAnalysis],
-    ["stories", elements.stories],
+    ["stories", elements.stories], ["video-factory", elements.videoFactory],
   ]);
   let activeView = null;
   const retiredViewFallbacks = Object.freeze({
@@ -60,6 +61,7 @@
     if (elements.ref2vDirectNewRun) elements.ref2vDirectNewRun.hidden = view !== "ref2v-direct";
     const baseTopLevelView = imageLabActive ? "change-view" : view;
     const topLevelView = ["social-lab", "media-analysis"].includes(view) ? "video-lab" : baseTopLevelView;
+    document.body.dataset.workshop = topLevelView;
     elements.nav.forEach((button) => {
       button.classList.toggle(
         "active",

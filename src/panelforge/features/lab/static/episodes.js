@@ -1263,6 +1263,11 @@
     const batch = state.data.reference_batch; if (!batch) return;
     accept(await core.request(api(`/reference-batches/${encodeURIComponent(batch.batch_id)}/cancel`), {method: "POST"}));
   }));
+  el("video-factory")?.addEventListener("click", () => action(async () => {
+    await saveReference(); await saveScene(); await flushRender();
+    await window.PanelForgeVideoFactory.send({source_kind: "episode", source_id: state.data.episode_id,
+      scene_ids: state.data.scenes.map(value => value.id), auto_dlss: true}, el("video-factory"));
+  }));
   el("video-start").addEventListener("click", () => action(startVideoChain));
   el("video-global-settings").addEventListener("click", () => window.PanelForgeWorkQueue?.open());
   el("video-pause").addEventListener("click", () => action(() => pauseVideoChain("after_active")));

@@ -24,6 +24,7 @@ from panelforge.infrastructure.presets import (
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
     LocalRunStore,
+    LocalThermalHistoryStore,
     LocalWorkSchedulerSettings,
 )
 
@@ -898,7 +899,8 @@ class LabWebTest(unittest.TestCase):
 
     def test_global_scheduler_status_settings_and_lane_controls(self):
         coordinator = MachineWorkCoordinator(
-            settings_store=LocalWorkSchedulerSettings(self.temporary_directory.name)
+            settings_store=LocalWorkSchedulerSettings(self.temporary_directory.name),
+            thermal_history_store=LocalThermalHistoryStore(self.temporary_directory.name),
         )
         with TestClient(create_app(self.runner, machine_work=coordinator)) as client:
             payload = client.get("/api/runtime/status").json()
@@ -923,6 +925,11 @@ class LabWebTest(unittest.TestCase):
             self.assertEqual(response.json()["remote_video_cooldown_seconds"], 45)
             self.assertEqual(response.json()["local_cooldown_temperature_c"], 80)
             self.assertEqual(response.json()["local_cooldown_seconds"], 80)
+            thermal = client.get("/api/work-scheduler/thermal-history")
+            self.assertEqual(thermal.status_code, 200, thermal.text)
+            self.assertTrue(thermal.json()["persistent"])
+            self.assertEqual(thermal.json()["window_seconds"], 86_400)
+            self.assertEqual(set(thermal.json()["series"]), {"local_gpu", "remote_gpu"})
             paused = client.post("/api/work-scheduler/local_gpu/pause").json()
             self.assertTrue(paused["machines"]["local_gpu"]["paused"])
             resumed = client.post("/api/work-scheduler/local_gpu/resume").json()

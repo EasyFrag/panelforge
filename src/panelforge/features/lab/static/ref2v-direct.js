@@ -2085,9 +2085,51 @@
     elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
     elements.intention.focus({ preventScroll: true });
   }
-  window.PanelForgeRef2V = Object.freeze({ prefillAnalysis });
+  window.PanelForgeRef2V = Object.freeze({ prefillAnalysis, open: async id => {
+    window.PanelForgeLabNavigation?.switchView("ref2v-direct");
+    await initialize();
+    if (id) await openSession({id});
+  } });
 
   elements.imageInput.addEventListener("change", () => addFiles(elements.imageInput.files || []));
+  async function sendToFactory() {
+    const factory = window.PanelForgeVideoFactory;
+    const button = document.getElementById("ref2vd-factory");
+    if (!factory || button.disabled || interactionLocked()) return;
+    button.disabled = true;
+    setBusy(true);
+    try {
+      const profile = selectedProfile(), cookbook = state.cookbook;
+      if (!profile || !cookbook) throw new Error("Attends le chargement des réglages du parcours.");
+      const references = (state.session?.references || state.forkSource?.references || []).map(ref => ({
+        asset_id: ref.asset_id, role: ref.role, label: ref.label, evidence_policy: ref.evidence_policy || "full",
+      }));
+      if (!state.session) {
+        for (const draft of state.drafts) {
+          if (draft.file) references.push({...(await factory.upload(draft.file)), role: draft.role, evidence_policy: "full"});
+          else {
+            const existing = (state.forkSource?.references || []).find(ref => ref.id === draft.sourceReferenceId);
+            const reference = existing && references.find(ref => ref.asset_id === existing.asset_id);
+            if (reference) reference.role = draft.role;
+          }
+        }
+      }
+      const cinematic = cinematicControls.payload(), combat = combatControls.payload(), sensual = sensualControls.payload();
+      const config = {
+        mode: "ref2v", references, intention: elements.intention.value.trim(),
+        profile: {id: profile.id, version: profile.version}, cookbook: {id: cookbook.id, version: cookbook.version},
+        plan_model_id: elements.model.value, writer_model_id: writerModels.value() || elements.model.value,
+        cinematic_settings: cinematic, combat_settings: combat, sensual_settings: sensual,
+        shot_count: (cinematic || combat || sensual)?.shot_count ?? null,
+        ...creativePayload(), ...creativeBriefPayload(), ...factory.renderSetup("ref2v", state.session?.id),
+      };
+      await factory.send({source_kind: "ref2v", session_id: state.session?.id || null,
+        name: config.intention.split("\n")[0].slice(0, 100) || "Parcours ref2v", config}, button);
+    } catch (error) { showSetupMessage(error.message); }
+    finally { setBusy(false); button.disabled = false; }
+  }
+  document.getElementById("ref2vd-factory")?.addEventListener("click", sendToFactory);
+
   elements.form.addEventListener("submit", createSession);
   elements.refreshModels.addEventListener("click", () => loadModels().catch((error) => showSetupMessage(error.message)));
   elements.preparationFamily.addEventListener("change", changePreparationFamily);

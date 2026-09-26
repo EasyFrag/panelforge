@@ -1162,12 +1162,15 @@
     openSetup,
     close: () => openContext(null),
     parameters: renderParameters,
+    factorySnapshot: sessionId => state.spec && state.project && sessionId && state.project.source_session_id === sessionId ? renderParameters() : null,
     refreshControls: renderControls,
     get busy() { return state.busy || state.recipeLoading; },
   });
   }
 
-  window.PanelForgeH3Render = Object.freeze({ mount });
-  mount("h3r", "panelforge:h3-base-context", "h3-base");
-  mount("ref2vr", "panelforge:ref2v-context", "ref2va");
+  const factoryInstances = {};
+  window.PanelForgeH3Render = Object.freeze({ mount,
+    factorySnapshot: (mode, sessionId) => factoryInstances[mode]?.factorySnapshot(sessionId) || null });
+  factoryInstances.h3 = mount("h3r", "panelforge:h3-base-context", "h3-base");
+  factoryInstances.ref2v = mount("ref2vr", "panelforge:ref2v-context", "ref2va");
 })();

@@ -1654,6 +1654,28 @@ class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocali
             with self._lock:
                 self._active_video_chains.discard(identity)
 
+    def register_factory_video(self, identity, scene_id, *, factory_id, inputs, expected_preparation_id,
+                               session_id, project_id, render_setup):
+        """Attach a factory result only if the original scene is still untouched."""
+        with self._lock:
+            value = self.store.get(identity)
+            scene = self._item(value, "scenes", scene_id)
+            if any(p.get("factory_id") == factory_id and p.get("render_project_id") == project_id
+                   for p in scene["preparations"]):
+                return True
+            latest = scene["preparations"][-1] if scene["preparations"] else None
+            if (not session_id or (latest["id"] if latest else None) != expected_preparation_id
+                    or fingerprint(scene_inputs(value, scene)) != fingerprint(inputs)
+                    or (scene.get("job") or {}).get("status") in {"running", "queued", "starting"}
+                    or (value.get("video_chain") or {}).get("status") in {"running", "pausing"}):
+                return False
+            scene["preparations"].append(dict(id=f"prep-{uuid4().hex}", factory_id=factory_id,
+                inputs=deepcopy(inputs), input_hash=fingerprint(inputs), session_id=session_id,
+                render_project_id=project_id, status="ready", error=None,
+                prompt_stages={"plan": "ready", "writer": "ready"}, render_setup=deepcopy(render_setup)))
+            self.store.save(value)
+            return True
+
     def prepare_scene(self, identity, scene_id, expected_revision, request_id, resume=False):
         with self._lock:
             value = self.store.get(identity)

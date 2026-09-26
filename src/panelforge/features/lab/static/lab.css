@@ -8,13 +8,42 @@
   --green-soft: #deeee6;
   --red: #a23d36;
   --amber: #996019;
+  /* Workshop identity is limited to navigation and the page halo. */
+  --workshop-accent: #17634c;
+  --workshop-soft: #deeee6;
+  --workshop-glow: #dceae2;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   color: var(--ink);
   background: var(--bg);
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; background: radial-gradient(circle at 80% 0, #dceae2, transparent 32rem), var(--bg); }
+body { margin: 0; min-width: 320px; background: radial-gradient(circle at 80% 0, var(--workshop-glow), transparent 32rem), var(--bg); }
+body[data-workshop="i2v-direct"] {
+  --workshop-accent: #4269a8;
+  --workshop-soft: #e5ecf7;
+  --workshop-glow: #e0e7f1;
+}
+body[data-workshop="ref2v-direct"] {
+  --workshop-accent: #206f78;
+  --workshop-soft: #dff0f1;
+  --workshop-glow: #dcebed;
+}
+body[data-workshop="video-lab"] {
+  --workshop-accent: #805c24;
+  --workshop-soft: #f3ead8;
+  --workshop-glow: #eee7d9;
+}
+body[data-workshop="stories"] {
+  --workshop-accent: #95543e;
+  --workshop-soft: #f4e6df;
+  --workshop-glow: #efe1da;
+}
+body[data-workshop="video-factory"] {
+  --workshop-accent: #63438e;
+  --workshop-soft: #eee6f8;
+  --workshop-glow: #e9e0f0;
+}
 button, input, select, textarea { font: inherit; }
 button, select, input[type="range"], .dropzone { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .dropzone:focus-within { outline: 3px solid #17634c33; outline-offset: 2px; }
@@ -214,7 +243,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 
 .lab-nav { display: flex; gap: .25rem; padding: .25rem; border: 1px solid var(--line); border-radius: 10px; background: #eeebe4; }
 .lab-nav button { min-height: 32px; padding: .35rem .7rem; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: .68rem; font-weight: 750; }
-.lab-nav button.active { color: var(--green); background: white; box-shadow: 0 2px 8px #27302b15; }
+.lab-nav button.active { color: var(--workshop-accent); background: var(--workshop-soft); box-shadow: 0 2px 8px #27302b15; }
 
 .prompt-workspace { grid-template-columns: minmax(310px, 360px) minmax(0, 1fr); }
 .prompt-content { display: grid; min-width: 0; gap: 1rem; }
@@ -795,13 +824,13 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
   border: 1px solid var(--line); border-radius: 10px; background: #e9e6df;
 }
 .image-lab-modebar button { min-height: 34px; padding: .4rem .75rem; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: .68rem; font-weight: 750; }
-.image-lab-modebar button.active { color: var(--green); background: white; box-shadow: 0 2px 8px #27302b15; }
+.image-lab-modebar button.active { color: var(--workshop-accent); background: var(--workshop-soft); box-shadow: 0 2px 8px #27302b15; }
 .video-lab-modebar {
   display: flex; grid-column: 1 / -1; gap: .3rem; width: max-content; max-width: 100%; padding: .3rem;
   border: 1px solid var(--line); border-radius: 10px; background: #e9e6df;
 }
 .video-lab-modebar button { min-height: 34px; padding: .4rem .75rem; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: .68rem; font-weight: 750; }
-.video-lab-modebar button.active { color: var(--green); background: white; box-shadow: 0 2px 8px #27302b15; }
+.video-lab-modebar button.active { color: var(--workshop-accent); background: var(--workshop-soft); box-shadow: 0 2px 8px #27302b15; }
 .social-lab-workspace { grid-template-columns: minmax(330px, 400px) minmax(0, 1fr); width: 100%; min-width: 0; }
 .social-lab-controls input[type="text"],
 .social-lab-controls input[type="number"],
@@ -1782,7 +1811,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .dlss-export { font-size: .8rem; overflow-wrap: anywhere; }
 
 /* Global work scheduler: one FIFO lane per physical machine. */
-.work-queue-dialog { width: min(1180px, 95vw); max-height: 92vh; overflow: auto; padding: 22px; border: 1px solid #d8d1c5; border-radius: 16px; background: #faf9f5; color: #14231f; }
+.work-queue-dialog { width: min(1500px, 96vw); max-width: none; max-height: 92vh; overflow: auto; padding: 22px; border: 1px solid #d8d1c5; border-radius: 16px; background: #faf9f5; color: #14231f; }
 .work-queue-dialog::backdrop { background: #071c18aa; }
 .work-queue-head, .work-queue-lane > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .work-queue-head h2, .work-queue-lane h3 { margin: 0; }
@@ -1825,6 +1854,27 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .work-queue-history-row:last-child { border-bottom: 0; }
 .work-queue-history-row p { margin: 0; }
 .work-queue-history-row small { display: block; margin-top: 4px; color: var(--red); overflow-wrap: anywhere; }
+.work-queue-thermal-history { margin: 20px 0 16px; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); }
+.work-queue-thermal-history-head, .work-queue-long-temperature-chart > div:first-child { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
+.work-queue-thermal-history-head h3, .work-queue-long-temperature-chart h4 { margin: 0; }
+.work-queue-thermal-history-head p { margin: 4px 0 0; color: var(--muted); font-size: .76rem; }
+.work-queue-thermal-history-head button { flex: 0 0 auto; }
+.work-queue-thermal-history [data-thermal-history] { display: grid; gap: 18px; margin-top: 12px; }
+.work-queue-long-temperature-chart { min-width: 0; padding: 14px; border: 1px solid #d8d1c5; border-radius: 11px; background: #fff; }
+.work-queue-long-temperature-chart > div:first-child > div { display: grid; gap: 3px; }
+.work-queue-long-temperature-chart > div:first-child small { color: var(--muted); font-size: .72rem; }
+.work-queue-long-temperature-chart > div:first-child > strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.work-queue-long-temperature-chart svg { display: block; width: 100%; height: 250px; margin-top: 9px; overflow: visible; }
+.work-queue-long-temperature-chart svg text { fill: #596861; font-size: 11px; }
+.work-queue-long-temperature-chart svg text.empty { font-size: 14px; }
+.work-queue-long-temperature-segment { fill: none; stroke-width: 3; stroke-linecap: round; }
+.work-queue-event-track { position: relative; box-sizing: border-box; display: block; margin-top: 5px; padding-right: 1%; padding-left: 4%; }
+.work-queue-event-track > span { position: absolute; top: 50%; left: 0; width: 4%; color: var(--muted); font-size: .68rem; font-weight: 800; transform: translateY(-50%); }
+.work-queue-event-markers { position: relative; height: 34px; border: 1px solid #d8d1c5; border-radius: 8px; background: linear-gradient(90deg, #f5f3ee, #fff); }
+.work-queue-event-markers::before { position: absolute; top: 50%; right: 8px; left: 8px; height: 1px; background: #c9d2cd; content: ""; }
+.work-queue-event-markers button { position: absolute; top: 50%; z-index: 1; min-width: 27px; min-height: 27px; padding: 2px 5px; transform: translate(-50%, -50%); border: 2px solid #fff; border-radius: 999px; color: #fff; background: var(--green); box-shadow: 0 0 0 1px #17634f55; font-size: .65rem; font-weight: 900; line-height: 1; }
+.work-queue-event-markers button:hover, .work-queue-event-markers button:focus-visible { z-index: 2; transform: translate(-50%, -50%) scale(1.1); outline: 2px solid #17634f55; }
+.work-queue-event-detail { min-height: 2.6em; margin: 7px 1% 0 4%; color: var(--muted); font-size: .7rem; line-height: 1.35; overflow-wrap: anywhere; }
 .work-queue-background { position: fixed; right: 12px; bottom: 12px; z-index: 36; width: min(760px, calc(100vw - 24px)); padding: 10px 12px; border: 1px solid #84ae9b; border-radius: 12px; background: #faf9f5; box-shadow: 0 4px 18px #0002; }
 .work-queue-compact-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; color: var(--green); font-size: .78rem; }
 .work-queue-compact-actions { display: flex; align-items: center; gap: 5px; }
@@ -1887,6 +1937,10 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 @media (max-width: 760px) {
   .work-queue-lanes, .work-queue-settings-grid { grid-template-columns: minmax(0, 1fr); }
   .work-queue-background { right: 6px; bottom: 6px; width: calc(100vw - 12px); }
+  .work-queue-thermal-history { padding: 10px; }
+  .work-queue-thermal-history-head { align-items: stretch; flex-direction: column; }
+  .work-queue-long-temperature-chart { padding: 9px; }
+  .work-queue-long-temperature-chart svg { height: 210px; }
 }
 .h3-recipe-picker { display: block; max-width: 30rem; margin: 0.8rem 0; }
 .h3-bunny-controls { padding: 0.8rem; border: 1px solid var(--line, #d9d2c6); border-radius: 10px; margin-bottom: 0.8rem; }

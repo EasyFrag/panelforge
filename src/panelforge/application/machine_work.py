@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import math
 from threading import Event, RLock, Thread
 import time
 from typing import Callable, Iterator, Protocol
+from uuid import uuid4
 
 from panelforge.domain.production import (
     ComputeResource,
@@ -26,14 +27,50 @@ from .production_resources import (
 
 
 _TEMPERATURE_HISTORY_SECONDS = 3_600
+_PERSISTENT_TEMPERATURE_HISTORY_SECONDS = 86_400
 _TEMPERATURE_BUCKET_SECONDS = 15
 _TEMPERATURE_SAMPLE_SECONDS = 2.0
 _LLM_RATE_WINDOW_SECONDS = 5.0
+_THERMAL_EVENT_MARKERS = {
+    ProductionWorkload.LLM: 'P',
+    ProductionWorkload.IMAGE_RENDER: 'I',
+    ProductionWorkload.VIDEO_RENDER: 'V',
+    ProductionWorkload.DLSS: 'D',
+}
 
 
 class WorkSchedulerSettingsStore(Protocol):
     def load(self) -> WorkSchedulerSettings: ...
     def save(self, settings: WorkSchedulerSettings) -> WorkSchedulerSettings: ...
+
+
+class ThermalHistoryStore(Protocol):
+    def record_sample(
+        self,
+        observed_at: datetime,
+        *,
+        local_temperature_c: float | None,
+        remote_temperature_c: float | None,
+    ) -> None: ...
+    def record_event_start(
+        self,
+        event_id: str,
+        *,
+        resource: ComputeResource,
+        workload: ProductionWorkload,
+        operation: str,
+        started_at: datetime,
+    ) -> None: ...
+    def record_event_finish(
+        self,
+        event_id: str,
+        *,
+        finished_at: datetime,
+        status: str,
+        peak_temperature_c: float | None,
+    ) -> None: ...
+    def recover_open_events(self, observed_at: datetime) -> None: ...
+    def load(self, *, since: datetime, until: datetime) -> dict[str, list[dict[str, object]]]: ...
 
 
 class MachineWorkCoordinator:
@@ -50,6 +87,7 @@ class MachineWorkCoordinator:
         policy: ThermalPolicy | None = None,
         settings: WorkSchedulerSettings | None = None,
         settings_store: WorkSchedulerSettingsStore | None = None,
+        thermal_history_store: ThermalHistoryStore | None = None,
         leases: ResourceLeaseManager | None = None,
         monitor_interval: float = 2.0,
         monotonic: Callable[[], float] = time.monotonic,
@@ -73,6 +111,7 @@ class MachineWorkCoordinator:
         self.monitor_interval = monitor_interval
         self._settings = settings
         self._settings_store = settings_store
+        self._thermal_history_store = thermal_history_store
         self._monotonic = monotonic
         self._sleep = sleep
         self._now = now or (lambda: datetime.now(UTC))
@@ -99,6 +138,17 @@ class MachineWorkCoordinator:
         self._thermal_read_lock = RLock()
         self._llm_token_windows: dict[str, deque[tuple[float, int]]] = {}
         self._llm_started_at: dict[str, float] = {}
+        self._persistent_temperature_bucket_at: datetime | None = None
+        self._persistent_temperature_maxima: dict[ComputeResource, float | None] = {
+            resource: None for resource in ComputeResource
+        }
+        self._thermal_event_ids: dict[str, str] = {}
+        self._thermal_history_error: str | None = None
+        if self._thermal_history_store is not None:
+            try:
+                self._thermal_history_store.recover_open_events(self._utc_now())
+            except Exception as error:
+                self._thermal_history_error = str(error)[:500]
 
     def configure(self, policy: ThermalPolicy) -> ThermalPolicy:
         """Compatibility entry point; global UI should update all settings."""
@@ -152,6 +202,7 @@ class MachineWorkCoordinator:
         with self._lock:
             if self._temperature_sampler_thread is thread:
                 self._temperature_sampler_thread = None
+        self._flush_persistent_temperature_bucket()
 
     def _temperature_sampling_loop(self) -> None:
         while not self._temperature_sampler_stop.is_set():
@@ -330,6 +381,7 @@ class MachineWorkCoordinator:
                 self._wait_for_inter_job_cooldown(requirement, cancelled=cancelled)
                 self._wait_until_safe(resource, cancelled=cancelled, on_thermal=on_thermal)
                 self._update_activity(owner_id, status="running", stage=operation)
+                self._start_thermal_event(owner_id, requirement)
                 started = True
                 try:
                     yield
@@ -532,6 +584,7 @@ class MachineWorkCoordinator:
     def _record_temperature_snapshot(self, snapshot, observed_at: float) -> None:
         owners = self.leases.owners()
         cutoff = observed_at - _TEMPERATURE_HISTORY_SECONDS
+        persistent_sample = None
         with self._lock:
             self._latest_thermal_snapshot = snapshot
             self._latest_thermal_at = observed_at
@@ -549,6 +602,79 @@ class MachineWorkCoordinator:
                     continue
                 previous = activity.get('peak_temperature_c')
                 activity['peak_temperature_c'] = max(float(previous or temperature), float(temperature))
+            if self._thermal_history_store is not None:
+                persistent_sample = self._advance_persistent_temperature_bucket_locked(
+                    snapshot,
+                    self._utc_now(),
+                )
+        if persistent_sample is not None:
+            self._persist_temperature_sample(*persistent_sample)
+
+    def _advance_persistent_temperature_bucket_locked(
+        self,
+        snapshot,
+        observed_at: datetime,
+    ) -> tuple[datetime, float | None, float | None] | None:
+        bucket_epoch = int(observed_at.timestamp() // _TEMPERATURE_BUCKET_SECONDS) * _TEMPERATURE_BUCKET_SECONDS
+        bucket_at = datetime.fromtimestamp(bucket_epoch, UTC)
+        completed = None
+        current = self._persistent_temperature_bucket_at
+        if current is None:
+            self._persistent_temperature_bucket_at = bucket_at
+        elif bucket_at > current:
+            completed = (
+                current,
+                self._persistent_temperature_maxima[ComputeResource.LOCAL_GPU],
+                self._persistent_temperature_maxima[ComputeResource.REMOTE_GPU],
+            )
+            self._persistent_temperature_bucket_at = bucket_at
+            self._persistent_temperature_maxima = {resource: None for resource in ComputeResource}
+        elif bucket_at < current:
+            return None
+        for resource in ComputeResource:
+            temperature = self._temperature(snapshot, resource)
+            if temperature is None or not math.isfinite(float(temperature)):
+                continue
+            previous = self._persistent_temperature_maxima[resource]
+            self._persistent_temperature_maxima[resource] = max(
+                float(previous if previous is not None else temperature),
+                float(temperature),
+            )
+        if completed is not None and completed[1] is None and completed[2] is None:
+            return None
+        return completed
+
+    def _flush_persistent_temperature_bucket(self) -> None:
+        with self._lock:
+            bucket_at = self._persistent_temperature_bucket_at
+            local = self._persistent_temperature_maxima[ComputeResource.LOCAL_GPU]
+            remote = self._persistent_temperature_maxima[ComputeResource.REMOTE_GPU]
+            self._persistent_temperature_bucket_at = None
+            self._persistent_temperature_maxima = {resource: None for resource in ComputeResource}
+        if bucket_at is not None and (local is not None or remote is not None):
+            self._persist_temperature_sample(bucket_at, local, remote)
+
+    def _persist_temperature_sample(
+        self,
+        observed_at: datetime,
+        local_temperature_c: float | None,
+        remote_temperature_c: float | None,
+    ) -> None:
+        store = self._thermal_history_store
+        if store is None:
+            return
+        try:
+            store.record_sample(
+                observed_at,
+                local_temperature_c=local_temperature_c,
+                remote_temperature_c=remote_temperature_c,
+            )
+        except Exception as error:
+            with self._lock:
+                self._thermal_history_error = str(error)[:500]
+        else:
+            with self._lock:
+                self._thermal_history_error = None
 
     def _temperature_history_view(self) -> dict[str, object]:
         now = self._monotonic()
@@ -646,6 +772,77 @@ class MachineWorkCoordinator:
             "recent": recent,
         }
 
+    def thermal_history(self) -> dict[str, object]:
+        now = self._utc_now()
+        since = now - timedelta(seconds=_PERSISTENT_TEMPERATURE_HISTORY_SECONDS)
+        loaded: dict[str, list[dict[str, object]]] = {"samples": [], "events": []}
+        store = self._thermal_history_store
+        if store is not None:
+            try:
+                loaded = store.load(since=since, until=now)
+            except Exception as error:
+                with self._lock:
+                    self._thermal_history_error = str(error)[:500]
+
+        samples = list(loaded.get("samples") or [])
+        with self._lock:
+            bucket_at = self._persistent_temperature_bucket_at
+            pending = dict(self._persistent_temperature_maxima)
+            history_error = self._thermal_history_error
+        if bucket_at is not None and bucket_at >= since:
+            sample: dict[str, object] = {"timestamp": self._format_timestamp(bucket_at)}
+            for resource in ComputeResource:
+                if pending[resource] is not None:
+                    sample[resource.value] = round(float(pending[resource]), 1)
+            samples.append(sample)
+
+        series: dict[str, list[dict[str, object]]] = {resource.value: [] for resource in ComputeResource}
+        points: dict[ComputeResource, dict[str, float]] = {resource: {} for resource in ComputeResource}
+        for sample in samples:
+            timestamp = sample.get("timestamp")
+            if not isinstance(timestamp, str):
+                continue
+            for resource in ComputeResource:
+                temperature = sample.get(resource.value)
+                if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+                    continue
+                points[resource][timestamp] = max(
+                    points[resource].get(timestamp, float(temperature)),
+                    float(temperature),
+                )
+        for resource in ComputeResource:
+            series[resource.value] = [
+                {"timestamp": timestamp, "max_temperature_c": round(temperature, 1)}
+                for timestamp, temperature in sorted(points[resource].items())
+            ]
+
+        events: dict[str, list[dict[str, object]]] = {resource.value: [] for resource in ComputeResource}
+        for value in loaded.get("events") or []:
+            resource_value = value.get("resource")
+            workload_value = value.get("workload")
+            try:
+                resource = ComputeResource(resource_value)
+                workload = ProductionWorkload(workload_value)
+            except (TypeError, ValueError):
+                continue
+            marker = _THERMAL_EVENT_MARKERS.get(workload)
+            if marker is None:
+                continue
+            event = dict(value)
+            event["marker"] = marker
+            events[resource.value].append(event)
+
+        return {
+            "window_seconds": _PERSISTENT_TEMPERATURE_HISTORY_SECONDS,
+            "bucket_seconds": _TEMPERATURE_BUCKET_SECONDS,
+            "from": self._format_timestamp(since),
+            "to": self._format_timestamp(now),
+            "persistent": store is not None,
+            "series": series,
+            "events": events,
+            "error": history_error,
+        }
+
     def _register(self, owner_id: str, requirement: ResourceRequirement) -> None:
         if not isinstance(owner_id, str) or not owner_id.strip():
             raise ValueError("owner_id must not be empty")
@@ -694,13 +891,17 @@ class MachineWorkCoordinator:
         *,
         error: BaseException | None = None,
     ) -> None:
+        event_id = None
+        event_peak = None
+        finished_at = self._utc_now()
         with self._lock:
             activity = self._activities.pop(owner_id, None)
             self._llm_token_windows.pop(owner_id, None)
             self._llm_started_at.pop(owner_id, None)
+            event_id = self._thermal_event_ids.pop(owner_id, None)
             if activity is None:
                 return
-            timestamp = self._timestamp()
+            timestamp = self._format_timestamp(finished_at)
             activity.update(
                 status=status,
                 progress=1.0 if status == "completed" else activity.get("progress"),
@@ -711,8 +912,64 @@ class MachineWorkCoordinator:
                 activity["error_type"] = type(error).__name__
                 message = str(error).strip()
                 activity["error"] = (message or type(error).__name__)[:1000]
+            event_peak = activity.get("peak_temperature_c")
             self._recent.append(activity)
             self._recent = self._recent[-self._settings.history_limit:]
+        if event_id is not None:
+            self._finish_thermal_event(event_id, finished_at, status, event_peak)
+
+    def _start_thermal_event(self, owner_id: str, requirement: ResourceRequirement) -> None:
+        store = self._thermal_history_store
+        if store is None or requirement.workload not in _THERMAL_EVENT_MARKERS:
+            return
+        event_id = f"thermal-{uuid4().hex}"
+        started_at = self._utc_now()
+        with self._lock:
+            self._thermal_event_ids[owner_id] = event_id
+        try:
+            store.record_event_start(
+                event_id,
+                resource=requirement.resource,
+                workload=requirement.workload,
+                operation=requirement.operation,
+                started_at=started_at,
+            )
+        except Exception as error:
+            with self._lock:
+                self._thermal_event_ids.pop(owner_id, None)
+                self._thermal_history_error = str(error)[:500]
+        else:
+            with self._lock:
+                self._thermal_history_error = None
+
+    def _finish_thermal_event(
+        self,
+        event_id: str,
+        finished_at: datetime,
+        status: str,
+        peak_temperature_c,
+    ) -> None:
+        store = self._thermal_history_store
+        if store is None:
+            return
+        peak = (
+            float(peak_temperature_c)
+            if isinstance(peak_temperature_c, (int, float)) and not isinstance(peak_temperature_c, bool)
+            else None
+        )
+        try:
+            store.record_event_finish(
+                event_id,
+                finished_at=finished_at,
+                status=status,
+                peak_temperature_c=peak,
+            )
+        except Exception as error:
+            with self._lock:
+                self._thermal_history_error = str(error)[:500]
+        else:
+            with self._lock:
+                self._thermal_history_error = None
 
     def _activity_view(
         self,
@@ -747,9 +1004,16 @@ class MachineWorkCoordinator:
         }
 
     def _timestamp(self) -> str:
+        return self._format_timestamp(self._utc_now())
+
+    def _utc_now(self) -> datetime:
         value = self._now()
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("now must return a timezone-aware datetime")
+        return value.astimezone(UTC)
+
+    @staticmethod
+    def _format_timestamp(value: datetime) -> str:
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
     def _monitored(self, resource: ComputeResource) -> bool:

@@ -579,9 +579,10 @@
   }
 
   window.PanelForgeSocialLab = Object.freeze({
-    open: async () => {
+    open: async (projectId = null) => {
       window.PanelForgeLabNavigation?.switchView("social-lab");
       await initialize();
+      if (projectId) await openProject(projectId);
     },
   });
 })();
