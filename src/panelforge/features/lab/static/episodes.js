@@ -157,7 +157,10 @@
       button.disabled = state.busy || continuityBusy || jobRunning(r) || button.dataset.selected === "true" || button.dataset.obsolete === "true";
     });
     el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = busyScene; });
-    el("batch-panel").querySelectorAll("select,input").forEach(n => { n.disabled = state.busy || batchRunning(); });
+    el("batch-panel").querySelectorAll("select,input").forEach(n => {
+      n.disabled = state.busy || (batchRunning() && !n.hasAttribute("data-reference-selection"));
+    });
+    el("batch-panel").querySelectorAll("[data-open-reference]").forEach(n => { n.disabled = state.busy; });
     for (const kind of ["character", "location"]) el(`batch-${kind}-toggle`).disabled = state.busy || batchRunning();
     const onlyStates = state.batchSelection.size && [...state.batchSelection].every(id => isStateReference(state.data?.references.find(r => r.id === id)));
     el("batch-start").disabled = state.busy || batchRunning() || (!onlyStates && (!state.catalog || !state.models.length)) || !state.batchSelection.size;
@@ -352,26 +355,28 @@
   }
   function drawBatch() {
     if (!state.data) return;
-    const active = batchRunning(), batch = state.data.reference_batch;
+    const batch = state.data.reference_batch;
     for (const kind of ["character", "location"]) {
       const inherited = state.batchProfiles[kind].inheritTechnical;
       el(`batch-${kind}-custom`).hidden = inherited;
       el(`batch-${kind}-toggle`).textContent = inherited ? "Personnaliser les réglages KREA2" : "Revenir aux réglages communs";
       el(`batch-${kind}-summary`).textContent = batchProfileSummary(kind);
     }
-    const selectedItems = new Map((batch?.items || []).map(item => [item.reference_id, item]));
     el("batch-selection").replaceChildren(...activeReferences().map(reference => {
-      const label = node("label"), checkbox = document.createElement("input"); checkbox.type = "checkbox";
-      checkbox.checked = active ? selectedItems.has(reference.id) : state.batchSelection.has(reference.id);
-      checkbox.disabled = active; checkbox.addEventListener("change", () => {
+      const row = node("div", "", "episode-batch-selection-row"), label = node("label");
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox";
+      checkbox.dataset.referenceSelection = reference.id;
+      checkbox.checked = state.batchSelection.has(reference.id);
+      checkbox.addEventListener("change", () => {
         if (checkbox.checked) state.batchSelection.add(reference.id); else state.batchSelection.delete(reference.id);
-        controls();
+        drawBatchReferences(); controls();
       });
       label.append(checkbox, node("b", `${reference.continuity_state_id ? "Variante" : kindLabel(reference.kind)} · ${reference.name}`),
         node("span", isStateReference(reference)
           ? `Qwen · depuis ${reference.state_source_name} · scènes ${(reference.state_scene_indices || []).map(i => i + 1).join(", ") || "à confirmer"}${reference.state_source_ready ? "" : " · choisir l’image d’identité d’abord"}`
           : batchProfileSummary(reference.kind), "muted"));
-      return label;
+      row.append(label, openReferenceButton(reference));
+      return row;
     }));
     const machine = state.data.machine_work?.machines || {};
     const machineText = key => { const value = machine[key]; if (!value) return `${key} indisponible`;
@@ -379,36 +384,56 @@
     el("batch-machines").textContent = `${machineText("local_gpu")} · ${machineText("remote_gpu")}`;
     el("batch-progress").hidden = !batch;
     el("batch-status").textContent = batch ? `${batch.phase}${batch.error ? ` · ${batch.error}` : ""}` : "Vérifie les deux profils avant de lancer.";
-    if (!batch) { el("batch-results").replaceChildren(); controls(); return; }
-    const items = batch.items || [], total = Math.max(1, items.length);
+    const items = batch?.items || [], total = Math.max(1, items.length);
     const promptDone = items.filter(item => !["pending", "prompting"].includes(item.status)).length;
     const imageDone = items.filter(item => ["ready_for_review", "validated", "failed"].includes(item.status)).length;
     const validated = items.filter(item => item.status === "validated").length;
     for (const [id, value, text] of [["prompt", promptDone, `${promptDone} / ${items.length}`], ["image", imageDone, `${imageDone} / ${items.length}`], ["validation", validated, `${validated} / ${items.length}`]]) {
       el(`batch-${id}-progress`).max = total; el(`batch-${id}-progress`).value = value; el(`batch-${id}-count`).textContent = text;
     }
-    el("batch-results").replaceChildren(...items.map(item => {
-      const card = node("article", "", "episode-batch-result");
-      card.append(node("b", `${kindLabel(item.kind)} · ${item.name}`));
-      if (item.output_asset_id) card.append(referenceImage(item.output_asset_id, item.name));
-      card.append(node("p", item.phase || item.status), node("p", item.error || "", item.error ? "error" : "muted"));
+    drawBatchReferences(); controls();
+  }
+  function openReferenceButton(reference) {
+    const open = button("Ouvrir la fiche", () => action(() => openReference(reference.id, true)));
+    open.dataset.openReference = reference.id;
+    open.setAttribute("aria-label", `Ouvrir la fiche ${reference.name}`);
+    return open;
+  }
+  function drawBatchReferences() {
+    const items = new Map((state.data?.reference_batch?.items || []).map(item => [item.reference_id, item]));
+    // Browsing the next selection does not replace the current batch or hide its results.
+    const references = activeReferences().filter(reference => state.batchSelection.has(reference.id) || items.has(reference.id));
+    el("batch-results").replaceChildren(...references.map(reference => {
+      const item = items.get(reference.id), card = node("article", "", "episode-batch-result");
+      card.dataset.referenceId = reference.id;
+      card.append(node("b", `${reference.continuity_state_id ? "Variante" : kindLabel(reference.kind)} · ${reference.name}`));
+      const imageId = item?.status === "validated" ? reference.image_asset_id || item.output_asset_id
+        : item?.output_asset_id || reference.image_asset_id;
+      if (imageId) {
+        card.append(referenceImage(imageId, reference.name));
+        card.append(node("p", imageId === reference.image_asset_id ? "Image retenue" : "Proposition du lot", "muted"));
+      }
+      const phase = item?.phase || reference.job?.phase || (reference.continuity_image_stale ? "État à actualiser"
+        : reference.image_asset_id ? "Fiche disponible" : reference.prompt ? "Prompt prêt" : "Fiche à préparer");
+      card.append(node("p", phase));
+      if (item?.error) card.append(node("p", item.error, "error"));
       const actions = node("div", "", "story-actions");
-      actions.append(button("Ouvrir la fiche", () => action(async () => {
-        await saveReference(); state.refId = item.reference_id; state.imageProject = null; state.dirtyRef = false;
-        drawLists(); drawReference(true); await imageProject();
-      })));
-      if (item.status === "waiting_source") actions.append(button("Choisir l’image d’identité", () => action(async () => {
-        const variant = state.data.references.find(r => r.id === item.reference_id);
-        const base = state.data.references.find(r => r.source_id === variant.source_id && !r.continuity_state_id);
-        if (base) { await saveReference(); state.refId = base.id; state.imageProject = null; drawLists(); drawReference(true); await imageProject(); }
-      })));
-      if (item.output_asset_id && item.status !== "validated" && item.status !== "failed") actions.append(button("Valider cette image", () => action(async () => {
-        const reference = state.data.references.find(value => value.id === item.reference_id);
-        accept(await core.request(api(`/references/${reference.id}/select`), send("POST", {expected_revision: reference.revision, asset_id: item.output_asset_id})));
+      actions.append(openReferenceButton(reference));
+      if (item?.status === "waiting_source") {
+        const base = activeReferences().find(r => r.source_id === reference.source_id && !r.continuity_state_id);
+        if (base) {
+          const choose = openReferenceButton(base); choose.textContent = "Choisir l’image d’identité";
+          actions.append(choose);
+        }
+      }
+      if (item?.output_asset_id && item.output_asset_id !== reference.image_asset_id
+        && !["validated", "failed"].includes(item.status)) actions.append(button("Valider cette image", () => action(async () => {
+        const latest = state.data.references.find(value => value.id === reference.id);
+        accept(await core.request(api(`/references/${latest.id}/select`), send("POST", {expected_revision: latest.revision, asset_id: item.output_asset_id})));
       })));
       card.append(actions); return card;
     }));
-    controls();
+    if (!references.length) el("batch-results").append(node("p", "Coche une référence pour afficher sa fiche.", "muted"));
   }
   async function changeResource(resource, suffix, body) {
     try {
@@ -943,6 +968,20 @@
       render_settings: state.catalog && imageSettings().model_id && el("image-ratio").value ? imageSettings() : r.render_settings};
     const data = await core.request(api(`/references/${r.id}`), send("PUT", payload)); state.dirtyRef = false; accept(data);
   }
+  async function openReference(referenceId, scroll = false) {
+    if (!activeReferences().some(r => r.id === referenceId)) return;
+    const template = referenceSettingsTemplate();
+    await saveReference(); state.refId = referenceId;
+    state.imageProject = null; state.dirtyRef = false; el("asset-feedback").value = "";
+    drawLists(); drawReference(true);
+    if (!state.data?.localization && !batchRunning() && !videoChainRunning() && !state.data.references.some(jobRunning)
+      && adoptReferenceSettings(template)) message("Réglages LLM et image repris pour cette fiche vierge.");
+    await imageProject(); storeContext();
+    if (scroll) {
+      el("reference").scrollIntoView({behavior: "smooth", block: "start"});
+      el("reference").focus({preventScroll: true});
+    }
+  }
   async function startReferenceBatch(referenceIds = null) {
     await saveReference();
     const selected = referenceIds || [...state.batchSelection];
@@ -1204,11 +1243,7 @@
   el("tab-references").addEventListener("click", () => action(() => tab("references")));
   el("tab-scenes").addEventListener("click", () => action(() => tab("scenes")));
   el("tab-localization").addEventListener("click", () => action(() => tab("localization")));
-  el("reference").addEventListener("change", () => action(async () => { const id = el("reference").value, template = referenceSettingsTemplate();
-    await saveReference(); state.refId = id;
-    state.imageProject = null; state.dirtyRef = false; el("asset-feedback").value = ""; drawLists(); drawReference(true);
-    if (!state.data?.localization && adoptReferenceSettings(template)) message("Réglages LLM et image repris pour cette fiche vierge.");
-    await imageProject(); storeContext(); }));
+  el("reference").addEventListener("change", () => action(() => openReference(el("reference").value)));
   el("scene").addEventListener("change", () => action(async () => { const id = el("scene").value; await saveScene(); state.sceneId = id;
     state.prepId = ""; state.dirtyScene = false; drawLists(); drawScene(true); await openRender(); storeContext(); }));
   el("preparation").addEventListener("change", () => action(async () => { state.prepId = el("preparation").value; controls(); await openRender(); }));

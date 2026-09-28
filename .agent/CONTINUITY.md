@@ -1,5 +1,48 @@
 # CONTINUITY
 
+## Analyse 2026-09-28 — retours Petits hommes, vague / sécheresse / feu
+
+### Goal
+- Analyser les retours et proposer une intention concise ; discussion uniquement, aucun correctif demandé.
+
+### Current state
+- Deux DLSS cités retrouvés : b1b89c22/9add0e07 = tsunami Rome avec feuille plastique puis raclette ; 5ca8a38e/0441fd71 = tsunami laine Rome avec bol puis versement. Préfixe incendie trompeur. V2 du 27 septembre ; aucune vidéo v3 terminée dans l’état lu.
+- Dix Plans lus, sept planches comparées (cinq DLSS et deux rendus de base) ; captures 2 images/s, pas d’audit audio ni de fluidité fine.
+- Feuille : mécanisme de protection global lisible, malgré mousse débordante. Bol : arrivée déjà pleine puis vidange dans la ville, protection de l’afflux insuffisante.
+- Sécheresses : trois Plans avec eau, deux avec colle/pansement ; la fissure visuelle est traitée comme une route brisée. Couture littérale non retrouvée dans les cinq cas ; dérive sémantique équivalente confirmée.
+- Incendies : sources KREA en résine/éclats et coton, repris par les Plans/Prompts ; feu sculptural qui rétrécit/s’assombrit. Source et instructions contribuent probablement ensemble. Vaporisateur laisse une fenêtre sombre ; bocaux gardent des formes/lueurs.
+- Proposition non appliquée : base de 87 mots + une phrase ciblée selon besoin, total 99–102 mots ; eau pour sécheresse, interception/déviation de vague, évacuation d’inondation, feu vivant puis extinction. Préserver langues v3 et liberté d’objets ; aucune nouvelle contrainte sur tornades/réparations.
+- Pour futures images incendie, proposer décor/personnages textiles et flammes souples/irrégulières avec fumée légère. Contexte réel/KREA prioritaire ; ne pas classifier le thème depuis les noms de fichiers.
+- Rapport : D:/Code/panelforge/docs/proposals/little-men-feedback-direction-2026-09-28.md. Preuves : D:/Code/panelforge/.agent/diagnostics/little-men-feedback-20260928/.
+- Aucun code, état de production, preset ou média original modifié ; aucun test, LLM, rendu, redémarrage, commit ou push.
+
+### Next steps
+1. Restituer l’analyse et la proposition courte ; attendre l’alignement ou la demande explicite d’implémentation.
+2. Si approuvé, remplacer les répétitions et transmettre un besoin clair, sans ajouter un catalogue d’outils ou d’appels.
+3. Comparer ensuite quelques cas eau/feu et conserver tornade/réparation comme témoins.
+
+## Version GitHub 2026-09-28 — état avant les modes LAN/Tailscale
+
+### Goal
+- Publier une sauvegarde de l'application actuelle et fournir les commandes de lancement LAN/Tailscale ; dernier alignement, sans implémenter les modes réseau.
+
+### Current state
+- Publication GitHub réussie et références distantes vérifiées : commit f33db3050b01469c34d4aeda2e598f3d258a326d, branche snapshots/pre-network-modes-2026-09-28, tag snapshot-pre-network-modes-2026-09-28.
+- Source : D:/Code/panelforge-krea2-flux, branche feature/krea2-v6-style-catalog-2026-09-26 ; ancien nom vocal-normalizer du mémo utilisateur obsolète. HEAD de travail c8e96dd et les deux index de travail préservés.
+- Snapshot : 1553 fichiers, parent pré-mobile c4389c6 ; inclut les derniers changements Écriture/KREA2/Usine, le mobile et son correctif de logs. 25 fichiers différents du snapshot pré-mobile.
+- Recherche de motifs de secrets sur les sources, l'arbre Git et 251 objets d'ascendance sortants : aucun motif trouvé. Workspace, diagnostics privés et lanceur racine contenant une clé exclus. Aucune clé recopiée dans les documents.
+- Guide docs/proposals/network-mode-launch-commands-2026-09-28.md et note docs/releases/snapshot-pre-network-modes-2026-09-28.md publiés ; les deux audits réseau ont aussi été ajoutés au checkout actif.
+- Guide utilisable avec les options existantes : racines KREA2 et export sous X:, montage LAN vers 192.168.1.72 ou Tailscale vers bucket, URL cohérentes pour ComfyUI/LLM, Unsloth et DLSS PC sur loopback. Clé Unsloth existante conservée ou saisie masquée.
+- Syntaxe des trois blocs PowerShell vérifiée sans exécution ; contenu de l'arbre comparé aux fichiers source. Aucun code applicatif modifié, test fonctionnel, génération, appel LLM, montage, redémarrage ni lancement effectué dans cette tâche.
+- Futurs --network-mode lan|tailscale et badge Local/Tailscale toujours non implémentés. Changement au lancement, pas de bascule à chaud ni de repli automatique. Le transport des fichiers doit faire partie du profil.
+- Le mobile reste indépendant ; accès distant Tailscale et Web Push externe. --mobile-port 0 permet de désactiver le suivi mobile pour une recette hors ligne.
+- Reçu local : .agent/diagnostics/git-pre-network-modes-20260928/checkpoint.json.
+
+### Next steps
+1. Restituer les deux commandes actuelles et le périmètre final à l'utilisateur ; attendre sa demande explicite avant toute implémentation réseau.
+2. Au prochain changement choisi par l'utilisateur, attendre la fin des tâches, arrêter PanelForge puis changer le montage X: si nécessaire ; ne pas basculer au milieu d'une copie.
+3. Qualifier ultérieurement le redémarrage/reconnexion des montages et la production complète hors Internet/Tailscale avec ressources installées ; ne pas annoncer cette recette déjà réalisée.
+
 ## Correctif 2026-09-28 — adresse PanelForge au démarrage
 
 ### Goal

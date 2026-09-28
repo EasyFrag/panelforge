@@ -57,7 +57,14 @@
 .episode-batch-custom { margin: .7rem 0; padding: .7rem; border-left: 3px solid var(--green); background: var(--green-soft); }
 .episode-batch-thermal { margin: .8rem 0; }
 .episode-batch-selection { display: grid; gap: .45rem; margin: .9rem 0; }
-.episode-batch-selection label { display: grid; grid-template-columns: auto minmax(120px, .8fr) minmax(0, 2fr); align-items: center; gap: .7rem; padding: .55rem; border-bottom: 1px solid var(--line); }
+.episode-batch-selection-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding: .55rem; border-bottom: 1px solid var(--line); }
+.episode-batch-selection label { display: grid; grid-template-columns: auto minmax(120px, .8fr) minmax(0, 2fr); align-items: center; gap: .7rem; min-width: 0; }
+.episode-batch-selection .muted { overflow-wrap: anywhere; }
+.episode-batch-selection-row > button { white-space: nowrap; }
+@media (max-width: 850px) {
+  .episode-batch-selection label { grid-template-columns: auto minmax(0, 1fr); }
+  .episode-batch-selection label > .muted { grid-column: 2; }
+}
 .episode-batch-selection input { width: auto; }
 .episode-batch-progress { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem; margin: .9rem 0; }
 .episode-batch-progress label { display: grid; gap: .25rem; }

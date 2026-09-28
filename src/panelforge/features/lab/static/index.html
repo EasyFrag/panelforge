@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="/static/story-library.css?v=20260924.2">
   <script src="/static/story-library.js?v=20260924.2" defer></script>
   <link rel="stylesheet" href="/static/episode-thumbnails.css?v=20260924.4">
-  <link rel="stylesheet" href="/static/episodes.css?v=20260927.reference-zoom">
+  <link rel="stylesheet" href="/static/episodes.css?v=20260928.reference-preparation">
   <script src="/static/dlss-image-comparison.js?v=20260923.1" defer></script>
   <script src="/static/dlss-lab.js?v=20260923.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
@@ -45,7 +45,7 @@
   <script src="/static/episode-localization.js?v=20260923.1" defer></script>
   <script src="/static/episode-thumbnail-layout.js?v=20260924.1" defer></script>
   <script src="/static/episode-thumbnails.js?v=20260924.4" defer></script>
-  <script src="/static/episodes.js?v=20260928.writing-v3" defer></script>
+  <script src="/static/episodes.js?v=20260928.reference-preparation" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20260926.krea6library1" defer></script>
@@ -458,7 +458,9 @@
             <p id="episode-batch-machines" class="muted"></p>
             <button id="episode-batch-global-settings" type="button">Paramètres globaux des machines</button>
           </div>
+          <p class="muted">Coche les références pour afficher leurs fiches et préparer le prochain lancement. Tu peux aussi ouvrir chaque fiche directement.</p>
           <div id="episode-batch-selection" class="episode-batch-selection"></div>
+          <div id="episode-batch-results" class="episode-batch-results" aria-label="Fiches sélectionnées et résultats du dernier lot"></div>
           <div id="episode-batch-progress" class="episode-batch-progress" hidden>
             <label>Prompts <progress id="episode-batch-prompt-progress" max="1" value="0"></progress><span id="episode-batch-prompt-count"></span></label>
             <label>Images <progress id="episode-batch-image-progress" max="1" value="0"></progress><span id="episode-batch-image-count"></span></label>
@@ -466,9 +468,8 @@
           </div>
           <div class="story-actions"><button id="episode-batch-start" type="button" class="primary">Lancer les références sélectionnées</button>
             <button id="episode-batch-cancel" type="button" hidden>Annuler le lot</button><span id="episode-batch-status" role="status"></span></div>
-          <div id="episode-batch-results" class="episode-batch-results"></div>
         </details>
-        <div class="episode-bar"><label>Personnage ou décor<select id="episode-reference"></select></label>
+        <div class="episode-bar"><label>Fiche de référence<select id="episode-reference"></select></label>
           <span id="episode-reference-count" class="muted"></span></div>
         <p class="muted">Une fiche vierge du même type reprend les derniers réglages LLM et image sélectionnés.</p>
         <div class="episode-asset-grid">
