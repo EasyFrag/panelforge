@@ -16,6 +16,7 @@
   let thermalHistoryLoading = false;
   let thermalHistoryLoadedAt = 0;
   let thermalHistoryError = "";
+  let thermalHistoryWindowHours = 24;
   const minimizedStorageKey = "panelforge.workQueue.minimized";
   let minimized = false;
   try {
@@ -46,8 +47,14 @@
     <div class="work-queue-lanes" data-lanes></div>
     <section class="work-queue-thermal-history">
       <div class="work-queue-thermal-history-head">
-        <div><h3>Températures · dernières 24 heures</h3><p>Maxima par tranche de 15 secondes. Les interruptions de mesure restent visibles.</p></div>
-        <button type="button" data-refresh-thermal-history>Actualiser</button>
+        <div><h3 data-thermal-history-title>Températures · dernières 24 heures</h3><p data-thermal-history-caption>Maxima par tranche de 30 secondes. Les interruptions de mesure restent visibles.</p></div>
+        <div class="work-queue-thermal-history-actions">
+          <div class="work-queue-thermal-window" role="group" aria-label="Période de l’historique thermique">
+            <button type="button" data-thermal-window-hours="24" aria-pressed="true">24 h</button>
+            <button type="button" data-thermal-window-hours="6" aria-pressed="false">6 h</button>
+          </div>
+          <button type="button" data-refresh-thermal-history>Actualiser</button>
+        </div>
       </div>
       <p class="error-text" data-thermal-history-error role="alert"></p>
       <div data-thermal-history aria-live="polite"></div>
@@ -69,11 +76,13 @@
           </section>
           <section>
             <h3>Serveur</h3>
-            <p class="muted">La reprise attend une température sûre et stable avant d’admettre la tâche.</p>
+            <p class="muted">La reprise attend une température sûre et stable. Hors vidéo, un pic déclenche un repos minimum, prolongé tant que le seuil reste atteint.</p>
             <div class="work-queue-settings-grid">
               <label>Pause thermique à partir de °C<input name="stop_temperature_c" type="number" min="30" max="110" step="1" required></label>
               <label>Reprise sous °C<input name="resume_temperature_c" type="number" min="15" max="109" step="1" required></label>
               <label>Stabilisation thermique<input name="cooldown_seconds" type="number" min="0" max="86400" step="1" required><small>secondes</small></label>
+              <label>Cooldown hors vidéo à partir de °C<input name="remote_non_video_cooldown_temperature_c" type="number" min="30" max="110" step="1" value="80" required></label>
+              <label>Durée minimale hors vidéo<input name="remote_non_video_cooldown_seconds" type="number" min="0" max="3600" step="1" value="80" required><small>secondes · 0 désactive</small></label>
               <label>Repos entre vidéos<input name="remote_video_cooldown_seconds" type="number" min="0" max="3600" step="1" required><small>secondes</small></label>
             </div>
             <div class="work-queue-checks">
@@ -303,40 +312,65 @@
       + `${Number.isFinite(peak) ? ` · pic ${Math.round(peak)} °C` : ""}`;
   }
 
-  function clusteredEvents(values, from, to) {
-    const width = Math.max(1, to - from);
-    const clusterDuration = 30 * 60 * 1000;
-    const groups = new Map();
-    values.forEach(value => {
-      const started = Date.parse(value.started_at);
-      if (!Number.isFinite(started) || started < from || started > to) return;
-      const slot = Math.floor((started - from) / clusterDuration);
-      if (!groups.has(slot)) groups.set(slot, []);
-      groups.get(slot).push(value);
-    });
-    return [...groups.values()].map(events => ({
-      events,
-      ratio: Math.max(0, Math.min(1,
-        (events.reduce((sum, value) => sum + Date.parse(value.started_at), 0) / events.length - from) / width)),
-    }));
-  }
+  const thermalWindowConfig = hours => ({
+    hours,
+    bucketSeconds: hours === 24 ? 30 : 15,
+    ticks: hours === 24 ? [24, 18, 12, 6, 0] : [6, 4.5, 3, 1.5, 0],
+  });
 
-  function longTemperatureChart(resource, history) {
-    const from = Date.parse(history?.from);
-    const to = Date.parse(history?.to);
-    const windowEnd = Number.isFinite(to) ? to : Date.now();
-    const windowStart = Number.isFinite(from) ? from : windowEnd - 24 * 60 * 60 * 1000;
-    const values = Array.isArray(history?.series?.[resource])
+  function thermalValues(history, resource, windowStart, windowEnd, bucketSeconds) {
+    const raw = Array.isArray(history?.series?.[resource])
       ? history.series[resource].map(value => ({
         timestamp: Date.parse(value.timestamp),
-        temperature: Number(value.max_temperature_c),
+        temperature: value.max_temperature_c == null ? Number.NaN : Number(value.max_temperature_c),
       })).filter(value => Number.isFinite(value.timestamp) && Number.isFinite(value.temperature)
         && value.timestamp >= windowStart && value.timestamp <= windowEnd)
         .sort((a, b) => a.timestamp - b.timestamp)
       : [];
-    const events = Array.isArray(history?.events?.[resource]) ? history.events[resource] : [];
+    const buckets = new Map();
+    const bucketMilliseconds = bucketSeconds * 1000;
+    for (const value of raw) {
+      const bucket = Math.floor(value.timestamp / bucketMilliseconds);
+      const previous = buckets.get(bucket);
+      if (!previous || value.temperature > previous.temperature) buckets.set(bucket, value);
+    }
+    return {raw, values: [...buckets.values()].sort((a, b) => a.timestamp - b.timestamp)};
+  }
+
+  function visibleEvents(history, resource, windowStart, windowEnd) {
+    const values = Array.isArray(history?.events?.[resource]) ? history.events[resource] : [];
+    return values.map(value => {
+      const started = Date.parse(value.started_at);
+      const storedFinish = Date.parse(value.finished_at);
+      const finished = Number.isFinite(storedFinish)
+        ? Math.max(started, storedFinish)
+        : value.status === "running" ? windowEnd : started;
+      return {value, started, finished};
+    }).filter(value => Number.isFinite(value.started)
+      && value.finished >= windowStart && value.started <= windowEnd)
+      .sort((a, b) => a.started - b.started);
+  }
+
+  const thermalAgeLabel = hours => {
+    if (hours === 0) return "maint.";
+    const totalMinutes = Math.round(hours * 60);
+    const wholeHours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes ? `-${wholeHours} h ${minutes}` : `-${wholeHours} h`;
+  };
+
+  function longTemperatureChart(resource, history, config) {
+    const historyEnd = Date.parse(history?.to);
+    const windowEnd = Number.isFinite(historyEnd) ? historyEnd : Date.now();
+    const windowStart = windowEnd - config.hours * 60 * 60 * 1000;
+    const measured = thermalValues(history, resource, windowStart, windowEnd, config.bucketSeconds);
+    const values = measured.values;
+    const events = visibleEvents(history, resource, windowStart, windowEnd);
     const article = document.createElement("article");
     article.className = "work-queue-long-temperature-chart";
+    article.dataset.windowHours = String(config.hours);
+    article.dataset.bucketSeconds = String(config.bucketSeconds);
+    article.dataset.sampleCount = String(values.length);
 
     const head = document.createElement("div");
     const heading = document.createElement("div");
@@ -347,7 +381,7 @@
     heading.append(title, legend);
     const reading = document.createElement("strong");
     const peak = values.length ? Math.max(...values.map(value => value.temperature)) : null;
-    const latest = values.length ? values[values.length - 1].temperature : null;
+    const latest = measured.raw.length ? measured.raw[measured.raw.length - 1].temperature : null;
     reading.textContent = latest == null ? "Aucun relevé"
       : `${Math.round(latest)} °C · pic ${Math.round(peak)} °C`;
     if (latest != null) reading.style.color = temperatureColor(latest);
@@ -357,7 +391,7 @@
     svg.setAttribute("viewBox", "0 0 1200 250");
     svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", `Température de ${title.textContent}, de 0 à 100 degrés sur les dernières 24 heures`);
+    svg.setAttribute("aria-label", `Température de ${title.textContent}, de 0 à 100 degrés sur les dernières ${config.hours} heures`);
     const svgNode = (tag, attributes, text = null) => {
       const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
       for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
@@ -371,7 +405,7 @@
     const bottom = 205;
     const y = temperature => bottom - (temperature / 100) * (bottom - top);
     for (const [minimum, maximum, fill] of [
-      [0, 70, "#eaf6ef"], [70, 80, "#fff2d7"], [80, 90, "#fde5e0"], [90, 100, "#f4ceca"],
+      [0, 70, "#f5faf7"], [70, 80, "#fff9ed"], [80, 90, "#fff3f1"], [90, 100, "#fbe8e6"],
     ]) {
       svgNode("rect", {x: left, y: y(maximum), width: right - left, height: y(minimum) - y(maximum), fill});
     }
@@ -380,11 +414,11 @@
       svgNode("line", {x1: left, y1: lineY, x2: right, y2: lineY, class: "work-queue-temperature-grid"});
       svgNode("text", {x: left - 8, y: lineY + 4, "text-anchor": "end"}, temperature);
     }
-    for (const hours of [24, 18, 12, 6, 0]) {
-      const x = left + ((24 - hours) / 24) * (right - left);
+    for (const hours of config.ticks) {
+      const x = left + ((config.hours - hours) / config.hours) * (right - left);
       svgNode("line", {x1: x, y1: top, x2: x, y2: bottom, class: "work-queue-temperature-grid vertical"});
-      svgNode("text", {x, y: 235, "text-anchor": hours === 24 ? "start" : hours === 0 ? "end" : "middle"},
-        hours === 0 ? "maint." : `-${hours} h`);
+      svgNode("text", {x, y: 235, "text-anchor": hours === config.hours ? "start" : hours === 0 ? "end" : "middle"},
+        thermalAgeLabel(hours));
     }
     const width = Math.max(1, windowEnd - windowStart);
     const points = values.map(value => ({
@@ -392,7 +426,7 @@
       y: y(Math.max(0, Math.min(100, value.temperature))),
       ...value,
     }));
-    const maximumGap = Number(history?.bucket_seconds || 15) * 1600;
+    const maximumGap = config.bucketSeconds * 1600;
     for (let index = 1; index < points.length; index += 1) {
       const previous = points[index - 1];
       const point = points[index];
@@ -403,6 +437,19 @@
         class: "work-queue-long-temperature-segment",
       });
     }
+    if (points.length) {
+      const peakPoint = points.reduce((selected, point) => point.temperature > selected.temperature ? point : selected);
+      const peakDot = svgNode("circle", {
+        cx: peakPoint.x,
+        cy: peakPoint.y,
+        r: 3.2,
+        fill: temperatureColor(peakPoint.temperature),
+        class: "work-queue-temperature-peak",
+      });
+      const peakTitle = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      peakTitle.textContent = `Pic de ${Math.round(peakPoint.temperature)} °C`;
+      peakDot.append(peakTitle);
+    }
     if (!points.length) svgNode("text", {x: (left + right) / 2, y: 108, "text-anchor": "middle", class: "empty"}, "Aucun relevé enregistré sur cette période");
 
     const track = document.createElement("div");
@@ -411,38 +458,53 @@
     trackLabel.textContent = "Evt";
     trackLabel.title = "Événements";
     trackLabel.setAttribute("aria-label", "Événements");
-    const markers = document.createElement("div");
-    markers.className = "work-queue-event-markers";
+    const bars = document.createElement("div");
+    bars.className = "work-queue-event-bars";
     const detail = document.createElement("p");
     detail.className = "work-queue-event-detail";
     detail.textContent = events.length
-      ? "Survole, sélectionne ou clique sur un marqueur pour afficher son traitement."
+      ? "Survole, sélectionne ou clique sur une activité pour afficher son traitement."
       : "Aucun traitement enregistré sur cette période.";
-    for (const cluster of clusteredEvents(events, windowStart, windowEnd)) {
+    const windowWidth = Math.max(1, windowEnd - windowStart);
+    for (const event of events) {
       const button = document.createElement("button");
       button.type = "button";
-      button.style.left = `${cluster.ratio * 100}%`;
-      const kinds = [...new Set(cluster.events.map(value => value.marker).filter(Boolean))];
-      button.textContent = kinds.length === 1
-        ? `${kinds[0]}${cluster.events.length > 1 ? `×${cluster.events.length}` : ""}`
-        : kinds.join("/");
-      const descriptions = cluster.events.map(eventDescription);
-      button.title = descriptions.join("\n");
-      button.setAttribute("aria-label", descriptions.join(". "));
-      const show = () => { detail.textContent = descriptions.join(" | "); };
+      const visibleStart = Math.max(windowStart, event.started);
+      const visibleFinish = Math.min(windowEnd, event.finished);
+      const leftRatio = Math.max(0, Math.min(1, (visibleStart - windowStart) / windowWidth));
+      const widthRatio = Math.max(0, Math.min(1 - leftRatio, (visibleFinish - visibleStart) / windowWidth));
+      const workload = String(event.value.workload || "unknown").replace(/[^a-z_]/g, "");
+      const statusClass = String(event.value.status || "unknown").replace(/[^a-z_]/g, "");
+      button.className = `work-queue-event-bar workload-${workload} status-${statusClass}${widthRatio < .002 ? " short" : ""}`;
+      button.style.left = `${leftRatio * 100}%`;
+      button.style.width = `${widthRatio * 100}%`;
+      button.dataset.marker = event.value.marker || "";
+      const showLabel = widthRatio >= .006;
+      button.dataset.showLabel = String(showLabel);
+      button.textContent = showLabel ? event.value.marker || "" : "";
+      const description = eventDescription(event.value);
+      button.title = description;
+      button.setAttribute("aria-label", description);
+      const show = () => { detail.textContent = description; };
       button.addEventListener("mouseenter", show);
       button.addEventListener("focus", show);
       button.addEventListener("click", show);
-      markers.append(button);
+      bars.append(button);
     }
-    track.append(trackLabel, markers);
+    track.append(trackLabel, bars);
     article.append(head, svg, track, detail);
     return article;
   }
 
-  function renderThermalHistory24h() {
+  function renderThermalHistory() {
     const host = dialog.querySelector("[data-thermal-history]");
     const errorHost = dialog.querySelector("[data-thermal-history-error]");
+    const config = thermalWindowConfig(thermalHistoryWindowHours);
+    dialog.querySelector("[data-thermal-history-title]").textContent = `Températures · dernières ${config.hours} heures`;
+    dialog.querySelector("[data-thermal-history-caption]").textContent = `Maxima par tranche de ${config.bucketSeconds} secondes. Les interruptions de mesure restent visibles.`;
+    dialog.querySelectorAll("[data-thermal-window-hours]").forEach(button => {
+      button.setAttribute("aria-pressed", String(Number(button.dataset.thermalWindowHours) === config.hours));
+    });
     errorHost.textContent = thermalHistoryError;
     if (thermalHistoryLoading && !thermalHistory24h) {
       host.replaceChildren(Object.assign(document.createElement("p"), {className: "muted", textContent: "Chargement de l’historique thermique…"}));
@@ -453,8 +515,8 @@
       return;
     }
     host.replaceChildren(
-      longTemperatureChart("local_gpu", thermalHistory24h),
-      longTemperatureChart("remote_gpu", thermalHistory24h),
+      longTemperatureChart("local_gpu", thermalHistory24h, config),
+      longTemperatureChart("remote_gpu", thermalHistory24h, config),
     );
   }
 
@@ -463,7 +525,7 @@
     if (!force && thermalHistory24h && Date.now() - thermalHistoryLoadedAt < 60_000) return;
     thermalHistoryLoading = true;
     thermalHistoryError = "";
-    renderThermalHistory24h();
+    renderThermalHistory();
     try {
       thermalHistory24h = await request("/api/work-scheduler/thermal-history");
       thermalHistoryLoadedAt = Date.now();
@@ -473,7 +535,7 @@
       thermalHistoryError = reason.message;
     } finally {
       thermalHistoryLoading = false;
-      renderThermalHistory24h();
+      renderThermalHistory();
     }
   }
 
@@ -624,6 +686,7 @@
       else field(name).value = String(thermal[name]);
     }
     for (const name of ["local_cooldown_temperature_c", "local_cooldown_seconds",
+      "remote_non_video_cooldown_temperature_c", "remote_non_video_cooldown_seconds",
       "remote_video_cooldown_seconds", "history_limit", "pause_after_failure"]) {
       if (settings[name] === undefined) continue;
       if (field(name).type === "checkbox") field(name).checked = Boolean(settings[name]);
@@ -724,6 +787,15 @@
   }
 
   dialog.addEventListener("click", event => {
+    const windowButton = event.target.closest("[data-thermal-window-hours]");
+    if (windowButton) {
+      const hours = Number(windowButton.dataset.thermalWindowHours);
+      if (hours === 24 || hours === 6) {
+        thermalHistoryWindowHours = hours;
+        renderThermalHistory();
+      }
+      return;
+    }
     const button = event.target.closest("[data-resource][data-action]");
     if (button) control(button.dataset.resource, button.dataset.action);
   });
@@ -760,6 +832,8 @@
           },
           local_cooldown_temperature_c: Number(field("local_cooldown_temperature_c").value),
           local_cooldown_seconds: Number(field("local_cooldown_seconds").value),
+          remote_non_video_cooldown_temperature_c: Number(field("remote_non_video_cooldown_temperature_c").value),
+          remote_non_video_cooldown_seconds: Number(field("remote_non_video_cooldown_seconds").value),
           remote_video_cooldown_seconds: Number(field("remote_video_cooldown_seconds").value),
           pause_after_failure: field("pause_after_failure").checked,
           history_limit: Number(field("history_limit").value),
@@ -832,6 +906,6 @@
   window.setInterval(() => {
     if (dialog.open) loadThermalHistory24h();
   }, 60_000);
-  renderThermalHistory24h();
+  renderThermalHistory();
   render();
 })();

@@ -39,6 +39,12 @@ class LocalWorkSchedulerSettings:
             thermal=ThermalPolicy(**thermal),
             local_cooldown_temperature_c=value.get('local_cooldown_temperature_c', 80),
             local_cooldown_seconds=value.get('local_cooldown_seconds', 80),
+            remote_non_video_cooldown_temperature_c=value.get(
+                'remote_non_video_cooldown_temperature_c', 80,
+            ),
+            remote_non_video_cooldown_seconds=value.get(
+                'remote_non_video_cooldown_seconds', 80,
+            ),
             remote_video_cooldown_seconds=value.get("remote_video_cooldown_seconds", 30),
             pause_after_failure=value.get("pause_after_failure", False),
             history_limit=value.get("history_limit", 30),
@@ -50,6 +56,8 @@ class LocalWorkSchedulerSettings:
         value = {
             'local_cooldown_temperature_c': settings.local_cooldown_temperature_c,
             'local_cooldown_seconds': settings.local_cooldown_seconds,
+            'remote_non_video_cooldown_temperature_c': settings.remote_non_video_cooldown_temperature_c,
+            'remote_non_video_cooldown_seconds': settings.remote_non_video_cooldown_seconds,
             "schema_version": 1,
             "thermal": asdict(settings.thermal),
             "remote_video_cooldown_seconds": settings.remote_video_cooldown_seconds,

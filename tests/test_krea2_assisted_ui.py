@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260924.4', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260926.krea6library1', self.page)
         self.assertIn('Pertinence forte', self.script)
         self.assertIn('id="krea2-assisted-example-assessment"', self.page)
         self.assertIn("Aucune correspondance exacte dans le corpus", self.script)
@@ -38,11 +38,52 @@ class Krea2AssistedUiTest(unittest.TestCase):
         self.assertIn('object-fit: contain', self.css)
         self.assertIn('id="krea2-assisted-chat-without-refresh"', self.page)
         self.assertIn('refresh_prompt_examples: refreshPromptExamples', self.script)
+        self.assertIn('&& state.project.local_inspiration_enabled !== false', self.script)
         self.assertIn('sendChat("creation", null, false)', self.script)
         self.assertIn('id="krea2-assisted-new-preset"', self.page)
         self.assertIn('id="krea2-assisted-preset-dialog"', self.page)
         self.assertIn('id="krea2-assisted-preset-note"', self.page)
         self.assertIn('"krea2-assisted-lab"', (STATIC / "lab-core.js").read_text(encoding="utf-8"))
+
+    def test_v6_adds_a_modular_local_style_catalog_without_changing_the_v3_default(self):
+        self.assertIn('<option value="3.0.0" selected>V3 · STABLE', self.page)
+        self.assertIn('<option value="6.0.0">V6 · directions modulaires', self.page)
+        self.assertIn('id="krea2-assisted-art-dialog"', self.page)
+        self.assertIn('id="krea2-assisted-art-grid"', self.page)
+        self.assertIn('/art-styles/install', self.script)
+        self.assertIn('/art-direction', self.script)
+        self.assertIn('data.set("art_style_id", state.newArtStyle.style_id)', self.script)
+        self.assertIn('attempt.canonical_prompt || attempt.prompt', self.script)
+        self.assertIn('.krea2-art-grid', self.css)
+
+    def test_new_project_orders_recipe_preset_then_style_and_keeps_them_composable(self):
+        recipe = self.page.index('id="krea2-assisted-assistance-recipe"')
+        preset = self.page.index('id="krea2-assisted-new-preset"')
+        art = self.page.index('id="krea2-assisted-new-art-direction"')
+        self.assertLess(recipe, preset)
+        self.assertLess(preset, art)
+        self.assertNotIn('elements.newPreset.value = ""', self.script)
+        self.assertNotIn('if (style && state.project.style_preset) loadDefaultRenderSettings()', self.script)
+        self.assertIn('if (preset.art_direction) state.newArtStyle = preset.art_direction', self.script)
+
+    def test_local_inspiration_is_an_optional_axis_for_v4_to_v6(self):
+        self.assertIn('id="krea2-assisted-use-library" type="checkbox" checked', self.page)
+        self.assertIn('id="krea2-assisted-project-use-library"', self.page)
+        self.assertIn('local_inspiration_enabled: elements.useLibrary.checked', self.script)
+        self.assertIn('data.set("local_inspiration_enabled"', self.script)
+        self.assertIn('localInspirationRequired && !libraryReady', self.script)
+        self.assertIn('/local-inspiration"', self.script)
+        self.assertIn('Le prompt courant reste inchangé.', self.script)
+
+    def test_new_project_can_chain_its_render_here_or_in_an_independent_tab(self):
+        self.assertIn('id="krea2-assisted-create-new-tab"', self.page)
+        self.assertIn('class="krea2-assisted-create-actions"', self.page)
+        self.assertIn('const promptReady = await sendChat("creation", payload.project.intention);', self.script)
+        self.assertIn('if (!promptReady)', self.script)
+        self.assertIn('return renderAttempt();', self.script)
+        self.assertIn('window.open(url.toString(), "_blank")', self.script)
+        self.assertIn('event.source.postMessage({ type: crossTabStartMessage', self.script)
+        self.assertIn('await createAndRenderProject(event.data.draft)', self.script)
 
     def test_new_project_precedes_history_stays_collapsed_and_defaults_to_local_gemma(self):
         new_project = self.page.index('id="krea2-assisted-new-project"')
@@ -123,11 +164,15 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_keeps_conversation_and_settings_before_the_bottom_gallery(self):
         conversation = self.page.index('id="krea2-assisted-conversation"')
         settings = self.page.index('id="krea2-assisted-model"')
+        art_direction = self.page.index('id="krea2-assisted-art-direction"')
         gallery = self.page.index('id="krea2-assisted-gallery"')
         self.assertLess(conversation, settings)
-        self.assertLess(settings, gallery)
+        self.assertLess(settings, art_direction)
+        self.assertLess(art_direction, gallery)
         self.assertIn('id="krea2-assisted-reference"', self.page)
         self.assertIn('id="krea2-assisted-recipe-draft"', self.page)
+        self.assertIn('id="krea2-assisted-recipe-chat" type="button" hidden', self.page)
+        self.assertIn('id="krea2-assisted-recipe-panel" class="krea2-assisted-recipe-panel" hidden', self.page)
         self.assertIn('id="krea2-assisted-lightbox"', self.page)
         self.assertIn("[...groups].reverse().forEach", self.script)
 

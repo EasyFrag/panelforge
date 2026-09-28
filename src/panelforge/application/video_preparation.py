@@ -35,6 +35,8 @@ class PreparationSource:
     creative_axes: CreativeFreedomAxes | None
     creative_audacity: int
     vocal_dialogues: tuple[str, ...] = ()
+    speech_policy: str | None = None
+    speech_language: str | None = None
 
 
 def preparation_source(session: PromptLabSession, composition: PromptComposition) -> PreparationSource:
@@ -42,11 +44,15 @@ def preparation_source(session: PromptLabSession, composition: PromptComposition
     if intent is not None:
         snapshot = asdict(intent)
         # A new default field must not invalidate existing approved documents.
+        for key in ("speech_policy", "speech_language"):
+            if snapshot[key] is None:
+                snapshot.pop(key)
         if snapshot["creative_axes"] is not None and not snapshot["creative_axes"].get("dialogue"):
             snapshot["creative_axes"].pop("dialogue", None)
         digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         return PreparationSource(f"intent:{digest}", intent.source_text, intent.source_text,
-                                 intent.creative_freedom, intent.creative_axes, intent.creative_audacity)
+                                 intent.creative_freedom, intent.creative_axes, intent.creative_audacity,
+                                 speech_policy=intent.speech_policy, speech_language=intent.speech_language)
     brief = session.active_brief_revision
     if not session.brief_complete or brief is None:
         raise ValueError("approve a current structured brief first")

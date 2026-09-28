@@ -7,13 +7,14 @@ from copy import deepcopy
 import math
 
 from .stories import story_recipe_spec
+from .story_editions import refined
 
-VERSION = "2.2.0"  # Default retained for existing projects; visual-state opt-in uses 2.3.0.
-SUPPORTED_VERSIONS = {"2.1.0", VERSION, "2.3.0"}
+VERSION = "2.2.0"  # Default retained for existing projects; new sparse visual states use 2.4.0.
+SUPPORTED_VERSIONS = {"2.1.0", VERSION, "2.3.0", "2.4.0", "2.5.0"}
 
 
 def has_continuity(project):
-    return (project.get("job") or {}).get("response_contract_version") in {VERSION, "2.3.0"}
+    return (project.get("job") or {}).get("response_contract_version") in {VERSION, "2.3.0", "2.4.0", "2.5.0"}
 
 
 def structured(project):
@@ -107,10 +108,28 @@ def outline_schema(project):
                ending_state=string(), carry_forward=string(), ending_type=choice(sorted(ENDINGS)))
     secret = obj(id=string(120), truth=string(), known_by=array(string(120)),
                  reveal_episode_id=nullable(choice(f"episode-{i}" for i in range(1, count + 1))))
-    return obj(title=string(6000), premise=string(6000), overall_arc=string(6000), ending=string(6000),
+    result = obj(title=string(6000), premise=string(6000), overall_arc=string(6000), ending=string(6000),
         characters=array(character_schema(project), 1, 12), episodes=array(unit, count, count),
         contract=obj(promise=string(), protagonist_goal=string(), stakes=string(), must_keep=texts, freedoms=texts),
         world_rules=array(obj(id=string(120), rule=string(), limits=nullable(string()))), secrets=array(secret))
+    from .story_editions import experimental
+    if count > 1 and (experimental(project) or
+            "author_requirements" in (project["document"].get("series_outline") or {})):
+        # Single units use the original brief directly; only multiple units need attribution.
+        result["properties"]["author_requirements"] = array(obj(
+            unit_id=choice(f"episode-{i}" for i in range(1, count + 1)), quote=string(6000)), 0, 60)
+        if experimental(project) and (project.get("job") or {}).get("operation") == "compose":
+            result["required"].append("author_requirements")
+    if refined(project):
+        from .story_exact_lines import catalog
+        lines = catalog(project)
+        if lines or "author_line_assignments" in (project["document"].get("series_outline") or {}):
+            result["properties"]["author_line_assignments"] = array(obj(
+                line_id=choice(line["id"] for line in lines),
+                unit_id=choice(f"episode-{i}" for i in range(1, count + 1)),
+                event_id=string(120), speaker_id=string(120)), len(lines), len(lines))
+            result["required"].append("author_line_assignments")
+    return result
 
 
 def state_schema(project):
@@ -124,7 +143,7 @@ def state_schema(project):
         open_threads=array(string()), resolved_threads=array(string()))
 
 
-def scene_schema(project):
+def scene_schema(project, *, canonical=False):
     from .long_stories import scope
     doc = project["document"]
     unit = next(u for u in doc["series_outline"]["episodes"] if u["id"] == scope(project))
@@ -134,10 +153,24 @@ def scene_schema(project):
     dialogue = obj(speaker_id=characters, text=string(1500),
                    delivery=choice(["spoken", "voice_over", "off_screen", "thought", "mediated"]))
     dialogue["properties"].update(dialogue_id=string(120), delivery_note=string(240))
+    if refined(project) and not canonical:
+        from .story_exact_lines import for_unit
+        lines = for_unit(project, scope(project))
+        # Provenance IDs are produced by hydration, never supplied alongside free text.
+        dialogue["properties"].pop("dialogue_id")
+        if lines:
+            reference = obj(speaker_id=characters, line_ref=choice(row["line_id"] for row in lines),
+                delivery=choice(["spoken", "voice_over", "off_screen", "thought", "mediated"]))
+            reference["properties"]["delivery_note"] = string(240)
+            dialogue = {"anyOf": [dialogue, reference]}
     family = story_recipe_spec(project["recipe"]["id"], project["recipe"]["version"])
-    fields = dict(title=string(), location_id=string(120), character_ids=array(characters, 1, 12),
+    fields = dict(title=string(), location_id=string(120), character_ids=array(characters, 0 if refined(project) else 1, 12),
         opening_state=string(), action=string(), dialogue=array(dialogue, 0, 0 if family.get("dialogue_policy") == "forbidden" else 10),
         ending_state=string(), visual_transition=nullable(obj(before=string(1500), trigger=string(1500), visible_change=string(1500), after=string(1500))))
+    if project["job"].get("response_contract_version") in {"2.4.0", "2.5.0"}:
+        transition = fields["visual_transition"]["anyOf"][0]
+        transition["properties"]["timing"] = choice(["within_scene", "between_scenes"])
+        transition["required"].append("timing")
     fields.update({field["id"]: string() for field in family["scene_fields"]})
     fields["narrative"] = obj(purpose=choice(["progression", "reaction", "transition"]),
         event_ids=array(choice(e["id"] for e in unit["events"])),
@@ -152,6 +185,8 @@ def outline_edit_targets(project):
     outline = project["document"]["series_outline"]
     targets = {f"outline/{key}": (outline, key) for key in ("title", "premise", "overall_arc", "ending")}
     targets.update({f"contract/{key}": (outline["contract"], key) for key in outline["contract"]})
+    if refined(project) and "author_line_assignments" in outline_schema(project)["properties"]:
+        targets["outline/author_line_assignments"] = (outline, "author_line_assignments")
     for label, entries in (("character", outline["characters"]), ("unit", outline["episodes"]),
                            ("event", [e for u in outline["episodes"] for e in u["events"]]),
                            ("secret", outline["secrets"]), ("rule", outline["world_rules"])):
@@ -166,7 +201,18 @@ def review_schema(project, target=None):
     from .long_stories import review_targets
     result = obj(summary=string(6000), issues=array(obj(severity=choice(["blocking", "warning"]),
         target_id=choice(sorted(review_targets(project, target))), problem=string(), suggestion=string()), 0, 5))
-    from . import story_visual_states
+    from . import story_direction, story_visual_states
+    if story_direction.enabled(project):
+        item = result["properties"]["issues"]["items"]
+        item["properties"]["category"] = choice(story_direction.REVIEW_CATEGORIES)
+        item["required"].append("category")
+        from .story_editions import experimental
+        if experimental(project):
+            language = deepcopy(item)
+            language["properties"]["category"] = choice(["dialogue_language"])
+            language["properties"]["dialogue_quote"] = string(1500)
+            language["required"].append("dialogue_quote")
+            result["properties"]["issues"]["items"] = {"anyOf": [item, language]}
     if story_visual_states.enabled(project) and target not in {None, "outline", "ideas"}:
         result["properties"]["visual_patch"] = nullable(story_visual_states.patch_schema(project, target))
     return result
@@ -185,9 +231,12 @@ def response_schema(project):
             resolved[key] = choice(choices if selected == "auto" else [selected])
         return obj(reply=reply, series_outline=outline_schema(project), resolved_options=obj(**resolved))
     if operation == "edit_outline":
+        values = [string(6000), array(string()), {"type": "null"}]
+        assignments = outline_schema(project)["properties"].get("author_line_assignments")
+        if refined(project) and assignments:
+            values.append(assignments)
         return obj(reply=reply, base_hash=choice([source_hash(project, "outline")]),
-            edits=array(obj(path=choice(sorted(outline_edit_targets(project))),
-                value={"anyOf": [string(6000), array(string()), {"type": "null"}]}), 0, 80),
+            edits=array(obj(path=choice(sorted(outline_edit_targets(project))), value={"anyOf": values}), 0, 80),
             review=review_schema(project, "outline"))
     if operation == "review_block":
         identities = project["job"]["review_unit_ids"]
@@ -212,6 +261,10 @@ def response_schema(project):
         schema = obj(reply=reply, base_hash=choice([source_hash(project, target)]),
             scene_edits=array(obj(scene_index=dict(type="integer", enum=indices), scene=scene_schema(project)), 1, count),
             episode_state=state_schema(project))
+        if refined(project):
+            from .story_exact_lines import memory_unchanged
+            schema["properties"]["episode_state"] = ({"type": "null"} if memory_unchanged(project)
+                else nullable(state_schema(project)))
     else:
         location = obj(id=string(120), name=string(120), description=string())
         schema = obj(reply=reply, scenario=obj(title=string(), logline=string(), locations=array(location, 1, 8),
@@ -219,7 +272,8 @@ def response_schema(project):
             episode_state=state_schema(project))
     if has_continuity(project) and "episode_state" in schema.get("properties", {}):
         from .story_continuity import schema as continuity_schema
-        visual = continuity_schema(project["document"]["episode_formats"][target]["scene_count"])
+        visual = continuity_schema(project["document"]["episode_formats"][target]["scene_count"],
+            character_ids=[c["id"] for c in project["document"]["series_outline"]["characters"]] if refined(project) else None)
         if "scene_edits" in schema["properties"]:
             schema["properties"]["visual_continuity"] = visual
         else:
@@ -229,9 +283,11 @@ def response_schema(project):
     return schema
 
 
-def wire_scene(scene, metadata):
+def wire_scene(scene, metadata, *, transition_timing=False):
     value = deepcopy(scene)
     value.setdefault("visual_transition", None)
+    if transition_timing and value["visual_transition"]:
+        value["visual_transition"].setdefault("timing", "within_scene")
     for line in value.get("dialogue", []):
         line.setdefault("delivery", "spoken")
     value["narrative"] = {k: deepcopy(v) for k, v in metadata.items() if k != "scene_index"}
@@ -250,8 +306,16 @@ def wire_example(project, example):
     if operation == "repair_episode" or (operation == "revise" and project["job"].get("feedback_target", {}).get("scene_index") is not None):
         index = project["job"].get("feedback_target", {}).get("scene_index") or 0
         doc = project["document"]
-        scene = wire_scene(doc["episode_scenarios"][target]["scenes"][index], doc["episode_states"][target]["scene_events"][index])
+        scene = wire_scene(doc["episode_scenarios"][target]["scenes"][index], doc["episode_states"][target]["scene_events"][index],
+                           transition_timing=project["job"].get("response_contract_version") in {"2.4.0", "2.5.0"})
         state = {k: deepcopy(v) for k, v in doc["episode_states"][target].items() if k != "scene_events"}
+        if refined(project):
+            state = None
+            for line in scene["dialogue"]:
+                identity = line.pop("dialogue_id", None)
+                if identity and identity.startswith("author-line-"):
+                    line.pop("text", None)
+                    line["line_ref"] = identity
         result = dict(reply="Corrections ciblées.", base_hash=source_hash(project, target),
                       scene_edits=[dict(scene_index=index, scene=scene)], episode_state=state)
         if has_continuity(project):
@@ -268,7 +332,9 @@ def wire_example(project, example):
     if "scenario" in result and "episode_state" in result:
         result["scenario"].pop("characters", None)
         metadata = result["episode_state"].pop("scene_events")
-        result["scenario"]["scenes"] = [wire_scene(scene, metadata[i]) for i, scene in enumerate(result["scenario"]["scenes"])]
+        result["scenario"]["scenes"] = [wire_scene(scene, metadata[i],
+            transition_timing=project["job"].get("response_contract_version") in {"2.4.0", "2.5.0"})
+            for i, scene in enumerate(result["scenario"]["scenes"])]
         if has_continuity(project):
             result["scenario"].setdefault("visual_continuity", dict(version=1, dramatic_summary="Le drame compréhensible à l'écran.", elements=[]))
     return result
@@ -314,22 +380,35 @@ def canonical_response(project, value):
             scenario["scenes"][index] = changed
         result.pop("base_hash")
         result["scenario"] = scenario
+        if refined(project):
+            from .story_exact_lines import memory_unchanged
+            if result.get("episode_state") is None or memory_unchanged(project):
+                result["episode_state"] = deepcopy(project["document"]["episode_states"][target])
         result["episode_state"]["scene_events"] = metadata
+        if refined(project):
+            from .story_exact_lines import hydrate
+            result["scenario"]["presence_policy"] = 1
+            result["scenario"] = hydrate(project, result["scenario"], result["episode_state"], target)
         return result  # Preserve the existing cast and every untouched scene exactly.
     if "scenario" in result and any("narrative" in scene for scene in result["scenario"].get("scenes", [])):
         result["scenario"]["characters"] = deepcopy(project["document"]["series_outline"]["characters"])
         result["episode_state"]["scene_events"] = [dict(scene_index=i, **scene.pop("narrative"))
             for i, scene in enumerate(result["scenario"]["scenes"])]
+    if "scenario" in result and refined(project):
+        from .story_exact_lines import hydrate
+        result["scenario"]["presence_policy"] = 1
+        result["scenario"] = hydrate(project, result["scenario"], result["episode_state"], target)
     if "scenario" in result and has_continuity(project):
         from .long_stories import previous_ids
-        from .story_continuity import carry_forward, inherit, empty, normalize
+        from .story_continuity import carry_forward, inherit, inherit_independent, empty, normalize
         doc = project["document"]
         previous = previous_ids(project, target)
         inherited = carry_forward(doc["episode_scenarios"][previous[-1]],
-            require_references=project.get("visual_state_policy") == 1) if previous else doc.get("visual_state_inherited")
+            require_references=project.get("visual_state_policy") in {1, 2}) if previous else doc.get("visual_state_inherited")
         result["scenario"].setdefault("visual_continuity", empty())
         try:
-            merged = inherit(result["scenario"], inherited)
+            merger = inherit_independent if refined(project) else inherit
+            merged = merger(result["scenario"], inherited)
             merged["visual_continuity"] = normalize(merged["visual_continuity"], merged)
         except (ValueError, TypeError, KeyError) as error:
             # A prior object's owner may be absent from a new cast, for example.

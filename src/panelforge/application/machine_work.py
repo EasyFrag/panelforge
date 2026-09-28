@@ -125,6 +125,9 @@ class MachineWorkCoordinator:
         self._fixed_cooldown_operation: dict[ComputeResource, str | None] = {
             resource: None for resource in ComputeResource
         }
+        self._fixed_cooldown_temperature_c: dict[ComputeResource, float | None] = {
+            resource: None for resource in ComputeResource
+        }
         self._last_completed: dict[tuple[ComputeResource, ProductionWorkload], float] = {}
         self._activities: dict[str, dict[str, object]] = {}
         self._recent: list[dict[str, object]] = []
@@ -383,6 +386,7 @@ class MachineWorkCoordinator:
                 self._update_activity(owner_id, status="running", stage=operation)
                 self._start_thermal_event(owner_id, requirement)
                 started = True
+                self._sample_active_temperature(resource)
                 try:
                     yield
                 finally:
@@ -391,9 +395,11 @@ class MachineWorkCoordinator:
                     # lease release and the outer finally block, and miss the
                     # mandatory inter-video cooldown entirely.
                     if started:
+                        self._sample_active_temperature(resource)
                         with self._lock:
                             self._last_completed[(resource, workload)] = self._monotonic()
                         self._schedule_local_cooldown(owner_id, requirement)
+                        self._schedule_remote_non_video_cooldown(owner_id, requirement)
         except ResourceWaitCancelled:
             self._finish(owner_id, "cancelled")
             raise
@@ -428,6 +434,7 @@ class MachineWorkCoordinator:
         with self._lock:
             self._fixed_cooldown_until[resource] = deadline
             self._fixed_cooldown_operation[resource] = operation.strip()
+            self._fixed_cooldown_temperature_c[resource] = None
         if on_started is not None:
             on_started(float(seconds))
         try:
@@ -443,6 +450,7 @@ class MachineWorkCoordinator:
                 if self._fixed_cooldown_until[resource] == deadline:
                     self._fixed_cooldown_until[resource] = None
                     self._fixed_cooldown_operation[resource] = None
+                    self._fixed_cooldown_temperature_c[resource] = None
             if on_finished is not None:
                 on_finished()
 
@@ -454,21 +462,29 @@ class MachineWorkCoordinator:
     ) -> None:
         with self._lock:
             fixed_deadline = self._fixed_cooldown_until[requirement.resource]
+            fixed_temperature = self._fixed_cooldown_temperature_c[requirement.resource]
         fixed_remaining = (
             fixed_deadline - self._monotonic()
             if fixed_deadline is not None
             else 0
         )
-        if fixed_remaining > 0:
+        if fixed_deadline is not None:
             while fixed_remaining > 0:
                 if cancelled():
                     raise ResourceWaitCancelled()
                 self._sleep(min(self.monitor_interval, fixed_remaining))
                 fixed_remaining = fixed_deadline - self._monotonic()
+            if fixed_temperature is not None:
+                self._wait_below_fixed_temperature(
+                    requirement.resource,
+                    fixed_temperature,
+                    cancelled=cancelled,
+                )
             with self._lock:
                 if self._fixed_cooldown_until[requirement.resource] == fixed_deadline:
                     self._fixed_cooldown_until[requirement.resource] = None
                     self._fixed_cooldown_operation[requirement.resource] = None
+                    self._fixed_cooldown_temperature_c[requirement.resource] = None
         seconds = (
             self.settings.remote_video_cooldown_seconds
             if requirement.resource is ComputeResource.REMOTE_GPU
@@ -487,6 +503,32 @@ class MachineWorkCoordinator:
                 "Refroidissement avant la prochaine vidéo",
                 cancelled=cancelled,
             )
+
+    def _wait_below_fixed_temperature(
+        self,
+        resource: ComputeResource,
+        threshold: float,
+        *,
+        cancelled: Callable[[], bool],
+    ) -> None:
+        if self.thermal_monitor is None or not self._monitored(resource):
+            return
+        with self._lock:
+            self._thermal_state[resource] = "cooling"
+        try:
+            while True:
+                if cancelled():
+                    raise ResourceWaitCancelled()
+                snapshot = self._thermal_snapshot(force=True)
+                temperature = self._temperature(snapshot, resource)
+                if temperature is not None and temperature < threshold:
+                    return
+                if temperature is None and not self.policy.pause_when_unavailable:
+                    return
+                self._sleep(self.monitor_interval)
+        finally:
+            with self._lock:
+                self._thermal_state[resource] = None
 
     def _schedule_local_cooldown(
         self,
@@ -511,6 +553,36 @@ class MachineWorkCoordinator:
             self._fixed_cooldown_operation[ComputeResource.LOCAL_GPU] = (
                 f'Refroidissement local après un pic à {round(float(peak))} °C'
             )
+            self._fixed_cooldown_temperature_c[ComputeResource.LOCAL_GPU] = None
+            activity['cooldown_triggered'] = True
+
+    def _schedule_remote_non_video_cooldown(
+        self,
+        owner_id: str,
+        requirement: ResourceRequirement,
+    ) -> None:
+        settings = self.settings
+        if (
+            requirement.resource is not ComputeResource.REMOTE_GPU
+            or requirement.workload is ProductionWorkload.VIDEO_RENDER
+            or not settings.thermal.monitor_remote
+            or settings.remote_non_video_cooldown_seconds == 0
+        ):
+            return
+        with self._lock:
+            activity = self._activities.get(owner_id)
+            peak = activity.get('peak_temperature_c') if activity is not None else None
+            threshold = settings.remote_non_video_cooldown_temperature_c
+            if peak is None or float(peak) < threshold:
+                return
+            self._fixed_cooldown_until[ComputeResource.REMOTE_GPU] = (
+                self._monotonic() + settings.remote_non_video_cooldown_seconds
+            )
+            self._fixed_cooldown_operation[ComputeResource.REMOTE_GPU] = (
+                f'Refroidissement serveur hors vidéo après un pic à {round(float(peak))} °C'
+                f' · reprise sous {float(threshold):g} °C'
+            )
+            self._fixed_cooldown_temperature_c[ComputeResource.REMOTE_GPU] = float(threshold)
             activity['cooldown_triggered'] = True
 
     def _wait_until_safe(
@@ -580,6 +652,16 @@ class MachineWorkCoordinator:
             snapshot = self.thermal_monitor.snapshot()
             self._record_temperature_snapshot(snapshot, self._monotonic())
             return snapshot
+
+    def _sample_active_temperature(self, resource: ComputeResource) -> None:
+        if self.thermal_monitor is None or not self._monitored(resource):
+            return
+        try:
+            self._thermal_snapshot(force=True)
+        except Exception:
+            # Temperature telemetry must never replace the workload result.
+            # The background sampler and the next admission will retry.
+            return
 
     def _record_temperature_snapshot(self, snapshot, observed_at: float) -> None:
         owners = self.leases.owners()
@@ -721,6 +803,7 @@ class MachineWorkCoordinator:
                 thermal_state = self._thermal_state[resource]
                 fixed_deadline = self._fixed_cooldown_until[resource]
                 fixed_operation = self._fixed_cooldown_operation[resource]
+                fixed_temperature = self._fixed_cooldown_temperature_c[resource]
                 activity = dict(self._activities.get(owner.job_id, {})) if owner else None
                 if activity is not None and isinstance(activity.get('llm_metrics'), dict):
                     activity['llm_metrics'] = dict(activity['llm_metrics'])
@@ -729,20 +812,45 @@ class MachineWorkCoordinator:
                 if fixed_deadline is not None
                 else 0
             )
+            fixed_temperature_wait = bool(
+                fixed_deadline is not None
+                and fixed_temperature is not None
+                and fixed_remaining == 0
+                and (
+                    temperature is not None and temperature >= fixed_temperature
+                    or temperature is None and policy.pause_when_unavailable
+                )
+            )
+            cooldown_active = bool(fixed_remaining or fixed_temperature_wait)
+            if fixed_deadline is not None and not cooldown_active:
+                with self._lock:
+                    if self._fixed_cooldown_until[resource] == fixed_deadline:
+                        self._fixed_cooldown_until[resource] = None
+                        self._fixed_cooldown_operation[resource] = None
+                        self._fixed_cooldown_temperature_c[resource] = None
+            if resource is ComputeResource.REMOTE_GPU and owner is None:
+                with self._lock:
+                    previous = self._last_completed.get((resource, ProductionWorkload.VIDEO_RENDER))
+                remaining = (max(0, math.ceil(previous + settings.remote_video_cooldown_seconds
+                                             - self._monotonic())) if previous is not None else 0)
+                if remaining > fixed_remaining:
+                    fixed_remaining = remaining
+                    fixed_operation = "Refroidissement entre vidéos"
+                cooldown_active = cooldown_active or remaining > 0
             hot_threshold = (
                 settings.local_cooldown_temperature_c
                 if resource is ComputeResource.LOCAL_GPU
                 else policy.stop_temperature_c
             )
             state = (
-                ComputeResourceState.COOLING.value if thermal_state or fixed_remaining else
+                ComputeResourceState.COOLING.value if thermal_state or cooldown_active else
                 ComputeResourceState.BUSY.value if owner is not None else
                 ComputeResourceState.PAUSED.value if resource in paused else
                 ComputeResourceState.HOT.value if temperature is not None and temperature >= hot_threshold else
                 ComputeResourceState.UNAVAILABLE.value if snapshot is not None and temperature is None else
                 ComputeResourceState.IDLE.value
             )
-            if activity is not None and (thermal_state or fixed_remaining):
+            if activity is not None and (thermal_state or cooldown_active):
                 activity["status"] = "cooling"
                 activity["stage"] = fixed_operation or "Attente thermique"
             queue = [
@@ -753,7 +861,7 @@ class MachineWorkCoordinator:
                 "state": state,
                 "temperature_c": temperature,
                 "owner_id": owner.job_id if owner else None,
-                "operation": fixed_operation if fixed_remaining else owner.requirement.operation if owner else None,
+                "operation": fixed_operation if cooldown_active else owner.requirement.operation if owner else None,
                 "workload": owner.requirement.workload.value if owner else None,
                 "cooldown_remaining_seconds": fixed_remaining,
                 "paused": resource in paused,
@@ -997,6 +1105,8 @@ class MachineWorkCoordinator:
         return {
             'local_cooldown_temperature_c': settings.local_cooldown_temperature_c,
             'local_cooldown_seconds': settings.local_cooldown_seconds,
+            'remote_non_video_cooldown_temperature_c': settings.remote_non_video_cooldown_temperature_c,
+            'remote_non_video_cooldown_seconds': settings.remote_non_video_cooldown_seconds,
             "thermal": asdict(settings.thermal),
             "remote_video_cooldown_seconds": settings.remote_video_cooldown_seconds,
             "pause_after_failure": settings.pause_after_failure,

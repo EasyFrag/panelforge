@@ -3,15 +3,19 @@
 from datetime import date
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import tempfile
 
 
 class DlssVideoExporter:
-    def __init__(self, root):
-        self.root = Path(root)  # No network filesystem access during Lab startup.
-        if not self.root.is_absolute():
+    def __init__(self, root, *, access_root=None):
+        # Keep persisted X: targets stable across profiles. The physical share is
+        # separate and is never probed or remounted during application startup.
+        self.root = (PureWindowsPath(root) if access_root is not None and PureWindowsPath(root).is_absolute()
+                     else Path(root))
+        self.access_root = Path(access_root) if access_root is not None else Path(root)
+        if not self.root.is_absolute() or not self.access_root.is_absolute():
             raise ValueError("Le dossier d’export DLSS doit être absolu.")
 
     def target(self, job_id, day):
@@ -23,10 +27,12 @@ class DlssVideoExporter:
         target = self.target(job["job_id"], job["video_export"]["date"])
         if str(target) != job["video_export"]["path"]:
             raise ValueError("Le dossier d’export configuré a changé ; rétablis-le avant de reprendre la copie.")
-        if not self.root.parent.is_dir():
+        # Derive only the validated date/job suffix; never translate an arbitrary saved path.
+        copy_target = self.access_root.joinpath(*target.relative_to(self.root).parts)
+        if not self.access_root.parent.is_dir():
             raise OSError("Le partage vidéo du serveur n’est pas accessible.")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        for path, content in ((target, video), (target.with_suffix(".json"), report)):
+        copy_target.parent.mkdir(parents=True, exist_ok=True)
+        for path, content in ((copy_target, video), (copy_target.with_suffix(".json"), report)):
             if path.is_file():
                 with path.open("rb") as existing:
                     digest = hashlib.file_digest(existing, "sha256").digest()

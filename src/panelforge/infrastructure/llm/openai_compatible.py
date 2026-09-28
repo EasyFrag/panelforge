@@ -6,7 +6,7 @@ import base64
 from collections.abc import Iterator
 import re
 
-from openai import BadRequestError, OpenAI
+from openai import BadRequestError, DefaultHttpxClient, OpenAI
 
 from panelforge.application import (
     CompletionRequest,
@@ -42,6 +42,7 @@ class OpenAICompatibleGateway:
         source_label: str = "OpenAI-compatible server",
         structured_output: str = "off",
         client=None,
+        trust_env: bool = True,
     ) -> None:
         if not isinstance(base_url, str) or not base_url.strip():
             raise ValueError("base_url must not be empty")
@@ -71,11 +72,16 @@ class OpenAICompatibleGateway:
         if structured_output not in {"off", "json_schema"}:
             raise ValueError("structured_output must be off or json_schema")
         self._structured_output = structured_output
+        transport_options = (
+            {"http_client": DefaultHttpxClient(trust_env=False)}
+            if client is None and not trust_env else {}
+        )
         self._client = client or OpenAI(
             base_url=base_url.rstrip("/") + "/",
             api_key=api_key,
             timeout=timeout,
             max_retries=0,
+            **transport_options,
         )
 
     def _structured_arguments(self, request):

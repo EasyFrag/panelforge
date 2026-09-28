@@ -5,6 +5,7 @@ import json
 
 from .stories import response_contract, parse_response, validate_scenario
 from . import story_contracts as contracts
+from . import story_direction
 from .story_diagnostics import normalize_scene_state, episode_issues, project_quality, outline_reference_issues
 
 ENGINE = {"id": "story.long", "version": "2.0.0"}
@@ -107,6 +108,8 @@ def dependency_hash(project, episode_id):
         "previous": [{"id": identity, "scenario": doc.get("episode_scenarios", {}).get(identity),
                       "state": doc.get("episode_states", {}).get(identity)}
                      for identity in previous_ids(project, episode_id)]}
+    if story_direction.enabled(project):
+        inputs["writing_direction"] = story_direction.settings(project)
     direction = doc.get("continuation_directions", {}).get(episode_id)
     if direction:
         inputs["author_direction"] = direction["brief"]
@@ -116,7 +119,10 @@ def dependency_hash(project, episode_id):
 def source_hash(project, target):
     doc = project["document"]
     if target == "outline":
-        return fingerprint([project["brief"], project["long_options"], doc.get("series_outline"), doc.get("episode_formats")])
+        values = [project["brief"], project["long_options"], doc.get("series_outline"), doc.get("episode_formats")]
+        if story_direction.enabled(project):
+            values.append(story_direction.settings(project))
+        return fingerprint(values)
     return fingerprint([dependency_hash(project, target), doc.get("episode_scenarios", {}).get(target),
                         doc.get("episode_states", {}).get(target)])
 
@@ -132,10 +138,25 @@ def review_clear(project, target):
         item["level"] == "blocking" for item in project_quality(project, target))
 
 
+def outline_ready(project):
+    if not story_direction.enabled(project):
+        return review_clear(project, "outline")
+    if not project["document"].get("series_outline"):
+        return False
+    # Structural validation already accepted the arc. Editorial reading is optional,
+    # but a current review with actual blockers is never silently discarded.
+    if review_current(project, "outline"):
+        return review_clear(project, "outline")
+    return not any(item["level"] == "blocking" for item in project_quality(project, "outline"))
+
+
 def status(project):
     doc = project["document"]
-    result = {"outline_reviewed": review_clear(project, "outline"), "units": {},
+    result = {"outline_reviewed": outline_ready(project), "units": {},
               "reviews": {key: {"current": review_current(project, key)} for key in doc.get("reviews", {})}}
+    if story_direction.enabled(project):
+        flow = project.get("workflow") or {}
+        result["outline_approved"] = flow.get("mode") != "manual" or flow.get("approvals", {}).get("outline") == source_hash(project, "outline")
     previous_ready = True
     for episode in (doc.get("series_outline") or {}).get("episodes", []):
         identity = episode["id"]
@@ -194,6 +215,9 @@ def outline_example(project):
             "change": "Décision, découverte ou conséquence", "evidence": "Ce que le public doit voir ou entendre",
             "depends_on": [] if index == 1 else [f"event-{index-1}"]}]
         sample["episodes"].append(unit)
+    from .story_editions import experimental
+    if experimental(project) and count > 1:
+        sample["author_requirements"] = []
     return {"reply": "Choix narratifs", "series_outline": sample}
 
 
@@ -272,8 +296,56 @@ def normalize_event_dependencies(project, value):
                     + " : identifiants, séquences et ordre inchangés ; texte reçu et brouillon original conservés."]
 
 
+def normalize_secret_audience(project, outline):
+    """Keep explicit audience knowledge as narrative text, never as a cast ID."""
+    from .story_editions import refined
+    if not refined(project) or not isinstance(outline, dict):
+        return outline, []
+    if not isinstance(outline.get("characters"), list) or not isinstance(outline.get("secrets"), list):
+        return outline, []
+    audience_labels = {"spectateur", "spectateurs", "le spectateur", "les spectateurs",
+                       "public", "le public", "audience", "the audience", "viewer", "viewers"}
+    # A declared character can genuinely be called Public or Spectateur.
+    cast_labels = {value.strip().casefold() for character in outline["characters"] if isinstance(character, dict)
+                   for key in ("id", "name") if isinstance(value := character.get(key), str)}
+    annotation = "Le spectateur connaît cette vérité."
+    result, changed = None, []
+    for index, secret in enumerate(outline["secrets"]):
+        if not isinstance(secret, dict) or not isinstance(secret.get("known_by"), list):
+            continue
+        truth = secret.get("truth")
+        if not isinstance(truth, str) or not truth.strip():
+            continue
+        def audience(value):
+            return (isinstance(value, str) and value.strip().casefold() in audience_labels
+                    and value.strip().casefold() not in cast_labels)
+        if not any(audience(value) for value in secret["known_by"]):
+            continue
+        annotated = truth if annotation in truth else truth + "\n" + annotation
+        if len(annotated) > 3000:
+            continue  # Never truncate a secret to make a malformed response pass.
+        if result is None:
+            result = deepcopy(outline)
+        result["secrets"][index]["known_by"] = [value for value in secret["known_by"] if not audience(value)]
+        result["secrets"][index]["truth"] = annotated
+        changed.append(str(secret.get("id", index)))
+    if result is None:
+        return outline, []
+    return result, ["Connaissance du spectateur conservée dans le texte des secrets " + ", ".join(changed)
+                    + " ; la liste des personnages informés reste réservée au casting. Brouillon original conservé."]
+
+
 def validate_outline(project, value):
-    fields(value, "title premise overall_arc ending characters episodes contract world_rules secrets", "Arc V2")
+    from .story_editions import experimental
+    from .story_fidelity import normalize_author_requirements
+    value, _source_notes = normalize_author_requirements(project, value)
+    value, _audience_notes = normalize_secret_audience(project, value)
+    extra = " author_requirements" if isinstance(value, dict) and "author_requirements" in value and (experimental(project) or
+        "author_requirements" in (project["document"].get("series_outline") or {})) else ""
+    from .story_editions import refined
+    if refined(project) and isinstance(value, dict) and "author_line_assignments" in value:
+        extra += " author_line_assignments"
+    fields(value, "title premise overall_arc ending characters episodes contract world_rules secrets" + extra, "Arc V2")
     value, _normalizations = normalize_event_dependencies(project, value)
     structural = deepcopy(value)
     structural["world_rules"] = normalize_world_rules(project, value["world_rules"])
@@ -286,6 +358,9 @@ def validate_outline(project, value):
     fields(value["contract"], "promise protagonist_goal stakes must_keep freedoms", "Contrat")
     result["contract"] = {key: text(value["contract"][key], key) for key in ("promise", "protagonist_goal", "stakes")}
     result["contract"].update({key: strings(value["contract"][key], key) for key in ("must_keep", "freedoms")})
+    if "author_requirements" in value:
+        from .story_fidelity import validate_requirements
+        result["author_requirements"] = validate_requirements(project, value["author_requirements"])
     # Reuse identity and family constraints without the legacy fixed four-unit arc.
     shell = response_contract("develop", False, project["recipe"]["id"], project["recipe"]["version"])["scenario"]
     shell["characters"] = deepcopy(items(value["characters"], "Personnages", 12, 1))
@@ -334,6 +409,11 @@ def validate_outline(project, value):
                 item = dict(id=identity, truth=text(raw["truth"], "vérité"),
                             known_by=refs(raw["known_by"], characters, "Personnages informés"), reveal_episode_id=target)
             result[collection].append(item)
+    if refined(project):
+        from .story_exact_lines import validate_assignments
+        assignments = validate_assignments(project, value)
+        if "author_line_assignments" in value:
+            result["author_line_assignments"] = assignments
     return result
 
 
@@ -409,12 +489,27 @@ def validate_review(project, value, target=None):
     targets = review_targets(project, target)
     issues = []
     for raw in items(value["issues"], "Remarques", 24):
-        fields(raw, "severity target_id problem suggestion", "Remarque")
+        expected = "severity target_id problem suggestion"
+        if story_direction.enabled(project):
+            expected += " category"
+        from .story_editions import experimental
+        language_issue = isinstance(raw, dict) and experimental(project) and raw.get("category") == "dialogue_language"
+        if language_issue:
+            expected += " dialogue_quote"
+        fields(raw, expected, "Remarque")
+        if story_direction.enabled(project) and raw["category"] not in (*story_direction.REVIEW_CATEGORIES, *(("dialogue_language",) if experimental(project) else ())):
+            raise ValueError("Catégorie de relecture inconnue.")
         if raw["severity"] not in {"blocking", "warning"}:
             raise ValueError("Une remarque doit être blocking ou warning.")
         if raw["target_id"] not in targets:
             raise ValueError(f"Cible de relecture inconnue : {raw['target_id']}. Choisissez un élément présent dans le document.")
-        issues.append({key: text(raw[key], key) for key in raw})
+        item = {key: text(raw[key], key) for key in raw}
+        if story_direction.enabled(project) and item["category"] in {"speech_estimate", "style"}:
+            item["severity"] = "warning"
+        if language_issue:
+            from .story_fidelity import language_severity
+            item = language_severity(project, item, target)
+        issues.append(item)
     for diagnostic in project_quality(project, target):
         target_id = diagnostic.get("target_id", "contract")
         if not any(item["problem"] == diagnostic["message"] for item in issues):
@@ -430,6 +525,9 @@ def parse(project, value):
     if not isinstance(value, dict):
         raise ValueError("Objet JSON narratif attendu.")
     value = normalize_episode_response(deepcopy(value))
+    if "series_outline" in value:
+        from .story_fidelity import normalize_author_requirements
+        value["series_outline"], _source_notes = normalize_author_requirements(project, value["series_outline"])
     from . import story_visual_states
     visual_changes, visual_warnings = story_visual_states.extract_review_patches(project, value)
     review_project = deepcopy(project)
@@ -449,7 +547,8 @@ def parse(project, value):
         if continuity_warning and "scenario" in value:
             from .story_continuity import empty
             visual = value["scenario"].setdefault("visual_continuity", empty())
-            visual["warnings"] = (visual.get("warnings", []) + [continuity_warning])[-4:]
+            if continuity_warning not in visual.get("warnings", []):
+                visual["warnings"] = (visual.get("warnings", []) + [continuity_warning])[-4:]
     reply = text(value.get("reply"), "réponse", 12000)
     if operation == "discuss":
         fields(value, "reply discussion_only", "Discussion")
@@ -536,6 +635,8 @@ def normalize_episode_response(value):
 
 def input_hash(project):
     parts = [project["document"], project["brief"], project["long_options"]]
+    if story_direction.enabled(project):
+        parts.append(story_direction.settings(project))
     if project.get("prior_story"):
         parts.append(project["prior_story"])
     return fingerprint(parts)

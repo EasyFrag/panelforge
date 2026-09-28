@@ -36,6 +36,11 @@
     modelOptions("model", draft.model_id);
     modelOptions("architect", draft.settings.architect_model_id);
     modelOptions("writer", draft.settings.writer_model_id);
+    if (el("edition")) {
+      el("edition-row").hidden = !draft.writing_editions;
+      el("edition").replaceChildren(...(draft.writing_editions?.editions || []).map(item => new Option(item.label, item.id)));
+      el("edition").value = draft.settings.writing_edition_id || draft.writing_editions?.latest || "";
+    }
     el("language").value = draft.settings.dialogue_language;
     el("mode").value = draft.settings.workflow_mode;
     el("scenes").value = draft.settings.scene_count;
@@ -49,6 +54,7 @@
     const locked = !draft || state.busy || working || Boolean(draft.result) || existing;
     for (const key of [...fields, "model", "message", "language", "mode", "scenes", "seconds", "target", "architect", "writer"]) el(key).disabled = locked;
     if (draft?.context.next_unit) for (const key of ["language", "scenes", "seconds", "target"]) el(key).disabled = true;
+    if (el("edition")) el("edition").disabled = locked || Boolean(draft?.context.next_unit);
     const blocked = locked || state.saving || draft?.source_changed || !available(el("model").value);
     el("send").disabled = blocked || !el("message").value.trim(); el("suggest").disabled = blocked;
     const directionReady = fields.some(key => el(key).value.trim());
@@ -89,6 +95,7 @@
     el("raw-panel").hidden = !failed || !draft.job?.draft;
     el("raw").textContent = failed ? draft.job?.draft || "" : "";
     if (failed) status(draft.job.error || "Échange interrompu ; la direction est conservée.", true);
+    else if (draft.writing_edition_error) status(draft.writing_edition_error, true);
     else if (draft.result?.notice) status(draft.result.notice);
     else if (running()) status("Discussion en cours…");
     controls();
@@ -96,7 +103,7 @@
 
   function payload() {
     return {direction: Object.fromEntries(fields.map(key => [key, el(key).value])), model_id: el("model").value,
-      settings: {dialogue_language: el("language").value, workflow_mode: el("mode").value,
+      settings: {writing_edition_id: el("edition")?.value || null, dialogue_language: el("language").value, workflow_mode: el("mode").value,
         scene_count: Number(el("scenes").value), clip_seconds: Number(el("seconds").value),
         target_seconds: Number(el("target").value),
         architect_model_id: el("architect").value, writer_model_id: el("writer").value}};
@@ -210,6 +217,7 @@
   for (const id of ["model", "language", "mode", "architect", "writer"]) el(id).addEventListener("change", () => {
     if (id === "model") cached.set("model", el("model").value); changed();
   });
+  el("edition")?.addEventListener("change", changed);
   el("close").addEventListener("click", close);
   dialog.addEventListener("cancel", event => { event.preventDefault(); close(); });
   el("cancel").addEventListener("click", () => action(async () => { state.draft = await request(api("/cancel"), "POST", {}); paint(); }));

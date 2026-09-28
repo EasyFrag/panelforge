@@ -35,6 +35,7 @@ from panelforge.domain.krea2_batch import (
 from panelforge.domain.krea2_lab import Krea2AspectRatio
 from panelforge.domain.krea2_sampling import Krea2AssistedSettings, sampling_for, sampling_from_dict
 from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
+from panelforge.domain.krea2_art_direction import Krea2ArtDirection
 from panelforge.domain.recipes import RecipeRef
 from .krea2_style_presets import preset_dict, load_preset
 
@@ -114,7 +115,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
     branches = project.conversation_branches()
     turns = {turn.turn_id: turn for branch in branches for turn in branch.turns}
     return {
-        "schema_version": 14,
+        "schema_version": 16,
         "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "project_id": project.project_id,
         "name": project.name,
@@ -126,6 +127,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
         "reference_asset_id": project.reference_asset_id,
         "reference_filename": project.reference_filename,
         "composition_base_asset_id": project.composition_base_asset_id,
+        "local_inspiration_enabled": project.local_inspiration_enabled,
         "prompt_examples": [
             {
                 "example_id": example.example_id,
@@ -174,13 +176,17 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
                 "recipe_draft": _draft(branch.recipe_draft),
                 "render_settings": _settings(branch.render_settings) if branch.render_settings else None,
                 "render_seed": str(branch.render_seed) if branch.render_seed is not None else None,
-                "style_preset": preset_dict(branch.style_preset), "preset_pending": branch.preset_pending,
+                "style_preset": preset_dict(branch.style_preset),
+                "art_direction": _art_direction(branch.art_direction),
+                "preset_pending": branch.preset_pending,
             } for branch in branches
         ],
         "render_settings": _settings(project.render_settings) if project.render_settings else None,
         "render_seed": str(project.render_seed) if project.render_seed is not None else None,
         "current_prompt": project.current_prompt,
-        "style_preset": preset_dict(project.style_preset), "preset_pending": project.preset_pending,
+        "style_preset": preset_dict(project.style_preset),
+        "art_direction": _art_direction(project.art_direction),
+        "preset_pending": project.preset_pending,
         "attempts": [
             {
                 "attempt_id": attempt.attempt_id,
@@ -189,6 +195,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
                 "dlss": asdict(attempt.dlss) if attempt.dlss else None,
                 "composition": asdict(attempt.composition) if attempt.composition else None,
                 "prompt": attempt.prompt,
+                "canonical_prompt": attempt.canonical_prompt,
                 "settings": _settings(attempt.settings),
                 "seed": str(attempt.seed),
                 "status": attempt.status.value,
@@ -205,7 +212,9 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
                 "conversation_turn_id": attempt.conversation_turn_id,
                 "conversation_prompt_language": attempt.conversation_prompt_language.value,
                 "conversation_model_id": attempt.conversation_model_id,
-                "style_preset": preset_dict(attempt.style_preset), "preset_pending": attempt.preset_pending,
+                "style_preset": preset_dict(attempt.style_preset),
+                "art_direction": _art_direction(attempt.art_direction),
+                "preset_pending": attempt.preset_pending,
             }
             for attempt in project.attempts
         ],
@@ -221,7 +230,7 @@ def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
-    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}:
+    if value.get("schema_version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}:
         raise ValueError("unsupported KREA2 assisted project schema")
     branch_fields: dict[str, Any] = {}
     if value["schema_version"] >= 4:
@@ -237,7 +246,9 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
                 recipe_draft=_load_draft(item["recipe_draft"]),
                 render_settings=_load_settings(item["render_settings"]) if item["render_settings"] else None,
                 render_seed=int(item["render_seed"]) if item["render_seed"] is not None else None,
-                style_preset=load_preset(item.get("style_preset")), preset_pending=item.get("preset_pending", False),
+                style_preset=load_preset(item.get("style_preset")),
+                art_direction=_load_art_direction(item.get("art_direction")),
+                preset_pending=item.get("preset_pending", False),
             ) for item in value["branches"]),
             "render_settings": _load_settings(value["render_settings"]) if value["render_settings"] else None,
             "render_seed": int(value["render_seed"]) if value["render_seed"] is not None else None,
@@ -254,6 +265,7 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
         reference_asset_id=value.get("reference_asset_id"),
         reference_filename=value.get("reference_filename"),
         composition_base_asset_id=value.get("composition_base_asset_id"),
+        local_inspiration_enabled=value.get("local_inspiration_enabled", True),
         prompt_examples=tuple(
             Krea2PromptExample(
                 example_id=item["example_id"],
@@ -296,7 +308,9 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
         ),
         turns=tuple(_load_turn(item, value["schema_version"]) for item in value.get("turns", [])),
         current_prompt=value.get("current_prompt"),
-        style_preset=load_preset(value.get("style_preset")), preset_pending=value.get("preset_pending", False),
+        style_preset=load_preset(value.get("style_preset")),
+        art_direction=_load_art_direction(value.get("art_direction")),
+        preset_pending=value.get("preset_pending", False),
         attempts=tuple(
             Krea2AssistedAttempt(
                 attempt_id=item["attempt_id"],
@@ -305,6 +319,7 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
                 dlss=DlssResult(**item["dlss"]) if item.get("dlss") else None,
                 composition=AssistedComposition(**item["composition"]) if item.get("composition") else None,
                 prompt=item["prompt"],
+                canonical_prompt=item.get("canonical_prompt"),
                 settings=_load_settings(item["settings"]),
                 seed=int(item["seed"]),
                 status=Krea2AssistedAttemptStatus(item["status"]),
@@ -321,7 +336,9 @@ def _deserialize(value: dict[str, Any]) -> Krea2AssistedProject:
                 conversation_turn_id=item.get("conversation_turn_id"),
                 conversation_prompt_language=Krea2PromptLanguage(item.get("conversation_prompt_language", "en")),
                 conversation_model_id=item.get("conversation_model_id"),
-                style_preset=load_preset(item.get("style_preset")), preset_pending=item.get("preset_pending", False),
+                style_preset=load_preset(item.get("style_preset")),
+                art_direction=_load_art_direction(item.get("art_direction")),
+                preset_pending=item.get("preset_pending", False),
             )
             for item in value.get("attempts", [])
         ),
@@ -439,6 +456,7 @@ def _turn(turn: Krea2AssistedTurn) -> dict[str, object]:
         "model_id": turn.model_id,
         "assistance_recipe_version": turn.assistance_recipe_version,
         "style_preset": preset_dict(turn.style_preset),
+        "art_direction": _art_direction(turn.art_direction),
     }
 
 
@@ -456,4 +474,33 @@ def _load_turn(item: dict[str, Any], schema_version: int) -> Krea2AssistedTurn:
         model_id=item.get("model_id"),
         assistance_recipe_version=item["assistance_recipe_version"] if schema_version >= 3 else "1.0.0",
         style_preset=load_preset(item.get("style_preset")),
+        art_direction=_load_art_direction(item.get("art_direction")),
+    )
+
+
+def _art_direction(value: Krea2ArtDirection | None) -> dict[str, str] | None:
+    if value is None:
+        return None
+    return {
+        "provider_id": value.provider_id,
+        "style_id": value.style_id,
+        "name": value.name,
+        "category": value.category,
+        "prompt": value.prompt,
+        "catalog_revision": value.catalog_revision,
+    }
+
+
+def _load_art_direction(value: object) -> Krea2ArtDirection | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("art_direction must be an object")
+    return Krea2ArtDirection(
+        provider_id=value["provider_id"],
+        style_id=value["style_id"],
+        name=value["name"],
+        category=value["category"],
+        prompt=value["prompt"],
+        catalog_revision=value["catalog_revision"],
     )

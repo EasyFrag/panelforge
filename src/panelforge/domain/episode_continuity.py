@@ -11,7 +11,25 @@ def active(episode):
 def sync_references(episode, model_id):
     if not active(episode):
         return
-    specs = ledger.reference_specs(episode["scenario"])
+    if episode.get("visual_state_policy") == 2:
+        from .story_reference_plan import build, appearance_key
+        plan = build(episode["scenario"])
+        specs = plan["references"]
+        for ref in episode["references"]:
+            initial = plan["identities"].get(ref["source_id"])
+            if not initial or ref.get("continuity_state_id") or ref["kind"] != "character":
+                continue
+            old_description = ref.get("continuity_identity_description")
+            if (appearance_key(ref.get("continuity_appearance", {})) != appearance_key(initial["state"])
+                    or old_description != initial["description"]):
+                if old_description is None or ref["description"] == old_description:
+                    ref["description"] = initial["description"]
+                ref["continuity_image_stale"] = bool(ref.get("image_asset_id"))
+                ref["revision"] += 1
+            ref["continuity_identity_description"] = initial["description"]
+            ref["continuity_appearance"] = deepcopy(initial["state"])
+    else:
+        specs = ledger.reference_specs(episode["scenario"])
     wanted = {s["id"] for s in specs}
     refs = {r["id"]: r for r in episode["references"]}
     for ref in refs.values():
@@ -33,6 +51,9 @@ def sync_references(episode, model_id):
                 ref["revision"] += 1
                 ref["continuity_image_stale"] = bool(ref.get("image_asset_id"))
             ref["continuity_generated_description"] = spec["description"]
+            if "continuity_appearance" in spec:
+                ref["continuity_appearance"] = deepcopy(spec["continuity_appearance"])
+                ref["continuity_state_id"] = spec["continuity_state_id"]
 
 
 def bindings(episode, scene):
@@ -62,7 +83,7 @@ def bindings(episode, scene):
         if row["tracking"] != "reference":
             continue
         state_id = row["before"]["reference_state_id"]
-        desired = ledger.reference_id(row["element_id"], state_id)
+        desired = desired_reference(episode, row["element_id"], scene["index"])
         matching = [b for b in result if b["reference_id"] in refs
                     and refs[b["reference_id"]]["source_id"] == row["element_id"]]
         if any(refs[b["reference_id"]].get("continuity_state_id") for b in matching):
@@ -120,10 +141,40 @@ def snapshot(episode, scene):
 
 
 def required_states(episode):
-    return episode.get("visual_state_policy") == 1 and active(episode)
+    return episode.get("visual_state_policy") in {1, 2} and active(episode)
+
+
+def desired_reference(episode, element_id, index):
+    if episode.get("visual_state_policy") == 2:
+        from .story_reference_plan import build
+        identity = build(episode["scenario"])["bindings"].get((element_id, index))
+        if identity is not None:
+            return identity
+        return next((r["id"] for r in episode["references"] if r["source_id"] == element_id
+                     and not r.get("continuity_state_id") and not r.get("continuity_archived")), None)
+    element = next(e for e in ledger.elements(episode["scenario"]) if e["id"] == element_id)
+    return ledger.reference_id(element_id, ledger.state_at(element, index)["reference_state_id"])
+
+
+def reference_appearance(episode, ref):
+    """What an existing reference represents, including legacy state IDs."""
+    if "continuity_appearance" in ref:
+        return ref["continuity_appearance"]
+    from .story_reference_plan import appearance
+    element = next((e for e in ledger.elements(episode["scenario"]) if e["id"] == ref["source_id"]), None)
+    if element is None:
+        return None
+    state_id = ref.get("continuity_state_id")
+    if state_id:
+        change = next((s for s in element["states"] if s["id"] == state_id), None)
+        return appearance(ledger.state_at(element, change["scene_index"], end=change["at"] == "end")) if change else None
+    first = min(element["scene_indices"], default=0)
+    return appearance(ledger.state_at(element, first))
 
 
 def variant_base(episode, ref):
+    if ref.get("continuity_source_image"):
+        return ref["continuity_source_image"]
     return next((r for r in episode["references"] if r["source_id"] == ref["source_id"]
                  and not r.get("continuity_state_id") and not r.get("continuity_archived")), None)
 
@@ -134,7 +185,17 @@ def variant_signature(episode, ref):
     return fingerprint([base.get("image_asset_id") if base else None, ref["description"]])
 
 
+def variant_source_ready(episode, ref):
+    base = variant_base(episode, ref)
+    return bool(base and base.get("image_asset_id")
+        and (episode.get("visual_state_policy") != 2 or not base.get("continuity_image_stale")))
+
+
 def variant_stale(episode, ref):
+    if episode.get("visual_state_policy") == 2 and (ref.get("continuity_state_id") or ref.get("continuity_source_image")):
+        base = variant_base(episode, ref)
+        if base and base.get("continuity_image_stale"):
+            return True
     return bool(ref.get("continuity_image_stale") or (required_states(episode)
         and ref.get("continuity_source_signature")
         and ref["continuity_source_signature"] != variant_signature(episode, ref)))
@@ -148,8 +209,10 @@ def required_bindings(episode, scene):
     for row in ledger.scene_rows(episode["scenario"], scene["index"], explicit_presence=required_states(episode)):
         if row["tracking"] == "reference":
             state_id = row["before"]["reference_state_id"]
-            if state_id or row["kind"] == "object":
-                result.append(ledger.reference_id(row["element_id"], state_id))
+            if state_id or row["kind"] == "object" or episode.get("visual_state_policy") == 2:
+                desired = desired_reference(episode, row["element_id"], scene["index"])
+                if desired:
+                    result.append(desired)
     return result
 
 

@@ -217,4 +217,5 @@ uw-krea2-nsfw:
     def test_v3_is_the_stable_default_recipe(self):
         recipes = Krea2AssistedService.list_assistance_recipes()
         self.assertEqual(recipes[2], {"version": "3.0.0", "label": "V3 · STABLE"})
-        self.assertEqual(recipes[-1]["version"], "5.0.0")
+        self.assertEqual(recipes[-2]["version"], "5.0.0")
+        self.assertEqual(recipes[-1]["version"], "6.0.0")

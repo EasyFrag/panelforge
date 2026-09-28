@@ -12,7 +12,8 @@ def archive_job(project):
         return
     keys = ("request_id", "operation", "status", "call_id", "draft", "original_draft", "normalized_draft", "format_repair",
             "error", "source_error", "draft_diagnostics", "narrative_input_hash", "response_contract_version",
-            "started_at", "finished_at", "feedback_target", "model_role", "normalizations", "output_mode", "reasoning")
+            "started_at", "finished_at", "feedback_target", "model_role", "normalizations", "output_mode", "reasoning",
+            "writing_edition", "editorial_policy", "editorial_fingerprint", "recipe_revision")
     history.append({key: deepcopy(job[key]) for key in keys if key in job})
 
 
@@ -25,7 +26,8 @@ def begin(project, request, identity):
     usage["calls"] += 1
     usage["repair_calls"] += int("repair_json" in request.operation_id or "repair_contract" in request.operation_id)
     history.append(dict(id=identity, operation=request.operation_id, model_id=request.model_id,
-        started_at=datetime.now(UTC).isoformat(), status="running", call_id=None, elapsed_ms=0))
+        started_at=datetime.now(UTC).isoformat(), status="running", call_id=None, elapsed_ms=0,
+        writing_edition=deepcopy((project.get("job") or {}).get("writing_edition"))))
 
 
 def finish(project, identity, *, call_id, elapsed_ms, accepted, error=None):

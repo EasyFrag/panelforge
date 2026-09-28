@@ -11,6 +11,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from .video_preview import preview_bindings, bypass_previews
+
 from panelforge.domain import (
     H3_VIDEO_LORA_OVERLAY_VERSION,
     H3VideoLoraSelection,
@@ -117,6 +119,7 @@ class ValidatedVideoLabWorkflow:
     progress_profile: RenderProgressProfile | None
     presets: Mapping[str, VideoLabPreset]
     _workflow_json: bytes = field(repr=False)
+    preview_bindings: tuple = ()
 
     @property
     def reference(self) -> RecipeRef:
@@ -270,6 +273,7 @@ class Ref2VH3RenderPresetRecipe:
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
         force_upscale: bool = False,
+        preview_enabled: bool = True,
     ) -> dict[str, Any]:
         if not self.minimum_reference_images <= len(source_images) <= self.maximum_reference_images:
             raise ValueError(
@@ -325,6 +329,8 @@ class Ref2VH3RenderPresetRecipe:
                 "class_type": "SaveImage",
                 "_meta": {"title": f"Save PanelForge Ref2V keyframe {index + 1}"},
             }
+        if not preview_enabled:
+            bypass_previews(workflow, self.recipe.preset.preview_bindings)
         return workflow
 
 
@@ -498,6 +504,7 @@ def validate_video_lab_workflow(
         progress_profile=progress_profile,
         presets=MappingProxyType(presets),
         _workflow_json=serialized,
+        preview_bindings=preview_bindings(manifest, nodes),
     )
 
 

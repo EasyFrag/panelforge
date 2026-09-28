@@ -24,6 +24,7 @@ from panelforge.application.h3_ref2v_conversion import H3Ref2VConversionService
 from .media_analysis_web import media_analysis_router
 import hashlib
 import json
+from urllib.parse import quote
 from pathlib import Path
 from threading import Lock
 from time import perf_counter
@@ -717,6 +718,12 @@ class Krea2StylePresetApplyBody(BaseModel):
     draft: Krea2AssistedAttemptBody
 
 
+class Krea2ArtDirectionApplyBody(BaseModel):
+    style_id: str | None = Field(default=None, max_length=240)
+    expected_branch_id: str
+    draft: Krea2AssistedAttemptBody
+
+
 class Krea2AssistedFeedbackBody(BaseModel):
     attempt_id: str | None = None
 
@@ -727,6 +734,11 @@ class Krea2AssistedPromptExampleBody(BaseModel):
 
 
 class Krea2AssistedExpectedBranchBody(BaseModel):
+    expected_branch_id: str
+
+
+class Krea2AssistedLocalInspirationBody(BaseModel):
+    enabled: bool
     expected_branch_id: str
 
 
@@ -860,6 +872,8 @@ class WorkSchedulerSettingsBody(BaseModel):
     thermal: WorkSchedulerThermalBody = Field(default_factory=WorkSchedulerThermalBody)
     local_cooldown_temperature_c: float = Field(default=80.0, ge=30, le=110, allow_inf_nan=False)
     local_cooldown_seconds: int = Field(default=80, ge=0, le=3_600, strict=True)
+    remote_non_video_cooldown_temperature_c: float = Field(default=80.0, ge=30, le=110, allow_inf_nan=False)
+    remote_non_video_cooldown_seconds: int = Field(default=80, ge=0, le=3_600, strict=True)
     remote_video_cooldown_seconds: int = Field(default=30, ge=0, le=3_600, strict=True)
     pause_after_failure: bool = False
     history_limit: int = Field(default=30, ge=5, le=200, strict=True)
@@ -970,6 +984,8 @@ def create_app(
     production_v2: ProductionV2Service | None = None,
     machine_work=None,
     video_factory=None,
+    mobile_server=None,
+    network_mode: Literal["lan", "tailscale"] | None = None,
     model_runtime: ModelRuntimeControl | None = None,
     llm_activity_monitor: Any | None = None,
     comfy_runtime: Any | None = None,
@@ -979,6 +995,8 @@ def create_app(
     runtime_monitor_connector: Callable[[str], Any] | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
+    if network_mode not in (None, "lan", "tailscale"):
+        raise ValueError("Mode réseau inconnu.")
     static_root = (static_directory or _STATIC_DIRECTORY).resolve()
     index_path = static_root / "index.html"
     if not index_path.is_file():
@@ -994,9 +1012,13 @@ def create_app(
             qwen_edit.start_worker()
         if video_factory is not None:
             video_factory.start()
+        if mobile_server is not None:
+            mobile_server.start()
         try:
             yield
         finally:
+            if mobile_server is not None:
+                await asyncio.to_thread(mobile_server.stop)
             if video_factory is not None:
                 await asyncio.to_thread(video_factory.stop)
             if machine_work is not None:
@@ -1047,6 +1069,11 @@ def create_app(
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/network-mode")
+    def network_configuration() -> dict[str, str | None]:
+        # Configuration only: no credentials, network probes, or availability claim.
+        return {"mode": network_mode, "label": {"lan": "Local", "tailscale": "Tailscale"}.get(network_mode)}
 
     @app.post("/api/model-runtime/unload")
     def unload_model_runtime() -> dict[str, str]:
@@ -1135,6 +1162,8 @@ def create_app(
                 thermal=ThermalPolicy(**body.thermal.model_dump()),
                 local_cooldown_temperature_c=body.local_cooldown_temperature_c,
                 local_cooldown_seconds=body.local_cooldown_seconds,
+                remote_non_video_cooldown_temperature_c=body.remote_non_video_cooldown_temperature_c,
+                remote_non_video_cooldown_seconds=body.remote_non_video_cooldown_seconds,
                 remote_video_cooldown_seconds=body.remote_video_cooldown_seconds,
                 pause_after_failure=body.pause_after_failure,
                 history_limit=body.history_limit,
@@ -2758,6 +2787,7 @@ def create_app(
             "assistance_recipes": service.list_assistance_recipes(),
             "prompt_library": service.prompt_example_library_status(),
             "wildcard_library": service.prompt_wildcard_library_status(),
+            "art_style_catalog": service.art_style_catalog_status(),
             **image_catalogs.read(service.resources, service, _serialize_llm_model, refresh=refresh),
             "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
             "defaults": {
@@ -2792,7 +2822,9 @@ def create_app(
         reference: Annotated[UploadFile | None, File()] = None,
         assistance_recipe_version: Annotated[str, Form()] = "3.0.0",
         style_preset_id: Annotated[str | None, Form()] = None,
+        art_style_id: Annotated[str | None, Form()] = None,
         prompt_language: Annotated[str | None, Form()] = None,
+        local_inspiration_enabled: Annotated[bool, Form()] = True,
     ) -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
         asset_id = None
@@ -2806,16 +2838,18 @@ def create_app(
             project = service.create_project(
                 assistance_recipe_version=assistance_recipe_version,
                 style_preset_id=style_preset_id,
+                art_style_id=art_style_id,
                 name=name,
                 intention=intention,
                 model_id=model_id,
                 prompt_language=Krea2PromptLanguage(prompt_language) if prompt_language else None,
+                local_inspiration_enabled=local_inspiration_enabled,
                 reference_asset_id=asset_id,
                 reference_filename=(reference.filename if reference is not None else None),
             )
             return {"project": serialize_krea2_assisted_project(project)}
         except KeyError as error:
-            raise HTTPException(status_code=404, detail="Preset introuvable.") from error
+            raise HTTPException(status_code=404, detail="Preset ou direction artistique introuvable.") from error
         except (RuntimeError, TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         finally:
@@ -2826,6 +2860,39 @@ def create_app(
     def list_krea2_style_presets() -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
         return {"presets": [_serialize_krea2_style_preset(p) for p in service.list_style_presets()]}
+
+    @app.get("/api/image-lab/krea2-assisted/art-styles")
+    def list_krea2_art_styles(query: str = "", category: str | None = None) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return {
+                "catalog": service.art_style_catalog_status(),
+                "styles": [_serialize_krea2_art_direction(value) for value in service.list_art_styles(
+                    query=query,
+                    category=category,
+                )],
+            }
+        except (RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/art-styles/install")
+    async def install_krea2_art_styles(force: bool = False) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            catalog = await run_in_threadpool(service.install_art_style_catalog, force=force)
+            return {"catalog": catalog}
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/image-lab/krea2-assisted/art-styles/thumbnail")
+    def get_krea2_art_style_thumbnail(style_id: str) -> FileResponse:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            return FileResponse(service.art_style_thumbnail(style_id))
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Miniature de style introuvable.") from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post("/api/image-lab/krea2-assisted/prompt-library/index", status_code=status.HTTP_202_ACCEPTED)
     def index_krea2_prompt_library(force: bool = False) -> dict[str, object]:
@@ -2890,6 +2957,25 @@ def create_app(
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/art-direction")
+    def apply_krea2_art_direction(project_id: str, body: Krea2ArtDirectionApplyBody) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        draft = body.draft
+        try:
+            project = service.select_art_direction(
+                project_id,
+                body.style_id,
+                expected_branch_id=body.expected_branch_id,
+                current_prompt=draft.prompt,
+                seed=_parse_json_seed(draft.seed) if draft.seed not in (None, "") else None,
+                settings=_krea2_assisted_settings(draft),
+            )
+            return {"project": serialize_krea2_assisted_project(project)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Projet ou direction artistique introuvable.") from error
+        except (RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     @app.get("/api/image-lab/krea2-assisted/projects")
     def list_krea2_assisted_projects(limit: int = 30) -> dict[str, object]:
         service = _require_krea2_assisted(krea2_assisted)
@@ -2927,6 +3013,24 @@ def create_app(
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="Projet ou exemple introuvable.") from error
         except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/local-inspiration")
+    def set_krea2_local_inspiration(
+        project_id: str,
+        body: Krea2AssistedLocalInspirationBody,
+    ) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        try:
+            project = service.set_local_inspiration(
+                project_id,
+                body.enabled,
+                expected_branch_id=body.expected_branch_id,
+            )
+            return {"project": serialize_krea2_assisted_project(project)}
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Projet introuvable.") from error
+        except (RuntimeError, TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post("/api/image-lab/krea2-assisted/projects/{project_id}/prompt-example/variant")
@@ -5616,6 +5720,25 @@ def _serialize_krea2_style_preset(preset) -> dict[str, object] | None:
         "source_project_id": preset.source_project_id, "source_attempt_id": preset.source_attempt_id,
         "source_seed": str(preset.source_seed), "prompt_language": preset.prompt_language.value,
         "category": preset.category.value,
+        "art_direction": _serialize_krea2_art_direction(preset.art_direction),
+    }
+
+
+def _serialize_krea2_art_direction(direction) -> dict[str, object] | None:
+    if direction is None:
+        return None
+    return {
+        "provider_id": direction.provider_id,
+        "style_id": direction.style_id,
+        "name": direction.name,
+        "display_name": direction.display_name,
+        "category": direction.category,
+        "prompt": direction.prompt,
+        "catalog_revision": direction.catalog_revision,
+        "thumbnail_url": (
+            "/api/image-lab/krea2-assisted/art-styles/thumbnail?style_id="
+            + quote(direction.style_id, safe="")
+        ),
     }
 
 
@@ -5642,6 +5765,7 @@ def serialize_krea2_assisted_project(
         "id": project.project_id,
         "active_branch_id": project.active_branch_id,
         "composition_base_asset_id": project.composition_base_asset_id,
+        "local_inspiration_enabled": project.local_inspiration_enabled,
         "prompt_examples": [
             {
                 "example_id": example.example_id,
@@ -5684,6 +5808,7 @@ def serialize_krea2_assisted_project(
         "branches": branches,
         "render_settings": _serialize_krea2_assisted_settings(project.render_settings),
         "style_preset": _serialize_krea2_style_preset(project.style_preset),
+        "art_direction": _serialize_krea2_art_direction(project.art_direction),
         "preset_pending": project.preset_pending,
         "render_seed": str(project.render_seed) if project.render_seed is not None else None,
         "project_id": project.project_id,
@@ -5719,6 +5844,7 @@ def serialize_krea2_assisted_project(
                 "model_id": turn.model_id,
                 "assistance_recipe_version": turn.assistance_recipe_version,
                 "style_preset": _serialize_krea2_style_preset(turn.style_preset),
+                "art_direction": _serialize_krea2_art_direction(turn.art_direction),
             }
             for turn in project.turns
         ],
@@ -5739,6 +5865,8 @@ def serialize_krea2_assisted_project(
                 "output_dimensions": ({"width": attempt.composition.width, "height": attempt.composition.height}
                                       if attempt.composition else {"width": attempt.dlss.width, "height": attempt.dlss.height} if attempt.dlss else None),
                 "prompt": attempt.prompt,
+                "canonical_prompt": attempt.canonical_prompt or attempt.prompt,
+                "art_direction": _serialize_krea2_art_direction(attempt.art_direction),
                 "seed": str(attempt.seed),
                 "status": attempt.status.value,
                 "execution_id": attempt.execution_id,

@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from .prompt_lab import CreativeFreedomAxes, RevisionOrigin
 from .prompt_writer import supports_writer_model
+from .localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_POLICIES, THANKS_LANGUAGES, LEGACY_THANKS_LANGUAGES
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,9 +18,17 @@ class PreparationIntent:
     creative_freedom: int = 35
     creative_axes: CreativeFreedomAxes | None = None
     creative_audacity: int = 0
+    speech_policy: str | None = None
+    speech_language: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.source_text, "source_text")
+        if self.speech_policy not in (None, *LOCALIZED_THANKS_POLICIES):
+            raise ValueError("unknown requested speech policy")
+        if self.speech_language is not None and (
+                self.speech_policy is None or self.speech_language == "auto"
+                or self.speech_language not in (LEGACY_THANKS_LANGUAGES if self.speech_policy == LOCALIZED_THANKS_V1 else THANKS_LANGUAGES)):
+            raise ValueError("invalid requested speech language")
         for value, maximum, name in (
             (self.creative_freedom, 100, "creative_freedom"),
             (self.creative_audacity, 3, "creative_audacity"),

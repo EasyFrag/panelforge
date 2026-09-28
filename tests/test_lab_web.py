@@ -917,12 +917,16 @@ class LabWebTest(unittest.TestCase):
                 },
                 "local_cooldown_temperature_c": 80,
                 "local_cooldown_seconds": 80,
+                "remote_non_video_cooldown_temperature_c": 79,
+                "remote_non_video_cooldown_seconds": 90,
                 "remote_video_cooldown_seconds": 45,
                 "pause_after_failure": True,
                 "history_limit": 20,
             })
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()["remote_video_cooldown_seconds"], 45)
+            self.assertEqual(response.json()["remote_non_video_cooldown_temperature_c"], 79)
+            self.assertEqual(response.json()["remote_non_video_cooldown_seconds"], 90)
             self.assertEqual(response.json()["local_cooldown_temperature_c"], 80)
             self.assertEqual(response.json()["local_cooldown_seconds"], 80)
             thermal = client.get("/api/work-scheduler/thermal-history")

@@ -97,6 +97,9 @@ class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocali
         for target in episode["references"]:
             if target["kind"] not in {"character", "object"} or target.get("image_asset_id"):
                 continue
+            if episode.get("visual_state_policy") == 2 and target.get("continuity_appearance") is not None:
+                inherited += self._inherit_sparse_image(episode, target, sources)
+                continue
             if target.get("continuity_state_id"):
                 if self._is_state_image(episode, target):
                     inherited += self._inherit_state_image(episode, target, sources)
@@ -1243,9 +1246,9 @@ class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocali
             project = self._prepare_render_attempt(preparation["render_project_id"], prompt, setup)
             return project, preparation["id"]
 
-    def _prepare_render_attempt(self, project_id, prompt, setup):
+    def _prepare_render_attempt(self, project_id, prompt, setup, *, batch_mode=False):
         settings, bunny, video_loras, video_lora = self._video_attempt_settings(setup)
-        return self.render.prepare_attempt(project_id, prompt=prompt, settings=settings,
+        return self.render.prepare_attempt(project_id, prompt=prompt, settings=settings, batch_mode=batch_mode,
             music_enabled=bool(setup.get("music_enabled", False)),
             spectrum_enabled=bool(setup.get("spectrum_enabled", False)),
             initial_megapixels=setup.get("initial_megapixels", 0.2),
@@ -1348,7 +1351,7 @@ class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocali
                 preparation = self._refresh_scene_reference_images(value, scene, scene_inputs(value, scene))
                 project_id = preparation["render_project_id"]
                 project = self.render.projects.get(project_id)
-                project = self._prepare_render_attempt(project_id, project.current_prompt, setup)
+                project = self._prepare_render_attempt(project_id, project.current_prompt, setup, batch_mode=True)
                 attempt = project.attempts[-1]
                 self._video_chain_change(identity, chain_id, lambda _value, chain:
                     self._video_item(chain, scene_id).update(render_project_id=project_id,
@@ -1660,11 +1663,18 @@ class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocali
         with self._lock:
             value = self.store.get(identity)
             scene = self._item(value, "scenes", scene_id)
+            localized = bool(value.get("localization"))
+            if localized:
+                from panelforge.domain.episode_localization import inject
+                info = scene["localization"]
+                if (info.get("status") != "ready" or self.render.projects.get(project_id).current_prompt !=
+                        inject(info["source_prompt"], scene_id, info["language"], info["translations"])):
+                    return False
             if any(p.get("factory_id") == factory_id and p.get("render_project_id") == project_id
                    for p in scene["preparations"]):
                 return True
             latest = scene["preparations"][-1] if scene["preparations"] else None
-            if (not session_id or (latest["id"] if latest else None) != expected_preparation_id
+            if ((not session_id and not localized) or (latest["id"] if latest else None) != expected_preparation_id
                     or fingerprint(scene_inputs(value, scene)) != fingerprint(inputs)
                     or (scene.get("job") or {}).get("status") in {"running", "queued", "starting"}
                     or (value.get("video_chain") or {}).get("status") in {"running", "pausing"}):
@@ -1672,7 +1682,9 @@ class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocali
             scene["preparations"].append(dict(id=f"prep-{uuid4().hex}", factory_id=factory_id,
                 inputs=deepcopy(inputs), input_hash=fingerprint(inputs), session_id=session_id,
                 render_project_id=project_id, status="ready", error=None,
-                prompt_stages={"plan": "ready", "writer": "ready"}, render_setup=deepcopy(render_setup)))
+                prompt_stages={"plan": "ready", "writer": "ready"}, render_setup=deepcopy(render_setup),
+                **({"localized": True, "source_preparation_id": scene["localization"]["source_preparation_id"]}
+                   if localized else {})))
             self.store.save(value)
             return True
 

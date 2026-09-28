@@ -4,22 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260925.palette1">
+  <link rel="stylesheet" href="/static/lab.css?v=20260928.network1">
   <script src="/static/lab.js?v=20260918.3" defer></script>
-  <script src="/static/work-queue.js?v=20260925.2" defer></script>
+  <script src="/static/network-mode.js?v=20260928.1" defer></script>
+  <script src="/static/work-queue.js?v=20260927.remote-thermal1" defer></script>
   <script src="/static/lab-core.js?v=20260925.palette1" defer></script>
-  <link rel="stylesheet" href="/static/stories.css?v=20260924.6">
+  <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
-  <script src="/static/story-continuity.js?v=20260922.1" defer></script>
+  <script src="/static/story-continuity.js?v=20260927.sparse-states" defer></script>
   <link rel="stylesheet" href="/static/story-followup.css?v=20260924.1">
-  <script src="/static/story-followup.js?v=20260924.1" defer></script>
-  <script src="/static/story-writing.js?v=20260924.6" defer></script>
-  <script src="/static/stories.js?v=20260924.7" defer></script>
-  <script src="/static/stories-help.js?v=20260920.3" defer></script>
+  <script src="/static/story-followup.js?v=20260927.editions1" defer></script>
+  <script src="/static/story-writing.js?v=20260927.story-quality" defer></script>
+  <script src="/static/stories.js?v=20260927.editions1" defer></script>
+  <script src="/static/stories-help.js?v=20260927.story-tone1" defer></script>
   <link rel="stylesheet" href="/static/story-library.css?v=20260924.2">
   <script src="/static/story-library.js?v=20260924.2" defer></script>
   <link rel="stylesheet" href="/static/episode-thumbnails.css?v=20260924.4">
-  <link rel="stylesheet" href="/static/episodes.css?v=20260920.2">
+  <link rel="stylesheet" href="/static/episodes.css?v=20260928.reference-preparation">
   <script src="/static/dlss-image-comparison.js?v=20260923.1" defer></script>
   <script src="/static/dlss-lab.js?v=20260923.1" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
@@ -45,20 +46,25 @@
   <script src="/static/episode-localization.js?v=20260923.1" defer></script>
   <script src="/static/episode-thumbnail-layout.js?v=20260924.1" defer></script>
   <script src="/static/episode-thumbnails.js?v=20260924.4" defer></script>
-  <script src="/static/episodes.js?v=20260925.factory1" defer></script>
+  <script src="/static/episodes.js?v=20260928.reference-preparation" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260925.factory1" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260926.krea6library1" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
   <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260925.1">
   <script src="/static/qwen-edit-v2.js?v=20260923.2" defer></script>
-  <link rel="stylesheet" href="/static/video-factory.css?v=20260925.factory2">
-  <script src="/static/video-factory.js?v=20260925.1" defer></script>
+  <link rel="stylesheet" href="/static/video-factory.css?v=20260928.compact1">
+  <link rel="stylesheet" href="/static/video-factory-monitor.css?v=20260928.ready1">
+  <script src="/static/video-factory-monitor.js?v=20260928.preview4" defer></script>
+  <script src="/static/video-factory.js?v=20260928.ready1" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
+    <div class="brand-cluster">
+      <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
+      <span id="network-mode" class="network-mode" hidden></span>
+    </div>
     <nav class="lab-nav" aria-label="Ateliers">
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
       <button type="button" data-lab-view="i2v-direct">H3 Base</button>
@@ -95,19 +101,29 @@
 
 
   <main id="video-factory-workspace" class="vf-workspace" hidden>
-    <header class="vf-heading"><div><small>PRODUCTION EN SÉRIE</small><h1>Usine à vidéo</h1><p>Prépare les vidéos, puis lance les étapes restantes.</p></div>
-      <div class="vf-actions"><button id="vf-refresh" type="button">Actualiser</button><button id="vf-pause" type="button">Pause après les étapes actives</button></div></header>
-    <nav class="vf-tabs" aria-label="Étapes de l’usine"><button type="button" data-vf-tab="preparation" class="active">Préparation <span></span></button><button type="button" data-vf-tab="production">Production <span></span></button><button type="button" data-vf-tab="results">Résultats <span></span></button></nav>
+    <div class="vf-sticky-header">
+      <header class="vf-heading">
+        <h1>Usine à vidéo</h1>
+        <div class="vf-heading-monitor">
+          <div id="vf-monitor-summary" class="vf-monitor-summary" aria-label="Suivi du lot de production" hidden></div>
+          <div id="vf-monitor-preview" class="vf-monitor-preview" aria-label="Prévision de la sélection" hidden></div>
+        </div>
+        <div class="vf-actions"><button id="vf-refresh" type="button">Actualiser</button><button id="vf-pause" type="button" title="Mettre la file en pause après les étapes actives">Pause</button></div>
+      </header>
+      <nav class="vf-tabs" aria-label="Étapes de l’usine"><button type="button" data-vf-tab="preparation" class="active">Préparation <span></span></button><button type="button" data-vf-tab="production">Production <span></span></button><button type="button" data-vf-tab="results">Résultats <span></span></button><button type="button" data-vf-tab="archives">Archives <span></span></button></nav>
+    </div>
     <div id="vf-message" role="status" aria-live="polite"></div>
-    <div id="vf-machines" class="vf-machines"></div>
     <div class="vf-toolbar">
       <label class="vf-select"><input id="vf-select-all" type="checkbox"> <span id="vf-selected-count">Sélection</span></label>
-      <select id="vf-filter" aria-label="Filtrer les traitements"><option value="all">Tous</option><option value="ready">Prêts</option><option value="incomplete">À compléter</option><option value="failed">En erreur</option></select>
-      <select id="vf-bulk-preset" aria-label="Appliquer un preset à la sélection"><option value="">Appliquer un preset…</option><option value="source">Réglages source</option><option value="lips">Lèvres</option><option value="little_men">Petits hommes</option><option value="custom">Personnalisé</option></select>
+      <select id="vf-filter" aria-label="Filtrer les traitements"><option value="all">Tous</option><option value="ready">Prêts</option><option value="incomplete">À compléter</option><option value="failed">En erreur</option><option value="archivable">À archiver</option></select>
+      <select id="vf-results-sort" aria-label="Trier les résultats" title="Tri par date de fin ; scènes d’une histoire regroupées" hidden><option value="chronological">Ordre habituel</option><option value="newest">Plus récents d’abord</option></select>
+      <select id="vf-bulk-preset" aria-label="Appliquer un preset à la sélection"><option value="">Appliquer un preset…</option><option value="source">Réglages source</option><option value="lips">Lèvres</option><option value="little_men">Petits hommes</option><option value="little_men_experimental">Petits hommes — expérimental</option><option value="custom">Personnalisé</option></select>
       <button id="vf-bulk-settings" type="button">Réglages du lot</button>
       <button id="vf-up" type="button" title="Remonter la sélection">↑ Priorité</button><button id="vf-down" type="button" title="Descendre la sélection">↓</button>
       <button id="vf-launch" type="button" class="factory-button">Lancer la sélection</button>
-      <button id="vf-cancel" type="button">Annuler la sélection</button><button id="vf-retry" type="button">Reprendre les chaînes</button>
+      <button id="vf-archive" type="button" hidden>Archiver la sélection</button><button id="vf-restore" type="button" hidden>Restaurer dans Résultats</button>
+      <button id="vf-remove" type="button" class="vf-remove">Supprimer la sélection</button>
+      <button id="vf-cancel" type="button">Annuler la sélection</button><button id="vf-retry" type="button">Reprendre la chaîne</button>
     </div>
     <div class="vf-layout"><section class="vf-panel vf-list" aria-label="Traitements">
       <div class="vf-table-wrap"><table><thead><tr><th scope="col">Ordre</th><th scope="col">Vidéo / source</th><th scope="col">Plan</th><th scope="col">Prompt</th><th scope="col">Vidéo</th><th scope="col">DLSS</th><th scope="col">Texte IG</th><th scope="col">État</th></tr></thead><tbody id="vf-rows"></tbody></table></div>
@@ -116,6 +132,7 @@
     <p class="vf-help">Une ligne = une vidéo. L’ordre de la liste donne la priorité à la première étape disponible sur chaque machine.</p>
   </main>
   <div id="vf-notice" role="status" aria-live="polite" hidden></div>
+  <dialog id="vf-image-dialog" aria-labelledby="vf-image-title"><header><h2 id="vf-image-title">Image</h2><button type="button" data-vf-close aria-label="Fermer l’image">×</button></header><img id="vf-image-content" alt=""></dialog>
   <dialog id="vf-detail-dialog"><header><h2 id="vf-detail-title">Détail</h2><button type="button" data-vf-close aria-label="Fermer">×</button></header><div id="vf-detail-content"></div></dialog>
   <dialog id="vf-bulk-dialog"><form id="vf-bulk-form"><header><h2>Réglages du lot</h2><button type="button" data-vf-close aria-label="Fermer">×</button></header><p id="vf-bulk-summary"></p>
     <p>Seuls les champs renseignés seront modifiés.</p>
@@ -136,6 +153,12 @@
         <div class="story-select-row"><button id="story-library-open" type="button" aria-haspopup="dialog" hidden>Parcourir mes histoires</button><select id="story-projects"><option value="">Nouvelle histoire</option></select>
           <button id="story-refresh-projects" type="button" title="Actualiser les histoires enregistrées">Actualiser</button></div>
       </div>
+      <div id="story-edition-control" class="story-edition-control">
+        <label for="story-edition">Version d’écriture</label>
+        <div class="story-select-row"><select id="story-edition" aria-describedby="story-edition-note"><option value="latest">Dernière expérimentale</option></select>
+          <details class="story-edition-help"><summary aria-label="À propos de cette version d’écriture" title="Date et différences">ⓘ</summary><p id="story-edition-description"></p></details></div>
+        <small id="story-edition-note" class="muted" role="status"></small>
+      </div>
       <details id="story-model-settings" class="story-settings"><summary>Modèles d’écriture</summary><div class="story-settings-grid"><div class="story-model-control">
         <label for="story-architect-model">Architecte · concepts, arc et relectures</label>
         <div class="story-select-row"><select id="story-architect-model"><option value="">Chargement à l’ouverture…</option></select>
@@ -147,7 +170,7 @@
         <select id="story-writer-model"><option value="">Chargement à l’ouverture…</option></select>
         <label class="llm-local-toggle"><input id="story-writer-local" type="checkbox" data-llm-local-for="story-writer-model" checked> Local · Unsloth</label>
       </div>
-      </div></details>
+      </div><p class="muted" data-story-long-only hidden>Qwen est proposé pour la conception, l’écriture et la relecture séparée. Tu peux choisir Gemma comme rédacteur ; aucune passe supplémentaire n’est ajoutée.</p></details>
     </div>
     <p id="story-model-message" class="muted" role="status"></p>
     <p id="story-message" role="status" aria-live="polite"></p>
@@ -176,40 +199,57 @@
         <form id="story-create-form">
           <h2>Quelle histoire veux-tu raconter ?</h2>
           <p class="muted">Une phrase suffit. Tu pourras orienter le récit après la première proposition.</p>
-          <label><span id="story-brief-label">Ton idée · facultative</span><textarea id="story-brief" rows="4" maxlength="12000" placeholder="Un rendez-vous tourne au règlement de comptes quand arrive l’addition…"></textarea></label>
-          <details data-story-long-only hidden><summary>Continuer une histoire · contexte précédent</summary><label>Ce qui s’est déjà passé<textarea id="story-prior-story" rows="4" maxlength="60000" placeholder="Colle le résumé ou le scénario de l’épisode précédent ici."></textarea></label><p class="muted">Ce texte sert de mémoire. Écris dans « Ton idée » ce que tu souhaites pour le nouvel épisode.</p></details>
-          <div class="story-example-row"><span>Essayer un point de départ</span><button type="button" data-story-example="social">L’addition qui dérape</button><button type="button" data-story-example="melodrama">Les gouttes d’eau</button><button type="button" data-story-example="fantasy">Le temps de vie</button></div>
+          <label><span id="story-brief-label">Ton idée · facultative</span><textarea id="story-brief" rows="4" maxlength="12000" placeholder="Ton idée en quelques lignes. Le moteur inventera les personnages, les échanges et la progression."></textarea></label>
+          <div class="story-creation-main">
+            <label class="story-creation-wide" data-story-long-only hidden>Ambiance<select id="story-tone-profile" aria-describedby="story-tone-description"><option value="none">Libre · selon mon idée</option><option value="black_comedy_street_v1">Comédie noire · argot cru</option></select><small id="story-tone-description" class="muted"></small></label>
+            <fieldset class="story-creation-universe story-creation-wide" data-story-long-only hidden><legend>Univers visuel</legend><div class="story-settings-grid"><label>Univers des personnages<input id="story-universe" maxlength="1000" list="story-universes" placeholder="Au choix du moteur"><datalist id="story-universes"><option value="Fruits anthropomorphes"></option><option value="Gouttes d’eau anthropomorphes"></option><option value="Humains réalistes"></option><option value="Humains stylisés"></option><option value="Animaux anthropomorphes"></option></datalist></label><label>Rendu visuel<select id="story-visual-render"><option value="story">Selon le récit</option><option value="animation_3d">Animation 3D</option><option value="live_action">Prises de vues réelles</option><option value="custom">Personnalisé</option></select><small class="muted">L’aspect des images et des vidéos, indépendamment de l’univers des personnages.</small></label></div></fieldset>
+            <div data-story-long-only hidden><label><span id="story-target-label">Durée souhaitée · secondes</span><input id="story-target-seconds" type="number" min="10" max="2160" value="80" step="10"></label></div>
+            <label id="story-dialogue-language-row">Langue parlée<select id="story-dialogue-language"><option value="French" selected>Français</option><option value="English">English</option><option value="Korean">한국어 · Coréen</option><option value="Japanese">日本語 · Japonais</option><option value="Russian">Русский · Russe</option></select><small id="story-dialogue-language-description" class="muted"></small></label>
+          </div>
+          <details id="story-customize" class="story-settings"><summary>Personnaliser <small>Dialogues, récit, découpage et modèles</small></summary>
           <fieldset class="story-narrative-switch">
             <legend>Construction</legend>
-            <label><input id="story-format-short" type="radio" name="story-narrative-format" value="short" checked><span><b>Scénario court</b><small>Une écriture directe.</small></span></label>
-            <label><input id="story-format-long" type="radio" name="story-narrative-format" value="long"><span><b>Histoire suivie</b><small>Progression, scènes et continuité vérifiées.</small></span></label>
+            <label><input id="story-format-short" type="radio" name="story-narrative-format" value="short"><span><b>Scénario court</b><small>Une écriture directe.</small></span></label>
+            <label><input id="story-format-long" type="radio" name="story-narrative-format" value="long" checked><span><b>Histoire suivie</b><small>Progression, scènes et continuité vérifiées.</small></span></label>
           </fieldset>
           <fieldset id="story-long-options" class="story-long-options" hidden>
             <legend>Ton parcours</legend>
-            <label>Accompagnement<select id="story-workflow-mode"><option value="manual">Manuel guidé · je valide les étapes</option><option value="automatic">Automatique · jusqu’au scénario prêt</option></select></label>
-            <label>Univers des personnages<input id="story-universe" maxlength="1000" list="story-universes" placeholder="Au choix du moteur"><datalist id="story-universes"><option value="Fruits anthropomorphes"></option><option value="Gouttes d’eau anthropomorphes"></option><option value="Humains stylisés"></option><option value="Animaux anthropomorphes"></option></datalist></label>
+            <label>Accompagnement<select id="story-workflow-mode"><option value="manual">Manuel guidé · je valide les étapes</option><option value="automatic" selected>Automatique · jusqu’au scénario prêt</option></select></label>
             <label>À publier<select id="story-long-delivery"><option value="continuous">Une vidéo continue</option><option value="serial">Une série d’épisodes</option></select></label>
-            <label><span id="story-target-label">Durée souhaitée · secondes</span><input id="story-target-seconds" type="number" min="10" max="2160" value="80" step="10"></label>
           </fieldset>
-          <details class="story-settings"><summary>Orienter l’histoire <small>Facultatif · le moteur peut choisir</small></summary>
+          <fieldset class="story-creation-section"><legend>Récit et narration</legend>
             <div class="story-settings-grid">
               <label data-story-long-only hidden>Construction narrative<select id="story-long-profile"><option value="auto">Automatique</option><option value="social">Conflit du quotidien / joute verbale</option><option value="melodrama">Mélodrame / rapports de pouvoir</option><option value="transformation">Transformation / quête</option><option value="suspense">Suspense / révélation</option><option value="fantasy">Aventure à règle fantastique</option></select></label>
               <label data-story-long-only hidden>Narration<select id="story-long-narration"><option value="auto">Automatique</option><option value="dialogue">Dialogues dramatiques</option><option value="audio">Compréhensible à l’écoute</option><option value="visual">Principalement visuelle</option></select></label>
               <label data-story-long-only hidden>Fin<select id="story-long-ending"><option value="auto">Automatique</option><option value="resolution">Résolution</option><option value="open">Ouverte / suite</option><option value="reversal">Retournement</option><option value="cost">Victoire avec coût</option></select></label>
               <label>Famille éditoriale<select id="story-recipe"><option value="story.brainrot@1.0.0">Mélodrame fruits</option><option value="story.sensual-light@1.0.0">Sensuel light</option><option value="story.explicit-hard@1.0.0">Cru ++</option><option value="story.silent-cats@1.0.0">Chats de couple · muet</option></select></label>
               <label>Point de départ<select id="story-creation-mode"><option value="ideas">Inventer à partir de mon idée</option><option value="adapt" hidden>Développer mon récit fourni</option><option value="continuation">Continuer une histoire</option><option value="script">Suivre un script complet</option></select></label>
-              <label id="story-dialogue-language-row">Langue parlée<select id="story-dialogue-language"><option value="French" selected>Français</option><option value="English">English</option><option value="Korean">한국어 · Coréen</option><option value="Japanese">日本語 · Japonais</option><option value="Russian">Русский · Russe</option></select><small id="story-dialogue-language-description" class="muted"></small></label>
               <label id="story-dialogue-register-row"><span>Vocabulaire · <strong id="story-dialogue-register-label">Actuel</strong></span><input id="story-dialogue-register" type="range" min="0" max="3" step="1" value="0"><output id="story-dialogue-register-value">0/3</output><small id="story-dialogue-register-description" class="muted"></small></label>
             </div>
             <p id="story-recipe-description" class="muted"></p><p id="story-mode-description" class="muted"></p>
-          </details>
-          <details class="story-settings"><summary>Production avancée <small>Découpage et durée des clips</small></summary><div class="story-settings-grid">
+          </fieldset>
+          <fieldset class="story-creation-section" data-story-long-only hidden><legend>Dialogues et direction visuelle</legend>
+            <div class="story-settings-grid">
+              <label>Style des dialogues<select id="story-dialogue-style"><option value="natural">Naturel</option><option value="street">Jeune · argot de quartier</option><option value="custom">Personnalisé</option></select><small class="muted">La façon de parler. Le curseur Vocabulaire règle séparément le degré de crudité.</small></label>
+              <label>Débit<select id="story-dialogue-pace"><option value="fast">Rapide</option><option value="natural">Naturel</option></select><small class="muted">Rapide laisse plus de place aux échanges. L’estimation reste indicative ; les réactions doivent rester lisibles.</small></label>
+              <label>Nuances de ton · facultatives<textarea id="story-dialogue-notes" rows="2" maxlength="2000" placeholder="Réparties sèches, argot spontané, humour provocateur…"></textarea><small class="muted">Décris la façon de parler ; aucun exemple de réplique n’est nécessaire.</small></label>
+              <label>Direction visuelle · facultative<textarea id="story-visual-notes" rows="2" maxlength="2000" placeholder="Matières, éclairage, atmosphère ou exception pour un personnage…"></textarea></label>
+            </div>
+            <label>Petit lexique · facultatif<textarea id="story-glossary" rows="2" maxlength="2000" placeholder="Un mot = son sens dans ton univers. Une entrée par ligne."></textarea><small class="muted">Pour expliquer un terme au rédacteur. Aucun mot n’est obligatoire ; ce lexique ne sert pas à inventer l’intrigue.</small></label>
+            <details><summary>Répliques exactes à conserver · facultatif</summary><label>Une réplique par ligne, sans nom de locuteur<textarea id="story-protected-lines" rows="3" maxlength="12000" placeholder="Colle uniquement les paroles que tu veux retrouver mot pour mot."></textarea></label><p class="muted">Précise dans ton idée qui parle et à quel moment. Ces répliques sont vérifiées mot pour mot ; les nuances de ton restent libres.</p></details>
+          </fieldset>
+          <fieldset class="story-creation-section"><legend>Découpage</legend><div class="story-settings-grid">
             <label data-story-long-only hidden><span id="story-long-unit-label">Nombre de séquences</span><input id="story-long-units" type="number" min="1" max="12" value="1" step="1"></label>
-            <label><span id="story-scene-count-label">Nombre exact de micro-scènes</span><input id="story-scene-count" type="number" min="1" max="12" step="1" value="6" required></label>
+            <label><span id="story-scene-count-label">Nombre exact de micro-scènes</span><input id="story-scene-count" type="number" min="1" max="12" step="1" value="8" required></label>
             <label>Secondes par clip<input id="story-duration" type="number" min="5" max="15" step="1" value="10" required></label>
             <label>Nom du projet · facultatif<input id="story-title" maxlength="160" placeholder="Le titre sera proposé avec l’histoire"></label>
-          </div><p id="story-format-help" class="muted"></p></details>
+          </div><p id="story-format-help" class="muted"></p></fieldset>
           <p id="story-budget-summary" class="story-budget" hidden></p>
+          <details data-story-long-only hidden><summary>Continuer une histoire · contexte précédent</summary><label>Ce qui s’est déjà passé<textarea id="story-prior-story" rows="4" maxlength="60000" placeholder="Colle le résumé ou le scénario de l’épisode précédent ici."></textarea></label><p class="muted">Ce texte sert de mémoire. Écris dans « Ton idée » ce que tu souhaites pour le nouvel épisode.</p></details>
+          <details><summary>Essayer un point de départ</summary><div class="story-example-row"><span>Essayer un point de départ</span><button type="button" data-story-example="social">L’addition qui dérape</button><button type="button" data-story-example="melodrama">Les gouttes d’eau</button><button type="button" data-story-example="fantasy">Le temps de vie</button></div></details>
+          <div id="story-creation-models"></div>
+          </details>
+          <p id="story-creation-summary" class="story-creation-summary" aria-live="polite"></p>
           <button id="story-create" class="primary" type="submit">Proposer une histoire</button>
           <p id="story-create-note" class="muted"></p>
         </form>
@@ -314,6 +354,7 @@
           <label>Fin souhaitée<textarea id="sf-ending" rows="2" maxlength="1500"></textarea></label>
           <label>Contraintes<textarea id="sf-constraints" rows="2" maxlength="2000" placeholder="Ce qu’il faut conserver ou éviter…"></textarea></label>
           <details class="sf-settings"><summary>Réglages repris de l’histoire</summary><p id="sf-format-note" class="muted"></p><div class="sf-settings-grid">
+            <label id="sf-edition-row">Version d’écriture<select id="sf-edition"><option value="latest">Dernière expérimentale</option></select></label>
             <label>Langue parlée<select id="sf-language"><option value="French">Français</option><option value="English">English</option><option value="Korean">Coréen</option><option value="Japanese">Japonais</option><option value="Russian">Russe</option></select></label>
             <label>Accompagnement<select id="sf-mode"><option value="automatic">Automatique</option><option value="manual">Manuel guidé</option></select></label>
             <label>Durée visée · secondes<input id="sf-target" type="number" min="10" max="2160" step="1"></label><label>Plafond de scènes<input id="sf-scenes" type="number" min="1" max="12" step="1"></label><label>Secondes par scène<input id="sf-seconds" type="number" min="5" max="15" step="1"></label>
@@ -339,6 +380,10 @@
         <label>État final<textarea id="story-edit-ending" rows="3" maxlength="6000" required></textarea></label>
         <button class="primary" type="submit">Enregistrer sans appel LLM</button>
       </form>
+    </dialog>
+    <dialog id="episode-image-viewer" class="episode-image-viewer" aria-labelledby="episode-image-viewer-title">
+      <header><b id="episode-image-viewer-title">Image de référence</b><button id="episode-image-viewer-close" type="button" autofocus>Fermer · Échap</button></header>
+      <div class="episode-image-viewer-body"><img id="episode-image-viewer-content" alt=""></div>
     </dialog>
     <section id="episode-workshop" hidden>
       <div class="episode-bar">
@@ -418,7 +463,9 @@
             <p id="episode-batch-machines" class="muted"></p>
             <button id="episode-batch-global-settings" type="button">Paramètres globaux des machines</button>
           </div>
+          <p class="muted">Coche les références pour afficher leurs fiches et préparer le prochain lancement. Tu peux aussi ouvrir chaque fiche directement.</p>
           <div id="episode-batch-selection" class="episode-batch-selection"></div>
+          <div id="episode-batch-results" class="episode-batch-results" aria-label="Fiches sélectionnées et résultats du dernier lot"></div>
           <div id="episode-batch-progress" class="episode-batch-progress" hidden>
             <label>Prompts <progress id="episode-batch-prompt-progress" max="1" value="0"></progress><span id="episode-batch-prompt-count"></span></label>
             <label>Images <progress id="episode-batch-image-progress" max="1" value="0"></progress><span id="episode-batch-image-count"></span></label>
@@ -426,9 +473,8 @@
           </div>
           <div class="story-actions"><button id="episode-batch-start" type="button" class="primary">Lancer les références sélectionnées</button>
             <button id="episode-batch-cancel" type="button" hidden>Annuler le lot</button><span id="episode-batch-status" role="status"></span></div>
-          <div id="episode-batch-results" class="episode-batch-results"></div>
         </details>
-        <div class="episode-bar"><label>Personnage ou décor<select id="episode-reference"></select></label>
+        <div class="episode-bar"><label>Fiche de référence<select id="episode-reference"></select></label>
           <span id="episode-reference-count" class="muted"></span></div>
         <p class="muted">Une fiche vierge du même type reprend les derniers réglages LLM et image sélectionnés.</p>
         <div class="episode-asset-grid">
@@ -460,7 +506,11 @@
             <label class="episode-import">Ou importer une image<input id="episode-image-import" type="file" accept="image/png,image/jpeg,image/webp"></label>
             <p id="episode-asset-status" role="status"></p>
           </div>
-          <div><h3>Image retenue pour les scènes</h3><img id="episode-reference-preview" alt="Image de référence retenue" hidden>
+          <div><h3>Image retenue pour les scènes</h3>
+            <button id="episode-reference-zoom" class="episode-image-zoom" type="button" aria-label="Agrandir l’image retenue" aria-haspopup="dialog" hidden>
+              <img id="episode-reference-preview" alt="Image de référence retenue" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7 10h6M10 7v6"/></svg>
+            </button>
             <p id="episode-image-style-note" class="muted" hidden></p>
             <p id="episode-no-reference" class="muted">Génère une proposition ou importe une image, puis choisis ta référence.</p>
             <div id="episode-image-attempts" class="episode-image-attempts"></div>
@@ -759,18 +809,34 @@
           <label>Nom<input id="krea2-assisted-name" type="text" maxlength="120" placeholder="Ex. Zodiaque fantastique" required></label>
           <label>Intention (facultative avec une image)<textarea id="krea2-assisted-intention" rows="7" maxlength="12000" placeholder="Décris ton idée, ou ajoute simplement une image de référence…"></textarea></label>
           <label>Image de référence facultative<input id="krea2-assisted-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
+          <small class="muted">Avec une image seule, le LLM propose un prompt pour en reproduire le sujet, la composition et l’ambiance.</small>
+          <label>Recette d’assistance<select id="krea2-assisted-assistance-recipe" required><option value="1.0.0">V1 · classique</option><option value="2.0.0">V2 · sujet et contexte compact · expérimental</option><option value="3.0.0" selected>V3 · STABLE</option><option value="4.0.0">V4 · inspiration locale · expérimental</option><option value="5.0.0">V5 · templates KREA2 · expérimental</option><option value="6.0.0">V6 · directions modulaires · expérimental</option></select></label>
+          <div id="krea2-assisted-library-row" class="krea2-assisted-library-row">
+            <label id="krea2-assisted-use-library-control" class="krea2-assisted-library-toggle" hidden>
+              <input id="krea2-assisted-use-library" type="checkbox" checked>
+              Utiliser les inspirations locales
+            </label>
+            <small id="krea2-assisted-library-status">Bibliothèque locale : vérification…</small>
+            <button id="krea2-assisted-library-index" type="button">Indexer</button>
+          </div>
           <div class="krea2-assisted-preset-choice">
-            <label>Preset de style<select id="krea2-assisted-new-preset"><option value="">Sans preset</option></select></label>
+            <label>Preset personnel<select id="krea2-assisted-new-preset"><option value="">Sans preset</option></select></label>
             <label>Langue<select id="krea2-assisted-new-prompt-language" aria-label="Langue initiale du prompt KREA2"><option value="en" selected>English</option><option value="zh">中文</option></select></label>
             <button class="krea2-assisted-preset-manage" data-krea2-preset-manage type="button">Gérer</button>
           </div>
           <small id="krea2-assisted-new-preset-note" class="muted"></small>
-          <small class="muted">Avec une image seule, le LLM propose un prompt pour en reproduire le sujet, la composition et l’ambiance.</small>
-          <label>Recette d’assistance<select id="krea2-assisted-assistance-recipe" required><option value="1.0.0">V1 · classique</option><option value="2.0.0">V2 · sujet et contexte compact · expérimental</option><option value="3.0.0" selected>V3 · STABLE</option><option value="4.0.0">V4 · inspiration locale · expérimental</option><option value="5.0.0">V5 · templates KREA2 · expérimental</option></select></label>
-          <div id="krea2-assisted-library-row" class="krea2-assisted-library-row"><small id="krea2-assisted-library-status">Bibliothèque locale : vérification…</small><button id="krea2-assisted-library-index" type="button">Indexer</button></div>
+          <div id="krea2-assisted-new-art-direction" class="krea2-art-direction-compact" hidden>
+            <img id="krea2-assisted-new-art-image" alt="Aperçu de la direction artistique" hidden>
+            <div><b id="krea2-assisted-new-art-name">Sans direction artistique</b><small>Style visuel compilé au rendu, indépendamment de la pose.</small></div>
+            <button id="krea2-assisted-new-art-choose" type="button">Choisir</button>
+            <button id="krea2-assisted-new-art-clear" type="button" hidden>Retirer</button>
+          </div>
           <label>Modèle LLM<select id="krea2-assisted-llm" required><option value="">Chargement…</option></select></label>
           <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="krea2-assisted-llm" checked> Local · Unsloth</label>
-          <button id="krea2-assisted-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
+          <div class="krea2-assisted-create-actions">
+            <button id="krea2-assisted-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
+            <button id="krea2-assisted-create-new-tab" type="button" disabled>Nouvel onglet ↗</button>
+          </div>
           <p id="krea2-assisted-new-message" class="error" hidden></p>
         </section>
       </form>
@@ -791,6 +857,10 @@
           <span id="krea2-assisted-status" class="run-status">● Prêt</span>
         </div>
         <div id="krea2-assisted-warnings" class="krea2-batch-warnings" hidden></div>
+        <div id="krea2-assisted-project-library-control" class="krea2-assisted-project-library-control" hidden>
+          <label><input id="krea2-assisted-project-use-library" type="checkbox"> Inspirations locales</label>
+          <small id="krea2-assisted-project-library-note" class="muted"></small>
+        </div>
         <details id="krea2-assisted-example-panel" class="krea2-assisted-example-panel" hidden>
           <summary>Inspiration locale · <b id="krea2-assisted-example-summary">exemple épinglé</b></summary>
           <p id="krea2-assisted-example-assessment" class="muted">Trois scènes proches ont été trouvées localement. Une seule sert d’exemple complet au modèle.</p>
@@ -806,7 +876,6 @@
           <button id="krea2-assisted-remove-preset" type="button">Retirer</button>
           <button class="krea2-assisted-preset-manage" data-krea2-preset-manage type="button">Gérer</button>
         </section>
-
         <section class="krea2-assisted-conversation-panel">
           <h3>Discussion</h3>
           <details id="krea2-assisted-branches" class="krea2-assisted-branches">
@@ -846,7 +915,7 @@
                 <button id="krea2-assisted-convert-language" class="krea2-assisted-convert-language" type="button" hidden>Convertir le prompt</button>
                 <button id="krea2-assisted-chat" class="primary" type="button">Affiner le prompt</button>
                 <button id="krea2-assisted-chat-without-refresh" class="krea2-assisted-chat-secondary" type="button" hidden>Sans actualiser l’inspiration</button>
-                <button id="krea2-assisted-recipe-chat" type="button">Préparer la recette</button>
+                <button id="krea2-assisted-recipe-chat" type="button" hidden>Préparer la recette</button>
               </div>
               <details id="krea2-assisted-reasoning" class="reasoning-trace" hidden open>
                 <summary><b>Trace modèle</b><small id="krea2-assisted-reasoning-label">Création</small></summary>
@@ -930,7 +999,14 @@
           <p id="krea2-assisted-message-state" class="message" aria-live="polite"></p>
         </section>
 
-        <details id="krea2-assisted-recipe-panel" class="krea2-assisted-recipe-panel">
+        <section id="krea2-assisted-art-direction" class="krea2-art-direction-panel" aria-label="Direction artistique active" hidden>
+          <img id="krea2-assisted-art-image" alt="Aperçu de la direction artistique" hidden>
+          <div><small>DIRECTION ARTISTIQUE · V6</small><b id="krea2-assisted-art-name">Sans direction artistique</b><span id="krea2-assisted-art-category" class="muted"></span></div>
+          <button id="krea2-assisted-art-choose" type="button">Parcourir</button>
+          <button id="krea2-assisted-art-clear" type="button" hidden>Retirer</button>
+        </section>
+
+        <details id="krea2-assisted-recipe-panel" class="krea2-assisted-recipe-panel" hidden>
           <summary><b>Recette Batch candidate</b><small>Publication uniquement après validation explicite</small></summary>
           <p class="muted">Le JSON reste éditable. Les réglages techniques proviendront du rendu sélectionné.</p>
           <textarea id="krea2-assisted-recipe-draft" rows="16" placeholder="Discutez avec le modèle pour obtenir un brouillon de recette."></textarea>
@@ -960,6 +1036,23 @@
     <label>Instruction pour Identity Edit<textarea data-restage="instruction" rows="5" maxlength="12000"></textarea></label>
     <p data-restage="note" class="muted" role="status" aria-live="polite"></p>
     <div class="actions"><button data-restage="start" class="primary" type="button">Ouvrir dans l’atelier Edit</button><button data-restage="cancel" type="button">Fermer</button></div>
+  </dialog>
+
+  <dialog id="krea2-assisted-art-dialog" class="krea2-art-dialog" aria-labelledby="krea2-assisted-art-dialog-title">
+    <div class="krea2-art-dialog-head">
+      <div><small>CATALOGUE LOCAL · CLIO</small><h2 id="krea2-assisted-art-dialog-title">Directions artistiques</h2></div>
+      <button id="krea2-assisted-art-dialog-close" type="button">Fermer</button>
+    </div>
+    <p class="muted">La miniature et son texte guident uniquement le style. Le template V5 continue de guider la pose et la composition.</p>
+    <div id="krea2-assisted-art-install-row" class="krea2-art-install-row">
+      <span id="krea2-assisted-art-status">Catalogue non installé.</span>
+      <button id="krea2-assisted-art-install" type="button">Installer le catalogue</button>
+    </div>
+    <div class="krea2-art-filters">
+      <label>Rechercher<input id="krea2-assisted-art-search" type="search" placeholder="Cinématique, aquarelle, photo…"></label>
+      <label>Catégorie<select id="krea2-assisted-art-category-filter"><option value="">Toutes</option></select></label>
+    </div>
+    <div id="krea2-assisted-art-grid" class="krea2-art-grid"><p class="muted">Installez le catalogue pour parcourir les styles.</p></div>
   </dialog>
 
   <dialog id="krea2-assisted-preset-dialog" class="krea2-preset-dialog" aria-labelledby="krea2-assisted-preset-dialog-title">

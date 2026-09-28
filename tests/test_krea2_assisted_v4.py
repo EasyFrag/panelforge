@@ -213,6 +213,36 @@ class Krea2AssistedV4Test(unittest.TestCase):
         self.assertIn(values[1].prompt, gateway.requests[0].user_prompt)
         self.assertEqual(library.queries, [])
 
+    def test_disabled_local_inspiration_skips_retrieval_and_example_injection(self):
+        project = Krea2AssistedProject(
+            project_id="without-library", name="V4", intention="A hotel scene",
+            model_id="local", assistance_recipe_version="4.0.0",
+            local_inspiration_enabled=False,
+        )
+        final = """{"message":"Ready.","questions":[],"prompt":"A complete full-body photograph of an adult couple together in a detailed hotel room, with natural anatomy, cinematic light, realistic materials, balanced framing, and a clearly readable background.","recommendations":[]}"""
+        gateway = TwoStageGateway("unused", final, allow_brief=False)
+        library = ExampleLibrary(())
+        service = object.__new__(Krea2AssistedService)
+        service.gateway = gateway
+        service.projects = ProjectStore(project)
+        service.prompt_examples = library
+        service.resources = UnusedCatalogue()
+        service.recipes = UnusedCatalogue()
+        service.assets = UnusedCatalogue()
+        service.application_outcomes = None
+        service._lock = RLock()
+        service._chatting = set()
+        service._turn_id_factory = iter(("user-1", "assistant-1")).__next__
+
+        events = list(service.stream_chat("without-library", "Keep the hotel scene."))
+
+        self.assertIsNone(events[-1].error)
+        self.assertEqual(len(gateway.requests), 1)
+        self.assertEqual(gateway.requests[0].operation_id, v4.CREATION_OPERATION)
+        self.assertNotIn("REFERENCE DATA ONLY", gateway.requests[0].user_prompt)
+        self.assertEqual(library.queries, [])
+        self.assertFalse(_deserialize(_serialize(service.projects.project)).local_inspiration_enabled)
+
     def test_source_is_not_rewritten_and_duplicates_are_only_canonicalized_in_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

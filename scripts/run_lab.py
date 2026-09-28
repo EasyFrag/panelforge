@@ -13,6 +13,10 @@ from uuid import uuid4
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
+from panelforge.infrastructure.network_profiles import resolve_network_configuration, describe_network
+from panelforge.infrastructure.network_transports import (
+    direct_http_opener, direct_preview_connection, direct_thermal_connection, direct_dlss_connection,
+)
 from panelforge.infrastructure.combat_preparation import load_combat_revision_policy
 from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
 from panelforge.infrastructure.presets.h3_video_vae import H3VideoVaeUpdates
@@ -95,6 +99,7 @@ from panelforge.infrastructure.storage.qwen_edits import LocalQwenEditStore
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
 from panelforge.infrastructure.prompt_examples import LocalPromptExampleLibrary
 from panelforge.infrastructure.krea2_wildcards import LocalKrea2WildcardLibrary
+from panelforge.infrastructure.krea2_style_catalog import LocalKrea2StyleCatalog
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
 from panelforge.infrastructure.h3_lora_resources import H3LoraResourceCatalog
 from panelforge.infrastructure.local_gpu import NvidiaSmiMonitor
@@ -176,18 +181,21 @@ DEFAULT_KREA2_WILDCARDS_ROOT = (
 )
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch PanelForge Lab.")
     parser.add_argument(
+        "--network-mode", choices=("lan", "tailscale"),
+        help="Profil complet serveur/fichiers ; absent = paramètres historiques conservés.",
+    )
+    parser.add_argument(
         "--base-url",
-        default=os.environ.get(
-            "PANELFORGE_COMFY_URL",
-            "http://192.168.1.72:8188",
-        ),
-        help="ComfyUI base URL (default: %(default)s)",
+        default=None,
+        help="ComfyUI URL ; profil réseau, ou PANELFORGE_COMFY_URL / valeur historique.",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--mobile-port", type=int, default=8766,
+                        help="Loopback port for the mobile interface; 0 disables it.")
     parser.add_argument("--http-timeout", type=float, default=30.0)
     parser.add_argument("--runtime-timeout", type=float, default=2.0)
     parser.add_argument("--run-timeout", type=float, default=600.0)
@@ -200,18 +208,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--krea2-models-root",
         type=Path,
-        default=Path(os.environ.get(
-            "PANELFORGE_KREA2_MODELS_ROOT",
-            str(DEFAULT_KREA2_MODELS_ROOT),
-        )),
+        default=None,
     )
     parser.add_argument(
         "--krea2-loras-root",
         type=Path,
-        default=Path(os.environ.get(
-            "PANELFORGE_KREA2_LORAS_ROOT",
-            str(DEFAULT_KREA2_LORAS_ROOT),
-        )),
+        default=None,
     )
     parser.add_argument(
         "--krea2-wildcards-root",
@@ -243,11 +245,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument(
         "--llm-base-url",
-        default=os.environ.get(
-            "PANELFORGE_LLM_URL",
-            "http://bucket:8083/v1",
-        ),
-        help="OpenAI-compatible llama.swap URL (default: %(default)s)",
+        default=None,
+        help="LLM serveur ; profil réseau, ou PANELFORGE_LLM_URL / valeur historique.",
     )
     parser.add_argument(
         "--llm-api-key",
@@ -282,11 +281,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dlss-root", type=Path, default=Path(r"D:\AI\ComfyUI_windows_portable"))
     parser.add_argument("--dlss-base-url", default="http://127.0.0.1:8188")
     parser.add_argument("--dlss-output-root", type=Path, default=Path(r"D:\AI\PanelForge\LocalOutput"))
-    parser.add_argument("--dlss-video-export-root", type=Path, default=Path(r"X:\data\ComfyUI\output\video\Upscale"))
-    return parser.parse_args()
+    parser.add_argument("--dlss-video-export-root", type=Path, default=None)
+    args = parser.parse_args(argv)
+    try:
+        network = resolve_network_configuration(
+            args.network_mode, base_url=args.base_url, llm_base_url=args.llm_base_url,
+            models_root=args.krea2_models_root, loras_root=args.krea2_loras_root,
+            export_root=args.dlss_video_export_root, environ=os.environ,
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    args.base_url = network.base_url
+    args.llm_base_url = network.llm_base_url
+    args.krea2_models_root = network.models_root
+    args.krea2_loras_root = network.loras_root
+    args.dlss_video_export_root = network.export_root
+    args.dlss_video_export_access_root = network.export_access_root
+    return args
 
 
 def build_app(args: argparse.Namespace):
+    explicit_network = getattr(args, "network_mode", None) is not None
+    http_options = {"opener": direct_http_opener()} if explicit_network else {}
+    llm_options = {"trust_env": False} if explicit_network else {}
+    thermal_options = {"connector": direct_thermal_connection} if explicit_network else {}
+    preview_options = {
+        "video_preview_connector": direct_preview_connection,
+        "runtime_monitor_connector": direct_preview_connection,
+    } if explicit_network else {}
     video_vae_updates = H3VideoVaeUpdates(
         PROJECT_ROOT / "workflows",
         PROJECT_ROOT / "workflows/video.vae/minimax-h3-int8-convrot/1.0.0/manifest.json",
@@ -327,51 +349,60 @@ def build_app(args: argparse.Namespace):
         args.base_url,
         client_id=f"panelforge-lab-{uuid4().hex}",
         timeout=args.http_timeout,
+        **http_options,
     )
     video_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-video-lab-{uuid4().hex}",
         timeout=args.http_timeout,
+        **http_options,
     )
     krea2_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-krea2-lab-{uuid4().hex}",
         timeout=args.http_timeout,
+        **http_options,
     )
     h3_render_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-h3-render-{uuid4().hex}",
         timeout=args.http_timeout,
+        **http_options,
     )
     krea2_batch_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-krea2-batch-{uuid4().hex}",
         timeout=args.http_timeout,
+        **http_options,
     )
     krea2_edit_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-krea2-edit-{uuid4().hex}",
         timeout=args.http_timeout,
+        **http_options,
     )
     krea2_assisted_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-krea2-assisted-{uuid4().hex}",
         timeout=args.http_timeout,
+        **http_options,
     )
     runtime_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-runtime-{uuid4().hex}",
         timeout=args.runtime_timeout,
+        **http_options,
     )
     production_monitor_comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-production-monitor-{uuid4().hex}",
         timeout=args.runtime_timeout,
+        **http_options,
     )
     local_gpu_monitor = NvidiaSmiMonitor()
     production_thermal_monitor = CombinedProductionThermalMonitor(
         local=local_gpu_monitor,
-        remote=CrystoolsRemoteGpuMonitor(production_monitor_comfy.websocket_url),
+        remote=CrystoolsRemoteGpuMonitor(production_monitor_comfy.websocket_url, **thermal_options),
     )
     machine_work = MachineWorkCoordinator(
         thermal_monitor=production_thermal_monitor,
@@ -382,6 +413,7 @@ def build_app(args: argparse.Namespace):
     prompt_examples = LocalPromptExampleLibrary(
         args.workspace,
         work_coordinator=machine_work,
+        **({"local_files_only": True} if getattr(args, "network_mode", None) == "lan" else {}),
     )
     prompt_examples.start_indexing()
     prompt_wildcards = LocalKrea2WildcardLibrary(
@@ -422,6 +454,7 @@ def build_app(args: argparse.Namespace):
                 api_key=args.llm_api_key,
                 timeout=args.llm_timeout,
                 structured_output=getattr(args, "llm_structured_output", "json_schema"),
+                **llm_options,
             ),
             "local": OpenAICompatibleGateway(
                 getattr(
@@ -435,6 +468,7 @@ def build_app(args: argparse.Namespace):
                 ),
                 timeout=args.llm_timeout,
                 structured_output=getattr(args, "local_llm_structured_output", "json_schema"),
+                **llm_options,
             ),
         }
     )
@@ -485,6 +519,7 @@ def build_app(args: argparse.Namespace):
         gateway=gateway,
         prompt_examples=prompt_examples,
         prompt_wildcards=prompt_wildcards,
+        style_catalog=LocalKrea2StyleCatalog(args.workspace),
         presets=LocalKrea2StylePresetStore(args.workspace),
         recipes=krea2_visual_recipes,
         workflow=krea2_assisted_default_workflow,
@@ -685,13 +720,17 @@ def build_app(args: argparse.Namespace):
     )
     dlss_url = getattr(args, "dlss_base_url", "http://127.0.0.1:8188")
     dlss_jobs = LocalDlssJobs(args.workspace)
-    dlss_comfy = ComfyHttpClient(dlss_url, client_id="panelforge-dlss", timeout=30)
+    dlss_comfy = ComfyHttpClient(dlss_url, client_id="panelforge-dlss", timeout=30, **http_options)
     dlss = DlssService(
         jobs=dlss_jobs, comfy=dlss_comfy, assets=assets,
-        progress=ComfyDlssProgress(dlss_comfy.websocket_url),
-        video_exporter=DlssVideoExporter(getattr(args, "dlss_video_export_root", r"X:\data\ComfyUI\output\video\Upscale")),
+        progress=ComfyDlssProgress(dlss_comfy.websocket_url,
+            connector=direct_dlss_connection if explicit_network else None),
+        video_exporter=DlssVideoExporter(
+            getattr(args, "dlss_video_export_root", r"X:\data\ComfyUI\output\video\Upscale"),
+            access_root=getattr(args, "dlss_video_export_access_root", None),
+        ),
         outputs=DlssOutputs(dlss_output_root, assets, fallback_roots=dlss_fallback_roots),
-        runtime=LocalDlssRuntime(root=dlss_root, base_url=dlss_url, journal=dlss_jobs, comfy=dlss_comfy, output_root=dlss_output_root),
+        runtime=LocalDlssRuntime(root=dlss_root, base_url=dlss_url, journal=dlss_jobs, comfy=dlss_comfy, output_root=dlss_output_root, **http_options),
         media=DlssMedia(ffmpeg=dlss_root / "tools/ffmpeg.exe", ffprobe=dlss_root / "tools/ffprobe.exe"),
         candidates=DlssCandidates(edit=krea2_edit, assisted=krea2_assisted, h3=h3_render, qwen=qwen_edit),
         workflows={
@@ -714,13 +753,35 @@ def build_app(args: argparse.Namespace):
     from panelforge.application.video_factory import VideoFactoryService
     from panelforge.application.video_factory_workflows import FactoryWorkflows
     from panelforge.infrastructure.storage.video_factory import LocalVideoFactoryStore
+    from panelforge.infrastructure.video_factory_outputs import VideoFactoryOutputs
+    from panelforge.infrastructure.factory_image_context import FactoryImageContext
+    from panelforge.application.factory_monitoring import FactoryMonitoring
+    from panelforge.infrastructure.storage.factory_timings import LocalFactoryTimingsStore
     video_factory = VideoFactoryService(store=LocalVideoFactoryStore(args.workspace),
+        monitoring=FactoryMonitoring(LocalFactoryTimingsStore(args.workspace)),
+        outputs=VideoFactoryOutputs(dlss_output_root / "dlss", assets),
         adapter=FactoryWorkflows(prompt_lab=prompt_lab, composition=prompt_composition,
             render=h3_render, dlss=dlss, social=social_lab, episodes=episodes,
-            assets=assets, coordinator=machine_work), coordinator=machine_work)
+            assets=assets, coordinator=machine_work,
+            image_context=FactoryImageContext(assets=assets, projects=krea2_assisted_projects)),
+        coordinator=machine_work)
+    mobile_server = None
+    mobile_port = getattr(args, "mobile_port", 0)
+    if mobile_port:
+        if mobile_port == args.port:
+            raise ValueError("Le port mobile doit être distinct du port du Lab.")
+        from panelforge.application.factory_mobile import FactoryMobile
+        from panelforge.infrastructure.factory_mobile import LocalMobileStore, WebPushSender, LoopbackMobileServer
+        from panelforge.features.lab.factory_mobile_web import create_mobile_app
+        mobile = FactoryMobile(video_factory, LocalMobileStore(args.workspace), WebPushSender(args.workspace),
+                               thermal_history=machine_work.thermal_history)
+        mobile_server = LoopbackMobileServer(create_mobile_app(mobile), mobile_port)
     return create_app(
         runner,
         video_factory=video_factory,
+        mobile_server=mobile_server,
+        network_mode=getattr(args, "network_mode", None),
+        **preview_options,
         prompt_recipes=prompt_recipes,
         llm_traces=llm_traces,
         dlss=dlss,
@@ -747,6 +808,7 @@ def build_app(args: argparse.Namespace):
             args.llm_base_url,
             api_key=args.llm_api_key,
             timeout=args.runtime_timeout,
+            **http_options,
         ),
         comfy_runtime=runtime_comfy,
         local_gpu_monitor=local_gpu_monitor,
@@ -755,6 +817,7 @@ def build_app(args: argparse.Namespace):
 
 def main() -> int:
     args = parse_args()
+    print(describe_network(args), flush=True)
     import uvicorn
 
     uvicorn.run(

@@ -1,5 +1,1227 @@
 # CONTINUITY
 
+## Correctif 2026-09-28 — spectateur dans les personnages informés
+
+### Goal
+- Corriger le blocage `series_outline.secrets[0/1].known_by` signalé après le premier brief inspiré de Download(34), sans alourdir les consignes ni interrompre les traitements.
+
+### Current state
+- Cause vérifiée dans le premier appel `llm-c85bd97268be4e19bd02d6208c07de62` : `spectateur` ajouté à `known_by` aux côtés de `char-rene` et `char-lina`. Aucun doublon réel ; le brief est cohérent.
+- Correctif ciblé dans le checkout actif : `domain/long_stories.py` normalise uniquement les mentions explicites du public en politique v3 ; connaissance publique conservée dans le texte du secret, liste réservée aux personnages. Casting déclaré protégé, identifiants inconnus/doublons réels toujours rejetés, aucune troncature. `application/stories.py` conserve la provenance et le brouillon original.
+- Pas de changement de contrat, prompt de consigne, recette, empreinte ou réglage ; anciennes politiques conservées. Six régressions préparées, non exécutées selon AGENTS.md. Syntaxe Python et diff ciblé vérifiés.
+- Le projet `story-887454eeb15c4481b9db6a83ff708e3a` a évolué pendant le diagnostic : à 14:46:24 UTC, « La même espèce », version 299, arc déjà présent avec Léo/Mia/Marc et séquence en cours d’écriture. Aucune récupération ou mutation du runtime effectuée ; ne pas attribuer cette progression au patch.
+- Rapport : `docs/proposals/story-secret-audience-fix-2026-09-28.md`. Sauvegardes : `D:/Code/panelforge/.agent/diagnostics/story-secret-audience-20260928/`. Aucun appel LLM, génération, redémarrage, commit ou push dans cette intervention.
+
+### Next steps
+1. Laisser l’écriture en cours se terminer ; correctif backend disponible au prochain démarrage normal choisi par l’utilisateur.
+2. L’utilisateur peut exécuter `python -m unittest tests.test_story_secret_audience` dans le checkout actif.
+3. Si un futur brouillon équivalent est bloqué, la revalidation après chargement du correctif pourra normaliser ces mentions sans nouvel appel au modèle, sous réserve des autres contrôles.
+
+## Implémentation 2026-09-28 — lecture mobile des vidéos brutes uniquement
+
+### Goal
+- Appliquer l’alignement validé : lecteur mobile sur le brut H3, jamais sur le DLSS ; miniature/navigation conservées et indisponibilité explicite si le brut manque. Aucun changement PC/export/traitement.
+
+### Current state
+- Patch dans D:/Code/panelforge-krea2-flux : media_asset de domain/factory_mobile.py ne sélectionne que steps.video ; module utilisé exclusivement par le service mobile.
+- Résultats DLSS seuls encore visibles dans la galerie mobile, sans URL de lecture brute : bouton désactivé et « Vidéo brute indisponible ». Fichier brut référencé mais disparu : réponse 404 et message du lecteur, sans accès au DLSS. Qualité « Vidéo brute », Range conservé, aucune copie/conversion.
+- app.js et coque de cache mobile3 ; CSS/graphiques mobile2 préservés. Ordre des résultats, miniatures et pagination inchangés.
+- Compilation Python (3 fichiers), V8 (app.js, sw.js et 2 blocs de scénario), contrats de cache et git diff --check validés. Régressions existantes adaptées et deux nouveaux cas ajoutés : brut absent de la fiche / fichier absent malgré DLSS disponible. Tests fonctionnels et navigateur non exécutés selon AGENTS.md.
+- Documentation actualisée : docs/proposals/factory-mobile-implementation-2026-09-28.md. Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-mobile-raw-20260928/.
+- Aucun service redémarré, média lu/transféré/généré, fichier runtime modifié, commit ou push. Changements concurrents conservés.
+
+### Next steps
+1. L’utilisateur peut exécuter tests.test_factory_mobile et tests.test_factory_mobile_browser depuis le checkout actif.
+2. Au prochain démarrage normal de PanelForge, recharger le mobile pour activer le choix serveur du fichier brut.
+3. Vérifier sur Android une vidéo avec brut et DLSS prêts : libellé « Vidéo brute » et lecture du brut ; retest notifications laissé à l’utilisateur comme convenu.
+
+## Implémentation 2026-09-28 — courbes thermiques sur l’accueil mobile
+
+### Goal
+- Implémenter l’alignement mobile : en-tête compact, progression conservée, deux courbes de six heures et seuil de notification serveur proposé à 84 °C.
+- Dernière instruction utilisateur : il pense devoir activer les notifications dans l’application ; leur réception sera retestée ensuite. Ne pas poursuivre une refonte du transport Push.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux : titre/lot fusionnés au bandeau PanelForge, cartes instantanées remplacées par Serveur puis PC local, échelle 40–90 °C, min/pic/seuil, températures hors plage explicitement signalées et valeur exacte lisible au toucher/clavier.
+- GET /api/thermal-history mobile en lecture seule réutilise le coordinateur existant via injection dans FactoryMobile. Projection sans événements, chemins ou erreurs brutes, six heures filtrées de l’historique de 24 h ; tous les maxima 15 s conservés et trous visibles. Rafraîchissement indépendant 30 s, historique retenu sur échec.
+- Défaut serveur 84 °C, local 80 °C ; préférences déjà enregistrées conservées. Mécanisme Push et notification de lot terminé existants inchangés ; aucune notification réelle envoyée, réception Android non qualifiée.
+- Syntaxe Python (6 fichiers), V8 (3 scripts + 2 blocs de scénario), HTML/cache mobile2, structure CSS et git diff --check validés. Aperçu visuel fictif en émulation 390 px : viewport/contenu 390 px, pas de débordement, capture consultée.
+- Quatre régressions backend préparées et scénario navigateur étendu ; non exécutés selon AGENTS.md actif. Aucun appel LLM/génération, commande de production, redémarrage, commit ou push.
+- Rapport : docs/proposals/factory-mobile-history-2026-09-28.md. Sauvegardes/diffs/contrôles/aperçu : D:/Code/panelforge/.agent/diagnostics/factory-mobile-history-20260928/. Changements concurrents préservés.
+- Activation backend au prochain démarrage normal choisi par l’utilisateur ; le processus actuel ne connaît pas encore la route d’historique et le script thermique.
+
+### Next steps
+1. L’utilisateur exécute tests.test_factory_mobile et tests.test_factory_mobile_browser depuis le checkout actif.
+2. Au prochain démarrage normal de PanelForge, rouvrir/recharger l’interface mobile et contrôler les deux courbes sur Android.
+3. Dans Alertes, activer les notifications et autoriser le navigateur ; régler le serveur à 84 °C si une préférence antérieure existe, puis retester température / lot terminé.
+
+## Alignement 2026-09-28 — accueil mobile centré sur l’historique thermique
+
+### Goal
+- Cadrer la demande utilisateur : en-tête mobile compact, courbes thermiques serveur/PC sur six heures et notifications serveur à partir de 84 °C / lot terminé. Demande de confirmation du scope ; aucune implémentation dans ce tour.
+
+### Current state
+- Inspection en lecture seule : l’accueil possède un bandeau PanelForge/connexion/actualisation, un titre séparé avec état du lot, un résumé de progression, puis deux cartes de température instantanée.
+- Périmètre proposé : titre/lot réunis dans le bandeau supérieur ; résumé conservé ; remplacer les cartes par deux courbes empilées, serveur puis PC local, historique six heures existant, cadrage principal 40–90 °C avec valeurs hors plage signalées.
+- Notifications température et lot terminé déjà implémentées, seuils par abonnement, anti-répétition thermique et déduplication par lot. Défaut HTML serveur actuel 85 °C : la demande vise 84 °C configurable. L’API mobile actuelle ne propose pas encore l’historique thermique du PC ; prévoir un accès mobile dédié en lecture seule.
+- Aucune modification applicative, notification envoyée, commande de traitement, test ou redémarrage. Réception effective Android non vérifiée dans ce tour.
+
+### Next steps
+1. Restituer le scope à l’utilisateur pour alignement.
+2. Au passage à l’implémentation : réutiliser l’historique existant, préserver les pics dans la réduction des points pour mobile, raccorder les préférences de notifications sans modifier les protections thermiques.
+
+## UX 2026-09-28 — supprimer le doublon Prêt sur la sélection
+
+### Goal
+- Masquer le « Prêt » vert des vidéos cochées en Préparation pour alléger les lignes avec prévision.
+
+### Current state
+- Patch ciblé dans D:/Code/panelforge-krea2-flux : classe du statut prêt dans video-factory.js, visibilité synchronisée avec state.selected dans renderToolbar, masquage CSS et suppression de la marge au-dessus de la prévision.
+- Sélection individuelle, de groupe et globale prises en compte ; désélection rétablit le statut. Les avertissements, suppressions et états de production restent affichés.
+- Versions de cache video-factory.js et video-factory-monitor.css : 20260928.ready1. Syntaxe V8, structure CSS, références de cache et git diff --check validés ; tests navigateur non exécutés selon AGENTS.md.
+- Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-selected-ready-20260928/. Aucun redémarrage ni commande de traitement.
+
+### Next steps
+1. Ctrl+F5 pour charger l’interface, puis vérifier la sélection/désélection en Préparation.
+
+## Diagnostic 2026-09-28 — lancement LAN confirmé en fonctionnement
+
+### Goal
+- Vérifier le lancement « full local » effectué par l'utilisateur, sans interrompre les traitements.
+
+### Current state
+- Processus PanelForge 11416, parent lanceur venv 7952 : --network-mode lan --workspace D:/Code/panelforge/workspace --port 7861. API /api/network-mode : HTTP 200, mode lan, libellé Local.
+- Connexions établies du processus : 192.168.1.83 vers 192.168.1.72:8188 et :8083 ; Unsloth vers 127.0.0.1:8888. Aucune connexion Tailscale observée pour ces échanges.
+- ComfyUI LAN /system_stats et LLM LAN /v1/models répondent HTTP 200 ; catalogue de 30 modèles. /api/runtime/status voit ComfyUI et LLM disponibles, sans warning de connexion ; GPU serveur et PC disponibles.
+- Trois racines UNC directes \\sshfs.r\malmo@192.168.1.72 vérifiées accessibles en lecture : modèles KREA2, LoRA krea2 et output/video/Upscale. Connexions SSH établies vers 192.168.1.72:22.
+- /api/dlss/runtime : ready, owned=true, URL 127.0.0.1:8188. Une préparation H3 Plan par le LLM local était active pendant le relevé ; serveur en refroidissement entre vidéos, sans erreur signalée.
+- Vérifications en lecture seule. Aucun redémarrage, changement réseau, appel de génération, écriture sur partage, mutation de file ou modification de code. Aucune coupure Internet/Tailscale provoquée et aucun export de test réalisé.
+
+### Next steps
+1. Le lancement LAN et les accès observés sont confirmés fonctionnels ; conserver cette commande.
+2. La recette complète avec WAN réellement coupé et un export terminé sous ce lancement reste à qualifier, sans interrompre la production active.
+
+## UX 2026-09-28 — prévisions compactes sur deux lignes
+
+### Goal
+- Supprimer « Rendu vers… » et compacter les prévisions pour éviter les changements de hauteur pendant l’actualisation.
+
+### Current state
+- Patch dans le checkout actif D:/Code/panelforge-krea2-flux : video-factory-monitor.js, video-factory-monitor.css et versions de cache dans index.html (20260928.preview4).
+- « Rendu vers… » retiré des lignes. Au maximum deux lignes : heure de fin + durée, ou durée + « Estimation conservée ». La condition de reprise rejoint la seconde ligne ; les textes complets restent disponibles en infobulle.
+- Bloc non vide de Préparation et Production fixé à 32 px de haut et 140 px de large ; interligne 16 px, marges réduites, textes longs tronqués visuellement. Remplace la réserve de 58 px de la version précédente. Calculs et conservation des estimations inchangés.
+- Syntaxe JavaScript V8, structure CSS, références HTML/cache et git diff --check validés. Aucun test navigateur exécuté selon AGENTS.md actif ; rendu à confirmer au rechargement utilisateur.
+- Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-preview-compact-20260928/. Modifications concurrentes conservées ; aucun service redémarré ni traitement commandé.
+
+### Next steps
+1. Ctrl+F5 sur l’Usine pour charger le script et le style compactés.
+2. Vérifier visuellement les transitions entre estimation actualisée, estimation conservée et attente.
+
+## Correctif 2026-09-28 — prévision conservée après une réponse sans durée
+
+### Goal
+- Corriger l’alternance restante entre horaires et message d’attente en Préparation, liée aux transitions de la production.
+
+### Current state
+- Second cas identifié : une réponse /estimate réussie mais avec remaining_seconds=null remplaçait encore l’ancienne prévision. Le premier correctif couvrait les requêtes en cours et les erreurs, pas ce cas.
+- Correctif dans D:/Code/panelforge-krea2-flux : video-factory-monitor.js conserve la dernière durée de chaque vidéo si sélection/révisions identiques ; total recomposé seulement si toutes les vidéos disposent d’un budget. Valeur figée, « Estimation conservée », fin masquée et attente à confirmer ; nouvelles durées numériques prioritaires.
+- Changement réel de preset/réglages/sélection invalide toujours les valeurs précédentes. Sans première valeur, aucun chiffre inventé. Réponses API non mutées ; aucune modification du calcul/ordonnancement serveur.
+- CSS : bloc de prévision non vide stabilisé en Préparation (min-height 58 px, min-width 140 px). Cache du script et CSS : 20260928.preview3.
+- Relevé API de diagnostic sans commande de traitement : six fiches préparées, prévision numérique au moment du relevé, environ 95 min au total. Le cas nul est identifié par captures et code, pas reproduit en navigateur.
+- Troisième scénario synthétique ajouté à tests/test_factory_preview_browser.py : cas initial inconnu, réponses mixtes/nulles répétées, attente longue, récupération, dimensions et invalidation. Syntaxe Python/V8, contrat HTML/cache, structure CSS et git diff --check validés ; tests non exécutés selon AGENTS.md actif.
+- Rapport : docs/proposals/factory-preview-retention-2026-09-28.md. Sauvegardes/diffs/relevé/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-preview-retention-20260928/.
+- Modifications concurrentes conservées. Aucun redémarrage, génération, mutation runtime, commit ni push. Activation par rechargement de page.
+
+### Next steps
+1. Ctrl+F5 dans l’Usine : les transitions vers une attente sans durée gardent le dernier budget connu ; les chiffres valides peuvent encore s’affiner avec la production.
+2. L’utilisateur exécute tests.test_factory_preview_browser et tests.test_video_factory_web puis vérifie le rendu pendant une transition réelle.
+3. Le correctif backend distinct sur l’historique à sept références reste activé au prochain lancement choisi, sans interruption par l’agent.
+
+## Implémentation 2026-09-28 — profils réseau LAN / Tailscale
+
+### Goal
+- Implémenter les profils de lancement approuvés et le badge, en conservant strictement la commande historique sans --network-mode.
+
+### Current state
+- Code livré dans D:/Code/panelforge-krea2-flux : --network-mode lan|tailscale, résolveur unique, racines UNC du profil, badge Local/Tailscale près du logo. Aucun mode forcé lorsque l'argument est absent.
+- Profils explicites cohérents pour ComfyUI, LLM, administration, WebSocket et suivi ; connexions internes directes sans proxy système. En LAN, l'indexation FastEmbed utilise seulement les fichiers en cache.
+- DLSS et Unsloth conservent leur rôle sur le PC. Exports : chemins logiques X: préservés, écriture UNC selon le profil sans remonter X:, sans repli ni réécriture des jobs. Contrôles de destination/contenu conservés.
+- Compilation/AST de dix fichiers Python, syntaxe JavaScript V8, aperçu statique des deux badges et git diff --check validés. 22 tests préparés dans tests/test_network_modes.py ; non exécutés selon AGENTS.md, autorisation explicite non reçue.
+- Guides des commandes et rapport : docs/proposals/network-mode-launch-commands-2026-09-28.md et network-modes-implementation-2026-09-28.md, copiés dans les deux checkouts.
+- Sauvegardes/diff/hachages/validation : D:/Code/panelforge/.agent/diagnostics/network-modes-implementation-20260928/. Changements concurrents conservés.
+- Aucun redémarrage, test de service réel, appel LLM, rendu, job modifié, commit ou push. Master publié précédemment reste le snapshot avant modes réseau ; seul le checkout de lancement reçoit ce code.
+- WinError 5 du journal local DLSS hors périmètre ; aucun correctif ou rejeu ajouté.
+
+### Next steps
+1. L'utilisateur lance le module unittest test_network_modes.py, puis choisit le prochain démarrage normal avec la commande LAN ou Tailscale du guide.
+2. Qualifier les UNC directs et leurs identifiants dans la session Windows applicative, puis les exports par les deux accès vers le même dossier serveur.
+3. Effectuer une production représentative hors WAN/Tailscale en gardant le LAN actif et les modèles installés, puis retour Tailscale et reconnexion à froid. Ces recettes ne sont pas encore validées.
+
+## UX 2026-09-28 — tri des résultats et prévisions sans clignotement
+
+### Goal
+- Ajouter un tri discret récent → ancien dans Résultats, avec l’ordre habituel par défaut, et corriger les prévisions qui disparaissent/réapparaissent après un preset.
+
+### Current state
+- Changements dans D:/Code/panelforge-krea2-flux : static/video-factory.js, video-factory-monitor.js et index.html. Modifications concurrentes (notamment réseau) préservées.
+- Sélecteur « Ordre habituel » / « Plus récents d’abord », seulement dans Résultats. Dates de fin étapes/export, repli lancement/création ; histoires regroupées avec ordre interne conservé. Sélection et choix de tri conservés pendant les sondages/navigation ; aucune modification de priorité serveur.
+- Cause confirmée : clé de prévision incluant révision globale et intervalle 5 s, donc preview=null à chaque sondage même sans changement de sélection. Séparation de la clé sélection/révisions et de la clé de rafraîchissement.
+- Prévision conservée pendant recalcul, réponse lente encore acceptée si sélection identique ; ancien résultat ignoré après modification/désélection. Erreur transitoire : dernière valeur signalée ancienne, fin masquée. Changement réel de preset/réglages/sélection invalide l’ancienne valeur.
+- Protection supplémentaire : un GET d’état antérieur à une mutation ne peut plus rétablir une ancienne révision globale.
+- Deux scénarios navigateur hors ligne préparés dans tests/test_factory_preview_browser.py. Syntaxe Python, compilation V8 (2 scripts + 3 blocs de scénario/initialisation) et contrat HTML/cache vérifiés ; aucun test fonctionnel/navigateur exécuté selon AGENTS.md.
+- Rapport : docs/proposals/factory-results-preview-2026-09-28.md. Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-results-preview-20260928/.
+- Rechargement de page suffisant pour ce patch statique. Aucun redémarrage, génération, appel LLM, commande de file, écriture runtime, commit ni push.
+
+### Next steps
+1. Recharger la page Usine et vérifier le menu de tri dans Résultats puis la stabilité des prévisions en Préparation.
+2. L’utilisateur peut exécuter tests.test_factory_preview_browser et tests.test_video_factory_web ; scénarios uniquement fictifs, sans API réelle.
+3. Le correctif backend séparé des estimations à 7 références conserve son activation au prochain lancement du serveur.
+
+## Correctif 2026-09-28 — estimations des scènes à 7 références
+
+### Goal
+- Expliquer « Historique comparable insuffisant » sur un lot d’histoires courant et corriger le critère qui bloque ses prévisions.
+
+### Current state
+- Diagnostic sur API PC/mobile et copie du journal lue en partage Windows lecture/écriture/suppression : 615 mesures, dont 122 rendus vidéo et 129 DLSS, sans erreur du monitoring ni télémétrie périmée au relevé.
+- Quatre scènes de « La présentation » ont 7 références. Le comparateur exigeait exactement le même nombre/type de références, même en DLSS ; aucune mesure à 7, mais 24 vidéos et 29 DLSS à 2–6 références pour les mêmes autres paramètres. Les cinq scènes suivantes sont connues individuellement mais leurs dates et le total sont bloqués par cette dépendance.
+- Correction dans D:/Code/panelforge-krea2-flux/src/panelforge/domain/factory_timing.py : priorité aux profils exacts ; repli REF2V limité à une référence en plus/moins, mêmes types de rôles et tous les réglages de calcul identiques. Repli DLSS sans critère de références, autres paramètres conservés. Confiance faible, intervalle large et raison indicative.
+- Aucun changement du journal, des workers, de l’ordonnancement ni des protections thermiques. Les cas sans voisin compatible restent inconnus.
+- Quatre régressions préparées dans tests/test_factory_monitoring.py (priorité exacte, frontières de compatibilité, DLSS, propagation à la suite et au lot sans mutation). Syntaxe/compilation seules vérifiées ; tests non exécutés selon AGENTS.md actif.
+- Rapport : docs/proposals/factory-eta-reference-fallback-2026-09-28.md. Relevés, sauvegardes et diffs : D:/Code/panelforge/.agent/diagnostics/factory-eta-history-20260928/.
+- Aucun redémarrage, génération, LLM, commande de file, notification, commit ou push. Processus actuel inchangé ; correction chargée au prochain lancement choisi.
+
+### Next steps
+1. L’utilisateur exécute tests.test_factory_monitoring depuis le checkout actif.
+2. Au prochain démarrage choisi, vérifier les prévisions des scènes à 7 références et le temps global ; pas d’interruption de la production par l’agent.
+3. Garder la distinction entre estimation prudente et durée mesurée ; ne pas élargir aux autres recettes/machines/résolutions sans modèle validé.
+
+## Correctif 2026-09-28 — besoin ciblé dans Petits hommes expérimental existant
+
+### Goal
+- Implémenter la direction approuvée après les retours : apport d’eau pour sécheresse, protection de la vague, évacuation de l’inondation, feu vivant puis extinction ; conserver les objets libres et une intention courte.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux, sur le preset little_men_experimental existant. Version interne v4 ; aucun nouveau preset ou contrôle UI.
+- Base approuvée de 87 mots, une seule phrase ciblée si le besoin est identifiable ; total 99–102 mots hors contexte/durée/voix. Règle Plan passée de 92 à 40 mots, sans catalogue d’objets ni quota de gestes.
+- Besoin repéré depuis l’intention vidéo, le contexte saisi, l’intention KREA puis la description complète de l’image exacte. Noms/labels/styles ignorés. Vague prioritaire sur son inondation ; besoins absents/mixtes ou négations simples laissés au Plan. Tornades/réparations ne reçoivent pas de phrase ciblée.
+- Phrase identique transmise au Plan puis au Writer ; invariants besoin → mécanisme → bénéfice. La matière visuelle ne doit pas immobiliser eau/feu. Langue figée et onze remerciements minimaux stricts préservés.
+- Anciennes sessions v1/v2/v3 conservées ; helpers et règle v3 inchangés. Nouvelle préparation/copie actualise uniquement les défauts exacts v2/v3. Intentions personnalisées conservées ; réapplication explicite du preset passe en v4.
+- Durée, modèles, rendu, DLSS et autres presets inchangés. Texte IG reste désactivé par défaut. Pas de modification des sources KREA ; la qualité du feu peut rester limitée par une image de départ sculpturale.
+- Dix tests hors ligne préparés dans tests/test_video_factory_needs.py ; versions courantes adaptées dans les tests existants. Aucun test fonctionnel lancé conformément à AGENTS.md.
+- Validation statique OK : AST, sept imports, comparaison des constantes/helpers historiques, des règles de langue et du texte approuvé, diff --check.
+- Docs : docs/video-factory.md et docs/proposals/little-men-needs-v4-2026-09-28.md (checkout actif). Sauvegardes/diff/mesures : D:/Code/panelforge/.agent/diagnostics/little-men-needs-v4-20260928/.
+- Aucun appel LLM, rendu, redémarrage, modification des fiches de production, commit ou push. Changements concurrents conservés.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, réappliquer le preset expérimental sur une nouvelle fiche/copie avant préparation.
+2. L’utilisateur peut lancer les tests préparés (commande dans la documentation).
+3. Comparer sécheresse/tsunami/feu et conserver tornade/réparation comme témoins ; aucune amélioration visuelle mesurée à ce stade.
+
+## Diagnostic 2026-09-28 — accès refusé au journal DLSS 01d6ce55
+
+### Goal
+- Déterminer si le WinError 5 signalé est lié aux évolutions récentes, sans relancer ni modifier la production.
+
+### Current state
+- Job dlss-01d6ce55f8aa2617fbbf48200e05cff1 en failed à 11:17:11 Paris ; refus os.replace du temporaire vers son JSON local dans workspace/dlss.
+- Rendu ComfyUI confirmé success/completed pour 6ecbf906-d96a-4356-9ce6-5495b0ebe8a5 ; MP4 existant de 142559048 octets sous D:/AI/PanelForge/LocalOutput/dlss. Métadonnées 1268x2206, 60 fps, 10,133 s, audio. Enregistrement PanelForge incomplet.
+- Routine LocalDlssJobs/atomic_json inchangée depuis le 9 septembre et sans retry du remplacement. Le réseau n'intervient pas dans cette écriture ; patch LAN/Tailscale non implémenté et workspace non modifié par Git.
+- ACL et attributs relevés sans blocage permanent évident ; le gestionnaire d'erreur a ensuite réussi à enregistrer l'échec. Hypothèse de verrou bref/externe, responsable non identifié.
+- Un serveur Lab observé (PID 23480 derrière lanceur venv 22952). Ne pas conclure à deux instances à partir de ces PID parent/enfant.
+- Une seule occurrence WinError 5 dans les jobs existants ; scan effectué avec partage lecture/écriture/suppression autorisé pour ne pas gêner l'application.
+- Rapport : docs/proposals/dlss-winerror5-diagnostic-2026-09-28.md. Documentation seulement ; aucun code, job, média ou droit changé, aucune reprise/test/génération ni aucun redémarrage.
+
+### Next steps
+1. Restituer : rendu conservé, échec du suivi local, aucun lien direct établi avec LAN/Tailscale ou Git ; cause précise du verrou non prouvée.
+2. Si correction demandée, prévoir un retry borné de l'écriture atomique avec tests ciblés, puis une reprise utilisant l'exécution existante ; ne pas recréer un rendu ni modifier manuellement le journal sans demande.
+
+## Proposition 2026-09-28 — contenu du futur patch réseau
+
+### Goal
+- Décrire le patch envisagé, sans le coder, après la mise à jour de master.
+
+### Current state
+- Points d'entrée relus dans le lanceur, l'interface et DlssVideoExporter. Aucun argument --network-mode actuellement.
+- Proposition documentée : docs/proposals/network-mode-patch-plan-2026-09-28.md.
+- Deux profils explicites lan/tailscale, configuration commune à tous les clients concernés et badge près du logo. Sans argument, compatibilité historique ; pas de promesse de profil intégral pour un lancement qui mélange déjà les accès.
+- Proposition affinée pour les fichiers : utiliser les UNC du profil sans remonter le lecteur X: ; préserver les chemins logiques d'exports existants et résoudre seulement la destination physique connue. Le contrôle d'égalité du chemin mémorisé dans DlssVideoExporter doit être préservé/adapté, pas supprimé.
+- L'accès UNC direct dans la session applicative, les identifiants des deux cibles et la reprise des exports après changement de profil restent à qualifier. Pas de migration massive ni de relance des anciens échecs.
+- Aucun code applicatif, service, montage, réglage, branche ou version GitHub modifié dans cette tâche ; documentation uniquement. Aucun test ni appel de génération lancé.
+
+### Next steps
+1. Restituer le périmètre et la stratégie des fichiers à l'utilisateur.
+2. Attendre sa demande d'implémentation. Puis couvrir les profils, la compatibilité, les chemins persistants et le badge par les vérifications ciblées, sans perturber les traitements actifs.
+
+## Intégration master 2026-09-28 — version actuelle publiée
+
+### Goal
+- Intégrer la version actuelle dans master local et GitHub, à la demande explicite de l'utilisateur.
+
+### Current state
+- Intégration et publication terminées : master, origin/master et master sur GitHub pointent sur 703624862d5951f9baa19adc0cdb94669c67f537, identique au tag snapshot-pre-network-modes-2026-09-28-v2.
+- Historique compatible : avancement direct sans commit de fusion ni réécriture. Ancien master local 6b45971 ; ancien master distant 123e388. Branches et tags de sauvegarde conservés.
+- L'arbre Git de master correspond exactement à la version publiée ; le code du checkout actif correspond à ce snapshot. Les seules différences relevées après la sauvegarde étaient la continuité et le rapport UX non suivi.
+- Le checkout D:/Code/panelforge est maintenant à jour sur master. Quinze fichiers locaux susceptibles de bloquer l'intégration sauvegardés et leurs octets restaurés après avancement ; seule la continuité reste modifiée parmi les fichiers suivis.
+- Le checkout de lancement D:/Code/panelforge-krea2-flux reste sur feature/krea2-v6-style-catalog-2026-09-26, HEAD c8e96dd et index conservés, avec ses changements de travail. La commande de lancement reste inchangée.
+- Aucun code réécrit, test fonctionnel, appel LLM, rendu ou redémarrage effectué. Aucun changement réseau ni implémentation de --network-mode.
+- Preuves, sauvegardes locales et reçu : .agent/diagnostics/master-integration-20260928/receipt.json. Publication : https://github.com/EasyFrag/panelforge/tree/master.
+
+### Next steps
+1. Restituer la confirmation : master local et GitHub portent la version actuelle.
+2. Continuer sur le checkout de travail existant ; ne pas changer de branche au milieu des modifications non commitées.
+3. Toute implémentation réseau reste soumise à une demande explicite distincte.
+
+## Version GitHub 2026-09-28 — deuxième sauvegarde avant les modes réseau
+
+### Goal
+- Créer la nouvelle version GitHub explicitement demandée, sans implémenter de patch réseau.
+
+### Current state
+- Publication vérifiée : commit 703624862d5951f9baa19adc0cdb94669c67f537 ; branche snapshots/pre-network-modes-2026-09-28-v2 ; tag snapshot-pre-network-modes-2026-09-28-v2. Parent f33db30, version précédente préservée.
+- 1557 fichiers inclus ; huit fichiers différents de la précédente sauvegarde : continuité, trois audits, note de version et trois fichiers de l'interface des références déjà modifiés dans le checkout actif.
+- Audits d'histoires (présentation et piscine) et retours Petits hommes copiés dans le checkout actif pour être sauvegardés ; aucune de leurs propositions appliquée dans cette tâche.
+- Arbre Git comparé aux fichiers source ; recherche de motifs usuels de secrets sans résultat ; git diff --check réussi. Branche active, HEAD c8e96dd et les deux index de travail conservés avec un index temporaire.
+- Aucun code applicatif modifié par cette tâche ; aucun test fonctionnel, appel LLM, génération ou redémarrage. Workspace, diagnostics privés, environnements et lanceur avec clé exclus.
+- Alignement conservé : futurs --network-mode lan|tailscale et badge près du logo non implémentés ; compatibilité souhaitée avec les anciens arguments d'URL. Le lancement historique bucket sélectionne les API Tailscale mais dépend encore du montage X: pour les exports.
+- Note : docs/releases/snapshot-pre-network-modes-2026-09-28-v2.md. Reçu local : .agent/diagnostics/git-pre-network-modes-20260928-v2/checkpoint.json.
+
+### Next steps
+1. Restituer le lien de la version publiée.
+2. Attendre une demande explicite avant l'implémentation réseau ; conserver la compatibilité du lancement existant et traiter aussi les chemins de fichiers.
+
+## Correctif UX 2026-09-28 — fiches de références accessibles avant génération
+
+### Goal
+- Afficher les références dès leur sélection pour ouvrir et retravailler leurs fiches sans lancer un lot.
+
+### Current state
+- Cause : episodes.js construisait les cartes uniquement depuis reference_batch.items ; le changement d’une case ne rafraîchissait que les contrôles.
+- Correctif dans le checkout actif D:/Code/panelforge-krea2-flux, limité à episodes.js, episodes.css et index.html : cartes dès sélection avec image retenue, bouton Ouvrir la fiche par ligne, galerie avant lancement, navigation avec sauvegarde et défilement vers la fiche.
+- Sélection consultable pendant un lot pour préparer le prochain ; lot actif inchangé, lancement concurrent toujours désactivé, résultats et validation du dernier lot conservés. Reprise automatique des réglages des fiches vierges évitée pendant un traitement.
+- URLs de cache renouvelées. Le serveur local 7861 sert déjà exactement les trois fichiers corrigés (HTTP 200) : rechargement de page suffisant, aucun redémarrage nécessaire.
+- Syntaxe JS finale V8 et contrôles statiques HTML/diff OK. Tests fonctionnels/navigateur non exécutés selon AGENTS.md actif ; aucun test ajouté, LLM, génération, modification de projet ou restart.
+- Rapport : docs/proposals/reference-preparation-ux-2026-09-28.md dans les deux checkouts. Sauvegardes/diff/reçus : D:/Code/panelforge/.agent/diagnostics/reference-preparation-ux-20260928/.
+- Améliorations des audits narratifs précédents conservées séparément ; aucune implémentation de ces points dans ce correctif UX.
+
+### Next steps
+1. Recharger la page après sauvegarde d’une éventuelle saisie et vérifier sélection → carte → ouverture de fiche, avant lancement et pendant un lot.
+2. Confirmer en usage navigateur la conservation des éditions et des actions de validation ; ne pas présenter cette recette comme déjà exécutée.
+3. Reprendre les améliorations d’écriture/rendu seulement dans leur périmètre convenu.
+
+## Analyse 2026-09-28 — retours Petits hommes, vague / sécheresse / feu
+
+### Goal
+- Analyser les retours et proposer une intention concise ; discussion uniquement, aucun correctif demandé.
+
+### Current state
+- Deux DLSS cités retrouvés : b1b89c22/9add0e07 = tsunami Rome avec feuille plastique puis raclette ; 5ca8a38e/0441fd71 = tsunami laine Rome avec bol puis versement. Préfixe incendie trompeur. V2 du 27 septembre ; aucune vidéo v3 terminée dans l’état lu.
+- Dix Plans lus, sept planches comparées (cinq DLSS et deux rendus de base) ; captures 2 images/s, pas d’audit audio ni de fluidité fine.
+- Feuille : mécanisme de protection global lisible, malgré mousse débordante. Bol : arrivée déjà pleine puis vidange dans la ville, protection de l’afflux insuffisante.
+- Sécheresses : trois Plans avec eau, deux avec colle/pansement ; la fissure visuelle est traitée comme une route brisée. Couture littérale non retrouvée dans les cinq cas ; dérive sémantique équivalente confirmée.
+- Incendies : sources KREA en résine/éclats et coton, repris par les Plans/Prompts ; feu sculptural qui rétrécit/s’assombrit. Source et instructions contribuent probablement ensemble. Vaporisateur laisse une fenêtre sombre ; bocaux gardent des formes/lueurs.
+- Proposition non appliquée : base de 87 mots + une phrase ciblée selon besoin, total 99–102 mots ; eau pour sécheresse, interception/déviation de vague, évacuation d’inondation, feu vivant puis extinction. Préserver langues v3 et liberté d’objets ; aucune nouvelle contrainte sur tornades/réparations.
+- Pour futures images incendie, proposer décor/personnages textiles et flammes souples/irrégulières avec fumée légère. Contexte réel/KREA prioritaire ; ne pas classifier le thème depuis les noms de fichiers.
+- Rapport : D:/Code/panelforge/docs/proposals/little-men-feedback-direction-2026-09-28.md. Preuves : D:/Code/panelforge/.agent/diagnostics/little-men-feedback-20260928/.
+- Aucun code, état de production, preset ou média original modifié ; aucun test, LLM, rendu, redémarrage, commit ou push.
+
+### Next steps
+1. Restituer l’analyse et la proposition courte ; attendre l’alignement ou la demande explicite d’implémentation.
+2. Si approuvé, remplacer les répétitions et transmettre un besoin clair, sans ajouter un catalogue d’outils ou d’appels.
+3. Comparer ensuite quelques cas eau/feu et conserver tornade/réparation comme témoins.
+
+## Version GitHub 2026-09-28 — état avant les modes LAN/Tailscale
+
+### Goal
+- Publier une sauvegarde de l'application actuelle et fournir les commandes de lancement LAN/Tailscale ; dernier alignement, sans implémenter les modes réseau.
+
+### Current state
+- Publication GitHub réussie et références distantes vérifiées : commit f33db3050b01469c34d4aeda2e598f3d258a326d, branche snapshots/pre-network-modes-2026-09-28, tag snapshot-pre-network-modes-2026-09-28.
+- Source : D:/Code/panelforge-krea2-flux, branche feature/krea2-v6-style-catalog-2026-09-26 ; ancien nom vocal-normalizer du mémo utilisateur obsolète. HEAD de travail c8e96dd et les deux index de travail préservés.
+- Snapshot : 1553 fichiers, parent pré-mobile c4389c6 ; inclut les derniers changements Écriture/KREA2/Usine, le mobile et son correctif de logs. 25 fichiers différents du snapshot pré-mobile.
+- Recherche de motifs de secrets sur les sources, l'arbre Git et 251 objets d'ascendance sortants : aucun motif trouvé. Workspace, diagnostics privés et lanceur racine contenant une clé exclus. Aucune clé recopiée dans les documents.
+- Guide docs/proposals/network-mode-launch-commands-2026-09-28.md et note docs/releases/snapshot-pre-network-modes-2026-09-28.md publiés ; les deux audits réseau ont aussi été ajoutés au checkout actif.
+- Guide utilisable avec les options existantes : racines KREA2 et export sous X:, montage LAN vers 192.168.1.72 ou Tailscale vers bucket, URL cohérentes pour ComfyUI/LLM, Unsloth et DLSS PC sur loopback. Clé Unsloth existante conservée ou saisie masquée.
+- Syntaxe des trois blocs PowerShell vérifiée sans exécution ; contenu de l'arbre comparé aux fichiers source. Aucun code applicatif modifié, test fonctionnel, génération, appel LLM, montage, redémarrage ni lancement effectué dans cette tâche.
+- Futurs --network-mode lan|tailscale et badge Local/Tailscale toujours non implémentés. Changement au lancement, pas de bascule à chaud ni de repli automatique. Le transport des fichiers doit faire partie du profil.
+- Le mobile reste indépendant ; accès distant Tailscale et Web Push externe. --mobile-port 0 permet de désactiver le suivi mobile pour une recette hors ligne.
+- Reçu local : .agent/diagnostics/git-pre-network-modes-20260928/checkpoint.json.
+
+### Next steps
+1. Restituer les deux commandes actuelles et le périmètre final à l'utilisateur ; attendre sa demande explicite avant toute implémentation réseau.
+2. Au prochain changement choisi par l'utilisateur, attendre la fin des tâches, arrêter PanelForge puis changer le montage X: si nécessaire ; ne pas basculer au milieu d'une copie.
+3. Qualifier ultérieurement le redémarrage/reconnexion des montages et la production complète hors Internet/Tailscale avec ressources installées ; ne pas annoncer cette recette déjà réalisée.
+
+## Correctif 2026-09-28 — adresse PanelForge au démarrage
+
+### Goal
+- Rétablir l’URL principale du Lab dans la console et expliquer les lancements nécessaires au quotidien.
+
+### Current state
+- L’utilisateur confirme que l’Usine mobile fonctionne désormais sur Android. Activation Tailscale Serve effectuée par lui ; aucun diagnostic de connectivité restant pour cette demande.
+- Lab courant sur http://127.0.0.1:7861/ (argument --port 7861), page vérifiée HTTP 200 ; mobile distinct sur 8766.
+- Cause confirmée par lecture du code Uvicorn installé : la Config du serveur mobile reconfigurait les loggers communs en warning et effaçait les handlers d’accès. Le message INFO contenant l’URL du Lab était donc masqué.
+- Correction limitée dans le checkout actif : infrastructure/factory_mobile.py utilise log_config=None / log_level=None et garde la politique de logs du Lab ; suppression du message affichant l’URL locale mobile. La ligne standard Uvicorn du Lab redevient visible au prochain lancement.
+- Guide mobile actualisé : --bg persiste jusqu’à désactivation, Serve reprend avec Tailscale ; lancer PanelForge normalement démarre aussi le mobile. La console de configuration Serve peut être fermée, celle qui fait tourner PanelForge doit rester ouverte.
+- Syntaxe Python contrôlée sans exécution ; aucun test fonctionnel, redémarrage, génération, commande Usine ou changement réseau lancé. Sauvegardes et diff : D:/Code/panelforge/.agent/diagnostics/factory-mobile-startup-20260928/.
+
+### Next steps
+1. Au prochain lancement choisi par l’utilisateur, vérifier le retour de la ligne Uvicorn avec l’URL du Lab et son port courant.
+2. Continuer la recette mobile restante (vidéos, commandes, notifications) avec l’utilisateur ; elle n’est pas présumée validée par le seul accès à la page.
+
+## Diagnostic 2026-09-28 — accès Android à l’Usine mobile
+
+### Goal
+- Diagnostiquer « site inaccessible » sur le téléphone après activation de Tailscale Serve par l’utilisateur.
+
+### Current state
+- Serve configuré par l’utilisateur : HTTPS 443 sur desktop-7bunq5p.tail68839a.ts.net vers http://127.0.0.1:8766, accès tailnet uniquement.
+- Contrôles en lecture seule : page mobile locale et /api/state HTTP 200 ; URL HTTPS complète HTTP 200 depuis le PC, adresse résolue 100.119.118.69 et certificat validé (curl ssl_verify_result=0).
+- Tailscale PC Running / Online, MagicDNS actif, DNS accepté, ShieldsUp false, aucun exit node. Pair « S24 de Samuel » Android présent et Online dans le même réseau.
+- Trois pings Tailscale PC vers S24 sans réponse. Cela ne démontre pas un blocage Android vers PC : la direction et les préférences d’accès entrant peuvent différer.
+- Adresse exacte ouverte et code d’erreur du navigateur Android demandés ; cause côté téléphone non encore établie. Vérifier URL HTTPS sans :8766, connexion Tailscale du téléphone, DNS et éventuelle exclusion du navigateur.
+- Aucun code, configuration réseau ou service modifié / redémarré ; aucun traitement, test fonctionnel ou notification lancé. Documentation de continuité seule actualisée.
+
+### Next steps
+1. Obtenir l’URL et le code d’erreur Android ; faire réessayer l’adresse HTTPS complète depuis le navigateur.
+2. Selon l’erreur, vérifier les réglages DNS / navigateur ou la liaison Android vers PC ; ne pas présumer un défaut du serveur mobile.
+3. Une fois l’accès établi, poursuivre la recette Android prévue (lecture, commandes, notifications) avec l’utilisateur.
+
+## Implémentation 2026-09-28 — Usine mobile Android (GO reçu)
+
+### Goal
+- Créer une version Git incluant les derniers changements, puis implémenter le suivi mobile convenu : KPI, températures, vidéos, pause / reprise / arrêt et notifications.
+
+### Current state
+- Checkpoint pré-mobile créé et vérifié : `c4389c62aa8d7317ca0f5f7180c75b6a74984f92`, branche `snapshots/pre-factory-mobile-2026-09-28`, tag `snapshot-pre-factory-mobile-2026-09-28`. 191 fichiers applicatifs modifiés / nouveaux inclus, dont Écriture v3. Branche et index de travail conservés ; aucun push.
+- Implémentation dans `D:/Code/panelforge-krea2-flux`. Rapport : `docs/proposals/factory-mobile-implementation-2026-09-28.md`.
+- Page mobile autonome avec Suivi, Vidéos et Alertes, KPI de lot et par vidéo, températures, galerie / lecteur Range, miniatures allégées, raccourci Android.
+- Nouveau port loopback 8766 par défaut au prochain démarrage du Lab (`--mobile-port 0` désactive), mêmes services et ordonnanceur. Surface HTTP restreinte au mobile ; commandes à même origine, médias limités aux fiches Usine.
+- Pause / reprise via commandes existantes ; arrêt confirmé = pause de la file + annulation des seules étapes actives affichées. Identité d’étape contrôlée atomiquement, sans invalider la confirmation pour un simple changement de progression ; reprise explicite des vidéos interrompues.
+- Web Push implémenté côté PC, indépendant du navigateur ouvert. Abonnements et épisodes d’alerte persistants, seuils par téléphone, hystérésis, déduplication, réessais et suppression d’abonnements expirés. Aucune modification des protections thermiques du PC.
+- `pywebpush 2.5.0` installé avec ses dépendances dans la venv partagée, option mobile déclarée dans pyproject ; pip check OK.
+- Contrôles statiques Python (9 fichiers), V8 (2 scripts + 2 blocs du scénario navigateur), TOML/manifeste/icônes/diff et aperçu statique 412 px. 21 tests préparés, NON exécutés selon AGENTS.md actif ; aucune validation fonctionnelle Android encore établie.
+- Le service worker cache uniquement l’interface. Connexion perdue : valeurs anciennes signalées, commandes bloquées, aucun ordre rejoué.
+- Adresse PC Tailscale lue : `desktop-7bunq5p.tail68839a.ts.net`. Serve était vide ; aucune configuration réseau changée, aucun service lancé / redémarré, aucune génération / notification réelle envoyée.
+- Sauvegardes/diff/preuves : `D:/Code/panelforge/.agent/diagnostics/factory-mobile-20260928/`. Aperçu statique fictif : `preview-mobile-412.png`.
+
+### Next steps
+1. L’utilisateur exécute les tests ciblés du rapport.
+2. Au prochain redémarrage choisi du Lab après les traitements, accéder à localhost:8766 puis exécuter sur le PC `tailscale serve --bg --https=443 http://127.0.0.1:8766` (commande préparée, non exécutée).
+3. Ouvrir `https://desktop-7bunq5p.tail68839a.ts.net/` sur Android, activer les notifications, vérifier lecture, commandes et réception page fermée. Autorisation navigateur et HTTPS nécessaires.
+4. Périmètre LAN / choix réseau PC→serveur toujours distinct et non implémenté par ce patch.
+
+
+## Écriture 2026-09-28 — nouvelle édition Expérimentale v3 (GO reçu)
+
+### Goal
+- Implémenter les correctifs acceptés des audits Moula, Colis/carton, Coupe et copine dans une nouvelle édition ; distinguer présence/cadrage/parole et garder les prompts cohérents et courts.
+
+### Current state
+- Code dans D:/Code/panelforge-krea2-flux ; édition experimental-2026-09-28, politique 3, révision 10, wire 2.5.0. Rapport : docs/proposals/story-writing-v3-2026-09-28.md.
+- Répliques source par IDs, attribution unité/événement/locuteur, hydratation avant validation ; correction locale avec mémoire null conservée ; voix hors champ connues distinctes du casting visible ; références des muets conservées.
+- IDs visuels typés, annexe partielle et héritages indépendants, héritage idempotent de Sacha, comparaison typographique sans changer les IDs persistants. Nouvelles apparences raccordées aux variantes d’images validées, avec provenance et choix manuel conservés.
+- Prompts narratifs et chat de suite remplacés, historique décodé/dédupliqué sans résumé. Blocs archivés : conception −26,5 %, écriture −17,2 %, relecture −16,7 %. Ce ne sont pas les tailles complètes des requêtes ni des mesures de latence.
+- Activation au prochain démarrage : nouveau lecteur -> catalog-v3.json ; ancien catalog.json et archives v1/v2 conservés exactement pour les processus déjà en cours. Préférences des projets existants non modifiées.
+- Contrôles statiques AST Python, syntaxe V8, JSON/SHA et diff isolé OK. 22 régressions nouvelles préparées, suites existantes v2 conservées ; tests fonctionnels non exécutés selon AGENTS.md. Aucun LLM, génération, runtime/média modifié, restart, commit ou push.
+- Sauvegardes et preuves : D:/Code/panelforge/.agent/diagnostics/story-writing-v3-2026-09-28/.
+
+### Next steps
+1. L’utilisateur exécute les tests ciblés/complets indiqués dans le rapport ; aucun succès fonctionnel encore établi.
+2. Au prochain démarrage du backend avec le nouveau code, choisir Expérimentale · v3 dans l’en-tête pour les histoires existantes ; nouvelles histoires utilisent cette édition par défaut.
+3. Observer les prochaines générations et mesurer les requêtes complètes/latence à réglages comparables. Ne pas convertir ni relancer les anciens runs sans demande.
+
+## Correctif 2026-09-28 — continuité des temps restants de l’Usine
+
+### Goal
+- Garder une valeur indicative une fois une prévision calculée, notamment pendant les rendus vidéo et les reprises, sans agrandir le monitoring PC.
+
+### Current state
+- Correctif appliqué dans `D:/Code/panelforge-krea2-flux`.
+- Cause confirmée dans le code et les métadonnées du runtime : le marqueur de mesure `recovered` effaçait toutes les durées prédites pendant le rendu ; une seule étape inconnue rendait le lot entier inconnu. Ce marqueur est conservateur et peut aussi apparaître sur une relance disposant d’un ancien ID de tentative. Dépassement de toutes les durées historiques et expiration côté navigateur causaient également des libellés de réévaluation.
+- Mesure partielle et prévision dissociées : les reprises gardent une durée issue de l’historique comparable, avec confiance abaissée ; les mesures partielles restent exclues de l’apprentissage.
+- Au-delà des observations : marge résiduelle indicative (20 % de la médiane, minimum 5 s), incertitude élargie et explication en infobulle. La provision export ne disparaît plus quand elle est dépassée.
+- Dernières prévisions conservées en mémoire du service pendant pause, attente thermique / autre atelier ou télémétrie ancienne. Référence figée, heure de fin masquée tant que l’attente reste indéterminée ; recalcul courant prioritaire dès qu’il redevient disponible. Pas de durée inventée si aucun calcul n’a été obtenu.
+- Garde contre la réutilisation sur un autre lot, une autre file / configuration ou une nouvelle tentative ; aperçus avant lancement isolés, fiches livrées / annulées / supprimées exclues de cette conservation.
+- Bandeau compact, lignes vidéo et étape active conservent leur indication ; sous une minute, affichage `≈ < 1 min` au lieu de réévaluation. Une connexion ancienne est signalée sans effacer la dernière indication.
+- Aucun changement des commandes, de l’ordonnanceur, de la protection thermique ou de la mise en page compacte.
+- Sept fichiers applicatifs / tests touchés. Sept nouveaux scénarios backend et un scénario navigateur préparés, test de dépassement adapté. Syntaxe Python (5 fichiers), JavaScript applicatif + scénario navigateur compilés sans exécution ; contrôles de diff effectués. Tests fonctionnels non exécutés selon AGENTS.md du checkout actif.
+- Sauvegardes et diff isolé : `D:/Code/panelforge/.agent/diagnostics/factory-monitoring-eta-20260928/`.
+- Aucun test fonctionnel, génération, redémarrage, commit ni push. Prévisions conservées en mémoire, non journalisées ; après redémarrage, reconstruction depuis l’historique durable lorsque les données permettent un nouveau calcul.
+
+### Next steps
+1. Au prochain redémarrage choisi du Lab après les traitements en cours, charger le correctif serveur puis recharger la page (version JS `20260928.eta1`).
+2. L’utilisateur exécute les tests ciblés `tests.test_factory_monitoring` et `tests.test_video_factory_web`, puis vérifie reprise vidéo, dépassement, pause / reprise et attente thermique.
+3. Téléphone toujours différé ; poursuivre l’alignement à sa demande.
+
+
+## Ajustement 2026-09-28 — Instagram désactivé par défaut dans les presets
+
+### Goal
+- Désactiver par défaut le texte Instagram sur Lèvres et Petits hommes à la demande de l’utilisateur.
+
+### Current state
+- Checkout actif D:/Code/panelforge-krea2-flux : apply_preset définit social.enabled=False pour Lèvres, Petits hommes classique et expérimental.
+- L’option reste activable manuellement ; langue anglaise, Gemma 4 et trois variantes restent préconfigurés. DLSS inchangé.
+- Une ligne applicative modifiée, deux attentes de tests existants ajustées, documentation courante actualisée.
+- Vérification statique : syntaxe Python et diff --check. Aucun test exécuté conformément à AGENTS.md ; aucun service redémarré ni fiche de production modifiée.
+- Sauvegardes et diff isolé : D:/Code/panelforge/.agent/diagnostics/factory-instagram-default-off-20260928/.
+
+### Next steps
+1. Au prochain redémarrage du Lab, les nouvelles applications des presets désactivent Texte IG par défaut.
+2. Pour les fiches déjà configurées, décocher Texte IG dans leurs réglages si souhaité.
+
+## Correctif 2026-09-28 — Petits hommes expérimental, solutions v3
+
+### Goal
+- Implémenter la version corrective autorisée après l’audit : intention courte, gestes utiles sans quota, aide adaptée et durable, langue choisie une fois.
+
+### Current state
+- Livré dans le checkout actif D:/Code/panelforge-krea2-flux. Intention standard expérimentale passée de 373 à 107 mots : objet du quotidien monumental, détournement ingénieux, effet utile durable et remerciement final.
+- Nouvelle politique little_men.localized_thanks.v3. Plus de quota implicite deux/trois gestes. Le contrat générique reste inchangé (une/deux phases, six entrées d’actions max par phase), de même que la durée de 10 s et les modèles/rendus.
+- Plan : une phrase problème → mécanisme → bénéfice dans continuity_invariants. Inondation/vague : origine, zone protégée, trajet, destination hors zone ; collecteur pouvant repartir plein, afflux continu contenu/détourné avant merci. Cette contrainte ne vise pas l’eau apportée pour une sécheresse/incendie.
+- 11 langues et formules minimales strictes conservées. Pays/pools, priorité manuelle, équilibrage, provenance et sélection persistée inchangés. Sélection visuelle seulement dans le Plan si nécessaire ; le writer reçoit la langue approuvée. Source et signatures stables entre étapes.
+- Contexte : notes + intention image dédoublonnées, description bornée à un extrait signalé de 1 200 caractères, style long seulement en repli. Métadonnées complètes conservées dans la fiche et toujours utilisées pour classifier le pays.
+- Nouvelles préparations/copies : remplacement exact du défaut v2 par le défaut v3 ; intentions personnalisées conservées. Sessions v1/v2 commencées conservées. Réapplication du preset autorise le passage v3 en conservant le choix de langue si ses entrées sont stables. Ancien défaut v1 : réappliquer le preset sur une copie pour changer l’intention.
+- UI : retrait du libellé deux gestes, cache video-factory.js 20260928.solutions1 ; changements concurrents monitoring/Histoires préservés.
+- 12 régressions hors ligne préparées dans tests/test_video_factory_solutions.py ; tests existants de version courante adaptés. Aucun test fonctionnel exécuté conformément à AGENTS.md.
+- Contrôles statiques réussis : AST, huit imports, compilation V8 sans exécuter l’app, diff --check ; comparaison des constantes classique/lèvres/v2 et du code de classification/équilibrage.
+- Aucun appel LLM, génération, modification des fiches de production, redémarrage, commit ou push. La qualité visuelle reste à confirmer sur les prochaines générations.
+- Documentation : docs/video-factory.md et docs/proposals/little-men-solutions-v3-2026-09-28.md dans le checkout actif. Sauvegardes, diff isolé et report.json : D:/Code/panelforge/.agent/diagnostics/little-men-solutions-v3-20260928/.
+- Anomalie South American → English laissée à son correctif séparé conformément au périmètre de l’audit.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, Ctrl+F5 et nouvelle préparation avec le preset expérimental (copie + réapplication pour les anciens essais).
+2. L’utilisateur peut lancer les tests préparés ; commandes dans la documentation. Aucun test ni rendu n’a été lancé à sa place.
+3. Comparaison manuelle sur six images à réglages constants : inondation stagnante, afflux continu, tsunami, incendie, tornade et sécheresse/réparation. Contrôler d’abord le Plan, puis causalité, bénéfice durable et merci minimal sur la vidéo.
+
+## Ajustement UX 2026-09-28 — vidéos prioritaires, monitoring compact
+
+### Goal
+- Retirer les bandeaux de température du monitoring PC et intégrer le temps restant à côté du titre Usine, sur tous les onglets.
+
+### Current state
+- Patch visuel appliqué au checkout actif `D:/Code/panelforge-krea2-flux`.
+- Cartes Local / Serveur, lien de monitoring et bandeau d’alertes thermiques retirés de l’Usine ; popup global de température conservé.
+- Résumé compact intégré à l’en-tête fixe commun : état du lot, reste estimé, fin prévue, livrées / total. Visible aussi dans Préparation et Archives lorsqu’un lot existe.
+- Prévision de sélection déplacée dans le même en-tête ; affichée uniquement pour une sélection prête et enregistrée. Suppression du bandeau d’instructions à vide.
+- Suppression du surtitre, du sous-titre et des paragraphes explicatifs du résumé. Boutons Pause / Reprendre raccourcis avec explication en infobulle. Table, estimations par vidéo et commandes de production conservées.
+- Retour à la ligne dans l’en-tête aux largeurs étroites ; géométrie sticky déjà recalculée par ResizeObserver.
+- Cinq fichiers statiques modifiés ; assertion existante du test navigateur adaptée aux panneaux supprimés et aux prévisions dans l’en-tête.
+- Validation statique OK : compilation V8 des deux JS, lecture CSS par le navigateur, structure HTML et versions de cache, syntaxe Python du test adapté, diff --check. Tests fonctionnels / UI non exécutés selon AGENTS.md du checkout actif.
+- Aucun changement backend, génération, redémarrage, commit ou push. Index servi par FileResponse sans cache ; un rechargement de page suffit.
+- Sauvegardes et diff isolé : `D:/Code/panelforge/.agent/diagnostics/factory-monitoring-compact-20260928/` (`before/`, `compact-monitoring.diff`, `report.json`).
+- Discussion mobile conservée comme alignement uniquement : Android, interface web/PWA via Tailscale, KPI, lecture vidéo, pause/reprise/arrêt et alertes. Aucun développement mobile engagé.
+
+### Next steps
+1. L’utilisateur recharge la page (Ctrl+F5) et vérifie le rendu dans les quatre onglets.
+2. Les tests UI restent à exécuter par l’utilisateur ; aucun redémarrage n’est nécessaire pour cet ajustement statique.
+3. Reprendre l’alignement téléphone à sa demande.
+
+## Audit 2026-09-28 — solutions des Petits hommes, eau et intention
+
+### Goal
+- Analyser les résultats récents, comparer l'intention de base et proposer un correctif ; alignement uniquement, sans coder.
+
+### Current state
+- Rapport principal : D:/Code/panelforge/docs/proposals/little-men-solutions-audit-2026-09-28.md. Proposition d'intention courte et plan correctif inclus, non installés.
+- 21 derniers rendus expérimentaux (7 inondations, 6 tsunamis, 5 tornades, 3 incendies) et 6 anciennes inondations classiques audités ; 516 captures H3 à 2 images/s examinées, Plans et prompts. Pas de lecture continue, nouvel audit audio ou contrôle DLSS.
+- 27/27 chaînes Prompt Usine -> prompt H3 -> effective_prompt identiques après espaces de bord. Mêmes modèles Plan/rédacteur, recette et workflow H3 ; durée 10 s vs 8 s et images/styles différents, donc pas de preuve A/B imputant tous les écarts au seul patch.
+- 9/13 Plans d'eau prescrivent collecte puis vidange/essorage. Au rendu, verre italien et seau japonais déversent dans la rue ; bol du tsunami Rome arrive déjà plein et verse dans la zone des personnages ; serviette japonaise essorée dans la rue malgré une instruction hors champ conservée au Prompt. Tsunami japonais encore présent en fin ; verre debout berlinois utilisé comme barrage peu convaincant.
+- Réussites à conserver : tornade capturée puis sac fermé, tornade textile rassemblée en pelote, incendie de fenêtre éteint au vaporisateur. Certaines anciennes ventouses ont une meilleure destination de l'eau ; anciennes raclettes déjà limitées au nettoyage local.
+- Mesures exactes des sources/traces : intention expérimentale 373 mots, dont 164 (~44 %) consacrés à la langue/réplique/métadonnées vocales ; classique enrichi 308 mots. Source complète 691–878 mots. Langue connue avant Plan 20/21 ; verrouillage exact actif dans 20/21. Ce n'est pas une mesure de saturation ou d'attention.
+- Cause proposée : priorité créative appauvrie et deuxième geste parfois artificiel, destinations d'évacuation ambiguës puis mal exécutées, rôle de la langue trop répétitif. Le dernier correctif de formule exacte n'a pas changé les gestes. Matériaux et images ont aussi changé ; causalité isolée non établie.
+- Proposition : recentrer sur le détournement ingénieux et l'effet durable ; gestes selon besoin sans quota ; langue + formule exactes quand connues, choix compact sinon, pas de rechoix rédacteur ; provenance conservée, contexte utile sélectionné ; mécanisme et destination de l'eau clairs ; six cas comparatifs à réglages constants lors d'une phase ultérieure autorisée.
+- Anomalie annexe établie : South American/Amérique du Sud déclenche American -> anglais dans deux fiches ; correctif séparé proposé, non appliqué.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/little-men-solutions-audit-2026-09-27/ (nom conservé du début d'audit). Rapport, diagnostics et continuités seuls écrits ; aucun code applicatif, preset, runtime, service, réglage ou média source modifié ; aucun test, appel LLM, rendu ou redémarrage.
+
+### Next steps
+1. Restituer l'avis et le plan correctif pour alignement ; attendre une demande d'implémentation.
+2. Si autorisé : patch limité de l'intention et de la transmission langue/contexte, sans catalogue d'objets ni règles marginales sur les mains ; anciens résultats préservés.
+3. Comparer d'abord les Plans puis les rendus sélectionnés à mêmes images/réglages ; ne pas promettre qu'une consigne supprime tous les défauts de suivi H3.
+
+
+## Patch 2026-09-27 — monitoring Usine sur PC (GO reçu)
+
+### Goal
+- Implémenter le monitoring desktop autorisé par l’utilisateur : prévision avant lancement, reste global / par vidéo, températures et suivi du lot. Téléphone différé.
+
+### Current state
+- Implémentation dans le checkout actif `D:/Code/panelforge-krea2-flux`, branche conservée `feature/krea2-v6-style-catalog-2026-09-26`.
+- Nouveaux modules domaine : `factory_timing.py`, `factory_forecast.py`, `factory_cycle.py`. Orchestration `application/factory_monitoring.py`, stockage atomique `infrastructure/storage/factory_timings.py`.
+- Raccords limités au service / adaptateur / routeur Usine, au démarrage et à l’interface existante. API de lecture `POST /api/video-factory/estimate` ; aucun lancement depuis la prévision.
+- UX : estimation de la sélection prête en Préparation ; trois indicateurs globaux en Production ; livraison et départ de rendu par fiche ; reste sous l’étape active ; détail dans l’inspecteur ; températures, refroidissements et alertes persistantes ; accès au moniteur existant.
+- Journal de durées indépendant des suppressions ; import initial idempotent au prochain démarrage sous le bail Usine ; recettes effectives / empreintes de workflow ; exclusion des reprises connues et anciennes observations GPU ambiguës ; médianes comparables et intervalles indicatifs. Provision export initiale explicite 15 s, plage 0–60 s, jusqu’aux mesures.
+- Lot `production_cycle` persistant : dénominateur indépendant des filtres, archives et suppressions ; livraisons complètes distinctes des erreurs, annulations, retraits et arrêts. Un export commencé avant la fin IG n’est pas une livraison complète.
+- Pause, données anciennes (>20 s), durée dépassée, occupation extérieure et attente thermique indéfinie traitées explicitement. Le scheduler de production et ses priorités restent l’autorité ; simulation en lecture seule.
+- Validation réalisée : syntaxe / compilation de 11 fichiers Python ; compilation V8 des deux scripts JS sans exécution applicative ; contrôle de whitespace et revue du diff isolé OK.
+- `tests/test_factory_monitoring.py` préparé (domaines, service et frontière HTTP). Tests fonctionnels et recette visuelle NON exécutés selon AGENTS.md du checkout actif. Script d’audit chronologique préparé `scripts/analyze_factory_timings.py`, non exécuté.
+- Aucun appel LLM / génération, redémarrage, changement réseau, commit supplémentaire ou push. Le checkpoint pré-patch `29cdf3e` et ses références sont conservés.
+- Le serveur en cours utilise encore l’ancien code chargé. Le monitoring sera actif au prochain redémarrage choisi ; le frontend signale l’attente si l’ancien serveur ne fournit pas encore les prévisions.
+- Note complète : `docs/proposals/factory-monitoring-pc-implementation-2026-09-27.md` dans le checkout actif.
+- Reçu / diff / sauvegardes : `D:/Code/panelforge/.agent/diagnostics/factory-monitoring-implementation/` (`syntax-report.json`, `manifest.json`, `monitoring-pc.diff`, `before/`).
+
+### Next steps
+1. L’utilisateur exécute les tests ciblés avec PYTHONPATH sur le checkout actif, puis la suite complète ; commandes dans la note d’implémentation.
+2. Au moment choisi après les productions en cours : redémarrer le Lab, recharger le navigateur et faire la recette desktop (sélection, pause, thermique, export tardif, suppression / archive, données anciennes).
+3. Après import du journal : audit chronologique hors ligne et observation de l’erreur réelle sur les fins de lots. La précision globale reste à mesurer ; aucun taux de fiabilité n’est promis.
+4. Phase téléphone / Tailscale conservée pour une demande ultérieure.
+
+## Version Git 2026-09-27 — avant patch monitoring Usine
+
+### Goal
+- Créer une version Git de l'état actuel ; attendre l'alignement et le go explicite de l'utilisateur avant de coder le patch de monitoring.
+
+### Current state
+- Snapshot LOCAL créé : 29cdf3ebe6c85e8f693fcc56df759a346f8d63b2, parent c8e96ddf532e994352fea10a28a72dd1191c6808, arbre 2b94405bc2d75c3369d57b50be380bc1659cc008.
+- Branche snapshots/pre-factory-monitoring-2026-09-27 ; tag snapshot-pre-factory-monitoring-2026-09-27. Références et arbre vérifiés.
+- 188 fichiers différents du parent : état actuel du checkout actif, travaux source/prompts/workflows/tests/docs déjà présents, plus étude, planning en deux phases et maquette autonome du monitoring avec ses ressources.
+- Index temporaire ; HEAD, branche et index normaux des deux checkouts vérifiés inchangés. Correspondance des sources avec l'arbre préparé vérifiée avant commit. Aucun push.
+- Runtime, médias de production hors maquette, traces brutes et profils navigateur exclus des ajouts. Les quatre images et quatre captures de la maquette sont volontairement incluses pour sa consultation autonome.
+- Aucun code applicatif modifié, test exécuté, appel LLM/rendu, redémarrage ou changement réseau pendant cette sauvegarde. Avertissement de mise en forme préexistant conservé dans little-men-language-audit-2026-09-27.md (ligne vide finale).
+- Reçu : D:/Code/panelforge/.agent/diagnostics/git-pre-factory-monitoring-20260927-195755/checkpoint.json. La présente entrée est postérieure au snapshot.
+
+### Next steps
+1. Attendre l'alignement puis le GO explicite avant toute implémentation du patch monitoring Usine.
+2. Phase 1 prévue : monitoring PC ; phase 2 téléphone différée, via le mesh Tailscale existant.
+3. Aucun déploiement, redémarrage ou push demandé à ce stade.
+
+
+## Audit 2026-09-27 — nouveau run Petits hommes après formule fixe
+
+### Goal
+- Vérifier le run relancé par l'utilisateur après le correctif du remerciement.
+
+### Current state
+- Fiche factory-57866e20fdd941e8b3639c6d13b5f86f, Petits hommes incendie : toutes les étapes réussies, fin complète 17:46:42 UTC. Session prompt-d69a2cb42b5f47248c09be6058467b66.
+- Contexte source « asie » -> groupe Asie de l'Est ; candidats japonais/chinois/coréen ; japonais premier éligible dans l'ordre conservé. Politique v2, mots figés = ありがとう.
+- Plan et balise vocale : uniquement ありがとう, Japanese. Prompt Usine = prompt H3 = effective_prompt après espaces de bord ; aucun « kind hand » ni autre réplique.
+- Essai h3-render-86fda73bff864941838ac9d58fa03638 / attempt-26223d9be707499bb8b004decd2d4680. Vidéo, DLSS, texte Instagram et export réussis.
+- Piste du DLSS livré extraite localement ; transcription automatique Whisper large-v3-turbo, CPU int8, 4 threads, hors ligne, sans langue imposée ni amorce textuelle. Un seul segment détecté : ありがとう de 7,260 à 8,660 s. Aucun complément détecté. Il s'agit d'une transcription automatique, pas d'une écoute certifiée.
+- Plan prévoit deux pressions successives du vaporisateur (réduire les flammes puis éteindre les braises), puis retrait et remerciement ; gestes du rendu non audités visuellement dans ce tour.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/little-men-rerun-2026-09-27/audit.json, rerun.json, rerun.srt et rerun.wav. Aucun code, runtime ou service modifié ; aucun test, appel LLM de préparation ou nouvelle génération lancé.
+
+### Next steps
+1. Restituer que ce run respecte le remerciement minimal japonais dans le prompt et dans la transcription audio.
+2. Continuer l'observation des prochaines productions habituelles ; aucun autre correctif demandé pour ce run.
+
+
+## Correctif 2026-09-27 — citations auteur mono-séquence
+
+### Goal
+- Corriger le blocage « Une contrainte d’auteur doit citer un extrait exact du point de départ et une unité existante », après autorisation utilisateur.
+
+### Current state
+- Checkout actif D:/Code/panelforge-krea2-flux. Diff applicatif limité à domain/story_fidelity.py, domain/story_contracts.py, domain/long_stories.py et application/stories.py.
+- Schéma author_requirements réservé aux multi-unités. Pour une seule unité, source auteur = brief original ; les recopies redondantes des brouillons expérimentaux ou arcs hérités sont écartées avant les contrôles structurels. Les autres contrôles et la rigueur des citations multi-unités restent actifs.
+- Revalidation locale existante utilisable si le brouillon passe tous les contrôles et si l'empreinte source est inchangée. Brut, version normalisée et note conservés. Pas de migration automatique des histoires terminées.
+- Archives v1/v2 et catalogue inchangés (3 SHA comparés). Correctif technique de portée du schéma, sans nouvelle consigne, édition créative ni appel LLM.
+- 8 tests ciblés préparés dans tests/test_story_author_requirements.py, NON exécutés selon AGENTS.md. AST de 5 fichiers Python, revue du diff ciblé et contrôle des espaces réussis. Aucun test fonctionnel, runtime, service, génération ou appel LLM modifié/lancé.
+- Lecture seule du projet story-9ad92b309f8042eaa92f2021f957d8e1, version 349 : la relance a enregistré l'arc ; develop échoue maintenant avec « model returned an empty text response ». Aucun brouillon texte ni scénario ; reasoning ~56k caractères conservé. Défaut distinct, cause précise non établie. Ne pas appliquer l'ancienne conception archivée sur la nouvelle.
+- Rapport docs/proposals/story-author-requirements-error-2026-09-27.md actualisé ; docs/story-writing-editions.md précise la portée technique. Sauvegardes/diff : D:/Code/panelforge/.agent/diagnostics/story-author-requirements-fix-2026-09-27/. Travaux concurrents préservés ; pas de commit/push demandé.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, activer le correctif ; aucun redémarrage effectué par l'agent.
+2. L'utilisateur peut exécuter python -m unittest tests.test_story_author_requirements tests.test_story_editions tests.test_story_quality_policy.
+3. Pour le run courant, reprendre uniquement la rédaction après activation : réponse finale vide, aucun scénario à récupérer localement. Auditer ce second incident s'il persiste ; travaux Colis toujours différés.
+
+## Correctif 2026-09-27 — formule minimale des Petits hommes
+
+### Goal
+- Corriger simplement l'ajout « Thank you, kind hand. » : une formule fixe par langue, sans complément.
+
+### Current state
+- Correctif dans D:/Code/panelforge-krea2-flux, limité à domain/localized_speech.py et application/vocal_policy.py pour le code applicatif.
+- FIXED_THANKS associe les 11 langues à Thank you, Merci, 감사합니다, Gracias, ありがとう, Danke, Grazie, Obrigado, Спасибо, 谢谢 et شكرا.
+- La politique v2 fournit la formule du choix manuel/résolu, ou la table complète si le Plan doit encore choisir la langue. Elle impose de copier la formule ; l'ancienne permission jusqu'à 12 mots n'est plus présente dans les instructions v2.
+- validate_speech contrôle les mots à la validation du Plan et du Prompt compilé/final. Casse, espaces, ponctuation de fin et marques vocaliques arabes facultatives tolérés ; complément, répétition et mauvaise formule refusés. Un Plan v2 ancien rallongé est refusé s'il repasse dans cette compilation.
+- Anciennes sessions v1, autres politiques vocales, sélection des langues, sources image et consignes de gestes inchangées. Aucun ancien résultat réécrit ; aucun runtime ou service modifié.
+- Quatre tests ciblés ajoutés dans tests/test_video_factory_languages.py (27 au total), NON exécutés selon AGENTS.md. Syntaxe AST de trois fichiers Python, trois imports et git diff --check réussis. Aucun LLM, rendu ou redémarrage.
+- Documentation docs/video-factory.md mise à jour. Sauvegardes, diff ciblé et résultats statiques : D:/Code/panelforge/.agent/diagnostics/little-men-exact-thanks-2026-09-27/.
+
+### Next steps
+1. Activer au prochain redémarrage habituel du Lab ; nouvelles préparations v2 concernées. Pour un ancien Plan rallongé, préparer une nouvelle fiche (duplication possible).
+2. L'utilisateur peut exécuter python -m unittest tests.test_video_factory_languages tests.test_video_factory_experimental tests.test_vocal_policy tests.test_classic_cinematic.
+3. Vérifier le suivi des mots au prochain rendu habituel ; aucune promesse de contrôle absolu de l'audio produit par H3.
+
+
+## Alignement 2026-09-27 — remerciement strict, ajout « kind hand »
+
+### Goal
+- Expliquer l'ajout entendu dans la dernière vidéo et se réaligner sur un simple « Thank you » traduit, sans compléter la formule. Alignement seulement à la demande « Aligne toi ».
+
+### Current state
+- Dernier rendu concerné : Petits hommes incendie, factory-58eca43e2199420a9de1f55e15f72d44, terminé le 2026-09-27 à 17:22:39 UTC ; session prompt-80f7bf3cf73d437f824627b648468611.
+- Preuve lue dans le runtime : le Plan contient déjà spoken_lines = ["Thank you, kind hand."] et la même balise dans les actions. Phrase absente de l'intention source. Prompt Usine, prompt d'essai H3 et effective_prompt identiques après espaces de bord.
+- Rendu h3-render-1c83259539894d10b08bf15a0990d68f / attempt-38123f9d8d234872a9dd97ad1f59c0e2 : l'ajout était donc explicitement envoyé au générateur. Aucun audio transcrit pour cet audit.
+- Cause : LITTLE_MEN_EXPERIMENTAL_INTENT demande un remerciement bref libre ; application/vocal_policy.py autorise une réplique jusqu'à 12 mots, puis conserve exactement les mots choisis par le Plan. Il manque une contrainte sur la formule elle-même.
+- Cadre réaffirmé : une seule formule minimale fixe par langue (Thank you, Merci, etc.), aucun complément, qualificatif ou adresse à la main. La logique de choix des 11 langues et les gestes validés restent acquis.
+- Aucun correctif applicatif dans ce tour d'alignement ; seul le journal de continuité est mis à jour. Aucun runtime, média ou service modifié ; aucun test, appel LLM, génération ou redémarrage lancé.
+
+### Next steps
+1. Restituer la provenance exacte et reconnaître la consigne trop permissive.
+2. Lors du correctif, fournir la formule exacte de chaque langue au Plan et la contrôler avant le Prompt/rendu ; préserver les anciennes générations et les autres politiques vocales.
+3. Le code actuel accepte encore les remerciements rallongés : ne pas annoncer le verrouillage comme implémenté.
+
+
+## Diagnostic 2026-09-27 — erreur de citation auteur dans Freezer en laine
+
+### Goal
+- Examiner l’erreur de contrainte auteur après le réglage fourni ; rester dans le diagnostic, sans code.
+
+### Current state
+- Projet story-9ad92b309f8042eaa92f2021f957d8e1 ; premier compose llm-9a7bd34fedc84223acedef87c9ce6806 rejeté après 214,193 s, JSON valide. Sept unit_id episode-1 valides ; six citations sur sept partiellement traduites en anglais, absentes mot pour mot du brief.
+- Régression de conception v2 : author_requirements facultatif exposé pour mono-unité puis validation bloquante, alors que la relecture mono-unité reçoit déjà directement le brief original complet. Ne pas confondre avec une faute d’ID ou une simple apostrophe.
+- Deux protected_lines françaises correctes sauvegardées ; formes corrompues répétées dans preuves/contrat ne doivent pas primer.
+- Relance utilisateur déjà en cours lors de l’audit ; premier brouillon conservé dans draft_history. Aucun traitement touché. creation_mode=ideas au lieu du adapt recommandé, sans lien causal avec ce rejet.
+- Rapport docs/proposals/story-author-requirements-error-2026-09-27.md. Documentation/continuités seules ; aucun code, runtime, test, LLM, rendu ou service modifié/lancé.
+
+### Next steps
+1. Expliquer la cause et le correctif minimal : mono-unité = source originale affectée directement ; multi-unités = attribution vérifiable distincte.
+2. Après autorisation, corriger le contrat/traitement du champ redondant et prévoir une récupération locale avec conservation du brut ; ne pas modifier les archives éditoriales en place.
+3. Suivre le résultat de la relance utilisateur sans la perturber ; remarques narratives du Colis toujours en attente du prochain patch.
+
+## Préparation 2026-09-27 — portefeuille, Freezer et univers en laine
+
+### Goal
+- Fournir uniquement les paramètres d’histoire et un récit adapté prêt à coller ; aucun patch demandé dans ce tour.
+
+### Current state
+- Remarques narratives et défauts de références du Colis conservés pour le prochain patch, non implémentés.
+- Champs actuels vérifiés : Histoire suivie permet Développer mon récit fourni (pas Suivre un script complet réservé au parcours court). Ambiance Comédie noire / argot cru ; univers personnalisé prioritaire sur famille Mélodrame fruits ; Rendu personnalisé ; français, vocabulaire 3, street, fast, une séquence de cinq clips de 10 s, résolution.
+- Adaptation proposée : Nabil laisse tomber volontairement le portefeuille, Mehdi croit à un accident ; Freezer remplace Piccolo dans toutes les scènes et répliques. Humains adultes en laine/crochet ; Freezer blanc/violet également textile. Présentation physique scène 2, ordre explicite scène 4, correction burlesque scène 5.
+- Direction dense en dialogues, environ 150–170 mots comme cible souple à vérifier au rendu, pas capacité H3 garantie. Deux répliques exactes à préserver ; le reste laissé au modèle.
+- Analyses/transcriptions existantes de Download(31), identique au 30, et Download(32) relues ; pas de nouvelle transcription. Image textile jointe examinée dans le message. Aucun code, donnée runtime, test, LLM, rendu ou service modifié/lancé.
+
+### Next steps
+1. L’utilisateur saisit le réglage et lance l’essai ; vérifier distribution des cinq scènes, densité/ton, Freezer visible en présentation et matière textile.
+2. Reprendre ensuite le correctif du Colis et les améliorations narratives déjà consignées, après autorisation distincte.
+
+## Audit 2026-09-27 — suite du Colis et références non héritées
+
+### Goal
+- Examiner la suite du Colis et expliquer pourquoi seule l’image de Nino a été reprise. Audit seulement.
+
+### Current state
+- Rapport : docs/proposals/story-colis-followup-references-audit-2026-09-27.md. Suite story-a6477c1b50144d963f3fd9cd73f72669 / episode-e4af7379809b4de1a4f91604bb921ea4 ; source story-0c1422ce9a55463c8529e254a4bc273d / episode-1bbc0a1095a748a69297bfd742388435.
+- Expérimentale v2 confirmée dans le chat et les trois traces d’écriture ; environ 13 min 28, aucune boucle/correction/troncature ; proposition préalable environ 26 s.
+- Reprise trop textuelle : Nino exact = hérité ; Sacha diffère uniquement par apostrophe droite/courbe dans d’oreilles ; montre même objet reformulé main/paume et ancienne base structurée null ; carton fermé source vs ouvert suite = vrai état à dériver de l’image précédente.
+- Défaut distinct : inherit insère scène 1 l’ID de Sacha déjà repris scène 4, collision puis repli sur registre du rédacteur avec warning. Ne pas confondre collision et échec de comparaison d’image.
+- Sacha/colis/montre désormais renseignés par import : SHA-256 des octets identiques aux bases épisode 1, nouveaux assets sans héritage automatique. Ne pas les écraser. Nino partage son asset.
+- Récit lisible, conséquence extérieure, dialogues français ; aveu peu distinct de l’excuse, comédie/ton cru affaiblis, fin suspendue déjà imposée par proposition automatique, raccord adresse à clarifier. Aucune vidéo/audio examinée.
+- Documentation/continuités uniquement. Aucun code, prompt, runtime, test, LLM, rendu ou service modifié/lancé. Travaux concurrents préservés.
+
+### Next steps
+1. Restituer les causes ; aligner fusion idempotente, tolérance typographique sans changer les IDs historiques, identité distincte de la mise en scène, variante dérivée pour vraie transformation.
+2. Traiter séparément propositions de suite et contexte ; préserver les archives v1/v2.
+3. Aucun test/génération sans instruction ; ne pas modifier les images déjà réimportées.
+
+## Implémentation 2026-09-27 — langues variées des Petits hommes expérimentaux
+
+### Goal
+- Implémenter la logique validée des 11 langues avec provenance KREA et choix stable ; ne pas ajouter de consignes de gestes pour les écarts marginaux.
+
+### Current state
+- Checkout actif D:/Code/panelforge-krea2-flux. Politique vocale v2 ajoutée, v1 conservée pour les anciennes sessions. Menu Auto + 11 langues stables ; Hindi conservé seulement pour la compatibilité des anciens réglages v1.
+- Récupération du contexte de l’asset exact : prompt/style de l’essai KREA ; intention figée issue de SaveImageKJ.caption si les IDs projet/essai correspondent. PNG importé pris en charge ; aucun usage de l’intention courante d’un projet modifié ni découverte de fichiers. Extracteur PNG existant récupère aussi le prompt des captions lorsque CLIP utilise un lien vers une primitive.
+- Groupes validés : Asie chinois/coréen/japonais ; Ouest français/anglais/allemand ; Sud italien/espagnol/portugais ; ibérique espagnol/portugais ; Europe les six ; Est russe ; désert/arabe arabe. Manuel puis pays explicite prioritaires.
+- Ordre reproductible par fiche, langues les moins utilisées parmi 50 choix récents favorisées ; décision/code imposée pour pays/groupe reconnu dans le contexte. Si contexte insuffisant, le Plan visuel existant reçoit groupes/ordre sans appel LLM supplémentaire. Cette classification visuelle reste sémantique et n’est pas garantie par un détecteur indépendant.
+- thanks_selection persisté avant le Plan ; langue native résolue sauvegardée après le Plan et conservée en aval/reprise. Changement modèle conserve la langue résolue ; image/contexte/choix manuel libère la sélection. Doublon = nouveau tirage + contexte image récupéré ; ancien résultat inchangé.
+- Interface affiche le contexte récupéré, la langue et la réplique ; plus de message de repli anglais. Titres non recopiés comme contexte manuel. Consignes de gestes strictement identiques à la sauvegarde initiale ; presets classique et Lèvres inchangés.
+- Régressions préparées : 23 nouveaux tests dans tests/test_video_factory_languages.py, adaptation des tests expérimental et navigateur. NON exécutés selon AGENTS.md. Contrôles statiques réussis : 14 AST Python, 8 imports, V8 source + 10 fragments, comparaison des constantes, diff check.
+- Documentation docs/video-factory.md ; cache JS 20260927.languages2. Sauvegardes/revue/manifeste sous D:/Code/panelforge/.agent/diagnostics/little-men-languages-v2-2026-09-27/. Aucun runtime, ancien média, service, commit ou push modifié/lancé ; aucun appel LLM/rendu de vérification. Travaux concurrents conservés.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, Ctrl+F5 ; nouveau preset expérimental ou duplication d’un ancien essai pour utiliser la v2.
+2. L’utilisateur peut lancer les tests listés dans docs/video-factory.md ; vérifier sur les prochains Plans Japon -> japonais, Algérie -> arabe, puis variété dans un groupe ambigu.
+3. Évaluer sur les futurs rendus le suivi de la langue par H3 et la classification des images sans métadonnées. Aucune nouvelle consigne spécifique sur les mains/gestes n’est prévue.
+
+## Implémentation 2026-09-27 — protection thermique serveur hors vidéo
+
+### Goal
+- Ajouter une protection thermique entre les générations d’images en masse et, plus généralement, entre les tâches GPU serveur hors vidéo, sans interrompre une génération en cours.
+
+### Current state
+- Protection globale ajoutée au coordinateur pour toutes les charges GPU serveur hors vidéo. Une tâche qui atteint le seuil finit normalement ; après sa sortie, la voie distante reste réservée pendant la durée minimale puis jusqu’à une température strictement inférieure au seuil. Valeurs par défaut validées : 80 °C et 80 s ; 0 seconde désactive cette protection.
+- Le pic de l’activité est alimenté par l’échantillonneur périodique et par une mesure explicite au début et à la fin de chaque tâche. La détection ne dépend donc pas de l’ouverture du popup. Une panne de cette télémétrie de bord ne remplace pas le résultat du traitement.
+- Krea2BatchService reprend l’admission globale pour chaque image du lot, avec un propriétaire distinct par image. Le cooldown bloque donc réellement l’image suivante et toute autre tâche distante ; une annulation en attente reste prise en charge.
+- Les vidéos sont explicitement exclues de cette nouvelle règle et conservent leur repos obligatoire existant. La barrière critique Pause/Reprise/Stabilisation reste inchangée et s’applique ensuite si nécessaire ; les délais ne sont pas additionnés artificiellement.
+- Réglages persistés et exposés par domaine, stockage, API et section Serveur de l’interface : « Cooldown hors vidéo à partir de °C » et « Durée minimale hors vidéo ». Le moniteur affiche le pic déclencheur, le compte à rebours puis « reprise sous X °C » si la température prolonge l’attente. Cache work-queue : 20260927.remote-thermal1.
+- Régressions préparées pour le délai minimum prolongé par la température, la persistance/API/formulaire et une admission KREA2 distincte par image. Tests NON exécutés selon AGENTS.md. Contrôles statiques réussis : AST de 9 fichiers Python et git diff --check ciblé ; contrôle Node indisponible sur cette machine. Aucun service, rendu, génération, redémarrage, commit ou push lancé.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, faire Ctrl+F5 puis vérifier les deux nouveaux réglages dans Serveur.
+2. L’utilisateur peut lancer les tests ciblés machine_work, krea2_batch_service, lab_web et work_queue_browser.
+3. Valider sur un petit lot d’images qu’un pic à 80 °C laisse finir l’image, bloque la suivante 80 s au minimum et prolonge l’attente si le serveur est encore à 80 °C ou plus.
+
+## Implémentation 2026-09-27 — versions d’écriture et expérimentation fidélité/langue
+
+### Goal
+- Livrer le patch validé « va y go » : référence conservée, sélecteur historique et nouvelle expérimentale isolée.
+
+### Current state
+- Checkout actif : D:/Code/panelforge-krea2-flux. Référence avant patch toujours conservée au commit local c78e8e3, branche/tag pre-story-fidelity-2026-09-27. Aucun nouveau commit/push.
+- Catalogue explicite + deux archives dans prompt_sources/story.long/2.0.0/editions : reference-2026-09-27 (v1/politique 1), experimental-2026-09-27 (v2/politique 2, révision de recette 9). Consignes de référence comparées au snapshot, SHA-256 vérifiés. Pas de chargement de code depuis les archives.
+- Sélecteur Version d’écriture à côté de Mes histoires, informations, dernière expérimentale par défaut pour création, version concrète conservée par projet, pas de génération au changement, verrouillage pendant chaîne. Provenance enregistrée dans jobs/révisions/tentatives/brouillons, distinction texte actuel/prochains appels. Reprise exige la version originale ; ancien brouillon conserve sa politique de validation même après sélection différente pour l'avenir.
+- Historique non identifié : lecture conservée, choix explicite requis avant prochain appel ; pas d'inférence à partir du seul numéro de révision 8. Version/catalogue indépendants des modèles. Préparation de suite : choix avant création d'un nouveau projet, conservation de version dans une unité déjà prévue, prompt de chat archivé.
+- Expérimentale seule : source auteur séparée des preuves du concepteur ; citations exactes réparties par unité pour nouvelle conception multi-unités ; extrait entier de l'intention pour une seule unité ; aucun dump des secrets futurs. Catégorie dialogue_language avec citation exacte réellement présente, correction bornée puis contrôle ; protection des mots imposés ; style/durée toujours indicatifs.
+- Consignes créatives de progression/conséquence, croyance du personnage vs perception du public, résolution sans réparation/morale forcée, rendu réaliste distinct du ton. Aucun scénario-type ni mot cru imposé. Déduplication des preuves côté rédacteur et états visuels identiques côté lecteur ; transformations et registre visuel conservés.
+- Fichiers nouveaux : modules domain/story_editions.py, domain/story_fidelity.py, infrastructure/story_editions.py, application/story_editions.py ; tests/test_story_editions.py et tests/test_story_editions_browser.py. Documentation : docs/story-writing-editions.md ; planning annoté implémenté.
+- Contrôles statiques : AST Python, compilation V8 JS/fixtures sans exécution, IDs HTML uniques, archives/empreintes, référence vs snapshot et git diff --check. Tests fonctionnels préparés mais NON exécutés selon AGENTS.md. Aucun LLM/rendu, runtime ou service sollicité/modifié. Backups et revue : D:/Code/panelforge/.agent/diagnostics/story-editions-2026-09-27.
+- Limites : qualité, langue sémantique, allocation des contraintes par unité et gain de temps à confirmer sur nouveaux essais. Le contrôle de langue repose sur le lecteur LLM avec preuve citée, pas un détecteur de langue indépendant. Références/Scènes/Multilangue/miniatures non remaniés ; travaux concurrents conservés.
+
+### Next steps
+1. Au prochain rechargement habituel du backend, Ctrl+F5 ; vérifier les deux choix et la conservation de sélection après réouverture.
+2. L’utilisateur lance les tests ciblés listés dans docs/story-writing-editions.md (éditions/service/browser, qualité, ton et suite). Aucun test à déclencher automatiquement.
+3. Comparer référence/expérimentale à intention et réglages identiques, puis un sujet inédit ; contrôler aussi une suite multi-unité et une erreur de langue corrigée une seule fois.
+
+## Audit 2026-09-27 — gestes des Petits hommes ; logique des langues validée
+
+### Goal
+- Vérifier les multiples gestes dans les générations existantes, en restant dans l'audit/discussion.
+
+### Current state
+- Langues : logique validée par l'utilisateur. Asie inclut chinois/coréen/japonais ; portugais côté Portugal/Brésil et Europe du Sud, pas Europe de l'Est. Priorités manuel puis pays explicite ; groupes d'ambiance si ambigu ; tirage équilibré dans le groupe, choix conservé par fiche ; les 11 langues ont un contexte dédié. Addendum du rapport des langues à jour. Implémentation encore à faire.
+- Sept fiches expérimentales examinées : Plans, prompts et essais H3. Prompts usine/essai identiques ; effective_prompt identique après retrait des espaces de bord.
+- 140 captures examinées, 20 par rendu H3 brut à 2 images/s, extraction CPU locale. Aucun audio ni lecture vidéo continue ; versions DLSS non inspectées séparément.
+- Gestes successifs visibles, notamment clocher redressé puis cerclé de fil et rocher libéré puis guidé sur le côté. Les deux ponts montrent surtout une couture continue ; second résultat subtil. Cinq scènes de pont/bâtiment emploient aiguille/crochet.
+- Écarts : deux mains sur l'arche ; rocher du levier saisi directement ; certains nœuds/nettoyages/usage du manche non clairement respectés. Six plans à deux actions complémentaires, un plan surtout installation/utilisation d'un levier.
+- Proposition à discuter : deux effets visibles distincts avec état intermédiaire, second besoin réellement résolu ; ne pas compter entrée/sortie/prise d'outil comme deuxième aide. Aucun correctif appliqué.
+- Rapport docs/proposals/little-men-gestures-audit-2026-09-27.md ; preuves locales sous D:/Code/panelforge/.agent/diagnostics/little-men-gestures-2026-09-27/. Documentation/diagnostics uniquement ; aucun code, runtime, test, LLM, rendu ou service modifié/lancé.
+
+### Next steps
+1. Restituer les réussites et limites concrètes ; poursuivre l'alignement sur la distinction des gestes.
+2. Lors d'un futur patch autorisé, implémenter la logique de langues validée et les éventuels ajustements de gestes convenus, sans modifier les anciens runs.
+
+## Discussion 2026-09-27 — langues par ambiance et provenance PNG
+
+### Goal
+- Discuter la variété des remerciements des Petits hommes et vérifier les métadonnées KREA, sans implémenter.
+
+### Current state
+- Orientation utilisateur : pays évident -> langue correspondante ; sinon pseudo-aléatoire parmi les 11 langues stables, par groupes Europe, Asie (chinois/coréen), désert (arabe), Europe de l'Est (russe/portugais comme groupe créatif). Le repli anglais systématique n'est plus souhaité.
+- Deux PNG récents vérifiés par lecture et SHA256 : graphe ComfyUI embarqué, textes japonais/algériens et JSON SaveImageKJ.caption incluant intention originale avec Pays : Japon / Pays : Algérie, prompt canonique et style.
+- L'extracteur actuel ne suit pas les liens du texte vers les primitives et n'exploite pas la caption : prompt=None malgré les données présentes. Le transfert usine omet également ce contexte.
+- Proposition : provenance du bon essai/asset et contexte figé à la génération, récupération PNG pour imports, contexte pertinent vers la préparation, choix unique par fiche conservé dans Plan/Prompt/rendu, manuel prioritaire. Repli proposé sur les 11 sans indice. Ces modalités restent en discussion.
+- Détails ajoutés à docs/proposals/little-men-language-audit-2026-09-27.md. Documentation/continuités uniquement ; aucun code, runtime, test, appel LLM, rendu ou service modifié/lancé.
+
+### Next steps
+1. Expliquer les métadonnées effectivement trouvées et la règle proposée ; continuer l'alignement sans coder.
+2. Après autorisation, brancher le contexte source exact, étendre si nécessaire la récupération PNG et remplacer le repli anglais par les groupes convenus ; ne pas modifier les anciens runs.
+
+## Audit 2026-09-27 — langues H3 et remerciements des Petits hommes
+
+### Goal
+- Répondre sur les langues acceptées par MiniMax H3 et diagnostiquer les remerciements anglais des derniers runs.
+
+### Current state
+- Documentation officielle vérifiée : 11 langues stables (arabe, chinois, anglais, français, allemand, italien, japonais, coréen, portugais, russe, espagnol). Autres langues à fiabilité variable ; Hindi dans notre menu et malais hors liste stable. Sources dans docs/proposals/little-men-language-audit-2026-09-27.md.
+- Sept fiches expérimentales auto : les cinq dernières ont English/Thank you! dès le Plan ; deux Pierre sur la route ont French/Merci !. Concordance avec les prompts des sept essais H3 réussis. Audio non analysé : pas de conclusion sur la prononciation effective des cas français.
+- Les Plans invoquent pays incertain/absence de drapeau ou inscription. Contexte usine limité aux titres. Omission confirmée de notre implémentation : l'envoi KREA2 ne transmet pas le prompt image ; les indices géographiques connus sont perdus.
+- Sources associées par output_asset_id : paysage/vêtements japonais pour factory-c1f9bd1f593743f7883ce9b0dc91e8f7 ; inspiration algérienne pour factory-182770065c1f419bb3672aa0af3de81a ; motifs malaisiens pour factory-89679e8369a4436cbdca562c5bcf987a. Les deux cas français déduisent à tort France du titre rédigé en français.
+- Aucun code, fiche/runtime, média ou service modifié ; aucun test, LLM, rendu ni redémarrage. Rapport et continuités seulement.
+
+### Next steps
+1. Expliquer les 11 langues et la cause située en amont du rendu ; choix manuel de langue disponible pour un nouvel essai.
+2. Futur correctif : contexte du bon essai image, distinction pays/culture/langue du titre, repli des pays multilingues et langues hors support stable. Ne pas réécrire les anciens runs.
+3. Si les deux essais demandant Merci parlent anglais, analyser leur audio pour distinguer défaut de préparation et défaut de suivi par H3.
+
+## Alignement 2026-09-27 — versions historiques de l'écriture
+
+### Goal
+- Ajouter au planning la conservation de la version actuelle appréciée et un sélecteur à côté de Mes histoires. Discussion uniquement.
+
+### Current state
+- Référence actuelle déjà sauvegardée dans le snapshot local c78e8e3 ; aucune nouvelle version/push ni implémentation dans ce tour.
+- Code vérifié : LongStoryRecipes.snapshot() recharge les sources et calcule leur empreinte ; Stories.start() le rappelle à chaque opération. Révision 8 = structure/capacités, pas ID unique d'édition ; pas de version d'écriture durable attachée au projet à ce stade.
+- Proposition ajoutée à docs/proposals/story-fidelity-language-plan-2026-09-27.md : catalogue immuable avec référence actuelle + prochaine expérimentale, sélecteur Version d'écriture dans l'en-tête, dernière expérimentale par défaut à la création puis version concrète conservée par histoire.
+- Réouverture sur la version enregistrée ; changement volontaire pour prochains appels seulement, sans génération implicite ; version fixe pendant la chaîne et sa récupération. Distinguer version du résultat existant et version sélectionnée pour la suite. Nouvelle suite comme nouveau projet : défaut dernière affiché avant lancement ; progression d'un projet existant : version conservée.
+- Conserver aussi les comportements éditoriaux de préparation du contexte et de relecture nécessaires à un vrai retour de version, sans revenir sur toute l'application. Pas de promesse de texte identique. Anciens projets associés à un paquet seulement par empreinte connue, pas par le seul numéro 8 ; aucun repli silencieux.
+- Dernier alignement remplace la proposition antérieure « aucun nouveau réglage » par ce sélecteur unique. Préservation/catalogue en préalable au futur patch qualité.
+- Documentation/continuités seulement ; aucun code, runtime, test, appel LLM, rendu ou service modifié/lancé.
+
+### Next steps
+1. Présenter ce comportement et attendre l'alignement avant de coder.
+2. Après validation, figer la référence, ajouter le choix et la conservation par projet/chaîne, puis développer la prochaine expérimentale séparément.
+
+## Version et planning 2026-09-27 — fidélité, langue et prompts
+
+### Goal
+- Sauvegarder le code actuel et préparer un patch explicable simplement. Alignement uniquement : aucune implémentation autorisée dans ce tour.
+
+### Current state
+- Version locale créée dans le checkout actif : `c78e8e309c4e3cd73ca06b1c7228de26ab865d7b` ; branche `snapshots/pre-story-fidelity-2026-09-27` ; tag `snapshot-pre-story-fidelity-2026-09-27`. 144 fichiers de code/tests/docs/prompts/workflows sauvegardés, aucun runtime/média/trace brute ajouté, aucun push. Index temporaire ; HEAD, branche active et index normal conservés.
+- Manifeste : D:/Code/panelforge/.agent/diagnostics/pre-story-fidelity-2026-09-27/checkpoint.json. Note de version : docs/releases/snapshot-pre-story-fidelity-2026-09-27.md.
+- Planning proposé : docs/proposals/story-fidelity-language-plan-2026-09-27.md. Quatre axes : source d'auteur indépendante du plan pour la relecture ; mauvaise langue parlée corrigée de façon ciblée ; responsabilité créative/progression/conséquence ; déduplication mesurée des prompts.
+- Projection des contraintes multi-unités à traiter explicitement, sans injecter les secrets futurs ni considérer des inventions du concepteur comme une demande d'auteur. Mauvaise langue distincte des emprunts autorisés et des répliques exactes. Trois appels habituels conservés ; une correction ciblée plus sa vérification seulement sur défaut avéré.
+- Pas de nouveau réglage, refonte de fabrication, migration des anciens projets ni changement de modèle prévu. Tests et essais comparatifs décrits dans le plan pour après validation.
+- Cette préparation modifie uniquement documentation et continuités, après le snapshot. Aucun code applicatif, scénario ou état runtime modifié ; aucun test, LLM, rendu ou service lancé.
+
+### Next steps
+1. Présenter le planning et attendre l'alignement utilisateur avant toute implémentation.
+2. Après validation, traiter contrats/relecture/langue, consignes créatives puis allègement, avec régressions ciblées et compatibilité des projets existants.
+
+## Audit 2026-09-27 — La Coupe Demandée, comparaison au Colis
+
+### Goal
+- Examiner la nouvelle histoire et poursuivre l’alignement du prochain patch, sans coder.
+
+### Current state
+- Rapport : docs/proposals/story-coiffeur-audit-2026-09-27.md. Projet story-d279def1674c444dbb645f75d6899ea2, fabrication episode-04ec1e7b956a4de289a592c4c9a746f4.
+- Mêmes modèle/profil que Le Colis, 50 s, mais résolution explicitement présente dès le premier appel (pas un choix auto du modèle). 5 clips de 10 s, ~103 mots de dialogue ; 3 appels / 383,712 s, aucun repair/troncature. Conception 95,351 s, rédaction 165,026 s, relecture 123,335 s.
+- Progression/fin plus nettes, mais la tromperie du coiffeur se transforme en aide et confiance ; la coupe finit objectivement plus stylée. Le modèle ne maintient pas clairement l’écart entre croyance du client et perception du public.
+- Deux répliques sur dix mélangent des phrases françaises et anglaises, présentes dans la réponse brute de develop et le scénario sauvegardé. Plusieurs descriptions aussi. Le lecteur repère ces défauts, mais renvoie directement warning/clarity ; le code ne rétrograde pas cette issue. L’automatique termine prêt sans correction. Les consignes françaises étaient pourtant explicites.
+- Lacune de relecture confirmée : les obligations fournies sont les preuves des événements du concepteur ; le brief initial et une projection indépendante de ses contraintes sont absents. Le lecteur valide ainsi une version adoucie en amont. Préserver la protection contre les spoilers tout en restaurant les contraintes d’auteur de l’unité.
+- Thinking rédaction ~8 070 mots ; relecture ~2 333. Preuves dupliquées dans selected_unit/unit_requirements (~1 032 caractères). Métadonnées visuelles de relecture ~5 545 caractères, texte des scènes ~4 630. Pistes concrètes d’allègement, sans gain mesuré ni suppression recommandée du schéma.
+- Deux états de Yanis prévus : coupe ratée à la base puis coiffée après scène 4. Le second est discutable si seul le brillant/la perception change, pas de prolifération.
+- Aucun code, scénario/runtime/réglage modifié ; aucun test, LLM/rendu ou redémarrage lancé. Documentation/continuités uniquement, travaux concurrents conservés.
+
+### Next steps
+1. Aligner : mauvaise langue parlée = défaut concret à corriger de façon ciblée ; style/durée restent indicatifs. Ne pas bloquer tout anglicisme usuel ni transformer tous les warnings en erreurs.
+2. Renforcer fidélité au ressort original et aboutissement créatif ; garder liberté de thème et de fin, sans micro-exemples préchargés.
+3. Alléger les doublons avant d’ajouter/supprimer des appels. Comparaison de modèles sur un même essai à envisager ensuite ; aucune autorisation de patch dans ce tour.
+
+## Correctif 2026-09-27 — chargement de miniature en Construction
+
+### Goal
+- Corriger le blocage sur Chargement de la miniature à l'ouverture de Construction, après autorisation explicite de l'utilisateur.
+
+### Current state
+- Correctif appliqué dans D:/Code/panelforge-krea2-flux : `tab('scenes')` remonte la carte immédiatement après avoir rendu le panneau visible et avant l'attente de `openRender()`. Le garde de visibilité initial ne bloque donc plus définitivement la première lecture, même sans tâche active ni polling global.
+- La même entrée couvre l'ouverture depuis Références et le retour direct sur l'onglet mémorisé. Les protections existantes contre les requêtes simultanées et répétées restent utilisées. Aucun changement serveur ni préparation automatique de miniature ajouté.
+- `tests/test_episodes_browser.py` utilise maintenant les vrais composants de miniature et leurs dialogs. Régression préparée : aucune lecture depuis le panneau masqué ; une lecture dès ouverture, état À préparer et boutons disponibles sans rafraîchissement de l'épisode ; réouverture rapide sans requête ni carte dupliquée ; consultation seule.
+- Version de episodes.js dans index.html : 20260927.thumbnail-loading1. Changements préexistants et travaux concurrents conservés. Sauvegardes et diff limité à cette intervention : D:/Code/panelforge/.agent/diagnostics/thumbnail-loading-2026-09-27/.
+- Vérifications réussies : AST Python de la fixture, compilation V8 du script et des deux fragments JavaScript de la fixture sans les exécuter, git diff --check ciblé. Tests fonctionnels laissés à l'utilisateur conformément à AGENTS.md ; aucun appel LLM, génération, service ou redémarrage lancé. Aucun état runtime modifié.
+
+### Next steps
+1. Ctrl+F5 puis ouvrir Construction : la carte doit quitter Chargement sans cliquer Actualiser ni lancer de production.
+2. Tests à lancer par l'utilisateur depuis le checkout actif : `D:\Code\panelforge\.venv\Scripts\python.exe -m unittest tests.test_episodes_browser tests.test_episode_thumbnails_browser`.
+3. Si une attente persiste après départ effectif de la requête, mesurer séparément le coût serveur (vue complète et catalogue des histoires) avant une optimisation supplémentaire.
+
+## Implémentation 2026-09-27 — Petits hommes expérimental, langue locale et gestes successifs
+
+### Goal
+- Implémenter le preset expérimental autorisé : remerciement selon le pays représenté et plusieurs gestes d’aide successifs.
+
+### Current state
+- Code livré dans D:/Code/panelforge-krea2-flux, sans commit/push ni redémarrage. Nouveau preset little_men_experimental : H3/image de départ/1 plan/10 s, même main, deux gestes utiles liés (trois courts possibles, un seul si suffisant), effets persistants puis résultat/retrait/remerciement. Ancien Petits hommes inchangé à 8 s avec thank you.
+- Choix Langue parlée auto ou explicite et champ Lieu / contexte de la scène dans la fiche. Contexte initial : nom de ligne, libellés des références et intention source disponibles. Le Plan utilise les indications de lieu puis des indices visuels explicites ; anglais si doute/pays multilingue sans précision. Les citations du contexte ne deviennent pas des répliques exactes. Choix de langue et mots visibles après le Plan ; IG indépendant.
+- Nécessité technique identifiée : la politique vocale actuelle autorisait seulement les ajouts anglais et aucun mot ajouté au niveau 1. Nouvelle autorisation explicite et versionnée little_men.localized_thanks.v1, limitée au parcours Classique Mise en scène : un remerciement bref, parole/langue imposée contrôlées, langue automatique canonisée et persistée avec le Prompt. Transmission par PreparationIntent/PreparationSource/contexte compilateur ; sérialisation ancienne et empreintes préservées quand les nouveaux champs sont absents.
+- Pas d’appel LLM supplémentaire : Plan puis Prompt existants. La langue et le contexte édités invalident la préparation ; origine expérimentale conservée en Personnalisé. DLSS et IG anglais/Gemma 4/trois variantes activés ; classement dans Petits hommes/date.
+- Dix régressions hors ligne ajoutées dans tests/test_video_factory_experimental.py : isolation du preset, contexte sans faux dialogues, édition/invalidation, passage de politique, rangement, sérialisation/hash ancien, isolation vocale, compilation FR/KO/EN, langues verrouillées et deux appels après réouverture. Une fixture navigateur ajoutée à tests/test_video_factory_web.py ; liste historique des presets actualisée.
+- Contrôles statiques réussis : AST de 14 fichiers Python, imports de six modules, compilation V8 du JS usine et dix fragments de fixtures (aucun code applicatif ou scénario de test exécuté), git diff --check ciblé. Les tests fonctionnels restent à lancer par l’utilisateur selon AGENTS.md ; aucun LLM, rendu ni service sollicité.
+- Documentation : docs/video-factory.md. Sauvegardes avant changements et relevé de vérification dans D:/Code/panelforge/.agent/diagnostics/little-men-experimental-2026-09-27. Le diff de comparaison inclut aussi des modifications concurrentes de barre fixe de l’usine, préservées et extérieures à ce preset ; ne pas les attribuer à cette tâche ni restaurer les sauvegardes en bloc.
+- Limite : détection sémantique du lieu et exécution des gestes par le moteur vidéo non qualifiées sur rendus réels.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, Ctrl+F5 puis appliquer Petits hommes — expérimental à une ligne ou sélection en Préparation.
+2. L’utilisateur peut lancer les tests ciblés listés dans docs/video-factory.md (expérimental, usine, compilation cinématique, politique vocale et stockage).
+3. Comparer des scènes France/Corée et un lieu incertain ; vérifier langue native, ordre/continuité des gestes et temps de réaction. Utiliser Langue parlée ou corriger le contexte si le lieu est ambigu.
+
+## Audit 2026-09-27 — essai autonome Le Colis
+
+### Goal
+- Petit audit du dernier essai, sans coder ni relancer de traitement.
+
+### Current state
+- Projet story-0c1422ce9a55463c8529e254a4bc273d ; fabrication episode-1bbc0a1095a748a69297bfd742388435. Rapport : docs/proposals/story-colis-audit-2026-09-27.md.
+- Nouveau profil bien reçu : comédie noire/argot cru, street, registre 3, rapide, humains réalistes/live action, lexique et paroles exactes vides. Qwen3.8-27B HauhauCS Aggressive MTP aux trois rôles. 50 s cible, 5 clips maximum ; résultat 4 clips de 10 s, ~119 mots lexicaux de dialogue. Conception auto choisit social/open ; fin ouverte non imposée par l’utilisateur.
+- Trois appels acceptés, aucun repair/troncature : 100,732 s conception, 152,541 s rédaction, 149,071 s relecture, total 6 min 42. 29 627 tokens de sortie déclarés avec raisonnement. Pas de nouvelle génération lancée.
+- Récit clair et langage cru spontané, mais conflit rendre/garder surtout répété, peu de comédie et arrêt sans aboutissement local fort. Nino part avec un carton vidé sans motivation convaincante. Le raisonnement privilégie explicitement une issue ouverte prudente ; nos consignes de non-imposition semblent surinterprétées comme retenue créative.
+- Rédacteur et lecteur consacrent beaucoup de raisonnement aux schémas et états ; relecture presque aussi longue que rédaction, résultat principal = avertissement de durée. Arc franco-anglais, dialogues français avec « C’est vrai or ». Estimations de durée restent indicatives et n’ont pas bloqué.
+- Références utiles : 2 humains, décor, colis, montre ; variante supplémentaire montre sur paume probablement superflue (pose, pas apparence durable).
+- Aucun code/runtime/réglage modifié, aucun test, appel LLM/rendu ou service lancé ; rapport et continuités seulement.
+
+### Next steps
+1. Discuter de la responsabilité du concepteur d’inventer un aboutissement sans scénario-type ; ne pas confondre absence de chute imposée et absence de chute.
+2. Observer un autre sujet avant de conclure à un comportement systématique. Aucun patch supplémentaire autorisé pour cet audit.
+
+## Implémentation 2026-09-27 — bandeau sticky de l’Usine
+
+### Goal
+- Garder les commandes globales et les quatre onglets de l’Usine visibles pendant le défilement des listes, avec un changement UX minimal.
+
+### Current state
+- Le titre Usine à vidéo, les actions Actualiser/Pause et les onglets Préparation/Production/Résultats/Archives sont regroupés dans un unique bandeau `vf-sticky-header` en `position: sticky`.
+- La barre Sélection/filtre/preset/réglages/actions est désormais un second bandeau sticky empilé sous le premier. Les états Local/Serveur restent défilants entre les deux positions normales ; la liste défile ensuite sous les deux bandeaux.
+- Les deux bandeaux restent sous la topbar globale grâce à des variables CSS synchronisées sur leurs hauteurs réelles avec `ResizeObserver`; les retours à la ligne responsive sont donc pris en compte. L’inspecteur latéral est repoussé sous l’empilement pour éviter tout recouvrement.
+- Fonds opaques, ombres discrètes et z-index ordonnés évitent chevauchement et transparence. Versions statiques de video-factory.css et video-factory.js passées à `20260927.sticky-header2`.
+- Régression navigateur préparée pour les deux positions sticky, leur ordre vertical et le maintien des états machines en contenu défilant.
+- `git diff --check` et l’AST Python du test passent. Aucun test, service, rendu ou génération lancé conformément aux consignes ; Node reste indisponible.
+
+### Next steps
+1. Recharger avec Ctrl+F5 puis faire défiler une liste longue dans chacun des quatre onglets ; vérifier l’empilement en cas de retour à la ligne de la barre de sélection.
+2. L’utilisateur peut lancer `python -m unittest tests.test_video_factory_web` depuis le checkout actif.
+
+## Implémentation 2026-09-27 — ton autonome et création compacte
+
+### Goal
+- Implémenter le patch validé après une version préalable. Dernier alignement prioritaire : aucun exemple de scénario ni micro-dialogue préchargé ; autonomie du récit et lexique sémantique facultatif.
+
+### Current state
+- Version AVANT patch créée : commit local `18803a8e7dba9c1ef1aa2ae5031687db33d0ddc4`, branche `snapshots/pre-story-tone-2026-09-27`, tag `snapshot-pre-story-tone-2026-09-27`. 124 fichiers de code/tests/docs/prompts ; aucun runtime/média/trace brute, aucun push. Index temporaire ; branche active et HEAD préservés. Manifeste et contrôles : D:/Code/panelforge/.agent/diagnostics/pre-story-tone-2026-09-27/.
+- Checkout modifié : D:/Code/panelforge-krea2-flux. Ajout facultatif writing_direction.tone_profile (none / black_comedy_street_v1) et glossary (2 000 caractères), validation API/domaine. Profil éditorial en quatre fichiers versionnés du manifeste long, snapshot/fingerprint révision 8. Lexique au rédacteur/correcteur de scènes seulement, jamais à la conception ou à la relecture. Aucun nouvel appel.
+- Profil Comédie noire · argot cru : choix explicite applique street, registre 3, débit rapide, narration dialoguée ; les ajustements ultérieurs priment et affichent Personnalisée. Aucun thème, phrase ou schéma de punition imposé. Retrait des amorces de vocabulaire historiques pour ce profil, de l’exemple de facture du profil social et du portefeuille dans les consignes d’objets. Priorité des protected_lines clarifiée dans les consignes de rédaction/relecture sans remanier les validateurs.
+- UI : idée/ambiance/univers et rendu/durée/langue visibles ; Personnaliser fermé regroupe les autres champs existants, dont modèles déplacés puis restaurés à l’ouverture d’un projet. Nouveau projet en histoire suivie automatique, 80 s cible, 8 clips de 10 s, ambiance libre. Les nouveaux essais n’héritent plus accidentellement des univers/fins/notes du formulaire précédent. Modèles explicitement choisis conservés. Familles muettes neutralisent ton/lexique. En fabrication, cadre de modèles d’écriture et texte introductif masqués ; outils Références/Scènes/Multilangue conservés.
+- Compatibilité importante : settings() n’ajoute pas tone_profile/glossary absents des anciens projets, pour conserver exactement leurs empreintes de dépendance/relecture. Aucune modification runtime, migration ou réécriture d’histoire. Suites conservent ton/lexique, pas les anciennes répliques exactes.
+- Documentation réécrite selon le dernier alignement : docs/proposals/story-tone-simple-creation-2026-09-27.md. Les propositions historiques de micro-exemples présentes plus bas dans cette continuité sont supersédées.
+- Statique OK : AST Python, compilation JS sans exécution, JSON/sources, IDs Histoire uniques, imbrication formulaire, revue ciblée et git diff --check. Tests préparés (test_story_tone, qualité/browser) mais NON exécutés. Aucun appel LLM/rendu, service ou redémarrage. Ressources statiques modifiées versionnées 20260927.story-tone1. Travaux concurrents thermiques/KREA6/factory conservés.
+
+### Next steps
+1. L’utilisateur charge le backend mis à jour et recharge l’interface. Aucun redémarrage automatique effectué.
+2. Tests utilisateur ciblés : `D:\Code\panelforge\.venv\Scripts\python.exe -m unittest tests.test_story_tone tests.test_story_quality_policy tests.test_story_quality_browser tests.test_stories_browser` depuis le checkout actif.
+3. Essayer Comédie noire · argot cru avec une intention courte, lexique et répliques exactes vides ; comparer ensuite une autre idée pour apprécier diversité, voix, lisibilité et chute. Pas de gain de qualité/temps de thinking revendiqué avant ces essais.
+
+## Implémentation 2026-09-27 — lisibilité des graphes thermiques
+
+### Goal
+- Rendre les deux graphes thermiques persistants plus lisibles, avec les résolutions validées, sans modifier la collecte ni lancer de service.
+
+### Current state
+- Deux plages sont disponibles dans Détails : vue 24 h avec maxima par tranches de 30 secondes et vue 6 h avec maxima par tranches de 15 secondes. Aucun bouton 1 h dans Détails ; le petit monitor flottant conserve sa vue 1 h existante.
+- Le stockage persistant reste à 15 secondes afin de ne perdre aucun pic. L’agrégation 30 secondes est réalisée uniquement côté affichage pour la vue 24 h et conserve l’horodatage réel du maximum de chaque tranche.
+- Le tracé est fixe et fin à 1,25 px avec vector-effect non-scaling-stroke. Les segments vert/orange/rouge sont conservés, les zones de fond sont atténuées et le maximum principal est matérialisé par un point discret.
+- Les anciennes bulles/groupements sont remplacés par une bande d’activité temporelle exacte. Chaque tâche est une barre de début à fin ; lettre P/D/I/V seulement si la largeur le permet, trait vertical pour une tâche très courte, pointillés pour une tâche interrompue, détail au survol/focus/clic.
+- La bande Evt et le tracé partagent les mêmes marges temporelles. Les sélecteurs 24 h / 6 h mettent à jour titre, légende, graduations et état accessible sans nouvel appel réseau.
+- Régression navigateur préparée pour l’agrégation 30 s / 15 s, l’absence de vue détaillée 1 h, le trait fin, le pic et les événements courts/interrompus. Versions statiques passées à 20260927.thermal1.
+- Vérifications statiques et git diff --check passées. Node est indisponible dans cet environnement ; conformément aux consignes, aucun test, service, donnée runtime, appel LLM ou génération n’a été lancé.
+
+### Next steps
+1. Recharger l’interface avec Ctrl+F5 pour prendre les nouveaux assets statiques.
+2. L’utilisateur peut lancer `python -m unittest tests.test_work_queue_browser` puis vérifier la lisibilité avec l’historique thermique réel.
+
+## Discussion 2026-09-27 — nouvelle référence Download(32), comédie et autonomie
+
+### Goal
+- Analyser la nouvelle version de l’histoire et affiner le patch envisagé. L’utilisateur confirme l’orientation mais demande encore une discussion, pas du code.
+
+### Current state
+- Download(32).mp4 examiné via images extraites toutes les 2 s et transcription locale CPU int8 large-v3-turbo, 4 threads, modèle déjà installé/hors ligne (~25 s). Vidéo 42,67 s, 576×1024, 24 fps. Aucun GPU, appel LLM, rendu de production, test ni redémarrage sollicité.
+- Rapport : docs/proposals/story-reference-download32-2026-09-27.md ; proposition story-tone-simple-creation-2026-09-27.md complétée. Artefacts d’analyse dans workspace/experiments/analyse-download32-2026-09-27. Transcription automatique, précision de l’argot limitée.
+- Différences importantes : portefeuille laissé tomber et ramassé ; cireur veut investir dans les NFT et devenir celui qu’on sert ; Piccolo présenté avant l’ordre ; colère/entrée/ordre joués ; aveu final de perte dans les NFT, qui retourne sa frime. La version du don volontaire racontait une autre injustice ; ne pas la corriger mécaniquement si demandée par l’auteur.
+- Comptage comparable ~164 mots de référence/42,7 s vs ~81 mots de scénario/50 s (le précédent 88 incluait la ponctuation isolée). ~4,8 mots/s sur fenêtres parlées de l’ASR, pas une capacité H3 garantie. L’autorisation de débit rapide ne suffit pas à produire une conversation nourrie ; aucun quota de mots proposé.
+- Affinage : preset avec mécanique comique simple, voix selon statut/désir, petit lexique et micro-échanges variés, rappel préparé/payoff joué, relecture orientée compréhension. Pas de nouveau sélecteur de gag, d’appel supplémentaire ou de schéma obligatoire. Univers humain/Piccolo animé conservable ; ne pas copier tous les détails de la référence.
+- Aucun code, prompt exécuté ou scénario modifié ; documentation/continuités seulement. Version locale 78f5320 inchangée, aucune publication.
+
+### Next steps
+1. Continuer l’alignement sur le profil de ton et la création compacte ; attendre demande d’implémentation.
+2. Après futur patch, l’utilisateur teste une idée courte sans réplique imposée ni découpage, puis un sujet différent pour vérifier la généralisation.
+
+## Version et UX 2026-09-27 — loupe références, proposition ton autonome
+
+### Goal
+- Ajouter immédiatement l’agrandissement des images dans Références, sauvegarder le code actuel puis proposer un patch de ton/dialogues et une création simplifiée. La refonte narrative reste une discussion.
+
+### Current state
+- Patch limité à episodes.js, episodes.css et index.html : loupe sur image retenue, propositions et résultats du lot ; dialog plein écran dans l’application, image contenue sans recadrage, fermeture Fermer/Échap ; aperçu agrandi au survol souris après 220 ms, position bornée à la fenêtre. Boutons d’inspection séparés de la sélection et disponibles pendant la production/multilangue. Cache des deux assets actualisé.
+- Syntaxe JS compilée sans exécution, nouveaux IDs HTML vérifiés uniques, diff ciblé relu et git diff --check passé. Aucun test fonctionnel, appel LLM/rendu ni redémarrage ; utilisateur recharge la page. Backups trois fichiers avant patch : D:/Code/panelforge/.agent/diagnostics/reference-image-zoom-2026-09-27.
+- Proposition seule : docs/proposals/story-tone-simple-creation-2026-09-27.md. Preset versionné Comédie noire / argot cru, petit lexique d’usage et exemples émotionnels, conception de moments simples depuis une idée courte, trois appels conservés et source unique des paroles imposées. Création réduite à idée/ambiance/univers/durée/langue, détails repliés ; en-tête fabrication compact, outils Références/Scènes/Multilangue conservés.
+- Version locale créée : commit 78f5320d0f3c488bed776b67259090ae29d55adb ; branche snapshots/story-quality-reference-zoom-2026-09-27 et tag snapshot-story-quality-reference-zoom-2026-09-27. 123 fichiers de code/docs/tests/prompts/manifests, incluant les travaux préexistants. Aucun média/runtime/trace brute ajouté, aucun push ; HEAD, branche active et hash de l’index utilisateur vérifiés inchangés. Manifeste : D:/Code/panelforge/.agent/diagnostics/reference-image-zoom-2026-09-27/checkpoint.json.
+
+### Next steps
+1. Checkpoint local terminé ; ne pas publier sans demande GitHub.
+2. L’utilisateur vérifie la loupe et le survol après rechargement de page.
+3. Aligner le preset de ton et l’interface avant de les implémenter. Futur essai depuis une intention de trois lignes, sans dialogue imposé ni découpage détaillé ; pas de nouveau rendu lancé par l’agent.
+
+## Audit 2026-09-27 — nouvel essai Piccolo, retour sur histoire produite
+
+### Goal
+- Lire le dernier scénario et les appels enregistrés, évaluer fidélité/qualité et préparer la discussion. Aucun patch ni relancement demandé.
+
+### Current state
+- Rapport : docs/proposals/story-quality-piccolo-retest-2026-09-27.md dans le checkout actif.
+- Nouveau run story-53551c9387a74685886728a88a9db13d, fabrication episode-7e67dd3b2c054d4bbc16dd83fa634ade : qualité v1, Qwen aux trois appels d’écriture, automatique, prêt. Cinq scènes de 10 s ; Piccolo visible scène 2, réplique crue exacte scène 3 et colère/ordre explicite scène 4 conservés. Test non dévoilé à Mehdi en scène 1.
+- 3 appels, 446 859 ms (~7 min 27), aucun repair/JSON invalide/troncature ; ancien run 5 appels, 764 656 ms (~12 min 45). Comparaison non contrôlée. Développement 264,2 s et ~13 894 mots de raisonnement, relecture 95,5 s et ~5 687 mots.
+- Fausse alerte de fidélité identifiée : compose corrompt la citation en « Je vais me pay a pute. » dans arc/evidence/must_keep ; develop reçoit les deux versions et produit correctement « Je vais me payer une pute. » ; review reçoit le dialogue correct et l’evidence corrompue, puis attribue à tort la mauvaise version au dialogue. Warning sans blocage. Besoin d’une source unique pour les répliques exactes, pas d’un nouvel appel.
+- Qualité : progression claire mais dialogues libres encore sages/génériques ; trois « Wesh », Piccolo administratif. Montant annoncé à Mehdi scène 1 affaiblit sa découverte scène 3. Erreur « ciré de chaussures » ; « stumbles » dans action finale, aucun anglais dans paroles finales. Scène 4 accumule actions secondaires autour des trois moments indispensables.
+- 8 références prévues/produites : 4 personnages, 3 décors, 1 portefeuille réutilisable ; pas de variantes superflues. Visibilité portefeuille scènes 1/3, détenteur Nabil→Mehdi sans seconde image. Notes hybrides propagées au style fabrication bien que visual_render=story. Préparations vidéo vides au relevé ; aucun rendu vidéo audité.
+- Aucun code, scénario, réglage, test, appel LLM/rendu ou service modifié/lancé. Rapport et continuités seuls ajoutés/actualisés.
+
+### Next steps
+1. Discuter le retour éditorial ; conserver les cinq scènes et les trois fonctions utiles.
+2. Si autorisé ultérieurement, fiabiliser la transmission des répliques exactes sans variantes concurrentes dans l’arc/relecture ; ne pas ajouter une passe universelle.
+3. L’utilisateur poursuit les rendus. Vérifier l’oral et le gag du plafond sur vidéo ; l’essai actuel mesure l’adaptation d’un brief détaillé, pas l’autonomie depuis une intention minimale.
+
+## Guidage 2026-09-27 — nouvel essai fidèle Piccolo / cireur
+
+### Goal
+- Fournir les réglages exacts du mode Histoire après patch, avec humains réalistes sauf Piccolo, présentation visible scène 2, réplique crue conservée et colère/ordre de Nabil montrés. Aucun code ni lancement demandé.
+
+### Current state
+- Download(31).mp4 est identique octet pour octet à Download(30).mp4 : SHA256 48BE707373B62D3B799F6482BC4DAFB53B504933FC530458C02A60977C0276D2. Planche overview.jpg examinée et transcription CPU existante relue dans workspace/experiments/analyse-download30-2026-09-27 ; aucune nouvelle transcription ni génération.
+- Dernier run correspondant : story-18c12bf9b9ac46109242a6a728b14bc6, version sans story_quality_version. Quatre scènes pour plafond cinq ; Piccolo seulement scène 4, réplique absente, ordre remplacé par une ellipse. Défauts confirmés dans le scénario sauvegardé.
+- Essai proposé : nouveau projet, Histoire suivie, adaptation du récit fourni, Manuel guidé, une vidéo continue, 50 s, une séquence et plafond 5 clips de 10 s. Construction Mélodrame/rapports de pouvoir, narration dialogues, fin Résolution, Français, Vocabulaire 3. Qwen3.8-27B HauhauCS Aggressive MTP local pour architecte et rédacteur.
+- Style Jeune/argot de quartier et Débit rapide. Rendu Personnalisé : humains et décors en prises de vues réelles, seul Piccolo garde son aspect animé 3D reconnaissable, vert/violet/cape blanche avec lumière cohérente. Ce choix suit la précision nouvelle « réaliste sauf Piccolo », remplaçant l’ancienne proposition Piccolo photoréaliste.
+- Intention structurée en cinq scènes distinctes : remise du portefeuille ; villa/test et Piccolo visible ; Mehdi exulte et annonce son projet ; colère de Nabil et ordre direct à Piccolo ; correction burlesque finale. Deux répliques proposées au champ exact : « Je vais me payer une pute. » et « Piccolo, retrouve Mehdi et tabasse-le ! » (cette seconde formulation est proposée, pas une citation de la source).
+- Clarification : plafond cinq clips n’est pas un nombre forcé par le schéma ; demander les cinq scènes dans le récit et vérifier le scénario avant fabrication. Aucun code, projet, réglage, modèle ou service modifié ; continuité seulement.
+
+### Next steps
+1. L’utilisateur crée un nouveau projet avec ces réglages après son redémarrage du Lab pour charger le patch.
+2. En manuel : valider la direction, puis vérifier Piccolo visible scène 2, paroles exactes scène 3 et ordre joué scène 4, avant validation du scénario et fabrication.
+3. Auditer le résultat et les appels uniquement après son essai ; ne pas lancer les générations à sa place.
+
+## Patch 2026-09-27 — qualité des histoires, directions et débit
+
+### Goal
+- Implémenter le patch autorisé après l’audit Fraisette/Piccolo : trois appels utiles, fidélité, débit rapide, directions de dialogue/rendu et compatibilité des projets existants.
+
+### Current state
+- Implémenté dans D:/Code/panelforge-krea2-flux, branche active inchangée. Point de retour pré-patch local : 8499ecccf78faa441015a235463bea574dc199d9 (snapshots/pre-story-quality-2026-09-27-095510). Aucun nouveau push ; autres modifications préexistantes conservées.
+- Nouvelles histoires longues : story_quality_version=1 et writing_direction. Conception → écriture → relecture finale, trois appels pour une séquence claire. Édition d’arc seulement si nécessaire/demandée, pas de fausse relecture stockée. Validation manuelle et limite d’une correction automatique conservées. Les histoires sans ce marqueur gardent l’ancien comportement.
+- Qwen proposé pour architecte et rédacteur dans les nouveaux essais longs ; Gemma interchangeable. Préférences de cette politique séparées des anciennes valeurs implicites, modèles des projets ouverts conservés.
+- Intention : détails Dialogues et rendu (style naturel/jeune/custom, notes, débit rapide/naturel, rendu selon récit/3D/prises de vues réelles/custom). Champ facultatif de répliques exactes, distinct des exemples. Débit partagé rédaction/diagnostics/relecture/REF2V : 4,8 mots/s rapide, 2,4 naturel, indicatif. speech_estimate/style sont warnings même si le lecteur les qualifie de blocking ; vrais défauts narratifs restent bloquants.
+- Prompts quality-*.txt versionnés, package révision 7. Preuves attendues de l’unité transmises au lecteur sans bible/secrets futurs ; contrôle local des répliques exactes. Conception sans dialogues inventés prématurés ; suppressions des champs de pitch court et du nommage fruité dans les univers explicites non fruités. Objets importants récurrents demandent une référence unique, propriétaire distinct de visibilité ; pas de reprise exhaustive des objets/variantes.
+- Directions héritées par les suites ; anciennes répliques exactes non répétées. Rendu initialise le style de fabrication et suit ses modifications explicites. Aucune refonte de Références/Scènes/Multilangue ; sources gelées multilingues préservées.
+- 17 régressions ciblées ajoutées, fixtures historiques explicites. Tests non lancés selon choix utilisateur/AGENTS ; aucun LLM, rendu ni redémarrage. Contrôles syntaxiques statiques Python/JSON/JS seulement. Documentation : docs/proposals/story-quality-patch-2026-09-27.md. Baselines des fichiers avant édition : D:/Code/panelforge/.agent/diagnostics/story-quality-patch-baseline.
+
+### Next steps
+1. L’utilisateur lance les tests ciblés documentés ; les tests n’ont pas encore validé l’exécution du patch.
+2. Après son rechargement habituel du service, créer un nouveau run Piccolo en humains réalistes / prises de vues réelles / argot jeune / débit rapide. Ancien run conservé pour comparaison.
+3. Comparer Qwen seul et Gemma rédacteur à réglages identiques ; calibrer la cadence depuis les paroles réellement générées. Ne pas lancer ces générations ni redémarrer les services à sa place.
+
+## Alignement 2026-09-27 — rôles Qwen/Gemma et dialogues rapides
+
+### Goal
+- Dernière discussion avant patch : examiner un parcours entièrement Qwen et assouplir le budget de dialogue selon la préférence utilisateur pour une parole rapide avec sous-titres ajoutés ensuite. Ne pas implémenter à ce stade.
+
+### Current state
+- Routage confirmé : architect_model_id pour conception, édition d'arc et relecture ; writer_model_id pour rédaction et correction de scène. Les deux sélecteurs peuvent déjà viser le même modèle.
+- Les essais actuels ne prouvent pas que Gemma écrit de meilleurs dialogues : Qwen les préécrit dans les evidence d'arc, Gemma les reprend. Les longs raisonnements inutiles Piccolo viennent aussi de Qwen éditeur ; tout-Qwen ne résoudra pas ce défaut de consignes. Aucun benchmark généré.
+- Proposition : Qwen pour les trois fonctions conception/rédaction/relecture séparée ; Gemma reste interchangeable pour la rédaction entière, sans ajout d'une passe de conversion JSON ou d'embellissement. Conserver une relecture avec contexte dédié et obligations du passage ; édition d'arc conditionnelle. Recommandation expérimentale pour prochains essais, pas supériorité du modèle démontrée.
+- Préférence nouvelle : le rythme oral rapide est acceptable, l'utilisateur estime environ deux fois plus de dialogue possible. Le calcul courant est mots/2,4 + action_seconds ; blocage selon mots/3,5 + actions > durée*1,3. Proposer Débit rapide, hypothèse initiale 4,8 mots/s, à calibrer sur rendus. 27 mots + 3 secondes successives => 8,625 s, contre 14,25 ; 10 s avec 3 s réservées => ~33 mots au lieu de ~16. Ce n'est pas une capacité H3 mesurée.
+- Gestes simultanés à la parole ne doivent pas être soustraits une deuxième fois ; conserver le budget des pauses/actions réellement successives et des changements de locuteur. Une estimation de débit seule devient indicative et ne déclenche pas de réécriture automatique. Sous-titres facilitent la lecture mais ne rétablissent pas une parole non générée.
+- Propager la même politique de débit à rédaction, diagnostic, relecture et indications de voix H3 ; option compacte dans détails des dialogues, rapide pour ce type d'essai, sans modifier les projets existants. Style de vocabulaire, vulgarité et débit restent distincts.
+- Priorités du patch discuté : fidélité des moments/répliques, répartition des scènes, suppression de consignes inapplicables, trois fonctions utiles, direction des dialogues/rendu et objets importants. Le rapport précédent décrit les alertes de durée selon l'ancienne cadence ; ne pas les présenter comme preuve qu'une phrase rapide est injouable.
+- Aucun code/configuration/projet changé, aucun appel LLM/rendu/test/redémarrage. Checkpoint local précédent 8499ecc conservé ; notes seules actualisées.
+
+### Next steps
+1. Attendre l'accord d'implémentation sur ce périmètre ; la demande présente reste une discussion.
+2. Après patch validé, comparer Qwen seul puis éventuellement Gemma rédacteur avec la même intention et le même budget, sans que l'agent lance les générations à la place de l'utilisateur.
+3. Évaluer surtout conservation des gags, qualité orale, paroles complètes dans l'audio et réactions visibles ; ajuster le débit empirique depuis les rendus utilisateur.
+
+## Audit et checkpoint 2026-09-27 — Fraisette / Piccolo, utilité des appels
+
+### Goal
+- Auditer les prompts, raisonnements exposés, contributions des appels et fidélité des runs Fraisette et Piccolo ; discuter le prochain patch et conserver un point de retour. Pas d'implémentation.
+
+### Current state
+- Rapport : docs/proposals/story-quality-piccolo-fraisette-2026-09-27.md dans le checkout actif. Copies des projets/prompts/réponses/raisonnements et metrics.json sous D:/Code/panelforge/.agent/diagnostics/story-quality-2026-09-27. Références originales des appels dans le rapport/métriques.
+- Fraisette avant (story-c994ccbffcc74be98cf709b1b957e94f, 2.3) vs après (story-43f098f0736442ef966f74f3a3387e1b, 2.4) : 15 -> 4 références, une variante enceinte réutilisée, ellipse between_scenes, base fine. Relecture 151,5 -> 36,3 s ; parcours 327,1 -> 339,2 s. Paramètres différents (30 s dialogue / 40 s visuel) : pas un benchmark contrôlé ni un gain de temps global prouvé. Images nouvelles pas encore acceptées à l'instantané.
+- Piccolo story-18c12bf9b9ac46109242a6a728b14bc6 : terminé pendant l'audit, ready, 5 appels acceptés, 764,5 s, sans JSON invalide/troncature. Réel : automatique, plafond 5 clips de 10 s, 4 produits ; brief conserve 8 s. Une correction locale après diagnostic bloquant de durée.
+- Éditeur Piccolo : 244,2 s, 28 332 tokens déclarés, ~15 836 mots de reasoning. Invente des intrusions anglaises (« T'as taken », « shoes brillantes ») absentes du prompt ; 36 edits dont 25 identiques à l'entrée. Allonge la villa à 38 mots + 3 s (~18,8 s pour 10), puis correction Gemma réduit à 27 mots + 3 s (~14,2 s), encore warning. Le relecteur hésite longtemps sur la gravité et accepte selon les règles actuelles. Pas de preuve de VRAM/offload dans ces seules métriques.
+- Limites qualité : ordre explicite du riche à Piccolo relégué au trigger et non joué ; test révélé tôt au cireur ; registre familier peu cru ; portefeuille tracking=text sans image dédiée et déclaré présent même dans la villa. Rendu vidéo non audité. La fidélité manque au contexte du relecteur qui ne reçoit ni brief ni obligations du passage.
+- Réplique « se payer des putes » : absente du brief proposé par l'assistant puis reçu par le moteur. Omission en amont reconnue ; aucun refus/censure établi dans ces traces. Préserver séparément répliques exactes et exemples de ton.
+- Recommandation à discuter : trois fonctions à garder conception/rédaction/relecture indépendante ; édition d'arc conditionnelle, correction seulement ciblée. Éviter les dialogues définitifs dans l'arc, transmettre contraintes de fidélité utiles sans secrets futurs, budget concret et redistribution possible, retirer champs fruit de concept inapplicables. Ajouter ensuite direction des dialogues et raccord de style visuel prévus. Aucun nouveau filtre lexical/arrêt de répétition ni appel universel proposé.
+- Checkpoint Git LOCAL créé : 8499ecccf78faa441015a235463bea574dc199d9, branche snapshots/pre-story-quality-2026-09-27-095510, parent c8e96dd. 102 fichiers code/tests/docs/manifests ; inclut les travaux préexistants KREA6/usine/thermique et Histoires. Index temporaire, HEAD/branche active/index utilisateur vérifiés inchangés ; aucun média, runtime ou trace brute ajouté ; aucun push. Manifest checkpoint.json dans le dossier de diagnostic.
+- Aucun code applicatif modifié, aucun test, appel LLM, rendu ou redémarrage lancé. Documentation/continuités et version locale uniquement.
+
+### Next steps
+1. Discuter le périmètre qualité avant implémentation : fidélité et faisabilité prioritaires, maintien de la relecture indépendante, édition d'arc à rendre conditionnelle après comparaison.
+2. Conserver les projets en l'état ; toute réparation/régénération des essais reste à la main de l'utilisateur.
+3. Utiliser le checkpoint local avant le prochain patch ; publication GitHub non demandée à ce stade.
+
+## Guidage 2026-09-27 — essai actuel humains réalistes / argot de quartier
+
+### Goal
+- Fournir les réglages et textes à coller pour tester Download(30) avant tout patch. Instruction explicite : ne rien coder.
+
+### Current state
+- Libellés vérifiés dans index.html et stories.js : Histoire suivie ; Manuel guidé ; Développer mon récit fourni ; vidéo continue ; cible 50 secondes ; Production avancée 1 séquence, plafond 7 clips de 8 secondes (56 secondes maximum, pas sept clips obligatoires).
+- Orientations proposées : famille Mélodrame fruits avec Univers explicitement humain photoréaliste + Piccolo en rendu film, construction narrative Automatique, Dialogues dramatiques, Résolution, Français, Vocabulaire 3 Très cru / argot. Modèles d'écriture habituels conservés.
+- Brief fourni : remise volontaire du portefeuille de 20 000 euros par un riche à un cireur adulte, explication du test à la compagne, cireur garde l'argent, appel de Piccolo et sanction burlesque finale ; français de quartier et influences maghrébines avec exemples libres, personnalités distinctes. Préserver injustice volontaire et causalité claire, sans moralisation ni prolongement.
+- Au passage en Fabrication/Références, renseigner Direction visuelle commune et Style personnalisé avant génération, car style reste vide à l'initialisation. Rendu de prises de vues réelles, mêmes matériaux/lumière crédibles pour Piccolo. Aucun réglage de rendu expérimental proposé.
+- Aucun code, réglage utilisateur ou runtime modifié, aucun test/appel LLM/rendu/redémarrage lancé. Notes de continuité uniquement.
+
+### Next steps
+1. L'utilisateur crée une nouvelle histoire avec le guidage et examine le récit/scénario avant fabrication.
+2. Auditer le résultat de cet essai avant de décider le patch style de dialogue/rendu visuel ; aucune implémentation lancée.
+
+## Discussion 2026-09-27 — direction des dialogues et rendu réaliste
+
+### Goal
+- Proposer les évolutions minimales du moteur pour un registre jeune de quartier et une adaptation humaine avec Piccolo en rendu cinéma. Alignement uniquement.
+
+### Current state
+- Vérifications en lecture : stories.py mélange oralité/vulgarité/argot dans dialogue_register 0..3. Aucun champ dédié de direction des dialogues. long_stories conserve langue/registre pour le lecteur mais enlève univers et brief de sa projection sans secrets.
+- Univers visuel explicite déjà prioritaire dans long_stories/story_prompting ; la règle des noms fruités exempte les humains. initial_episode initialise cependant style vide ; le style commun alimente les prompts de référence, mais scene_inputs ne transmet pas directement ce style au plan/prompt vidéo. Les images et la description de scène assurent aujourd'hui une part du raccord.
+- Proposition à aligner : un choix de style de dialogue (naturel/jeune-argot de quartier/personnalisé), avec note et quelques exemples facultatifs, séparé de l'intensité de langage existante ; voix modulée par personnage et contexte, sans quota lexical ni accent déduit. Héritage dans révisions/suites, paroles exactes conservées en fabrication.
+- Deuxième choix proposé : rendu visuel 3D/prises de vues réelles/personnalisé, distinct de l'univers (humains/fruits/etc.) et de la logique narrative. Propager une direction visuelle concise vers références et scènes, réutiliser le style commun existant et préserver les choix explicites de fabrication. Piccolo garde ses traits avec matière/lumière crédibles. Aucun réglage de sampling nouveau prévu.
+- Relecture : envisager uniquement un contexte stylistique court sans secrets, pour distinguer absurdité voulue et causalité manquante ; pas de nouveaux contrôles bloquants de vocabulaire ni d'appel LLM supplémentaire. Validation de la voix H3 à faire sur rendu utilisateur, sans garantie d'accent.
+- Anciennes histoires/répliques/images inchangées ; conversion visuelle d'un ancien casting fruité demanderait des références humaines, pas une réutilisation aveugle des images. Interfaces Références/Scènes/Multilangue conservées ; seules transmission et initialisation ciblées envisagées.
+- Aucun code, prompt applicatif, réglage ou runtime modifié ; aucun test, génération ou redémarrage. Notes seulement.
+
+### Next steps
+1. Aligner les deux choix et leur présentation dans Intention. Aucun accord d'implémentation donné pour cette évolution.
+2. Si validé, spécifier héritage/priorités et compatibilité des anciens réglages, puis patch ciblé sans enrichir inutilement les contrats LLM ou ajouter des appels.
+
+## Alignement 2026-09-27 — Download(30), humains réalistes et Piccolo
+
+### Goal
+- Réfléchir à une adaptation du récit fourni en rendu de film avec personnages humains ; proposer un plan, sans implémentation ni génération.
+
+### Current state
+- Images overview.jpg et ending.jpg inspectées dans workspace/experiments/analyse-download30-2026-09-27 ; transcription CPU existante relue (argot imparfait). Document joint pris comme analyse antérieure, pas comme instructions exécutables.
+- Choix explicite de l'utilisateur : humains réalistes, avec Piccolo adapté comme dans un film en prises de vues réelles. Préserver comédie noire, test volontaire et injuste du portefeuille, avidité, réaction disproportionnée et sanction finale ; aucune moralisation ou intrigue ajoutée.
+- Direction proposée : textures/lumière humaines crédibles, jeu expressif et logique absurde ; riche sec, cireur adulte fanfaron puis paniqué, compagne ironique, Piccolo bref. Style de dialogue indépendant de vulgarité ; formulations concrètes dans le brief pour le premier essai.
+- Code consulté en lecture : l'univers visuel explicite prime sur la famille dans les histoires longues ; règle de noms fruités exempte les univers humains. Premier essai possible par champs existants, sans nouveau moteur ni appel supplémentaire.
+- Références prévues : quatre identités, trois lieux, portefeuille important réutilisé ; aucune variante pour une émotion seule. Proposition : récit court autour de 40–50 secondes, puis essai ciblé remise du portefeuille / dialogue / Piccolo avant production complète.
+- Aucun code, réglage ou runtime modifié, aucun test, appel LLM, rendu ni redémarrage. Notes de continuité uniquement.
+
+### Next steps
+1. Aligner le plan créatif proposé ; première expérimentation à l'initiative de l'utilisateur.
+2. Si le registre reste insuffisant, envisager un seul champ de direction des dialogues réutilisé dans les appels existants ; aucune implémentation autorisée pour ce sujet à ce stade.
+
+## Implémentation 2026-09-27 — Histoires, états réutilisables et prompts par rôle
+
+### Goal
+- Implémenter la refonte validée après l'audit Fraisette : variantes parcimonieuses, état initial correct, ellipse distincte d'une transformation visible et moins de consignes inutiles.
+
+### Current state
+- Patch local dans D:/Code/panelforge-krea2-flux, sans commit/push ni redémarrage. Nouvelles histoires longues : visual_state_policy=2, contrat 2.4.0. Anciennes politiques/contrats restent pris en charge ; aucun runtime migré ou nettoyé.
+- Nouveau compilateur domain/story_reference_plan.py : références stables par identité + apparence résolue, réutilisation entre scènes et retour à la base. Détenteur d'objet indépendant. États finaux inutilisés conservés en mémoire sans tâches image. Identité décrite à la première apparition ; variantes Qwen ciblées sur l'état seul. Images existantes archivées si inutiles, jamais supprimées.
+- Routage et héritage liés à l'apparence ; blocage des scènes concernées si image manquante/obsolète. Qwen attend la validation de l'identité, y compris après changement initial. Interface Références conservée ; reconnaissance politique 2 et aide corrigée.
+- visual_transition.timing explicite within_scene/between_scenes pour 2.4 ; anciens champs inchangés si timing absent. Une ellipse génère une consigne d'état déjà acquis, pas de transformation. Le lecteur voit transitions et états résolus sans conclusions privilégiées.
+- Sources éditoriales lean-* et application/story_prompting.py : consignes par rôle, schéma unique sans gros exemple redondant, règles conditionnelles. Nommage, chat sans réécriture, limites de corrections conservés. Relecture de base 3 019 caractères contre 12 620 dans l'audit ; gain de thinking non mesuré. Quatre appels, modèles et budget 80k conservés.
+- Régressions écrites dans tests/test_story_sparse_states.py ; tests d'opt-in et faux LLM workflow adaptés. Aucun test exécuté, conformément à AGENTS.md ; aucune génération/appel LLM/interruption. Syntaxe Python/JSON et diff --check ciblé valides. Node absent : contrôle JS automatisé non effectué. Autres travaux préexistants préservés via comparaison à l'instantané ciblé.
+- Détails : docs/proposals/story-sparse-states-2026-09-27.md. Instantané avant patch et contrôles sous D:/Code/panelforge/.agent/diagnostics/story-revamp-*-2026-09-27.
+
+### Next steps
+1. L'utilisateur lance les tests ciblés documentés ; ne pas les exécuter ou redémarrer à sa place sans nouvelle demande.
+2. Au prochain redémarrage habituel, créer une nouvelle histoire Fraisette ; vérifier 2 identités + décor + 1 variante enceinte utilisée scènes 2/3, et absence de croissance montrée pendant l'ellipse.
+3. Mesurer les prochaines traces avant de conclure sur la réduction réelle du thinking. Aucun nettoyage rétroactif des 12 anciennes variantes ni ajout d'images avant/après au moteur vidéo dans ce patch.
+
+## Audit 2026-09-27 — Fraisette, variantes excessives et raisonnement
+
+### Goal
+- Analyser le test utilisateur, ses variantes et les hésitations du modèle ; discussion uniquement, aucune implémentation.
+
+### Current state
+- Run story-c994ccbffcc74be98cf709b1b957e94f / episode-ff7710c04f0f4309bc065d2e14d1f103 (Une petite vie / Un nouveau départ) : 15 références, dont 12 variantes pour 3 clips. La relecture crée 6 ancres par personnage, toutes reference=true, alors que l'état persiste déjà dans le moteur. Cible : 2 personnages + décor + 1 variante enceinte.
+- Écriture : 4 appels acceptés, aucune relance/récupération/troncature, 5 min 27 s. Relecture finale 2 min 32 s / environ 7 312 mots de raisonnement : hésitations sur la persistance non définie dans son prompt et ajouts « par précaution ». Rédaction initiale déjà dotée d'une ancre enceinte finale redondante.
+- Deux incohérences supplémentaires : prompt d'identité KREA déjà enceinte (description globale au lieu de l'état initial) ; ellipse codée en visual_transition, ensuite transformée en instruction de montrer le changement dans le clip. Relecteur non exposé à ce champ.
+- Audit détaillé et sources : D:/Code/panelforge/.agent/diagnostics/story-visual-variants-2026-09-27.md. Au dernier relevé du lot, plusieurs variantes Fraisette ont déjà été rendues ; six Pomito attendent leur identité. Aucune action sur le lot.
+- Aucun code/prompt/réglage/runtime modifié, aucun appel LLM/rendu/test ni redémarrage. Seules notes et continuités mises à jour.
+
+### Next steps
+1. Aligner avec l'utilisateur le patch parcimonieux : état persistant, identité initiale correcte, une image par apparence utile réutilisée, distinction ellipse/transformation visible.
+2. Alléger les consignes par rôle sans enlever les contrôles utiles ; conserver d'abord les quatre étapes, modèles et budgets pour comparer après accord.
+3. Attendre l'autorisation d'implémenter ; ne pas nettoyer/rejouer le run en cours automatiquement ni restaurer un détecteur de répétitions.
+
+## Guidage 2026-09-27 — tester les variantes visuelles dans Histoires
+
+### Goal
+- Expliquer quand et où générer les variantes, fournir une intention et les réglages pour un essai utilisateur sans lancer de traitement.
+
+### Current state
+- Parcours vérifié en lecture dans le checkout actif : Fabrication → Références, image d’identité acceptée/importée puis lot des états ou Préparer cet état · Qwen, validation du résultat et routage des scènes. Nouveau projet long nécessaire pour l’opt-in ; anciens projets inchangés.
+- Workflow branché : Qwen Image 2.1 image.edit 2.0.0 ; nouveau stage par défaut 25 steps, CFG 1, résolution source, finition natural, negative vide, seed aléatoire initialisée puis réutilisée. Le lot de variantes ne reprend pas les paramètres KREA. Instruction construite localement depuis la description de l’état, sans appel de rédaction LLM supplémentaire.
+- Test proposé : nouvelle Histoire suivie, automatique, vidéo continue 30 s, une séquence/plafond trois clips de 10 s, Mélodrame, narration principalement visuelle, résolution, français, fruits adultes en 3D. Fraisette annonce une grossesse sans ventre visible ; ellipse de six mois ; ventre nettement arrondi conservé dans les deux scènes suivantes, même robe et identité. Fournir aussi une instruction Qwen isolée et les paramètres par défaut pour contrôler l’image seule.
+- Aucun code ou réglage applicatif changé, aucune histoire créée, aucun appel LLM/image/vidéo ni test lancé. Travaux simultanés du checkout préservés.
+
+### Next steps
+1. L’utilisateur crée le nouveau projet avec l’intention fournie et contrôle la fiche d’état enceinte et son affectation aux scènes après l’ellipse.
+2. Valider l’identité, lancer/laisser reprendre les variantes demandées, valider l’image enceinte puis vérifier les références des scènes avant génération vidéo.
+
 ## Implémentation 2026-09-26 — preset Lèvres, dépôt strictement au contact
 
 ### Goal
@@ -8,7 +1230,7 @@
 ### Current state
 - LIPS_INTENT modifié dans le checkout actif D:\Code\panelforge-krea2-flux. Bas puis haut en sens inverse, de commissure à commissure, contact visible ; haut nu pendant le bas, arrêt du dépôt quand le stick se soulève et après retrait. Décor posé stable, aucune propagation ni apparition différée. Matières adaptées à la référence, ASMR et sourire franc tenu conservés ; davantage du plan consacré aux deux passages.
 - Consigne explicite de conserver les deux actions et trois états dans Plan et Prompt. Le parcours existant _sequence_request_scoped transmet déjà USER INTENTION aux deux appels et PLAN TO PRESERVE au Writer. Aucun changement des recettes générales ou des paramètres de rendu.
-- Point de retour Git créé : defb8be, ancien bloc d’intention uniquement. Correctif préparé en commit ciblé, en conservant hors index les autres patches usine et les travaux KREA2 déjà présents. Cette version ciblée ne sauvegarde pas tout le checkout non commité.
+- Point de retour Git créé : defb8be, ancien bloc d’intention uniquement. Correctif versionné en commit local c8e96dd, en conservant hors index les autres patches usine et les travaux KREA2 déjà présents. Cette version ciblée ne sauvegarde pas tout le checkout non commité.
 - Guide et note docs/proposals/video-factory-lips-contact-release-2026-09-26.md actualisés. Diagnostic antérieur conservé. Contrôles statiques : syntaxe/import Python, comparaison du fichier avant/après hors LIPS_INTENT et diff Git ; aucun nouveau test miroir ajouté pour ce changement de texte.
 - Aucun preset/traitement existant dans le runtime réécrit, aucun appel LLM/rendu, service redémarré ou test fonctionnel exécuté (AGENTS.md : tests à la charge de l’utilisateur sauf demande explicite).
 
@@ -16,6 +1238,347 @@
 1. Au prochain redémarrage habituel du Lab, recharger et réappliquer Lèvres aux lignes de Préparation souhaitées ; cette action reprend les réglages du preset, donc rétablir ensuite d’éventuels réglages personnalisés. Pour un résultat terminé, Dupliquer puis appliquer Lèvres à la nouvelle préparation.
 2. Les tests existants peuvent être lancés par l’utilisateur : python -m unittest tests.test_video_factory tests.test_video_factory_patch3. Pour valider la qualité, comparer avec la même image et les mêmes réglages ; le texte n’est pas une garantie de respect spatial par H3.
 3. Ne pas migrer ni relancer automatiquement les anciens prompts. Les prochaines vérifications du patch Archives restent documentées ci-dessous.
+
+## Analyse 2026-09-26 — Lèvres, apparition des pierres hors contact
+
+### Goal
+- Analyser les derniers rendus Lèvres et proposer une correction de causalité : ornement uniquement au passage réel du stick. Demande d’analyse/alignement, pas d’implémentation ni de nouvelles générations.
+
+### Current state
+- Neuf rendus usine du 26 septembre analysés (fin vidéo 12:06–12:53 Paris) : intentions identiques, mêmes réglages principaux/seed 0 verrouillée, une référence finale sans first frame. Prompts rédigés et effective_prompt concordent hors blancs ; preview batch bien désactivée.
+- Lecture des plans et inspection d’images horodatées des neuf bases, plus détails à 0,25 s pour cristaux 5434db2f, opales a3b97c35, Moonstone 89bfdbb9 et Jade 022fb046. Le défaut est déjà visible dans les bases avant DLSS. Échantillonnage visuel, pas évaluation exhaustive ou A/B causal.
+- Ambiguïté confirmée dans notre intention : « se propage depuis les zones réellement touchées jusqu’à couvrir les deux lèvres ». Plans/Writer gardent la propagation ; Jade juxtapose dépôt local et propagation, puis Writer perd « only where it has contacted ». Plusieurs gestes ne parcourent qu’une moitié de lèvre avant de passer à l’autre ; la couverture se complète à distance.
+- Proposition non implémentée : dépôt local immédiat derrière l’empreinte du raisin, deux passages complets séparés, haut nu pendant le bas, arrêt du dépôt dès que le stick se soulève ; préserver ces états dans Plan et Prompt, garder esthétique et sourire. Premier comparatif proposé avec même référence/seed/réglages et seul prompt modifié ; aucun essai lancé.
+- Diagnostic détaillé : docs/proposals/video-factory-lips-contact-2026-09-26.md dans le checkout actif. Artefacts/instantané runs.json et planches sous D:\Code\panelforge\.agent\diagnostics\lips-contact-2026-09-26. Extraction CPU uniquement ; aucun code, preset, fiche, média original ou service modifié.
+- Patch Archives précédent toujours local, non redémarré ni testé par l’agent ; son état et ses prochains contrôles restent décrits ci-dessous.
+
+### Next steps
+1. Discuter la règle de dépôt et les deux passages avec l’utilisateur ; attendre son accord avant implémentation ou nouvelles générations.
+2. Après accord, corriger le preset de façon ciblée et vérifier la conservation de la causalité dans Plan puis Prompt ; ne pas réécrire les prompts historiques silencieusement.
+3. L’utilisateur peut réaliser le comparatif proposé ; ne pas attribuer les défauts au DLSS, au LoRA ou à la seed sans essai isolant le facteur.
+
+## Implémentation 2026-09-26 — onglet Archives, grille compacte et exports de base
+
+### Goal
+- Livrer le quatrième onglet Archives choisi par l’utilisateur, archivage/restauration unitaires et en lot, grille État à trois colonnes, et publication automatique des bases dans base video.
+
+### Current state
+- Code modifié localement dans D:\Code\panelforge-krea2-flux ; autres changements du checkout conservés. Aucun commit/push, service redémarré, test fonctionnel, appel LLM, génération ou mutation du journal runtime.
+- archived_at optionnel persiste séparément du statut ; anciens journaux compatibles sans migration. can_archive exige réussite, étapes réussies/skipped, absence de récupération/annulation/suppression et publication finale réussie avec la bonne empreinte, y compris IG tardif.
+- Actions archive/restore serveur atomiques sur sélection complète, avec contrôle des révisions et de l’activité. Archives non éditables/rejouables directement ; restaurer d’abord. Restaurer efface seulement archived_at, conserve toutes les étapes et ne lance rien. Publication automatique ignore les archives.
+- Onglet Archives n°4, compteur dédié et retrait des archives du compteur Résultats. Actions ligne/fiche/lot, filtre À archiver ; notes d’inéligibilité et refus des lots mixtes. Restauration ouvre Résultats, duplication ouvre Préparation et conserve les métadonnées de localisation sans copier les anciens jobs. Renvoi identique : Déjà archivé et accès au bon onglet.
+- Résultats/Archives : grille État trois colonnes, statut dans la première case, six éléments habituels sur deux rangées ; deux colonnes sous 700 px. Lecteur, dossier, IG, étapes/durées, historique et zoom restent accessibles.
+- Publication : material stage video dans famille/date/base video, DLSS à la racine date. folder et TXT restent au niveau date, y compris IG tardif. Création et validation du sous-dossier, contrôles de collision/empreinte conservés. La migration des quatre anciennes bases effectuée au tour précédent reste valable ; aucun nouveau déplacement effectué ce tour.
+- Cache video-factory.js/css 20260926.patch4 ; guide, backlog et proposition video-factory-archives-2026-09-26.md actualisés autour de la décision finale quatre onglets.
+- Vérifications statiques : AST de sept fichiers Python, sept imports, parsing V8 du JS usine et huit fragments de fixtures navigateur, 31 IDs DOM usine uniques/quatre onglets, git diff --check. Avertissement Starlette/httpx existant uniquement.
+- Tests préparés non exécutés : test_video_factory_archives.py (dix cas service/HTTP), trois cas supplémentaires de publication dans test_video_factory_results.py et attente d’idempotence adaptée, scénario navigateur archive/restauration/doublon/grille dans test_video_factory_web.py.
+
+### Next steps
+1. L’utilisateur lance : python -m unittest tests.test_video_factory tests.test_video_factory_archives tests.test_video_factory_results tests.test_video_factory_web tests.test_video_factory_timing_retry.
+2. Au prochain redémarrage habituel du Lab puis Ctrl+F5 : Résultats → filtre À archiver → sélection → Archiver la sélection ; Archives permet consultation, restauration ou duplication. Aucune fiche existante archivée automatiquement.
+3. Vérifier à la prochaine publication que la base est sous base video et que le DLSS/TXT restent à la racine de date. Aucun rendu de vérification lancé par l’agent.
+
+## Alignement et migration 2026-09-26 — bases vidéo et archives des résultats
+
+### Goal
+- Migrer les bases existantes vers base video, autorisation utilisateur explicite. Discuter la grille État en trois colonnes et la façon d’archiver les résultats contrôlés, sans implémenter cette UX pendant l’alignement.
+
+### Current state
+- Rangement validé : DLSS et TXT à la racine famille/date, vidéos non DLSS dans famille/date/base video, y compris DLSS off/échec ; Ouvrir dossier reste au niveau date, lecteur privilégie DLSS sinon base. Politique des futurs exports encore à implémenter.
+- Inventaire : quatorze fiches publiées pointent vers leurs DLSS ; Petits hommes/2026-09-26 avait quatre bases, douze DLSS et seize TXT ; Histoire/2026-09-26 deux DLSS. Les quatre bases ont une correspondance unique avec leur fiche et asset source.
+- Migration effectuée : Incendie France, Petits homes dans un désert, Petits hommes dans la glace (5cb52892), Secheresse Corée (ebc1f624), vers D:\AI\PanelForge\LocalOutput\dlss\Petits hommes\2026-09-26\base video. Taille/SHA-256 contrôlés contre asset.json avant, SHA-256 vérifié après. Chemins confinés, absence de jonctions, aucun écrasement ; Move-Item natif uniquement.
+- Rapport exact dans D:\Code\panelforge\.agent\factory-base-migration-2026-09-26.json. Les sources immuables, DLSS, TXT, journal usine et chemins des livraisons restent inchangés. Autorisation de migration acquise : ne pas la redemander.
+- Proposition UI : grille État 3 colonnes, deux rangées Terminé / Voir DLSS / Ouvrir dossier puis Texte IG / Archiver / Supprimer. Statut textuel, Reprendre la chaîne conservé pour erreur. Adaptation 2 colonnes si largeur étroite.
+- Proposition archive : garder les trois onglets, bascule À contrôler / Archives dans Résultats ; Archiver la sélection et unitaire après contrôle explicite, seulement réussites sans erreur/export en attente. Archives consultables et restaurables sans relance, aucun déplacement de média ; fiches/prompts/durées conservés. Renvoi identique signale Déjà archivé, Dupliquer permet une nouvelle production. Pas d’archivage automatique.
+- Proposition et backlog mis à jour dans le checkout actif. Aucun code applicatif, test, LLM, génération ou service modifié/lancé pendant ce tour ; seuls les quatre déplacements explicitement autorisés ont été faits hors documentation.
+
+### Next steps
+1. Aligner l’UX compacte et le fonctionnement Archives ; ne pas considérer l’archive comme déjà validée ou implémentée.
+2. Implémenter la politique de futurs exports base video déjà validée, en préservant le dossier de date des TXT et du lien dossier ; vérifier les publications/reprises et ne pas recréer de bases à la racine.
+3. Après accord, ajouter archivage persistant, sélection multiple, vue Archives/restauration et retour explicite des doublons archivés ; préparer les régressions sans exécuter de tests sauf demande utilisateur.
+
+## Implémentation 2026-09-26 — style local Woolcraft Dreamscape
+
+### Goal
+- Ajouter l’image textile fournie comme direction artistique V6 réutilisable, sans associer le moindre réglage technique de son rendu source.
+
+### Current state
+- LocalKrea2StyleCatalog fusionne désormais le miroir Clio immuable avec un overlay facultatif workspace/catalogs/panelforge-local. Les identifiants restent uniques, les chemins de miniature restent confinés à leur catalogue et une réinstallation Clio ne remplace pas l’overlay personnel.
+- Woolcraft Dreamscape est installé localement dans la catégorie 3D Render avec une prose indépendante du sujet. La miniature est une copie exacte, non transformée, de l’essai fourni ; hash SHA-256 f68bf9b6ba824a66d1d2ec7117e3d0408e3137199d27ef415ad3dfcd7085171d.
+- SOURCE.json conserve uniquement la provenance projet/essai et précise que workflow, checkpoint, sampling, seed, LoRA et ratio sont exclus du style.
+- Validation en lecture seule : AST Python, catalogue ready avec 399 styles dont 1 local, récupération de la fiche, confinement/résolution de la miniature et identité SHA-256. Régression de préservation après réinstallation Clio préparée, sans exécuter la suite de tests.
+- Aucun appel LLM, rendu, indexation, redémarrage ou modification du catalogue Clio n’a été effectué.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, ouvrir V6 puis filtrer 3D Render ou rechercher Woolcraft Dreamscape.
+2. Faire un A/B sur le même sujet avec et sans direction afin d’évaluer sa portabilité entre checkpoints ; les réglages du rendu source ne seront jamais appliqués par cette fiche.
+
+## Implémentation 2026-09-26 — patch usine Lèvres, DLSS, groupes et EN
+
+### Goal
+- Implémenter le patch validé : Lèvres automatique, DLSS NaN %, délimitation des épisodes et inondations ludiques. Dernière correction utilisateur : conserver l’intention française inutilisée et marquer seulement EN dans les titres.
+
+### Current state
+- Patch local dans D:\Code\panelforge-krea2-flux ; autres changements du checkout conservés. Aucun commit/push, redémarrage ou modification du runtime partagé.
+- Lèvres : H3 image de fin, un plan de 10 s, Bunny/Motion Repair, DLSS on et IG on anglais/Gemma 4 local/3 variantes. Axes 1/1/1, dialogue 0, audace 1, liberté 25. Intention adaptée aux matières de la référence : départ nu, application/compression, propagation au contact, retrait complet, sourire franc avec dents supérieures puis tenue finale. Aucune couleur ou matière fixe imposée.
+- preparation_text ajoute la durée réelle et l’instant de référence finale à une préparation issue de Lèvres, sans écrire dans la config ni les prompts prêts. Temps de l’intention relatifs. Modifier seulement la durée d’un rendu déjà préparé ne réécrit toujours pas le prompt, comme indiqué dans la fiche.
+- Petits hommes garde ses defaults 8 s/DLSS/IG anglais ; ajout du guidage domestique ludique dès le Plan avec ventouse/pop/tourbillon qui vide la rue, chaussée humide, personnages/décors intacts. Éponge/pipette autres pistes, outil non imposé. Plans existants non régénérés automatiquement.
+- DLSS : fonction domaine partagée dlss_progress_ratio pour le coordinateur et l’adaptateur usine ; objet de progression par phases converti en ratio fini ou None. Frontend protège aussi les objets déjà persistés et les valeurs invalides. Réception/import affichent Finalisation sans pourcentage obsolète ; compteurs inchangés.
+- Groupes : bordures latérales et basse, en-tête avec nombre de scènes visibles, espace après le dernier membre dans les trois onglets. Les Lèvres suivantes restent à l’extérieur. Chaque segment ferme si les priorités séparent un épisode ; pas de réordonnancement automatique. Sélection par ID d’épisode conservée.
+- EN : badge de titre dans les lignes et l’inspecteur, infobulle sur les répliques anglaises. Déduit des métadonnées de localisation, pas du nom ni de la langue IG. Décision finale : ne pas recomposer l’intention française et ne pas toucher aux étapes Plan/Prompt ou aux prompts traduits.
+- Cache video-factory.js/css 20260926.patch3. Guide, backlog et proposition video-factory-lips-2026-09-26.md mis à jour avec la décision finale et les commandes utilisateur.
+- Contrôles statiques : AST de huit fichiers Python, huit imports, parsing V8 du script usine et de six fragments de fixtures navigateur. Avertissement Starlette/httpx existant uniquement. Aucun test fonctionnel exécuté selon AGENTS.md, aucun appel LLM, rendu, relance ou service lancé.
+- Régressions préparées : tests/test_video_factory_patch3.py (six cas), scénario navigateur groupe/EN/progression dans tests/test_video_factory_web.py, attentes des presets actualisées dans test_video_factory.py et test_video_factory_results.py.
+
+### Next steps
+1. L’utilisateur lance : python -m unittest tests.test_video_factory tests.test_video_factory_results tests.test_video_factory_patch3 tests.test_video_factory_web tests.test_dlss.
+2. Charger au prochain redémarrage habituel du Lab puis Ctrl+F5. Réappliquer Lèvres ou Petits hommes aux lignes de Préparation souhaitées pour bénéficier des nouveaux réglages ; pas de migration automatique des lignes ou prompts déjà préparés.
+3. Évaluer lors des essais utilisateur le sourire final sur plusieurs matières/images et le choix d’outil des inondations ; le guidage ne garantit pas le résultat vidéo.
+
+## Alignement complémentaire 2026-09-26 — intention English, inondations et groupes
+
+### Goal
+- Compléter le prochain patch en discussion, sans coder : cohérence de l’intention English, intervention d’inondation plus amusante et séparation visuelle des scènes d’un épisode dans l’usine.
+
+### Current state
+- Lecture seule : les trois lignes actuelles de Séance privée — English ont respectivement 2, 3 et 3 répliques English, aucune French, dans config.final_prompt et la sortie Prompt. Plan/Prompt réussis, Vidéo/DLSS à suivre. La correction précédente de capture des prompts traduits est effective sur ces lignes.
+- L’intention provient encore du source_text français et contient les anciennes répliques ainsi que « Répliques françaises exactes ». La capture localisée ne remplace actuellement que le prompt préparé ; c’est la présentation de l’intention qui reste incohérente.
+- Choix utilisateur confirmé : description française + répliques anglaises validées. Modèle rappelé : injection directe des traductions dans le prompt existant, seule la vidéo à refaire puis DLSS demandé. Pas de nouveau Plan/Prompt pour corriger cet affichage ; préserver les étapes prêtes, les sources et les empreintes historiques.
+- Interface : l’en-tête English n’a pas de fermeture après ses trois scènes, ce qui englobe visuellement les Lèvres suivantes. La sélection de groupe filtre déjà par ID d’épisode et exclut les Lèvres. Proposition : encadrement discret, titre avec nombre de scènes, bordure basse et espace après le groupe dans les trois onglets, ordre de priorité conservé.
+- Plans inondations Corée rural et Russie lus : même idée de raclette géante dégageant une bande de chaussée. Vidéos non visionnées. Proposition : guider dès le Plan un détournement domestique amusant, ventouse sur évacuation submergée puis pop/tourbillon qui vide la rue comme une baignoire, réaction thank you, un plan de 8 s. Exemple fort, pas objet imposé à chaque génération.
+- Cadrage détaillé ajouté à docs/proposals/video-factory-lips-2026-09-26.md et docs/backlog.md. Documentation uniquement : aucun code applicatif, runtime, média, journal, test, LLM, rendu, relance ou service modifié/lancé.
+
+### Next steps
+1. Poursuivre l’alignement puis implémenter quand demandé ; la durée Lèvres proposée de 10 s et la baisse de liberté caméra/actions restent des propositions non explicitement validées.
+2. Futur patch : defaults/intention Lèvres, progression DLSS finie, intention English cohérente sans invalider Plan/Prompt, groupes d’épisode délimités et guidage ludique inondations.
+3. Prévoir des régressions pour la conservation des prompts localisés, la présentation des répliques validées, les limites visuelles/sélection des groupes et l’objet de progression DLSS ; ne pas lancer de génération automatiquement.
+
+## Alignement 2026-09-26 — nouveau preset Lèvres et NaN DLSS
+
+### Goal
+- Aligner le prochain patch uniquement : defaults DLSS/IG anglais pour Lèvres, intention automatique guidée par l’exemple réussi et sourire plus marqué, correction NaN %. Pas d’implémentation à ce stade.
+
+### Current state
+- Diagnostic en lecture seule dans D:\Code\panelforge-krea2-flux et le runtime partagé. LIPS_INTENT ne décrit aujourd’hui qu’un gros plan lent et un retour à l’image de fin. Lèvres hérite de DLSS/IG au lieu de les activer ; durée de rendu remise à 8 s par configuration().
+- Demande explicite : DLSS on, Texte IG on anglais. Conserver H3/image de fin/1 plan, Gemma 4 local et 3 variantes.
+- Exemple utilisateur de 10 s : lèvres nues, rouge à lèvres orné de pierres bleues et or, application avec compression, propagation de l’ornement au contact, retrait de la main et sourire ouvert final. Les couleurs/matières doivent être adaptées à chaque référence, pas fixées au bleu/or.
+- Proposition d’intention détaillée : déduire la cible de l’image finale, fixer la chorégraphie et réserver le dernier temps au sourire franc (commissures relevées, joues soulevées, dents supérieures visibles), ornement conservé, main/tube hors cadre, tenue stable et ASMR sans parole ni musique.
+- Durée proposée, non encore validée : 10 s au lieu de 8 ; application/retrait terminés vers 7 s, sourire installé vers 8 s puis tenu jusqu’à 10 s. Faire correspondre la durée du prompt et la référence de fin au rendu effectif. Une image finale peu souriante risque de limiter l’effet : référence au sourire recherché préférable.
+- Proposition complémentaire : réduire la liberté caméra/actions et mettre les dialogues à zéro. Les réglages actuels sont axes 3/3/3, dialogue 1, audace 3 ; la variation souhaitée concerne surtout l’apparence déduite de l’image.
+- NaN % confirmé dans le code : DlssService stocke progress comme objet (percent, stage/index/count, label) ; FactoryWorkflows transmet l’objet entier ; le JS usine multiplie step.progress par 100 comme un ratio. Au moment de la lecture runtime, le job avait atteint receiving avec progress=null.
+- Correctif proposé : normalisation numérique cohérente avec la progression par phases du coordinateur, garde Number.isFinite et valeurs bornées, repli En cours/Finalisation si progression inconnue. Couvrir aussi les anciens objets persistés ; secondes inchangées.
+- Proposition dans docs/proposals/video-factory-lips-2026-09-26.md et backlog mis à jour. Aucun code applicatif, preset runtime, média ou journal modifié ; aucun test, LLM, génération, relance ou redémarrage.
+
+### Next steps
+1. Aligner la durée proposée et l’intention, puis attendre l’autorisation d’implémenter.
+2. Futur patch : defaults Lèvres, guidage automatique adapté à la référence et durée cohérente, normalisation DLSS + affichage robuste ; conserver les lignes et prompts existants tant que le preset n’est pas réappliqué.
+3. Préparer les régressions de réglages et d’objet de progression ; l’utilisateur évalue ensuite l’effet sur les vidéos et le sourire.
+
+## Implémentation 2026-09-26 — patch usine durées, reprise, suppression et versions traduites
+
+### Goal
+- Implémenter le patch validé : secondes sous les étapes, reprise unique, correctif DLSS, loupe sur miniatures, suppression de fiches dans tous les états, retour explicite sur doublons. Corriger l’envoi Histoires English et l’erreur view is null.
+
+### Current state
+- Modifications locales dans D:\Code\panelforge-krea2-flux, branche de travail existante ; changements KREA2 de l’autre conversation conservés. Aucun commit/push supplémentaire ni redémarrage.
+- ID DLSS : factory- + empreinte SHA-256 de la paire ligne/tentative, 72 caractères sous la limite de 80. Ancien identifiant de 89 caractères à l’origine du rejet Incendie France. Démarrage automatique DLSS existant conservé.
+- Production/Résultats : secondes sous chaque badge, compteur pendant l’étape puis durée figée, <1 s pour les tentatives très courtes, vide pour Off/attente/mesure inconnue. Reprise efface les dates de la tentative échouée et conserve les durées réussies.
+- Reprendre la chaîne : libellé unique sur ligne, fiche et lot ; même action serveur retry pour erreurs/annulations et export seul en erreur, en conservant toutes les étapes réussies.
+- Miniatures des trois onglets et références de fiche : bouton loupe +, image en grand à bonnes proportions, fermeture croix/Échap/extérieur. Le clic ne modifie pas la sélection.
+- Supprimer sur toutes les fiches et lignes Résultats ; suppression multiple dans les trois onglets. Retrait immédiat des lignes inactives, annulation coopérative puis retrait des lignes actives. remove_requested persisté, vérification des enfants vidéo/DLSS, récupération après redémarrage et même file en pause ; callbacks de publication/annulation tardifs ne recréent pas de ligne. Épisodes et médias conservés.
+- receive renvoie les doublons avec ID, nom, index et état ; notification d’ajout partiel explicite. Les annulées restent des doublons tant qu’elles ne sont pas supprimées ; une suppression libère le nouvel envoi sans réactivation automatique.
+- Bug English confirmé dans le runtime : préparations localisées sans session_id ignorées par l’ancienne capture, qui revenait au scénario français ; une préparation française avait ensuite été rattachée à la scène 2.
+- Nouvelle capture dédiée aux préparations localisées : projet de rendu validé et prompt injecté, validation contre les traductions et l’ordre des images, Plan/Prompt fournis sans LLM, reprise des vidéos déjà réussies seulement si prompt/réglages concordent. Traduction incomplète refusée avec message Multilangue. Cherche une préparation localized valide même après une ancienne préparation usine française.
+- register_factory_video accepte les préparations localisées sans session, conserve localized/source_preparation_id et refuse un prompt différent des dialogues validés. La vérification de la version de préparation et des entrées reste en place.
+- Lecture seule des trois projets de Séance privée — English : respectivement 2, 3 et 3 répliques English, aucune French, références dans le bon ordre. Aucun état runtime, source ou média modifié.
+- stories.js : view?.kind dans paintDiagnostics pour couvrir la vue absente et l’identifiant de séquence absent. Cache stories.js et video-factory.js/css en 20260926.patch2.
+- Guide docs/video-factory.md, docs/backlog.md et cadrage docs/proposals/video-factory-timing-retry-2026-09-26.md actualisés avec comportement implémenté et commandes utilisateur.
+- Vérifications : AST de 8 fichiers Python du patch, imports de 7 modules, parsing V8 des 2 scripts applicatifs et de 6 scénarios navigateur sans exécution, 29 IDs DOM usine uniques, git diff --check. Avertissements CRLF et dépréciation Starlette/httpx seulement.
+- Tests préparés : tests/test_video_factory_timing_retry.py (11 cas), 4 cas supplémentaires dans test_episode_localization.py, scénario complet dans test_video_factory_web.py, adaptations de la suppression dans test_video_factory_results.py et du diagnostic sans vue dans test_stories_browser.py. Aucun test fonctionnel exécuté selon AGENTS.md ; aucun LLM/rendu, navigateur de test, serveur ou suppression réelle lancé.
+
+### Next steps
+1. L’utilisateur exécute depuis le checkout actif : python -m unittest tests.test_video_factory tests.test_video_factory_timing_retry tests.test_video_factory_results tests.test_video_factory_web tests.test_episode_localization tests.test_stories_browser.
+2. Charger au prochain redémarrage habituel du Lab puis Ctrl+F5 ; aucun service redémarré par l’agent et aucune relance de chaîne effectuée.
+3. Pour les anciennes lignes English préparées en français : Recharger depuis l’histoire en Préparation, ou Supprimer puis renvoyer l’édition English. Les générations existantes ont été préservées ; pas de migration automatique des prompts en cours.
+4. Après chargement, Reprendre la chaîne sur Incendie France pourra relancer seulement DLSS ; la vidéo et le texte IG réussis sont conservés.
+
+## Patch KREA2 Assisted 2026-09-26 — inspirations locales optionnelles
+
+### Goal
+- Rendre la bibliothèque locale indépendante de la direction artistique et du preset : activée par défaut, mais entièrement contournable à la création et pendant les échanges suivants.
+
+### Current state
+- V4, V5 et V6 proposent une case compacte « Utiliser les inspirations locales » dans Nouveau projet. Décochée, elle retire l’exigence d’index prêt, ne cherche aucune scène/template et ne lance pas l’appel LLM de reformulation de recherche. Le réglage est transmis aux lancements dans un nouvel onglet.
+- Le projet actif expose le même axe. Sa désactivation ne réécrit ni le prompt courant ni la conversation ; les candidats déjà trouvés restent persistés pour une réactivation réversible, mais ne sont plus injectés ou renouvelés. Un projet créé sans candidats les recherche localement lors d’une réactivation explicite.
+- La direction artistique V6 et les presets restent indépendants du réglage. Le contrat domaine/API/stockage persiste local_inspiration_enabled ; schéma projet passé à 16 avec défaut true pour l’historique. Le bouton Reconstruire reste une action de maintenance disponible et devient visuellement secondaire lorsque l’axe est coupé.
+- Cache frontend passé à 20260926.krea6library1. Régressions ciblées préparées pour le contournement des deux appels, le formulaire/endpoint et la migration.
+- Vérifications effectuées : AST et imports Python, parsing JavaScript V8, unicité des IDs DOM et git diff --check. Aucun test fonctionnel, appel LLM, indexation, rendu, redémarrage ou mutation des projets runtime n’a été lancé.
+
+### Next steps
+1. Au prochain redémarrage habituel puis Ctrl+F5, ouvrir V6 : la case doit être cochée par défaut et sa désactivation doit permettre la création même sans index prêt.
+2. Vérifier les quatre combinaisons principales : bibliothèque seule, style seul, bibliothèque + style, ni bibliothèque ni style.
+
+## Alignement complémentaire 2026-09-26 — reprise unique, miniatures et scènes annulées
+
+### Goal
+- Finaliser le cadrage du patch usine sans coder. L’utilisateur valide durées/correctif DLSS, impose le bouton unique Reprendre la chaîne et ajoute agrandissement des miniatures et suppression des scènes annulées.
+
+### Current state
+- La proposition précédente de libellé Réessayer DLSS est rejetée : toujours Reprendre la chaîne, quelle que soit l’étape ou le nombre d’erreurs, en conservant les réussites. Même entrée UX proposée si seul l’export est à reprendre.
+- Miniatures : loupe + et ouverture de l’image en grand dans Préparation, Production et Résultats ; clic indépendant de la sélection et des réglages, fermeture simple proposée.
+- Diagnostic en lecture seule confirmé : receive dédoublonne source + config sur toutes les lignes, y compris cancelled, en renvoyant l’ancienne ligne sans changer son état. remove n’autorise aujourd’hui que preparation.
+- Journal lu : épisode Séance privée — English, scène 1 Le rejet cancelled ; scènes 2 active et 3 preparation. Cela correspond au renvoi partiel décrit, sans rejouer la demande ni toucher aux traitements.
+- Proposition : Supprimer sur ligne annulée et Supprimer la sélection sur un lot annulé ; retrait définitif de l’entrée usine, épisode et médias conservés. Après suppression, nouvel envoi autorisé en Préparation. Garder la protection des doublons encore présents et signaler les scènes non ajoutées avec leur état.
+- Ne pas réactiver automatiquement une ancienne ligne annulée lors d’un renvoi. Si elle existe encore, fournir un accès à Reprendre la chaîne ou Supprimer. Conserver les gardes d’activité et de callbacks au retrait.
+- docs/proposals/video-factory-timing-retry-2026-09-26.md et docs/backlog.md actualisés dans le checkout actif D:\Code\panelforge-krea2-flux. Aucun code applicatif, runtime ou média modifié ; aucun test, LLM, rendu, relance, suppression réelle ou redémarrage.
+- Les changements KREA2 V6 faits dans l’autre conversation restent hors de cette tâche.
+
+### Next steps
+1. Aligner avec l’utilisateur les derniers comportements proposés puis attendre sa demande d’implémentation.
+2. Implémenter le patch défini : identifiant DLSS compact/stable, secondes sous les étapes, reprise unique, agrandissement des miniatures et suppression des annulées avec retour explicite sur les doublons.
+3. Préparer les régressions du vrai format d’ID et du cycle annulation → suppression → nouvel envoi. Tests par l’utilisateur sauf demande explicite contraire ; préserver les générations en cours.
+
+## Alignement 2026-09-26 — durées des étapes et reprise DLSS
+
+### Goal
+- Aligner les durées en secondes dans Production/Résultats et une reprise visible après erreur. Pas d’implémentation demandée à ce stade.
+- Le point KREA2 V6/preset/style est annulé par l’utilisateur : envoyé dans le mauvais chat.
+
+### Current state
+- Diagnostic en lecture seule dans le checkout actif D:\Code\panelforge-krea2-flux et le runtime partagé D:\Code\panelforge\workspace.
+- « Incendie France » : Plan/Prompt/Vidéo/Texte IG réussis, DLSS échoué, sans dlss_job_id. Erreur exacte : Identifiant de demande DLSS invalide.
+- Cause confirmée : l’usine construit un request_id de 89 caractères (factory- + ID ligne + ID tentative), contre 80 maximum dans DlssService.queue. Rejet avant création du job et démarrage du serveur. Le serveur arrêté n’est pas la cause de cette erreur ; ensure_ready prévoit déjà le démarrage automatique, sans validation réelle du runtime dans ce diagnostic.
+- Reprise multiple existante : sélectionner la ligne puis Reprendre les chaînes ; le service conserve les étapes réussies. Il faut d’abord corriger l’identifiant, sinon la même erreur se reproduira.
+- Proposition : bouton direct Réessayer DLSS sur la ligne, Reprendre la chaîne si plusieurs étapes ont échoué ; durée de la dernière tentative sous les badges en secondes, compteur en cours puis durée figée, vide pour Off/attente/mesure inconnue.
+- Horodatages existants d’Incendie France : environ 55 s / 33 s / 200 s / <1 s (échec DLSS) / 10 s. Ne pas réafficher les anciennes dates lorsque la reprise repasse une étape en attente.
+- Cadrage ajouté dans docs/proposals/video-factory-timing-retry-2026-09-26.md et docs/backlog.md du checkout actif. Aucun code applicatif, journal runtime ou média modifié ; aucun test, appel LLM/rendu, relance ou redémarrage.
+
+### Next steps
+1. Attendre l’alignement et la demande d’implémentation du correctif compact : identifiant DLSS stable sous la limite, durées, reprise directe avec conservation des réussites.
+2. Préparer une régression sur le véritable format d’ID usine ; tests exécutés par l’utilisateur sauf demande explicite contraire.
+3. Après correctif chargé, une reprise explicite de la ligne Incendie France pourra relancer seulement DLSS ; ne pas la déclencher pendant l’alignement.
+
+## Patch UX 2026-09-26 — presets V6 composables avec les directions artistiques
+
+### Goal
+- Ordonner Nouveau projet en recette → preset → style et permettre à un preset personnel de mémoriser une direction Clio par défaut sans masquer ni verrouiller son remplacement manuel.
+
+### Current state
+- Preset et direction artistique ne sont plus mutuellement exclusifs. Sélectionner une direction ne retire plus le preset ni ses checkpoint/LoRA ; retirer le preset conserve la direction visible.
+- Le catalogue de presets passe au schéma 3 et persiste une copie optionnelle de la direction du rendu source. Les anciens schémas 1/2 restent lisibles.
+- Les anciens presets sans ce champ sont enrichis en lecture depuis leur projet et leur essai source, sans réécriture silencieuse. Vérification runtime : `Petits hommes clay` révision 1 pointe vers un essai existant dont la direction figée est bien `Claymation`; l’association sera donc récupérée automatiquement.
+- Un nouveau preset conserve le prompt canonique du sujet et la direction séparément, afin d’éviter de réinjecter un prompt déjà compilé avec le style.
+- Nouveau projet affiche désormais recette, état des bibliothèques, preset personnel puis direction artistique. Le style par défaut du preset reste visible et remplaçable avant la création.
+- Sérialisation API et tests préparés complétés pour la composition, la migration, la récupération depuis l’essai source et l’ordre UI. Cache frontend porté à `20260926.krea6preset1`.
+- Vérifications effectuées : AST et imports Python, parsing JavaScript V8 sans exécution, unicité des IDs DOM, ordre réel du formulaire, récupération runtime en lecture seule de `Petits hommes clay → Claymation` et `git diff --check`. Aucun test fonctionnel lancé.
+
+### Next steps
+1. Au prochain redémarrage habituel puis Ctrl+F5, choisir V6 puis `Petits hommes clay` et vérifier que Claymation apparaît. Aucun catalogue runtime, projet, appel LLM, rendu ou service n’a été modifié/lancé par l’agent.
+
+## Implémentation 2026-09-26 — patch usine après les premiers essais
+
+### Goal
+- Implémenter le patch autorisé par l’utilisateur : statut de fin, preview batch, accès et classement des résultats, texte IG, Petits hommes et suppression multiple.
+
+### Current state
+- Code modifié dans le checkout actif D:\Code\panelforge-krea2-flux, sur la branche existante feature/krea2-v6-style-catalog-2026-09-26 ; les changements KREA2 V6 préexistants sont préservés. Aucun commit ni push supplémentaire.
+- L’usine ne demande plus de cooldown après le rendu synchrone. Le coordinateur impose toujours le repos avant la prochaine vidéo et affiche maintenant son compte à rebours même sans propriétaire actif. Le résultat et les étapes locales peuvent avancer dès l’import validé.
+- batch_mode persisté dans H3RenderAttempt et son stockage, false par défaut pour les historiques. Usine et batch direct Histoires le transmettent ; BUNNY désactive preview_enabled et H3/REF2V classiques contournent les nœuds via les liaisons explicites de 14 manifestes. Les graphes sources/empreintes et réglages manuels sont conservés.
+- Petits hommes active DLSS et IG anglais/Gemma 4/3 variantes à l’application du preset. Nouvelle intention éditable : accessoire extérieur librement choisi, mécanismes illustrés (eau/verdure, incendie, réparation), causalité et un plan de huit secondes, réplique thank you explicitement anglaise. Aucun ajout d’appel LLM ni migration des lignes déjà préparées.
+- Nouveau contrat domain/video_factory_results.py pour sélectionner le résultat final, conserver sa famille après Personnalisé et formater les variantes Unicode sans répéter les emojis déjà dans le texte.
+- Nouveau worker de publication, indépendant des GPU, avec état dans le journal et reprise d’export sans génération. infrastructure/video_factory_outputs.py publie sous <dlss-output-root>/dlss/<Petits hommes|Histoire|Levres|Autres>/<date locale de fin>. Noms lisibles + IDs courts ; histoires avec numéro de scène. Lien physique vers le média existant quand possible, copie atomique sinon ; sources et références préservées. TXT UTF-8 à côté, même dossier lors d’une arrivée IG tardive ; collisions et modifications externes signalées sans écrasement du contenu utilisateur.
+- Résultats : accès direct vidéo/DLSS, dossier, texte IG ; détail avec Copier le chemin, Copier cette variante et téléchargement TXT. Route d’ouverture native limitée au client local ; accès distant par chemin/téléchargement. Échec d’export visible avec Reprendre l’export. Copie serveur DLSS existante inchangée.
+- Préparation : Supprimer la sélection (N), désactivé sans sélection ; retrait atomique des lignes en préparation via l’action existante. Le brouillon d’une ligne supprimée n’a pas besoin d’être enregistré. Aucun média/source supprimé.
+- Cache video-factory.js/css en 20260926.patch1. Guide docs/video-factory.md, backlog et proposition mis à jour.
+- Vérifications réalisées : AST de 35 fichiers Python modifiés/nouveaux, imports dans D:\Code\panelforge\.venv avec src du checkout actif, JSON et 14 manifestes (empreintes de graphes intactes et liaisons de preview valides), IDs DOM usine uniques, syntaxe JavaScript via parsing V8 sans exécution et git diff --check.
+- Tests préparés dans test_video_factory_results.py et compléments machine_work/h3_bunny/video_factory_web. Aucun test fonctionnel exécuté conformément à AGENTS.md. Aucun appel LLM, rendu, modification du journal runtime ou redémarrage de service.
+
+### Next steps
+1. L’utilisateur exécute depuis le checkout actif : python -m unittest tests.test_video_factory tests.test_video_factory_results tests.test_video_factory_web tests.test_machine_work tests.test_h3_bunny tests.test_h3_render tests.test_episodes tests.test_episode_reference_refresh ; suite complète ensuite si souhaité.
+2. Au prochain redémarrage habituel du Lab, Ctrl+F5. Les résultats usine terminés peuvent alors être classés sans nouveau rendu ; les traitements en cours n’ont pas été touchés par l’implémentation.
+3. Réappliquer explicitement Petits hommes aux préparations qui doivent adopter la nouvelle intention et les nouveaux défauts. Évaluer la variété créative sur plusieurs images ; le patch ne garantit pas à lui seul le résultat du modèle.
+
+## Patch UX 2026-09-26 — création Assisted avec rendu automatique et nouvel onglet
+
+### Goal
+- Enchaîner automatiquement création du projet, génération du prompt et rendu ; permettre de lancer la même chaîne dans un nouvel onglet indépendant.
+
+### Current state
+- Le bouton principal lance désormais le rendu seulement après une génération de prompt réussie. Une erreur de prompt arrête la chaîne avant toute mise en file du rendu.
+- Un bouton adjacent « Nouvel onglet ↗ » ouvre immédiatement un onglet du même Lab. Le formulaire figé au clic, y compris l’image de référence et la direction V6, lui est transmis en mémoire ; seul le nouvel onglet appelle les API de création, prompt et rendu.
+- Le transfert inter-onglets est limité à la même origine, associé à un jeton unique puis consommé une seule fois. Aucun nouvel endpoint ni stockage temporaire n’a été ajouté.
+- Les contrôles statiques UI couvrent la présence des deux boutons, l’arrêt sur échec et la chaîne autonome du nouvel onglet.
+
+### Next steps
+1. Après rechargement du Lab, essayer une création normale puis deux créations successives via « Nouvel onglet ↗ ». Aucun service, appel LLM ou rendu n’a été lancé par l’agent.
+
+## Patch UX 2026-09-26 — direction artistique V6 près du rendu
+
+### Goal
+- Déplacer le sélecteur de direction artistique V6 à l’ancien emplacement visuel de la recette Batch, près des paramètres et résultats de rendu.
+
+### Current state
+- Le bloc V6 est désormais placé après les paramètres du prochain rendu et avant la galerie. Modifier la direction artistique reste indépendant de la génération du prompt.
+- Les deux entrées visibles de l’ancienne recette Batch candidate sont masquées. Le DOM et la logique historiques restent présents pour compatibilité, sans changement backend.
+- Test UI statique complété pour verrouiller l’ordre paramètres → direction artistique → galerie et le masquage de la recette.
+
+### Next steps
+1. Recharger la page KREA2 Assisted et vérifier le placement sur un projet V6 ; aucun redémarrage ni rendu n’a été lancé par l’agent.
+
+## Alignement 2026-09-26 — patch usine après les premiers essais
+
+### Goal
+- Étoffer la backlog avec l’utilisateur, sans coder : statut de fin, preview batch, dossier et texte IG, inventivité Petits hommes et suppression multiple en Préparation.
+
+### Current state
+- Diagnostic en lecture seule : l’usine attend le retour synchrone du rendu, lequel attend son cooldown après avoir enregistré la réussite. Les deux lignes désert/métro sont désormais réussies dans le journal ; aucun état corrigé manuellement.
+- BUNNY possède déjà preview_enabled, vrai dans les essais lus. Demande : désactiver le calcul de preview dans l’usine et les histoires en batch ; préserver H3 Base/REF2V manuels et la lecture du résultat fini.
+- Proposition : dossier local accessible depuis Résultats, copie par variante IG + TXT UTF-8 associé à la vidéo ; conserver emojis séparés, accents et sauts de ligne. L’atelier Texte IG possède déjà Tout copier, mais le détail usine omet le champ emojis séparé.
+- Plan désert trop restrictif : la main est déclarée seul ajout, puis relève seulement un personnage. Guider l’invention et autoriser l’accessoire dès le Plan ; ne pas compter sur le rédacteur pour modifier un plan approuvé. Accessoire extérieur attendu par défaut proposé, pas encore validé.
+- Demandes antérieures conservées : Petits hommes active DLSS et IG (anglais/Gemma 4/3 variantes) ; rangement famille/date, y compris après passage en Personnalisé.
+- Dernier ajout utilisateur : Supprimer la sélection (N) dans Préparation, retrait des lignes uniquement avec sources et médias conservés ; action serveur multiple remove déjà disponible, bouton de lot absent. Besoin consigné en section 6 du cadrage, sans implémentation ni suppression réelle.
+- Backlog documentaire ajoutée dans le checkout actif : docs/proposals/video-factory-patch-2026-09-26.md, liée depuis docs/backlog.md. Aucun code applicatif modifié, test, appel LLM, génération, déplacement de média ou redémarrage.
+
+### Next steps
+1. Valider avec l’utilisateur les règles proposées, notamment l’accessoire extérieur attendu et le couple copie/TXT.
+2. Attendre une demande explicite d’implémentation ; conserver les essais en cours et le travail KREA2 V6 indépendant.
+
+## Alignement 2026-09-26 - preset Petits hommes et rangement des videos
+
+### Goal
+- Discuter des ameliorations du preset Petits hommes et du classement des videos terminees. L'utilisateur demande explicitement de ne rien coder pour le moment.
+
+### Current state
+- Demandes utilisateur : activer DLSS et Texte IG par defaut pour Petits hommes ; envisager des exemples historiques secheresse / incendie / reparation ; classer les sorties locales sous Petits hommes/date, Histoire/date et Levres/date.
+- Lecture seule du code et des historiques effectuee. Le preset actuel conserve les options DLSS/social existantes ; la configuration initiale les desactive. Texte IG utilise deja anglais, Gemma 4 local et 3 variantes.
+- Intentions historiques retrouvees : eau puis vegetation, pommeau de douche contre incendie, retrait d'un rocher bloquant la route. La qualite des videos correspondantes n'a pas ete evaluee.
+- Suggestions a discuter : exemples courts adaptes a l'image lors de la preparation du plan/prompt ; une intervention principale et un resultat visible en 8 secondes ; conserver la famille de classement meme si le preset devient Personnalise ; date locale de fin de la video finale.
+- Aucun code applicatif modifie, fichier video deplace, test, appel LLM, generation ou redemarrage. Seule cette note de continuite est ajoutee.
+
+### Next steps
+1. Attendre le retour utilisateur sur ses tests du prompt actuel et confirmer le cadrage avant toute implementation.
+2. Choisir quelques exemples dont les videos sont jugees reussies, notamment un exemple de reparation, sans modifier les traitements deja en cours.
+
+## Implémentation 2026-09-26 — KREA2 Assisted V6, directions artistiques modulaires Clio
+
+### Goal
+- Sauvegarder l’état courant sur GitHub, puis ajouter une V6 expérimentale qui sépare structure de scène, direction artistique et profil de rendu, sans modifier le comportement par défaut V3 STABLE.
+
+### Current state
+- Sauvegarde pré-chantier publiée sur `https://github.com/EasyFrag/panelforge.git` : branche `snapshots/pre-krea6-style-catalog-2026-09-26`, tag annoté du même nom, commit `eac1e2e`. Implémentation locale sur `feature/krea2-v6-style-catalog-2026-09-26` dans `D:\Code\panelforge-krea2-flux`.
+- V6 `6.0.0` ajoutée après V5 ; V3 reste sélectionnée par défaut et V3/V5 ne chargent ni n’utilisent le catalogue de styles. V6 reprend la recherche hybride V5 pour la structure/pose et demande au LLM un prompt de scène neutre vis-à-vis du médium.
+- Nouveau contrat pur `Krea2ArtDirection`. Le prompt édité/conversationnel reste canonique ; au lancement d’un rendu, PanelForge compile déterministement `Style: nom: prose. Subject: scène`. Aucun appel LLM supplémentaire. Le prompt canonique, le prompt compilé, la direction et la révision du catalogue sont figés dans l’essai, le stockage et le sidecar.
+- Décision initiale désormais remplacée : preset personnel et direction Clio sont composables ; la direction reste un contrôle séparé et visible, éventuellement initialisé par le preset.
+- Catalogue local `workspace/catalogs/clio`, sans base, node ComfyUI ni code Clio exécuté. Installation volontaire depuis une archive GitHub épinglée à `82b8b79a2e52d3a53d52ba11c99c100c991dc15f`. Seuls `styles.json`, le manifest, les miniatures, `LICENSE` et la provenance/attribution sont conservés ; taille, chemins, unicité et métadonnées sont validés avant remplacement atomique.
+- Interface V6 compacte dans Nouveau projet et le projet actif : bouton Parcourir, galerie locale avec recherche/catégorie, miniatures, prose complète, installation/réinstallation explicite et suppression du choix. Les miniatures restent ouvrables en grand. Assets cache-bustés en `20260926.krea6`.
+- API ajoutée pour statut/liste/installation/miniature/sélection de direction. Bootstrap Lab raccordé au catalogue local. Schéma Assisted porté à 15 avec lecture des versions antérieures.
+- Tests ajoutés/préparés : compilateur pur, extraction locale sélective, compilation de service/persistance V6 et contrats statiques UI ; assertions existantes mises à jour pour V6 et schéma 15. Vérifications effectuées : AST Python, unicité des IDs DOM et `git diff --check`. Node n’est pas installé dans cet environnement, donc `node --check` n’a pas été exécuté. Aucun test fonctionnel, appel LLM, téléchargement Clio, génération ou redémarrage n’a été lancé.
+- La structure officielle a été vérifiée sur le dépôt Clio : `name` / `prompt` / `section`, manifest `sections.krea2.images`, miniatures `gallery/krea2/thumbs`, format style-first documenté. Les travaux préexistants du snapshot ont été conservés.
+
+### Next steps
+1. L’utilisateur lance les tests ciblés : `python -m unittest tests.test_krea2_art_direction tests.test_krea2_style_catalog tests.test_krea2_assisted tests.test_krea2_assisted_v5 tests.test_krea2_assisted_ui tests.test_krea2_assisted_web tests.test_krea2_assisted_sampling tests.test_krea2_assisted_render_queue` puis la suite complète si souhaité.
+2. Au prochain redémarrage habituel du Lab puis Ctrl+F5, sélectionner V6, ouvrir Directions artistiques, installer le catalogue (~20–25 Mio attendu), choisir un style et comparer à seed/réglages identiques avec Sans direction.
+3. Après validation réelle, décider si V6 reste expérimentale et si les favoris/collections personnelles doivent devenir un module séparé ; ne pas fusionner style, pose et profil technique dans un preset opaque.
 
 ## Correction visuelle 2026-09-25 — bouton usine dans Histoires
 

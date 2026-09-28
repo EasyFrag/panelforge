@@ -24,6 +24,7 @@ class WorkQueueBrowserTest(unittest.TestCase):
         const settings={thermal:{stop_temperature_c:85,resume_temperature_c:40,cooldown_seconds:120,
           monitor_local:true,monitor_remote:true,pause_when_unavailable:false},
           local_cooldown_temperature_c:80,local_cooldown_seconds:80,
+          remote_non_video_cooldown_temperature_c:80,remote_non_video_cooldown_seconds:80,
           remote_video_cooldown_seconds:30,pause_after_failure:false,history_limit:30};
         const status={settings,recent:[{resource:'local_gpu',operation:'Ancien prompt',status:'failed',
           error_type:'RuntimeError',error:'Serveur LLM indisponible'}],
@@ -43,7 +44,8 @@ class WorkQueueBrowserTest(unittest.TestCase):
             local_gpu:[{timestamp:'2026-09-25T10:00:00Z',max_temperature_c:76},{timestamp:'2026-09-25T10:00:15Z',max_temperature_c:82}],
             remote_gpu:[{timestamp:'2026-09-25T09:00:00Z',max_temperature_c:68},{timestamp:'2026-09-25T09:00:15Z',max_temperature_c:73}]},
           events:{
-            local_gpu:[{id:'p1',marker:'P',workload:'llm',operation:'Synopsis',started_at:'2026-09-25T10:00:00Z',finished_at:'2026-09-25T10:02:00Z',status:'completed',peak_temperature_c:82}],
+            local_gpu:[{id:'p1',marker:'P',workload:'llm',operation:'Synopsis',started_at:'2026-09-25T10:00:00Z',finished_at:'2026-09-25T10:02:00Z',status:'completed',peak_temperature_c:82},
+              {id:'d1',marker:'D',workload:'dlss',operation:'DLSS image',started_at:'2026-09-25T10:05:00Z',finished_at:'2026-09-25T10:06:00Z',status:'interrupted',peak_temperature_c:79}],
             remote_gpu:[{id:'v1',marker:'V',workload:'video_render',operation:'H3 scene 1',started_at:'2026-09-25T09:00:00Z',finished_at:'2026-09-25T09:12:00Z',status:'completed',peak_temperature_c:73}]}};
         window.fetch=async(url,options={})=>{
           calls.push({url,method:options.method||'GET',body:options.body?JSON.parse(options.body):null});
@@ -74,19 +76,33 @@ class WorkQueueBrowserTest(unittest.TestCase):
           const dialog=document.querySelector('.work-queue-dialog');
           check(dialog.open&&dialog.querySelectorAll('.work-queue-lane').length===2,'both lanes open');
           check(dialog.querySelectorAll('.work-queue-long-temperature-chart').length===2,'two separate 24 hour charts are visible');
-          check(dialog.querySelectorAll('.work-queue-event-markers button').length===2,'local and remote event markers are visible');
+          const local24=dialog.querySelector('.work-queue-long-temperature-chart');
+          check(local24.dataset.windowHours==='24'&&local24.dataset.bucketSeconds==='30'&&local24.dataset.sampleCount==='1','24 hour chart uses 30 second maxima');
+          check(dialog.querySelectorAll('.work-queue-event-bars button').length===3,'local and remote activity bars are visible');
+          check(dialog.querySelector('.work-queue-event-bar.status-interrupted'),'interrupted activity is rendered separately');
+          check(dialog.querySelector('.work-queue-temperature-peak'),'the main peak is marked');
           check(dialog.textContent.includes('P = Prompt/LLM')&&dialog.textContent.includes('I = Image'),'event legends are visible');
+          check(dialog.querySelectorAll('[data-thermal-window-hours]').length===2&&!dialog.querySelector('[data-thermal-window-hours="1"]'),'only 24 and 6 hour views are proposed');
+          dialog.querySelector('[data-thermal-window-hours="6"]').click();
+          const local6=dialog.querySelector('.work-queue-long-temperature-chart');
+          check(local6.dataset.windowHours==='6'&&local6.dataset.bucketSeconds==='15'&&local6.dataset.sampleCount==='2','6 hour chart keeps 15 second maxima');
+          check(dialog.querySelector('[data-thermal-window-hours="6"]').getAttribute('aria-pressed')==='true','6 hour selector is active');
+          const thinSegment=dialog.querySelector('.work-queue-long-temperature-segment');
+          check(thinSegment&&getComputedStyle(thinSegment).strokeWidth==='1.25px','thermal line stays thin');
           check(calls.some(call=>call.url==='/api/work-scheduler/thermal-history'),'24 hour history uses its dedicated request');
           check(dialog.textContent.includes('Prompt scÃ¨ne 2')&&dialog.textContent.includes('KREA2 Â· LÃ©a'),'upcoming jobs are described');
           check(dialog.textContent.includes('Serveur LLM indisponible'),'real failure detail is visible');
           dialog.querySelector('[data-resource=local_gpu]').click();
           await until(()=>calls.some(call=>call.url==='/api/work-scheduler/local_gpu/pause'));
           const form=dialog.querySelector('[data-settings-form]');
+          form.elements.namedItem('remote_non_video_cooldown_temperature_c').value='79';
+          form.elements.namedItem('remote_non_video_cooldown_seconds').value='90';
           form.elements.namedItem('remote_video_cooldown_seconds').value='45';
           form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
           await until(()=>calls.some(call=>call.url==='/api/work-scheduler/settings'&&call.method==='PUT'));
           const saved=calls.find(call=>call.url==='/api/work-scheduler/settings'&&call.method==='PUT').body;
-          check(saved.remote_video_cooldown_seconds===45&&saved.thermal.stop_temperature_c===85&&
+          check(saved.remote_non_video_cooldown_temperature_c===79&&saved.remote_non_video_cooldown_seconds===90&&
+            saved.remote_video_cooldown_seconds===45&&saved.thermal.stop_temperature_c===85&&
             saved.local_cooldown_temperature_c===80&&saved.local_cooldown_seconds===80,'global settings are posted');
           window.PanelForgeWorkQueue.notice('Admission DLSS interrompue',{id:'dlss:test'});
           check(floating.textContent.includes('Admission DLSS interrompue'),'client-side admission errors use the global monitor');

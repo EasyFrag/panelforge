@@ -1,19 +1,26 @@
-"""Opt-in visual-state coverage for newly created long stories (wire 2.3)."""
+"""Versioned visual-state review for long stories (legacy 2.3 and sparse 2.4)."""
 from copy import deepcopy
 from . import story_continuity as ledger
 
-CONTRACT_VERSION = "2.3.0"
+CONTRACT_VERSION = "2.4.0"
+LEGACY_CONTRACT_VERSION = "2.3.0"
 
 
 def enabled(project):
-    return (project.get("job") or {}).get("response_contract_version") == CONTRACT_VERSION
+    return (project.get("job") or {}).get("response_contract_version") in {LEGACY_CONTRACT_VERSION, CONTRACT_VERSION, "2.5.0"}
+
+
+def sparse(project):
+    return (project.get("job") or {}).get("response_contract_version") in {CONTRACT_VERSION, "2.5.0"}
 
 
 def patch_schema(project, identity):
     from .story_contracts import obj, choice, array
     from .long_stories import source_hash
     scenario = project["document"]["episode_scenarios"][identity]
-    element = ledger.schema(len(scenario["scenes"]))["properties"]["elements"]["items"]
+    from .story_editions import refined
+    element = ledger.schema(len(scenario["scenes"]),
+        character_ids=[c["id"] for c in scenario["characters"]] if refined(project) else None)["properties"]["elements"]["items"]
     return obj(base_hash=choice([source_hash(project, identity)]), elements=array(element, 0, 24))
 
 
@@ -21,9 +28,13 @@ def projection(project, identity):
     from .long_stories import source_hash
     scenario = project["document"]["episode_scenarios"][identity]
     # No dramatic summary, secret, reason, narrative outcome or character biography.
-    return dict(unit_id=identity, base_hash=source_hash(project, identity),
+    result = dict(unit_id=identity, base_hash=source_hash(project, identity),
         elements=[{key: deepcopy(e[key]) for key in ("id", "kind", "name", "tracking", "scene_indices", "states")}
                   for e in ledger.elements(scenario)])
+    if sparse(project):
+        from .story_reference_plan import reader_projection
+        result.update(reader_projection(scenario))
+    return result
 
 
 def extract_review_patches(project, response):
@@ -58,6 +69,32 @@ def extract_review_patches(project, response):
         if patch is None or identity not in allowed:
             continue
         try:
+            from .story_editions import refined
+            if refined(project):
+                header = deepcopy(patch) if isinstance(patch, dict) else {}
+                received = header.get("elements")
+                header["elements"] = []
+                if not isinstance(received, list) or structural_issues(header, patch_schema(project, identity)):
+                    raise ValueError("La correction visuelle reçue est mal formée ou vise une ancienne révision.")
+                scenario = project["document"]["episode_scenarios"][identity]
+                previous = scenario.get("visual_continuity") or ledger.empty()
+                known = {e["id"]: e for e in previous["elements"]}
+                replacements = deepcopy(received)
+                for replacement in replacements:
+                    if not isinstance(replacement, dict) or not isinstance(replacement.get("id"), str):
+                        continue
+                    old = known.get(replacement["id"])
+                    if old and old["kind"] == replacement.get("kind"):
+                        for key in ("name", "description", "enabled"):
+                            if key in old:
+                                replacement[key] = deepcopy(old[key])
+                current, warning = ledger.salvage(dict(version=ledger.VERSION,
+                    dramatic_summary=previous["dramatic_summary"], elements=replacements), scenario, previous)
+                if warning:
+                    warnings[identity] = warning
+                if current != previous:
+                    changes[identity] = current
+                continue
             if structural_issues(patch, patch_schema(project, identity)):
                 raise ValueError("La correction visuelle reçue est mal formée ou vise une ancienne révision.")
             if patch["base_hash"] != source_hash(project, identity):

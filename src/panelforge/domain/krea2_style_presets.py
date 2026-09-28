@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
+from .krea2_art_direction import Krea2ArtDirection
 from .krea2_batch import Krea2BatchSettings, Krea2PromptLanguage
 
 
@@ -25,6 +26,7 @@ class Krea2StylePreset:
     source_seed: int
     prompt_language: Krea2PromptLanguage = Krea2PromptLanguage.ENGLISH
     category: Krea2StylePresetCategory = Krea2StylePresetCategory.WORK
+    art_direction: Krea2ArtDirection | None = None
 
     def __post_init__(self):
         for field, limit in (("preset_id", 128), ("name", 120), ("prompt", 40000),
@@ -40,6 +42,8 @@ class Krea2StylePreset:
             raise TypeError("invalid preset prompt language")
         if not isinstance(self.category, Krea2StylePresetCategory):
             raise TypeError("invalid style preset category")
+        if self.art_direction is not None and not isinstance(self.art_direction, Krea2ArtDirection):
+            raise TypeError("invalid preset art direction")
         if isinstance(self.source_seed, bool) or not isinstance(self.source_seed, int) or not 0 <= self.source_seed <= 2**50:
             raise ValueError("invalid preset source seed")
 

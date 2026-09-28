@@ -6,6 +6,7 @@ from panelforge.domain import long_stories as narrative
 from panelforge.domain import story_contracts as contracts
 from panelforge.domain.story_diagnostics import project_quality
 from panelforge.domain import story_continuity as continuity
+from panelforge.domain import story_visual_states, story_direction
 from panelforge.domain.stories import response_contract, story_recipe_spec
 from .prompt_lab import CompletionRequest
 
@@ -25,8 +26,8 @@ def _review_followup(project, identities):
             snapshot = dict(project, document=document, long_options=revision.get("long_options", project["long_options"]))
             if narrative.source_hash(snapshot, identity) != review.get("source_hash"):
                 continue
-            previous = continuity.reader_view(before)["scenes"]
-            current = continuity.reader_view(project["document"]["episode_scenarios"][identity])["scenes"]
+            previous = continuity.reader_view(before, include_transitions=story_visual_states.sparse(project))["scenes"]
+            current = continuity.reader_view(project["document"]["episode_scenarios"][identity], include_transitions=story_visual_states.sparse(project))["scenes"]
             changes = []
             for index in range(max(len(previous), len(current))):
                 old = previous[index] if index < len(previous) else None
@@ -170,13 +171,12 @@ def request(project, package, language_policy, register_policy=""):
         diagnostics = context.get("local_diagnostics", [])
         context["local_diagnostics"] = ({identity: readable_diagnostics(items) for identity, items in diagnostics.items()}
             if isinstance(diagnostics, dict) else readable_diagnostics(diagnostics))
-        context["reader_units"] = [dict(unit_id=identity, **continuity.reader_view(doc["episode_scenarios"][identity]),
+        context["reader_units"] = [dict(unit_id=identity, **continuity.reader_view(doc["episode_scenarios"][identity], include_transitions=story_visual_states.sparse(project)),
             allowed_review_targets=sorted(narrative.review_targets(project, identity))) for identity in identities]
-        from panelforge.domain import story_visual_states
         if story_visual_states.enabled(project):
             context["visual_state_review"] = [story_visual_states.projection(project, identity) for identity in identities]
         previous = narrative.previous_ids(project, identities[0]) if identities else []
-        context["reader_history"] = [dict(unit_id=identity, **continuity.reader_view(doc["episode_scenarios"][identity]))
+        context["reader_history"] = [dict(unit_id=identity, **continuity.reader_view(doc["episode_scenarios"][identity], include_transitions=story_visual_states.sparse(project)))
             for identity in previous if identity in doc["episode_scenarios"]]
         if doc.get("prior_story_snapshot"):
             context["reader_history"].insert(0, dict(unit_id="previous-story", **continuity.reader_view(doc["prior_story_snapshot"])))
@@ -202,6 +202,21 @@ def request(project, package, language_policy, register_policy=""):
         context["correction_policy"] = ("Une seule correction ciblée des problèmes bloquants. Les warnings restent informatifs. "
             "Préserve le reste, notamment les relations et la propriété des objets. Ne polis pas le style. "
             "Ajuste seulement les raccords nécessaires à la correction. Une nouvelle relecture sera nécessaire.")
+    if story_direction.enabled(project):
+        direction = story_direction.settings(project)
+        context["story_quality_version"] = story_direction.VERSION
+        context["dialogue_direction"] = {key: direction[key] for key in ("dialogue_style", "dialogue_notes")}
+        context["speech_budget"] = story_direction.speech_budget(project)
+        context["speech_budget"]["clip_seconds"] = context["clip_budget"]["clip_seconds"]
+        if not reader_mode:
+            context["visual_direction"] = story_direction.visual_style(project)
+            context["author_exact_lines"] = direction["protected_lines"]
+        if reader_mode:
+            for unit in context["reader_units"]:
+                unit["clip_seconds"] = doc["episode_formats"][unit["unit_id"]]["clip_seconds"]
+            context["unit_requirements"] = [story_direction.unit_requirements(project, identity) for identity in identities]
+        elif target not in {"outline", "ideas", "block"}:
+            context["unit_requirements"] = story_direction.unit_requirements(project, target)
     profile = project["long_options"]["profile"]
     profile_prompt = package["profiles"].get(profile) or ("Choisis le profil adapté parmi : " + json.dumps(package["profiles"], ensure_ascii=False))
     system = "\n\n".join([package["prompts"]["common"], profile_prompt,
@@ -285,7 +300,8 @@ def request(project, package, language_policy, register_policy=""):
         system += "\nFamille muette : dialogue reste vide dans chaque scène."
     if project["recipe"]["id"] == "story.brainrot" and not project.get("visual_universe"):
         system += "\nPar défaut : fruits anthropomorphes, espèce visuelle explicite. Préserve les identités explicitement imposées par le brief. Aucun quota de répliques."
-    if not review and project["recipe"]["id"] == "story.brainrot":
+    fruit_universe = not project.get("visual_universe") or "fruit" in project["visual_universe"].casefold()
+    if not review and project["recipe"]["id"] == "story.brainrot" and (not story_direction.enabled(project) or fruit_universe):
         context["fruit_naming"] = _fruit_naming(project, operation)
         system += "\nNOMMAGE DES PERSONNAGES : " + context["fruit_naming"]["rule"]
     schema = contracts.response_schema(project) if structured else None
@@ -319,7 +335,6 @@ def request(project, package, language_policy, register_policy=""):
             system += ("\nCORRECTION LOCALE : renvoie uniquement les scènes changées dans scene_edits, avec leur scene_index et leur scène complète. "
                 "Les autres scènes et décors sont conservés automatiquement. episode_state actualise seulement les faits et connaissances effectivement joués. "
                 "Reprends base_hash exactement. N’invente pas une correction de contenu lorsqu’une métadonnée suffit.")
-    from panelforge.domain import story_visual_states
     if story_visual_states.enabled(project):
         if reader_mode:
             system += "\n" + story_visual_states.REVIEW_POLICY
@@ -344,6 +359,23 @@ def request(project, package, language_policy, register_policy=""):
             "jamais les anciens événements du passé externe. canonical_history reste le passé écrit du projet courant. "
             "Cette séparation technique n'efface aucun fait acquis : conserve les relations, savoirs et états visuels hérités, "
             "ainsi que les noms et IDs des personnages et objets réutilisés. Ne rejoue pas les anciens événements.")
+    if package.get("policy_version") == 2 and not story_visual_states.sparse(project):
+        if reader_mode:
+            from panelforge.domain.story_fidelity import author_requirements
+            context["author_requirements"] = author_requirements(project, identities)
+            system += "\n" + package["role_prompts"]["review"]
+            if story_direction.enabled(project):
+                system += "\n" + package["quality_prompts"]["review"]
+        elif operation == "compose":
+            if project["long_options"]["unit_count"] > 1:
+                context["author_source"] = dict(field="brief", unit_count=project["long_options"]["unit_count"])
+            system += "\n" + package["role_prompts"]["compose"]
+        elif target not in {"outline", "block", "ideas"} and not review and operation != "discuss":
+            system += "\n" + package["quality_prompts"]["write"]
+    if story_visual_states.sparse(project):
+        from .story_prompting import build
+        system, context = build(project, package, context, reader_mode=reader_mode,
+            language_policy=language_policy, register_policy=register_policy)
     return CompletionRequest(model_id=project["model_id"], system_prompt=system,
         # Reasoning and the final JSON share the same output budget.
         user_prompt=json.dumps(context, ensure_ascii=False), max_tokens=80_000,
@@ -352,4 +384,6 @@ def request(project, package, language_policy, register_policy=""):
         operation_id=f"story.long.{operation}@{project['job']['response_contract_version'] if structured else '2.0.0'}",
         trace_context=dict(project_id=project["project_id"], stage=f"story_long_{operation}",
             cookbook_id="story.long", cookbook_version="2.0.0", recipe_revision=package["revision"],
+            story_quality_version=project.get("story_quality_version", 0),
+            writing_edition_id=(package.get("edition") or {}).get("id"), editorial_fingerprint=package["fingerprint"],
             turn_id=project["job"]["request_id"]))

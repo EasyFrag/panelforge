@@ -10,6 +10,7 @@ import unittest
 from panelforge.application.krea2_assisted import Krea2AssistedService
 from panelforge.domain.krea2_assisted import Krea2AssistedTurn, Krea2AssistedTurnMode as Mode, Krea2AssistedTurnRole as Role
 from panelforge.domain.krea2_batch import Krea2LoraSelection, Krea2PromptLanguage
+from panelforge.domain.krea2_art_direction import Krea2ArtDirection
 from panelforge.domain.krea2_style_presets import Krea2StylePresetCategory
 from panelforge.infrastructure.storage import LocalAssetStore, LocalKrea2AssistedProjectStore
 from panelforge.infrastructure.storage.krea2_style_presets import LocalKrea2StylePresetStore
@@ -134,7 +135,7 @@ class StylePresetTest(unittest.TestCase):
         self.assertEqual(self.projects.get("branch-test").style_preset, pinned.style_preset)
         self.assertEqual(self.projects.get("branch-test").style_preset.revision, 1)
         stored = json.loads(self.catalog.path.read_text(encoding="utf-8"))
-        self.assertEqual(stored["schema_version"], 2)
+        self.assertEqual(stored["schema_version"], 3)
         self.assertEqual(stored["deleted"], [updated.preset_id])
 
     def test_preset_language_is_the_creation_default_but_can_be_overridden(self):
@@ -153,6 +154,46 @@ class StylePresetTest(unittest.TestCase):
         )
         self.assertEqual(inherited.prompt_language, Krea2PromptLanguage.CHINESE_SIMPLIFIED)
         self.assertEqual(overridden.prompt_language, Krea2PromptLanguage.ENGLISH)
+
+    def test_v6_preset_recovers_and_reuses_art_direction_from_its_source_attempt(self):
+        direction = Krea2ArtDirection(
+            provider_id="clio", style_id="Claymation", name="Claymation",
+            category="3D Render", prompt="Handmade clay stop-motion.",
+            catalog_revision="fixture-revision",
+        )
+        project = self.projects.get("branch-test")
+        source = replace(
+            project.attempt("image-1"),
+            art_direction=direction,
+            canonical_prompt="A tiny subject in a frozen city.",
+        )
+        self.projects.save(replace(
+            project.replace_attempt(source),
+            assistance_recipe_version="6.0.0",
+        ))
+        hydrated = self.service.list_style_presets()[0]
+        self.assertEqual(hydrated.art_direction, direction)
+        self.assertEqual(hydrated.prompt, source.canonical_prompt)
+        applied = self.apply(hydrated)
+        self.assertEqual(applied.style_preset, hydrated)
+        self.assertEqual(applied.art_direction, direction)
+
+    def test_new_preset_persists_the_successful_attempt_art_direction(self):
+        direction = Krea2ArtDirection(
+            provider_id="clio", style_id="Claymation", name="Claymation",
+            category="3D Render", prompt="Handmade clay stop-motion.",
+            catalog_revision="fixture-revision",
+        )
+        project = self.projects.get("branch-test")
+        source = replace(
+            project.attempt("image-1"), art_direction=direction,
+            canonical_prompt="A canonical subject prompt.",
+        )
+        self.projects.save(project.replace_attempt(source))
+        saved = self.service.save_style_preset("branch-test", "image-1", "Clay preset")
+        self.assertEqual(saved.art_direction, direction)
+        self.assertEqual(saved.prompt, source.canonical_prompt)
+        self.assertEqual(LocalKrea2StylePresetStore(self.temp.name).get(saved.preset_id), saved)
 
     def test_schema_one_catalogue_defaults_existing_presets_to_work(self):
         value = json.loads(self.catalog.path.read_text(encoding="utf-8"))

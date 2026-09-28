@@ -17,6 +17,7 @@ from .minimax_h3_protocol import extract_compiled_camera_clauses, compile_dialog
 from .revised_documents import strip_markdown_fence
 from .vocal_policy import speech_lines, validate_speech
 from .vocal_delivery import normalize_voiceovers
+from panelforge.domain.localized_speech import LOCALIZED_THANKS_POLICIES
 
 VERSION = "1.0.0"
 PLAN_CONTRACT = "minimax.h3.classic.cinematic_planned_v1"
@@ -228,7 +229,8 @@ def canonical_plan(content: str, context: dict) -> str:
     declared_languages = _speech_languages(plan)
     validate_speech(tuple((next(iter(declared_languages.get(line, {"English"}))) if len(declared_languages.get(line, {"English"})) == 1 else "ambiguous", line) for line in plan.spoken_lines), context.get("dialogues", ()),
         level=context.get("dialogue_level", 0), source_text=context.get("source_text", ""),
-        duration_ms=context["duration_ms"], locked=context.get("locked_speech"))
+        duration_ms=context["duration_ms"], locked=context.get("locked_speech"),
+        speech_policy=context.get("speech_policy"), speech_language=context.get("speech_language"))
     value = plan.model_dump(mode="json")
     total, elapsed = sum(s.duration_ms for s in plan.shots), 0
     for shot in value["shots"]:
@@ -284,6 +286,12 @@ def _compile(plan: Plan, writer: Writer, context: dict) -> tuple[str, str]:
     # Keep exact prose/order; all camera, speech and content checks still run.
     if len(plan.shots) == 1 and len(plan.shots[0].phases) == 2 and len(writer.shots) == 2 and all(len(s.phases) == 1 for s in writer.shots):
         writer = writer.model_copy(update={"shots": (WrittenShot(phases=tuple(s.phases[0] for s in writer.shots)),)})
+    if context.get("speech_policy") in LOCALIZED_THANKS_POLICIES:
+        if len(plan.spoken_languages) != 1:
+            raise ValueError("Déclarez la langue du remerciement dans le Plan.")
+        # Persist the automatically chosen language as well as the exact words,
+        # including for later manual prompt edits and render revisions.
+        context["speech_language"] = speech_lines(compile_dialogue_tag(plan.spoken_languages[0], plan.spoken_lines[0]))[0][0]
     languages = _speech_languages(plan)
     plan = Plan.model_validate(_normalize_speech(plan.model_dump(mode="json"), languages))
     writer = Writer.model_validate(_normalize_speech(writer.model_dump(mode="json"), languages))
@@ -331,7 +339,8 @@ def validate_final(content: str, context: dict) -> None:
         raise ValueError(" ".join(errors))
     validate_speech(speech_lines(content), context.get("dialogues", ()),
         level=context.get("dialogue_level", 0), source_text=context.get("source_text", ""),
-        duration_ms=context["duration_ms"], locked=context.get("chosen_speech", context.get("locked_speech")))
+        duration_ms=context["duration_ms"], locked=context.get("chosen_speech", context.get("locked_speech")),
+        speech_policy=context.get("speech_policy"), speech_language=context.get("speech_language"))
 
 
 def lint_document(content: str, stage: str, mode: str, *_unused) -> tuple[str, ...]:

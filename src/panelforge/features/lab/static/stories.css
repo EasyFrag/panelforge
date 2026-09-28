@@ -229,3 +229,30 @@
   #story-writing-status { padding: .8rem; }
   #story-writing-status > .story-actions > button { width: 100%; }
 }
+
+/* Creation: essential choices first, one optional customization area. */
+.story-creation-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1.1rem 0; }
+.story-creation-wide { grid-column: 1 / -1; }
+.story-creation-universe, .story-creation-section { min-width: 0; border: 0; padding: 0; margin: 0; }
+.story-creation-universe legend, .story-creation-section legend { font-size: .85rem; font-weight: 700; }
+.story-creation-universe .story-settings-grid { margin-top: .55rem; }
+#story-customize > fieldset { margin: 1.2rem 0; }
+#story-customize .story-creation-section { padding-top: .8rem; border-top: 1px solid var(--line); }
+#story-customize .story-creation-section > label { margin-top: 1rem; }
+#story-create-form .story-creation-summary { color: var(--green); font-size: .85rem; margin: 1rem 0 .2rem; }
+#story-creation-models #story-model-settings { margin-top: 1.1rem; }
+#stories-workspace.story-fabrication-open #story-model-settings { display: none; }
+#stories-workspace.story-fabrication-open .story-heading p { display: none; }
+#stories-workspace input[type=radio] { width: auto; flex: none; }
+@media(max-width: 600px) {
+  .story-creation-main, .story-creation-universe .story-settings-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* A compact editorial selector alongside the story library. */
+.story-edition-control { flex: 0 1 310px; min-width: 240px; }
+.story-edition-control label { display: block; margin-bottom: .3rem; }
+.story-edition-control select { min-width: 0; width: 100%; }
+.story-edition-control small { display: block; font-size: .74rem; margin-top: .35rem; }
+.story-edition-help { position: relative; flex: 0 0 auto; }
+.story-edition-help summary { list-style: none; cursor: pointer; padding: .65rem .35rem; }
+.story-edition-help p { position: absolute; right: 0; top: 100%; z-index: 8; width: min(290px, 70vw); padding: .8rem; margin: .25rem 0; background: var(--panel, #fff); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 5px 20px #0002; font-size: .82rem; }

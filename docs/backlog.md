@@ -1,5 +1,64 @@
 # Backlog produit
 
+## Usine — quatrième onglet Archives et résultats compacts implémentés le 26 septembre 2026
+
+[Migration et fonctionnement](proposals/video-factory-archives-2026-09-26.md) :
+Archives est un quatrième onglet, avec archivage unitaire/en lot des réussites
+entièrement exportées, filtre À archiver et restauration sans relance. Fiches,
+prompts, durées et fichiers conservés ; renvoi identique signalé Déjà archivé,
+Dupliquer ouvre une nouvelle Préparation. Contrôles de révision et archivage
+atomique des lots, sans masquer les erreurs ou les exports tardifs.
+Grille État sur trois colonnes dans Résultats/Archives, deux sur petit écran.
+Les futurs exports de base vont dans base video ; DLSS, TXT et lien dossier
+restent au niveau famille/date. Les quatre bases existantes avaient déjà été
+migrées et vérifiées. Contrôles statiques réussis ; tests préparés, non exécutés.
+Aucune archive réelle, génération ou relance de service effectuée par l’agent.
+
+## Usine — patch Lèvres, DLSS, English et groupes implémenté le 26 septembre 2026
+
+[Comportement et vérifications](proposals/video-factory-lips-2026-09-26.md) :
+Lèvres active DLSS et IG anglais (Gemma 4 local, trois variantes), H3 image de
+fin, un plan de 10 s. Intention guidée : application, propagation au contact,
+retrait puis sourire franc tenu, avec matières déduites de la référence.
+Axes 1/1/1, dialogue 0, audace 1. Durée effective transmise à la préparation.
+Progression DLSS normalisée par phases et affichage robuste des anciens objets ;
+Finalisation à la réception, sans NaN ni pourcentage inventé.
+Groupes d’épisode délimités dans les trois onglets, nombre de scènes et espace
+avant les vidéos indépendantes, sans modifier l’ordre de priorité.
+Décision finale English : seulement un badge EN sur les titres des lignes et
+fiches localisées. Intention française et prompts anglais déjà prêts conservés.
+Inondations : détournement domestique ludique guidé dès le Plan, avec ventouse
+qui vide la rue comme une baignoire en exemple fort, sans objet obligatoire.
+Contrôles statiques réussis ; tests préparés, non exécutés. Aucun service,
+traitement ou réglage runtime modifié ; réappliquer les presets pour les lignes
+existantes souhaitées après chargement du correctif.
+
+## Usine — patch complémentaire implémenté localement le 26 septembre 2026
+
+[Diagnostic, comportement et vérifications utilisateur](proposals/video-factory-timing-retry-2026-09-26.md) :
+durées en secondes sous les étapes, commande unique Reprendre la chaîne,
+identifiant DLSS corrigé, miniatures agrandissables. Suppression sur toutes les
+fiches et en lot dans les trois onglets, avec arrêt préalable des étapes actives
+et retrait des lignes du contrôle des doublons. Notifications d’envoi partiel
+explicites. Capture des prompts traduits Histoires, conservation de la bonne
+version au rattachement et garde JavaScript view is null corrigées.
+Contrôles statiques effectués ; tests préparés, non exécutés. Aucun traitement,
+suppression réelle, appel LLM ni service lancé par l’agent.
+
+## Usine — patch implémenté localement le 26 septembre 2026
+
+[Patch proposé après les premiers essais](proposals/video-factory-patch-2026-09-26.md) :
+fin de vidéo indépendante du cooldown serveur ; preview de calcul désactivée en
+usine et en batch Histoires, conservée en H3/REF2V manuels ; accès au dossier local
+DLSS, classement famille/date, copie des variantes IG et TXT UTF-8 à côté de la
+vidéo ; DLSS/IG actifs par défaut pour Petits hommes et créativité guidée dès le
+Plan, avec choix libre d’un accessoire extérieur dans l’intention par défaut.
+Suppression multiple ajoutée. Syntaxe/imports vérifiés ; tests préparés pour
+l’utilisateur, non exécutés. Aucun appel LLM/rendu ni service redémarré.
+
+Inclus dans ce patch : bouton **Supprimer la sélection (N)** dans Préparation,
+pour retirer les lignes cochées de l’usine en conservant leurs sources et médias.
+
 ## Priorités actives — 14 septembre 2026
 
 - **Histoires 1.0 — première partie de l'atelier Épisode livrée le 15 septembre.**

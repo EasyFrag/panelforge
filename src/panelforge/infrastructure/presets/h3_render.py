@@ -10,6 +10,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from .video_preview import preview_bindings, bypass_previews
+
 from panelforge.domain.h3_render import (
     H3_VIDEO_LORA_OVERLAY_VERSION,
     H3RenderInputMode,
@@ -119,6 +121,7 @@ class ValidatedH3RenderWorkflow:
     progress_profile: RenderProgressProfile | None
     presets: Mapping[str, H3RenderPreset]
     _workflow_json: bytes = field(repr=False)
+    preview_bindings: tuple = ()
 
     @property
     def reference(self) -> RecipeRef:
@@ -209,6 +212,7 @@ class H3RenderPresetRecipe:
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
         force_upscale: bool = False,
+        preview_enabled: bool = True,
     ) -> dict[str, Any]:
         return build_h3_render_workflow(
             self.preset,
@@ -223,6 +227,7 @@ class H3RenderPresetRecipe:
             video_lora=video_lora,
             initial_megapixels=initial_megapixels,
             force_upscale=force_upscale,
+            preview_enabled=preview_enabled,
         )
 
 
@@ -350,6 +355,7 @@ def validate_h3_render_workflow(
         progress_profile=progress_profile,
         presets=MappingProxyType(presets),
         _workflow_json=serialized,
+        preview_bindings=preview_bindings(manifest, nodes),
     )
 
 
@@ -367,6 +373,7 @@ def build_h3_render_workflow(
     video_lora: H3VideoLoraSelection | None = None,
     initial_megapixels: float = 0.2,
     force_upscale: bool = False,
+    preview_enabled: bool = True,
 ) -> dict[str, Any]:
     validate_h3_initial_megapixels(initial_megapixels)
     if "initial_megapixels" not in preset.scalar_inputs and initial_megapixels != 0.2:
@@ -468,6 +475,8 @@ def build_h3_render_workflow(
                 for index in range(len(keyframe_indices))
             ),
         )
+    if not preview_enabled:
+        bypass_previews(workflow, preset.preview_bindings)
     return workflow
 
 
