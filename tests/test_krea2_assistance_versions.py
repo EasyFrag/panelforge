@@ -40,7 +40,7 @@ class AssistanceVersionTest(unittest.TestCase):
                 self.assertEqual(loaded.assistance_recipe_version, "1.0.0")
                 self.assertEqual(loaded.turns[0].assistance_recipe_version, "1.0.0")
                 saved = _serialize(loaded)
-                self.assertEqual(saved["schema_version"], 12)
+                self.assertEqual(saved["schema_version"], 16)
                 self.assertEqual(_deserialize(saved), loaded)
 
     def test_versioned_records_do_not_silently_default_missing_reference(self):

@@ -1,9 +1,11 @@
 """Versioned permissions and validation for optional English speech."""
 
 from .prompt_recipe_text import prompt_text
+from panelforge.domain.localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_POLICIES, STABLE_THANKS_LANGUAGES, FIXED_THANKS
 
 from collections import Counter
 import re
+import unicodedata
 
 VOCAL_POLICY_VERSION = "1.0.0"
 _SPEECH = re.compile(r"<d>\s*\[([^\]]+)\]\s*(.*?)\s*</d>", re.DOTALL)
@@ -28,8 +30,51 @@ def speech_lines(content: str) -> tuple[tuple[str, str], ...]:
     return tuple((language.strip(), text.strip()) for language, text in _SPEECH.findall(content))
 
 
-def vocal_policy(level: int, *, locked: bool = False) -> str:
+def vocal_policy(level: int, *, locked: bool = False, speech_policy=None, speech_language=None) -> str:
     validate_vocal_level(level)
+    if speech_policy == LOCALIZED_THANKS_V3:
+        if locked and speech_language not in FIXED_THANKS:
+            raise ValueError("Le Prompt attend la langue déjà approuvée dans le Plan.")
+        formulas = ({speech_language: FIXED_THANKS[speech_language]}
+                    if speech_language in FIXED_THANKS else FIXED_THANKS)
+        choice = ("Language fixed. " if speech_language else
+                  "Choose once using the source's scene pools and frozen order. ")
+        return ("LOCALIZED THANK-YOU v3: the existing little people thank together once after the help. "
+                + choice + "Only these words: "
+                + "; ".join(f"{name}: {words}" for name, words in formulas.items()) + ". "
+                "No added words or other speech. "
+                + ("Preserve the approved words and language exactly." if locked else
+                   "Copy the native words into spoken_lines and action speech; use the full English "
+                   "language name in spoken_languages and the <d> tag."))
+    if speech_policy in LOCALIZED_THANKS_POLICIES:
+        language = (f"Use {speech_language}, the explicitly selected language." if speech_language else
+                    "Choose the scene's language from explicit source location, then clear visual evidence; "
+                    "use English for uncertain or multilingual locations without a specified local language.")
+        if speech_policy == LOCALIZED_THANKS_V2 and not speech_language:
+            language = ("Use the image's explicit location or architectural/landscape atmosphere and the "
+                        "frozen language preference order in the source. Choose the first eligible language "
+                        "in that order, within the matching regional group. With no evidence, choose the first "
+                        "language in the global order. Never default to English or infer France from French prose. "
+                        "Supported languages: " + ", ".join(STABLE_THANKS_LANGUAGES) + ".")
+        wording = "At most 12 words; leave time for the actions and final reaction. "
+        if speech_policy == LOCALIZED_THANKS_V2:
+            formulas = ({speech_language: FIXED_THANKS[speech_language]}
+                        if speech_language in FIXED_THANKS else FIXED_THANKS)
+            wording = ("Use ONLY the fixed formula for the chosen language: "
+                       + "; ".join(f"{name}: {words}" for name, words in formulas.items())
+                       + ". Capitalization and surrounding punctuation may vary. "
+                       "No extra words, address to the hand, qualifiers, repetition or other sentence. "
+                       "Leave time for the actions and final reaction. ")
+        version = 2 if speech_policy == LOCALIZED_THANKS_V2 else 1
+        return (f"REQUESTED LOCALIZED THANK-YOU v{version}: exactly one brief thank-you by the existing little people "
+                "after the helping actions. This is requested speech, independent of optional dialogue freedom. "
+                + language + " Use native writing and the full English language name in spoken_languages "
+                "and the <d> language tag. " + wording + "Do not add any other speech. "
+                + ("Preserve the approved words AND language exactly." if locked else
+                   ("Choose the language once in the Plan and copy its fixed formula; "
+                    "record the location evidence in continuity_invariants."
+                    if speech_policy == LOCALIZED_THANKS_V2 else
+                    "Decide the exact words and language once in the Plan; record the location evidence in continuity_invariants.")))
     permission = (
         prompt_text('vocal_policy.vocal_policy.01', 'No spontaneous speech or vocal reactions; keep only what the user requests.'),
         prompt_text('vocal_policy.vocal_policy.02', 'May add a brief nonverbal reaction (gasp, laugh, justified cry); no invented words.'),
@@ -43,8 +88,16 @@ def vocal_policy(level: int, *, locked: bool = False) -> str:
     )
 
 
+def _thanks_words(text: str, language: str) -> str:
+    text = unicodedata.normalize("NFKC", text)
+    if language == "Arabic":
+        # Optional vowel marks do not add spoken words to the same formula.
+        text = re.sub("[\u064b-\u0652]", "", text)
+    return " ".join(text.split()).strip(" .!?¡¿。").casefold()
+
+
 def validate_speech(lines, protected, *, level: int, source_text: str,
-                    duration_ms: int = 8000, locked=None) -> tuple[str, ...]:
+                    duration_ms: int = 8000, locked=None, speech_policy=None, speech_language=None) -> tuple[str, ...]:
     """Protect requested words/order; bound additions without guessing language from prose."""
     validate_vocal_level(level)
     actual = tuple(text for _, text in lines)
@@ -56,6 +109,23 @@ def validate_speech(lines, protected, *, level: int, source_text: str,
             raise ValueError("Les paroles demandées doivent rester exactes et dans leur ordre.") from error
     if locked is not None and Counter(actual) != Counter(locked):
         raise ValueError("Conservez les dialogues déjà décidés ; aucun ajout ou retrait à cette étape.")
+    if speech_policy in LOCALIZED_THANKS_POLICIES:
+        if len(lines) != 1:
+            raise ValueError("Prévoir un unique remerciement localisé.")
+        language, text = lines[0]
+        if speech_policy in (LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3) and language not in STABLE_THANKS_LANGUAGES:
+            raise ValueError("Le remerciement doit utiliser une des 11 langues stables.")
+        if speech_policy in (LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3):
+            expected = FIXED_THANKS[language]
+            if _thanks_words(text, language) != _thanks_words(expected, language):
+                raise ValueError(f"Le remerciement en {language} doit être uniquement « {expected} », sans aucun ajout.")
+        elif not text.strip() or len(text.split()) > 12:
+            raise ValueError("Le remerciement doit être bref : 12 mots maximum.")
+        if speech_language is not None and language != speech_language:
+            raise ValueError("Conservez la langue de remerciement choisie.")
+        # This explicit requested-speech policy overrides source-scene notes;
+        # their old silence/dialogue instructions are geographical context only.
+        return () if text in protected else (text,)
     remaining = Counter(protected)
     added = []
     for language, text in lines:

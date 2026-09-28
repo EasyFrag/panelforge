@@ -4,6 +4,7 @@
   if (!root || !core || !picker) return;
   const el = id => document.getElementById(`story-${id}`);
   const roles = ["architect", "writer"];
+  const defaultQwenModel = "local::unsloth/Qwen3.8-27B-GGUF";
   const defaultLocalModel = "local::HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP";
   const fallbackRecipes = [{id: "story.brainrot", version: "1.0.0", label: "Mélodrame fruits",
     description: "Fruits anthropomorphes, conflits frontaux et retournements visuels.",
@@ -42,6 +43,7 @@
         {id: "appearance_state", label: "Tenues, pelage et accessoires"}]}];
   const state = {project: null, initialized: false, loading: false, saving: false, models: [], modelsReady: false,
     recipes: fallbackRecipes, wantedModel: {architect: "", writer: ""}, modelChoice: {architect: 0, writer: 0},
+    editions: [], latestEdition: null, editionChoice: "latest", editionError: "",
     modelError: "", token: 0, timer: null, paintKey: "", turnKey: "", editScene: null, parentStoryId: null};
   const storage = {get(key) { try { return localStorage.getItem(`panelforge.stories.${key}`); } catch (_) { return null; } },
     set(key, value) { try { localStorage.setItem(`panelforge.stories.${key}`, value); } catch (_) {} }};
@@ -81,6 +83,15 @@
     narration: dialogueForbidden() ? "visual" : el("long-narration").value,
     unit_count: Number(el("long-units").value), ending_type: el("long-ending").value});
   const dialogueRegister = () => Math.max(0, Math.min(3, Number(el("dialogue-register").value) || 0));
+  const writingDirection = () => ({tone_profile: el("tone-profile").value, glossary: el("glossary").value.trim(),
+    dialogue_style: el("dialogue-style").value, dialogue_pace: el("dialogue-pace").value,
+    dialogue_notes: el("dialogue-notes").value.trim(), visual_render: el("visual-render").value,
+    visual_notes: el("visual-notes").value.trim(), protected_lines: el("protected-lines").value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)});
+  const qualityModelDefaults = () => state.project ? state.project.story_quality_version === 1 : narrativeFormat() === "long";
+  const modelPreferenceKey = key => qualityModelDefaults() ? `quality.1.${key}` : key;
+  const defaultModel = source => source !== "local" ? "" : qualityModelDefaults()
+    ? state.models.find(model => modelSource(model.id) === "local" && /qwen3[.]8-27b/i.test(model.id))?.id
+      || state.models.find(model => modelSource(model.id) === "local" && /qwen/i.test(model.id))?.id || defaultQwenModel : defaultLocalModel;
   const dialogueLanguage = () => dialogueLanguages[el("dialogue-language").value] ? el("dialogue-language").value : "French";
   const modelSource = id => state.models.find(model => model.id === id)?.source || (id?.startsWith("local::") ? "local" : "server");
   const selectedModel = role => state.models.some(model => model.id === el(`${role}-model`).value) ? el(`${role}-model`).value : "";
@@ -92,6 +103,41 @@
   };
   const dialogueForbidden = () => currentRecipe().dialogue_policy === "forbidden";
 
+  const modelSettingsHome = document.createComment("story-model-settings-home");
+  el("model-settings").before(modelSettingsHome);
+  function arrangeCreation(creating) {
+    const settings = el("model-settings");
+    if (creating) {
+      if (settings.parentElement !== el("creation-models")) el("creation-models").append(settings);
+    } else if (settings.previousSibling !== modelSettingsHome) modelSettingsHome.after(settings);
+  }
+  function creationSummary() {
+    if (state.project) return;
+    const longStory = narrativeFormat() === "long", silent = dialogueForbidden();
+    const preset = el("tone-profile").value === "black_comedy_street_v1";
+    const customized = preset && (el("dialogue-style").value !== "street" || dialogueRegister() !== 3
+      || el("dialogue-pace").value !== "fast" || el("long-narration").value !== "dialogue" || el("dialogue-notes").value.trim());
+    el("tone-profile").disabled = silent;
+    el("tone-description").textContent = silent ? "Cette famille raconte sans paroles ; l’ambiance de dialogue est désactivée."
+      : preset ? `${customized ? "Personnalisée · " : ""}Humour provocateur, voix distinctes, aucune intrigue ni chute imposée. ${customized ? "Tes nuances et réglages de dialogue priment." : "Narration dialoguée, argot cru et débit rapide ; tu peux les ajuster dans Personnaliser."}`
+      : "Le moteur suit ton idée et tes réglages de dialogue. Aucun profil de ton ajouté.";
+    const selectLabel = id => el(id).selectedOptions[0]?.textContent || "";
+    const parts = [longStory ? "Histoire suivie" : "Scénario court"];
+    if (longStory && preset && !silent) parts.push(`Comédie noire${customized ? " personnalisée" : ""}`);
+    parts.push(silent ? "Sans paroles" : `${dialogueLanguages[dialogueLanguage()]} · ${dialogueRegisters[dialogueRegister()][0]}`);
+    if (longStory) parts.push(`débit ${selectLabel("dialogue-pace").toLowerCase()}`, `≈ ${Number(el("target-seconds").value) || 80} s`,
+      el("workflow-mode").value === "automatic" ? "Automatique" : "Validation manuelle");
+    el("creation-summary").textContent = parts.join(" · ");
+  }
+  function applyToneChoice() {
+    const preset = el("tone-profile").value === "black_comedy_street_v1";
+    el("dialogue-style").value = preset ? "street" : "natural";
+    el("dialogue-register").value = preset ? "3" : "0";
+    el("dialogue-pace").value = "fast";
+    el("long-narration").value = preset ? "dialogue" : "auto";
+    // Apply once on explicit choice; later edits remain authoritative.
+    refreshStartMode();
+  }
   function budgetSummary(derive = false) {
     const longStory = narrativeFormat() === "long";
     const seconds = Number(el("duration").value) || 10, desired = Number(el("target-seconds").value) || 80;
@@ -103,7 +149,8 @@
     const units = Number(el("long-units").value) || 1, clips = Number(el("scene-count").value) || 6;
     el("budget-summary").hidden = !longStory;
     const maximum = units * clips * seconds;
-    el("budget-summary").textContent = `${units} ${el("long-delivery").value === "serial" ? "épisode(s)" : "séquence(s)"} × ${clips} clips maximum × ${seconds} s = ${maximum} s maximum. ${maximum < desired ? "Ce plafond est inférieur à la durée souhaitée : augmente les clips, leur durée ou les séquences dans Production." : "Le récit peut utiliser moins de clips."}`;
+    el("budget-summary").textContent = `${units} ${el("long-delivery").value === "serial" ? "épisode(s)" : "séquence(s)"} × ${clips} clips maximum × ${seconds} s = ${maximum} s maximum. ${maximum < desired ? "Ce plafond est inférieur à la durée souhaitée : augmente les clips, leur durée ou les séquences dans Personnaliser → Découpage." : "Le récit peut utiliser moins de clips."}`;
+    creationSummary();
   }
 
   function feedbackTarget() {
@@ -300,7 +347,7 @@
     el("empty").hidden = stage === "intention" || (stage === "story" ? !!project.document.series_outline : !!project.document.scenario);
     if (!el("empty").hidden) {
       setText("empty-title", stage === "story" ? "L’histoire apparaîtra ici" : "Les scènes apparaîtront ici");
-      setText("empty-copy", stage === "story" ? "Le bandeau ci-dessus indique la prochaine action." : "La direction de l’histoire doit être relue et validée avant le développement des scènes.");
+      setText("empty-copy", stage === "story" ? "Le bandeau ci-dessus indique la prochaine action." : "Valide la direction de l’histoire pour développer ses scènes.");
     }
   }
   async function writingAction(action) {
@@ -445,7 +492,8 @@
 
   function showModelMessage() {
     const unavailable = roles.filter(role => !state.models.some(model => modelSource(model.id) === (el(`${role}-local`).checked ? "local" : "server")));
-    el("model-message").textContent = state.modelError || (unavailable.length ? "Aucun modèle disponible pour une des sources choisies. Actualise après avoir démarré le serveur LLM." : "");
+    const missingSelection = state.modelsReady && roles.some(role => state.wantedModel[role] && !state.models.some(model => model.id === state.wantedModel[role]));
+    el("model-message").textContent = state.modelError || (missingSelection ? "Un modèle sélectionné n’est pas disponible. Choisis un modèle installé ou actualise la liste." : unavailable.length ? "Aucun modèle disponible pour une des sources choisies. Actualise après avoir démarré le serveur LLM." : "");
   }
   function chooseModel(role, id) {
     state.wantedModel[role] = id || "";
@@ -456,19 +504,22 @@
     showModelMessage();
   }
   function preferredModel(role) {
-    const source = storage.get(`${role}.model-source`) || storage.get("model-source") || "local";
+    const source = storage.get(modelPreferenceKey(`${role}.model-source`)) || (!qualityModelDefaults() && storage.get("model-source")) || "local";
     el(`${role}-local`).checked = source !== "server";
-    chooseModel(role, storage.get(`${role}.model.${source}`) || storage.get(`model.${source}`)
-      || (source === "local" ? defaultLocalModel : ""));
+    chooseModel(role, storage.get(modelPreferenceKey(`${role}.model.${source}`)) || (!qualityModelDefaults() && storage.get(`model.${source}`)) || defaultModel(source));
   }
   function rememberModel(role) {
     const source = el(`${role}-local`).checked ? "local" : "server";
-    storage.set(`${role}.model-source`, source);
-    if (selectedModel(role)) storage.set(`${role}.model.${source}`, selectedModel(role));
+    storage.set(modelPreferenceKey(`${role}.model-source`), source);
+    if (selectedModel(role)) storage.set(modelPreferenceKey(`${role}.model.${source}`), selectedModel(role));
   }
   function message(text, error = false) { el("message").textContent = text; el("message").classList.toggle("error", error); }
   function refreshStartMode() {
     const longStory = narrativeFormat() === "long";
+    if (!state.project && state.formModelFormat !== narrativeFormat()) {
+      state.formModelFormat = narrativeFormat();
+      for (const role of roles) preferredModel(role);
+    }
     root.querySelectorAll("[data-story-long-only]").forEach(item => { item.hidden = !longStory; });
     for (const option of el("creation-mode").options) {
       option.hidden = longStory ? !["ideas", "adapt"].includes(option.value) : option.value === "adapt";
@@ -479,6 +530,7 @@
     el("long-options").hidden = !longStory;
     const mode = creationMode(), script = mode === "script", continuation = mode === "continuation";
     const silent = dialogueForbidden();
+    for (const id of ["dialogue-style", "dialogue-pace", "dialogue-notes", "protected-lines", "glossary"]) el(id).disabled = silent;
     el("brief-label").textContent = script ? "Script complet · obligatoire"
       : continuation ? "Épisodes précédents ou résumé de la saga · obligatoire" : "Ton idée · facultative";
     el("brief").required = script || continuation;
@@ -538,7 +590,7 @@
       el("brief-label").textContent = adapt ? "Histoire à préserver et développer · obligatoire" : "Point de départ · facultatif";
       el("brief").required = adapt; el("brief").maxLength = adapt ? 60000 : 12000;
       el("brief").placeholder = adapt ? "Colle l’histoire, ses découvertes et sa fin. Précise les éléments à conserver et ce qui peut être inventé." : "Quelle promesse, quel conflit ou quelle découverte veux-tu explorer ?";
-      el("mode-description").textContent = "Une histoire avec sa progression, puis des scènes vérifiées. Les pauses dépendent de ton accompagnement.";
+      el("mode-description").textContent = "Conception → écriture → relecture finale. Trois appels pour une séquence sans blocage ; correction ciblée si nécessaire. Tu peux demander une relecture de l’arc.";
       el("create").textContent = adapt ? "Développer mon histoire" : "Imaginer mon histoire";
       el("create-note").textContent = el("workflow-mode").value === "automatic" ? "Le moteur écrira et vérifiera le scénario. Tu peux reprendre la main ; les médias seront préparés ensuite."
         : "Une histoire te sera présentée pour discussion, puis tu valideras les séquences. Les vérifications s’enchaînent automatiquement.";
@@ -547,7 +599,40 @@
     }
     budgetSummary();
   }
+  function paintEdition() {
+    const input = el("edition");
+    if (!input) return;
+    el("edition-control").hidden = state.project ? !longV2() : narrativeFormat() !== "long";
+    const info = state.project?.writing_edition_info;
+    const selected = info?.selected || state.project?.writing_edition;
+    const wanted = state.project ? selected?.id || "" : state.editionChoice === "latest" ? state.latestEdition || "latest" : state.editionChoice;
+    const options = state.editions.map(item => new Option(`${item.id === state.latestEdition ? "Dernière · " : ""}${item.label}`, item.id));
+    if (!options.some(option => option.value === wanted)) options.unshift(new Option(state.project ? "Version historique à choisir…" : "Dernière expérimentale", wanted));
+    const key = JSON.stringify(options.map(option => [option.text, option.value]));
+    if (input.dataset.key !== key) { input.replaceChildren(...options); input.dataset.key = key; }
+    input.value = wanted;
+    input.disabled = blocked() || !state.editions.length;
+    const item = state.editions.find(value => value.id === wanted);
+    el("edition-description").textContent = item ? `${item.date} · ${item.summary} Les nouveaux appels utilisent cette version ; les textes existants restent conservés.` : info?.error || state.editionError || "Chargement des versions d’écriture…";
+    const result = info?.result_edition || [...(state.project?.revisions || [])].reverse().find(r => r.writing_edition)?.writing_edition;
+    el("edition-note").textContent = info?.error || state.editionError || (running() ? "Version conservée pendant la chaîne en cours."
+      : result && result.id !== wanted ? `Texte actuel : ${result.label}. Choix appliqué aux prochains appels.`
+      : state.project ? "Version mémorisée pour cette histoire." : "Dernière expérimentale par défaut pour une nouvelle histoire.");
+  }
+  async function changeEdition() {
+    if (blocked()) return paintEdition();
+    const edition_id = el("edition").value;
+    if (!state.project) { state.editionChoice = edition_id; paintEdition(); return; }
+    const id = state.project.project_id, token = state.token;
+    state.saving = true; controls();
+    try {
+      const result = await request(path(id, "/writing-edition"), send("PUT", {expected_version: state.project.version, edition_id}));
+      if (token === state.token) { state.project = result; paint(); }
+    } catch (error) { if (token === state.token) message(error.message, true); }
+    finally { state.saving = false; controls(); }
+  }
   function controls() {
+    paintEdition();
     const project = state.project, busy = blocked(), doc = project?.document;
     el("recipes").hidden = longV2() || (!project && narrativeFormat() === "long");
     el("next-episode").hidden = !doc?.scenario;
@@ -603,6 +688,9 @@
     try {
       const data = await request("/api/stories/spec");
       if (data.recipes?.length) state.recipes = data.recipes;
+      state.editions = data.writing_editions?.editions || [];
+      state.latestEdition = data.writing_editions?.latest || null;
+      state.editionError = state.editions.length ? "" : "Catalogue des versions indisponible. Actualise avant de choisir une version.";
     } catch (_) { /* The embedded defaults keep saved projects usable offline. */ }
     const selected = state.project?.recipe ? recipeKey(state.project.recipe) : el("recipe").value;
     el("recipe").replaceChildren(...state.recipes.map(recipe => new Option(recipe.label, recipeKey(recipe))));
@@ -620,6 +708,7 @@
       const data = await request("/api/stories/models");
       state.models = data.models; state.modelsReady = true; state.modelError = "";
       for (const role of roles) {
+        if (!state.project && qualityModelDefaults() && state.wantedModel[role] === defaultQwenModel) state.wantedModel[role] = defaultModel("local");
         picker.populate(el(`${role}-model`), state.models, state.wantedModel[role]);
         chooseModel(role, state.wantedModel[role]);
       }
@@ -664,12 +753,21 @@
   }
   function newProject() {
     ++state.token; clearTimeout(state.timer); state.project = null; state.paintKey = ""; state.turnKey = "";
-    state.parentStoryId = null;
+    state.parentStoryId = null; state.editionChoice = "latest";
     state.loading = false; storage.set("project", ""); el("projects").value = "";
     el("title").value = ""; el("brief").value = ""; el("creation-mode").value = "ideas";
     el("prior-story").value = "";
-    el("format-short").checked = true; el("format-long").checked = false;
+    el("format-short").checked = false; el("format-long").checked = true;
+    el("tone-profile").value = "none"; el("glossary").value = "";
+    el("recipe").value = "story.brainrot@1.0.0";
+    el("workflow-mode").value = "automatic"; el("universe").value = "";
+    el("long-profile").value = el("long-narration").value = el("long-ending").value = "auto";
+    el("long-delivery").value = "continuous"; el("long-units").value = "1";
+    el("target-seconds").value = "80"; el("duration").value = "10"; el("scene-count").value = "8";
+    el("customize").open = false;
     el("dialogue-register").value = "0"; el("dialogue-language").value = "French";
+    el("dialogue-style").value = "natural"; el("dialogue-pace").value = "fast"; el("visual-render").value = "story";
+    for (const id of ["dialogue-notes", "visual-notes", "protected-lines"]) el(id).value = "";
     for (const role of roles) preferredModel(role);
     refreshStartMode(); paint(); el("brief").focus();
   }
@@ -692,6 +790,7 @@
   }
   function paint() {
     const project = state.project, doc = project?.document;
+    arrangeCreation(!project);
     paintWorkflow();
     const longProject = project?.narrative_format === "long";
     paintVisualContinuity(project);
@@ -721,6 +820,16 @@
       const optionLabel = (id, value) => [...el(id).options].find(option => option.value === value)?.textContent || value;
       el("project-brief").textContent = `${project.visual_universe || (recipe.id === "story.brainrot" ? "Univers selon le brief · fruits par défaut" : recipe.label)} · ${project.long_options.unit_count} ${unitLabel().toLowerCase()}s · ${optionLabel("long-profile", project.long_options.profile)} · ${optionLabel("long-narration", project.long_options.narration)}\n${project.brief || "Idées libres"}\nAu maximum ${project.scene_count} clips de ${project.clip_seconds} s par unité · ${project.long_options.unit_count * project.scene_count * project.clip_seconds} s au total · Dialogues : ${projectLanguage}`;
     }
+    if (project.story_quality_version === 1) {
+      const direction = project.writing_direction;
+      const label = (id, value) => [...el(id).options].find(option => option.value === value)?.textContent || value;
+      el("project-brief").textContent += `\nStyle : ${label("dialogue-style", direction.dialogue_style)} · Débit : ${label("dialogue-pace", direction.dialogue_pace)} · Rendu : ${label("visual-render", direction.visual_render)}`;
+      if (direction.tone_profile === "black_comedy_street_v1") el("project-brief").textContent += "\nAmbiance : Comédie noire · argot cru";
+      if (direction.glossary) el("project-brief").textContent += `\nLexique du rédacteur : ${direction.glossary}`;
+      if (direction.dialogue_notes) el("project-brief").textContent += `\nTon : ${direction.dialogue_notes}`;
+      if (direction.visual_notes) el("project-brief").textContent += `\nImage : ${direction.visual_notes}`;
+      if (direction.protected_lines.length) el("project-brief").textContent += `\nRépliques exactes : ${direction.protected_lines.join(" / ")}`;
+    }
     el("ideas").hidden = scriptProject || project.creation_mode === "adapt";
     el("ideas").textContent = continuationProject ? "Proposer une autre suite" : "Proposer une autre histoire";
     const turnKey = `${project.project_id}:${project.turns.length}`;
@@ -735,7 +844,7 @@
     const key = `${project.project_id}:${project.revisions.length}:${doc.selected_episode_id || ""}:${JSON.stringify(project.long_status || {})}`;
     if (state.paintKey !== key) {
       state.paintKey = key;
-      el("versions").replaceChildren(...[...project.revisions].reverse().map(revision => new Option(`v${revision.revision} · ${revision.label}`, revision.revision)));
+      el("versions").replaceChildren(...[...project.revisions].reverse().map(revision => new Option(`v${revision.revision} · ${revision.label}${revision.writing_edition ? ` · ${revision.writing_edition.label}` : ""}`, revision.revision)));
       paintConcepts(doc); paintSeries(doc); paintScenario(doc.scenario); paintDiagnostics(project.diagnostics || []);
     }
     const job = project.job;
@@ -846,7 +955,7 @@
       : "La rédaction doit être à jour et relue sans problème bloquant avant Fabrication.";
     for (const [id, key] of [["outline-review-result", "outline"], ["episode-review-result", doc.selected_episode_id]]) {
       const holder = el(id), review = doc.reviews?.[key]; holder.replaceChildren();
-      if (!review) { holder.append(node("p", "Relecture à effectuer.", "muted")); continue; }
+      if (!review) { holder.append(node("p", key === "outline" && state.project.story_quality_version === 1 ? "Relecture de l’arc facultative. Le scénario sera relu avant la fabrication." : "Relecture à effectuer.", "muted")); continue; }
       holder.append(node("p", `${narrativeStatus.reviews?.[key]?.current ? "Relecture actuelle" : "À relire après modification"} · ${review.summary}`));
       const list = node("ul");
       review.issues.forEach(issue => list.append(node("li", `${issue.severity === "blocking" ? "À corriger" : "Suggestion"} · ${issue.target_id} : ${issue.problem}\n${issue.suggestion}`, issue.severity)));
@@ -947,7 +1056,7 @@
     const visible = unique.filter(item => item.level === "blocking" || item.code !== "dialogue_density" || !timedScenes.has(item.scene_index));
     const unitId = state.project?.document.selected_episode_id;
     const view = longV2() ? window.PanelForgeStoryWriting.describe(state.project) : null;
-    const mainIssues = view?.target === unitId && view.kind === "attention" ? view.issues : [];
+    const mainIssues = view?.target === unitId && view?.kind === "attention" ? view.issues : [];
     const blockers = visible.filter(item => item.level === "blocking" && !mainIssues.some(issue => issue.problem === item.message));
     const observations = visible.filter(item => item.level !== "blocking");
     el("diagnostics").hidden = !blockers.length && !observations.length;
@@ -1160,6 +1269,8 @@
         creation_mode: mode, dialogue_register: mode === "script" || dialogueForbidden() ? 0 : dialogueRegister(),
         dialogue_language: dialogueLanguage(), narrative_format: narrativeFormat(), parent_story_id: state.parentStoryId,
         long_options: narrativeFormat() === "long" ? longOptions() : null,
+        writing_edition_id: narrativeFormat() === "long" ? (el("edition")?.value || "latest") : null,
+        writing_direction: narrativeFormat() === "long" ? {...writingDirection(), ...(dialogueForbidden() ? {protected_lines: [], dialogue_notes: "", dialogue_style: "natural", tone_profile: "none", glossary: ""} : {})} : null,
         prior_story: narrativeFormat() === "long" ? el("prior-story").value.trim() : "",
         workflow_mode: narrativeFormat() === "long" ? el("workflow-mode").value : null,
         visual_universe: narrativeFormat() === "long" ? el("universe").value.trim() : "",
@@ -1188,10 +1299,19 @@
     (action === "models" ? el("architect-model") : target).focus();
   });
   el("pause").addEventListener("click", () => workflowAction("pause"));
+  el("tone-profile").addEventListener("change", applyToneChoice);
+  for (const id of ["dialogue-style", "dialogue-pace", "dialogue-notes", "long-narration"])
+    el(id).addEventListener("input", creationSummary);
+  el("create-form").addEventListener("invalid", event => {
+    // Native validation must expose any invalid control inside collapsed options.
+    for (let parent = event.target.parentElement; parent && parent !== el("create-form"); parent = parent.parentElement)
+      if (parent.tagName === "DETAILS") parent.open = true;
+  }, true);
   el("workflow-mode").addEventListener("change", refreshStartMode);
   el("target-seconds").addEventListener("change", () => budgetSummary(true));
   for (const id of ["long-units", "scene-count", "duration"]) el(id).addEventListener("input", () => budgetSummary());
   root.querySelectorAll("[data-story-example]").forEach(item => item.addEventListener("click", () => {
+    el("tone-profile").value = "none"; el("glossary").value = "";
     const kind = item.dataset.storyExample;
     const examples = {
       social: {brief: "Un rendez-vous tourne au règlement de comptes quand arrive l’addition. Chaque tentative pour se défausser se retourne contre son auteur. Une joute verbale drôle et tendue, dans un seul restaurant, avec une chute ironique.", universe: "Fruits anthropomorphes", seconds: 80, narration: "dialogue", ending: "reversal"},
@@ -1227,10 +1347,11 @@
     el(`${role}-model`).addEventListener("change", () => { ++state.modelChoice[role]; state.wantedModel[role] = el(`${role}-model`).value; rememberModel(role); controls(); });
     el(`${role}-local`).addEventListener("change", event => {
       event.stopPropagation(); ++state.modelChoice[role]; const source = el(`${role}-local`).checked ? "local" : "server";
-      chooseModel(role, storage.get(`${role}.model.${source}`) || storage.get(`model.${source}`) || (source === "local" ? defaultLocalModel : ""));
+      chooseModel(role, storage.get(modelPreferenceKey(`${role}.model.${source}`)) || (!qualityModelDefaults() && storage.get(`model.${source}`)) || defaultModel(source));
       rememberModel(role); controls();
     });
   }
+  el("edition")?.addEventListener("change", changeEdition);
   el("new").addEventListener("click", newProject);
   el("projects").addEventListener("change", () => el("projects").value ? openProject(el("projects").value) : newProject());
   el("refresh-projects").addEventListener("click", async () => { try { await recent(); if (state.project) await openProject(state.project.project_id); } catch (error) { message(error.message, true); } });

@@ -1,0 +1,32 @@
+{
+  "latest": "experimental-2026-09-28",
+  "editions": [
+    {
+      "id": "experimental-2026-09-28",
+      "file": "experimental-2026-09-28.json",
+      "label": "Expérimentale · v3",
+      "date": "2026-09-28",
+      "summary": "Pivots joués, répliques protégées, présence et continuité visuelle fiables.",
+      "fingerprint": "babe2b1ef0fc06d50a23eaa86b26af0fc05bd9b80fe4e72ec2c55734416d8e49",
+      "sha256": "2e74722d6fd084d1bd543a14c2cdd08f79a77d9cfecf8bb1546cbeb188e80555"
+    },
+    {
+      "id": "experimental-2026-09-27",
+      "file": "experimental-2026-09-27.json",
+      "label": "Expérimentale · v2",
+      "date": "2026-09-27",
+      "summary": "Fidélité à ton idée, correction de la langue, progression et prompts allégés.",
+      "fingerprint": "5e5d92d7359b57e2434a39a99c5b10c22e7f5139a28d5673f37c2f90ec0a0ca1",
+      "sha256": "bef8c25a969aadfc63d0594b0bdf426ba76b6193fa4f228793bf3fa5003b99f6"
+    },
+    {
+      "id": "reference-2026-09-27",
+      "file": "reference-2026-09-27.json",
+      "label": "Référence du 27 septembre · v1",
+      "date": "2026-09-27",
+      "summary": "Consignes et règles éditoriales conservées avant le patch fidélité.",
+      "fingerprint": "ea83cc36a46ea0174d6de1a5dce696249ebd45375ed95dfeb054d650e08f0b8c",
+      "sha256": "8d621abde56c4075f9044eef82a7503cd58ec4c1f5fdd5e064f5d49a38700df4"
+    }
+  ]
+}

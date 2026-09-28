@@ -97,6 +97,28 @@ class Krea2AssistedWebTest(unittest.TestCase):
         self.client.close()
         self.temporary.cleanup()
 
+    def test_v6_can_create_and_continue_without_local_inspirations(self):
+        created = self.client.post("/api/image-lab/krea2-assisted/projects", data={
+            "name": "Sans bibliothèque",
+            "intention": "A blue ceramic bird on a table",
+            "model_id": "local",
+            "assistance_recipe_version": "6.0.0",
+            "local_inspiration_enabled": "false",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        project = created.json()["project"]
+        self.assertFalse(project["local_inspiration_enabled"])
+        self.assertEqual(project["prompt_examples"], [])
+
+        updated = self.client.post(
+            f'/api/image-lab/krea2-assisted/projects/{project["project_id"]}/local-inspiration',
+            json={"enabled": False, "expected_branch_id": project["active_branch_id"]},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertFalse(updated.json()["project"]["local_inspiration_enabled"])
+        self.assertIsNone(updated.json()["project"]["current_prompt"])
+        self.assertEqual(self.gateway.requests, [])
+
     def test_sampling_is_snapshotted_per_enqueue_and_survives_get_and_branch_draft(self):
         from copy import deepcopy
         from itertools import count
@@ -343,9 +365,10 @@ class Krea2AssistedWebTest(unittest.TestCase):
             spec = self.client.get("/api/image-lab/krea2-assisted/spec")
         self.assertEqual(
             [item["version"] for item in spec.json()["assistance_recipes"]],
-            ["1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"],
+            ["1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0"],
         )
         self.assertIn("wildcard_library", spec.json())
+        self.assertIn("art_style_catalog", spec.json())
         self.assertEqual(spec.json()["prompt_library"]["state"], "unavailable")
         self.assertEqual(spec.json()["limits"]["lora_count"], 10)
         model = spec.json()["render_models"][0]["comfy_name"]

@@ -187,6 +187,7 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
         "attempt_id": attempt.attempt_id,
         "recipe": asdict(attempt.recipe) if attempt.recipe else None,
         "bunny": asdict(attempt.bunny) if attempt.bunny else None,
+        "batch_mode": attempt.batch_mode,
         "checkpoint": attempt.checkpoint,
         "video_loras": asdict(attempt.video_loras) if attempt.video_loras is not None else None,
         "model_loading": asdict(attempt.model_loading) if attempt.model_loading else None,
@@ -300,6 +301,7 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
     video_lora = value.get("video_lora")
     return H3RenderAttempt(
         attempt_id=value["attempt_id"],
+        batch_mode=value.get("batch_mode", False),
         checkpoint=value.get("checkpoint"),
         video_loras=H3VideoLoraStack.from_dict(value.get("video_loras")),
         model_loading=H3ModelLoading(**value["model_loading"]) if value.get("model_loading") else None,

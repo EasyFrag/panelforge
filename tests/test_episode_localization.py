@@ -124,6 +124,65 @@ class EpisodeLocalizationTest(unittest.TestCase):
             expected_revisions={copy["episode_id"]: copy["localization"]["revision"]}, request_id=request_id)
         return self.service.get(copy["episode_id"])
 
+    def factory_adapter(self):
+        from panelforge.application.video_factory_workflows import FactoryWorkflows
+        return FactoryWorkflows(prompt_lab=Mock(), composition=Mock(), render=self.service.render,
+            episodes=self.service, dlss=Mock(), social=Mock(), assets=self.assets, coordinator=None)
+
+    def test_factory_receives_injected_english_without_rewriting_and_reuses_silent_video(self):
+        translated = self.start(self.copy())
+        adapter = self.factory_adapter()
+        before = list(self.calls)
+        entries = adapter.capture_episode(translated["episode_id"])
+        spoken, silent = entries
+        self.assertIn('<d>[English] Translated line 1.</d>', spoken["config"]["final_prompt"])
+        self.assertNotIn('<d>[French]', spoken["config"]["final_prompt"])
+        self.assertEqual(spoken["outputs"]["prompt"]["text"], spoken["config"]["final_prompt"])
+        self.assertIn("plan", spoken["outputs"])
+        self.assertNotIn("video", spoken["outputs"])
+        self.assertEqual(silent["outputs"]["video"]["asset_id"], "source-output-1")
+        self.assertEqual(spoken["source"]["id"], translated["episode_id"])
+        adapter.prompt_lab.create_session.assert_not_called()
+        adapter.composition.get.assert_not_called()
+        self.assertEqual(self.calls, before)
+        self.assertEqual(self._source_bytes(), self.source_bytes)
+
+    def test_factory_rejects_untranslated_copy_instead_of_falling_back_to_french(self):
+        translated = self.copy()
+        with self.assertRaisesRegex(ValueError, "Multilangue"):
+            self.factory_adapter().capture_episode(translated["episode_id"])
+
+    def test_factory_ignores_an_old_unlocalized_preparation_and_links_the_corrected_result(self):
+        translated = self.start(self.copy())
+        raw = self.service.store.get(translated["episode_id"])
+        scene = raw["scenes"][0]
+        valid = deepcopy(scene["preparations"][-1])
+        poisoned = dict(valid, id="old-factory-french", localized=False, session_id="wrong-french-session",
+                        render_project_id=self.source_projects[0].project_id)
+        scene["preparations"].append(poisoned)
+        self.service.store.save(raw)
+        entry = self.factory_adapter().capture_episode(raw["episode_id"], [scene["id"]])[0]
+        self.assertEqual(entry["runtime"]["render_project_id"], valid["render_project_id"])
+        self.assertEqual(entry["runtime"]["episode_preparation_id"], poisoned["id"])
+        self.assertNotIn('<d>[French]', entry["config"]["final_prompt"])
+        linked = self.service.register_factory_video(raw["episode_id"], scene["id"], factory_id="factory-corrected",
+            inputs=entry["runtime"]["episode_inputs"], expected_preparation_id=poisoned["id"], session_id=None,
+            project_id=valid["render_project_id"], render_setup=entry["config"]["render"])
+        self.assertTrue(linked)
+        latest = self.service.store.get(raw["episode_id"])["scenes"][0]["preparations"][-1]
+        self.assertTrue(latest["localized"])
+        self.assertIsNone(latest["session_id"])
+        self.assertEqual(latest["render_project_id"], valid["render_project_id"])
+
+    def test_factory_rejects_attaching_a_french_prompt_to_a_translated_scene(self):
+        translated = self.start(self.copy())
+        raw = self.service.store.get(translated["episode_id"])
+        scene = raw["scenes"][0]
+        self.assertFalse(self.service.register_factory_video(raw["episode_id"], scene["id"], factory_id="factory-wrong",
+            inputs=scene_inputs(raw, scene), expected_preparation_id=scene["preparations"][-1]["id"],
+            session_id="french-session", project_id=self.source_projects[0].project_id, render_setup=scene["render_setup"]))
+        self.assertEqual(self.service.store.get(raw["episode_id"]), raw)
+
     def test_copy_pins_actual_attempt_and_reuses_only_silent_video_and_dlss(self):
         copy = self.copy()
         spoken, silent = copy["scenes"]

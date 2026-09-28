@@ -367,6 +367,8 @@ def intent_to_dict(intent: PreparationIntent | None) -> dict[str, object] | None
         "source_text": intent.source_text,
         "creative_freedom": intent.creative_freedom,
         "creative_audacity": intent.creative_audacity,
+        **({key: getattr(intent, key) for key in ("speech_policy", "speech_language")}
+           if intent.speech_policy is not None else {}),
         "creative_axes": (
             {name: getattr(intent.creative_axes, name) for name in ("scene_life", "camera", "extra_motion", "dialogue")}
             if intent.creative_axes is not None else None
@@ -378,13 +380,15 @@ def intent_from_dict(value: object) -> PreparationIntent | None:
     if value is None:
         return None
     data = _require_object(value, "preparation_intent")
-    if set(data) != {"source_text", "creative_freedom", "creative_audacity", "creative_axes"}:
+    required = {"source_text", "creative_freedom", "creative_audacity", "creative_axes"}
+    if not required <= set(data) or set(data) - required - {"speech_policy", "speech_language"}:
         raise ValueError("invalid preparation_intent fields")
     axes = data["creative_axes"]
     return PreparationIntent(
         source_text=data["source_text"],
         creative_freedom=data["creative_freedom"],
         creative_audacity=data["creative_audacity"],
+        speech_policy=data.get("speech_policy"), speech_language=data.get("speech_language"),
         creative_axes=CreativeFreedomAxes(**_require_object(axes, "creative_axes")) if axes is not None else None,
     )
 

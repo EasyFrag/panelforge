@@ -61,7 +61,7 @@ class LongStoriesTest(unittest.TestCase):
 
     def create(self, **changes):
         values = dict(brief="Une preuve retournée révèle un secret à la fin, sans le résoudre.", narrative_format="long",
-                      creation_mode="adapt", scene_count=4, clip_seconds=10, long_options=deepcopy(OPTIONS))
+                      creation_mode="adapt", scene_count=4, clip_seconds=10, long_options=deepcopy(OPTIONS), story_quality_version=0)
         values.update(changes)
         return self.service.create(**values)
 

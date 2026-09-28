@@ -6,12 +6,16 @@ import json
 from uuid import uuid4
 
 from .episodes import default_render_setup
+from .localized_speech import LEGACY_THANKS_LANGUAGES
+from .little_men_languages import scene_contexts, selection_input, selection_instructions
+from .little_men_direction import preparation_text_v3
 
 STAGES = ("plan", "prompt", "video", "dlss", "social")
 LABELS = dict(plan="Plan", prompt="Prompt", video="Vidéo", dlss="DLSS", social="Texte IG")
 DEPENDENCIES = dict(plan=(), prompt=("plan",), video=("prompt",), dlss=("video",), social=("video",))
 TERMINAL = {"succeeded", "skipped", "failed", "cancelled"}
-PRESETS = {"source": "Réglages source", "lips": "Lèvres", "little_men": "Petits hommes", "custom": "Personnalisé"}
+PRESETS = {"source": "Réglages source", "lips": "Lèvres", "little_men": "Petits hommes",
+           "little_men_experimental": "Petits hommes — expérimental", "custom": "Personnalisé"}
 ROLES = {
     "unassigned": "Rôle à choisir",
     "first_frame": "Première frame", "last_frame": "Dernière frame",
@@ -61,12 +65,91 @@ LIPS_INTENT = (
     "propagation, un effet de vague ou une transformation différée."
 )
 LITTLE_MEN_INTENT = (
-    "Sur un plan de 8 secondes, les petits hommes tentent de résoudre le problème visible "
-    "dans l’image. Une main géante arrive du ciel et intervient pour les aider. "
-    "Les petits hommes observent la main avec attention et étonnement. "
-    'Une fois son travail accompli, la main repart vers le haut. '
-    'Les petits hommes lèvent les bras vers le ciel et acclament la main : "thank you".'
+    "Sur un plan continu de 8 secondes, les petits hommes tentent de résoudre le problème visible "
+    "dans l’image. Une main géante arrive du ciel avec un objet, outil ou matériau extérieur au décor, "
+    "choisi librement pour apporter une solution ingénieuse et visuellement compréhensible. "
+    "Un accessoire familier à échelle humaine devient monumental pour les petits hommes. "
+    "Imagine le moyen d’intervention dès le plan : une action principale, son effet visible, puis la réaction. "
+    "L’image fixe le départ et l’identité des personnages ; elle autorise l’arrivée de cet accessoire "
+    "et les changements du décor nécessaires pour résoudre le problème. "
+    "Exemples de mécanismes, à adapter et non à reproduire systématiquement : apporter de l’eau "
+    "avec une bouteille pour faire revenir la verdure sur une terre sèche ; éteindre un incendie "
+    "avec un pommeau de douche ; réparer une rupture avec un outil ou matériau adapté. "
+    "Pour une inondation, chercher le détournement amusant d’un objet domestique, avec un geste "
+    "simple et un effet surprenant mais immédiatement lisible. Exemple fort : une ventouse de "
+    "débouchage presse une évacuation submergée, puis la main tire avec un petit pop ; un tourbillon "
+    "aspire l’eau et la rue se vide comme une baignoire, révélant une chaussée encore humide. "
+    "Les petits hommes et les décors restent intacts. Une éponge qui gonfle en absorbant l’eau "
+    "ou une pipette géante illustrent d’autres détournements possibles. Ne pas se limiter au "
+    "nettoyage réaliste d’une bande de chaussée avec une raclette. "
+    "Choisis selon cette image, sans catalogue fermé ni association obligatoire entre thème et objet. "
+    "L’amélioration apparaît après le contact ou l’action de l’accessoire et reste visible. "
+    "Les petits hommes observent la main avec étonnement. Une fois son travail accompli, "
+    "la main repart vers le haut. Ils lèvent les bras et disent en anglais : \"thank you\". "
+    "Garde une action simple et assez de temps pour voir le résultat et leur réaction."
 )
+
+
+LITTLE_MEN_EXPERIMENTAL_INTENT_V2 = (
+    "Un plan continu montre les petits hommes qui tentent de résoudre le problème visible dans l’image. "
+    "La même main géante arrive du ciel avec un objet domestique, outil ou matériau extérieur au décor, "
+    "choisi librement pour une aide ingénieuse, ludique et immédiatement compréhensible. "
+    "L’image fixe le départ et l’identité ; les accessoires et les changements utiles du décor sont autorisés. "
+    "Prévoir deux gestes utiles successifs qui résolvent le même problème, éventuellement trois très courts "
+    "si la durée le permet. Un seul geste reste possible s’il suffit : aucun geste de remplissage. "
+    "Exemples à adapter librement : remettre une passerelle en place puis la fixer ; déboucher une "
+    "évacuation avec une ventouse puis absorber l’eau restante ; arroser puis abriter les pousses. "
+    "Garder la même main, l’identité et l’échelle des objets ; montrer tout changement d’outil sans "
+    "téléportation. Chaque effet suit son geste et persiste pendant le suivant. Personnages et décors "
+    "restent intacts hors réparations nécessaires. Décrire chaque geste et son résultat séparément "
+    "dans les actions du Plan, même au sein d’une seule phase, puis les préserver dans le Prompt. "
+    "Réserver environ le dernier cinquième au résultat visible, au retrait de la main vers le haut "
+    "et aux petits hommes qui lèvent les bras et remercient ensemble une seule fois. "
+    "La langue du remerciement suit le choix fixé pour cette fiche. Une langue manuelle prime ; "
+    "sinon utiliser le pays connu dans le contexte de l’image, puis son ambiance architecturale "
+    "ou paysagère et les groupes de langues fournis. Asie de l’Est inclut chinois, coréen et japonais. "
+    "Le portugais correspond au Portugal/Brésil ou à l’Europe du Sud, pas à l’Europe de l’Est. "
+    "Sans indice, suivre l’ordre de préférence fourni parmi les 11 langues, sans repli anglais systématique. "
+    "La langue de rédaction du titre ou du prompt ne prouve aucun pays. "
+    "Dès le Plan, choisir un unique remerciement bref dans l’écriture native et une langue précise. "
+    "Indiquer le lieu retenu ou son incertitude et l’indice utilisé dans continuity_invariants. "
+    "Inscrire la réplique exacte dans spoken_lines et le nom anglais complet de sa langue dans "
+    "spoken_languages ; reprendre exactement cette réplique et cette langue dans la balise vocale "
+    "des actions. Le Prompt conserve ce choix, sans traduction, romanisation ni parole supplémentaire. "
+    "La langue du texte Instagram est indépendante."
+)
+
+
+LITTLE_MEN_EXPERIMENTAL_INTENT = (
+    "Dans un plan continu, les petits hommes tentent de résoudre le problème visible dans l’image. "
+    "Une main géante descend du ciel avec un objet du quotidien à échelle humaine, monumental "
+    "pour eux, et le détourne de façon ingénieuse, surprenante et immédiatement compréhensible. "
+    "La solution répond au problème montré et produit une amélioration nette et durable. "
+    "Enchaîner les gestes nécessaires, chacun faisant progresser la même solution, sans nombre "
+    "imposé ni geste de remplissage. Garder les personnages et le décor reconnaissables. "
+    "Une fois l’aide accomplie, la main remonte ; les petits hommes lèvent les bras et prononcent "
+    "ensemble, une seule fois, le remerciement fourni. Laisser voir le résultat final."
+)
+
+
+def current_experimental_intent(text):
+    """Upgrade only the untouched v2 default when starting a new preparation."""
+    return LITTLE_MEN_EXPERIMENTAL_INTENT if text == LITTLE_MEN_EXPERIMENTAL_INTENT_V2 else text
+
+
+# Historical intentions remain stored unchanged; new v2 preparations supersede this paragraph.
+_LEGACY_THANKS_INSTRUCTIONS = (
+    'Choisir la langue du pays représenté dans la scène : une langue explicitement demandée prime ; '
+    'sinon utiliser le pays indiqué dans le contexte source, puis les indices visuels explicites '
+    'comme un drapeau ou une inscription. Ne pas déduire le pays de l’apparence des personnes. En cas '
+    'd’incertitude ou de pays multilingue sans langue locale précise, choisir l’anglais. Exemples de '
+    'correspondances, jamais une liste à réciter : France → français → Merci ! ; Corée → coréen → '
+    '감사합니다 ! ; repli anglais → Thank you! '
+)
+
+
+def is_experimental_little_men(config):
+    return (config.get("preset_origin") or config.get("preset")) == "little_men_experimental"
 
 
 def timestamp():
@@ -80,6 +163,7 @@ def fingerprint(value):
 
 def configuration(mode="h3"):
     return dict(mode=mode, preset="source", preset_origin=None, intention="", final_prompt="",
+                little_men_language="auto", little_men_context="",
                 references=[], shot_count=None, plan_model_id=PLAN_MODEL, writer_model_id=WRITER_MODEL,
                 profile={"id": f"minimax.h3.{'fl2va' if mode == 'h3' else 'ref2v'}.classic.cinematic", "version": "1.0.0"},
                 cookbook={"id": f"minimax.h3.{'fl2va' if mode == 'h3' else 'ref2v'}.classic.cinematic.planned", "version": "1.0.0"},
@@ -101,7 +185,7 @@ def merge_settings(base, changes):
     return result
 
 
-def apply_preset(config, preset, source):
+def apply_preset(config, preset, source, *, name=""):
     if preset not in PRESETS:
         raise ValueError("Preset inconnu.")
     if preset == "source":
@@ -115,14 +199,58 @@ def apply_preset(config, preset, source):
     fresh = configuration()
     for key in ("profile", "cookbook", "cinematic_settings", "combat_settings", "sensual_settings",
                 "brief_variant_id", "brief_variant_version", "plan_model_id", "writer_model_id",
-                "creative_axes", "creative_audacity", "creative_freedom", "render"):
+                "creative_axes", "creative_audacity", "creative_freedom", "render",
+                "little_men_language", "little_men_context"):
         result[key] = fresh[key]
     result.update(mode="h3", preset=preset, preset_origin=preset, shot_count=1,
-                  final_prompt="", intention=LIPS_INTENT if preset == "lips" else LITTLE_MEN_INTENT)
+                  final_prompt="", intention={"lips": LIPS_INTENT, "little_men": LITTLE_MEN_INTENT,
+                      "little_men_experimental": LITTLE_MEN_EXPERIMENTAL_INTENT}[preset])
+    result["dlss"] = {"enabled": True}
+    result["social"] = dict(enabled=False, language="en", variant_count=3, model_id=WRITER_MODEL)
+    if preset == "lips":
+        result["render"] = default_render_setup(10)
+        result["creative_axes"] = dict(scene_life=1, camera=1, extra_motion=1, dialogue=0)
+        result["creative_audacity"] = 1
+        result["creative_freedom"] = 25
+    if preset == "little_men_experimental":
+        result["render"] = default_render_setup(10)
+        result["little_men_context"] = source.get("little_men_context", "") or source.get("intention", "")[:2000]
+        result["creative_axes"]["camera"] = 1
     result["cinematic_settings"] = {"shot_count": 1}
     for ref in result["references"]:
         ref["role"] = "last_frame" if preset == "lips" else "first_frame"
     return result
+
+
+def preparation_text(config, *, thanks_selection=None):
+    """Build a fresh preparation without rewriting stored intentions or prepared prompts."""
+    source = config["intention"] or config["final_prompt"]
+    if config.get("preset") == "lips" or config.get("preset_origin") == "lips":
+        duration = config["render"]["settings"]["duration_seconds"]
+        source = (f"Durée cible et durée totale du plan : {duration:g} secondes. "
+                  f"Aligner l’image de fin sur le dernier instant, à {duration:.2f} secondes. "
+                  "Adapter tous les temps du plan et du prompt à cette durée.\n\n" + source)
+    if is_experimental_little_men(config):
+        if thanks_selection and thanks_selection.get("version") == 3:
+            return preparation_text_v3(config, source, thanks_selection)
+        duration = config["render"]["settings"]["duration_seconds"]
+        # Source titles/descriptions are geographical evidence, never exact speech.
+        context = ("\n\n".join(label + " :\n" + text for label, text in scene_contexts(config))
+                   if thanks_selection else config.get("little_men_context", ""))
+        context = context.translate(str.maketrans("", "", '\"«»“”'))
+        language = config.get("little_men_language", "auto")
+        choice = ("Langue du remerciement : automatique selon le lieu représenté."
+                  if language == "auto" else f"Langue imposée pour le remerciement : {language}.")
+        if thanks_selection:
+            source = source.replace(_LEGACY_THANKS_INSTRUCTIONS,
+                "La langue du remerciement suit le choix fixé pour cette fiche, indiqué ci-dessous. ")
+            choice = selection_instructions(thanks_selection).translate(str.maketrans("", "", '\"«»“”'))
+        source = (f"Durée cible et durée totale du plan : {duration:g} secondes. "
+                  "Adapter tous les gestes et la réaction à cette durée.\n\n" + source +
+                  "\n\nCONTEXTE DU LIEU — indices géographiques seulement ; ne pas reprendre "
+                  "les anciennes paroles ou consignes de mise en scène :\n" + context +
+                  "\n\n" + choice)
+    return source
 
 
 def validate_shape(config):
@@ -139,6 +267,11 @@ def validate_shape(config):
             raise ValueError("Recette de préparation invalide.")
     if config["mode"] not in {"h3", "ref2v"} or config["preset"] not in PRESETS:
         raise ValueError("Mode ou preset inconnu.")
+    if config.get("little_men_language", "auto") not in LEGACY_THANKS_LANGUAGES:
+        raise ValueError("Langue de remerciement inconnue.")
+    context = config.get("little_men_context", "")
+    if not isinstance(context, str) or len(context) > 2000:
+        raise ValueError("Contexte du lieu limité à 2000 caractères.")
     for key in ("intention", "final_prompt"):
         if not isinstance(config[key], str) or len(config[key]) > 60000:
             raise ValueError("Texte trop long ou invalide.")
@@ -153,6 +286,14 @@ def validate_shape(config):
             raise ValueError("Rôle d’image invalide.")
         if not isinstance(ref.get("asset_id"), str) or not ref["asset_id"].startswith("asset-"):
             raise ValueError("Image invalide.")
+        context = ref.get("scene_context")
+        if context is not None:
+            limits = dict(asset_id=128, origin=100, prompt=12000, intention=4000, style=3000)
+            if (not isinstance(context, dict) or set(context) != set(limits)
+                    or context.get("asset_id") != ref["asset_id"]
+                    or any(not isinstance(context.get(key), str) or len(context[key]) > limit
+                           for key, limit in limits.items())):
+                raise ValueError("Contexte de l’image invalide.")
     if type(config["creative_audacity"]) is not int or not 0 <= config["creative_audacity"] <= 3:
         raise ValueError("Audace : 0 à 3.")
     if type(config["creative_freedom"]) is not int or not 0 <= config["creative_freedom"] <= 100:
@@ -192,7 +333,7 @@ def new_item(name, config, source, dedupe_key):
     validate_shape(config)
     return dict(id=f"factory-{uuid4().hex}", kind="video", name=name[:160],
                 revision=1, created_at=timestamp(), updated_at=timestamp(),
-                status="preparation", config=deepcopy(config), source_config=deepcopy(config),
+                status="preparation", archived_at=None, config=deepcopy(config), source_config=deepcopy(config),
                 source=deepcopy(source), dedupe_key=dedupe_key, runtime={}, steps=initial_steps(config),
                 cancel_requested=False, waiting_reason=None, history=[])
 
@@ -264,7 +405,15 @@ def invalidate(item, before):
                                     "runtime": deepcopy(item["runtime"])})
         item["steps"][stage] = defaults[stage]
     if content:
+        selection = item["runtime"].get("thanks_selection")
         item["runtime"] = {}
+        if (selection and is_experimental_little_men(after)
+                and selection.get("input_hash") == selection_input(after)):
+            item["runtime"]["thanks_selection"] = deepcopy(selection)
+            if ("intention" in changed and after["intention"] == LITTLE_MEN_EXPERIMENTAL_INTENT):
+                item["runtime"]["thanks_selection"]["version"] = 3
+            if selection.get("language"):
+                item["runtime"]["thanks_selection"]["requested_language"] = selection["language"]
     else:
         for key in (("attempt_id", "render_project_id") if "render" in changed else ()):
             item["runtime"].pop(key, None)
@@ -281,7 +430,7 @@ def invalidate(item, before):
         if saved is None:
             continue
         item["steps"][stage].update(status="succeeded", output=deepcopy(saved["output"]))
-        keys = {"session_id", "source_session_id", "saved_plan", "saved_reference_plan", "episode_inputs", "episode_preparation_id"}
+        keys = {"session_id", "source_session_id", "saved_plan", "saved_reference_plan", "episode_inputs", "episode_preparation_id", "thanks_selection"}
         if stage == "video":
             keys.update(("render_project_id", "attempt_id"))
         if stage == "dlss":

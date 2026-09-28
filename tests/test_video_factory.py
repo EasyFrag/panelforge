@@ -48,8 +48,8 @@ class DeferredThread:
 
 
 class FactoryDomainTest(unittest.TestCase):
-    def test_four_presets_image_role_lips_and_instagram_defaults(self):
-        self.assertEqual(set(PRESETS), {"source", "lips", "little_men", "custom"})
+    def test_presets_image_role_lips_and_instagram_defaults(self):
+        self.assertEqual(set(PRESETS), {"source", "lips", "little_men", "little_men_experimental", "custom"})
         config = configuration()
         config["references"] = [dict(asset_id="asset-image", role="unassigned")]
         self.assertTrue(readiness(config))
@@ -59,6 +59,9 @@ class FactoryDomainTest(unittest.TestCase):
         self.assertEqual(lips["shot_count"], 1)
         self.assertEqual(lips["render"]["recipe"]["id"], "minimax-h3-bunny")
         self.assertIn("Motion_Repair", lips["render"]["video_loras"]["entries"][0]["name"])
+        self.assertTrue(lips["dlss"]["enabled"])
+        self.assertEqual(lips["render"]["settings"]["duration_seconds"], 10)
+        self.assertEqual(lips["creative_axes"]["dialogue"], 0)
         self.assertEqual(lips["social"], dict(enabled=False, language="en", variant_count=3,
                                             model_id="local::unsloth/gemma-4-31B-it-qat-GGUF"))
         little = apply_preset(config, "little_men", config)

@@ -34,6 +34,56 @@
   const node = (tag, text = "", cls = "") => { const n = document.createElement(tag); n.textContent = text; if (cls) n.className = cls; return n; };
   const button = (text, action) => { const b = node("button", text); b.type = "button"; b.addEventListener("click", action); return b; };
   const assetUrl = id => `/api/assets/${encodeURIComponent(id)}/content`;
+  const referenceViewer = el("image-viewer");
+  const referenceHover = node("div", "", "episode-image-hover"), hoverImage = node("img");
+  referenceHover.hidden = true; referenceHover.setAttribute("aria-hidden", "true"); hoverImage.alt = "";
+  referenceHover.append(hoverImage, node("span", "Cliquer pour agrandir")); document.body.append(referenceHover);
+  let referenceHoverTimer = null;
+  const zoomIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7 10h6M10 7v6"/></svg>';
+  function hideReferenceHover() {
+    clearTimeout(referenceHoverTimer); referenceHover.hidden = true; hoverImage.removeAttribute("src");
+  }
+  function referenceImage(assetId, label) {
+    const zoom = node("button", "", "episode-image-zoom"), image = node("img");
+    zoom.type = "button"; zoom.dataset.previewHover = "true";
+    zoom.setAttribute("aria-label", `Agrandir ${label}`); zoom.setAttribute("aria-haspopup", "dialog");
+    image.src = assetUrl(assetId); image.alt = label; image.loading = "lazy";
+    zoom.innerHTML = zoomIcon; zoom.prepend(image);
+    return zoom;
+  }
+  root.addEventListener("click", event => {
+    const zoom = event.target.closest(".episode-image-zoom");
+    const image = zoom?.querySelector("img");
+    if (!image?.getAttribute("src")) return;
+    hideReferenceHover();
+    el("image-viewer-title").textContent = image.alt || "Image de référence";
+    el("image-viewer-content").src = image.src; el("image-viewer-content").alt = image.alt;
+    if (!referenceViewer.open) referenceViewer.showModal();
+  });
+  root.addEventListener("pointerover", event => {
+    const zoom = event.target.closest(".episode-image-zoom[data-preview-hover]");
+    if (!zoom || zoom.contains(event.relatedTarget) || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+    hideReferenceHover();
+    referenceHoverTimer = setTimeout(() => {
+      if (!zoom.isConnected || !zoom.matches(":hover") || referenceViewer.open) return;
+      const image = zoom.querySelector("img"), bounds = zoom.getBoundingClientRect(), gap = 12;
+      const width = Math.min(320, window.innerWidth - gap * 2), height = Math.min(430, window.innerHeight - gap * 2);
+      const left = bounds.right + gap + width <= window.innerWidth ? bounds.right + gap : bounds.left - width - gap;
+      referenceHover.style.width = `${width}px`; referenceHover.style.height = `${height}px`;
+      referenceHover.style.left = `${Math.max(gap, Math.min(left, window.innerWidth - width - gap))}px`;
+      referenceHover.style.top = `${Math.max(gap, Math.min(bounds.top, window.innerHeight - height - gap))}px`;
+      hoverImage.src = image.src; referenceHover.hidden = false;
+    }, 220);
+  });
+  root.addEventListener("pointerout", event => {
+    const zoom = event.target.closest(".episode-image-zoom[data-preview-hover]");
+    if (zoom && !zoom.contains(event.relatedTarget)) hideReferenceHover();
+  });
+  window.addEventListener("scroll", hideReferenceHover, true);
+  window.addEventListener("resize", hideReferenceHover);
+  el("image-viewer-close").addEventListener("click", () => referenceViewer.close());
+  referenceViewer.addEventListener("click", event => { if (event.target === referenceViewer) referenceViewer.close(); });
+  referenceViewer.addEventListener("close", () => el("image-viewer-content").removeAttribute("src"));
   const jobRunning = item => item?.job?.status === "running";
   const renderDuration = value => value.effective_render_setup?.settings?.duration_seconds ?? value.render_setup?.settings?.duration_seconds ?? value.duration;
   const promptActivity = value => {
@@ -42,7 +92,7 @@
     return active ? `${active === "plan" ? "Plan" : "Rédacteur"} · ${stages[active] === "starting" ? "démarrage" : "en cours"}`
       : "Planifié · en attente du LLM";
   };
-  const isStateReference = r => state.data?.visual_state_policy === 1 && !!r?.continuity_state_id;
+  const isStateReference = r => [1, 2].includes(state.data?.visual_state_policy) && !!(r?.continuity_state_id || r?.continuity_source_image);
   const batchRunning = () => ["running", "rendering", "cancelling"].includes(state.data?.reference_batch?.status);
   const videoRecoveryRunning = () => state.data?.scenes?.some(value => jobRunning(value)
     || ["queued", "running", "cancel_pending"].includes(value.video_status));
@@ -57,7 +107,9 @@
     if (state.data) memo.set(state.data.story_id, JSON.stringify({id: state.data.episode_id, tab: state.tab, ref: state.refId, scene: state.sceneId}));
   }
   function show(visible) {
+    hideReferenceHover(); if (!visible && referenceViewer.open) referenceViewer.close();
     root.hidden = !visible; document.getElementById("story-writing").hidden = visible;
+    document.getElementById("stories-workspace").classList.toggle("story-fabrication-open", visible);
     document.querySelectorAll("#stories-workspace .story-model-control").forEach(control => { control.hidden = visible; });
     if (!visible) { thumbnails?.close(); localization?.close(); clearTimeout(state.timer); renderer.close(); state.renderContext = ""; }
   }
@@ -142,7 +194,7 @@
       el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = true; });
       el("references").querySelectorAll("button,input,select,textarea").forEach(n => {
         if (!Object.hasOwn(n.dataset, "localizationDisabled")) n.dataset.localizationDisabled = String(n.disabled);
-        n.disabled = n.id !== "episode-reference";
+        n.disabled = n.id !== "episode-reference" && !n.classList.contains("episode-image-zoom");
       });
       el("video-start").disabled ||= state.data.scenes.some(s => s.localization.status !== "ready")
         || ["queued", "running"].includes(state.data.localization.job?.status);
@@ -338,7 +390,7 @@
     el("batch-results").replaceChildren(...items.map(item => {
       const card = node("article", "", "episode-batch-result");
       card.append(node("b", `${kindLabel(item.kind)} · ${item.name}`));
-      if (item.output_asset_id) { const image = document.createElement("img"); image.src = assetUrl(item.output_asset_id); image.alt = item.name; card.append(image); }
+      if (item.output_asset_id) card.append(referenceImage(item.output_asset_id, item.name));
       card.append(node("p", item.phase || item.status), node("p", item.error || "", item.error ? "error" : "muted"));
       const actions = node("div", "", "story-actions");
       actions.append(button("Ouvrir la fiche", () => action(async () => {
@@ -720,12 +772,15 @@
     }
     el("style-warning").hidden = !r.prompt_style_stale;
     el("style-warning").textContent = "Le style commun a changé depuis la dernière rédaction LLM. Vérifie le prompt ou propose un ajustement. L’image retenue reste conservée.";
-    el("reference-preview").hidden = !r.image_asset_id; el("no-reference").hidden = !!r.image_asset_id;
+    el("reference-zoom").hidden = !r.image_asset_id; el("reference-preview").hidden = !r.image_asset_id; el("no-reference").hidden = !!r.image_asset_id;
+    el("reference-preview").alt = r.name; el("reference-zoom").setAttribute("aria-label", `Agrandir ${r.name}`);
     if (r.image_asset_id) el("reference-preview").src = assetUrl(r.image_asset_id); else el("reference-preview").removeAttribute("src");
-    el("image-style-note").hidden = !r.image_asset_id;
+    el("image-style-note").hidden = !r.image_asset_id && !r.continuity_source_image;
     const inheritedNote = r.inherited_image
       ? `Référence héritée de l’épisode précédent pour ${r.inherited_image.name}. ` : "";
-    el("image-style-note").textContent = inheritedNote + (r.image_style_status === "outdated"
+    const sourceNote = r.continuity_source_image
+      ? `Nouvelle apparence à préparer à partir de l’image validée de ${r.continuity_source_image.name}. ` : "";
+    el("image-style-note").textContent = inheritedNote + sourceNote + (r.image_style_status === "outdated"
       ? "Cette image provient d’une ancienne direction de style. Elle reste retenue jusqu’à ton prochain choix."
       : r.image_style_status === "current" ? "Image préparée avec le style commun actuel."
       : "Style de cette image non documenté : vérifie sa cohérence avec l’épisode.");
@@ -740,10 +795,7 @@
     el("image-attempts").replaceChildren(...items.slice().reverse().map(a => {
       const selected = a.output_asset_id === r.image_asset_id && !r.continuity_image_stale;
       const card = node("article", "", `episode-image-card${selected ? " selected" : ""}`);
-      if (a.output_asset_id) {
-        const link = node("a"), img = node("img"); link.href = assetUrl(a.output_asset_id); link.target = "_blank"; link.rel = "noopener";
-        img.src = link.href; img.alt = a.label || "Proposition de référence"; img.loading = "lazy"; link.append(img); card.append(link);
-      }
+      if (a.output_asset_id) card.append(referenceImage(a.output_asset_id, `${r.name} · ${a.label || "Proposition de référence"}`));
       card.append(node("p", `${a.label || `Essai ${a.index}`} · ${a.source_stale ? "Ancienne identité ou ancien état" : statuses[a.status] || a.status}`));
       if (a.pre_flux_url) {
         const preFlux = node("a", "Voir / télécharger la sortie KREA2 avant Flux");
@@ -1083,7 +1135,11 @@
     localization?.guardDirty();
     state.tab = name; el("references").hidden = name !== "references"; el("scenes").hidden = name !== "scenes";
     el("tab-references").setAttribute("aria-pressed", String(name === "references")); el("tab-scenes").setAttribute("aria-pressed", String(name === "scenes"));
-    if (name === "scenes") await openRender(); else { await renderer.close(); state.renderContext = ""; state.activeRender = null; }
+    if (name === "scenes") {
+      // The initial mount can happen while the workshop or this tab is hidden.
+      thumbnails?.mount(el("video-cards"), state.data);
+      await openRender();
+    } else { await renderer.close(); state.renderContext = ""; state.activeRender = null; }
     el("localization").hidden = name !== "localization";
     el("tab-localization").setAttribute("aria-pressed", String(name === "localization"));
     if (name === "localization") await localization?.open(); else localization?.close();
@@ -1098,7 +1154,7 @@
     state.dlssPanels.clear();
     state.videoCards.clear(); el("video-cards").replaceChildren();
     state.batchProfileKey = ""; state.batchThermalKey = "";
-    state.batchSelection = new Set(data.references.filter(reference => !reference.continuity_archived && (!reference.continuity_state_id || data.visual_state_policy === 1) && (!reference.image_asset_id || reference.continuity_image_stale)).map(reference => reference.id));
+    state.batchSelection = new Set(data.references.filter(reference => !reference.continuity_archived && (!reference.continuity_state_id || [1, 2].includes(data.visual_state_policy)) && (!reference.image_asset_id || reference.continuity_image_stale)).map(reference => reference.id));
     el("style-preset").value = "";
     state.refId = data.references.some(r => r.id === saved?.ref) ? saved.ref : data.references[0].id;
     state.sceneId = data.scenes.some(s => s.id === saved?.scene) ? saved.scene : data.scenes[0].id;

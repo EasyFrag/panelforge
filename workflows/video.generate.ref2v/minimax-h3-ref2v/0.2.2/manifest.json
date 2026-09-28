@@ -1,4 +1,5 @@
 {
+  "batch_preview_bypass": [{"node_id": "12", "input": "model", "output_index": 0}],
   "schema_version": 1,
   "operation": "video.generate.ref2v",
   "recipe_id": "minimax-h3-ref2v",

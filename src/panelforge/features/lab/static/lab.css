@@ -1075,11 +1075,19 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-assisted-refresh-all.refreshing svg { animation: spin .75s linear infinite; }
 .krea2-assisted-new-project { margin-top: .8rem; padding: .65rem .7rem; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.44); }
 .krea2-assisted-new-project > summary { cursor: pointer; color: var(--green); font-size: .72rem; font-weight: 750; }
-.krea2-assisted-library-row { display: flex; min-height: 30px; margin-top: .45rem; gap: .45rem; align-items: center; justify-content: space-between; color: var(--muted); }
+.krea2-assisted-create-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; margin-top: .55rem; }
+.krea2-assisted-create-actions > button { min-height: 44px; margin: 0; }
+.krea2-assisted-library-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 30px; margin-top: .45rem; gap: .3rem .45rem; align-items: center; color: var(--muted); }
+.krea2-assisted-controls .krea2-assisted-library-toggle { display: flex; grid-column: 1 / -1; width: max-content; margin: 0; gap: .35rem; align-items: center; color: var(--ink); font-size: .58rem; }
+.krea2-assisted-controls .krea2-assisted-library-toggle[hidden],
+.krea2-assisted-project-library-control[hidden] { display: none; }
+.krea2-assisted-controls .krea2-assisted-library-toggle input { width: auto; }
 .krea2-assisted-library-row small { overflow-wrap: anywhere; font-size: .56rem; }
 .krea2-assisted-library-row[data-state="ready"] small { color: var(--green); }
 .krea2-assisted-library-row[data-state="failed"] small { color: var(--danger); }
 .krea2-assisted-library-row button { min-height: 28px; padding: .25rem .5rem; font-size: .54rem; }
+.krea2-assisted-library-row[data-enabled="false"] > small,
+.krea2-assisted-library-row[data-enabled="false"] > button { opacity: .52; }
 .krea2-assisted-recent-projects { margin-top: .85rem; padding-top: .75rem; border-top: 1px solid var(--line); }
 .krea2-assisted-controls .llm-local-toggle { display: flex; align-items: center; gap: .4rem; }
 .krea2-assisted-controls .llm-local-toggle input { width: auto; }
@@ -1091,6 +1099,9 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-assisted-content { display: grid; gap: 1rem; align-content: start; }
 .krea2-assisted-conversation-panel, .krea2-assisted-prompt-panel, .krea2-assisted-recipe-panel { margin-top: .8rem; padding: .75rem; border: 1px solid var(--line); border-radius: 10px; background: #f8f6f1; }
 .krea2-assisted-example-panel { margin-top: .65rem; padding: .65rem; border: 1px solid #a7cbb9; border-radius: 10px; background: var(--green-soft); }
+.krea2-assisted-project-library-control { display: flex; width: max-content; max-width: 100%; margin-top: .65rem; gap: .45rem; align-items: center; flex-wrap: wrap; }
+.krea2-assisted-project-library-control label { display: flex; gap: .35rem; align-items: center; color: var(--ink); font-size: .62rem; font-weight: 750; }
+.krea2-assisted-project-library-control small { font-size: .55rem; }
 .krea2-assisted-example-panel > summary, .krea2-assisted-example-panel details > summary { cursor: pointer; font-size: .68rem; }
 .krea2-assisted-example-panel > p { margin: .4rem 0; font-size: .58rem; }
 .krea2-assisted-example-candidates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
@@ -1257,6 +1268,29 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-assisted-preset-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: .45rem; }
 .krea2-assisted-preset-choice label { min-width: 0; margin: 0; }
 .krea2-assisted-preset-choice label:nth-child(2) select { width: auto; min-width: 6.2rem; }
+.krea2-art-direction-compact, .krea2-art-direction-panel { display:flex; align-items:center; gap:.55rem; margin:.55rem 0; padding:.55rem; border:1px solid #b9cfc4; border-radius:9px; background:#f2f6f3; }
+.krea2-art-direction-compact[hidden], .krea2-art-direction-panel[hidden] { display:none; }
+.krea2-art-direction-compact img, .krea2-art-direction-panel img { width:48px; height:60px; border-radius:6px; object-fit:cover; cursor:zoom-in; background:#18231d; }
+.krea2-art-direction-compact > div, .krea2-art-direction-panel > div { display:grid; flex:1; min-width:0; gap:.12rem; }
+.krea2-art-direction-compact small, .krea2-art-direction-panel small, .krea2-art-direction-panel span { font-size:.56rem; }
+.krea2-art-direction-panel { margin:.7rem 0; }
+.krea2-art-dialog { width:min(1040px,94vw); max-height:90vh; padding:1rem; overflow:auto; border:1px solid var(--line); border-radius:14px; color:var(--ink); background:#f8f6f1; }
+.krea2-art-dialog::backdrop { background:#10282088; }
+.krea2-art-dialog-head, .krea2-art-install-row, .krea2-art-filters { display:flex; align-items:center; justify-content:space-between; gap:.7rem; }
+.krea2-art-dialog-head h2 { margin:.1rem 0 .35rem; }
+.krea2-art-install-row { margin:.75rem 0; padding:.65rem; border-radius:9px; background:#edf2ed; }
+.krea2-art-filters { display:grid; grid-template-columns:2fr 1fr; margin:.75rem 0; }
+.krea2-art-filters label { display:grid; gap:.3rem; }
+.krea2-art-filters input, .krea2-art-filters select { width:100%; }
+.krea2-art-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:.65rem; }
+.krea2-art-card { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:10px; background:white; }
+.krea2-art-card > button { display:grid; width:100%; gap:.25rem; padding:.45rem; border:0; text-align:left; background:transparent; }
+.krea2-art-card > button:hover { background:#edf4f0; }
+.krea2-art-card img { width:100%; height:155px; border-radius:7px; object-fit:cover; background:#18231d; }
+.krea2-art-card b, .krea2-art-card small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.krea2-art-card details { padding:.35rem .5rem .5rem; border-top:1px solid var(--line); font-size:.58rem; }
+.krea2-art-card summary { cursor:pointer; color:var(--green); font-weight:700; }
+.krea2-art-card p { max-height:8rem; margin:.35rem 0 0; overflow:auto; line-height:1.45; }
 .krea2-assisted-preset-manage { padding-inline: .7rem; white-space: nowrap; }
 .krea2-assisted-convert-language { padding: .42rem .65rem; border-color: color-mix(in srgb, var(--green) 40%, var(--line)); color: var(--green); background: transparent; white-space: nowrap; }
 .krea2-preset-manager { width: min(760px, 94vw); max-height: 82vh; }
@@ -1859,6 +1893,10 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .work-queue-thermal-history-head h3, .work-queue-long-temperature-chart h4 { margin: 0; }
 .work-queue-thermal-history-head p { margin: 4px 0 0; color: var(--muted); font-size: .76rem; }
 .work-queue-thermal-history-head button { flex: 0 0 auto; }
+.work-queue-thermal-history-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.work-queue-thermal-window { display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 9px; background: #f1efe9; }
+.work-queue-thermal-window button { min-height: 30px; padding: 4px 10px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: .7rem; font-weight: 800; }
+.work-queue-thermal-window button[aria-pressed="true"] { color: #fff; background: var(--green); box-shadow: 0 1px 3px #0002; }
 .work-queue-thermal-history [data-thermal-history] { display: grid; gap: 18px; margin-top: 12px; }
 .work-queue-long-temperature-chart { min-width: 0; padding: 14px; border: 1px solid #d8d1c5; border-radius: 11px; background: #fff; }
 .work-queue-long-temperature-chart > div:first-child > div { display: grid; gap: 3px; }
@@ -1867,13 +1905,22 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .work-queue-long-temperature-chart svg { display: block; width: 100%; height: 250px; margin-top: 9px; overflow: visible; }
 .work-queue-long-temperature-chart svg text { fill: #596861; font-size: 11px; }
 .work-queue-long-temperature-chart svg text.empty { font-size: 14px; }
-.work-queue-long-temperature-segment { fill: none; stroke-width: 3; stroke-linecap: round; }
+.work-queue-long-temperature-segment { fill: none; stroke-width: 1.25; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.work-queue-temperature-peak { stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .work-queue-event-track { position: relative; box-sizing: border-box; display: block; margin-top: 5px; padding-right: 1%; padding-left: 4%; }
 .work-queue-event-track > span { position: absolute; top: 50%; left: 0; width: 4%; color: var(--muted); font-size: .68rem; font-weight: 800; transform: translateY(-50%); }
-.work-queue-event-markers { position: relative; height: 34px; border: 1px solid #d8d1c5; border-radius: 8px; background: linear-gradient(90deg, #f5f3ee, #fff); }
-.work-queue-event-markers::before { position: absolute; top: 50%; right: 8px; left: 8px; height: 1px; background: #c9d2cd; content: ""; }
-.work-queue-event-markers button { position: absolute; top: 50%; z-index: 1; min-width: 27px; min-height: 27px; padding: 2px 5px; transform: translate(-50%, -50%); border: 2px solid #fff; border-radius: 999px; color: #fff; background: var(--green); box-shadow: 0 0 0 1px #17634f55; font-size: .65rem; font-weight: 900; line-height: 1; }
-.work-queue-event-markers button:hover, .work-queue-event-markers button:focus-visible { z-index: 2; transform: translate(-50%, -50%) scale(1.1); outline: 2px solid #17634f55; }
+.work-queue-event-bars { position: relative; height: 28px; overflow: visible; border: 1px solid #d8d1c5; border-radius: 7px; background: #fbfaf7; }
+.work-queue-event-bars::before { position: absolute; top: 50%; right: 5px; left: 5px; height: 1px; background: #d3d9d5; content: ""; }
+.work-queue-event-bar { position: absolute; top: 50%; z-index: 1; box-sizing: border-box; min-width: 2px; height: 11px; padding: 0; overflow: hidden; transform: translateY(-50%); border: 0; border-radius: 3px; color: #fff; background: var(--green); box-shadow: none; font-size: .56rem; font-weight: 900; line-height: 11px; text-align: center; }
+.work-queue-event-bar.workload-llm { background: #17634f; }
+.work-queue-event-bar.workload-dlss { background: #7048b8; }
+.work-queue-event-bar.workload-image_render { background: #16808c; }
+.work-queue-event-bar.workload-video_render { background: #b66b08; }
+.work-queue-event-bar.short { width: 2px !important; border-radius: 0; }
+.work-queue-event-bar.status-interrupted { border: 1px dashed #4f5f58; color: #4f5f58; background: transparent; }
+.work-queue-event-bar.status-cancelled { opacity: .45; }
+.work-queue-event-bar.status-failed { outline: 1px solid var(--red); }
+.work-queue-event-bar:hover, .work-queue-event-bar:focus-visible { z-index: 2; height: 17px; transform: translateY(-50%); outline: 2px solid #17634f55; outline-offset: 1px; }
 .work-queue-event-detail { min-height: 2.6em; margin: 7px 1% 0 4%; color: var(--muted); font-size: .7rem; line-height: 1.35; overflow-wrap: anywhere; }
 .work-queue-background { position: fixed; right: 12px; bottom: 12px; z-index: 36; width: min(760px, calc(100vw - 24px)); padding: 10px 12px; border: 1px solid #84ae9b; border-radius: 12px; background: #faf9f5; box-shadow: 0 4px 18px #0002; }
 .work-queue-compact-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; color: var(--green); font-size: .78rem; }
@@ -1939,6 +1986,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
   .work-queue-background { right: 6px; bottom: 6px; width: calc(100vw - 12px); }
   .work-queue-thermal-history { padding: 10px; }
   .work-queue-thermal-history-head { align-items: stretch; flex-direction: column; }
+  .work-queue-thermal-history-actions { justify-content: space-between; }
   .work-queue-long-temperature-chart { padding: 9px; }
   .work-queue-long-temperature-chart svg { height: 210px; }
 }
@@ -2002,6 +2050,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-assisted-sampling fieldset > small { display:block; margin-top:.3rem; }
 @media(max-width:650px) { .krea2-assisted-sampling-grid { grid-template-columns:1fr; } }
 @media(max-width:650px) { .krea2-assisted-example-candidates { grid-template-columns:1fr; } }
+@media(max-width:650px) { .krea2-art-filters { grid-template-columns:1fr; } .krea2-art-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .krea2-art-direction-panel { align-items:flex-start; flex-wrap:wrap; } }
 
 /* Video setup: keep daily controls visible and defer detailed controls. */
 .h3-render-setup { display:grid; grid-template-columns: minmax(180px,1fr) minmax(240px,1.4fr) minmax(180px,1fr); gap:.8rem; align-items:start; }

@@ -20,6 +20,8 @@ from panelforge.domain import (
     Krea2LoraSelection,
     Krea2PromptLanguage,
 )
+from panelforge.domain.krea2_art_direction import Krea2ArtDirection
+from panelforge.domain.krea2_assisted import Krea2PromptExample
 from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
 from panelforge.infrastructure.presets import load_krea2_batch_workflow
@@ -241,6 +243,89 @@ class Krea2AssistedServiceTest(unittest.TestCase):
             self.assertEqual(project.published_recipe_id, published.recipe_id)
             self.assertEqual(store.get(project.project_id), project)
             self.assertEqual(catalog.get("fantasy_chinese_zodiac", "0.1.0"), published)
+
+    def test_v6_keeps_the_scene_prompt_canonical_and_compiles_art_only_for_render(self):
+        direction = Krea2ArtDirection(
+            provider_id="clio",
+            style_id="Cinematic Photography",
+            name="Cinematic Photography",
+            category="Photography",
+            prompt="Filmic motivated light and deliberate framing",
+            catalog_revision="fixture-revision",
+        )
+        examples = tuple(
+            Krea2PromptExample(
+                example_id=f"example-{index}",
+                source_file="fixture.txt",
+                source_line=index,
+                digest=(f"{index:064x}"),
+                prompt=f"Structural scene example {index}",
+                score=1.0 / index,
+            )
+            for index in range(1, 4)
+        )
+
+        class PromptExamples:
+            def search(self, _query, *, limit=3):
+                return examples[:limit]
+
+        class Wildcards:
+            def search(self, _query, *, limit=3):
+                return ()
+
+        class Styles:
+            def get(self, style_id):
+                if style_id != direction.style_id:
+                    raise KeyError(style_id)
+                return direction
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assets = LocalAssetStore(root)
+            catalog = LocalKrea2VisualRecipeCatalog(ROOT / "krea2_batch_recipes", workspace_root=root)
+            shipped = catalog.current()[0]
+            store = LocalKrea2AssistedProjectStore(root)
+            service = Krea2AssistedService(
+                gateway=Gateway(()),
+                recipes=catalog,
+                workflow=load_krea2_batch_workflow(WORKFLOW),
+                comfy=Comfy(),
+                assets=assets,
+                projects=store,
+                resources=Resources(shipped.settings.model_name, "krea2/detail.safetensors"),
+                prompt_examples=PromptExamples(),
+                prompt_wildcards=Wildcards(),
+                style_catalog=Styles(),
+                project_id_factory=lambda: "krea2-create-v6",
+                attempt_id_factory=lambda: "attempt-v6",
+                seed_factory=lambda: 77,
+            )
+            project = service.create_project(
+                name="Renard cinématique",
+                intention="Un renard attend près d’un ruisseau.",
+                model_id="Qwen3.8-27B",
+                assistance_recipe_version="6.0.0",
+                art_style_id=direction.style_id,
+            )
+            settings = Krea2BatchSettings(
+                model_name=shipped.settings.model_name,
+                aspect_ratio=Krea2AspectRatio.PORTRAIT_WIDESCREEN,
+                megapixels=2.1,
+            )
+            project = service.prepare_attempt(
+                project.project_id,
+                prompt=PROMPT,
+                settings=settings,
+            )
+            attempt = project.attempt("attempt-v6")
+            self.assertEqual(project.current_prompt, PROMPT)
+            self.assertEqual(attempt.canonical_prompt, PROMPT)
+            self.assertEqual(attempt.art_direction, direction)
+            self.assertEqual(
+                attempt.prompt,
+                f"Style: Cinematic Photography: {direction.prompt}. Subject: {PROMPT}",
+            )
+            self.assertEqual(store.get(project.project_id), project)
 
     def test_switches_to_chinese_and_persists_the_choice_for_later_iterations(self):
         response = json.dumps({

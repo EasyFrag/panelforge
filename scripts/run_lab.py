@@ -95,6 +95,7 @@ from panelforge.infrastructure.storage.qwen_edits import LocalQwenEditStore
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
 from panelforge.infrastructure.prompt_examples import LocalPromptExampleLibrary
 from panelforge.infrastructure.krea2_wildcards import LocalKrea2WildcardLibrary
+from panelforge.infrastructure.krea2_style_catalog import LocalKrea2StyleCatalog
 from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
 from panelforge.infrastructure.h3_lora_resources import H3LoraResourceCatalog
 from panelforge.infrastructure.local_gpu import NvidiaSmiMonitor
@@ -485,6 +486,7 @@ def build_app(args: argparse.Namespace):
         gateway=gateway,
         prompt_examples=prompt_examples,
         prompt_wildcards=prompt_wildcards,
+        style_catalog=LocalKrea2StyleCatalog(args.workspace),
         presets=LocalKrea2StylePresetStore(args.workspace),
         recipes=krea2_visual_recipes,
         workflow=krea2_assisted_default_workflow,
@@ -714,10 +716,18 @@ def build_app(args: argparse.Namespace):
     from panelforge.application.video_factory import VideoFactoryService
     from panelforge.application.video_factory_workflows import FactoryWorkflows
     from panelforge.infrastructure.storage.video_factory import LocalVideoFactoryStore
+    from panelforge.infrastructure.video_factory_outputs import VideoFactoryOutputs
+    from panelforge.infrastructure.factory_image_context import FactoryImageContext
+    from panelforge.application.factory_monitoring import FactoryMonitoring
+    from panelforge.infrastructure.storage.factory_timings import LocalFactoryTimingsStore
     video_factory = VideoFactoryService(store=LocalVideoFactoryStore(args.workspace),
+        monitoring=FactoryMonitoring(LocalFactoryTimingsStore(args.workspace)),
+        outputs=VideoFactoryOutputs(dlss_output_root / "dlss", assets),
         adapter=FactoryWorkflows(prompt_lab=prompt_lab, composition=prompt_composition,
             render=h3_render, dlss=dlss, social=social_lab, episodes=episodes,
-            assets=assets, coordinator=machine_work), coordinator=machine_work)
+            assets=assets, coordinator=machine_work,
+            image_context=FactoryImageContext(assets=assets, projects=krea2_assisted_projects)),
+        coordinator=machine_work)
     return create_app(
         runner,
         video_factory=video_factory,

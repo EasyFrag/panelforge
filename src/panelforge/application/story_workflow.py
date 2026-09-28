@@ -2,7 +2,7 @@
 from copy import deepcopy
 from uuid import uuid4
 
-from panelforge.domain import long_stories as narrative
+from panelforge.domain import long_stories as narrative, story_direction
 from panelforge.domain.story_diagnostics import project_quality
 
 
@@ -37,6 +37,7 @@ class StoryWorkflow:
                 flow["approvals"][target] = narrative.source_hash(project, target)
             if flow.get("status") == "blocked" and flow.get("budget_calls", flow["calls"]) >= 4 * project["long_options"]["unit_count"] + 8:
                 flow["budget_calls"] = 0  # Explicit author continuation opens a new bounded budget.
+            flow["writing_edition"] = deepcopy(self.service.editions.package(project)["edition"])
             flow.update(status="running", pause_requested=False, wait_target=None)
             # Repair allowances persist across resume: continuing must not create an unbounded loop.
             project = self.service.store.save(project)
@@ -69,6 +70,7 @@ class StoryWorkflow:
                 if mode not in {"manual", "automatic"}:
                     raise ValueError("Mode de rédaction inconnu.")
                 flow["mode"] = mode
+            flow["writing_edition"] = deepcopy(self.service.editions.package(project)["edition"])
             flow.update(status="running", pause_requested=False, budget_calls=0,
                         correction=dict(unit_id=unit_id, phase="repair"))
             # Consume the allowance up front: continuing or reloading cannot silently repair again.
@@ -124,7 +126,8 @@ class StoryWorkflow:
             flow["pause_requested"] = False
             return self._stop(project, "paused", "Enchaînement suspendu. Écris ton retour ou continue quand tu veux.")
         job = project.get("job") or {}
-        if job.get("operation") != "discuss" and job.get("status") in {"failed", "interrupted", "cancelled"} and job.get("narrative_input_hash") in {None, narrative.input_hash(project)}:
+        same_edition = not project.get("writing_edition") or not job.get("editorial_fingerprint") or project["writing_edition"]["fingerprint"] == job["editorial_fingerprint"]
+        if same_edition and job.get("operation") != "discuss" and job.get("status") in {"failed", "interrupted", "cancelled"} and job.get("narrative_input_hash") in {None, narrative.input_hash(project)}:
             if not (job.get("draft") or "").strip():
                 return self._stop(project, "blocked", "L’étape a été arrêtée avant réception d’un scénario. Les détails sont conservés ; reprends l’étape pour faire un nouvel essai.")
             return self._stop(project, "blocked", "L’étape a été arrêtée. Le résultat et les détails sont conservés ; revalide le brouillon ou reprends l’étape.")
@@ -145,9 +148,9 @@ class StoryWorkflow:
             flow.pop("correction", None)
         if not doc.get("series_outline"):
             return self._call(project, "compose")
-        if not narrative.review_current(project, "outline"):
+        if not story_direction.enabled(project) and not narrative.review_current(project, "outline"):
             return self._call(project, "edit_outline")
-        if not narrative.review_clear(project, "outline"):
+        if not narrative.outline_ready(project):
             if flow["repairs"].get("outline", 0) < 1:
                 flow["repairs"]["outline"] = 1
                 return self._call(project, "edit_outline")

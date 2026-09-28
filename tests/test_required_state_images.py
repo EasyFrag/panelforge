@@ -189,7 +189,7 @@ class RequiredStateImagesTest(unittest.TestCase):
         self.assertNotIn("visual_state_policy", self.stories.get(old["project_id"]))
         self.stories.long_recipes = LongStoryRecipes(Path(__file__).resolve().parents[1] / "prompt_sources/story.long/2.0.0")
         new = self.stories.create(title="Suite", narrative_format="long", long_options=deepcopy(OPTIONS))
-        self.assertEqual(new["visual_state_policy"], 1)
+        self.assertEqual(new["visual_state_policy"], 2)
         self.assertNotIn("visual_state_policy", self.stories.get(old["project_id"]))
 
 

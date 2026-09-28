@@ -188,6 +188,19 @@ class BunnyServiceTest(unittest.TestCase):
         return self.service.prepare_attempt(project, prompt=self.store.get(project).current_prompt, settings=self.settings,
             initial_megapixels=0.9, recipe_id=BUNNY_RECIPE_ID, recipe_version="0.1.0", **kwargs)
 
+    def test_batch_preview_policy_is_persisted_without_changing_manual_defaults(self):
+        original = H3BunnySettings()
+        batch = self.prepare(bunny=original, batch_mode=True).attempts[-1]
+        self.assertTrue(original.preview_enabled)
+        self.assertTrue(batch.batch_mode)
+        self.assertFalse(batch.bunny.preview_enabled)
+        restored = LocalH3RenderProjectStore(self.temp.name).get("project").attempt(batch.attempt_id)
+        self.assertEqual(restored, batch)
+        self.store.create(H3RenderProject("manual", "manual-session", "revision", "fake-model", H3RenderInputMode.T2VA, PROMPT))
+        manual = self.prepare("manual", bunny=original).attempts[-1]
+        self.assertFalse(manual.batch_mode)
+        self.assertTrue(manual.bunny.preview_enabled)
+
     def test_roundtrip_execution_feedback_and_resume_bind_the_recipe(self):
         prepared = self.prepare(bunny=H3BunnySettings(False, 30, 25, 5, 0.4, False), video_lora=H3VideoLoraSelection(LORA, 0.6, None))
         attempt = prepared.attempts[-1]

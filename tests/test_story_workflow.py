@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from panelforge.application.prompt_lab import CompletionResult, CompletionStreamEvent, StreamEventKind, StreamPhase
 from panelforge.application.stories import StoryService
 from panelforge.domain import long_stories as narrative
-from panelforge.domain.story_contracts import wire_scene
+from panelforge.domain.story_contracts import wire_scene, wire_example
 from panelforge.domain.story_visual_states import CONTRACT_VERSION as VERSION
 from panelforge.features.lab.stories_web import stories_router
 from panelforge.infrastructure.long_story_recipes import LongStoryRecipes
@@ -44,7 +44,19 @@ class WorkflowGateway:
         op = c["operation"]
         if op == self.fail_operation:
             raise ValueError("Erreur de fixture à reprendre.")
-        result = deepcopy(c["response_contract"])
+        if "response_contract" in c:
+            result = deepcopy(c["response_contract"])
+        else:
+            # 2.4 sends one schema, no generated sample to copy. Keep this fake's
+            # canned responses local to the test; never enlarge production prompts.
+            project = self.story_store.get(request.trace_context["project_id"])
+            if op in {"compose", "outline", "revise_outline", "repair_outline"}:
+                sample = narrative.outline_example(project)
+            elif op.startswith("review_") or op in {"edit_outline", "discuss"}:
+                sample = narrative.review_example()
+            else:
+                sample = narrative.episode_example(project)
+            result = wire_example(project, sample)
         if op == "compose":
             choices = {"profile": "social", "narration": "dialogue", "ending_type": "reversal"}
             result["resolved_options"] = {k: choices[k] if c["long_options"][k] == "auto" else c["long_options"][k] for k in choices}
@@ -85,6 +97,10 @@ class WorkflowGateway:
                     result["scenario"]["scenes"][index]["action"] += " Le refus est explicite."
             if self.nested:
                 result["scenario"]["episode_state"] = result.pop("episode_state")
+        if c.get("story_quality_version") == 1:
+            for review in result.get("reviews", []) + ([result["review"]] if "review" in result else []):
+                for item in review["issues"]:
+                    item.setdefault("category", "clarity" if item["severity"] == "blocking" else "style")
         self.responses.append(deepcopy(result))
         yield CompletionStreamEvent(kind=StreamEventKind.COMPLETED, phase=StreamPhase.COMPLETED,
             result=CompletionResult(model_id="local::fixture", content=json.dumps(result), finish_reason="stop"))
@@ -98,11 +114,13 @@ class StoryWorkflowTest(unittest.TestCase):
         self.service = StoryService(gateway=self.gateway, store=LocalStoryStore(self.temp.name),
             recipes=LocalStoryRecipeStore(self.temp.name, ROOT / "prompt_sources/story.brainrot/1.0.0"),
             long_recipes=LongStoryRecipes(ROOT / "prompt_sources/story.long/2.0.0"))
+        self.gateway.story_store = self.service.store
 
     def create(self, mode="automatic", count=2):
         return self.service.create(brief="Une addition provoque une dispute.", narrative_format="long",
+            writing_edition_id="experimental-2026-09-27",
             long_options=dict(profile="auto", delivery="continuous", narration="auto", ending_type="auto", unit_count=count),
-            workflow_mode=mode, visual_universe="Gouttes d’eau", target_seconds=80,
+            workflow_mode=mode, visual_universe="Gouttes d’eau", target_seconds=80, story_quality_version=0,
             architect_model_id="local::fixture", writer_model_id="local::fixture")
 
     def settle(self, project):

@@ -16,11 +16,13 @@ from panelforge.domain.stories import (
 )
 from .prompt_lab import CompletionRequest, StreamEventKind, LlmCallApplicationOutcome
 from .revised_documents import strip_markdown_fence
+from panelforge.domain import story_direction
 from panelforge.domain import long_stories as long_narrative
 from panelforge.domain.story_response_recovery import StoryJsonError, decode_response
 from panelforge.domain import story_contracts
 from panelforge.domain import story_draft_repairs
 from panelforge.domain.story_diagnostics import normalize_scene_state, project_quality, quality_issues
+from panelforge.domain.story_fidelity import normalize_author_requirements
 from . import story_attempts
 from .long_stories import request as long_story_request
 from .story_workflow import StoryWorkflow, new_workflow
@@ -76,9 +78,9 @@ def _dialogue_language_policy(language, *, script=False, revising=False):
     return policy
 
 
-def _dialogue_register_policy(level, language):
+def _dialogue_register_policy(level, language, *, examples=True):
     policy = _DIALOGUE_REGISTER_POLICIES[level]
-    if language == "French":
+    if examples and language == "French":
         if level == 2:
             policy += " En français, préfère par exemple « ça pue » à « cela sent mauvais » lorsque le personnage s’y prête."
         elif level == 3:
@@ -207,6 +209,8 @@ class StoryService:
         self.gateway, self.store, self.recipes = gateway, store, recipes
         self.traces, self.application_outcomes = traces, application_outcomes
         self.long_recipes = long_recipes
+        from .story_editions import StoryEditionSelection
+        self.editions = StoryEditionSelection(self)
         self._lock = RLock()
         self._active = {}
         self.workflow = StoryWorkflow(self)
@@ -249,7 +253,8 @@ class StoryService:
             # Rebuild also removes persisted duplicates and obsolete warnings in older projects.
             fmt = StoryService._active_episode_format(project)
             project["diagnostics"] = [d for d in story_diagnostics(project["document"].get("scenario"),
-                clip_seconds=fmt["clip_seconds"], target_scene_count=fmt["scene_count"], recipe_id=recipe["id"])
+                clip_seconds=fmt["clip_seconds"], target_scene_count=fmt["scene_count"], recipe_id=recipe["id"],
+                words_per_second=story_direction.words_per_second(project))
                 if d["code"] != "scene_count"]
             target = project["document"].get("selected_episode_id") or "outline"
             project["diagnostics"].extend(project_quality(project, target))
@@ -265,7 +270,7 @@ class StoryService:
                dialogue_register=0, dialogue_language=DEFAULT_DIALOGUE_LANGUAGE,
                narrative_format=DEFAULT_NARRATIVE_FORMAT, parent_story_id=None, long_options=None,
                workflow_mode=None, visual_universe="", target_seconds=None, prior_story="",
-               continuation_origin=None):
+               continuation_origin=None, writing_direction=None, story_quality_version=1, writing_edition_id=None):
         if not isinstance(title, str) or not title.strip() or len(title) > 160:
             raise ValueError("Donnez un nom à cette histoire (160 caractères maximum).")
         if not isinstance(brief, str):
@@ -283,6 +288,9 @@ class StoryService:
             long_options = long_narrative.options(long_options)
             if creation_mode not in {"ideas", "adapt"}:
                 raise ValueError("La V2 commence par des propositions ou par une histoire fournie.")
+        if story_quality_version not in {0, 1}:
+            raise ValueError("Version de direction inconnue.")
+        direction = story_direction.normalize(writing_direction) if long_options and story_quality_version else None
         if workflow_mode is not None and long_options is None:
             raise ValueError("Le parcours guidé nécessite le moteur long V2.")
         if long_options and "auto" in long_options.values() and workflow_mode is None:
@@ -315,6 +323,8 @@ class StoryService:
         if story_recipe_spec(recipe["id"], recipe["version"]).get("dialogue_policy") == "forbidden":
             dialogue_register = 0
             dialogue_language = DEFAULT_DIALOGUE_LANGUAGE
+            if direction is not None:
+                direction.update(tone_profile="none", glossary="")
             if long_options is not None:
                 long_options["narration"] = "visual"
         if not any((item["id"], item["version"]) == (recipe["id"], recipe["version"])
@@ -346,8 +356,11 @@ class StoryService:
         if prior_story.strip():
             value["prior_story"] = prior_story.strip()
         if long_options is not None:
+            value["writing_edition"] = deepcopy(self.long_recipes.editions.get(writing_edition_id)["edition"])
+            if direction is not None:
+                value.update(story_quality_version=story_quality_version, writing_direction=direction)
             value.update(narrative_engine=deepcopy(long_narrative.ENGINE), long_options=long_options,
-                         fruit_naming_version=1, visual_state_policy=1)
+                         fruit_naming_version=1, visual_state_policy=2)
             value.update(visual_universe=visual_universe.strip(), target_seconds=target_seconds,
                          narrative_preferences=deepcopy(long_options))
             document.update(episode_states={}, episode_provenance={}, reviews={})
@@ -397,6 +410,7 @@ class StoryService:
                             state=decoded.get("episode_state"), target=long_narrative.scope(project))
                     except (ValueError, KeyError, TypeError, IndexError):
                         job["draft_preview"] = None
+            project["writing_edition_info"] = self.editions.describe(project)
             return project
 
     @staticmethod
@@ -422,12 +436,15 @@ class StoryService:
         scenario = project["document"]["scenario"]
         episode_format = self._active_episode_format(project)
         project["diagnostics"] = story_diagnostics(scenario, clip_seconds=episode_format["clip_seconds"],
-            target_scene_count=episode_format["scene_count"], recipe_id=recipe["id"])
+            target_scene_count=episode_format["scene_count"], recipe_id=recipe["id"],
+            words_per_second=story_direction.words_per_second(project))
         if long_narrative.is_v2(project):
             project["revisions"][-1]["narrative_engine"] = deepcopy(long_narrative.ENGINE)
             project["revisions"][-1]["long_options"] = deepcopy(project["long_options"])
             if model_id:
                 project["revisions"][-1]["editorial_fingerprint"] = project["job"]["editorial_fingerprint"]
+                if project["job"].get("writing_edition"):
+                    project["revisions"][-1]["writing_edition"] = deepcopy(project["job"]["writing_edition"])
             project["diagnostics"] = [item for item in project["diagnostics"] if item["code"] != "scene_count"]
             target = project["document"].get("selected_episode_id") or "outline"
             project["diagnostics"].extend(project_quality(project, target))
@@ -610,7 +627,7 @@ class StoryService:
             return self.store.save(project)
 
     def start(self, project_id, *, operation, instruction, model_id=None, expected_version, request_id,
-              feedback_target=None, review_unit_ids=None, workflow_step=False):
+              feedback_target=None, review_unit_ids=None, workflow_step=False, retry_job=None):
         if operation not in {"ideas", "outline", "develop", "script", "revise"} | long_narrative.EXTRA_OPERATIONS:
             raise ValueError("Action d’écriture inconnue.")
         if not isinstance(instruction, str) or len(instruction) > 12000 or (operation in {"revise", "discuss"} and not instruction.strip()):
@@ -665,11 +682,20 @@ class StoryService:
                 chosen_model = project.get("model_id", "")
             if not chosen_model or len(chosen_model) > 300:
                 raise ValueError("Choisissez un modèle LLM pour cette étape.")
-            # Read active editorial instructions now; this call retains its snapshot.
+            # Resolve the project edition; its immutable package is retained for the call.
             recipe = story_recipe_selection(project["recipe"])
             if v2 and self.long_recipes is None:
                 raise ValueError("La recette longue V2 doit être configurée dans le lanceur.")
-            package = self.long_recipes.snapshot() if v2 else self.recipes.get(recipe["id"], recipe["version"])
+            package = self.editions.package(project, retry_job=retry_job) if v2 else self.recipes.get(recipe["id"], recipe["version"])
+            if v2:
+                project["writing_edition"] = deepcopy(package["edition"])
+                project.pop("writing_edition_info", None)
+                flow = project.get("workflow") or {}
+                pinned = flow.get("writing_edition")
+                if workflow_step and pinned and flow.get("status") == "running" and pinned["fingerprint"] != package["fingerprint"]:
+                    raise StoryConflict("La chaîne conserve sa version d’écriture. Suspends-la avant de changer de version.")
+                if flow.get("status") == "running":
+                    flow["writing_edition"] = deepcopy(package["edition"])
             label = {"ideas": "Propose une histoire à partir de mon intention.",
                      "outline": "Construis l’arc global en quatre épisodes autoportants et reliés.",
                      "develop": "Développe l’histoire sélectionnée en scénario complet.",
@@ -725,8 +751,10 @@ class StoryService:
             if project.get("workflow") and not workflow_step:
                 project["workflow"].update(status="paused", pause_requested=False)
             if v2:
+                project["job"].update(writing_edition=deepcopy(package["edition"]), editorial_policy=package["policy_version"])
                 project["job"].update(narrative_engine=deepcopy(long_narrative.ENGINE),
-                                      response_contract_version="2.3.0" if project.get("visual_state_policy") == 1 else story_contracts.VERSION,
+                                      response_contract_version=("2.5.0" if package["policy_version"] == 3 else
+                                          {1: "2.3.0", 2: "2.4.0"}.get(project.get("visual_state_policy"), story_contracts.VERSION)),
                                       editorial_fingerprint=package["fingerprint"],
                                       narrative_input_hash=long_narrative.input_hash(project))
                 if project.get("workflow"):
@@ -764,7 +792,7 @@ class StoryService:
                 return self.start(project_id, operation=job["operation"], instruction=instruction,
                     expected_version=project["version"], request_id=str(uuid4()), model_id=model_id,
                     feedback_target=job.get("feedback_target"), review_unit_ids=job.get("review_unit_ids"),
-                    workflow_step=bool(project.get("workflow")))
+                    workflow_step=bool(project.get("workflow")), retry_job=job)
             except Exception as error:
                 if project.get("workflow") and job["operation"] != "discuss":
                     self.workflow._stop(self.store.get(project_id), "blocked", str(error))
@@ -787,8 +815,10 @@ class StoryService:
         if long_narrative.is_v2(project):
             language = project.get("dialogue_language", DEFAULT_DIALOGUE_LANGUAGE)
             register = project.get("dialogue_register", 0)
+            direction = story_direction.settings(project) if story_direction.enabled(project) else {}
             return long_story_request(project, package, _dialogue_language_policy(language),
-                                      _dialogue_register_policy(register, language) if register else "")
+                _dialogue_register_policy(register, language, examples=direction.get("tone_profile", "none") == "none")
+                if register else "")
         operation = project["job"]["operation"]
         recipe = story_recipe_selection(project["recipe"])
         has_scenario = bool(project["document"]["scenario"])
@@ -1052,6 +1082,8 @@ class StoryService:
 
     def _apply_parsed(self, current, *, reply, document, model_id, recipe_revision, call_id,
                       raw, reasoning, phase="Écriture enregistrée"):
+        # Retain the pre-application outline for compatibility normalization notes.
+        source_context = dict(current, document=dict(current["document"]))
         if document and long_narrative.is_v2(current):
             if "review" in document:
                 document["review"].update(model_id=model_id, call_id=call_id)
@@ -1125,6 +1157,10 @@ class StoryService:
         if document and long_narrative.is_v2(current):
             try:
                 received, normalizations = decode_response(strip_markdown_fence(raw.strip()))
+                if isinstance(received.get("series_outline"), dict):
+                    received["series_outline"], source_notes = normalize_author_requirements(
+                        source_context, received["series_outline"])
+                    normalizations.extend(source_notes)
                 if normalizations:
                     current["job"].setdefault("original_draft", raw)
                     current["job"]["normalized_draft"] = json.dumps(received, ensure_ascii=False)

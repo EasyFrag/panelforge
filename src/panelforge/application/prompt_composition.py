@@ -11,6 +11,8 @@ import re
 from typing import Protocol
 from uuid import uuid4
 from panelforge.domain.prompt_composition import PreparationIntent
+from panelforge.domain.localized_speech import LOCALIZED_THANKS_V3
+from panelforge.domain.little_men_direction import SOLUTION_PLAN_POLICY, writer_intention
 from .h3_multishot_preparation import (
     MULTISHOT_PLAN_CONTRACT, MULTISHOT_DIRECT_CONTRACT, compact_multishot_schema,
     compile_compact_multishot, validate_compact_multishot, multishot_state_warnings,
@@ -840,6 +842,9 @@ class PromptCompositionService:
                 raise ValueError("this recipe uses a generated Brief, not a direct intention")
         elif preparation_intent is None:
             raise ValueError("this recipe requires a preparation intention")
+        if (preparation_intent is not None and preparation_intent.speech_policy is not None
+                and cookbook.output_contract not in classic_cinematic.CONTRACTS):
+            raise ValueError("Le remerciement localisé demande le parcours Classique Mise en scène.")
         _validate_bindings(session, cookbook, bindings)
         by_slot = {binding.slot_id: binding for binding in bindings}
         bindings = tuple(by_slot[slot.slot_id] for slot in cookbook.slots)
@@ -2517,8 +2522,10 @@ class PromptCompositionService:
                 camera["description"] = package["fields"]["camera_contract"]
                 output_schema = json.dumps(schema_document, ensure_ascii=False)
 
+        intention = (writer_intention(source.source_text)
+                     if writer and source.speech_policy == LOCALIZED_THANKS_V3 else source.source_text)
         user = "\n\n".join((
-            "USER INTENTION:\n" + source.source_text,
+            "USER INTENTION:\n" + intention,
             ("APPROVED BRIEF:\n" + source.content) if composition.preparation_intent is None else "",
             "REFERENCE ROLES:\n" + mapping,
             "REQUESTED DURATION MS: " + str(context["duration_ms"]),
@@ -2528,6 +2535,8 @@ class PromptCompositionService:
             ("CURRENT CANDIDATE:\n" + current.content + "\nUSER REVISION:\n" + instruction) if instruction is not None else "",
         ))
         system += _sequence_policy(session, source.source_text)
+        if stage is CompositionStage.BEAT_SHEET and source.speech_policy == LOCALIZED_THANKS_V3:
+            system += "\n\n" + SOLUTION_PLAN_POLICY
         if writer and session.preparation.is_classic_cinematic:
             system += classic_cinematic.writer_layout(context["plan"])
         if writer and session.preparation.is_sensual:
@@ -2537,7 +2546,7 @@ class PromptCompositionService:
             system += demonstration(session.combat_settings, stage.value, source.source_text)
         system += "\n" + creative_freedom_policy(source.creative_freedom, source.creative_axes, preparation=session.preparation)
         system += "\n" + creative_audacity_policy(source.creative_audacity, preparation=session.preparation)
-        system += _vocal_stage_policy(session, composition, cookbook, stage)
+        system += _vocal_stage_policy(session, composition, cookbook, stage, plan=context.get("plan"))
         model_id = (composition.writer_model_id or session.model_id) if writer else session.model_id
         prefix = handler.encode_context(context)
         placeholders = _dialogue_placeholders_for(
@@ -5703,18 +5712,29 @@ def _mono_direct_context(session, composition, cookbook) -> str:
         context = json.loads(value)
         context.update(vocal_policy_version=cookbook.vocal_policy_version,
             dialogue_level=getattr(source.creative_axes, "dialogue", 0), source_text=source.source_text)
+        if source.speech_policy is not None:
+            context.update(speech_policy=source.speech_policy, speech_language=source.speech_language)
         value = json.dumps(context, ensure_ascii=False)
     return value
 
 
-def _vocal_stage_policy(session, composition, cookbook, stage) -> str:
+def _vocal_stage_policy(session, composition, cookbook, stage, *, plan=None) -> str:
     if not getattr(cookbook, "vocal_policy_version", None):
         return ""
     source = preparation_source(session, composition)
     level = vocal_level(source.creative_axes)
     locked = composition.preparation_intent is None or (
         stage is CompositionStage.FINAL_PROMPT and cookbook.preparation_steps > 1)
-    return "\n\n" + vocal_policy(level, locked=locked)
+    language = source.speech_language
+    if source.speech_policy == LOCALIZED_THANKS_V3 and locked and plan is not None:
+        languages, words = plan.get("spoken_languages", []), plan.get("spoken_lines", [])
+        if len(languages) != 1 or len(words) != 1:
+            raise ValueError("Le Plan approuvé doit contenir un unique remerciement et sa langue.")
+        validate_speech(((languages[0], words[0]),), (), level=level, source_text=source.source_text,
+                        speech_policy=source.speech_policy, speech_language=language)
+        language = languages[0]
+    return "\n\n" + vocal_policy(level, locked=locked,
+        speech_policy=source.speech_policy, speech_language=language)
 
 
 def _align_base_multishot_duration(cookbook, content: str, duration_ms: int) -> str:

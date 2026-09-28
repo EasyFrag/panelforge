@@ -1,5 +1,6 @@
 """Saved sequel preparation; no story writes until the explicit hand-off."""
 from copy import deepcopy
+from panelforge.domain import story_direction
 from datetime import UTC, datetime
 import json
 from threading import Event, Thread
@@ -50,6 +51,14 @@ class StoryFollowupService:
     def _source(self, identity):
         return self.stories._normalize(self.store.get(identity))
 
+    def _edition(self, draft):
+        source = self._source(draft["source_story_id"])
+        if not narrative.is_v2(source):
+            return None
+        if draft["context"]["next_unit"]:
+            return self.stories.editions.package(source)
+        return self.stories.long_recipes.editions.get(draft["settings"].get("writing_edition_id"))
+
     def _view(self, draft):
         value = deepcopy(draft)
         try:
@@ -57,6 +66,13 @@ class StoryFollowupService:
             value["source_changed"] = contract.fingerprint(current) != draft["source_hash"]
         except (OSError, ValueError, KeyError):
             value["source_changed"] = True
+        try:
+            package = self._edition(draft)
+            if package:
+                value["writing_editions"] = self.stories.editions.catalog()
+                value["settings"]["writing_edition_id"] = package["edition"]["id"]
+        except (OSError, ValueError):
+            value["writing_edition_error"] = "Version d’écriture indisponible. Choisis une version dans l’en-tête de l’histoire source, puis rouvre la préparation."
         return value
 
     def get(self, identity):
@@ -87,6 +103,9 @@ class StoryFollowupService:
                         / max(1, (source.get("long_options") or {}).get("unit_count", 1)))) if not target else scenes * seconds,
                     workflow_mode=(source.get("workflow") or {}).get("mode", "manual"),
                     architect_model_id=source.get("architect_model_id", ""), writer_model_id=source.get("writer_model_id", "")))
+            package = self._edition(draft)
+            if package:
+                draft["settings"]["writing_edition_id"] = package["edition"]["id"]
             return self._view(self.store.save_followup(draft))
 
     def _editable(self, identity, revision):
@@ -109,6 +128,12 @@ class StoryFollowupService:
             if draft["context"]["next_unit"] and any(settings[k] != draft["settings"][k]
                     for k in ("dialogue_language", "scene_count", "clip_seconds", "target_seconds")):
                 raise ValueError("Le format de l’épisode prévu reste celui de l’arc existant.")
+            candidate = dict(draft, settings=settings)
+            package = self._edition(candidate)
+            if package:
+                if draft["context"]["next_unit"] and settings.get("writing_edition_id") not in {None, package["edition"]["id"]}:
+                    raise ValueError("L’épisode prévu conserve la version de l’histoire. Change-la dans son en-tête avant de préparer la suite.")
+                settings["writing_edition_id"] = package["edition"]["id"]
             draft.update(direction=contract.direction(direction), model_id=model_id.strip(), settings=settings)
             return self._view(self.store.save_followup(draft))
 
@@ -148,15 +173,19 @@ class StoryFollowupService:
             self._fresh(draft)
             if not draft["model_id"]:
                 raise ValueError("Choisis un modèle pour discuter de la suite.")
+            package = self._edition(draft)
             text = instruction.strip() or "Propose-moi une suite simple et cohérente, avec une seule piste."
             draft["turns"].append(dict(role="user", text=text, created_at=now()))
             draft["job"] = dict(status="running", request_id=request_id, request_hash=request_hash,
                 draft="", reasoning="", error=None, started_at=now(), model_id=draft["model_id"])
+            if package:
+                draft["settings"]["writing_edition_id"] = package["edition"]["id"]
+                draft["job"]["writing_edition"] = deepcopy(package["edition"])
             draft = self.store.save_followup(draft)
             cancel = Event()
             self._active[identity] = cancel
             try:
-                Thread(target=self._run, args=(deepcopy(draft), cancel), daemon=True).start()
+                Thread(target=self._run, args=(deepcopy(draft), cancel, package), daemon=True).start()
             except Exception as error:
                 self._active.pop(identity, None)
                 draft["job"].update(status="failed", error=str(error))
@@ -173,14 +202,21 @@ class StoryFollowupService:
                 draft = self.store.save_followup(draft)
             return self._view(draft)
 
-    def _run(self, snapshot, cancel):
+    def _run(self, snapshot, cancel, package=None):
         identity, raw, reasoning, stream, call_id = snapshot["id"], "", "", None, None
-        request = CompletionRequest(model_id=snapshot["model_id"], system_prompt=SYSTEM,
-            user_prompt=json.dumps(dict(context=snapshot["context"], settings=snapshot["settings"],
-                direction=snapshot["direction"], conversation=snapshot["turns"]), ensure_ascii=False),
+        payload = dict(context=snapshot["context"], settings=snapshot["settings"],
+                       direction=snapshot["direction"], conversation=snapshot["turns"])
+        if (package or {}).get("policy_version") == 3:
+            from panelforge.domain.story_history import compact
+            # Scope this projection to history, never conversation or author choices.
+            payload["context"] = compact(payload["context"], history_root=True)
+        request = CompletionRequest(model_id=snapshot["model_id"], system_prompt=package["followup_prompt"] if package else SYSTEM,
+            user_prompt=json.dumps(payload, ensure_ascii=False),
             temperature=.65, max_tokens=8000, include_reasoning=False, output_schema=contract.response_schema(),
             operation_id="story.followup.discuss@1.0.0", trace_context=dict(project_id=snapshot["source_story_id"],
-                stage="story_followup", turn_id=snapshot["job"]["request_id"]))
+                stage="story_followup", turn_id=snapshot["job"]["request_id"],
+                writing_edition_id=(package or {}).get("edition", {}).get("id"),
+                editorial_fingerprint=(package or {}).get("fingerprint")))
         try:
             stream = self.stories.gateway.stream(request)
             last_save, completed = monotonic(), False
@@ -285,7 +321,10 @@ class StoryFollowupService:
                         creation_mode="ideas" if long else "continuation", parent_story_id=source["project_id"],
                         narrative_format=source["narrative_format"], long_options=options if long else None,
                         workflow_mode=settings["workflow_mode"] if long else None,
+                        writing_edition_id=settings.get("writing_edition_id") if long else None,
                         visual_universe=source.get("visual_universe", ""),
+                        story_quality_version=source.get("story_quality_version", 0),
+                        writing_direction=story_direction.for_followup(source) if story_direction.enabled(source) else None,
                         dialogue_register=source.get("dialogue_register", 0), dialogue_language=settings["dialogue_language"],
                         recipe_id=source["recipe"]["id"], recipe_version=source["recipe"]["version"],
                         scene_count=settings["scene_count"], clip_seconds=settings["clip_seconds"],
