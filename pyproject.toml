@@ -22,6 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mobile = ["pywebpush>=2,<3"]
 test = [
     "httpx>=0.27,<1",
 ]

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f4f1eb"><meta name="description" content="Votre usine à vidéo, à portée de main.">
+<title>Usine · PanelForge</title>
+<link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg">
+<link rel="stylesheet" href="/app.css?v=20260928.mobile1"><script src="/app.js?v=20260928.mobile1" defer></script>
+</head>
+<body>
+<header class="top"><a href="/" class="brand"><img src="/icon.svg" alt="" width="28" height="28">PanelForge</a><div class="connection"><i id="connection-dot"></i><span id="connection">Connexion…</span></div><button id="refresh" class="icon-button" aria-label="Actualiser">↻</button></header>
+<main>
+<div class="page-title"><div><p class="eyebrow">À PORTÉE DE MAIN</p><h1>Usine à vidéo</h1></div><span id="lot-status" class="pill">Chargement</span></div>
+<p id="message" class="message" role="status" aria-live="polite" hidden></p>
+<section id="panel-follow" aria-label="Suivi de production">
+  <article class="summary card">
+    <div class="summary-top"><span>Votre production</span><strong id="delivered">— / — livrées</strong></div>
+    <progress id="progress" max="1" value="0" aria-label="Vidéos livrées"></progress>
+    <div class="kpis"><div><span>Temps restant</span><strong id="remaining">—</strong></div><div><span>Fin prévue</span><strong id="finish">—</strong></div></div>
+    <p id="eta-hint" class="muted">Les prévisions apparaîtront avec le prochain état de l’Usine.</p>
+  </article>
+  <div id="machines" class="machines" aria-label="Températures"><article class="card machine"><span>PC</span><strong>— °C</strong></article><article class="card machine"><span>Serveur</span><strong>— °C</strong></article></div>
+  <div class="section-title"><h2>En cours</h2><span id="active-count">—</span></div>
+  <div id="active" class="stack"><p class="empty">Connexion à l’Usine…</p></div>
+  <div class="section-title"><h2>À suivre</h2><span id="queue-count">—</span></div><div id="queue" class="stack"></div>
+  <details id="attention-section" hidden><summary>À reprendre <span id="attention-count"></span></summary><div id="attention" class="stack"></div></details>
+</section>
+<section id="panel-videos" aria-label="Vidéos produites" hidden>
+  <div class="section-title"><h2>Vidéos produites</h2><span id="result-count">—</span></div>
+  <p class="muted">Touchez une vidéo pour la regarder.</p><div id="results" class="results"></div>
+  <button id="more" class="secondary full" hidden>Voir plus de vidéos</button>
+</section>
+<section id="panel-alerts" aria-label="Alertes et notifications" hidden>
+  <div class="section-title"><h2>À surveiller</h2></div><div id="alerts" class="stack"></div>
+  <article class="card notification-settings">
+    <h2>Notifications sur ce téléphone</h2><p class="muted">Température, traitement en erreur et lot terminé, même lorsque cette page est fermée.</p>
+    <form id="notification-form">
+      <div class="thresholds"><label>Seuil PC <span><input id="threshold-local" type="number" min="40" max="110" step="1" value="80" required> °C</span></label><label>Seuil serveur <span><input id="threshold-remote" type="number" min="40" max="110" step="1" value="85" required> °C</span></label></div>
+      <p class="muted small">Ces seuils déclenchent une alerte. Les protections thermiques de l’Usine restent réglées sur le PC.</p>
+      <button id="notifications" class="primary full" type="submit">Activer les notifications</button>
+      <button id="disable-notifications" class="text-button full" type="button" hidden>Désactiver sur ce téléphone</button>
+    </form><p id="notification-status" class="muted small" role="status"></p>
+  </article>
+  <article class="card install"><h2>Toujours à portée de main</h2><p class="muted">Dans le menu du navigateur, choisissez « Ajouter à l’écran d’accueil ».</p><button id="install" class="secondary full" hidden>Ajouter à l’accueil</button></article>
+</section>
+</main>
+<div id="controls" class="controls"><button id="pause" class="primary" disabled>Pause</button><button id="stop" class="danger" disabled>Arrêter…</button></div>
+<nav class="tabs" aria-label="Navigation mobile"><button data-tab="follow" aria-current="page"><span>◉</span>Suivi</button><button data-tab="videos"><span>▷</span>Vidéos</button><button data-tab="alerts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Z"/><path d="M9 21h6"/></svg>Alertes <b id="alert-count" hidden></b></button></nav>
+<dialog id="confirm"><form method="dialog"><h2 id="confirm-title">Arrêter les étapes actives ?</h2><p id="confirm-text"></p><div class="dialog-actions"><button value="cancel" class="secondary">Revenir</button><button id="confirm-action" value="confirm" class="danger">Confirmer</button></div></form></dialog>
+<dialog id="player"><div class="player-heading"><h2 id="player-title"></h2><button id="close-player" class="icon-button" aria-label="Fermer la vidéo">×</button></div><video id="video" controls playsinline preload="metadata"></video><p id="player-error" class="muted" role="status"></p></dialog>
+<noscript>Activez JavaScript pour consulter le suivi de l’Usine.</noscript>
+</body></html>

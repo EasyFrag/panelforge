@@ -189,6 +189,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--mobile-port", type=int, default=8766,
+                        help="Loopback port for the mobile interface; 0 disables it.")
     parser.add_argument("--http-timeout", type=float, default=30.0)
     parser.add_argument("--runtime-timeout", type=float, default=2.0)
     parser.add_argument("--run-timeout", type=float, default=600.0)
@@ -728,9 +730,20 @@ def build_app(args: argparse.Namespace):
             assets=assets, coordinator=machine_work,
             image_context=FactoryImageContext(assets=assets, projects=krea2_assisted_projects)),
         coordinator=machine_work)
+    mobile_server = None
+    mobile_port = getattr(args, "mobile_port", 0)
+    if mobile_port:
+        if mobile_port == args.port:
+            raise ValueError("Le port mobile doit être distinct du port du Lab.")
+        from panelforge.application.factory_mobile import FactoryMobile
+        from panelforge.infrastructure.factory_mobile import LocalMobileStore, WebPushSender, LoopbackMobileServer
+        from panelforge.features.lab.factory_mobile_web import create_mobile_app
+        mobile = FactoryMobile(video_factory, LocalMobileStore(args.workspace), WebPushSender(args.workspace))
+        mobile_server = LoopbackMobileServer(create_mobile_app(mobile), mobile_port)
     return create_app(
         runner,
         video_factory=video_factory,
+        mobile_server=mobile_server,
         prompt_recipes=prompt_recipes,
         llm_traces=llm_traces,
         dlss=dlss,

@@ -268,7 +268,7 @@ class VideoFactoryService:
         self._wake.set()
         return self.snapshot()
 
-    def action(self, action, identities=(), revisions=None):
+    def action(self, action, identities=(), revisions=None, *, active_runs=None):
         cancel = []
         removal_stages = {}
         if action == "remove":
@@ -280,6 +280,21 @@ class VideoFactoryService:
             pending_stage = getattr(self.adapter, "pending_removal_stage", lambda item: None)
             removal_stages = {item["id"]: pending_stage(item) for item in candidates}
         with self._lock:
+            if action == "stop":
+                # Validate the exact displayed selection before changing the queue.
+                # A newer active step must never be stopped by an older phone view.
+                from panelforge.domain.factory_mobile import active_run_key
+                selected = self._selected(list(identities),
+                    {identity: self._get(identity)["revision"] for identity in identities}
+                    if active_runs is not None else revisions)
+                if active_runs is not None and any(active_runs.get(i["id"]) != active_run_key(i) for i in selected):
+                    raise FactoryConflict("Une étape a changé. Actualisez avant de confirmer l’arrêt.")
+                current = {i["id"] for i in self._state["items"]
+                           if i["status"] == "active" and not i.get("cancel_requested")}
+                if set(identities) != current:
+                    raise FactoryConflict("Les étapes actives ont changé. Actualisez avant de confirmer l’arrêt.")
+                self._state["paused"] = True
+                action = "cancel"
             if action in {"pause", "resume"}:
                 self._state["paused"] = action == "pause"
                 self._save()

@@ -984,6 +984,7 @@ def create_app(
     production_v2: ProductionV2Service | None = None,
     machine_work=None,
     video_factory=None,
+    mobile_server=None,
     model_runtime: ModelRuntimeControl | None = None,
     llm_activity_monitor: Any | None = None,
     comfy_runtime: Any | None = None,
@@ -1008,9 +1009,13 @@ def create_app(
             qwen_edit.start_worker()
         if video_factory is not None:
             video_factory.start()
+        if mobile_server is not None:
+            mobile_server.start()
         try:
             yield
         finally:
+            if mobile_server is not None:
+                await asyncio.to_thread(mobile_server.stop)
             if video_factory is not None:
                 await asyncio.to_thread(video_factory.stop)
             if machine_work is not None:

@@ -1,5 +1,65 @@
 # CONTINUITY
 
+## Correctif 2026-09-28 — adresse PanelForge au démarrage
+
+### Goal
+- Rétablir l’URL principale du Lab dans la console et expliquer les lancements nécessaires au quotidien.
+
+### Current state
+- L’utilisateur confirme que l’Usine mobile fonctionne désormais sur Android. Activation Tailscale Serve effectuée par lui ; aucun diagnostic de connectivité restant pour cette demande.
+- Lab courant sur http://127.0.0.1:7861/ (argument --port 7861), page vérifiée HTTP 200 ; mobile distinct sur 8766.
+- Cause confirmée par lecture du code Uvicorn installé : la Config du serveur mobile reconfigurait les loggers communs en warning et effaçait les handlers d’accès. Le message INFO contenant l’URL du Lab était donc masqué.
+- Correction limitée dans le checkout actif : infrastructure/factory_mobile.py utilise log_config=None / log_level=None et garde la politique de logs du Lab ; suppression du message affichant l’URL locale mobile. La ligne standard Uvicorn du Lab redevient visible au prochain lancement.
+- Guide mobile actualisé : --bg persiste jusqu’à désactivation, Serve reprend avec Tailscale ; lancer PanelForge normalement démarre aussi le mobile. La console de configuration Serve peut être fermée, celle qui fait tourner PanelForge doit rester ouverte.
+- Syntaxe Python contrôlée sans exécution ; aucun test fonctionnel, redémarrage, génération, commande Usine ou changement réseau lancé. Sauvegardes et diff : D:/Code/panelforge/.agent/diagnostics/factory-mobile-startup-20260928/.
+
+### Next steps
+1. Au prochain lancement choisi par l’utilisateur, vérifier le retour de la ligne Uvicorn avec l’URL du Lab et son port courant.
+2. Continuer la recette mobile restante (vidéos, commandes, notifications) avec l’utilisateur ; elle n’est pas présumée validée par le seul accès à la page.
+
+## Diagnostic 2026-09-28 — accès Android à l’Usine mobile
+
+### Goal
+- Diagnostiquer « site inaccessible » sur le téléphone après activation de Tailscale Serve par l’utilisateur.
+
+### Current state
+- Serve configuré par l’utilisateur : HTTPS 443 sur desktop-7bunq5p.tail68839a.ts.net vers http://127.0.0.1:8766, accès tailnet uniquement.
+- Contrôles en lecture seule : page mobile locale et /api/state HTTP 200 ; URL HTTPS complète HTTP 200 depuis le PC, adresse résolue 100.119.118.69 et certificat validé (curl ssl_verify_result=0).
+- Tailscale PC Running / Online, MagicDNS actif, DNS accepté, ShieldsUp false, aucun exit node. Pair « S24 de Samuel » Android présent et Online dans le même réseau.
+- Trois pings Tailscale PC vers S24 sans réponse. Cela ne démontre pas un blocage Android vers PC : la direction et les préférences d’accès entrant peuvent différer.
+- Adresse exacte ouverte et code d’erreur du navigateur Android demandés ; cause côté téléphone non encore établie. Vérifier URL HTTPS sans :8766, connexion Tailscale du téléphone, DNS et éventuelle exclusion du navigateur.
+- Aucun code, configuration réseau ou service modifié / redémarré ; aucun traitement, test fonctionnel ou notification lancé. Documentation de continuité seule actualisée.
+
+### Next steps
+1. Obtenir l’URL et le code d’erreur Android ; faire réessayer l’adresse HTTPS complète depuis le navigateur.
+2. Selon l’erreur, vérifier les réglages DNS / navigateur ou la liaison Android vers PC ; ne pas présumer un défaut du serveur mobile.
+3. Une fois l’accès établi, poursuivre la recette Android prévue (lecture, commandes, notifications) avec l’utilisateur.
+
+## Implémentation 2026-09-28 — Usine mobile Android (GO reçu)
+
+### Goal
+- Créer une version Git incluant les derniers changements, puis implémenter le suivi mobile convenu : KPI, températures, vidéos, pause / reprise / arrêt et notifications.
+
+### Current state
+- Checkpoint pré-mobile créé et vérifié : `c4389c62aa8d7317ca0f5f7180c75b6a74984f92`, branche `snapshots/pre-factory-mobile-2026-09-28`, tag `snapshot-pre-factory-mobile-2026-09-28`. 191 fichiers applicatifs modifiés / nouveaux inclus, dont Écriture v3. Branche et index de travail conservés ; aucun push.
+- Implémentation dans `D:/Code/panelforge-krea2-flux`. Rapport : `docs/proposals/factory-mobile-implementation-2026-09-28.md`.
+- Page mobile autonome avec Suivi, Vidéos et Alertes, KPI de lot et par vidéo, températures, galerie / lecteur Range, miniatures allégées, raccourci Android.
+- Nouveau port loopback 8766 par défaut au prochain démarrage du Lab (`--mobile-port 0` désactive), mêmes services et ordonnanceur. Surface HTTP restreinte au mobile ; commandes à même origine, médias limités aux fiches Usine.
+- Pause / reprise via commandes existantes ; arrêt confirmé = pause de la file + annulation des seules étapes actives affichées. Identité d’étape contrôlée atomiquement, sans invalider la confirmation pour un simple changement de progression ; reprise explicite des vidéos interrompues.
+- Web Push implémenté côté PC, indépendant du navigateur ouvert. Abonnements et épisodes d’alerte persistants, seuils par téléphone, hystérésis, déduplication, réessais et suppression d’abonnements expirés. Aucune modification des protections thermiques du PC.
+- `pywebpush 2.5.0` installé avec ses dépendances dans la venv partagée, option mobile déclarée dans pyproject ; pip check OK.
+- Contrôles statiques Python (9 fichiers), V8 (2 scripts + 2 blocs du scénario navigateur), TOML/manifeste/icônes/diff et aperçu statique 412 px. 21 tests préparés, NON exécutés selon AGENTS.md actif ; aucune validation fonctionnelle Android encore établie.
+- Le service worker cache uniquement l’interface. Connexion perdue : valeurs anciennes signalées, commandes bloquées, aucun ordre rejoué.
+- Adresse PC Tailscale lue : `desktop-7bunq5p.tail68839a.ts.net`. Serve était vide ; aucune configuration réseau changée, aucun service lancé / redémarré, aucune génération / notification réelle envoyée.
+- Sauvegardes/diff/preuves : `D:/Code/panelforge/.agent/diagnostics/factory-mobile-20260928/`. Aperçu statique fictif : `preview-mobile-412.png`.
+
+### Next steps
+1. L’utilisateur exécute les tests ciblés du rapport.
+2. Au prochain redémarrage choisi du Lab après les traitements, accéder à localhost:8766 puis exécuter sur le PC `tailscale serve --bg --https=443 http://127.0.0.1:8766` (commande préparée, non exécutée).
+3. Ouvrir `https://desktop-7bunq5p.tail68839a.ts.net/` sur Android, activer les notifications, vérifier lecture, commandes et réception page fermée. Autorisation navigateur et HTTPS nécessaires.
+4. Périmètre LAN / choix réseau PC→serveur toujours distinct et non implémenté par ce patch.
+
+
 ## Écriture 2026-09-28 — nouvelle édition Expérimentale v3 (GO reçu)
 
 ### Goal
