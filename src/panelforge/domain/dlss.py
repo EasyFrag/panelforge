@@ -5,6 +5,24 @@ import math
 import re
 
 
+def dlss_progress_ratio(progress):
+    """Convert phase progress to a finite overall ratio, or leave it unknown."""
+    def finite(value):
+        return type(value) in (int, float) and math.isfinite(value)
+
+    if finite(progress):
+        return min(1.0, max(0.0, float(progress)))
+    if not isinstance(progress, dict):
+        return None
+    index, count, percent = (progress.get(key) for key in ("stage_index", "stage_count", "percent"))
+    if type(index) is not int or type(count) is not int or not 0 <= index < count:
+        return None
+    if percent is not None and not finite(percent):
+        return None
+    phase = 0.0 if percent is None else min(100.0, max(0.0, percent)) / 100.0
+    return (index + phase) / count
+
+
 @dataclass(frozen=True, slots=True)
 class DlssSettings:
     size: str = "2"

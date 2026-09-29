@@ -111,6 +111,7 @@ def scene_action(scene):
 
 
 def initial_episode(story, identity):
+    from . import story_direction
     recipe = story_recipe_selection(story.get("recipe"))
     scenario = validate_scenario(fabrication_scenario(story), recipe["id"], recipe["version"])
     selected_series_episode = story["document"].get("selected_episode_id")
@@ -155,8 +156,19 @@ def initial_episode(story, identity):
         reference_profiles={}, reference_batch=None,
         video_defaults=default_render_setup(clip_seconds), video_revision=1, video_chain=None,
         cookbook=dict(id=REF2V_COOKBOOK[0], version=REF2V_COOKBOOK[1]))
-    if story.get("visual_state_policy") == 1:
-        result["visual_state_policy"] = 1
+    if story_direction.enabled(story):
+        result.update(story_quality_version=story_direction.VERSION,
+            writing_direction=deepcopy(story_direction.settings(story)), style=story_direction.visual_style(story))
+    if story.get("visual_state_policy") in {1, 2}:
+        result["visual_state_policy"] = story["visual_state_policy"]
+    if result.get("visual_state_policy") == 2:
+        from .story_reference_plan import build
+        identities = build(scenario)["identities"]
+        for ref in refs:
+            initial = identities.get(ref["source_id"]) if ref["kind"] == "character" else None
+            if initial:
+                ref.update(description=initial["description"], continuity_appearance=initial["state"],
+                    continuity_identity_description=initial["description"])
     if "visual_continuity" in scenario:
         from .episode_continuity import sync_references
         result.update(continuity_version=1, continuity_revision=1)
@@ -219,6 +231,13 @@ def scene_inputs(episode, scene, *, require_images=True):
     if not any(r["kind"] == "location" and r["source_id"] == location["id"] for r in selected):
         lines.append(f"Décor : {location['name']}. {location['description']}")
     lines.append(scene["intention"])
+    from . import story_direction
+    if story_direction.enabled(episode):
+        # Seeded only on creation; the author's Fabrication style always wins afterwards.
+        if episode.get("style"):
+            lines.append("Direction visuelle commune : " + episode["style"])
+        if source_scene["dialogue"]:
+            lines.append(story_direction.voice_instruction(episode))
     if episode_continuity.active(episode):
         continuity_text = story_continuity.instructions(episode["scenario"], scene["index"],
             explicit_presence=episode_continuity.required_states(episode))

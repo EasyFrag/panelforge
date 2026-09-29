@@ -9,6 +9,7 @@ import re
 from .krea2_batch import Krea2BatchSettings, Krea2PromptLanguage
 from .recipes import RecipeRef
 from .krea2_style_presets import Krea2StylePreset, validate_preset_selection
+from .krea2_art_direction import Krea2ArtDirection, validate_art_sources
 from .assisted_composition import AssistedComposition
 from .dlss import DlssResult, validate_dlss_attempt, validate_dlss_lineage
 
@@ -51,9 +52,11 @@ class Krea2AssistedTurn:
     model_id: str | None = None
     assistance_recipe_version: str = "1.0.0"
     style_preset: Krea2StylePreset | None = None
+    art_direction: Krea2ArtDirection | None = None
 
     def __post_init__(self) -> None:
         validate_preset_selection(self.style_preset, False)
+        validate_art_sources(self.style_preset, self.art_direction)
         _text(self.assistance_recipe_version, "assistance_recipe_version")
         _text(self.turn_id, "turn_id")
         if not isinstance(self.mode, Krea2AssistedTurnMode):
@@ -86,6 +89,7 @@ class Krea2AssistedAttempt:
     prompt: str
     settings: Krea2BatchSettings
     seed: int
+    canonical_prompt: str | None = None
     status: Krea2AssistedAttemptStatus = Krea2AssistedAttemptStatus.CREATED
     execution_id: str | None = None
     compiled_workflow_sha256: str | None = None
@@ -101,6 +105,7 @@ class Krea2AssistedAttempt:
     conversation_prompt_language: Krea2PromptLanguage = Krea2PromptLanguage.ENGLISH
     conversation_model_id: str | None = None
     style_preset: Krea2StylePreset | None = None
+    art_direction: Krea2ArtDirection | None = None
     preset_pending: bool = False
     queue_order: int | None = None
     kind: str = "generation"
@@ -109,6 +114,9 @@ class Krea2AssistedAttempt:
 
     def __post_init__(self) -> None:
         validate_preset_selection(self.style_preset, self.preset_pending)
+        validate_art_sources(self.style_preset, self.art_direction)
+        if self.canonical_prompt is not None:
+            _text(self.canonical_prompt, "canonical_prompt")
         if self.queue_order is not None and (
             isinstance(self.queue_order, bool) or not isinstance(self.queue_order, int) or self.queue_order < 1
         ):
@@ -340,10 +348,12 @@ class Krea2AssistedBranch:
     render_settings: Krea2BatchSettings | None = None
     render_seed: int | None = None
     style_preset: Krea2StylePreset | None = None
+    art_direction: Krea2ArtDirection | None = None
     preset_pending: bool = False
 
     def __post_init__(self) -> None:
         validate_preset_selection(self.style_preset, self.preset_pending)
+        validate_art_sources(self.style_preset, self.art_direction)
         _text(self.branch_id, "branch_id")
         _text(self.name, "branch name")
         if not isinstance(self.turns, tuple) or any(not isinstance(t, Krea2AssistedTurn) for t in self.turns):
@@ -492,14 +502,17 @@ class Krea2AssistedProject:
     render_settings: Krea2BatchSettings | None = None
     render_seed: int | None = None
     style_preset: Krea2StylePreset | None = None
+    art_direction: Krea2ArtDirection | None = None
     preset_pending: bool = False
     composition_base_asset_id: str | None = None
     prompt_examples: tuple[Krea2PromptExample, ...] = ()
     selected_prompt_example_id: str | None = None
     prompt_example_search_brief: Krea2PromptSearchBrief | None = None
+    local_inspiration_enabled: bool = True
 
     def __post_init__(self) -> None:
         validate_preset_selection(self.style_preset, self.preset_pending)
+        validate_art_sources(self.style_preset, self.art_direction)
         _text(self.assistance_recipe_version, "assistance_recipe_version")
         for value, label in (
             (self.project_id, "project_id"),
@@ -530,6 +543,8 @@ class Krea2AssistedProject:
             and not isinstance(self.prompt_example_search_brief, Krea2PromptSearchBrief)
         ):
             raise TypeError("prompt_example_search_brief must be a Krea2PromptSearchBrief")
+        if not isinstance(self.local_inspiration_enabled, bool):
+            raise TypeError("local_inspiration_enabled must be a boolean")
         if self.revision_model_id is not None:
             _text(self.revision_model_id, "revision_model_id")
         if not isinstance(self.prompt_language, Krea2PromptLanguage):
@@ -556,7 +571,10 @@ class Krea2AssistedProject:
                         or parent.status is not Krea2AssistedAttemptStatus.SUCCEEDED
                         or c.generated_asset_id != original.output_asset_id
                         or attempt.settings != original.settings or attempt.seed != original.seed
-                        or attempt.prompt != original.prompt or attempt.index != original.index
+                        or attempt.prompt != original.prompt
+                        or attempt.canonical_prompt != original.canonical_prompt
+                        or attempt.art_direction != original.art_direction
+                        or attempt.index != original.index
                         or (parent.composition.original_attempt_id if parent.composition else parent.attempt_id) != original.attempt_id):
                     raise ValueError("invalid composition image lineage")
                 if c.request_id in requests:
@@ -622,7 +640,8 @@ class Krea2AssistedProject:
                     prompt_language=self.prompt_language, revision_model_id=self.revision_model_id,
                     feedback_attempt_id=self.feedback_attempt_id, recipe_draft=self.recipe_draft,
                     render_settings=self.render_settings, render_seed=self.render_seed,
-                    style_preset=self.style_preset, preset_pending=self.preset_pending)
+                    style_preset=self.style_preset, art_direction=self.art_direction,
+                    preset_pending=self.preset_pending)
             if branch.branch_id == self.active_branch_id else branch
             for branch in self.branches
         )
@@ -638,7 +657,8 @@ class Krea2AssistedProject:
             revision_model_id=branch.revision_model_id, feedback_attempt_id=branch.feedback_attempt_id,
             recipe_draft=branch.recipe_draft, render_settings=branch.render_settings,
             render_seed=branch.render_seed,
-            style_preset=branch.style_preset, preset_pending=branch.preset_pending,
+            style_preset=branch.style_preset, art_direction=branch.art_direction,
+            preset_pending=branch.preset_pending,
         )
 
     def branch_from_attempt(
@@ -664,10 +684,12 @@ class Krea2AssistedProject:
         branch = Krea2AssistedBranch(
             branch_id=branch_id, name=f"Piste {len(branches)} · {self.attempt_label(attempt_id)}",
             parent_branch_id=parent_id, source_attempt_id=attempt_id, turns=turns,
-            current_prompt=attempt.prompt, prompt_language=attempt.conversation_prompt_language,
+            current_prompt=attempt.canonical_prompt or attempt.prompt,
+            prompt_language=attempt.conversation_prompt_language,
             revision_model_id=attempt.conversation_model_id or self.model_id,
             feedback_attempt_id=attempt_id, render_settings=attempt.settings, render_seed=attempt.seed,
-            style_preset=attempt.style_preset, preset_pending=attempt.preset_pending,
+            style_preset=attempt.style_preset, art_direction=attempt.art_direction,
+            preset_pending=attempt.preset_pending,
         )
         return replace(self, branches=(*branches, branch)).switch_branch(branch_id)
 
@@ -698,6 +720,11 @@ class Krea2AssistedProject:
         if not any(value.example_id == example_id for value in self.prompt_examples):
             raise KeyError(example_id)
         return replace(self, selected_prompt_example_id=example_id)
+
+    def with_local_inspiration(self, enabled: bool) -> Krea2AssistedProject:
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a boolean")
+        return replace(self, local_inspiration_enabled=enabled)
 
     def replace_prompt_examples(
         self,
@@ -750,7 +777,7 @@ class Krea2AssistedProject:
         return replace(
             self.replace_attempt(attempt),
             accepted_attempt_id=attempt_id,
-            current_prompt=attempt.prompt,
+            current_prompt=attempt.canonical_prompt or attempt.prompt,
             feedback_attempt_id=attempt_id,
             attempts=tuple(
                 replace(value, accepted=(value.attempt_id == attempt_id))

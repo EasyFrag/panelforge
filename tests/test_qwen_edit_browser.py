@@ -1,4 +1,4 @@
-"""Full Qwen V2 interactions against a fake in-page API; no live service."""
+"""Shared Qwen/Minimax interactions against a fake in-page API; no live service."""
 
 import os
 from pathlib import Path
@@ -13,15 +13,23 @@ STATIC = ROOT / "src/panelforge/features/lab/static"
 
 class QwenEditBrowserTest(unittest.TestCase):
     def test_guide_roles_prompt_autosave_and_contained_layout(self):
+        self._exercise("qwen")
+
+    def test_minimax_guide_roles_prompt_autosave_and_contained_layout(self):
+        self._exercise("minimax")
+
+    def _exercise(self, engine):
         cache = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
         browsers = [*cache.glob("chromium-*/chrome-win/chrome.exe"),
                     *cache.glob("chromium-*/chrome-win64/chrome.exe")]
         if not browsers:
+            chrome = Path("C:/Program Files/Google/Chrome/Application/chrome.exe")
+            browsers = [chrome] if chrome.is_file() else []
+        if not browsers:
             self.skipTest("Chromium local non installé")
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        page = '<main id="qwen-edit-lab-workspace"' + html.split(
-            '<main id="qwen-edit-lab-workspace"', 1)[1].split(
-            '<main id="krea2-edit-lab-workspace"', 1)[0]
+        marker = f'<main id="{engine}-edit-lab-workspace"'
+        page = marker + html.split(marker, 1)[1].split("</dialog>", 1)[0] + "</dialog>"
         page = page.replace('class="qwen-v2-workspace" hidden',
                             'class="qwen-v2-workspace"', 1)
         code = (STATIC / "qwen-edit-v2.js").read_text(encoding="utf-8")
@@ -31,7 +39,10 @@ class QwenEditBrowserTest(unittest.TestCase):
         )
         css = ((STATIC / "lab.css").read_text(encoding="utf-8")
                + (STATIC / "qwen-edit-v2.css").read_text(encoding="utf-8"))
+        picker = (STATIC / "lab.js").read_text(encoding="utf-8").split("const ui = {};", 1)[0]
         fixture = r"""
+        const workshopEngine='qwen';
+        const gemma='local::unsloth/gemma-4-31B-it-qat-GGUF';
         const check = (value, message) => {if(!value) throw Error(message);};
         window.fixtureImage='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
         window.PanelForgeLabNavigation={switchView:()=>true};
@@ -61,11 +72,22 @@ class QwenEditBrowserTest(unittest.TestCase):
         window.fetch=async(url,options={})=>{
           const method=options.method||'GET'; sent.push([url,method,options.body]);
           const out=(data,status=200)=>({ok:status<400,status,json:async()=>structuredClone(data)});
-          if(url.endsWith('/models'))return out({models:[{id:'fake',label:'Fake vision',source:'server'}]});
+          if(url.endsWith('/models'))return out({default_model_id:workshopEngine==='minimax'?gemma:'',
+            models:[{id:'fake',label:'Fake vision',source:'server'},{id:gemma,label:gemma.slice(7),source:'local'}]});
           if(url.endsWith('/projects')&&method==='GET')return out({projects:[{
             id:project.id,name:project.name,stage_count:1,active_stage_id:current.id,
             thumbnail_asset_id:'source',updated_at:'2026-09-23T10:00:00Z'}]});
           if(url.endsWith('/projects/'+project.id)&&method==='GET')return out({project});
+          if(url.endsWith('/messages')&&method==='POST'){
+            const data=JSON.parse(options.body);check(data.revision===current.revision,'message revision');
+            const automatic=workshopEngine==='minimax';
+            current.messages.push({id:'message-1',text:current.draft,reply:'Prompt prêt.',status:'succeeded',
+              model_id:current.model_id,auto_render:automatic?{status:'queued',attempt_id:'attempt-auto'}:undefined});
+            current.draft='';current.prompt_ready=true;
+            if(automatic)current.attempts.push({...structuredClone(attempt),id:'attempt-auto',status:'queued',
+              output_asset_id:null,raw_output_asset_id:null});
+            current.revision++;project.version++;return out({project},202);
+          }
           if(method==='PATCH'){
             const data=JSON.parse(options.body);check(data.revision===current.revision,'stale UI revision');
             const oldContext=JSON.stringify([current.references,current.guide]);
@@ -102,6 +124,11 @@ class QwenEditBrowserTest(unittest.TestCase):
           const el=id=>document.getElementById('qv2-'+id);
           await wait(()=>!el('editor').hidden);
           check(el('seed').value==='18446744073709551615','64 bit seed altered by browser');
+          if(workshopEngine==='minimax'){
+            check(el('model').value===gemma,'Gemma is not the default assistant');
+            check(el('model').dataset.llmSource==='local','default assistant is not local');
+            check(document.querySelector('[data-llm-local-for="mv2-model"]').checked,'Unsloth toggle is not checked');
+          }
           check(el('attempts').querySelectorAll('.qv2-attempt-card').length===1,'attempt card missing');
           check(el('attempts').textContent.includes('seed 18446744073709551615'),'seed hidden from history');
           check([...el('after').options].some(option=>option.textContent.includes('Qwen brut')),'raw Qwen result not archived in comparator');
@@ -137,6 +164,15 @@ class QwenEditBrowserTest(unittest.TestCase):
           await wait(()=>current.references[0].usage==='render'&&!el('dialog').open);
           check(el('references').textContent.includes('Assistant + Qwen'),'promoted Qwen role not visible');
 
+          el('references').querySelector('.qv2-reference button').click();
+          [...el('dialog-body').querySelectorAll('button')].find(button=>button.textContent==='Retirer').click();
+          await wait(()=>!current.references[0].active&&!el('dialog').open);
+          el('reuse').click();
+          const reuseButton=[...el('dialog-body').querySelectorAll('button')].find(button=>button.textContent==='Assistant + Qwen');
+          check(reuseButton,'render role missing from reuse dialog');reuseButton.click();
+          await wait(()=>current.references[0].active&&!el('dialog').open);
+          check(current.render_inputs.length===2,'reused reference missing from renderer');
+
           el('show-guide').click();
           await wait(()=>!el('guide-panel').hidden&&el('guide-canvas').width===1);
           const canvas=el('guide-canvas'),box=canvas.getBoundingClientRect();
@@ -160,14 +196,39 @@ class QwenEditBrowserTest(unittest.TestCase):
           check(sent.filter(row=>row[0].endsWith('/attempts')).length===0,'editing silently generated');
           check(document.documentElement.scrollWidth<=window.innerWidth+2,'page overflows horizontally');
           check(patchCount>=5,'autosave did not persist edits');
+          el('draft').value='Ajoute une lumière douce.';el('draft').dispatchEvent(new Event('input',{bubbles:true}));
+          await wait(()=>current.draft.includes('lumière'));
+          el('send').click();
+          await wait(()=>current.messages.length===1&&!el('draft').disabled);
+          check(sent.filter(row=>row[0].endsWith('/messages')).length===1,'one click must send one prompt request');
+          check(sent.filter(row=>row[0].endsWith('/attempts')).length===0,'browser must not duplicate the server render');
+          if(workshopEngine==='minimax'){
+            check(current.model_id===gemma,'default Gemma selection was not persisted');
+            check(current.attempts.length===2&&current.attempts[1].status==='queued','automatic render missing');
+            check(el('render').disabled,'manual render must wait for the automatic attempt');
+            el('draft').value='Deuxième demande';el('draft').dispatchEvent(new Event('input',{bubbles:true}));
+            check(el('send').disabled,'another automatic render must wait for the active attempt');
+          }else check(current.attempts.length===1,'Qwen must keep manual rendering');
           document.body.innerHTML='<pre id="result">QWEN_V2_BROWSER_OK</pre>';
         }catch(error){
           document.body.innerHTML='<pre id="result"></pre>';
           document.getElementById('result').textContent=error.stack;
         }})();
         """
+        if engine == "minimax":
+            fixture = fixture.replace("qwen-fixture", "minimax-fixture")
+            fixture = fixture.replace("workshopEngine='qwen'", "workshopEngine='minimax'")
+            fixture = fixture.replace("model_id:'fake',draft:", "model_id:'',draft:")
+            fixture = fixture.replace("steps:25,cfg:1,", "steps:18,").replace("negative_prompt:'',", "")
+            fixture = fixture.replace("<image1>", "<Picture 1>").replace("<image${index+1}>", "<Picture ${index+1}>")
+            scenario = scenario.replace("'qv2-'", "'mv2-'").replace("Qwen", "Minimax")
+            for index in range(1, 4):
+                scenario = scenario.replace(f"<image{index}>", f"<Picture {index}>")
+            scenario = scenario.replace("check(patchCount>=5",
+                "check(!Object.hasOwn(current.settings,'cfg')&&!Object.hasOwn(current.settings,'negative_prompt'),"
+                "'unsupported Minimax settings submitted');check(patchCount>=5")
         document = ('<!doctype html><html><head><meta charset="utf-8"><style>' + css
-                    + '</style></head><body>' + page + '<script>' + fixture
+                    + '</style></head><body>' + page + '<script>' + picker + '</script><script>' + fixture
                     + '</script><script>' + code + '</script><script>' + scenario
                     + '</script></body></html>')
         with tempfile.TemporaryDirectory() as directory:
@@ -175,9 +236,11 @@ class QwenEditBrowserTest(unittest.TestCase):
             path.write_text(document, encoding="utf-8")
             result = subprocess.run([
                 str(browsers[0]), "--headless", "--disable-gpu", "--no-sandbox",
+                "--user-data-dir=" + str(Path(directory) / "browser-profile"),
                 "--disable-background-networking", "--allow-file-access-from-files",
                 "--window-size=1440,1100", "--virtual-time-budget=15000", "--dump-dom",
                 path.as_uri(),
-            ], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=45)
+            ], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=45,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
         self.assertIn('<pre id="result">QWEN_V2_BROWSER_OK</pre>', result.stdout)

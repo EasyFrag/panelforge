@@ -1,6 +1,7 @@
 """Factory adapter to the existing prompt, H3, DLSS and social application services."""
 from copy import deepcopy
 from dataclasses import asdict
+import json
 import time
 from uuid import uuid4
 
@@ -16,22 +17,38 @@ from panelforge.domain.h3_bunny import H3BunnySettings, bunny_geometry
 from panelforge.domain.h3_render import H3VideoLoraStack
 from panelforge.domain.h3_render import derive_h3_render_input_mode
 from panelforge.domain.prompt_composition import PreparationIntent
+from panelforge.domain.localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, STABLE_THANKS_LANGUAGES
+from panelforge.domain.video_factory import is_experimental_little_men
 from panelforge.domain.prompt_writer import supports_writer_model
-from panelforge.domain.dlss import DlssSettings
+from panelforge.domain.dlss import DlssSettings, dlss_progress_ratio
 from panelforge.domain.social_lab import SocialLanguage
+from panelforge.domain.episode_localization import inject as localized_prompt, setup_matches_attempt
 from panelforge.domain.episodes import scene_inputs, effective_video_setup, fingerprint as episode_fingerprint
-from panelforge.domain.video_factory import configuration, ROLE_USES, readiness, merge_settings
+from panelforge.domain.video_factory import configuration, ROLE_USES, readiness, merge_settings, fingerprint, preparation_text
 from .prompt_lab import NewReference, StreamEventKind
 from .production_resources import llm_compute_resource
 from .video_factory import FactoryCancelled, FactoryWait
 
 
 class FactoryWorkflows:
-    def __init__(self, *, prompt_lab, composition, render, dlss, social, episodes, assets, coordinator):
+    def __init__(self, *, prompt_lab, composition, render, dlss, social, episodes, assets, coordinator, image_context=None):
         self.prompt_lab, self.composition, self.render = prompt_lab, composition, render
         self.dlss, self.social, self.episodes, self.assets = dlss, social, episodes, assets
         self.coordinator = coordinator
         self.machines = {}
+        self.monitor_snapshot = {}
+        self.image_context = image_context
+
+    def enrich_image_context(self, config, source):
+        if self.image_context is None:
+            return config
+        config = deepcopy(config)
+        for ref in config["references"]:
+            existing = ref.get("scene_context")
+            if isinstance(existing, dict) and existing.get("asset_id") == ref["asset_id"]:
+                continue
+            ref["scene_context"] = self.image_context(ref["asset_id"], source.get("id"))
+        return config
 
     @staticmethod
     def input_mode(config):
@@ -82,14 +99,32 @@ class FactoryWorkflows:
     def source_issues(self, item):
         return list(item.get("source_issues", []))
 
+    def timing_recipe(self, item, *, historical=False):
+        """Read explicit recipe references; never reconcile or submit a render."""
+        config = item.get("launch_snapshot") or item["config"]
+        runtime = item.get("runtime", {})
+        if historical:
+            if not runtime.get("render_project_id") or not runtime.get("attempt_id"):
+                raise ValueError("Référence de rendu historique absente.")
+            recipe = self.render.projects.get(runtime["render_project_id"]).attempt(runtime["attempt_id"]).recipe
+            if recipe is None:
+                raise ValueError("Recette historique non versionnée.")
+        else:
+            setup = config["render"]["recipe"]
+            recipe = self.render.workflow_for_mode(self.input_mode(config), setup["id"], setup["version"]).reference
+        return dict(id=recipe.recipe_id, version=recipe.version, workflow_sha256=recipe.workflow_sha256)
+
     def available_lanes(self):
+        from panelforge.domain.video_factory import timestamp
         if self.coordinator is None:
             self.machines = {}
+            self.monitor_snapshot = dict(observed_at=timestamp(), settings={},
+                machines={lane: dict(state="idle") for lane in ("local_gpu", "remote_gpu")})
             return ("local_gpu", "remote_gpu")
         status = self.coordinator.public_status()
-        self.machines = {key: {field: value.get(field) for field in
-                         ("state", "paused", "queue_count", "operation", "cooldown_remaining_seconds")}
-                         for key, value in status["machines"].items()}
+        self.machines = deepcopy(status["machines"])
+        self.monitor_snapshot = dict(observed_at=timestamp(), machines=self.machines,
+                                     settings=status.get("settings", {}), policy=status.get("policy", {}))
         return tuple(key for key, value in status["machines"].items()
                      if not value["paused"] and value["state"] == "idle" and not value["queue_count"])
 
@@ -231,7 +266,9 @@ class FactoryWorkflows:
             runtime, outputs = {}, {}
             preparation = next((p for p in reversed(scene.get("preparations", []))
                                 if p.get("input_hash") == episode_fingerprint(inputs) and p.get("session_id")), None)
-            if preparation and not issues:
+            if episode.get("localization"):
+                runtime, outputs = self._capture_localized_scene(episode, scene, inputs, config)
+            elif preparation and not issues:
                 saved = self.capture_session(preparation["session_id"])
                 runtime, outputs = saved["runtime"], saved["outputs"]
                 if saved["config"]["render"] != config["render"]:
@@ -250,10 +287,41 @@ class FactoryWorkflows:
             raise ValueError("Aucune scène sélectionnée.")
         return entries
 
+    def _capture_localized_scene(self, episode, scene, inputs, config):
+        # Localized preparations have no writing session: their frozen render
+        # project, including injected dialogue and image order, is authoritative.
+        info = scene.get("localization") or {}
+        preparation = next((p for p in reversed(scene.get("preparations", []))
+                            if p.get("localized") and p.get("status") == "ready"
+                            and p.get("input_hash") == episode_fingerprint(inputs)
+                            and p.get("render_project_id")), None)
+        if info.get("status") != "ready" or preparation is None:
+            raise ValueError(f"{scene['title']} : préparez les traductions dans 3 · Multilangue avant l’envoi à l’usine.")
+        project = self.render.projects.get(preparation["render_project_id"])
+        expected = localized_prompt(info["source_prompt"], scene["id"], info["language"], info["translations"])
+        if project.current_prompt != expected:
+            raise ValueError(f"{scene['title']} : le prompt ne correspond plus aux dialogues validés. Réinjectez la traduction.")
+        if tuple(r["asset_id"] for r in config["references"]) != tuple(project.reference_asset_ids):
+            raise ValueError(f"{scene['title']} : les images ne correspondent plus au prompt traduit.")
+        config["final_prompt"] = project.current_prompt
+        runtime = dict(render_project_id=project.project_id)
+        outputs = dict(plan={"note": "Plan conservé depuis la version traduite."},
+                       prompt={"text": project.current_prompt})
+        for attempt in reversed(project.attempts):
+            if (attempt.status.value == "succeeded" and not attempt.dlss and attempt.output_asset_id
+                    and attempt.prompt == project.current_prompt and attempt.recipe is not None
+                    and setup_matches_attempt(config["render"], attempt)):
+                outputs["video"] = self.video_output(project, attempt)
+                runtime["attempt_id"] = attempt.attempt_id
+                break
+        return runtime, outputs
+
     def run(self, item, stage, checkpoint, cancelled, progress):
         if cancelled():
             self.cancel(item)
-            raise FactoryCancelled()
+            child_key = {"video": "attempt_id", "dlss": "dlss_job_id"}.get(stage)
+            if not child_key or not item["runtime"].get(child_key):
+                raise FactoryCancelled()
         output = getattr(self, "_" + stage)(item, checkpoint, cancelled, progress)
         if stage == "video" and item["source"].get("kind") == "episode":
             inputs = item["runtime"].get("episode_inputs")
@@ -310,7 +378,16 @@ class FactoryWorkflows:
             runtime["session_id"] = session.session_id
         book = self.composition.cookbooks.get(config["cookbook"]["id"], config["cookbook"]["version"])
         steps = getattr(book, "preparation_steps", 3)
-        intent = PreparationIntent(source_text=config["intention"] or config["final_prompt"],
+        localized = is_experimental_little_men(config)
+        language = config.get("little_men_language", "auto")
+        selection = runtime.get("thanks_selection") if localized else None
+        policy = ({2: LOCALIZED_THANKS_V2, 3: LOCALIZED_THANKS_V3, 4: LOCALIZED_THANKS_V4}.get(
+            selection.get("version") if selection else None, LOCALIZED_THANKS_V1)
+            if localized else None)
+        requested = selection.get("requested_language") if selection else (
+            language if localized and language != "auto" else None)
+        intent = PreparationIntent(source_text=preparation_text(config, thanks_selection=selection),
+                                  speech_policy=policy, speech_language=requested,
                                   creative_axes=CreativeFreedomAxes(**config["creative_axes"]),
                                   creative_audacity=config["creative_audacity"],
                                   creative_freedom=config["creative_freedom"])
@@ -346,6 +423,17 @@ class FactoryWorkflows:
                 raise FactoryCancelled()
             self.composition.approve(session.session_id, stage)
         document = self.composition.get(session.session_id).document(CompositionStage.BEAT_SHEET)
+        selection = item["runtime"].get("thanks_selection")
+        if selection and selection.get("version") in (2, 3, 4) and document.active_revision:
+            plan = json.loads(document.active_revision.content)
+            languages = plan.get("spoken_languages", [])
+            if len(languages) != 1 or languages[0] not in STABLE_THANKS_LANGUAGES:
+                raise ValueError("Le Plan doit choisir une des 11 langues de remerciement.")
+            selection = {**selection, "language": languages[0], "words": plan["spoken_lines"][0]}
+            if selection["group"] == "visual":
+                selection["reason"] = "Ambiance et préférence fixée dans le Plan"
+            checkpoint(thanks_selection=selection)
+            item["runtime"]["thanks_selection"] = selection
         return dict(session_id=session.session_id, text=document.active_revision.content if document.active_revision else "",
                     note=None if document.active_revision else "Recette sans plan intermédiaire")
 
@@ -412,9 +500,13 @@ class FactoryWorkflows:
 
     def _video(self, item, checkpoint, cancelled, progress):
         runtime, config = item["runtime"], item["config"]
+        if cancelled() and not runtime.get("attempt_id"):
+            raise FactoryCancelled()
         project = self._project(item, checkpoint, cancelled, progress)
         attempt = project.attempt(runtime["attempt_id"]) if runtime.get("attempt_id") else None
         if attempt and attempt.status.value in {"failed", "cancelled"}:
+            if cancelled():
+                raise FactoryCancelled()
             if not runtime.get("explicit_retry"):
                 raise ValueError(attempt.error or "Rendu interrompu. Reprenez explicitement cette étape.")
             checkpoint(previous_attempt_id=attempt.attempt_id, attempt_id=None, explicit_retry=False)
@@ -427,7 +519,7 @@ class FactoryWorkflows:
             settings = VideoLabSettings(aspect_ratio=VideoAspectRatio(raw["aspect_ratio"]), megapixels=raw["megapixels"],
                 duration_seconds=raw["duration_seconds"], steps=raw["steps"], seed=seed,
                 seed_locked=bool(setup.get("seed_locked", True)))
-            project = self.render.prepare_attempt(project.project_id,
+            project = self.render.prepare_attempt(project.project_id, batch_mode=True,
                 prompt=item["steps"]["prompt"]["output"].get("text") or config["final_prompt"], settings=settings,
                 music_enabled=setup.get("music_enabled", False), spectrum_enabled=setup.get("spectrum_enabled", False),
                 initial_megapixels=setup.get("initial_megapixels", .2), force_upscale=setup.get("force_upscale", False),
@@ -440,8 +532,8 @@ class FactoryWorkflows:
             checkpoint(attempt_id=attempt.attempt_id)
             runtime["attempt_id"] = attempt.attempt_id
         if cancelled():
-            self.render.cancel_attempt(project.project_id, attempt.attempt_id)
-            raise FactoryCancelled()
+            project = self.render.cancel_attempt(project.project_id, attempt.attempt_id)
+            attempt = project.attempt(attempt.attempt_id)
         if attempt.status.value == "created":
             try:
                 self.render.queue_attempt(project.project_id, attempt.attempt_id, operation_label=f"Usine · {item['name']}")
@@ -450,9 +542,9 @@ class FactoryWorkflows:
                     raise FactoryWait(str(error)) from error
                 raise
         if self.render.projects.get(project.project_id).attempt(attempt.attempt_id).status.value == "queued":
-            cooldown = self.coordinator.settings.remote_video_cooldown_seconds if self.coordinator else 0
+            # The coordinator enforces inter-video rest before the next admission.
             self.render.execute_attempt(project.project_id, attempt.attempt_id,
-                                        post_cooldown_seconds=cooldown, operation_label=f"Usine · {item['name']}")
+                                        operation_label=f"Usine · {item['name']}")
         deadline = time.monotonic() + self.render.run_timeout
         while True:
             project = self.render.get(project.project_id)
@@ -475,21 +567,28 @@ class FactoryWorkflows:
         job_id = item["runtime"].get("dlss_job_id")
         if job_id:
             job = self.dlss.jobs.get(job_id)
-            if job["status"] in {"failed", "cancelled", "unconfirmed"} and item["runtime"].get("explicit_retry"):
+            if cancelled():
+                if job["status"] not in {"succeeded", "failed", "cancelled"}:
+                    job = self.dlss.cancel(job_id)
+            elif job["status"] in {"failed", "cancelled", "unconfirmed"} and item["runtime"].get("explicit_retry"):
                 job = self.dlss.retry(job_id)
             else:
                 self.dlss.wake()
         else:
+            if cancelled():
+                raise FactoryCancelled()
             settings = DlssSettings(size="1.724", intensity=.2, tone=0, structure=.2, skin=0,
                 detail=1, style="Natural", strict_neural=False, interpolate=True, hdr=False, codec="H.264 (NVIDIA NVENC)")
             job = self.dlss.queue(owner=video["owner"], owner_id=video["project_id"], attempt_id=video["attempt_id"],
-                                  settings=settings, request_id=f"factory-{item['id']}-{video['attempt_id']}")
+                                  settings=settings, request_id="factory-" + fingerprint([item["id"], video["attempt_id"]]))
             job_id = job["job_id"]
             checkpoint(dlss_job_id=job_id)
         while job["status"] not in {"succeeded", "failed", "cancelled", "unconfirmed"}:
             if cancelled():
                 self.dlss.cancel(job_id)
-            progress("DLSS · " + job["status"], job.get("progress"))
+            finalizing = job["status"] in {"receiving", "importing"}
+            progress("Finalisation DLSS" if finalizing else "DLSS · " + job["status"],
+                     None if finalizing else dlss_progress_ratio(job.get("progress")))
             time.sleep(1)
             job = self.dlss.jobs.get(job_id)
         if job["status"] == "cancelled":
@@ -530,6 +629,18 @@ class FactoryWorkflows:
         if not variants:
             raise ValueError("Aucune variante Instagram reçue.")
         return dict(project_id=identity, variants=variants[-settings["variant_count"]:])
+
+    def pending_removal_stage(self, item):
+        runtime = item["runtime"]
+        if runtime.get("attempt_id") and runtime.get("render_project_id"):
+            attempt = self.render.get(runtime["render_project_id"]).attempt(runtime["attempt_id"])
+            if attempt.status.value not in {"succeeded", "failed", "cancelled"}:
+                return "video"
+        if runtime.get("dlss_job_id"):
+            job = self.dlss.jobs.get(runtime["dlss_job_id"])
+            if job["status"] not in {"succeeded", "failed", "cancelled"}:
+                return "dlss"
+        return None
 
     def cancel(self, item):
         runtime = item["runtime"]

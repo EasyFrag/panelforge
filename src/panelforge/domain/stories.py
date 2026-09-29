@@ -305,12 +305,17 @@ def _items(value, name, minimum, maximum):
 def _visual_transition(value):
     if value is None:
         return None
-    if not isinstance(value, dict) or set(value) != set(VISUAL_TRANSITION_FIELDS):
+    if not isinstance(value, dict) or set(value) not in (set(VISUAL_TRANSITION_FIELDS), set(VISUAL_TRANSITION_FIELDS) | {"timing"}):
         raise ValueError(
             "visual_transition doit contenir exactement before, trigger, visible_change et after."
         )
-    return {field: _text(value.get(field), f"visual_transition.{field}", 1500)
-            for field in VISUAL_TRANSITION_FIELDS}
+    result = {field: _text(value.get(field), f"visual_transition.{field}", 1500)
+              for field in VISUAL_TRANSITION_FIELDS}
+    if "timing" in value:
+        if not isinstance(value["timing"], str) or value["timing"] not in {"within_scene", "between_scenes"}:
+            raise ValueError("visual_transition.timing : within_scene ou between_scenes attendu.")
+        result["timing"] = value["timing"]
+    return result
 
 
 def validate_story_continuity(value):
@@ -585,6 +590,10 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
         ids = [record["id"] for record in result[collection]]
         if len(set(ids)) != len(ids):
             raise ValueError(f"Identifiants {collection} en double.")
+    if "presence_policy" in value:
+        if type(value["presence_policy"]) is not int or value["presence_policy"] != 1:
+            raise ValueError("Politique de présence inconnue.")
+        result["presence_policy"] = 1
     characters = {character["id"] for character in result["characters"]}
     locations = {location["id"] for location in result["locations"]}
     scene_extensions = tuple(field for field, _ in recipe_spec["scene_fields"])
@@ -599,7 +608,7 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
         transition = _visual_transition(item.get("visual_transition"))
         if transition is not None:
             scene["visual_transition"] = transition
-        ids = _items(item.get("character_ids"), "Personnages de la scène", 1, 12)
+        ids = _items(item.get("character_ids"), "Personnages de la scène", 0 if value.get("presence_policy") == 1 else 1, 12)
         if any(not isinstance(character, str) or character not in characters for character in ids) or len(set(ids)) != len(ids):
             raise ValueError("Une scène utilise un personnage inconnu ou en double.")
         if scene["location_id"] not in locations:
@@ -607,8 +616,11 @@ def validate_scenario(value, recipe_id=RECIPE_ID, recipe_version=RECIPE_VERSION)
         scene["character_ids"] = list(ids)
         scene["dialogue"] = []
         for line in _items(item.get("dialogue"), "Répliques", 0, 10):
-            if not isinstance(line, dict) or line.get("speaker_id") not in ids:
-                raise ValueError("Une réplique doit appartenir à un personnage présent dans la scène.")
+            if not isinstance(line, dict) or line.get("speaker_id") not in characters:
+                raise ValueError("Une réplique doit appartenir à un personnage connu du casting.")
+            external = value.get("presence_policy") == 1 and line.get("delivery") in {"voice_over", "off_screen", "thought", "mediated"}
+            if line["speaker_id"] not in ids and not external:
+                raise ValueError("Une parole en scène doit appartenir à un personnage visible ; indique explicitement une voix hors champ sinon.")
             record = dict(speaker_id=line["speaker_id"], text=_text(line.get("text"), "réplique", 1500))
             if "dialogue_id" in line:
                 record["dialogue_id"] = _text(line.get("dialogue_id"), "identifiant de réplique", 120)
@@ -765,7 +777,7 @@ def response_contract(operation, has_scenario, recipe_id=RECIPE_ID, recipe_versi
     return deepcopy(example)
 
 
-def story_diagnostics(scenario, *, clip_seconds, target_scene_count, recipe_id=RECIPE_ID):
+def story_diagnostics(scenario, *, clip_seconds, target_scene_count, recipe_id=RECIPE_ID, words_per_second=2.4):
     if not scenario:
         return []
     diagnostics = []
@@ -778,7 +790,7 @@ def story_diagnostics(scenario, *, clip_seconds, target_scene_count, recipe_id=R
         used_people.update(scene["character_ids"])
         used_locations.add(scene["location_id"])
         words = sum(len(line["text"].split()) for line in scene["dialogue"])
-        limit = max(6, int(clip_seconds * 2.4))
+        limit = max(6, int(clip_seconds * words_per_second))
         if words > limit:
             diagnostics.append(dict(code="dialogue_density", level="warning", scene_index=index,
                 message=f"Scène {index + 1} : {words} mots de dialogue pour {clip_seconds:g} s ; les gestes risquent de manquer d’espace."))
@@ -825,6 +837,10 @@ def visual_transition_instruction(scene, *, silent=False):
     transition = scene.get("visual_transition")
     if not transition:
         return None
+    if transition.get("timing") == "between_scenes":
+        return ("RACCORD AVANT CE CLIP : " + transition["trigger"] + ". "
+                "Dès l'ouverture, état déjà acquis : " + transition["after"]
+                + ". Ne montre pas sa transformation dans ce clip.")
     lines = [
         "TRANSITION VISUELLE À MONTRER DANS CE CLIP :",
         f"Avant visible : {transition['before']}",

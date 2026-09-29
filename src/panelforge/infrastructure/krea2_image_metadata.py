@@ -140,10 +140,13 @@ def _from_sidecar(value: object) -> Krea2EditMetadata:
 
 def _from_comfy_graph(value: object) -> Krea2EditMetadata:
     graph = _mapping(value, "ComfyUI prompt")
+    caption = _scene_caption(graph)
     fire = _firered_metadata(graph)
     if fire is not None:
         return fire
-    prompts: list[str] = []
+    # Assisted workflows link CLIP encoders to string primitives; their saved
+    # caption already contains the executed prompt. Keep other graph settings.
+    prompts: list[str] = [caption["prompt"].strip()] if caption else []
     model: str | None = None
     ratio: Krea2AspectRatio | None = None
     megapixels: float | None = None
@@ -343,3 +346,56 @@ def _mapping(value: object, label: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{label} must be an object")
     return value
+
+
+def _scene_caption(graph):
+    """Read known JSON captions as data; ignore conflicting outputs and arbitrary code."""
+    candidates = {}
+    for node in graph.values():
+        if not isinstance(node, Mapping) or node.get("class_type") != "SaveImageKJ":
+            continue
+        inputs = node.get("inputs")
+        raw = inputs.get("caption") if isinstance(inputs, Mapping) else None
+        if not isinstance(raw, str):
+            continue
+        try:
+            value = json.loads(raw)
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(value, dict) or value.get("schema_version") != 1:
+            continue
+        if not isinstance(value.get("prompt"), str) or not value["prompt"].strip():
+            continue
+        signature = json.dumps({key: value.get(key) for key in
+                               ("prompt", "canonical_prompt", "assisted_creation", "art_direction")},
+                              sort_keys=True, ensure_ascii=False)
+        candidates.setdefault(signature, value)
+    return next(iter(candidates.values())) if len(candidates) == 1 else None
+
+
+def recover_krea2_scene_context(image: bytes) -> dict:
+    """Small source snapshot for scene understanding, with no graph execution or paths."""
+    try:
+        graph = json.loads(png_text_chunks(image).get("prompt", "{}"))
+        if not isinstance(graph, dict):
+            return {}
+    except (ValueError, TypeError, RecursionError):
+        return {}
+    payload = _scene_caption(graph)
+    if payload is None:
+        try:
+            prompt = _from_comfy_graph(graph).prompt
+        except (ValueError, TypeError):
+            return {}
+        return {"prompt": prompt[:12000]} if prompt else {}
+    def text(value, limit):
+        return value.strip()[:limit] if isinstance(value, str) else ""
+    creation = payload.get("assisted_creation")
+    creation = creation if isinstance(creation, dict) else {}
+    art = payload.get("art_direction")
+    art = art if isinstance(art, dict) else {}
+    return dict(prompt=text(payload.get("canonical_prompt") or payload.get("prompt"), 12000),
+                intention=text(creation.get("intention"), 4000),
+                style=text(art.get("prompt") or art.get("name"), 3000),
+                project_id=text(creation.get("project_id"), 128),
+                attempt_id=text(creation.get("attempt_id"), 128))

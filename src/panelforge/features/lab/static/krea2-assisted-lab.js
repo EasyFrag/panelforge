@@ -24,17 +24,37 @@
     refreshAll: $("krea2-assisted-refresh-all"),
     assistanceRecipe: $("krea2-assisted-assistance-recipe"),
     libraryRow: $("krea2-assisted-library-row"),
+    useLibraryControl: $("krea2-assisted-use-library-control"),
+    useLibrary: $("krea2-assisted-use-library"),
     libraryStatus: $("krea2-assisted-library-status"),
     libraryIndex: $("krea2-assisted-library-index"),
     activeRecipe: $("krea2-assisted-active-recipe"),
     newPreset: $("krea2-assisted-new-preset"),
     newPresetNote: $("krea2-assisted-new-preset-note"),
+    newArtDirection: $("krea2-assisted-new-art-direction"),
+    newArtImage: $("krea2-assisted-new-art-image"),
+    newArtName: $("krea2-assisted-new-art-name"),
+    newArtChoose: $("krea2-assisted-new-art-choose"),
+    newArtClear: $("krea2-assisted-new-art-clear"),
     newPromptLanguage: $("krea2-assisted-new-prompt-language"),
     preset: $("krea2-assisted-preset"),
     presetNote: $("krea2-assisted-preset-note"),
     presetImage: $("krea2-assisted-preset-image"),
     presetReapply: $("krea2-assisted-reapply-preset"),
     presetRemove: $("krea2-assisted-remove-preset"),
+    artDirection: $("krea2-assisted-art-direction"),
+    artImage: $("krea2-assisted-art-image"),
+    artName: $("krea2-assisted-art-name"),
+    artCategory: $("krea2-assisted-art-category"),
+    artChoose: $("krea2-assisted-art-choose"),
+    artClear: $("krea2-assisted-art-clear"),
+    artDialog: $("krea2-assisted-art-dialog"),
+    artDialogClose: $("krea2-assisted-art-dialog-close"),
+    artStatus: $("krea2-assisted-art-status"),
+    artInstall: $("krea2-assisted-art-install"),
+    artSearch: $("krea2-assisted-art-search"),
+    artCategoryFilter: $("krea2-assisted-art-category-filter"),
+    artGrid: $("krea2-assisted-art-grid"),
     presetDialog: $("krea2-assisted-preset-dialog"),
     presetForm: $("krea2-assisted-preset-form"),
     presetName: $("krea2-assisted-preset-name"),
@@ -49,6 +69,7 @@
     presetManagerClose: $("krea2-assisted-preset-manager-close"),
     revisionLlm: $("krea2-assisted-revision-llm"),
     create: $("krea2-assisted-create"),
+    createNewTab: $("krea2-assisted-create-new-tab"),
     newMessage: $("krea2-assisted-new-message"),
     history: $("krea2-assisted-history"),
     historyEmpty: $("krea2-assisted-history-empty"),
@@ -56,6 +77,9 @@
     title: $("krea2-assisted-title"),
     status: $("krea2-assisted-status"),
     warnings: $("krea2-assisted-warnings"),
+    projectLibraryControl: $("krea2-assisted-project-library-control"),
+    projectUseLibrary: $("krea2-assisted-project-use-library"),
+    projectLibraryNote: $("krea2-assisted-project-library-note"),
     examplePanel: $("krea2-assisted-example-panel"),
     exampleSummary: $("krea2-assisted-example-summary"),
     exampleAssessment: $("krea2-assisted-example-assessment"),
@@ -127,6 +151,7 @@
   let samplingVersion = "1.0.0";
   let samplingCatalogSignature = null;
   const defaultAssistedWorkflowId = "krea2-flux-klein@1.0.0";
+  const localInspirationRecipes = new Set(["4.0.0", "5.0.0", "6.0.0"]);
   let activeWorkflowId = defaultAssistedWorkflowId;
   const workflowSamplingDrafts = new Map();
 
@@ -312,6 +337,11 @@
   ]);
   const presetCategoryLabels = Object.fromEntries(presetCategories);
   const presetManageButtons = [...document.querySelectorAll("[data-krea2-preset-manage]")];
+  const crossTabLaunchParam = "krea2_assisted_launch";
+  const crossTabReadyMessage = "panelforge:krea2-assisted-launch-ready";
+  const crossTabStartMessage = "panelforge:krea2-assisted-launch-start";
+  const pendingCrossTabLaunches = new Map();
+  let consumedCrossTabLaunch = false;
   const state = {
     initialized: false,
     initializing: null,
@@ -334,6 +364,9 @@
     newProjectLlmTouched: false,
     refreshingAll: false,
     libraryPollTimer: null,
+    artStyles: [],
+    newArtStyle: null,
+    artTarget: "new",
   };
   const reasoningTrace = core && typeof core.createReasoningTrace === "function"
     ? core.createReasoningTrace({
@@ -376,19 +409,26 @@
     const llmReady = Boolean(state.spec?.llm_models?.length && elements.llm.value);
     const modelsReady = Boolean(state.spec?.render_models?.some(m => m.comfy_name === elements.model.value));
     const lorasReady = state.loraSlots.every(slot => !slot.name || state.spec?.loras?.some(lora => lora.comfy_name === slot.name));
-    const localRecipe = ["4.0.0", "5.0.0"].includes(elements.assistanceRecipe.value);
-    const v5Selected = elements.assistanceRecipe.value === "5.0.0";
+    const localRecipe = localInspirationRecipes.has(elements.assistanceRecipe.value);
+    const localInspirationRequired = localRecipe && elements.useLibrary.checked;
+    const v5Selected = ["5.0.0", "6.0.0"].includes(elements.assistanceRecipe.value);
     const libraryReady = state.spec?.prompt_library?.state === "ready";
     const wildcardsReady = state.spec?.wildcard_library?.state === "ready";
-    elements.create.disabled = value || !llmReady
-      || (localRecipe && !libraryReady) || (v5Selected && !wildcardsReady);
+    const createDisabled = value || !llmReady
+      || (localInspirationRequired && !libraryReady)
+      || (localInspirationRequired && v5Selected && !wildcardsReady);
+    elements.create.disabled = createDisabled;
+    elements.createNewTab.disabled = createDisabled;
     elements.assistanceRecipe.disabled = value;
+    elements.useLibraryControl.hidden = !localRecipe;
+    elements.useLibrary.disabled = value || !localRecipe;
     elements.libraryIndex.disabled = value || ["queued", "indexing"].includes(state.spec?.prompt_library?.state);
     elements.llm.disabled = value;
     elements.refreshAll.disabled = value || state.refreshingAll;
     window.PanelForgeModelPicker.setDisabled(elements.llm, value);
     elements.chat.disabled = value || !state.project || !llmReady;
     elements.chatWithoutRefresh.disabled = value || !state.project || !llmReady;
+    elements.projectUseLibrary.disabled = value || !state.project;
     elements.recipeChat.disabled = value || !state.project || !llmReady;
     elements.revisionLlm.disabled = value || !state.project;
     window.PanelForgeModelPicker.setDisabled(elements.revisionLlm, value || !state.project);
@@ -406,12 +446,18 @@
     elements.presetReapply.disabled = value || !state.project?.style_preset
       || !state.presets.some((preset) => preset.preset_id === state.project?.style_preset?.preset_id);
     elements.presetRemove.disabled = value || !state.project?.style_preset;
+    elements.newArtChoose.disabled = value;
+    elements.newArtClear.disabled = value;
+    elements.artChoose.disabled = value || !state.project;
+    elements.artClear.disabled = value || !state.project?.art_direction;
+    elements.artInstall.disabled = value;
     elements.presetSave.disabled = value;
     presetManageButtons.forEach((button) => { button.disabled = value; });
     elements.presetManager.querySelectorAll("button,select").forEach((control) => { control.disabled = value; });
     elements.gallery.querySelectorAll("button").forEach((button) => { button.disabled = value; });
     elements.exampleCandidates.querySelectorAll("button").forEach((button) => { button.disabled = value; });
     elements.exampleVariant.disabled = value;
+    elements.libraryRow.dataset.enabled = String(!localRecipe || elements.useLibrary.checked);
     updateLanguageControls();
     renderStatus();
     if (!value && state.project && ((state.renderQueue.items || []).length
@@ -454,6 +500,8 @@
       elements.libraryStatus.textContent += ` · templates V5 indisponibles : ${wildcards.error || "source absente"}`;
     }
     elements.libraryRow.dataset.state = library.state || "unavailable";
+    const localRecipe = localInspirationRecipes.has(elements.assistanceRecipe.value);
+    elements.libraryRow.dataset.enabled = String(!localRecipe || elements.useLibrary.checked);
     elements.libraryIndex.textContent = library.state === "ready" ? "Reconstruire" : "Indexer";
     elements.libraryIndex.hidden = ["queued", "indexing"].includes(library.state);
     scheduleLibraryPoll();
@@ -501,14 +549,56 @@
     finally { setBusy(false); }
   }
 
+  function renderProjectLocalInspiration() {
+    const project = state.project;
+    const supported = project && localInspirationRecipes.has(project.assistance_recipe_version);
+    elements.projectLibraryControl.hidden = !supported;
+    if (!supported) return;
+    const enabled = project.local_inspiration_enabled !== false;
+    const count = (project.prompt_examples || []).length;
+    const plural = count > 1 ? "s" : "";
+    elements.projectUseLibrary.checked = enabled;
+    elements.projectLibraryNote.textContent = enabled
+      ? count + " inspiration" + plural + " disponible" + plural
+      : (count
+        ? count + " inspiration" + plural + " conservée" + plural + " · prochains échanges sans bibliothèque"
+        : "Prochains échanges sans recherche locale");
+  }
+
+  async function setProjectLocalInspiration() {
+    if (!state.project || state.busy) return;
+    const enabled = elements.projectUseLibrary.checked;
+    setBusy(true);
+    try {
+      const path = "/api/image-lab/krea2-assisted/projects/"
+        + encodeURIComponent(state.project.project_id) + "/local-inspiration";
+      const payload = await request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled,
+          expected_branch_id: state.project.active_branch_id,
+        }),
+      });
+      renderProject(payload.project, { preservePrompt: true });
+      setMessage(enabled
+        ? "Inspirations locales réactivées pour les prochains échanges."
+        : "Inspirations locales désactivées. Le prompt courant reste inchangé.");
+    } catch (error) {
+      renderProject(state.project, { preservePrompt: true });
+      setMessage(error.message, true);
+    } finally { setBusy(false); }
+  }
+
   function renderPromptExamples() {
     const examples = state.project?.prompt_examples || [];
+    const enabled = state.project?.local_inspiration_enabled !== false;
     const relevanceLabels = {
       strong: "Pertinence forte",
       medium: "Pertinence moyenne",
       weak: "Pertinence faible",
     };
-    elements.examplePanel.hidden = !examples.length;
+    elements.examplePanel.hidden = !enabled || !examples.length;
     elements.exampleCandidates.replaceChildren();
     if (!examples.length) {
       elements.examplePrompt.textContent = "";
@@ -532,7 +622,7 @@
       ? `${selected.template_id.split("/").pop()} · variante ${selected.variant_seed}${selected.recommended_aspect_ratio ? ` · ${selected.recommended_aspect_ratio}` : ""}`
       : `${selected.source_file} · ligne ${selected.source_line}`;
     elements.examplePrompt.textContent = selected.prompt;
-    elements.exampleVariant.hidden = selected.source_kind !== "wildcard"
+    elements.exampleVariant.hidden = !enabled || selected.source_kind !== "wildcard"
       || state.project?.assistance_recipe_version !== "5.0.0";
     examples.forEach((example, index) => {
       const button = document.createElement("button");
@@ -703,6 +793,19 @@
       .map((slot) => ({ name: slot.name, strength: Number(slot.strength) || 0 }));
   }
 
+  function currentRenderDraft() {
+    return {
+      prompt: elements.prompt.value,
+      model_id: elements.model.value,
+      aspect_ratio: elements.ratio.value,
+      megapixels: Number(elements.megapixels.value),
+      seed: elements.seed.value.trim() || null,
+      loras: selectedLoras(),
+      sampling: readSampling(),
+      workflow: elements.workflow.value,
+    };
+  }
+
   function resourceFilename(value) {
     const normalized = String(value || "").replaceAll("\\", "/");
     return (normalized.split("/").at(-1) || normalized).replace(/\.(safetensors|ckpt|pt)$/i, "");
@@ -724,7 +827,7 @@
     if (!attempt) return;
     loadWorkflow(attempt.settings.workflow);
     loadSampling(attempt.settings.sampling);
-    elements.prompt.value = attempt.prompt;
+    elements.prompt.value = attempt.canonical_prompt || attempt.prompt;
     elements.model.value = attempt.settings.model_id;
     ensureMissingOption(elements.model, attempt.settings.model_id);
     elements.model.value = attempt.settings.model_id;
@@ -918,6 +1021,11 @@
         const presetNote = document.createElement("small");
         presetNote.textContent = `Exemple de style transmis : ${turn.style_preset.name}`;
         article.append(presetNote);
+      }
+      if (turn.art_direction) {
+        const artNote = document.createElement("small");
+        artNote.textContent = `Direction artistique active : ${turn.art_direction.display_name || turn.art_direction.name}`;
+        article.append(artNote);
       }
       if (turn.guidance_url) {
         const guidance = document.createElement("div");
@@ -1184,11 +1292,13 @@
     const recipe = (state.spec?.assistance_recipes || []).find((item) => item.version === recipeVersion);
     elements.activeRecipe.textContent = `Assistance : ${recipe?.label || recipeVersion} · liée au projet`;
     elements.activeRecipe.title = `Recette d’assistance ${recipeVersion}`;
-    const usesLocalExamples = ["4.0.0", "5.0.0"].includes(recipeVersion);
+    const usesLocalExamples = localInspirationRecipes.has(recipeVersion)
+      && project.local_inspiration_enabled !== false;
     elements.chat.textContent = usesLocalExamples
       ? "Affiner + actualiser l’inspiration"
       : "Affiner le prompt";
     elements.chatWithoutRefresh.hidden = !usesLocalExamples || !(project.prompt_examples || []).length;
+    renderProjectLocalInspiration();
     elements.promptLanguage.value = project.prompt_language || "en";
     if (changed) {
       workflowSamplingDrafts.clear();
@@ -1212,7 +1322,9 @@
     if (changed || JSON.stringify(previous?.branches) !== JSON.stringify(project.branches)) renderBranches();
     if (changed || previous?.preset_pending !== project.preset_pending
       || JSON.stringify(previous?.style_preset) !== JSON.stringify(project.style_preset)) renderPresetSelection();
-    if (changed || previous?.selected_prompt_example_id !== project.selected_prompt_example_id
+    if (changed || JSON.stringify(previous?.art_direction) !== JSON.stringify(project.art_direction)) renderActiveArtDirection();
+    if (changed || previous?.local_inspiration_enabled !== project.local_inspiration_enabled
+      || previous?.selected_prompt_example_id !== project.selected_prompt_example_id
       || JSON.stringify(previous?.prompt_examples) !== JSON.stringify(project.prompt_examples)) renderPromptExamples();
     const serialized = draftText(project.recipe_draft);
     if (changed || !elements.recipeDraft.value.trim() || elements.recipeDraft.value === state.draftSnapshot || serialized !== state.draftSnapshot) {
@@ -1385,7 +1497,7 @@
     configureSampling(next.sampling);
     configureWorkflows(next.workflows);
     const signature = JSON.stringify([next.render_models, next.loras, next.llm_models,
-      next.prompt_library, next.wildcard_library, next.assistance_recipes]);
+      next.prompt_library, next.wildcard_library, next.art_style_catalog, next.assistance_recipes]);
     if (state.catalogSignature === signature && !force) {
       renderLibraryStatus();
       catalogStatus.observe(next);
@@ -1417,6 +1529,8 @@
     }
     setBusy(state.busy);
     renderLibraryStatus();
+    renderNewArtDirection();
+    if (elements.artDialog.open) renderArtCatalog();
     // A failed repaint must be retried even if the next HTTP payload is identical.
     state.catalogSignature = signature;
     catalogStatus.observe(next);
@@ -1442,6 +1556,22 @@
     }
   }
 
+  function scrollToGallery() {
+    const projectId = state.project?.project_id;
+    const navigationSerial = state.navigationSerial;
+    requestAnimationFrame(() => {
+      // A background tab may paint later: discard navigation that is no longer current.
+      if (!projectId || state.project?.project_id !== projectId
+        || state.navigationSerial !== navigationSerial
+        || elements.workspace.hidden || elements.editor.hidden) return;
+      // Latest attempts come first; the bottom of a long gallery contains older images.
+      elements.gallery.closest(".krea2-assisted-gallery-section").scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+        block: "start",
+      });
+    });
+  }
+
   async function openProject(projectId) {
     if ((state.busy && !state.projectRequest) || restagingEditor.saving) return;
     state.projectRequest?.abort();
@@ -1460,6 +1590,7 @@
       loadRenderQueue().catch(error => setMessage(error.message, true));
       renderProject(payload.project);
       restoreRenderState(payload.project);
+      scrollToGallery();
       setHistoryMessage();
       if ((state.renderQueue.items || []).length) schedulePoll();
     } catch (error) {
@@ -1476,34 +1607,132 @@
     }
   }
 
-  async function createProject(event) {
-    event.preventDefault();
-    if (state.busy || restagingEditor.saving) return;
-    if (!elements.intention.value.trim() && !elements.reference.files[0]) {
-      setNewMessage("Ajoute une image de référence ou décris ton intention.");
-      return;
+  function captureNewProjectDraft() {
+    return {
+      name: elements.name.value.trim(),
+      intention: elements.intention.value.trim(),
+      model_id: elements.llm.value,
+      assistance_recipe_version: elements.assistanceRecipe.value,
+      prompt_language: elements.newPromptLanguage.value,
+      style_preset_id: elements.newPreset.value || null,
+      art_style_id: elements.assistanceRecipe.value === "6.0.0"
+        ? state.newArtStyle?.style_id || null : null,
+      art_style: state.newArtStyle ? { ...state.newArtStyle } : null,
+      local_inspiration_enabled: elements.useLibrary.checked,
+      reference: elements.reference.files[0] || null,
+    };
+  }
+
+  function validateNewProjectDraft(draft) {
+    if (!draft.name) {
+      elements.name.reportValidity();
+      return false;
     }
+    if (!draft.intention && !draft.reference) {
+      setNewMessage("Ajoute une image de référence ou décris ton intention.");
+      return false;
+    }
+    return true;
+  }
+
+  function projectFormData(draft) {
+    const data = new FormData();
+    data.set("name", draft.name);
+    data.set("intention", draft.intention);
+    data.set("model_id", draft.model_id);
+    data.set("assistance_recipe_version", draft.assistance_recipe_version);
+    data.set("prompt_language", draft.prompt_language);
+    data.set("local_inspiration_enabled", String(draft.local_inspiration_enabled !== false));
+    if (draft.style_preset_id) data.set("style_preset_id", draft.style_preset_id);
+    if (draft.assistance_recipe_version === "6.0.0" && draft.art_style_id) {
+      data.set("art_style_id", draft.art_style_id);
+    }
+    if (draft.reference) data.set("reference", draft.reference);
+    return data;
+  }
+
+  function applyNewProjectDraft(draft) {
+    elements.name.value = draft.name;
+    elements.intention.value = draft.intention;
+    elements.assistanceRecipe.value = draft.assistance_recipe_version;
+    elements.newPromptLanguage.value = draft.prompt_language;
+    elements.useLibrary.checked = draft.local_inspiration_enabled !== false;
+    elements.newPreset.value = draft.style_preset_id || "";
+    window.PanelForgeModelPicker.select(elements.llm, draft.model_id);
+    state.newArtStyle = draft.art_style;
+    renderNewArtDirection();
+  }
+
+  async function createAndRenderProject(draft) {
+    if (state.busy || restagingEditor.saving || !validateNewProjectDraft(draft)) return false;
     setBusy(true);
     setNewMessage();
     try {
-      const data = new FormData();
-      data.set("name", elements.name.value.trim());
-      data.set("intention", elements.intention.value.trim());
-      data.set("model_id", elements.llm.value);
-      data.set("assistance_recipe_version", elements.assistanceRecipe.value);
-      data.set("prompt_language", elements.newPromptLanguage.value);
-      if (elements.newPreset.value) data.set("style_preset_id", elements.newPreset.value);
-      if (elements.reference.files[0]) data.set("reference", elements.reference.files[0]);
-      const payload = await request("/api/image-lab/krea2-assisted/projects", { method: "POST", body: data });
+      const payload = await request("/api/image-lab/krea2-assisted/projects", {
+        method: "POST", body: projectFormData(draft),
+      });
       state.newProjectLlmTouched = false;
       const defaultLlm = preferredNewProjectLlm(state.spec?.llm_models || []);
       if (defaultLlm) window.PanelForgeModelPicker.select(elements.llm, defaultLlm.id);
       clearGuidance();
       renderProject(payload.project);
       await loadHistory();
-      await sendChat("creation", payload.project.intention);
-    } catch (error) { setNewMessage(error.message); }
+      const promptReady = await sendChat("creation", payload.project.intention);
+      if (!promptReady) {
+        setMessage(`${elements.messageState.textContent || "Prompt en échec."} · rendu non lancé.`, true);
+        return false;
+      }
+      return renderAttempt();
+    } catch (error) { setNewMessage(error.message); return false; }
     finally { setBusy(false); }
+  }
+
+  async function createProject(event) {
+    event.preventDefault();
+    return createAndRenderProject(captureNewProjectDraft());
+  }
+
+  function createProjectInNewTab() {
+    if (state.busy || restagingEditor.saving || !elements.newForm.reportValidity()) return;
+    const draft = captureNewProjectDraft();
+    if (!validateNewProjectDraft(draft)) return;
+    const token = window.crypto?.randomUUID?.()
+      || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const url = new URL(window.location.href);
+    url.searchParams.set(crossTabLaunchParam, token);
+    const tab = window.open(url.toString(), "_blank");
+    if (!tab) {
+      setNewMessage("Le navigateur a bloqué le nouvel onglet. Autorisez les fenêtres pour PanelForge puis réessayez.");
+      return;
+    }
+    setNewMessage();
+    pendingCrossTabLaunches.set(token, { tab, draft });
+    // Request focus during the click only; browsers may choose to keep the new tab active.
+    // Do not retry after loading, when the user may already have switched tabs deliberately.
+    try { window.focus(); } catch (_) { /* Focus restrictions must not cancel creation. */ }
+    scrollToGallery();
+  }
+
+  async function handleCrossTabLaunch(event) {
+    if (event.origin !== window.location.origin || !event.data) return;
+    const { type, token } = event.data;
+    if (type === crossTabReadyMessage) {
+      const pending = pendingCrossTabLaunches.get(token);
+      if (!pending || event.source !== pending.tab) return;
+      event.source.postMessage({ type: crossTabStartMessage, token, draft: pending.draft }, event.origin);
+      pendingCrossTabLaunches.delete(token);
+      return;
+    }
+    if (type !== crossTabStartMessage || consumedCrossTabLaunch || event.source !== window.opener) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get(crossTabLaunchParam) !== token) return;
+    consumedCrossTabLaunch = true;
+    url.searchParams.delete(crossTabLaunchParam);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    window.PanelForgeLabNavigation?.switchView("krea2-assisted-lab");
+    await initialize();
+    applyNewProjectDraft(event.data.draft);
+    if (await createAndRenderProject(event.data.draft)) scrollToGallery();
   }
 
   async function sendChat(mode, explicitMessage = null, refreshPromptExamples = true) {
@@ -1533,7 +1762,8 @@
             prompt_language: elements.promptLanguage.value,
             guidance_asset_id: guidance?.asset_id || null,
             guidance_filename: guidance?.filename || null,
-            refresh_prompt_examples: refreshPromptExamples,
+            refresh_prompt_examples: refreshPromptExamples
+              && state.project.local_inspiration_enabled !== false,
           }),
         },
         (event) => {
@@ -1549,8 +1779,9 @@
       outcomeTone.success();
       elements.message.value = "";
       setMessage(mode === "recipe" ? "Échange recette enregistré." : "Prompt mis à jour.");
-      await loadHistory();
-    } catch (error) { outcomeTone.failure(); setMessage(error.message, true); }
+      await loadHistory().catch(error => setHistoryMessage(`Actualisation des projets impossible : ${error.message}`, true));
+      return true;
+    } catch (error) { outcomeTone.failure(); setMessage(error.message, true); return false; }
     finally { reasoningTrace.finish(); setBusy(false); }
   }
 
@@ -1564,10 +1795,10 @@
   }
 
   async function renderAttempt() {
-    if (!state.project || state.busy) return;
-    if (!validateSamplingInputs()) return;
+    if (!state.project || state.busy) return false;
+    if (!validateSamplingInputs()) return false;
     const prompt = elements.prompt.value.trim();
-    if (!prompt) { setMessage("Préparez ou écrivez d’abord un prompt.", true); return; }
+    if (!prompt) { setMessage("Préparez ou écrivez d’abord un prompt.", true); return false; }
     stopPolling();
     state.navigationSerial += 1; // Discard an in-flight poll predating this new attempt.
     setBusy(true);
@@ -1594,7 +1825,8 @@
       if (attempt.status === "created") throw new Error("L’essai est préparé. Redémarrez le serveur pour activer la file de rendus.");
       setMessage(`Essai ${attempt.index} ajouté à la file. Vous pouvez préparer le suivant.`);
       schedulePoll();
-    } catch (error) { setMessage(error.message, true); }
+      return true;
+    } catch (error) { setMessage(error.message, true); return false; }
     finally { setBusy(false); }
   }
 
@@ -1771,11 +2003,180 @@
     const current = state.presets.find((p) => p.preset_id === preset?.preset_id);
     const update = current && current.revision !== preset.revision ? " Une mise à jour est disponible via Réappliquer."
       : preset && !current ? " Retiré du catalogue ; la copie de ce projet reste utilisable." : "";
+    const defaultArt = preset?.art_direction
+      ? ` · style par défaut ${preset.art_direction.display_name || preset.art_direction.name}` : "";
     elements.presetNote.textContent = preset
-      ? `${preset.name} · ${project.preset_pending ? "inspiration au prochain échange" : "exemple déjà transmis"}.${update}`
+      ? `${preset.name}${defaultArt} · ${project.preset_pending ? "inspiration au prochain échange" : "exemple déjà transmis"}.${update}`
       : "La sélection applique le modèle et les LoRA ; le prompt reste inchangé jusqu’au prochain échange.";
     elements.presetReapply.disabled = state.busy || !preset || !current;
     elements.presetRemove.disabled = state.busy || !preset;
+  }
+
+  function renderNewArtDirection() {
+    const enabled = elements.assistanceRecipe.value === "6.0.0";
+    const style = state.newArtStyle;
+    elements.newArtDirection.hidden = !enabled;
+    elements.newArtName.textContent = style?.display_name || style?.name || "Sans direction artistique";
+    elements.newArtImage.hidden = !style;
+    elements.newArtClear.hidden = !style;
+    if (style) {
+      elements.newArtImage.src = style.thumbnail_url;
+      elements.newArtImage.title = style.prompt;
+    } else {
+      elements.newArtImage.removeAttribute("src");
+      elements.newArtImage.removeAttribute("title");
+    }
+  }
+
+  function renderActiveArtDirection() {
+    const project = state.project;
+    const enabled = project?.assistance_recipe_version === "6.0.0";
+    const style = project?.art_direction;
+    elements.artDirection.hidden = !enabled;
+    elements.artName.textContent = style?.display_name || style?.name || "Sans direction artistique";
+    elements.artCategory.textContent = style ? `${style.category} · ${style.provider_id}` : "Style facultatif · pose conservée par le template";
+    elements.artImage.hidden = !style;
+    elements.artClear.hidden = !style;
+    if (style) {
+      elements.artImage.src = style.thumbnail_url;
+      elements.artImage.title = style.prompt;
+    } else {
+      elements.artImage.removeAttribute("src");
+      elements.artImage.removeAttribute("title");
+    }
+  }
+
+  function renderArtCatalog() {
+    const catalog = state.spec?.art_style_catalog || { state: "unavailable", style_count: 0, categories: [] };
+    const labels = {
+      ready: `${catalog.style_count || 0} directions disponibles localement.`,
+      failed: `Catalogue en erreur : ${catalog.error || "erreur inconnue"}`,
+      unavailable: "Catalogue non installé.",
+    };
+    elements.artStatus.textContent = labels[catalog.state] || labels.unavailable;
+    elements.artInstall.textContent = catalog.state === "ready" ? "Réinstaller" : "Installer le catalogue";
+    elements.artInstall.hidden = false;
+    const selectedCategory = elements.artCategoryFilter.value;
+    elements.artCategoryFilter.replaceChildren(new Option("Toutes", ""));
+    (catalog.categories || []).forEach((category) => elements.artCategoryFilter.append(new Option(category, category)));
+    if ([...elements.artCategoryFilter.options].some((option) => option.value === selectedCategory)) {
+      elements.artCategoryFilter.value = selectedCategory;
+    }
+    const query = elements.artSearch.value.trim().toLocaleLowerCase();
+    const category = elements.artCategoryFilter.value;
+    const styles = state.artStyles.filter((style) => {
+      const text = `${style.name} ${style.category} ${style.prompt}`.toLocaleLowerCase();
+      return (!query || query.split(/\s+/).every((term) => text.includes(term)))
+        && (!category || style.category === category);
+    });
+    elements.artGrid.replaceChildren();
+    if (catalog.state !== "ready") {
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = "Installez le catalogue épinglé pour parcourir ses miniatures.";
+      elements.artGrid.append(note);
+      return;
+    }
+    if (!styles.length) {
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = state.artStyles.length ? "Aucune direction ne correspond à ces filtres." : "Chargement des directions…";
+      elements.artGrid.append(note);
+      return;
+    }
+    styles.forEach((style) => {
+      const card = document.createElement("article");
+      card.className = "krea2-art-card";
+      const choose = document.createElement("button");
+      choose.type = "button";
+      const image = document.createElement("img");
+      image.src = style.thumbnail_url;
+      image.alt = `Aperçu ${style.display_name || style.name}`;
+      image.loading = "lazy";
+      const name = document.createElement("b");
+      name.textContent = style.display_name || style.name;
+      const categoryLabel = document.createElement("small");
+      categoryLabel.textContent = style.category;
+      choose.append(image, name, categoryLabel);
+      choose.addEventListener("click", () => selectArtStyle(style));
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "Voir la direction";
+      const prompt = document.createElement("p");
+      prompt.textContent = style.prompt;
+      details.append(summary, prompt);
+      card.append(choose, details);
+      elements.artGrid.append(card);
+    });
+  }
+
+  async function loadArtStyles() {
+    if (state.spec?.art_style_catalog?.state !== "ready") {
+      state.artStyles = [];
+      renderArtCatalog();
+      return;
+    }
+    const payload = await request("/api/image-lab/krea2-assisted/art-styles");
+    state.artStyles = payload.styles || [];
+    if (payload.catalog) state.spec.art_style_catalog = payload.catalog;
+    renderArtCatalog();
+  }
+
+  async function openArtDialog(target) {
+    if (state.busy) return;
+    state.artTarget = target;
+    elements.artDialog.showModal();
+    renderArtCatalog();
+    try { await loadArtStyles(); } catch (error) { elements.artStatus.textContent = error.message; }
+  }
+
+  async function installArtCatalog() {
+    if (state.busy) return;
+    setBusy(true);
+    elements.artStatus.textContent = "Téléchargement du catalogue épinglé et des miniatures…";
+    try {
+      const force = state.spec?.art_style_catalog?.state === "ready";
+      const payload = await request(`/api/image-lab/krea2-assisted/art-styles/install?force=${force}`, { method: "POST" });
+      state.spec.art_style_catalog = payload.catalog;
+      await loadArtStyles();
+      setNewMessage("Catalogue de styles installé localement.", false);
+    } catch (error) {
+      elements.artStatus.textContent = error.message;
+    } finally { setBusy(false); }
+  }
+
+  async function selectArtStyle(style) {
+    if (state.artTarget === "new") {
+      state.newArtStyle = style;
+      renderNewArtDirection();
+      elements.artDialog.close();
+      return;
+    }
+    await applyArtDirection(style);
+  }
+
+  async function applyArtDirection(style) {
+    if (!state.project || state.busy) return;
+    if (!validateSamplingInputs()) return;
+    setBusy(true);
+    try {
+      const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/art-direction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          style_id: style?.style_id || null,
+          expected_branch_id: state.project.active_branch_id,
+          draft: currentRenderDraft(),
+        }),
+      });
+      renderProject(payload.project, { preservePrompt: true });
+      restoreRenderState(payload.project);
+      elements.artDialog.close();
+      setMessage(style
+        ? `Direction ${style.display_name || style.name} appliquée. Le prompt de scène reste éditable.`
+        : "Direction artistique retirée. Le prompt de scène reste inchangé.");
+    } catch (error) { setMessage(error.message, true); }
+    finally { setBusy(false); }
   }
 
   async function applyPreset(presetId) {
@@ -1793,7 +2194,8 @@
       });
       renderProject(payload.project, { preservePrompt: true });
       restoreRenderState(payload.project);
-      setMessage(presetId ? "Modèle et LoRA appliqués. Le prompt d’exemple sera transmis au prochain échange."
+      const preset = state.presets.find((item) => item.preset_id === presetId);
+      setMessage(presetId ? `Modèle et LoRA appliqués${preset?.art_direction ? ` avec le style ${preset.art_direction.display_name || preset.art_direction.name}` : ""}. Le prompt d’exemple sera transmis au prochain échange.`
         : "Preset retiré. Les réglages et le prompt courant restent disponibles.");
     } catch (error) {
       renderPresetSelection();
@@ -1804,7 +2206,7 @@
   function openPresetDialog(attempt) {
     if (state.busy || !state.project) return;
     state.presetSource = { project_id: state.project.project_id, attempt_id: attempt.attempt_id };
-    elements.presetSource.textContent = `${attempt.label || `Essai ${attempt.index}`} · ${attempt.settings.model_id} · ${attempt.settings.loras.length} LoRA${attempt.composition ? " · réglages de la génération d’origine" : ""}`;
+    elements.presetSource.textContent = `${attempt.label || `Essai ${attempt.index}`} · ${attempt.settings.model_id} · ${attempt.settings.loras.length} LoRA${attempt.art_direction ? ` · ${attempt.art_direction.display_name || attempt.art_direction.name}` : ""}${attempt.composition ? " · réglages de la génération d’origine" : ""}`;
     elements.presetTarget.replaceChildren(new Option("Nouveau preset", ""), ...state.presets.map((p) => new Option(`Mettre à jour : ${p.name}`, p.preset_id)));
     elements.presetName.value = state.project.name;
     elements.presetCategory.value = "work";
@@ -1853,7 +2255,7 @@
         const identity = document.createElement("div");
         const name = document.createElement("b"); name.textContent = preset.name;
         const meta = document.createElement("small");
-        meta.textContent = `${promptLanguageLabel(preset.prompt_language)} · v${preset.revision} · ${preset.settings.loras.length} LoRA`;
+        meta.textContent = `${promptLanguageLabel(preset.prompt_language)} · v${preset.revision} · ${preset.settings.loras.length} LoRA${preset.art_direction ? ` · ${preset.art_direction.display_name || preset.art_direction.name}` : ""}`;
         identity.append(name, meta); row.append(identity);
         const categorySelect = document.createElement("select"); categorySelect.setAttribute("aria-label", `Catégorie de ${preset.name}`);
         presetCategories.forEach(([value, text]) => categorySelect.append(new Option(text, value)));
@@ -1946,18 +2348,53 @@
   }
 
   elements.newForm.addEventListener("submit", createProject);
-  elements.assistanceRecipe.addEventListener("change", () => setBusy(state.busy));
+  elements.createNewTab.addEventListener("click", createProjectInNewTab);
+  elements.assistanceRecipe.addEventListener("change", () => {
+    const preset = state.presets.find((item) => item.preset_id === elements.newPreset.value);
+    if (elements.assistanceRecipe.value === "6.0.0" && !state.newArtStyle && preset?.art_direction) {
+      state.newArtStyle = preset.art_direction;
+    }
+    renderNewArtDirection();
+    renderLibraryStatus();
+    setBusy(state.busy);
+  });
+  elements.useLibrary.addEventListener("change", () => {
+    renderLibraryStatus();
+    setBusy(state.busy);
+  });
   elements.libraryIndex.addEventListener("click", indexPromptLibrary);
+  elements.projectUseLibrary.addEventListener("change", setProjectLocalInspiration);
   elements.exampleVariant.addEventListener("click", recompilePromptExample);
   elements.llm.addEventListener("change", () => { state.newProjectLlmTouched = true; setBusy(state.busy); });
   elements.refreshAll.addEventListener("click", refreshAllResources);
   elements.model.addEventListener("change", () => setBusy(state.busy));
   elements.newPreset.addEventListener("change", () => {
     const preset = state.presets.find((p) => p.preset_id === elements.newPreset.value);
-    if (preset) elements.newPromptLanguage.value = preset.prompt_language || "en";
+    if (preset) {
+      elements.newPromptLanguage.value = preset.prompt_language || "en";
+      if (preset.art_direction) state.newArtStyle = preset.art_direction;
+      renderNewArtDirection();
+    }
+    const art = preset?.art_direction;
     elements.newPresetNote.textContent = preset
-      ? `${presetCategoryLabels[preset.category || "work"]} · ${promptLanguageLabel(preset.prompt_language)} · ${preset.settings.model_id} · ${preset.settings.loras.length} LoRA · exemple au premier échange.` : "";
+      ? `${presetCategoryLabels[preset.category || "work"]} · ${promptLanguageLabel(preset.prompt_language)} · ${preset.settings.model_id} · ${preset.settings.loras.length} LoRA${art ? ` · style ${art.display_name || art.name}` : ""} · exemple au premier échange.` : "";
   });
+  elements.newArtChoose.addEventListener("click", () => openArtDialog("new"));
+  elements.newArtClear.addEventListener("click", () => { state.newArtStyle = null; renderNewArtDirection(); });
+  elements.artChoose.addEventListener("click", () => openArtDialog("project"));
+  elements.artClear.addEventListener("click", () => applyArtDirection(null));
+  elements.artImage.addEventListener("click", () => {
+    const style = state.project?.art_direction;
+    if (style) openLightbox(style.thumbnail_url, style.display_name || style.name);
+  });
+  elements.newArtImage.addEventListener("click", () => {
+    const style = state.newArtStyle;
+    if (style) openLightbox(style.thumbnail_url, style.display_name || style.name);
+  });
+  elements.artDialogClose.addEventListener("click", () => elements.artDialog.close());
+  elements.artInstall.addEventListener("click", installArtCatalog);
+  elements.artSearch.addEventListener("input", renderArtCatalog);
+  elements.artCategoryFilter.addEventListener("change", renderArtCatalog);
   elements.preset.addEventListener("change", () => applyPreset(elements.preset.value || null));
   elements.presetReapply.addEventListener("click", () => applyPreset(state.project?.style_preset?.preset_id));
   elements.presetRemove.addEventListener("click", () => applyPreset(null));
@@ -2015,6 +2452,7 @@
     stopPolling();
     clearTimeout(state.libraryPollTimer);
   });
+  window.addEventListener("message", handleCrossTabLaunch);
   window.PanelForgeKrea2AssistedLab = Object.freeze({
     open: async (projectId = null) => {
       window.PanelForgeLabNavigation?.switchView("krea2-assisted-lab");
@@ -2022,5 +2460,9 @@
       if (projectId) return openProject(projectId);
     },
   });
+  const incomingCrossTabLaunch = new URL(window.location.href).searchParams.get(crossTabLaunchParam);
+  if (incomingCrossTabLaunch && window.opener) {
+    window.opener.postMessage({ type: crossTabReadyMessage, token: incomingCrossTabLaunch }, window.location.origin);
+  }
   if (!elements.workspace.hidden) initialize();
 })();

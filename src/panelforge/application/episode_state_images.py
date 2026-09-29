@@ -6,7 +6,7 @@ from panelforge.domain import episode_continuity as continuity
 
 class EpisodeStateImages:
     def _is_state_image(self, value, ref):
-        return continuity.required_states(value) and bool(ref.get("continuity_state_id"))
+        return continuity.required_states(value) and bool(ref.get("continuity_state_id") or ref.get("continuity_source_image"))
 
     def _queue_state_image(self, identity, batch_id, ref_id):
         with self._lock:
@@ -17,7 +17,7 @@ class EpisodeStateImages:
             ref = self._item(value, "references", ref_id)
             item = self._batch_item(batch, ref_id)
             base = continuity.variant_base(value, ref)
-            if not base or not base.get("image_asset_id"):
+            if not continuity.variant_source_ready(value, ref):
                 item.update(status="waiting_source", phase="En attente de l’image validée de " + (base["name"] if base else ref["name"]), error=None)
                 self.store.save(value)
                 return
@@ -113,7 +113,7 @@ class EpisodeStateImages:
                 return
             refs = {r["id"]: r for r in value["references"]}
             eligible = [i for i in batch["items"] if i["status"] == "waiting_source"
-                        and (continuity.variant_base(value, refs[i["reference_id"]]) or {}).get("image_asset_id")]
+                        and continuity.variant_source_ready(value, refs[i["reference_id"]])]
             if not eligible:
                 return
             batch.update(status="running", phase="Préparation des variantes Qwen")
@@ -125,6 +125,54 @@ class EpisodeStateImages:
             except BaseException:
                 self._active_batches.discard(identity)
                 raise
+
+    def _inherit_sparse_image(self, episode, target, sources):
+        """Never inherit an old body merely because the character's name matches."""
+        from panelforge.domain.story_reference_plan import inheritance_appearance_key
+        if target.get("image_asset_id"):
+            return 0  # A selected/imported image always belongs to the author.
+        wanted = target["continuity_appearance"]
+        variant_source = None
+        for _, _, _, same_story, source in sources:
+            if same_story or target["kind"] == "object":
+                ids = {target["source_id"]}
+            else:
+                person = next((c for c in episode["scenario"]["characters"] if c["id"] == target["source_id"]), None)
+                if person is None:
+                    continue
+                matches = [c["id"] for c in source["scenario"]["characters"]
+                           if self._identity_key(c["name"]) == self._identity_key(person["name"])]
+                if len(matches) != 1:
+                    continue
+                ids = set(matches)
+            for ref in source["references"]:
+                if (ref["source_id"] not in ids or ref["kind"] != target["kind"] or not ref.get("image_asset_id")
+                        or ref.get("continuity_archived") or continuity.variant_stale(source, ref)):
+                    continue
+                actual = continuity.reference_appearance(source, ref)
+                if actual is None:
+                    continue
+                if inheritance_appearance_key(actual) != inheritance_appearance_key(wanted):
+                    if (variant_source is None and not target.get("continuity_state_id")
+                            and episode["scenario"].get("presence_policy") == 1):
+                        variant_source = dict(episode_id=source["episode_id"], reference_id=ref["id"],
+                            name=ref["name"], image_asset_id=ref["image_asset_id"],
+                            appearance=deepcopy(actual), reason="Apparence différente ; dériver la nouvelle image de cette identité validée.")
+                    continue
+                target.pop("continuity_source_image", None)
+                target.update(image_asset_id=ref["image_asset_id"], image_style=deepcopy(ref.get("image_style")),
+                    images=[dict(asset_id=ref["image_asset_id"], label="Apparence héritée")],
+                    inherited_image=dict(episode_id=source["episode_id"], reference_id=ref["id"], name=ref["name"]))
+                if target.get("continuity_state_id"):
+                    signature = continuity.variant_signature(episode, target)
+                    target["continuity_source_signature"] = signature
+                    target["images"][0]["source_signature"] = signature
+                return 1
+        if variant_source:
+            # This is a source for the existing edit workflow, not an accepted
+            # image for the new state. Generation/selection stays explicit.
+            target["continuity_source_image"] = variant_source
+        return 0
 
     def _inherit_state_image(self, episode, target, sources):
         from panelforge.domain import story_continuity as ledger

@@ -12,7 +12,7 @@ def empty():
     return dict(version=VERSION, dramatic_summary="", elements=[])
 
 
-def schema(scene_count=18):
+def schema(scene_count=18, *, character_ids=None):
     # Optional at the scenario boundary, complete when supplied by a writer.
     def obj(**properties):
         return dict(type="object", properties=properties, required=list(properties), additionalProperties=False)
@@ -29,6 +29,13 @@ def schema(scene_count=18):
                   scene_indices=dict(type="array", items=dict(type="integer", minimum=0, maximum=scene_count - 1), maxItems=18),
                   states=dict(type="array", items=state, minItems=1, maxItems=scene_count * 2))
     element["properties"]["enabled"] = dict(type="boolean")
+    if character_ids is not None:
+        state["properties"]["holder_id"] = nullable(dict(type="string", enum=[*character_ids, "none"]))
+        person, prop = deepcopy(element), deepcopy(element)
+        person["properties"]["kind"] = dict(type="string", enum=["character"])
+        person["properties"]["id"] = dict(type="string", enum=list(character_ids))
+        prop["properties"]["kind"] = dict(type="string", enum=["object"])
+        element = {"anyOf": [person, prop]}
     result = obj(version=dict(type="integer", enum=[VERSION]),
                dramatic_summary=dict(type="string", maxLength=1500),
                elements=dict(type="array", items=element, maxItems=24))
@@ -56,6 +63,11 @@ def isolate_optional_ledger(project, response):
     if not isinstance(scenes, list) or not scenes:
         return None  # The primary structural diagnostics handle malformed scenes.
     source = dict(scenes=scenes, characters=outline["characters"])
+    from .story_editions import refined
+    if refined(project):
+        previous = doc.get("episode_scenarios", {}).get(target, {}).get("visual_continuity") if "scene_edits" in response else None
+        container["visual_continuity"], warning = salvage(container["visual_continuity"], source, previous)
+        return warning
     try:
         container["visual_continuity"] = normalize(container["visual_continuity"], source)
     except ValueError as error:
@@ -63,6 +75,50 @@ def isolate_optional_ledger(project, response):
         return ("Le suivi visuel proposé doit être corrigé dans Continuité : " + str(error)[:2000]
                 + " Le scénario est conservé ; l'annexe originale reste dans le brouillon reçu. Aucun état invalide n'a été appliqué.")
     return None
+
+
+def salvage(value, scenario, previous=None):
+    """Keep independently valid elements; reject ambiguous IDs, never guess holders.
+
+    A local repair merges replacements into the last valid ledger. Invalid
+    replacements leave that existing element untouched. Raw input is kept by
+    the caller in the received draft, including every rejected element.
+    """
+    from collections import Counter
+    from .story_contracts import structural_issues
+    base = deepcopy(previous) if previous else empty()
+    known = {e["id"]: e for e in base["elements"]}
+    rejected = []
+    header = deepcopy(value) if isinstance(value, dict) else {}
+    entries = header.get("elements")
+    header["elements"] = []
+    if not isinstance(entries, list) or structural_issues(header, schema(len(scenario["scenes"]))):
+        rejected.append("annexe mal formée")
+        entries = []
+    else:
+        base["dramatic_summary"] = header["dramatic_summary"]
+    ids = Counter(e.get("id") for e in entries if isinstance(e, dict) and isinstance(e.get("id"), str))
+    for entry in entries:
+        identity = entry.get("id") if isinstance(entry, dict) else None
+        try:
+            if not isinstance(identity, str) or ids[identity] != 1:
+                raise ValueError("identifiant absent ou ambigu")
+            candidate = normalize(dict(version=VERSION, dramatic_summary="", elements=[entry]), scenario)["elements"][0]
+            old = known.get(identity)
+            if old and (old["kind"] != candidate["kind"] or not old.get("enabled", True)):
+                raise ValueError("identité ou désactivation précédente à préserver")
+            if identity not in known and len(known) >= 24:
+                raise ValueError("limite des éléments dépassée")
+            known[identity] = candidate
+        except (ValueError, TypeError, KeyError) as error:
+            rejected.append(f"{identity if isinstance(identity, str) else 'élément'} : {error}")
+    base["elements"] = list(known.values())
+    warning = None
+    if rejected:
+        warning = ("Continuité partiellement conservée : " + "; ".join(rejected))[:2100]
+        warning += ". Éléments indépendants valides conservés ; originaux dans le brouillon reçu. Vérifie Continuité."
+        base["warnings"] = (base.get("warnings", []) + [warning])[-4:]
+    return normalize(base, scenario), warning
 
 
 def normalize(value, scenario):
@@ -206,12 +262,16 @@ def instructions(scenario, index, *, explicit_presence=False):
     return "\n".join(lines)
 
 
-def reader_view(scenario):
+def reader_view(scenario, *, include_transitions=False):
     """Remove privileged knowledge. The reviewer sees only playable material."""
-    return dict(characters=[dict(id=c["id"], name=c["name"]) for c in scenario["characters"]],
+    result = dict(characters=[dict(id=c["id"], name=c["name"]) for c in scenario["characters"]],
         scenes=[dict(scene_index=i, character_ids=s["character_ids"], location_id=s["location_id"],
                      opening_state=s["opening_state"], action=s["action"].split("\nInformation indispensable")[0],
                      dialogue=deepcopy(s["dialogue"])) for i, s in enumerate(scenario["scenes"])])
+    if include_transitions:
+        for row, scene in zip(result["scenes"], scenario["scenes"]):
+            row["visual_transition"] = deepcopy(scene.get("visual_transition"))
+    return result
 
 
 def carry_forward(scenario, *, require_references=False):
@@ -228,6 +288,23 @@ def carry_forward(scenario, *, require_references=False):
             at="start", **{k: state[k] for k in ATTRIBUTES},
             reference=bool(require_references and state["reference_state_id"]))]
         result["elements"].append(e)
+    return result
+
+
+def inherit_independent(scenario, previous):
+    """V3: a conflicting inherited entity cannot discard unrelated valid memory."""
+    result = deepcopy(scenario)
+    if not previous:
+        return result
+    for old in previous["elements"]:
+        try:
+            merged = inherit(result, dict(elements=[old]))
+            merged["visual_continuity"] = normalize(merged["visual_continuity"], merged)
+            result = merged
+        except (ValueError, TypeError, KeyError) as error:
+            visual = result.setdefault("visual_continuity", empty())
+            warning = f"Héritage de {old.get('name', 'cet élément')} à vérifier : {error}. État courant conservé."
+            visual["warnings"] = (visual.get("warnings", []) + [warning[:2500]])[-4:]
     return result
 
 
@@ -251,14 +328,34 @@ def inherit(scenario, previous):
             continue
         if entry["kind"] != old["kind"]:
             raise ValueError("L'identité d'un élément de continuité ne peut pas changer de type.")
-        opening = next((s for s in entry["states"] if s["scene_index"] == 0 and s["at"] == "start"), None)
+        inherited = [s for s in entry["states"] if s["id"] == baseline["id"]]
+        if len(inherited) > 1:
+            raise ValueError("Un état hérité est présent plusieurs fois.")
+        visible = sorted(set(entry["scene_indices"]) | {i for i, scene in enumerate(scenario["scenes"])
+                                                     if entry["id"] in scene["character_ids"]})
+        first = visible[0] if visible else 0
+        opening = inherited[0] if inherited else next((s for s in entry["states"]
+            if s["scene_index"] <= first and s["at"] == "start"), None)
+        if inherited:
+            from .story_reference_plan import inheritance_appearance_key
+            filled = {k: opening.get(k) if opening.get(k) is not None else baseline.get(k) for k in ATTRIBUTES}
+            if (opening["at"] != "start" or inheritance_appearance_key(filled) != inheritance_appearance_key(baseline)
+                    or filled["holder_id"] != baseline.get("holder_id")):
+                raise ValueError("Un ID hérité décrit des états contradictoires ; utilise un nouvel ID pour une transition.")
         if opening:
             for key in ATTRIBUTES:
                 if opening.get(key) is None:
                     opening[key] = baseline.get(key)
-            if baseline.get("reference") and all(opening.get(k) == baseline.get(k) for k in ("appearance", "clothing")):
+            from .story_reference_plan import inheritance_appearance_key
+            same_appearance = inheritance_appearance_key(opening) == inheritance_appearance_key(baseline)
+            if same_appearance:
+                for key in ("appearance", "clothing"):
+                    opening[key] = baseline.get(key)
+            if baseline.get("reference") and same_appearance:
                 opening["reference"] = True
                 entry["tracking"] = "reference"
         else:
+            earliest = min(s["scene_index"] for s in entry["states"])
+            baseline["scene_index"] = min(first, earliest)
             entry["states"].insert(0, baseline)
     return result

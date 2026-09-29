@@ -16,7 +16,7 @@ class NavigationAndResourcePreviewBrowserTest(unittest.TestCase):
         return browsers[-1]
 
     def test_change_view_is_reachable_from_each_image_workshop_without_legacy_gallery(self):
-        modes = ("change-view", "krea2-assisted-lab", "krea2-edit-lab", "qwen-edit-lab")
+        modes = ("change-view", "krea2-assisted-lab", "krea2-edit-lab", "qwen-edit-lab", "minimax-edit-lab", "image-journey")
         buttons = ''.join(f'<button data-image-lab-mode="{mode}">{mode}</button>' for mode in modes)
         markup = '<meta charset="utf-8"><pre id="result">PENDING</pre>'
         markup += '<button data-lab-view="change-view">Image Lab</button><span id="recipe-badge" hidden>Recipe</span>'
@@ -40,7 +40,7 @@ class NavigationAndResourcePreviewBrowserTest(unittest.TestCase):
               assertView('change-view');
               document.querySelector('#result').textContent='PASS';return;
             }
-            for(const mode of ['krea2-assisted-lab','krea2-edit-lab','qwen-edit-lab']) {
+            for(const mode of ['krea2-assisted-lab','krea2-edit-lab','qwen-edit-lab','minimax-edit-lab','image-journey']) {
               visible()[0].querySelector('[data-image-lab-mode="'+mode+'"]').click();assertView(mode);
               visible()[0].querySelector('[data-image-lab-mode="change-view"]').click();assertView('change-view');
             }

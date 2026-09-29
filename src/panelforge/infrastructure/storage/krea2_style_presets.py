@@ -8,6 +8,7 @@ import tempfile
 from threading import RLock
 
 from panelforge.domain.krea2_style_presets import Krea2StylePreset, Krea2StylePresetCategory
+from panelforge.domain.krea2_art_direction import Krea2ArtDirection
 from panelforge.domain.krea2_batch import Krea2BatchSettings, Krea2LoraSelection, Krea2PromptLanguage
 from panelforge.domain.krea2_lab import Krea2AspectRatio
 
@@ -26,12 +27,14 @@ def load_preset(value):
     if value is None:
         return None
     settings = value["settings"]
+    art_direction = value.get("art_direction")
     return Krea2StylePreset(
         preset_id=value["preset_id"], revision=value["revision"], name=value["name"],
         prompt=value["prompt"], image_asset_id=value["image_asset_id"],
         source_project_id=value["source_project_id"], source_attempt_id=value["source_attempt_id"],
         source_seed=int(value["source_seed"]), prompt_language=Krea2PromptLanguage(value["prompt_language"]),
         category=Krea2StylePresetCategory(value.get("category", "work")),
+        art_direction=Krea2ArtDirection(**art_direction) if art_direction else None,
         settings=Krea2BatchSettings(
             model_name=settings["model_name"], aspect_ratio=Krea2AspectRatio(settings["aspect_ratio"]),
             megapixels=settings["megapixels"], loras=tuple(Krea2LoraSelection(**lora) for lora in settings["loras"]),
@@ -48,7 +51,7 @@ class LocalKrea2StylePresetStore:
         if not self.path.exists():
             return [], set()
         value = json.loads(self.path.read_text(encoding="utf-8"))
-        if value.get("schema_version") not in {1, 2}:
+        if value.get("schema_version") not in {1, 2, 3}:
             raise ValueError("unsupported style preset catalogue")
         deleted = value.get("deleted", []) if value.get("schema_version") >= 2 else []
         if not isinstance(deleted, list) or any(not isinstance(item, str) for item in deleted):
@@ -57,7 +60,7 @@ class LocalKrea2StylePresetStore:
 
     def _write(self, revisions, deleted):
         content = json.dumps({
-            "schema_version": 2,
+            "schema_version": 3,
             "revisions": [preset_dict(preset) for preset in revisions],
             "deleted": sorted(deleted),
         }, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")

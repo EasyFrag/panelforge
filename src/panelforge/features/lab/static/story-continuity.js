@@ -100,7 +100,7 @@
     details.open=!!wasOpen; details.append(node("summary",`Continuité · ${count ? `${count} élément${count>1 ? "s" : ""} suivi${count>1 ? "s" : ""}` : "aucun suivi particulier"}`));
     details.append(node("p",options.disabled ? "Les traitements en cours conservent leurs références. Les modifications seront possibles à leur fin."
       : "Les états acquis se conservent d'une scène à l'autre. Ajoute une image seulement si elle aide à reconnaître un élément important.","pf-continuity-help"));
-    if(options.references)details.append(node("p","Les variantes ne sont pas cochées dans le lot initial : choisis d'abord l'image d'identité, puis prépare la transformation avec Qwen ou importe une image. Les ajustements ici concernent cette fabrication.","pf-continuity-help"));
+    if(options.references)details.append(node("p","Choisis d'abord l'image d'identité, puis prépare les variantes avec Qwen ou importe leurs images. Elles servent aux changements d'apparence durables, conservés dans les scènes suivantes. Les ajustements ici concernent cette fabrication.","pf-continuity-help"));
     const message=node("p","","pf-continuity-error"); message.setAttribute("role","alert");
     const invoke=work=>async()=>{message.textContent=""; try {await work();} catch(e) {message.textContent=e.message || String(e);}};
     for(const e of data.elements) {

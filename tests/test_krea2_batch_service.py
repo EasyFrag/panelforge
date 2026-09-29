@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 import tempfile
@@ -178,8 +179,19 @@ class Resources:
         return tuple(SimpleNamespace(comfy_name=value) for value in self.loras)
 
 
+class RecordingWorkCoordinator:
+    def __init__(self):
+        self.calls = []
+
+    @contextmanager
+    def lease(self, owner_id, resource, workload, operation, **options):
+        self.calls.append((owner_id, resource, workload, operation, options))
+        yield
+
+
 class Krea2BatchServiceTest(unittest.TestCase):
-    def make_service(self, temporary, count=3, *, comfy=None, default_seeds=False):
+    def make_service(self, temporary, count=3, *, comfy=None, default_seeds=False,
+                     work_coordinator=None):
         workspace = Path(temporary)
         catalog = LocalKrea2VisualRecipeCatalog(ROOT / "krea2_batch_recipes", workspace_root=workspace)
         recipe = catalog.get("space_megastructure_photoreal_v1", "0.1.0")
@@ -194,6 +206,7 @@ class Krea2BatchServiceTest(unittest.TestCase):
             batches=LocalKrea2BatchStore(workspace),
             resources=Resources(recipe.settings.model_name),
             poll_interval=0.001,
+            work_coordinator=work_coordinator,
         )
         if not default_seeds:
             arguments["seed_factory"] = iter(range(1, 20)).__next__
@@ -249,6 +262,34 @@ class Krea2BatchServiceTest(unittest.TestCase):
             self.assertEqual(comfy.workflows[0]["299"]["class_type"], "SaveImageKJ")
             reviewed = service.review_item(completed.batch_id, "image-01", Krea2ReviewDecision.LIKE, "Belle palette")
             self.assertEqual(reviewed.items[0].comment, "Belle palette")
+
+    def test_each_batch_image_uses_a_distinct_remote_admission(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            coordinator = RecordingWorkCoordinator()
+            service, _, _, recipe = self.make_service(
+                temporary,
+                count=3,
+                work_coordinator=coordinator,
+            )
+            batch = service.prepare(
+                Krea2BatchRequest(recipe.recipe_id, recipe.version, 3, "Qwen3.8-27B")
+            )
+            list(service.stream_generate_prompts(batch.batch_id))
+            service.start_rendering(batch.batch_id)
+
+            completed = service.render(batch.batch_id)
+
+            self.assertEqual(completed.status, Krea2BatchStatus.COMPLETED)
+            self.assertEqual(
+                [call[0] for call in coordinator.calls],
+                [
+                    f"krea2-batch-{batch.batch_id}:image-01",
+                    f"krea2-batch-{batch.batch_id}:image-02",
+                    f"krea2-batch-{batch.batch_id}:image-03",
+                ],
+            )
+            self.assertTrue(all(call[1].value == "remote_gpu" for call in coordinator.calls))
+            self.assertTrue(all(call[2].value == "image_render" for call in coordinator.calls))
 
     def test_recipe_workshop_iterates_tests_and_publishes_only_on_accept(self):
         with tempfile.TemporaryDirectory() as temporary:

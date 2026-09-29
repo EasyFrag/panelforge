@@ -298,8 +298,11 @@ class H3RenderAttempt:
     video_loras: H3VideoLoraStack | None = None
     force_upscale: bool = False
     upscale_bypassed: bool = False
+    batch_mode: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.batch_mode) is not bool:
+            raise TypeError("batch_mode must be a boolean")
         validate_h3_model_selection(self.checkpoint, self.model_loading)
         _text(self.attempt_id, "attempt_id")
         validate_h3_initial_megapixels(self.initial_megapixels)

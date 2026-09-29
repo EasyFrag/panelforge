@@ -49,7 +49,9 @@ def episode_issues(project, scenario, state):
     outline = doc["series_outline"]
     unit = next(u for u in outline["episodes"] if u["id"] == target)
     fmt = doc["episode_formats"][target]
-    scene = scene_schema(project)
+    scene = scene_schema(project, canonical=True)
+    if isinstance(scenario, dict) and scenario.get("presence_policy") == 1:
+        scene["properties"]["character_ids"]["minItems"] = 0
     metadata = scene["properties"].pop("narrative")
     scene["required"].remove("narrative")
     scene["required"].remove("visual_transition")
@@ -61,6 +63,7 @@ def episode_issues(project, scenario, state):
         locations=array(obj(id=string(120), name=string(120), description=string()), 1, 8), scenes=array(scene, 1, fmt["scene_count"]))
     from .story_continuity import schema as continuity_schema
     canonical["properties"]["visual_continuity"] = continuity_schema(fmt["scene_count"])
+    canonical["properties"]["presence_policy"] = dict(type="integer", enum=[1])
     memory = state_schema(project)
     # Historical empty-secret entries are handled by the existing lossless compatibility rule.
     if not outline["secrets"]:
@@ -92,7 +95,10 @@ def episode_issues(project, scenario, state):
         if set(item["character_ids"]) - {c["id"] for c in scenario["characters"]}:
             errors.append(issue("missing_cast_entry", path + ".character_ids", "Personnage absent du casting reçu."))
         for n, line in enumerate(item["dialogue"]):
-            if line["speaker_id"] not in item["character_ids"]:
+            external = scenario.get("presence_policy") == 1 and line.get("delivery") in {"voice_over", "off_screen", "thought", "mediated"}
+            if line["speaker_id"] not in {c["id"] for c in scenario["characters"]}:
+                errors.append(issue("missing_speaker", f"{path}.dialogue[{n}].speaker_id", "Locuteur absent du casting reçu."))
+            if line["speaker_id"] not in item["character_ids"] and not external:
                 errors.append(issue("absent_speaker", f"{path}.dialogue[{n}].speaker_id", "Locuteur absent de la scène."))
     events = {e["id"]: e for e in unit["events"]}
     secrets = {s["id"]: s for s in outline["secrets"]}
@@ -142,7 +148,8 @@ def episode_issues(project, scenario, state):
 
 
 def quality_issues(project, *, scenario=None, state=None, target=None, outline=None):
-    """Heuristics are explicit estimates; only a large timing excess blocks approval."""
+    """Legacy timing gate; versioned speech estimates stay advisory."""
+    from . import story_direction
     issues = []
     if isinstance(scenario, dict):
         visual = scenario.get("visual_continuity")
@@ -178,13 +185,37 @@ def quality_issues(project, *, scenario=None, state=None, target=None, outline=N
             if not isinstance(clip, dict) or not isinstance(clip.get("dialogue"), list):
                 continue
             count = sum(len(line["text"].split()) for line in clip["dialogue"] if isinstance(line, dict) and isinstance(line.get("text"), str))
-            estimate = count / 2.4 + action
+            estimate = count / story_direction.words_per_second(project) + action
             if estimate > seconds:
-                severe = count / 3.5 + action > seconds * 1.3
+                severe = not story_direction.enabled(project) and count / 3.5 + action > seconds * 1.3
                 issues.append(issue("clip_load", f"scenario.scenes[{index}]",
                     f"Clip {index + 1} : {count} mots + {action:g} s d’actions successives, environ {estimate:.1f} s pour {seconds} s disponibles. "
-                    "Raccourcir les répliques ou redistribuer les actions en préservant les réactions.",
+                    + ("Estimation indicative : vérifier le débit et les gestes simultanés, sans supprimer de réplique imposée."
+                       if story_direction.enabled(project) else "Raccourcir les répliques ou redistribuer les actions en préservant les réactions."),
                     "blocking" if severe else "warning", scene_index=index, target_id=f"scene-{index + 1}", estimated_seconds=round(estimate, 1)))
+    if story_direction.enabled(project):
+        protected = story_direction.settings(project)["protected_lines"]
+        if outline is not None:
+            units = outline.get("episodes", [])
+            from .story_editions import refined
+            for line in protected if len(units) > 1 and not refined(project) else []:
+                if not any(line in event["evidence"] for unit in units for event in unit["events"]):
+                    issues.append(issue("unassigned_dialogue", "series_outline.episodes",
+                        "Attribuer cette réplique exacte à la preuve publique d’un événement : " + line,
+                        "blocking", target_id="contract"))
+        elif isinstance(scenario, dict) and target:
+            scenes = scenario.get("scenes")
+            spoken = set()
+            for scene in scenes if isinstance(scenes, list) else []:
+                dialogue = scene.get("dialogue") if isinstance(scene, dict) else None
+                for line in dialogue if isinstance(dialogue, list) else []:
+                    if isinstance(line, dict) and isinstance(line.get("text"), str):
+                        spoken.add(line["text"])
+            for line in story_direction.unit_requirements(project, target)["protected_lines"]:
+                if line not in spoken:
+                    issues.append(issue("required_dialogue_missing", "scenario.scenes",
+                        "Une réplique exacte demandée par l’auteur manque : " + line,
+                        "blocking", target_id=target))
     # Several English function words in a narrative sentence, never IDs or names.
     markers = {"the", "with", "while", "without", "their", "they", "together", "behind", "from", "into", "was", "were", "because", "that", "this", "her", "his", "and", "for", "after", "having", "heard", "leave", "leaves", "discovers"}
     prose = {"title", "premise", "overall_arc", "ending", "description", "promise", "opening_state", "conflict", "local_payoff", "ending_state", "carry_forward", "trigger", "change", "evidence", "protagonist_goal", "stakes", "truth", "rule", "limits", "action", "logline", "must_keep", "freedoms"}
@@ -201,6 +232,19 @@ def quality_issues(project, *, scenario=None, state=None, target=None, outline=N
             if len(tokens) >= 8 and len(found) >= 3 and sum(t in markers for t in tokens) / len(tokens) >= .14:
                 issues.append(issue("language_residue", path, "Passage potentiellement anglais dans un champ français : " + value[:160], "warning"))
     walk(outline if outline is not None else scenario, "series_outline" if outline is not None else "scenario")
+    from .story_editions import refined
+    if refined(project) and (outline is not None or scenario is not None):
+        from .story_exact_lines import validate_assignments
+        assignment_outline = outline if outline is not None else project["document"].get("series_outline")
+        if assignment_outline:
+            try:
+                validate_assignments(project, assignment_outline)
+            except (ValueError, TypeError, KeyError) as error:
+                issues.append(issue("author_line_assignment", "series_outline.author_line_assignments", str(error),
+                                    "blocking", target_id="contract"))
+    if refined(project) and state is not None:
+        prose.update({"text", "open_threads", "resolved_threads"})
+        walk(state, "episode_state")
     return issues
 
 

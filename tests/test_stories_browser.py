@@ -206,6 +206,7 @@ class StoriesBrowserTest(unittest.TestCase):
             check(sessionStorage.getItem('panelforge.lab.last-view.v1')==='stories','refresh remembers Stories');
             check(document.querySelectorAll('.story-concept').length===3,'saved ideas loaded before model discovery finishes');
             check(document.querySelectorAll('#story-concepts img').length===0,'LLM text never becomes HTML');
+            check(!document.getElementById('story-message').classList.contains("error"), 'diagnostics tolerate a story without a writing view');
             finishModels();await settle();
             check(document.getElementById('story-model-message').textContent.includes('indisponible'),'offline model status visible');
             document.querySelector('.story-concept button').click();await settle();

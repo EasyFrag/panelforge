@@ -815,6 +815,7 @@ class H3RenderService:
         prompt: str,
         settings: VideoLabSettings,
         music_enabled: bool = False,
+        batch_mode: bool = False,
         spectrum_enabled: bool = False,
         video_lora: H3VideoLoraSelection | None = None,
         initial_megapixels: float = 0.2,
@@ -825,6 +826,8 @@ class H3RenderService:
         checkpoint: str | None = None,
         video_loras: H3VideoLoraStack | None = None,
     ) -> H3RenderProject:
+        if type(batch_mode) is not bool:
+            raise TypeError("batch_mode must be a boolean")
         if checkpoint is not None or video_lora is not None or video_loras is not None:
             candidate_project = self.projects.get(project_id)
             selected_recipe = self.workflow_for_mode(candidate_project.input_mode, recipe_id, recipe_version)
@@ -855,6 +858,8 @@ class H3RenderService:
                 bunny = bunny or H3BunnySettings()
                 if not isinstance(bunny, H3BunnySettings):
                     raise TypeError("Réglages BUNNY invalides.")
+                if batch_mode:
+                    bunny = replace(bunny, preview_enabled=False)
                 settings = replace(settings, steps=bunny.coarse_steps + bunny.refine_steps)
                 bunny_geometry(settings, initial_megapixels)
                 if force_upscale:
@@ -913,6 +918,7 @@ class H3RenderService:
                 effective_prompt=effective_prompt,
                 settings=settings,
                 music_enabled=music_enabled,
+                batch_mode=batch_mode,
                 keyframe_timestamps_ms=timestamps,
                 spectrum_enabled=spectrum_enabled,
                 video_lora=video_lora,
@@ -1069,6 +1075,8 @@ class H3RenderService:
         try:
             recipe = self.recipe_for_attempt(project, attempt)
             extra = {"bunny": attempt.bunny, "initial_megapixels": attempt.initial_megapixels} if attempt.bunny else {}
+            if attempt.batch_mode and not attempt.bunny:
+                extra["preview_enabled"] = False
             if getattr(recipe, "supports_initial_megapixels", False):
                 extra["initial_megapixels"] = attempt.initial_megapixels
             if getattr(recipe, "supports_upscale_bypass", False):

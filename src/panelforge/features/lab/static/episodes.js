@@ -34,6 +34,56 @@
   const node = (tag, text = "", cls = "") => { const n = document.createElement(tag); n.textContent = text; if (cls) n.className = cls; return n; };
   const button = (text, action) => { const b = node("button", text); b.type = "button"; b.addEventListener("click", action); return b; };
   const assetUrl = id => `/api/assets/${encodeURIComponent(id)}/content`;
+  const referenceViewer = el("image-viewer");
+  const referenceHover = node("div", "", "episode-image-hover"), hoverImage = node("img");
+  referenceHover.hidden = true; referenceHover.setAttribute("aria-hidden", "true"); hoverImage.alt = "";
+  referenceHover.append(hoverImage, node("span", "Cliquer pour agrandir")); document.body.append(referenceHover);
+  let referenceHoverTimer = null;
+  const zoomIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7 10h6M10 7v6"/></svg>';
+  function hideReferenceHover() {
+    clearTimeout(referenceHoverTimer); referenceHover.hidden = true; hoverImage.removeAttribute("src");
+  }
+  function referenceImage(assetId, label) {
+    const zoom = node("button", "", "episode-image-zoom"), image = node("img");
+    zoom.type = "button"; zoom.dataset.previewHover = "true";
+    zoom.setAttribute("aria-label", `Agrandir ${label}`); zoom.setAttribute("aria-haspopup", "dialog");
+    image.src = assetUrl(assetId); image.alt = label; image.loading = "lazy";
+    zoom.innerHTML = zoomIcon; zoom.prepend(image);
+    return zoom;
+  }
+  root.addEventListener("click", event => {
+    const zoom = event.target.closest(".episode-image-zoom");
+    const image = zoom?.querySelector("img");
+    if (!image?.getAttribute("src")) return;
+    hideReferenceHover();
+    el("image-viewer-title").textContent = image.alt || "Image de référence";
+    el("image-viewer-content").src = image.src; el("image-viewer-content").alt = image.alt;
+    if (!referenceViewer.open) referenceViewer.showModal();
+  });
+  root.addEventListener("pointerover", event => {
+    const zoom = event.target.closest(".episode-image-zoom[data-preview-hover]");
+    if (!zoom || zoom.contains(event.relatedTarget) || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+    hideReferenceHover();
+    referenceHoverTimer = setTimeout(() => {
+      if (!zoom.isConnected || !zoom.matches(":hover") || referenceViewer.open) return;
+      const image = zoom.querySelector("img"), bounds = zoom.getBoundingClientRect(), gap = 12;
+      const width = Math.min(320, window.innerWidth - gap * 2), height = Math.min(430, window.innerHeight - gap * 2);
+      const left = bounds.right + gap + width <= window.innerWidth ? bounds.right + gap : bounds.left - width - gap;
+      referenceHover.style.width = `${width}px`; referenceHover.style.height = `${height}px`;
+      referenceHover.style.left = `${Math.max(gap, Math.min(left, window.innerWidth - width - gap))}px`;
+      referenceHover.style.top = `${Math.max(gap, Math.min(bounds.top, window.innerHeight - height - gap))}px`;
+      hoverImage.src = image.src; referenceHover.hidden = false;
+    }, 220);
+  });
+  root.addEventListener("pointerout", event => {
+    const zoom = event.target.closest(".episode-image-zoom[data-preview-hover]");
+    if (zoom && !zoom.contains(event.relatedTarget)) hideReferenceHover();
+  });
+  window.addEventListener("scroll", hideReferenceHover, true);
+  window.addEventListener("resize", hideReferenceHover);
+  el("image-viewer-close").addEventListener("click", () => referenceViewer.close());
+  referenceViewer.addEventListener("click", event => { if (event.target === referenceViewer) referenceViewer.close(); });
+  referenceViewer.addEventListener("close", () => el("image-viewer-content").removeAttribute("src"));
   const jobRunning = item => item?.job?.status === "running";
   const renderDuration = value => value.effective_render_setup?.settings?.duration_seconds ?? value.render_setup?.settings?.duration_seconds ?? value.duration;
   const promptActivity = value => {
@@ -42,7 +92,7 @@
     return active ? `${active === "plan" ? "Plan" : "Rédacteur"} · ${stages[active] === "starting" ? "démarrage" : "en cours"}`
       : "Planifié · en attente du LLM";
   };
-  const isStateReference = r => state.data?.visual_state_policy === 1 && !!r?.continuity_state_id;
+  const isStateReference = r => [1, 2].includes(state.data?.visual_state_policy) && !!(r?.continuity_state_id || r?.continuity_source_image);
   const batchRunning = () => ["running", "rendering", "cancelling"].includes(state.data?.reference_batch?.status);
   const videoRecoveryRunning = () => state.data?.scenes?.some(value => jobRunning(value)
     || ["queued", "running", "cancel_pending"].includes(value.video_status));
@@ -57,7 +107,9 @@
     if (state.data) memo.set(state.data.story_id, JSON.stringify({id: state.data.episode_id, tab: state.tab, ref: state.refId, scene: state.sceneId}));
   }
   function show(visible) {
+    hideReferenceHover(); if (!visible && referenceViewer.open) referenceViewer.close();
     root.hidden = !visible; document.getElementById("story-writing").hidden = visible;
+    document.getElementById("stories-workspace").classList.toggle("story-fabrication-open", visible);
     document.querySelectorAll("#stories-workspace .story-model-control").forEach(control => { control.hidden = visible; });
     if (!visible) { thumbnails?.close(); localization?.close(); clearTimeout(state.timer); renderer.close(); state.renderContext = ""; }
   }
@@ -105,7 +157,10 @@
       button.disabled = state.busy || continuityBusy || jobRunning(r) || button.dataset.selected === "true" || button.dataset.obsolete === "true";
     });
     el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = busyScene; });
-    el("batch-panel").querySelectorAll("select,input").forEach(n => { n.disabled = state.busy || batchRunning(); });
+    el("batch-panel").querySelectorAll("select,input").forEach(n => {
+      n.disabled = state.busy || (batchRunning() && !n.hasAttribute("data-reference-selection"));
+    });
+    el("batch-panel").querySelectorAll("[data-open-reference]").forEach(n => { n.disabled = state.busy; });
     for (const kind of ["character", "location"]) el(`batch-${kind}-toggle`).disabled = state.busy || batchRunning();
     const onlyStates = state.batchSelection.size && [...state.batchSelection].every(id => isStateReference(state.data?.references.find(r => r.id === id)));
     el("batch-start").disabled = state.busy || batchRunning() || (!onlyStates && (!state.catalog || !state.models.length)) || !state.batchSelection.size;
@@ -142,7 +197,7 @@
       el("scene-references").querySelectorAll("button,select").forEach(n => { n.disabled = true; });
       el("references").querySelectorAll("button,input,select,textarea").forEach(n => {
         if (!Object.hasOwn(n.dataset, "localizationDisabled")) n.dataset.localizationDisabled = String(n.disabled);
-        n.disabled = n.id !== "episode-reference";
+        n.disabled = n.id !== "episode-reference" && !n.classList.contains("episode-image-zoom");
       });
       el("video-start").disabled ||= state.data.scenes.some(s => s.localization.status !== "ready")
         || ["queued", "running"].includes(state.data.localization.job?.status);
@@ -300,26 +355,28 @@
   }
   function drawBatch() {
     if (!state.data) return;
-    const active = batchRunning(), batch = state.data.reference_batch;
+    const batch = state.data.reference_batch;
     for (const kind of ["character", "location"]) {
       const inherited = state.batchProfiles[kind].inheritTechnical;
       el(`batch-${kind}-custom`).hidden = inherited;
       el(`batch-${kind}-toggle`).textContent = inherited ? "Personnaliser les réglages KREA2" : "Revenir aux réglages communs";
       el(`batch-${kind}-summary`).textContent = batchProfileSummary(kind);
     }
-    const selectedItems = new Map((batch?.items || []).map(item => [item.reference_id, item]));
     el("batch-selection").replaceChildren(...activeReferences().map(reference => {
-      const label = node("label"), checkbox = document.createElement("input"); checkbox.type = "checkbox";
-      checkbox.checked = active ? selectedItems.has(reference.id) : state.batchSelection.has(reference.id);
-      checkbox.disabled = active; checkbox.addEventListener("change", () => {
+      const row = node("div", "", "episode-batch-selection-row"), label = node("label");
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox";
+      checkbox.dataset.referenceSelection = reference.id;
+      checkbox.checked = state.batchSelection.has(reference.id);
+      checkbox.addEventListener("change", () => {
         if (checkbox.checked) state.batchSelection.add(reference.id); else state.batchSelection.delete(reference.id);
-        controls();
+        drawBatchReferences(); controls();
       });
       label.append(checkbox, node("b", `${reference.continuity_state_id ? "Variante" : kindLabel(reference.kind)} · ${reference.name}`),
         node("span", isStateReference(reference)
           ? `Qwen · depuis ${reference.state_source_name} · scènes ${(reference.state_scene_indices || []).map(i => i + 1).join(", ") || "à confirmer"}${reference.state_source_ready ? "" : " · choisir l’image d’identité d’abord"}`
           : batchProfileSummary(reference.kind), "muted"));
-      return label;
+      row.append(label, openReferenceButton(reference));
+      return row;
     }));
     const machine = state.data.machine_work?.machines || {};
     const machineText = key => { const value = machine[key]; if (!value) return `${key} indisponible`;
@@ -327,36 +384,56 @@
     el("batch-machines").textContent = `${machineText("local_gpu")} · ${machineText("remote_gpu")}`;
     el("batch-progress").hidden = !batch;
     el("batch-status").textContent = batch ? `${batch.phase}${batch.error ? ` · ${batch.error}` : ""}` : "Vérifie les deux profils avant de lancer.";
-    if (!batch) { el("batch-results").replaceChildren(); controls(); return; }
-    const items = batch.items || [], total = Math.max(1, items.length);
+    const items = batch?.items || [], total = Math.max(1, items.length);
     const promptDone = items.filter(item => !["pending", "prompting"].includes(item.status)).length;
     const imageDone = items.filter(item => ["ready_for_review", "validated", "failed"].includes(item.status)).length;
     const validated = items.filter(item => item.status === "validated").length;
     for (const [id, value, text] of [["prompt", promptDone, `${promptDone} / ${items.length}`], ["image", imageDone, `${imageDone} / ${items.length}`], ["validation", validated, `${validated} / ${items.length}`]]) {
       el(`batch-${id}-progress`).max = total; el(`batch-${id}-progress`).value = value; el(`batch-${id}-count`).textContent = text;
     }
-    el("batch-results").replaceChildren(...items.map(item => {
-      const card = node("article", "", "episode-batch-result");
-      card.append(node("b", `${kindLabel(item.kind)} · ${item.name}`));
-      if (item.output_asset_id) { const image = document.createElement("img"); image.src = assetUrl(item.output_asset_id); image.alt = item.name; card.append(image); }
-      card.append(node("p", item.phase || item.status), node("p", item.error || "", item.error ? "error" : "muted"));
+    drawBatchReferences(); controls();
+  }
+  function openReferenceButton(reference) {
+    const open = button("Ouvrir la fiche", () => action(() => openReference(reference.id, true)));
+    open.dataset.openReference = reference.id;
+    open.setAttribute("aria-label", `Ouvrir la fiche ${reference.name}`);
+    return open;
+  }
+  function drawBatchReferences() {
+    const items = new Map((state.data?.reference_batch?.items || []).map(item => [item.reference_id, item]));
+    // Browsing the next selection does not replace the current batch or hide its results.
+    const references = activeReferences().filter(reference => state.batchSelection.has(reference.id) || items.has(reference.id));
+    el("batch-results").replaceChildren(...references.map(reference => {
+      const item = items.get(reference.id), card = node("article", "", "episode-batch-result");
+      card.dataset.referenceId = reference.id;
+      card.append(node("b", `${reference.continuity_state_id ? "Variante" : kindLabel(reference.kind)} · ${reference.name}`));
+      const imageId = item?.status === "validated" ? reference.image_asset_id || item.output_asset_id
+        : item?.output_asset_id || reference.image_asset_id;
+      if (imageId) {
+        card.append(referenceImage(imageId, reference.name));
+        card.append(node("p", imageId === reference.image_asset_id ? "Image retenue" : "Proposition du lot", "muted"));
+      }
+      const phase = item?.phase || reference.job?.phase || (reference.continuity_image_stale ? "État à actualiser"
+        : reference.image_asset_id ? "Fiche disponible" : reference.prompt ? "Prompt prêt" : "Fiche à préparer");
+      card.append(node("p", phase));
+      if (item?.error) card.append(node("p", item.error, "error"));
       const actions = node("div", "", "story-actions");
-      actions.append(button("Ouvrir la fiche", () => action(async () => {
-        await saveReference(); state.refId = item.reference_id; state.imageProject = null; state.dirtyRef = false;
-        drawLists(); drawReference(true); await imageProject();
-      })));
-      if (item.status === "waiting_source") actions.append(button("Choisir l’image d’identité", () => action(async () => {
-        const variant = state.data.references.find(r => r.id === item.reference_id);
-        const base = state.data.references.find(r => r.source_id === variant.source_id && !r.continuity_state_id);
-        if (base) { await saveReference(); state.refId = base.id; state.imageProject = null; drawLists(); drawReference(true); await imageProject(); }
-      })));
-      if (item.output_asset_id && item.status !== "validated" && item.status !== "failed") actions.append(button("Valider cette image", () => action(async () => {
-        const reference = state.data.references.find(value => value.id === item.reference_id);
-        accept(await core.request(api(`/references/${reference.id}/select`), send("POST", {expected_revision: reference.revision, asset_id: item.output_asset_id})));
+      actions.append(openReferenceButton(reference));
+      if (item?.status === "waiting_source") {
+        const base = activeReferences().find(r => r.source_id === reference.source_id && !r.continuity_state_id);
+        if (base) {
+          const choose = openReferenceButton(base); choose.textContent = "Choisir l’image d’identité";
+          actions.append(choose);
+        }
+      }
+      if (item?.output_asset_id && item.output_asset_id !== reference.image_asset_id
+        && !["validated", "failed"].includes(item.status)) actions.append(button("Valider cette image", () => action(async () => {
+        const latest = state.data.references.find(value => value.id === reference.id);
+        accept(await core.request(api(`/references/${latest.id}/select`), send("POST", {expected_revision: latest.revision, asset_id: item.output_asset_id})));
       })));
       card.append(actions); return card;
     }));
-    controls();
+    if (!references.length) el("batch-results").append(node("p", "Coche une référence pour afficher sa fiche.", "muted"));
   }
   async function changeResource(resource, suffix, body) {
     try {
@@ -720,12 +797,15 @@
     }
     el("style-warning").hidden = !r.prompt_style_stale;
     el("style-warning").textContent = "Le style commun a changé depuis la dernière rédaction LLM. Vérifie le prompt ou propose un ajustement. L’image retenue reste conservée.";
-    el("reference-preview").hidden = !r.image_asset_id; el("no-reference").hidden = !!r.image_asset_id;
+    el("reference-zoom").hidden = !r.image_asset_id; el("reference-preview").hidden = !r.image_asset_id; el("no-reference").hidden = !!r.image_asset_id;
+    el("reference-preview").alt = r.name; el("reference-zoom").setAttribute("aria-label", `Agrandir ${r.name}`);
     if (r.image_asset_id) el("reference-preview").src = assetUrl(r.image_asset_id); else el("reference-preview").removeAttribute("src");
-    el("image-style-note").hidden = !r.image_asset_id;
+    el("image-style-note").hidden = !r.image_asset_id && !r.continuity_source_image;
     const inheritedNote = r.inherited_image
       ? `Référence héritée de l’épisode précédent pour ${r.inherited_image.name}. ` : "";
-    el("image-style-note").textContent = inheritedNote + (r.image_style_status === "outdated"
+    const sourceNote = r.continuity_source_image
+      ? `Nouvelle apparence à préparer à partir de l’image validée de ${r.continuity_source_image.name}. ` : "";
+    el("image-style-note").textContent = inheritedNote + sourceNote + (r.image_style_status === "outdated"
       ? "Cette image provient d’une ancienne direction de style. Elle reste retenue jusqu’à ton prochain choix."
       : r.image_style_status === "current" ? "Image préparée avec le style commun actuel."
       : "Style de cette image non documenté : vérifie sa cohérence avec l’épisode.");
@@ -740,10 +820,7 @@
     el("image-attempts").replaceChildren(...items.slice().reverse().map(a => {
       const selected = a.output_asset_id === r.image_asset_id && !r.continuity_image_stale;
       const card = node("article", "", `episode-image-card${selected ? " selected" : ""}`);
-      if (a.output_asset_id) {
-        const link = node("a"), img = node("img"); link.href = assetUrl(a.output_asset_id); link.target = "_blank"; link.rel = "noopener";
-        img.src = link.href; img.alt = a.label || "Proposition de référence"; img.loading = "lazy"; link.append(img); card.append(link);
-      }
+      if (a.output_asset_id) card.append(referenceImage(a.output_asset_id, `${r.name} · ${a.label || "Proposition de référence"}`));
       card.append(node("p", `${a.label || `Essai ${a.index}`} · ${a.source_stale ? "Ancienne identité ou ancien état" : statuses[a.status] || a.status}`));
       if (a.pre_flux_url) {
         const preFlux = node("a", "Voir / télécharger la sortie KREA2 avant Flux");
@@ -890,6 +967,20 @@
       inherit_image_settings: state.inheritImages,
       render_settings: state.catalog && imageSettings().model_id && el("image-ratio").value ? imageSettings() : r.render_settings};
     const data = await core.request(api(`/references/${r.id}`), send("PUT", payload)); state.dirtyRef = false; accept(data);
+  }
+  async function openReference(referenceId, scroll = false) {
+    if (!activeReferences().some(r => r.id === referenceId)) return;
+    const template = referenceSettingsTemplate();
+    await saveReference(); state.refId = referenceId;
+    state.imageProject = null; state.dirtyRef = false; el("asset-feedback").value = "";
+    drawLists(); drawReference(true);
+    if (!state.data?.localization && !batchRunning() && !videoChainRunning() && !state.data.references.some(jobRunning)
+      && adoptReferenceSettings(template)) message("Réglages LLM et image repris pour cette fiche vierge.");
+    await imageProject(); storeContext();
+    if (scroll) {
+      el("reference").scrollIntoView({behavior: "smooth", block: "start"});
+      el("reference").focus({preventScroll: true});
+    }
   }
   async function startReferenceBatch(referenceIds = null) {
     await saveReference();
@@ -1083,7 +1174,11 @@
     localization?.guardDirty();
     state.tab = name; el("references").hidden = name !== "references"; el("scenes").hidden = name !== "scenes";
     el("tab-references").setAttribute("aria-pressed", String(name === "references")); el("tab-scenes").setAttribute("aria-pressed", String(name === "scenes"));
-    if (name === "scenes") await openRender(); else { await renderer.close(); state.renderContext = ""; state.activeRender = null; }
+    if (name === "scenes") {
+      // The initial mount can happen while the workshop or this tab is hidden.
+      thumbnails?.mount(el("video-cards"), state.data);
+      await openRender();
+    } else { await renderer.close(); state.renderContext = ""; state.activeRender = null; }
     el("localization").hidden = name !== "localization";
     el("tab-localization").setAttribute("aria-pressed", String(name === "localization"));
     if (name === "localization") await localization?.open(); else localization?.close();
@@ -1098,7 +1193,7 @@
     state.dlssPanels.clear();
     state.videoCards.clear(); el("video-cards").replaceChildren();
     state.batchProfileKey = ""; state.batchThermalKey = "";
-    state.batchSelection = new Set(data.references.filter(reference => !reference.continuity_archived && (!reference.continuity_state_id || data.visual_state_policy === 1) && (!reference.image_asset_id || reference.continuity_image_stale)).map(reference => reference.id));
+    state.batchSelection = new Set(data.references.filter(reference => !reference.continuity_archived && (!reference.continuity_state_id || [1, 2].includes(data.visual_state_policy)) && (!reference.image_asset_id || reference.continuity_image_stale)).map(reference => reference.id));
     el("style-preset").value = "";
     state.refId = data.references.some(r => r.id === saved?.ref) ? saved.ref : data.references[0].id;
     state.sceneId = data.scenes.some(s => s.id === saved?.scene) ? saved.scene : data.scenes[0].id;
@@ -1148,11 +1243,7 @@
   el("tab-references").addEventListener("click", () => action(() => tab("references")));
   el("tab-scenes").addEventListener("click", () => action(() => tab("scenes")));
   el("tab-localization").addEventListener("click", () => action(() => tab("localization")));
-  el("reference").addEventListener("change", () => action(async () => { const id = el("reference").value, template = referenceSettingsTemplate();
-    await saveReference(); state.refId = id;
-    state.imageProject = null; state.dirtyRef = false; el("asset-feedback").value = ""; drawLists(); drawReference(true);
-    if (!state.data?.localization && adoptReferenceSettings(template)) message("Réglages LLM et image repris pour cette fiche vierge.");
-    await imageProject(); storeContext(); }));
+  el("reference").addEventListener("change", () => action(() => openReference(el("reference").value)));
   el("scene").addEventListener("change", () => action(async () => { const id = el("scene").value; await saveScene(); state.sceneId = id;
     state.prepId = ""; state.dirtyScene = false; drawLists(); drawScene(true); await openRender(); storeContext(); }));
   el("preparation").addEventListener("change", () => action(async () => { state.prepId = el("preparation").value; controls(); await openRender(); }));

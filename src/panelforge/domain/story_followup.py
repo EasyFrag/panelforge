@@ -3,6 +3,7 @@ from copy import deepcopy
 import hashlib
 import json
 
+from . import story_direction
 from .stories import dialogue_language_selection
 from .story_continuity import carry_forward
 
@@ -41,6 +42,9 @@ def settings(value):
     if not isinstance(value, dict):
         raise ValueError("Réglages de suite invalides.")
     result = deepcopy(value)
+    edition = value.get("writing_edition_id")
+    if edition is not None and (not isinstance(edition, str) or not edition or len(edition) > 100):
+        raise ValueError("Version d’écriture invalide.")
     result["dialogue_language"] = dialogue_language_selection(value.get("dialogue_language", "French"))
     for key, minimum, maximum in (("scene_count", 1, 12), ("clip_seconds", 5, 15), ("target_seconds", 10, 2160)):
         number = value.get(key)
@@ -107,6 +111,8 @@ def source_context(project, unit_id=None):
         source_format={k: project.get(k) for k in ("scene_count", "clip_seconds", "target_seconds", "narrative_format")},
         visual_universe=project.get("visual_universe", ""), long_options=deepcopy(project.get("long_options")),
         dialogue_language=project["dialogue_language"], dialogue_register=project.get("dialogue_register", 0))
+    if project.get("story_quality_version") == 1:
+        context["writing_direction"] = story_direction.for_followup(project)
     return context
 
 

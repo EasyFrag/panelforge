@@ -144,6 +144,7 @@ class ComfyHttpClient:
         *,
         client_id: str,
         timeout: float = 30.0,
+        opener=None,
     ) -> None:
         normalized_base_url = base_url.rstrip("/")
         if not normalized_base_url:
@@ -156,6 +157,7 @@ class ComfyHttpClient:
         self.base_url = normalized_base_url
         self.client_id = client_id
         self.timeout = timeout
+        self._opener = opener
         self._owned_prompt_ids: set[str] = set()
         self._ownership_lock = Lock()
 
@@ -488,11 +490,11 @@ class ComfyHttpClient:
             method="GET",
         )
 
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with (self._opener or urllib.request.urlopen)(request, timeout=self.timeout) as response:
             return response.read()
 
     def _read_json(self, request: urllib.request.Request) -> JsonObject:
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with (self._opener or urllib.request.urlopen)(request, timeout=self.timeout) as response:
             return cast(JsonObject, json.load(response))
 
     def _post_json_without_response(
@@ -510,7 +512,7 @@ class ComfyHttpClient:
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with (self._opener or urllib.request.urlopen)(request, timeout=self.timeout) as response:
             response.read()
 
     def _post_json(

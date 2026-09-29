@@ -67,7 +67,9 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         self.assertTrue(all(item["state"] == "cooling" for item in observed))
         self.assertTrue(all(item["operation"] == "Refroidissement entre vidéos" for item in observed))
         self.assertTrue(all(item["owner_id"] == "video-1" for item in observed))
-        self.assertEqual(after["state"], "idle")
+        self.assertEqual(after["state"], "cooling")
+        self.assertIsNone(after["owner_id"])
+        self.assertEqual(after["cooldown_remaining_seconds"], 30)
 
     def test_same_machine_is_exclusive_while_other_machine_can_run(self):
         coordinator = MachineWorkCoordinator(monitor_interval=.01)
@@ -173,6 +175,52 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         self.assertEqual(history["bucket_seconds"], 15)
         local = history["series"]["local_gpu"]
         self.assertEqual([value["max_temperature_c"] for value in local], [70.0, 78.0])
+
+    def test_remote_non_video_peak_waits_minimum_then_below_threshold(self):
+        now, sleeps = [100.0], []
+
+        class RemoteTemperature:
+            temperature = 81
+
+            def snapshot(self):
+                return ThermalSnapshot(local_temperature_c=40, remote_temperature_c=self.temperature)
+
+        monitor = RemoteTemperature()
+
+        def monotonic():
+            return now[0]
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds
+            if now[0] >= 190:
+                monitor.temperature = 79
+
+        coordinator = MachineWorkCoordinator(
+            thermal_monitor=monitor,
+            settings=WorkSchedulerSettings(
+                thermal=ThermalPolicy(pause_when_unavailable=False),
+                remote_non_video_cooldown_temperature_c=80,
+                remote_non_video_cooldown_seconds=80,
+                remote_video_cooldown_seconds=0,
+            ),
+            monitor_interval=10,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+        with coordinator.lease("image-1", ComputeResource.REMOTE_GPU,
+                ProductionWorkload.IMAGE_RENDER, "KREA2 image 1"):
+            pass
+
+        cooling = coordinator.public_status()["machines"]["remote_gpu"]
+        self.assertEqual(cooling["state"], "cooling")
+        self.assertEqual(cooling["cooldown_remaining_seconds"], 80)
+        self.assertIn("81 °C", cooling["operation"])
+
+        with coordinator.lease("image-2", ComputeResource.REMOTE_GPU,
+                ProductionWorkload.IMAGE_RENDER, "KREA2 image 2"):
+            self.assertLess(monitor.temperature, 80)
+        self.assertEqual(sum(sleeps), 90)
 
     def test_waiters_keep_fifo_order(self):
         coordinator = MachineWorkCoordinator(monitor_interval=.01)
@@ -330,6 +378,11 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
         with coordinator.lease("video-1", ComputeResource.REMOTE_GPU,
                 ProductionWorkload.VIDEO_RENDER, "H3 scène 1"):
             pass
+        idle_cooldown = coordinator.public_status()["machines"]["remote_gpu"]
+        self.assertEqual(idle_cooldown["state"], "cooling")
+        self.assertIsNone(idle_cooldown["owner_id"])
+        with coordinator.lease("local-1", ComputeResource.LOCAL_GPU, ProductionWorkload.LLM, "IG"):
+            self.assertEqual(coordinator.public_status()["machines"]["local_gpu"]["state"], "busy")
         with coordinator.lease("video-2", ComputeResource.REMOTE_GPU,
                 ProductionWorkload.VIDEO_RENDER, "H3 scène 2"):
             pass
@@ -387,6 +440,8 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
                                       cooldown_seconds=15, pause_when_unavailable=False),
                 local_cooldown_temperature_c=79,
                 local_cooldown_seconds=81,
+                remote_non_video_cooldown_temperature_c=78,
+                remote_non_video_cooldown_seconds=83,
                 remote_video_cooldown_seconds=42,
                 pause_after_failure=True,
                 history_limit=12,

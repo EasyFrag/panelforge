@@ -152,6 +152,8 @@ class WorkSchedulerSettings:
     thermal: ThermalPolicy = field(default_factory=ThermalPolicy)
     local_cooldown_temperature_c: float = 80.0
     local_cooldown_seconds: int = 80
+    remote_non_video_cooldown_temperature_c: float = 80.0
+    remote_non_video_cooldown_seconds: int = 80
     remote_video_cooldown_seconds: int = 30
     pause_after_failure: bool = False
     history_limit: int = 30
@@ -166,6 +168,18 @@ class WorkSchedulerSettings:
             or not 0 <= self.local_cooldown_seconds <= 3_600
         ):
             raise ValueError('local_cooldown_seconds must be between 0 and 3600')
+        _finite(
+            self.remote_non_video_cooldown_temperature_c,
+            'remote_non_video_cooldown_temperature_c',
+        )
+        if not 30 <= float(self.remote_non_video_cooldown_temperature_c) <= 110:
+            raise ValueError('remote_non_video_cooldown_temperature_c must be between 30 and 110')
+        if (
+            isinstance(self.remote_non_video_cooldown_seconds, bool)
+            or not isinstance(self.remote_non_video_cooldown_seconds, int)
+            or not 0 <= self.remote_non_video_cooldown_seconds <= 3_600
+        ):
+            raise ValueError('remote_non_video_cooldown_seconds must be between 0 and 3600')
         if not isinstance(self.thermal, ThermalPolicy):
             raise TypeError("thermal must be a ThermalPolicy")
         if (

@@ -49,6 +49,10 @@ class EpisodesBrowserTest(unittest.TestCase):
         episode["references"][1]["image_asset_id"] = None
         episode["references"][0]["krea_project_id"] = "krea2-create-fixture"
         markup = '<main id="stories-workspace"' + (STATIC / "index.html").read_text(encoding="utf8").split('<main id="stories-workspace"', 1)[1].split('</main>', 1)[0] + '</main>'
+        source = (STATIC / "index.html").read_text(encoding="utf8")
+        for identity in ("episode-thumbnail-dialog", "episode-thumbnail-badge-dialog"):
+            opening = f'<dialog id="{identity}"'
+            markup += opening + source.split(opening, 1)[1].split('</dialog>', 1)[0] + '</dialog>'
         setup = "const story=" + json.dumps(story, ensure_ascii=False) + ";let episode=" + json.dumps(episode, ensure_ascii=False) + ";"
         setup += r"""
           const calls=[], mounts=[];let currentContext=null, renderBusy=false;
@@ -75,6 +79,9 @@ class EpisodesBrowserTest(unittest.TestCase):
           window.PanelForgeLabCore={request:async(url,options={})=>{
             calls.push({url,options});const body=options.body?JSON.parse(options.body):null;
             if(url.startsWith('/api/episodes/stories/'))return {episodes:[episode]};
+            if(url==='/api/episodes/'+episode.episode_id+'/thumbnail'&&!options.method)return {
+              episode_id:episode.episode_id,revision:0,status:'missing',asset_id:null,number:1,title:'Thumbnail fixture',
+              templates:[],references:[],default_reference_ids:[],qwen_available:false};
             if(url==='/api/stories/models')return {models:[{id:episode.scenes[0].plan_model_id,label:'Qwen local',source:'local'},
               {id:episode.scenes[0].writer_model_id,label:'Gemma local',source:'local'},
               {id:'server-qwen',label:'Qwen serveur',source:'server'}]};
@@ -152,6 +159,22 @@ class EpisodesBrowserTest(unittest.TestCase):
             await settle();check(!calls.some(c=>c.url.includes('/spec')||c.url.includes('/models')),'catalog stays lazy before fabrication');
             document.getElementById('story-fabrication').click();await settle();await settle();
             check(!get('workshop').hidden,'fabrication opens');check(get('reference').options.length===4,'three characters and decor');
+            const thumbnailReads=()=>calls.filter(c=>c.url.endsWith('/thumbnail'));
+            const cover=get('video-cards').querySelector('.episode-thumbnail-card');
+            check(cover&&get('scenes').hidden&&thumbnailReads().length===0,'hidden construction defers thumbnail loading');
+            check(!episode.video_chain&&episode.scenes.every(s=>!s.job),'thumbnail opens with no active episode job');
+            const episodeReads=calls.filter(c=>c.url==='/api/episodes/'+episode.episode_id).length;
+            get('tab-scenes').click();await settle();await settle();
+            check(!get('scenes').hidden&&thumbnailReads().length===1,'opening construction fetches the thumbnail once');
+            check(cover.querySelector('.episode-thumbnail-status').textContent==='\u00c0 pr\u00e9parer','thumbnail leaves loading without polling');
+            check([...cover.querySelectorAll('button')].find(b=>b.textContent==='Modifier le mod\u00e8le').disabled===false,'thumbnail controls become available');
+            check(calls.filter(c=>c.url==='/api/episodes/'+episode.episode_id).length===episodeReads,'no episode refresh required to load the thumbnail');
+            check(thumbnailReads().every(c=>!c.options.method),'opening construction only reads thumbnail state');
+            get('tab-references').click();await settle();
+            get('tab-scenes').click();await settle();
+            check(thumbnailReads().length===1,'rapid reopening retains the thumbnail fetch throttle');
+            check(get('video-cards').querySelectorAll('.episode-thumbnail-card').length===1,'navigation retains a single thumbnail card');
+            get('tab-references').click();await settle();
             const characterBatchLlm=get('batch-character-llm'),characterBatchLocal=get('batch-character-local');
             check(characterBatchLocal.checked&&characterBatchLlm.value===episode.scenes[0].plan_model_id,'batch character profile exposes the available local Unsloth model');
             check(get('batch-location-local').checked&&get('batch-location-llm').value===episode.scenes[0].plan_model_id,'batch location profile exposes the available local Unsloth model');
@@ -295,6 +318,8 @@ class EpisodesBrowserTest(unittest.TestCase):
                 + '<section id="ref2vr-lab" hidden></section><script>' + setup + '</script><script>'
                 + (STATIC / 'lab.js').read_text(encoding='utf8').split('const ui = {};')[0]
                 + '</script><script>' + (STATIC / 'krea2-resource-ui.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'episode-thumbnail-layout.js').read_text(encoding='utf8')
+                + '</script><script>' + (STATIC / 'episode-thumbnails.js').read_text(encoding='utf8')
                 + '</script><script>' + (STATIC / 'episodes.js').read_text(encoding='utf8')
                 + '</script><script>' + checks + '</script>')
         self.run_browser(browsers[-1], html)

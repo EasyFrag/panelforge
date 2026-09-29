@@ -37,6 +37,10 @@ from panelforge.domain.krea2_batch import (
 )
 from panelforge.domain.krea2_lab import normalize_krea2_model_name
 from panelforge.domain.krea2_style_presets import Krea2StylePreset, Krea2StylePresetCategory
+from panelforge.domain.krea2_art_direction import (
+    Krea2ArtDirection,
+    compile_krea2_art_direction,
+)
 from panelforge.domain.krea2_lab import Krea2AspectRatio
 from panelforge.domain.krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW
 from panelforge.domain.recipes import RecipeRef
@@ -49,6 +53,7 @@ from . import (
     krea2_assisted_v3,
     krea2_assisted_v4,
     krea2_assisted_v5,
+    krea2_assisted_v6,
 )
 from .production_resources import ResourceWaitCancelled
 from .prompt_lab import (
@@ -91,6 +96,7 @@ def assistance_recipe(version):
         krea2_assisted_v3,
         krea2_assisted_v4,
         krea2_assisted_v5,
+        krea2_assisted_v6,
     ):
         if version == recipe.VERSION:
             return recipe
@@ -167,6 +173,16 @@ class Krea2StylePresetStore(Protocol):
     def delete(self, preset_id: str, expected_revision: int) -> Krea2StylePreset: ...
 
 
+class Krea2ArtStyleCatalog(Protocol):
+    def status(self) -> dict[str, object]: ...
+    def install(self, *, force: bool = False) -> dict[str, object]: ...
+    def list_styles(
+        self, *, query: str = "", category: str | None = None,
+    ) -> tuple[Krea2ArtDirection, ...]: ...
+    def get(self, style_id: str) -> Krea2ArtDirection: ...
+    def thumbnail_path(self, style_id: str): ...
+
+
 class Krea2CreationExporter(Protocol):
     root: object
 
@@ -204,6 +220,7 @@ class Krea2AssistedService:
         presets: Krea2StylePresetStore | None = None,
         prompt_examples: Krea2PromptExamples | None = None,
         prompt_wildcards: Krea2PromptWildcards | None = None,
+        style_catalog: Krea2ArtStyleCatalog | None = None,
         application_outcomes: LlmCallApplicationOutcomeReporter | None = None,
         run_timeout: float = 3600.0,
         poll_interval: float = 1.0,
@@ -245,6 +262,7 @@ class Krea2AssistedService:
         self.presets = presets
         self.prompt_examples = prompt_examples
         self.prompt_wildcards = prompt_wildcards
+        self.style_catalog = style_catalog
         self.application_outcomes = application_outcomes
         self.run_timeout = run_timeout
         self.poll_interval = poll_interval
@@ -294,10 +312,22 @@ class Krea2AssistedService:
         reference_filename: str | None = None,
         assistance_recipe_version: str = "3.0.0",
         style_preset_id: str | None = None,
+        art_style_id: str | None = None,
         prompt_language: Krea2PromptLanguage | None = None,
+        local_inspiration_enabled: bool = True,
     ) -> Krea2AssistedProject:
         assistance_recipe(assistance_recipe_version)
+        if not isinstance(local_inspiration_enabled, bool):
+            raise TypeError("local_inspiration_enabled must be a boolean")
         preset = self._preset(style_preset_id) if style_preset_id else None
+        selected_art_direction = self._art_direction(art_style_id) if art_style_id else None
+        if selected_art_direction is not None and assistance_recipe_version != krea2_assisted_v6.VERSION:
+            raise ValueError("Les directions artistiques du catalogue appartiennent uniquement à V6.")
+        art_direction = selected_art_direction or (
+            preset.art_direction
+            if preset is not None and assistance_recipe_version == krea2_assisted_v6.VERSION
+            else None
+        )
         if prompt_language is not None and not isinstance(prompt_language, Krea2PromptLanguage):
             raise TypeError("prompt_language must be a Krea2PromptLanguage")
         selected_language = prompt_language or (preset.prompt_language if preset else Krea2PromptLanguage.ENGLISH)
@@ -311,9 +341,10 @@ class Krea2AssistedService:
         intention = _bounded_text(intention, "intention", 12_000)
         model_id = _bounded_text(model_id, "model_id", 300)
         examples = ()
-        if assistance_recipe_version in {
+        if local_inspiration_enabled and assistance_recipe_version in {
             krea2_assisted_v4.VERSION,
             krea2_assisted_v5.VERSION,
+            krea2_assisted_v6.VERSION,
         }:
             examples = self._search_prompt_inspirations(
                 assistance_recipe_version,
@@ -339,7 +370,9 @@ class Krea2AssistedService:
             warnings=self._inventory_warnings(),
             prompt_examples=examples,
             selected_prompt_example_id=examples[0].example_id if examples else None,
+            local_inspiration_enabled=local_inspiration_enabled,
             style_preset=preset, preset_pending=preset is not None,
+            art_direction=art_direction,
             render_settings=(Krea2BatchSettings(
                 model_name=preset.settings.model_name, loras=preset.settings.loras,
                 aspect_ratio=Krea2AspectRatio.PORTRAIT_WIDESCREEN, megapixels=2.1,
@@ -349,10 +382,33 @@ class Krea2AssistedService:
     def _preset(self, preset_id: str) -> Krea2StylePreset:
         if self.presets is None:
             raise ValueError("Le catalogue de presets n’est pas configuré.")
-        return self.presets.get(preset_id)
+        return self._hydrate_preset_art_direction(self.presets.get(preset_id))
+
+    def _hydrate_preset_art_direction(self, preset: Krea2StylePreset) -> Krea2StylePreset:
+        """Recover V6 metadata omitted by catalogues written before schema 3."""
+        if preset.art_direction is not None:
+            return preset
+        try:
+            attempt = self.projects.get(preset.source_project_id).attempt(preset.source_attempt_id)
+        except (KeyError, FileNotFoundError):
+            return preset
+        if attempt.art_direction is None:
+            return preset
+        return replace(
+            preset,
+            art_direction=attempt.art_direction,
+            prompt=attempt.canonical_prompt or preset.prompt,
+        )
+
+    def _art_direction(self, style_id: str) -> Krea2ArtDirection:
+        if self.style_catalog is None:
+            raise ValueError("Le catalogue de directions artistiques n’est pas configuré.")
+        return self.style_catalog.get(style_id)
 
     def list_style_presets(self) -> tuple[Krea2StylePreset, ...]:
-        return self.presets.list() if self.presets else ()
+        return tuple(
+            self._hydrate_preset_art_direction(preset) for preset in self.presets.list()
+        ) if self.presets else ()
 
     def save_style_preset(self, project_id: str, attempt_id: str, name: str,
                           *, preset_id: str | None = None, expected_revision: int | None = None,
@@ -372,11 +428,12 @@ class Krea2AssistedService:
             return self.presets.save(Krea2StylePreset(
                 preset_id=previous.preset_id if previous else f"style-{uuid4().hex}",
                 revision=previous.revision + 1 if previous else 1,
-                name=_bounded_text(name, "preset name", 120), prompt=attempt.prompt,
+                name=_bounded_text(name, "preset name", 120), prompt=attempt.canonical_prompt or attempt.prompt,
                 image_asset_id=attempt.output_asset_id, settings=as_batch_settings(attempt.settings),
                 source_project_id=project_id, source_attempt_id=attempt_id, source_seed=attempt.seed,
                 prompt_language=attempt.conversation_prompt_language,
                 category=category or (previous.category if previous else Krea2StylePresetCategory.WORK),
+                art_direction=attempt.art_direction,
             ))
 
     def update_style_preset(self, preset_id: str, *, name: str,
@@ -412,8 +469,13 @@ class Krea2AssistedService:
             prompt = project.current_prompt
             if current_prompt is not None:
                 prompt = _bounded_text(current_prompt, "prompt", 40_000) if current_prompt.strip() else None
+            art_direction = project.art_direction
+            if (preset is not None and preset.art_direction is not None
+                    and project.assistance_recipe_version == krea2_assisted_v6.VERSION):
+                art_direction = preset.art_direction
             return self.projects.save(replace(
                 project, style_preset=preset, preset_pending=preset is not None,
+                art_direction=art_direction,
                 prompt_language=preset.prompt_language if preset else project.prompt_language,
                 current_prompt=prompt,
                 render_settings=settings, render_seed=seed,
@@ -432,6 +494,7 @@ class Krea2AssistedService:
                     krea2_assisted_v3,
                     krea2_assisted_v4,
                     krea2_assisted_v5,
+                    krea2_assisted_v6,
                 )]
 
     def prompt_example_library_status(self) -> dict[str, object]:
@@ -458,6 +521,60 @@ class Krea2AssistedService:
             }
         return self.prompt_wildcards.status()
 
+    def art_style_catalog_status(self) -> dict[str, object]:
+        if self.style_catalog is None:
+            return {
+                "state": "unavailable",
+                "error": "Catalogue de directions artistiques non configuré.",
+                "style_count": 0,
+                "categories": [],
+            }
+        return self.style_catalog.status()
+
+    def install_art_style_catalog(self, *, force: bool = False) -> dict[str, object]:
+        if self.style_catalog is None:
+            raise RuntimeError("Le catalogue de directions artistiques n’est pas configuré.")
+        return self.style_catalog.install(force=force)
+
+    def list_art_styles(
+        self, *, query: str = "", category: str | None = None,
+    ) -> tuple[Krea2ArtDirection, ...]:
+        if self.style_catalog is None:
+            return ()
+        return self.style_catalog.list_styles(query=query, category=category)
+
+    def art_style_thumbnail(self, style_id: str):
+        if self.style_catalog is None:
+            raise RuntimeError("Le catalogue de directions artistiques n’est pas configuré.")
+        return self.style_catalog.thumbnail_path(style_id)
+
+    def select_art_direction(
+        self,
+        project_id: str,
+        style_id: str | None,
+        *,
+        expected_branch_id: str,
+        current_prompt: str | None,
+        settings: Krea2BatchSettings,
+        seed: int | None,
+    ) -> Krea2AssistedProject:
+        with self._lock:
+            project = self.projects.get(project_id)
+            self._check_conversation_change(project, expected_branch_id)
+            if project.assistance_recipe_version != krea2_assisted_v6.VERSION:
+                raise ValueError("Les directions artistiques du catalogue appartiennent uniquement à V6.")
+            direction = self._art_direction(style_id) if style_id else None
+            prompt = project.current_prompt
+            if current_prompt is not None:
+                prompt = _bounded_text(current_prompt, "prompt", 40_000) if current_prompt.strip() else None
+            return self.projects.save(replace(
+                project,
+                art_direction=direction,
+                current_prompt=prompt,
+                render_settings=settings,
+                render_seed=seed,
+            ))
+
     def _search_prompt_inspirations(
         self,
         recipe_version: str,
@@ -470,8 +587,8 @@ class Krea2AssistedService:
             raise RuntimeError("La bibliothèque locale doit proposer trois scènes.")
         if recipe_version == krea2_assisted_v4.VERSION:
             return scenes
-        if recipe_version != krea2_assisted_v5.VERSION:
-            raise ValueError("La recherche locale est réservée à V4 et V5.")
+        if recipe_version not in {krea2_assisted_v5.VERSION, krea2_assisted_v6.VERSION}:
+            raise ValueError("La recherche locale est réservée à V4, V5 et V6.")
         if self.prompt_wildcards is None:
             raise RuntimeError("La bibliothèque de templates V5 n’est pas configurée.")
         templates = self.prompt_wildcards.search(query, limit=3)
@@ -495,9 +612,40 @@ class Krea2AssistedService:
             if project.assistance_recipe_version not in {
                 krea2_assisted_v4.VERSION,
                 krea2_assisted_v5.VERSION,
+                krea2_assisted_v6.VERSION,
             }:
-                raise ValueError("Les inspirations locales appartiennent uniquement à V4 et V5.")
+                raise ValueError("Les inspirations locales appartiennent uniquement à V4, V5 et V6.")
             return self.projects.save(project.select_prompt_example(example_id))
+
+    def set_local_inspiration(
+        self,
+        project_id: str,
+        enabled: bool,
+        *,
+        expected_branch_id: str,
+    ) -> Krea2AssistedProject:
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a boolean")
+        with self._lock:
+            project = self.projects.get(project_id)
+            self._check_conversation_change(project, expected_branch_id)
+            if project.assistance_recipe_version not in {
+                krea2_assisted_v4.VERSION,
+                krea2_assisted_v5.VERSION,
+                krea2_assisted_v6.VERSION,
+            }:
+                raise ValueError("Les inspirations locales appartiennent uniquement à V4, V5 et V6.")
+            if enabled and not project.prompt_examples:
+                examples = self._search_prompt_inspirations(
+                    project.assistance_recipe_version,
+                    project.current_prompt or project.intention,
+                )
+                project = replace(
+                    project,
+                    prompt_examples=examples,
+                    selected_prompt_example_id=examples[0].example_id,
+                )
+            return self.projects.save(project.with_local_inspiration(enabled))
 
     def recompile_prompt_example(
         self,
@@ -508,8 +656,11 @@ class Krea2AssistedService:
         with self._lock:
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
-            if project.assistance_recipe_version != krea2_assisted_v5.VERSION:
-                raise ValueError("Les variantes wildcard appartiennent uniquement à V5.")
+            if project.assistance_recipe_version not in {
+                krea2_assisted_v5.VERSION,
+                krea2_assisted_v6.VERSION,
+            }:
+                raise ValueError("Les variantes wildcard appartiennent uniquement à V5 et V6.")
             selected = project.selected_prompt_example
             if selected is None or selected.source_kind != "wildcard":
                 raise ValueError("Sélectionnez d’abord une inspiration wildcard.")
@@ -594,6 +745,7 @@ class Krea2AssistedService:
                 guidance_asset_id=guidance_asset_id,
                 guidance_filename=guidance_filename,
                 style_preset=project.style_preset if project.preset_pending else None,
+                art_direction=project.art_direction,
             )
             project = self.projects.save(replace(project, turns=(*project.turns, user_turn)))
             self._chatting.add(project_id)
@@ -604,7 +756,9 @@ class Krea2AssistedService:
                 and project.assistance_recipe_version in {
                     krea2_assisted_v4.VERSION,
                     krea2_assisted_v5.VERSION,
+                    krea2_assisted_v6.VERSION,
                 }
+                and project.local_inspiration_enabled
                 and refresh_prompt_examples
             ):
                 yield Krea2AssistedStreamEvent(
@@ -719,7 +873,7 @@ class Krea2AssistedService:
         enqueue: bool = False,
         prompt_language: Krea2PromptLanguage | None = None,
     ) -> Krea2AssistedProject:
-        prompt = _bounded_text(prompt, "prompt", 40_000)
+        canonical_prompt = _bounded_text(prompt, "prompt", 40_000)
         if not isinstance(settings, Krea2BatchSettings):
             raise TypeError("settings must be Krea2BatchSettings")
         selected_workflow = self._workflow_for_settings(settings) if self._workflows else None
@@ -734,10 +888,12 @@ class Krea2AssistedService:
                 if not isinstance(prompt_language, Krea2PromptLanguage):
                     raise TypeError("prompt_language must be a Krea2PromptLanguage")
                 project = project.with_prompt_language(prompt_language)
+            prompt = compile_krea2_art_direction(canonical_prompt, project.art_direction)
             attempt = Krea2AssistedAttempt(
                 attempt_id=self._attempt_id_factory(),
                 index=max((a.index for a in project.attempts if a.kind == "generation"), default=0) + 1,
                 prompt=prompt,
+                canonical_prompt=canonical_prompt,
                 settings=settings,
                 seed=chosen_seed,
                 conversation_branch_id=project.active_branch_id,
@@ -745,6 +901,7 @@ class Krea2AssistedService:
                 conversation_prompt_language=project.prompt_language,
                 conversation_model_id=project.revision_model_id or project.model_id,
                 style_preset=project.style_preset, preset_pending=project.preset_pending,
+                art_direction=project.art_direction,
                 workflow=(
                     _recipe_ref(selected_workflow.reference)
                     if selected_workflow is not None else None
@@ -753,7 +910,7 @@ class Krea2AssistedService:
             if enqueue:
                 attempt = attempt.queue(self._next_queue_order())
             saved = self.projects.save(replace(
-                project.add_attempt(attempt), current_prompt=prompt,
+                project.add_attempt(attempt), current_prompt=canonical_prompt,
                 render_settings=settings, render_seed=chosen_seed,
             ))
             if enqueue:
@@ -1166,6 +1323,7 @@ class Krea2AssistedService:
             krea2_assisted_v3,
             krea2_assisted_v4,
             krea2_assisted_v5,
+            krea2_assisted_v6,
         ):
             # Do not inject unrelated recipes or fetch a resource catalogue for
             # a purely visual correction. Publication still receives its memory.
@@ -1189,11 +1347,22 @@ class Krea2AssistedService:
         if recipe in {
             krea2_assisted_v4,
             krea2_assisted_v5,
-        } and mode is Krea2AssistedTurnMode.CREATION:
+            krea2_assisted_v6,
+        } and mode is Krea2AssistedTurnMode.CREATION and project.local_inspiration_enabled:
             example = project.selected_prompt_example
             if example is None:
                 raise RuntimeError("Le projet n’a pas d’inspiration locale épinglée.")
             user += recipe.example_context(example)
+        if recipe is krea2_assisted_v6 and project.art_direction is not None:
+            user += (
+                "\n\nACTIVE ART DIRECTION (compiled after your response):\n"
+                + json.dumps({
+                    "provider": project.art_direction.provider_id,
+                    "name": project.art_direction.display_name,
+                    "category": project.art_direction.category,
+                }, ensure_ascii=False)
+                + "\nKeep the scene prompt medium-neutral and do not repeat this style name."
+            )
         if project.preset_pending and project.style_preset is not None:
             preset = project.style_preset
             asset = self.assets.get(preset.image_asset_id)
@@ -1310,6 +1479,7 @@ class Krea2AssistedService:
                     prompt=prompt,
                     recommendations=recommendations,
                     model_id=_bounded_text(model_id, "model_id", 300),
+                    art_direction=project.art_direction,
                 )
                 return self.projects.save(replace(
                     project,
@@ -1328,6 +1498,7 @@ class Krea2AssistedService:
                 content=message,
                 questions=questions,
                 model_id=_bounded_text(model_id, "model_id", 300),
+                art_direction=project.art_direction,
             )
             project = replace(project, turns=(*project.turns, assistant), preset_pending=False)
             if draft is not None:
@@ -1530,7 +1701,15 @@ def _attempt_context(attempt: Krea2AssistedAttempt) -> str:
         **({"image_kind": "composition", "render_settings_are_inherited": True,
             "local_composition": "Selected image combines a fixed base with masked areas of the original generation; the prompt below describes that generation only."}
            if attempt.composition else {}),
-        "prompt": attempt.prompt,
+        "prompt": attempt.canonical_prompt or attempt.prompt,
+        **({
+            "compiled_render_prompt": attempt.prompt,
+            "art_direction": {
+                "provider": attempt.art_direction.provider_id,
+                "name": attempt.art_direction.display_name,
+                "category": attempt.art_direction.category,
+            },
+        } if attempt.art_direction is not None else {}),
         "model_name": attempt.settings.model_name,
         "aspect_ratio": attempt.settings.aspect_ratio.value,
         "megapixels": attempt.settings.megapixels,
@@ -1701,6 +1880,18 @@ def _sidecar(
     return json.dumps({
         "schema_version": 1,
         "prompt": attempt.prompt,
+        "canonical_prompt": attempt.canonical_prompt or attempt.prompt,
+        "art_direction": (
+            {
+                "provider_id": attempt.art_direction.provider_id,
+                "style_id": attempt.art_direction.style_id,
+                "name": attempt.art_direction.name,
+                "category": attempt.art_direction.category,
+                "prompt": attempt.art_direction.prompt,
+                "catalog_revision": attempt.art_direction.catalog_revision,
+            }
+            if attempt.art_direction is not None else None
+        ),
         "assisted_creation": {
             "project_id": project.project_id,
             "project_name": project.name,

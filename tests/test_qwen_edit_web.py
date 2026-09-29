@@ -99,6 +99,8 @@ class QwenEditWebTest(QwenEditFixture):
         self.assertEqual(detail.status_code, 200)
         self.assertTrue(detail.json()["message"]["raw"])
         self.assertTrue(detail.json()["message"]["reasoning"])
+        self.assertNotIn("auto_render", message)
+        self.assertEqual(self.current()["attempts"], [])
 
     def test_disabled_service_explains_setup(self):
         app = FastAPI()

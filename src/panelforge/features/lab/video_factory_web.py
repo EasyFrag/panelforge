@@ -1,6 +1,8 @@
 """HTTP boundary for the video factory; enqueueing never executes a workflow."""
 from typing import Any
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from ipaddress import ip_address
+from fastapi import APIRouter, File, HTTPException, UploadFile, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from panelforge.application.video_factory import FactoryConflict
@@ -48,6 +50,8 @@ def video_factory_router(service, *, validate_image):
             raise HTTPException(404, str(error)) from error
         except (TypeError, ValueError) as error:
             raise HTTPException(422, str(error)) from error
+        except OSError as error:
+            raise HTTPException(409, str(error)) from error
 
     @router.get("")
     def state():
@@ -94,6 +98,10 @@ def video_factory_router(service, *, validate_image):
     def update(body: FactorySelection):
         return invoke(lambda: service.update(body.ids, body.revisions, body.changes, body.preset, body.replacements))
 
+    @router.post("/estimate")
+    def estimate(body: FactorySelection):
+        return invoke(lambda: service.estimate(body.ids, body.revisions))
+
     @router.post("/launch")
     def launch(body: FactorySelection):
         return invoke(lambda: service.launch(body.ids, body.revisions))
@@ -109,5 +117,25 @@ def video_factory_router(service, *, validate_image):
     @router.post("/items/{identity}/refresh-source")
     def refresh_source(identity: str, body: FactorySelection):
         return invoke(lambda: service.refresh_source(identity, body.revisions))
+
+    @router.get("/items/{identity}/instagram.txt")
+    def instagram(identity: str):
+        text = invoke(lambda: service.result_text(identity))
+        return Response(text.encode("utf-8"), media_type="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="Instagram.txt"'})
+
+    @router.post("/items/{identity}/retry-export")
+    def retry_export(identity: str):
+        return invoke(lambda: service.retry_delivery(identity))
+
+    @router.post("/items/{identity}/open-folder")
+    def open_folder(identity: str, request: Request):
+        try:
+            local = bool(request.client and ip_address(request.client.host).is_loopback)
+        except ValueError:
+            local = False
+        if not local or request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(403, "Ouvrez le Lab sur son PC pour ouvrir ce dossier ; sinon copiez le chemin ou téléchargez le résultat.")
+        return invoke(lambda: service.open_result_folder(identity))
 
     return router

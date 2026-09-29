@@ -295,7 +295,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(core_script.status_code, 200)
-        self.assertIn("/static/lab-core.js?v=20260918.1", page.text)
+        self.assertIn("/static/lab-core.js?v=20260928.journeys1", page.text)
         self.assertIn("function errorDetailMessage(detail)", core_script.text)
         self.assertIn('item.loc.filter((part) => part !== "body")', core_script.text)
         self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
@@ -917,12 +917,16 @@ class LabWebTest(unittest.TestCase):
                 },
                 "local_cooldown_temperature_c": 80,
                 "local_cooldown_seconds": 80,
+                "remote_non_video_cooldown_temperature_c": 79,
+                "remote_non_video_cooldown_seconds": 90,
                 "remote_video_cooldown_seconds": 45,
                 "pause_after_failure": True,
                 "history_limit": 20,
             })
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()["remote_video_cooldown_seconds"], 45)
+            self.assertEqual(response.json()["remote_non_video_cooldown_temperature_c"], 79)
+            self.assertEqual(response.json()["remote_non_video_cooldown_seconds"], 90)
             self.assertEqual(response.json()["local_cooldown_temperature_c"], 80)
             self.assertEqual(response.json()["local_cooldown_seconds"], 80)
             thermal = client.get("/api/work-scheduler/thermal-history")

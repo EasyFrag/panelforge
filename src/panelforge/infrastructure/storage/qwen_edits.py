@@ -10,14 +10,17 @@ from .local import _atomic_write, _json_bytes
 
 
 class LocalQwenEditStore:
+    engine = "qwen"
+    label = "Qwen"
+
     def __init__(self, workspace):
-        self.root = Path(workspace).resolve() / "qwen_edits"
+        self.root = Path(workspace).resolve() / f"{self.engine}_edits"
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = RLock()
 
     def _directory(self, project_id):
-        if not isinstance(project_id, str) or not re.fullmatch(r"qwen-[0-9a-f]{32}", project_id):
-            raise ValueError("Identifiant de projet Qwen invalide.")
+        if not isinstance(project_id, str) or not re.fullmatch(rf"{self.engine}-[0-9a-f]{{32}}", project_id):
+            raise ValueError(f"Identifiant de projet {self.label} invalide.")
         path = self.root / project_id
         if path.is_symlink():
             raise ValueError("Lien de projet interdit.")
@@ -29,8 +32,9 @@ class LocalQwenEditStore:
             if path.is_symlink():
                 raise ValueError("Lien de projet interdit.")
             project = json.loads(path.read_text(encoding="utf-8"))
-            if project.get("schema_version") != 1 or project.get("id") != project_id:
-                raise ValueError("Version ou identité du projet Qwen invalide.")
+            if (project.get("schema_version") != 1 or project.get("id") != project_id
+                    or project.get("engine", self.engine) != self.engine):
+                raise ValueError(f"Version ou identité du projet {self.label} invalide.")
             return project
 
     def list(self):

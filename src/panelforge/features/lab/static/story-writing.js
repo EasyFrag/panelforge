@@ -19,8 +19,8 @@
     })();
     const approved = id => flow.mode !== "manual" || flow.status === "ready" ||
       (!!doc.reviews?.[id]?.source_hash && flow.approvals?.[id] === doc.reviews[id].source_hash);
-    const storyDone = !!status.outline_reviewed && (approved("outline") ||
-      (!doc.reviews?.outline?.source_hash && flow.wait_target !== "outline"));
+    const storyDone = !!status.outline_reviewed && (project?.story_quality_version === 1 ? status.outline_approved === true
+      : approved("outline") || (!doc.reviews?.outline?.source_hash && flow.wait_target !== "outline"));
     const unitStates = units.map(unit => ({id: unit.id, label: name(unit.id),
       written: !!doc.episode_scenarios?.[unit.id], ...status.units?.[unit.id]}));
     const allReady = units.length > 0 && unitStates.every(unit => unit.ready && approved(unit.id));
@@ -42,7 +42,7 @@
     if (project) {
       action = "advance"; label = !outline ? "Construire l’histoire" : !storyDone ? "Relire et poursuivre l’histoire" : "Poursuivre le scénario";
       title = !outline ? "Prêt à construire l’histoire" : !storyDone ? "La direction de l’histoire" : "Développer et vérifier les scènes";
-      message = outline ? "Les textes sont enregistrés. Reprends le parcours pour effectuer les étapes encore nécessaires." : "La conception et sa relecture précèdent l’écriture des scènes.";
+      message = outline ? "Les textes sont enregistrés. Reprends le parcours pour effectuer les étapes encore nécessaires." : (project.story_quality_version === 1 ? "Conception, écriture, puis relecture du scénario. L’arc peut être relu sur demande." : "La conception et sa relecture précèdent l’écriture des scènes.");
     }
     if (running) {
       kind = active ? "running" : "planned";

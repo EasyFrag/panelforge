@@ -17,6 +17,18 @@ class LongStoryOptions(BaseModel):
     ending_type: str = Field(default="resolution", pattern="^(auto|resolution|open|reversal|cost)$")
 
 
+class WritingDirection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tone_profile: str = Field(default="none", pattern="^(none|black_comedy_street_v1)$")
+    glossary: str = Field(default="", max_length=2000)
+    dialogue_style: str = Field(default="natural", pattern="^(natural|street|custom)$")
+    dialogue_notes: str = Field(default="", max_length=2000)
+    dialogue_pace: str = Field(default="fast", pattern="^(natural|fast)$")
+    visual_render: str = Field(default="story", pattern="^(story|animation_3d|live_action|custom)$")
+    visual_notes: str = Field(default="", max_length=2000)
+    protected_lines: list[str] = Field(default_factory=list, max_length=24)
+
+
 class StoryCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(default="Nouvelle histoire", min_length=1, max_length=160)
@@ -36,6 +48,8 @@ class StoryCreate(BaseModel):
     parent_story_id: str | None = Field(default=None, pattern="^story-[a-f0-9]{32}$")
     long_options: LongStoryOptions | None = None
     workflow_mode: str | None = Field(default=None, pattern="^(manual|automatic)$")
+    writing_edition_id: str | None = Field(default=None, min_length=1, max_length=100)
+    writing_direction: WritingDirection | None = None
     visual_universe: str = Field(default="", max_length=1000)
     target_seconds: int | None = Field(default=None, ge=10, le=2160, strict=True)
 
@@ -64,6 +78,10 @@ class StoryRestore(BaseModel):
 class StoryVersion(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1, strict=True)
+
+
+class StoryEditionSelect(StoryVersion):
+    edition_id: str = Field(min_length=1, max_length=100)
 
 
 class StoryContinuityEdit(StoryVersion):
@@ -141,6 +159,7 @@ class FollowupVersion(BaseModel):
 
 class FollowupSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    writing_edition_id: str | None = Field(default=None, min_length=1, max_length=100)
     dialogue_language: str
     scene_count: int = Field(ge=1, le=12, strict=True)
     clip_seconds: int = Field(ge=5, le=15, strict=True)
@@ -219,7 +238,7 @@ def stories_router(service):
 
     @router.get("/spec")
     def spec():
-        return invoke(lambda: {"recipes": current().recipe_specs()})
+        return invoke(lambda: {"recipes": current().recipe_specs(), "writing_editions": current().editions.catalog()})
 
     @router.get("/projects")
     def projects():
@@ -232,6 +251,10 @@ def stories_router(service):
     @router.get("/projects/{project_id}")
     def get(project_id: str):
         return invoke(lambda: current().get(project_id))
+
+    @router.put("/projects/{project_id}/writing-edition")
+    def select_writing_edition(project_id: str, body: StoryEditionSelect):
+        return invoke(lambda: current().editions.select(project_id, **body.model_dump()))
 
     @router.post("/projects/{project_id}/write", status_code=202)
     def write(project_id: str, body: StoryWrite):

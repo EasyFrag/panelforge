@@ -60,6 +60,8 @@ class EpisodeContinuityActions:
                          and not r.get("continuity_state_id") and r.get("image_asset_id")), None)
             if base is None:
                 raise ValueError("Choisis d'abord l'image d'identité du personnage ou de l'objet.")
+            if value.get("visual_state_policy") == 2 and base.get("continuity_image_stale"):
+                raise ValueError("Actualise et valide l'image d'identité avant de préparer cette variante.")
             signature = fingerprint([base["image_asset_id"], ref["description"]])
             link = ref.get("qwen_variant")
             if link and link["signature"] == signature:

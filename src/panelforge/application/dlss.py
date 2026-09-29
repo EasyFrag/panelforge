@@ -11,7 +11,7 @@ from threading import Event, RLock, Thread
 import time
 import uuid
 
-from panelforge.domain.dlss import DlssSettings
+from panelforge.domain.dlss import DlssSettings, dlss_progress_ratio
 from panelforge.domain.production import ComputeResource, ProductionWorkload
 
 from .production_resources import ResourceWaitCancelled
@@ -236,17 +236,7 @@ class DlssService:
             current["progress"] = dict(progress, updated_at=datetime.now(timezone.utc).isoformat())
             self.jobs.save(current)
         if self.work_coordinator is not None:
-            percent = progress.get("percent")
-            stage_index = progress.get("stage_index")
-            stage_count = progress.get("stage_count")
-            normalized = None
-            if (
-                isinstance(stage_index, int)
-                and isinstance(stage_count, int)
-                and stage_count > 0
-            ):
-                stage_progress = 0.0 if percent is None else min(100.0, max(0.0, float(percent))) / 100.0
-                normalized = min(1.0, max(0.0, (stage_index + stage_progress) / stage_count))
+            normalized = dlss_progress_ratio(progress)
             self.work_coordinator.report_progress(
                 f"dlss:{job_id}",
                 normalized,

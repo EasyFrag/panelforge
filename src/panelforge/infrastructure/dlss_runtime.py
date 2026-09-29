@@ -47,7 +47,7 @@ def windows_process_identity(pid):
 
 
 class LocalDlssRuntime:
-    def __init__(self, *, root, base_url, journal, comfy, output_root=None, startup_timeout=180):
+    def __init__(self, *, root, base_url, journal, comfy, output_root=None, startup_timeout=180, opener=None):
         self.root = Path(root).resolve()
         self.output_root = Path(output_root).resolve() if output_root is not None else None
         parsed = urllib.parse.urlsplit(base_url)
@@ -58,11 +58,12 @@ class LocalDlssRuntime:
         self.journal = journal
         self.comfy = comfy
         self.timeout = startup_timeout
+        self._opener = opener
         self.lock = RLock()
         self.process = None
 
     def _json(self, path, timeout=2):
-        with urllib.request.urlopen(self.base_url + path, timeout=timeout) as response:
+        with (self._opener or urllib.request.urlopen)(self.base_url + path, timeout=timeout) as response:
             return json.load(response)
 
     def ready(self):

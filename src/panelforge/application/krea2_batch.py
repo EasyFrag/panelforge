@@ -252,20 +252,7 @@ class Krea2BatchService:
             return self.batches.save(batch.start_rendering())
 
     def render(self, batch_id: str) -> Krea2Batch:
-        if self.work_coordinator is None:
-            return self._render_owned(batch_id)
-        try:
-            with self.work_coordinator.lease(
-                f"krea2-batch-{batch_id}",
-                ComputeResource.REMOTE_GPU,
-                ProductionWorkload.IMAGE_RENDER,
-                "KREA2 Batch",
-                cancelled=lambda: self.batches.get(batch_id).status
-                is Krea2BatchStatus.CANCELLED,
-            ):
-                return self._render_owned(batch_id)
-        except ResourceWaitCancelled:
-            return self.batches.get(batch_id)
+        return self._render_owned(batch_id)
 
     def _render_owned(self, batch_id: str) -> Krea2Batch:
         with self._lock:
@@ -298,7 +285,9 @@ class Krea2BatchService:
                 if current_item.status is not Krea2BatchItemStatus.PENDING:
                     continue
                 try:
-                    current = self._render_item(current, current_item, render_settings)
+                    current = self._render_item_with_lease(current, current_item, render_settings)
+                except ResourceWaitCancelled:
+                    return self.batches.get(batch_id)
                 except Exception as error:
                     current = self.batches.get(batch_id)
                     current_item = next(candidate for candidate in current.items if candidate.item_id == item.item_id)
@@ -562,6 +551,26 @@ class Krea2BatchService:
             return self.batches.save(batch.fail(_error(error), raw_response=result.content))
         self._report(result.call_id, LlmCallApplicationOutcome.ACCEPTED)
         return self.batches.save(terminal)
+
+    def _render_item_with_lease(
+        self,
+        batch: Krea2Batch,
+        item: Krea2BatchItem,
+        settings: Krea2BatchSettings,
+    ) -> Krea2Batch:
+        if self.work_coordinator is None:
+            return self._render_item(batch, item, settings)
+        with self.work_coordinator.lease(
+            f"krea2-batch-{batch.batch_id}:{item.item_id}",
+            ComputeResource.REMOTE_GPU,
+            ProductionWorkload.IMAGE_RENDER,
+            f"KREA2 Batch · image {item.index}/{batch.image_count}",
+            cancelled=lambda: self.batches.get(batch.batch_id).status in {
+                Krea2BatchStatus.CANCELLED,
+                Krea2BatchStatus.CANCEL_PENDING,
+            },
+        ):
+            return self._render_item(batch, item, settings)
 
     def _render_item(
         self,
