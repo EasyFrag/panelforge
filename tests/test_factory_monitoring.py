@@ -131,6 +131,102 @@ class DurationTest(unittest.TestCase):
             self.assertEqual(LocalFactoryTimingsStore(directory).load(), value)
 
 
+class NearbyGpuDurationTest(unittest.TestCase):
+    @staticmethod
+    def story(references):
+        item = card()
+        config = item["config"]
+        config["mode"] = "ref2v"
+        config["references"] = [dict(asset_id="environment", role="environment_reference")] + [
+            dict(asset_id=f"subject-{i}", role="subject_reference") for i in range(references - 1)]
+        item["launch_snapshot"] = deepcopy(config)
+        return item
+
+    def test_adjacent_reference_count_is_indicative_and_exact_history_wins(self):
+        history = duration_profile(self.story(6), "video", "remote_gpu")
+        target = duration_profile(self.story(7), "video", "remote_gpu")
+        records = [dict(profile=history, seconds=v, finished_at=STAMP) for v in (380, 420)]
+        result = DurationModel(records).estimate(target)
+        self.assertEqual(result["seconds"], 400)
+        self.assertEqual(result["samples"], 2)
+        self.assertEqual(result["source"], "similar")
+        self.assertEqual(result["confidence"], "low")
+        self.assertTrue(result["indicative"])
+        self.assertLess(result["low"], result["seconds"])
+        self.assertGreater(result["high"], result["seconds"])
+        self.assertEqual(DurationModel(records).estimate(target, elapsed=100)["seconds"], 300)
+        records.append(dict(profile=target, seconds=500, finished_at=STAMP))
+        exact = DurationModel(records).estimate(target)
+        self.assertEqual(exact["source"], "comparable")
+        self.assertEqual(exact["seconds"], 500)
+        self.assertEqual(exact["samples"], 1)
+
+    def test_video_fallback_keeps_compute_contract_and_limits_reference_distance(self):
+        recipe = dict(id="ref2v", version="1", workflow_sha256="workflow-a")
+        history = duration_profile(self.story(6), "video", "remote_gpu", recipe)
+        target = duration_profile(self.story(7), "video", "remote_gpu", recipe)
+        model = DurationModel([dict(profile=history, seconds=400, finished_at=STAMP)])
+        for field, value in (
+            ("lane", "local_gpu"), ("recipe", dict(recipe, workflow_sha256="workflow-b")),
+            ("input_mode", "h3"), ("checkpoint", "other-model"), ("version", 2),
+            ("settings", dict(target["settings"], duration_seconds=20)),
+            ("settings", dict(target["settings"], megapixels=1.8)),
+            ("settings", dict(target["settings"], steps=12)),
+            ("bunny", dict(target["bunny"], coarse_steps=8)),
+            ("roles", ["subject_reference"] * 7),
+            ("roles", ["environment_reference"] + ["subject_reference"] * 8),
+        ):
+            with self.subTest(field=field, value=value):
+                self.assertIsNone(model.estimate(dict(target, **{field: value}))["seconds"])
+        self.assertIsNone(DurationModel().estimate(target)["seconds"])
+
+    def test_dlss_uses_same_video_format_without_reference_count_partition(self):
+        target = duration_profile(self.story(7), "dlss", "local_gpu")
+        records = [dict(profile=duration_profile(self.story(n), "dlss", "local_gpu"),
+                        seconds=seconds, finished_at=STAMP) for n, seconds in ((3, 150), (6, 160))]
+        model = DurationModel(records)
+        result = model.estimate(target)
+        self.assertEqual(result["seconds"], 155)
+        self.assertEqual(result["samples"], 2)
+        self.assertTrue(result["indicative"])
+        self.assertEqual(result["confidence"], "low")
+        for field, value in (
+            ("lane", "remote_gpu"), ("dlss_contract", "other-dlss"),
+            ("settings", dict(target["settings"], duration_seconds=20)),
+            ("settings", dict(target["settings"], megapixels=1.8)),
+            ("options", dict(target["options"], target_fps=120)),
+        ):
+            with self.subTest(field=field):
+                self.assertIsNone(model.estimate(dict(target, **{field: value}))["seconds"])
+
+    def test_nearby_history_unblocks_later_story_and_global_forecast_without_mutation(self):
+        first, following = self.story(7), self.story(3)
+        following["id"] = "following-story"
+        state, _, lanes, machine = inputs([first, following])
+        adapter, store = FakeWorkflows(), MemoryTimings()
+        adapter.monitor_snapshot = machine
+        for references in (6, 3):
+            past = self.story(references)
+            for stage, seconds in dict(plan=20, prompt=10, video=400, dlss=150, social=10, export=5).items():
+                store.value["records"].append(dict(
+                    profile=duration_profile(past, stage, "export" if stage == "export" else lanes[first["id"]][stage]),
+                    seconds=seconds, finished_at=STAMP))
+        before = deepcopy(state)
+        monitor = FactoryMonitoring(store, clock=lambda: NOW)
+        value = monitor.snapshot(adapter, state)
+        self.assertGreater(value["remaining_seconds"], 0)
+        self.assertIsNotNone(value["low_seconds"])
+        self.assertIsNotNone(value["high_seconds"])
+        self.assertIsNotNone(value["indicative_reason"])
+        for item in (first, following):
+            self.assertGreater(value["items"][item["id"]]["remaining_seconds"], 0)
+        self.assertEqual(value["items"][first["id"]]["steps"]["video"]["source"], "similar")
+        self.assertEqual(value["items"][following["id"]]["steps"]["video"]["source"], "comparable")
+        self.assertEqual(state, before)
+        self.assertEqual(store.saves, 0)
+        self.assertFalse(adapter.calls)
+
+
 class ForecastTest(unittest.TestCase):
     def test_parallel_machines_dependency_order_and_video_cooldown(self):
         a, b = card("A", final=True), card("B")

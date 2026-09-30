@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from .prompt_lab import CreativeFreedomAxes, RevisionOrigin
 from .prompt_writer import supports_writer_model
+from .worker_visual_policy import WorkerVisualPolicy
 from .localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_POLICIES, THANKS_LANGUAGES, LEGACY_THANKS_LANGUAGES
 
 
@@ -20,9 +21,12 @@ class PreparationIntent:
     creative_audacity: int = 0
     speech_policy: str | None = None
     speech_language: str | None = None
+    worker_visual_policy: WorkerVisualPolicy | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.source_text, "source_text")
+        if self.worker_visual_policy is not None and not isinstance(self.worker_visual_policy, WorkerVisualPolicy):
+            raise TypeError("worker_visual_policy must be WorkerVisualPolicy or None")
         if self.speech_policy not in (None, *LOCALIZED_THANKS_POLICIES):
             raise ValueError("unknown requested speech policy")
         if self.speech_language is not None and (

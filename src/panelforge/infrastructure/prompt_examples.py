@@ -186,6 +186,7 @@ class LocalPromptExampleLibrary:
         library_id: str = "bunnys_wildcards_1",
         model_name: str = DEFAULT_MODEL,
         work_coordinator=None,
+        local_files_only: bool = False,
     ) -> None:
         self.library_id = library_id
         self.root = Path(workspace_root).resolve() / "prompt_libraries" / library_id
@@ -194,6 +195,7 @@ class LocalPromptExampleLibrary:
         self.model_root = Path(workspace_root).resolve() / "prompt_libraries" / "_models"
         self.model_name = model_name
         self.work_coordinator = work_coordinator
+        self.local_files_only = local_files_only
         self._lock = RLock()
         self._thread: Thread | None = None
         self._state = "ready" if self._index_is_current() else "unavailable"
@@ -407,7 +409,7 @@ class LocalPromptExampleLibrary:
                     cache_dir=str(self.model_root),
                     providers=["CPUExecutionProvider"],
                     cuda=False,
-                    local_files_only=self._index_is_current(),
+                    local_files_only=self.local_files_only or self._index_is_current(),
                 )
             return self._model
 

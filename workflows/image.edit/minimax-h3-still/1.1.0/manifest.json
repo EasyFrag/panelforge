@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "operation_id": "image.edit",
+  "recipe_id": "minimax.h3_still_edit",
+  "version": "1.1.0",
+  "engine": "minimax",
+  "display_name": "Minimax H3 Still · hybride FL2VA/Ref2VA",
+  "workflow_file": "workflow.json",
+  "workflow_sha256": "dca8614c053ce994f45c26c97288118fc4833ca058cfa266dfebcb8296b2215c",
+  "inputs": {
+    "prompt": [
+      {
+        "node_id": "28",
+        "input": "prompt"
+      }
+    ],
+    "seed": [
+      {
+        "node_id": "12",
+        "input": "noise_seed"
+      }
+    ],
+    "steps": [
+      {
+        "node_id": "7",
+        "input": "steps"
+      }
+    ],
+    "width": [
+      {
+        "node_id": "28",
+        "input": "width"
+      },
+      {
+        "node_id": "65",
+        "input": "width"
+      }
+    ],
+    "height": [
+      {
+        "node_id": "28",
+        "input": "height"
+      },
+      {
+        "node_id": "65",
+        "input": "height"
+      }
+    ],
+    "output_prefix": [
+      {
+        "node_id": "68",
+        "input": "filename_prefix"
+      }
+    ],
+    "reference_megapixels": [
+      {
+        "node_id": "47",
+        "input": "megapixels"
+      }
+    ]
+  },
+  "components": {
+    "base_model": {
+      "node_id": "69",
+      "input": "base_model"
+    },
+    "overlay_model": {
+      "node_id": "69",
+      "input": "overlay_model"
+    },
+    "clip": {
+      "node_id": "11",
+      "input": "clip_name"
+    },
+    "vae": {
+      "node_id": "2",
+      "input": "vae_name"
+    },
+    "audio_vae": {
+      "node_id": "3",
+      "input": "vae_name"
+    }
+  },
+  "required_nodes": {
+    "2": "VAELoader",
+    "3": "VAELoader",
+    "6": "KSamplerSelect",
+    "7": "BasicScheduler",
+    "8": "SamplerCustomAdvanced",
+    "9": "BasicGuider",
+    "11": "CLIPLoader",
+    "12": "RandomNoise",
+    "25": "LoadImage",
+    "28": "MiniMaxH3ReferenceToVideo",
+    "47": "ImageScaleToTotalPixels",
+    "60": "ModelAttentionBackend",
+    "64": "FizgigH3StillDecode",
+    "65": "FizgigH3StillLatent",
+    "68": "SaveImage",
+    "69": "MiniMaxH3HybridLoader"
+  },
+  "conditioning_node": "28",
+  "image_slots": [
+    {
+      "load_node": "25",
+      "scale_node": "47",
+      "input": "ref_images.ref_image_0"
+    },
+    {
+      "load_node": "minimax_reference_2",
+      "scale_node": "minimax_reference_scale_2",
+      "input": "ref_images.ref_image_1"
+    },
+    {
+      "load_node": "minimax_reference_3",
+      "scale_node": "minimax_reference_scale_3",
+      "input": "ref_images.ref_image_2"
+    },
+    {
+      "load_node": "minimax_reference_4",
+      "scale_node": "minimax_reference_scale_4",
+      "input": "ref_images.ref_image_3"
+    },
+    {
+      "load_node": "minimax_reference_5",
+      "scale_node": "minimax_reference_scale_5",
+      "input": "ref_images.ref_image_4"
+    },
+    {
+      "load_node": "minimax_reference_6",
+      "scale_node": "minimax_reference_scale_6",
+      "input": "ref_images.ref_image_5"
+    },
+    {
+      "load_node": "minimax_reference_7",
+      "scale_node": "minimax_reference_scale_7",
+      "input": "ref_images.ref_image_6"
+    },
+    {
+      "load_node": "minimax_reference_8",
+      "scale_node": "minimax_reference_scale_8",
+      "input": "ref_images.ref_image_7"
+    },
+    {
+      "load_node": "minimax_reference_9",
+      "scale_node": "minimax_reference_scale_9",
+      "input": "ref_images.ref_image_8"
+    }
+  ],
+  "guide": {
+    "mask_node": "minimax_guide_mask"
+  },
+  "output": {
+    "node_id": "68",
+    "media_type": "image/png"
+  },
+  "capabilities": {
+    "max_render_images": 9,
+    "visual_guide": "reference_image",
+    "native_inpainting": false,
+    "negative_prompt": false,
+    "cfg": false,
+    "text_to_image": false
+  },
+  "fixed": {
+    "sampler": "er_sde",
+    "scheduler": "beta",
+    "denoise": 1,
+    "reference_interpolation": "nearest-exact",
+    "ref_image_size": "max"
+  },
+  "provenance": {
+    "source": "Image Edit Minimax.json",
+    "source_sha256": "dca8614c053ce994f45c26c97288118fc4833ca058cfa266dfebcb8296b2215c",
+    "note": "Original graph unchanged; configurable reference 1 or 2 MP, nearest-exact unchanged."
+  },
+  "defaults": {
+    "reference_megapixels": 1
+  }
+}

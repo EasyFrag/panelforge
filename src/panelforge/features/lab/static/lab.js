@@ -174,8 +174,8 @@ function bindEvents() {
   ui.reject.addEventListener("click", () => review("rejected"));
   ui.reuse.addEventListener("click", reuseResult);
   ui.refresh.addEventListener("click", loadHistory);
-  ui["release-llm-vram"].addEventListener("click", releaseLlmVram);
-  ui["release-comfy-vram"].addEventListener("click", releaseComfyVram);
+  ui["release-llm-vram"]?.addEventListener("click", releaseLlmVram);
+  ui["release-comfy-vram"]?.addEventListener("click", releaseComfyVram);
   document.addEventListener("visibilitychange", handleRuntimeVisibility);
   window.addEventListener("beforeunload", () => {
     stopRuntimeMonitor();
@@ -356,16 +356,20 @@ function renderRuntimeStatus() {
   if (!localGpu?.available) serviceWarnings.push("GPU local indisponible");
   ui["runtime-services"].textContent = serviceWarnings.join(" · ");
   ui["runtime-services"].hidden = serviceWarnings.length === 0;
+  if (ui["release-comfy-vram"]) {
   ui["release-comfy-vram"].disabled = !comfy?.available || !comfy.cleanup_allowed;
   ui["release-comfy-vram"].title = !comfy?.available
     ? "ComfyUI indisponible."
     : !comfy.cleanup_allowed
       ? "Nettoyage indisponible pendant un rendu ComfyUI actif ou en attente."
       : "Décharge les modèles et caches ComfyUI.";
+  }
+  if (ui["release-llm-vram"]) {
   ui["release-llm-vram"].disabled = !llm?.available;
   ui["release-llm-vram"].title = llm?.available
     ? "Décharge les modèles actuellement chargés par llama.swap."
     : "llama.swap indisponible.";
+  }
   window.dispatchEvent(new CustomEvent("panelforge:work-scheduler-status", {
     detail: scheduler || null,
   }));

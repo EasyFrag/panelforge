@@ -1,5 +1,1500 @@
 # CONTINUITY
 
+## Version GitHub 2026-09-30 — Instantané de l'application pour master
+
+### Goal
+- Publier la version actuelle sur la branche principale GitHub, à la demande explicite de l'utilisateur (« main master »). La branche par défaut distante est master ; aucune branche main distincte.
+
+### Current state
+- Instantané du checkout actif D:/Code/panelforge-krea2-flux, destiné à prolonger origin/master 703624862d5951f9baa19adc0cdb94669c67f537. Inclut Histoire V2, l'enchaînement/reprise des références et les autres évolutions applicatives présentes dans ce checkout. Aucun nouveau changement fonctionnel pour la publication.
+- Préparation via index temporaire ; HEAD, branche feature et index réel du checkout conservés. Dossier master local également conservé, sans checkout ni reset. Workspace, médias, secrets et diagnostics locaux non inclus.
+- Vérifications du contenu exact : 112 Python compilés sans exécution, 6 JSON décodés, git diff --check réussi, aucune clé privée évidente détectée. Aucun test applicatif, appel LLM, rendu ou redémarrage. Node indisponible sur PATH : pas de contrôle JavaScript supplémentaire pour cette publication.
+- Reçu détaillé et commit de publication enregistrés hors snapshot : D:/Code/panelforge/.agent/diagnostics/github-master-20260930/snapshot.json et checks.json.
+
+### Next steps
+- Publication en fast-forward sans force, puis vérification du SHA distant. Conserver les dossiers de travail et poursuivre les tests fonctionnels côté utilisateur selon AGENTS.md.
+
+## Livraison 2026-09-29 — Enchaînement des références sans validation intermédiaire
+
+### Goal
+- Implémenter l'accord utilisateur « générer tout puis retoucher », en limitant expressément le changement à la logique d'enchaînement/reprise. Interface, modèles, prompts et réglages conservés.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux, trois fichiers applicatifs : story_v2.py (tick uniquement), story_v2_production.py et story_v2_images.py. Bases retenues automatiquement dans les deux modes ; variantes dès que la source existe ; miniature après disponibilité des bases. Manuel reste à references_ready après le lot ; automatique continue vers Préparation usine sans Plan/prompt/rendu vidéo. Validation du scénario inchangée.
+- Récupération MiniMax/Qwen par attempt_id, puis requête exacte prompt-<message_id> si accusé perdu. Une tentative persistée en cours/réussie prime sur auto_render skipped/failed obsolète. Résultats ajoutés à images de la fiche existante ; première sortie retenue automatiquement sauf choix manuel effectué depuis lancement.
+- Reprise distingue explicitement resume d'une relance volontaire. La sélection conserve reuse_edits pour les enfants sains existants ; leur signature doit correspondre avant réutilisation. Les véritables échecs seuls repartent sur un nouvel enfant. Bases Krea terminées retenues avant calcul des travaux manquants. États rafraîchis avant décision de retry pour éviter les doublons.
+- Limite assumée du périmètre : pas de refonte de galerie/navigation ni recherche dans tous les anciens projets pour rattacher les liens déjà remplacés avant ce patch. Anciens essais restent dans MiniMax ; aucune migration des journaux runtime. Réconciliation des liens encore disponibles et prévention pour les reprises suivantes.
+- Neuf tests de régression préparés dans test_story_v2_preparation ; contrat fake de test_story_v2 adapté. Tests NON exécutés selon AGENTS.md. Compilation/AST de cinq Python et diff ciblé contrôlés. AST confirme drafts/paramètres image, export et transfert usine inchangés. Aucun LLM/rendu/redémarrage/commit/push ; aucun projet runtime édité.
+- Guide docs/design/story-v2-guide.md actualisé. Sauvegardes, rapport, diff et vérifications : D:/Code/panelforge/.agent/diagnostics/story-v2-reference-chaining-20260929/.
+
+### Next steps
+1. Charger le backend au prochain redémarrage habituel choisi par l'utilisateur puis reprendre explicitement un lot interrompu. Ne pas redémarrer ou relancer de génération depuis l'agent sans demande.
+2. Tests à lancer côté utilisateur : tests.test_story_v2 et tests.test_story_v2_preparation. Observer premier lot manuel complet puis arrêt, automatique jusqu'à Préparation, reprise sans doublon et retouche ciblée.
+3. Ne pas élargir à l'UX/aux prompts ni réduire les variantes ; le périmètre final utilisateur se limite à l'enchaînement. Correctif de verrouillage précédent conservé.
+
+## Livraison 2026-09-29 — Parcours 3 MP et masque automatique, retrait de Test
+
+### Goal
+- Appliquer le go explicite : retirer l’atelier temporaire Test, adopter 3 MP / 18 passes et intégrer la protection automatique du décor par défaut dans le parcours ordinaire et les opérations +, sans atelier spécial ni masque manuel.
+
+### Current state
+- Code actif modifié dans D:/Code/panelforge-krea2-flux. Nouveaux parcours `fixed-3mp-v1` : préparation initiale unique à environ 3 × 1024² pixels, multiples32, côté maximal4096 ; exemple1120×1984 ->1344×2368. Toutes les références/rendus suivants gardent ces dimensions (`source`, `native`,18passes), sans nœud de réduction1MP. WorkflowMiniMax1.2.0 et VAEINT8ConvRot inchangés ; empreinte/liaison VAE contrôlées statiquement.
+- Case « Masque automatique · préserver le décor » cochée par défaut, réglage enregistré à la création, verrouillé ensuite. `auto_mask` copié dans chaque nouvelle étape et opérationappend/insert ; aucun masque pourHQisolé. Anciens journaux/profils inchangés, champ absent =comportement antérieur. Créer un nouveau parcours pour bénéficier des nouveaux réglages.
+- Phase durable `protecting` après collecte du rendu : raw_output_asset_id conservé, output_asset_id reste nul jusqu’à composition. Le rôle Progressionvisuelle reçoit source exacte3MP +rendu brut3MP +action courante et retourne des contours normalisés avec régions disjointes/exclusions. Politique `image.journey.mask@1.0.0`. Un appel visuel supplémentaire par transformation, aucun rôleLLM configurable ajouté. Pas de différence brute de pixels.
+- MasquePillow : polygones, trous, petite dilatation et bord doux ; composition viaPillowRetouchCompositor sans harmonisation globale ni redimensionnement. PixelsRGBA8 repris exactement de la source là où le masque vautzéro. Source =dernier état protégé ; pour insertion, source =image suivante éditée, afin de retirer les travaux trop avancés sans réécrire les deux images voisines.
+- Relecture, étape suivante, frise et export reçoivent la sortie composée. Dans le détail : volet discret « Masque automatique », boutons Résultatprotégé/Avant/Rendubrut/Masque, téléchargement et zoom natif. Brut/masque/plan/modèle/version conservés parIDs. RawLLM retiré de la réponse publique des étapes et opérations.
+- Erreur technique de localisation/composition : suspension reprenable sur le même rendu ; un plan déjà enregistré n’est pas recalculé. Changement d’intention à la reprise ne jette pas ce rendu en attente de protection. Le modèleProgressionvisuelle changé à la reprise est pris en compte si la localisation automatique doit être réessayée ; le modèle du plan d’origine reste tracé séparément. Pause pendant le masque termine la composition puis attend avant relecture. Aucun garde-fou esthétique supplémentaire : masque vide recopie source, relecture normale peut constater la similarité.
+- Choix de méthode : localisation par contours du modèle visuel existant, pas segmentation au pixelprès garantie. Consultation read-only object_infoComfyUI : nœudSAM3présent mais aucune entréeSAM dans le catalogueUNETLoader ; aucun modèle téléchargé/installé. La précision des contours et raccords reste à qualifier sur un vrai parcours. Ce mécanisme peut encore garder de la dérive à l’intérieur d’un masque trop large ou couper un ajout si trop étroit.
+- AtelierTest retiré : page/nav/CSS/JS/API/worker/service/presets/storage adapters/workflows image.diagnose/minimax-fidelity1.0.0et2.0.0, guide et tests spécifiques (16fichiers supprimés après copie de sauvegarde). Retour depuis une navigationTest mémorisée versParcours. Assets et journauxruntime des anciens essais conservés. AnciennesAPI de comparaisons/fixed-trials du parcours restent compatibles comme avant, sans UX. HQ×2isolé conservé, limite4096 inchangée ; message d’erreur désormais max2048/source plutôt queconseil1MP.
+- Contrôles statiques réussis :15Python compilés sans exécution ;3JSapp +2scriptsfixture/scénario compilés sans invocation ;2136IDsHTML uniques,62sélecteursjourney raccordés ;casechecked, workflowhash et VAE vérifiés, références applicatives àTest retirées.15nouveaux cas de régression masque préparés avec images synthétiques et doubles ; fixtures existantes adaptées au3MP et casHQavec sourcecarrée. Tests NON exécutés suivantAGENTS.md.
+- Aucun appelLLM, rendu, segmentationGPU, modification de projetruntime ou redémarrage de service. Aucun commit/publication. Changements concurrents préexistants conservés. Guide docs/design/image-journeys-guide.md actualisé.
+- Sauvegardes des fichiers, scripts d’application, liste précise, diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-protection-20260929/.
+
+### Next steps
+1. Au prochain redémarrage normal du Lab décidé par l’utilisateur, puisCtrl+F5, créer un nouveau parcours :3MP/18 etmasque coché. Ne pas redémarrer spontanément les services.
+2. L’utilisateur peut exécuter `python -m unittest discover -s tests -p "test_image_journey*.py"` puis ses vérifications habituelles. Aucun testapp exécuté ici.
+3. Qualifier sur une vraie modification locale (porte/escalier/deck), comparer brut/protégé/masque au zoom natif puis plusieurs étapes. Ajuster précision et raccords sur observations réelles ; ne pas présenter la conservation sémantique ou le résultat visuel comme déjà validés.
+
+
+## Alignement 2026-09-29 — Fiches MiniMax récupérables et premier lot sans validation intermédiaire
+
+### Goal
+- Examiner les résultats MiniMax invisibles dans Histoire après crash et s'aligner rapidement sur « générer tout, puis retoucher certaines références ».
+
+### Current state
+- Ancienne variante Lucas minimax-b1c798e99a7652328e5a789db2d1ddc4 : tentative réussie attempt-15ec0f38e9814a9d9226d822de573131, asset-551407d8fffd4ccdac77d6d9b1ade56a ; auto_render skipped sans attempt_id. Le rapprochement est possible via request_id prompt-<message_id>, mais StoryV2Images/_failed_images ne l'effectuent pas. La reprise crée un nouvel enfant via le request_id de lot, écrase le lien courant et laisse l'ancienne sortie seulement accessible dans MiniMax. Nouvelle variante actuelle réussie minimax-1c532ff43ba955ac9c58eb1b046f1521 / asset-7c81655b777a42b78b719aba34285275.
+- Fiche Histoire openReference : galerie r.images + historique Krea, pas historique MiniMax/Qwen. Cause concrète de fiche vide malgré rendu dans l'atelier. Bouton vers l'atelier utilise bien MiniMax.open(project_id) ; ne pas inventer une mauvaise signature de navigation, mais erreurs asynchrones actuellement non affichées dans la fiche. L'utilisateur dit que l'ouverture côté MiniMax fonctionne.
+- Run Lucas automatic : bases déjà retenues automatiquement, variantes déjà déclenchées sans validation humaine. Ce point n'explique pas le gel antérieur. En manuel, source_ready exige image retenue et statut validated : véritable interruption du parcours à enlever selon alignement proposé.
+- Proposition : première sortie réussie utilisée automatiquement pour chaque base ; variantes quand leur propre source est disponible ; miniature quand ses sources existent. Revue et retouches ensuite. Récupérer les tentatives déjà soumises avant toute relance, conserver l'accès aux anciens essais. En cas de changement d'identité, signaler les dérivés à actualiser sans tout relancer silencieusement.
+- Question async posée : même génération sans validation intermédiaire dans les deux modes, manuel s'arrêtant pour revue après lot, automatique continuant vers Préparation usine, ou seulement automatique. Réponse encore à intégrer. Aucune modification applicative/runtime, aucun test/rendu/LLM/redémarrage. Rapport D:/Code/panelforge/.agent/diagnostics/story-v2-reference-recovery-alignment-20260929/audit.md.
+
+### Next steps
+1. Finaliser l'alignement sur le périmètre manuel/automatique ; ne pas présenter cette proposition comme déjà implémentée.
+2. À l'implémentation : réconciliation robuste auto_render/tentatives et historique durable des variantes, galerie MiniMax/Qwen depuis Histoire, états/erreurs explicites ; supprimer la validation intermédiaire du premier lot selon réponse utilisateur.
+3. Préserver les rendus et travaux actuels. Ne pas relancer automatiquement un rendu réussi ni interrompre les générations en cours. Le correctif séparé de verrouillage précédent reste en place.
+
+## Correctif 2026-09-29 — Gel de PanelForge au lancement des références
+
+### Goal
+- Diagnostiquer les deux gels signalés dans Histoire V2 (terminal et navigateur figés) et corriger le défaut identifié sans interrompre les générations en cours.
+
+### Current state
+- Défaut concret : ResourceLeaseManager.lease appelait cancelled/on_wait sous son Condition. MiniMax (QwenEditService) peut attendre son verrou dans cancelled->_attempt_record alors qu'un producteur tenant ce verrou appelle enqueue->reserve et attend la Condition. Inversion de verrous susceptible de bloquer la file commune et les consultations. Cause compatible avec les traces, pas preuve rétrospective des deux gels faute de piles du processus bloqué.
+- Run Lucas storyv2-31bf708bfe47540d83cdf59885e5c710 : variante minimax-b1c798e99a7652328e5a789db2d1ddc4, prompt terminé 15:10:09.681 UTC puis tentative sauvegardée 15:10:09.728 sans accusé auto_render. Tentative d'abord observée queued sans execution_id, depuis réussie après redémarrage utilisateur à 15:14 UTC (rendu démarré 15:19:24). Histoire toujours paused/references au dernier relevé. Ne pas attribuer cette reprise au correctif non chargé.
+- Correctif limité à application/production_resources.py dans D:/Code/panelforge-krea2-flux : callbacks hors verrou, admission FIFO/pause/notification protégées, nettoyage du ticket/propriétaire dans finally même sur erreur de callback. Deux tests de régression ajoutés dans tests/test_production_resources.py (deux variantes de callback concurrent + trois exceptions de callback).
+- Syntaxe de deux fichiers compilée/parsée sans exécution, diff isolé relu, git diff --check ciblé réussi. Tests non exécutés selon AGENTS.md. Aucun appel LLM, rendu, écriture de projet runtime, redémarrage de service, commit ou push. Les modèles/prompts/variantes et réglages utilisateur ne changent pas.
+- Rapport, relevé après reprise, sauvegardes et diff : D:/Code/panelforge/.agent/diagnostics/story-v2-reference-freeze-20260929/. Le serveur existant doit encore charger le correctif au prochain redémarrage choisi par l'utilisateur.
+
+### Next steps
+1. Charger le correctif au prochain redémarrage habituel, sans interrompre les travaux en cours ; reprendre explicitement l'histoire. La reprise existante retente les éléments incomplets/échoués. Un rendu orphelin non rattaché à auto_render n'est pas automatiquement réparé par ce patch.
+2. Tests à lancer côté utilisateur : tests.test_production_resources et tests.test_machine_work. Confirmation sur un vrai lot à faire par l'utilisateur ; aucune reproduction/génération automatique par l'agent.
+3. Si nouveau gel, capturer les tâches bloquées avant redémarrage ; ne pas déclarer toutes les causes possibles éliminées. Question indépendante sur la pertinence des nombreuses variantes reste au stade audit, aucun changement de consignes ici.
+
+## Audit 2026-09-29 — Origine des nombreuses variantes de Lucas
+
+### Goal
+- Expliquer au demandeur pourquoi le dernier run crée beaucoup de références, surtout des variantes, et comment le modèle aboutit à ces états. Analyse demandée, aucun correctif autorisé.
+
+### Current state
+- Run Le sourire de Lucas, storyv2-31bf708bfe47540d83cdf59885e5c710, épisode-abb3281c4a2c51bdb29e94c8bea88919. Six scènes10s. 19 fiches =2 personnages +2 décors +4 objets +11 variantes (6Lucas,5Emma), hors miniature éventuelle. Références en cours lors du relevé, ne pas présenter19images terminées.
+- États déjà présents à l’écriture Qwen3.8-27B (llm-9f22ca4aa21649439858034e67cd8f34) ; première relecture sans issues ; Gemma4 retouche actions/répliques, appearances identiques avant/après. Trois appels, pas de correction auteur et contrôle final décoché. La retouche appréciée par l’utilisateur n’est pas la source des variantes.
+- Prompt effectif vérifié dans le journal : identité stable hors émotions/poses puis apparence temporaire complète par scène, à répéter sans héritage. Ambiguïté : pas de limite explicite aux changements matériels, pas de consigne de liste vide pour le jeu. La trace de l’auteur confirme à haut niveau qu’il interprète les expressions comme états temporaires et répète les vêtements ; aucune trace détaillée reproduite dans le rapport.
+- Lucas : sourire, négligé, négligé+sourire forcé, regard baissé, visage fermé, regard vers la rue. Emma : inquiète, regard fixe, mains ouvertes, attentive, calme ; tenue identique. attach_variants crée une référence pour chaque texte différent par identité (strip/casefold), pas de regroupement sémantique ni jugement d’utilité. Bases conservées pour dérivation, variante substituée dans chaque scène.
+- Avis : état matériel cheveux ébouriffés/t-shirt froissé potentiellement pertinent et réutilisable scènes2–6 ; expressions/poses pourraient rester du jeu vidéo. Pas d’audit visuel des images ni de preuve d’un bénéfice/inconvénient de chaque variante.
+- Quatre objets globaux (téléphone/porte/table/fenêtre) mais object_ids vide partout : fiches créées sans liaison de scène, certains inclus au décor. Candidats possibles pour miniature, donc ne pas dire inutilisés absolument.
+- Aucun code, projet runtime, sélection ou référence modifié ; aucun test, modèle, rendu ou redémarrage lancé. Notes de diagnostic uniquement. Rapport et evidence.json : D:/Code/panelforge/.agent/diagnostics/story-v2-lucas-variants-20260929/.
+
+### Next steps
+1. Présenter la cause exacte et des exemples ; distinguer identité, variante matérielle persistante et jeu d’acteur.
+2. Attendre une demande de correctif avant de changer les consignes, filtrer/regrouper des références ou modifier ce run. Garder le bon résultat de retouche Gemma indépendant de cette question.
+
+## Audit et alignement 2026-09-29 — FP16 sans gain net, piste 3 MP et masque automatique
+
+### Goal
+- Auditer la comparaison VAE lancée par l'utilisateur, donner un avis sur le maintien INT8 et aligner la suite 3 MP + masque automatique. Demande d'analyse/discussion, pas un go d'implémentation.
+
+### Current state
+- Série image-test-db9e474db87f59ef9a285de7fa416b67, protocole2.0.0, version34 : huit succès sans réessai. Départ partagé1344×2368 depuis le même import1120×1984 que l'essai précédent. Graphes, sources et empreintes contrôlés ; chaque chaîne utilise sa propre sortie, native3MP et brute. Les fichiers VAE vidéo INT8ConvRot etFP16 sont bien distincts dans les graphes ; seules varianteVAE et chemins médias changent entre cas appariés. Pas de contrôle du dtype interne distant revendiqué.
+- Planches globales et crops natifs écorce/lierre examinés : aucune amélioration convaincante enFP16. Les deux versions simplifient les mêmes structures et s'assombrissent de façon presque identique.
+- Mesures RGB8 natives : MAE à la source13,392(INT8)/13,415(FP16) aprèsVAEseul ;19,895/19,947 après3générations. Écart ENTRE reconstructions0,433/255 ; entre chaînes au passage3=1,630/255. Luminance moyenne finale−9,101/−9,140. Indicateurs descriptifs, pas scores perceptuels ; différences trop faibles ici pour justifier une préférenceFP16. L'hypothèse INT8 comme facteur dominant n'est pas soutenue par cette série, sans généralisation à tous les contenus.
+- Durées applicatives : chaînesINT8 68,9/45,3/43,3s, FP16 48,1/46,7/45,5s ; premier renduINT8 atypique, chargement/attente non isolés. Pas de mesureVRAM. Avis : garderINT8ConvRot, retenir3MP/18comme base proposée.
+- Suite proposée cohérente avec l'alignement antérieur : protection automatique à TOUTES les étapes du parcours et opérations+locales, sans masque dessiné ni validation par étape. Dernière image protégée + intention -> rendu3MP -> localisation/segmentation automatique de la modification utile, ombres/reflets/raccords compris -> composition avec pixels source horsmasque -> relecture et réutilisation de la version composée.
+- Source = état précédent protégé, pas toujours l'originalinitial, afin de conserver les travaux acquis. Conservation exacte horsmasque possible viaPillowRetouchCompositor.compose existant (masque nul, mêmes dimensions, PNG et absence de traitement global ensuite). Le calcul automatique du masque et la qualité des raccords restent à qualifier. Simple différence de pixels insuffisante, car elle inclurait la dérive indésirable ; aucune méthode de segmentation choisie ou installée.
+- Qualification proposée d'abord dansTest sur une transformation réelle locale (porte/petit escalier) : source / brut / protégé issus du même rendu, puis plusieurs étapes. Masque visible en diagnostic, pas saisie obligatoire. Cette étape de qualification ne restreint pas le futur périmètre au+manuel.
+- Question facultative posée viarequest_user_input_async : garder éclairage/couleurs globaux stables avec ombres/reflets locaux nécessaires, ou autoriser lumièreglobalechangeante. Option recommandée stabilité pourV1 ; pas de réponse reçue au moment de cette note. Ne pas traiter l'absence de réponse comme une validation.
+- Aucun code applicatif, défaut de parcours, runtime ou source modifié. Pas de test applicatif, rendu, segmentation, appelLLM ni redémarrage. CalculsCPU sur sorties existantes et planches uniquement. Parcoursordinaire toujoursprofil1MP ; passage3MP et masque nonimplémentés à ce stade.
+- Rapport, statistiques, preuves des différences de graphes et six planches : D:/Code/panelforge/.agent/diagnostics/image-test-vae-audit-20260929/audit.md et fichiers voisins. SourceprimairePillow.composite relue.
+
+### Next steps
+1. Présenter l'avis maintienINT8, base3MP/18 et masque+composition automatique ; intégrer la réponse éventuelle sur lumièreglobale.
+2. Attendre l'alignement/go avant implémentation ; qualifier ensuite le masque automatique et les raccords sur un cas local réel puis une courte chaîne, dansTest.
+3. Après qualification, brancher la composition dans toutes les étapes et faire analyser sa sortie finale ; ne pas lancer spontanément de génération ni changer les anciens parcours.
+
+
+## Livraison 2026-09-29 — Case de contrôle final facultatif dans Histoire V2
+
+### Goal
+- Appliquer le petit changement validé : case décochée par défaut près de Relecture, retouche Gemma indépendante, comportement actuel d’arrêt sur problème si contrôle activé.
+
+### Current state
+- Livré localement dans D:/Code/panelforge-krea2-flux. Domaine story_v2@1.3.0, cache JS20260929.control1. Prompts1.1.0 inchangés. Aucune publication/commit.
+- Case « Ajouter une étape de contrôle final » sous le modèle Relecture. Défaut False, choix mémorisé dans les préférences, verrouillé pendant l’écriture. Modèle de retouche laissé dans Réglages Dialogues ; son libellé devient Retouche légère des dialogues pour rester exact lorsque le dernier contrôle est décoché.
+- Première relecture systématique. Correction auteur éventuelle puis retouche optionnelle ; contrôle final après ces modifications uniquement si coché, avec le modèle Relecture. Si rien n’a changé après la première relecture, pas de seconde lecture identique.
+- Contrôle coché et remarques : arrêt À relire avant références, comportement précédent conservé. Décoché : poursuite directe après correction/retouche. Les remarques de la version précédente restent dans le journal d’appels mais sont retirées de l’avis courant pour éviter un blocage/affichage obsolète. Validations de structure, durées, références et budget de dialogues maintenues.
+- Comptage sans contrôle : 2/3 appels sans retouche, 3/4 avec ; avec contrôle : parcours précédent 2/4 sans retouche, 4/5 avec. Compteur/timer adaptés aux étapes effectivement lancées, réessais explicites comptés en plus. A/B avant/après retouche conservés.
+- Les cycles anciens déjà commencés sans ce nouveau champ conservent leur contrôle planifié à la reprise ; anciennes histoires terminées et nouvelles histoires utilisent défaut décoché/dernier choix. Lecture sans migration disque. Nouvelle option exclue de l’identité d’export pour éviter de recréer un épisode à scénario identique.
+- Automatique toujours scénario -> références/variantes/miniature -> usine Préparation. Aucun lancement Plan/prompt vidéo ou rendu ajouté.
+- Vérifications statiques : 6 Python compilés/parsés, 3 imports, JS applicatif et fixture/scénario navigateur compilés sans invocation, 2169 IDsHTML uniques, 71 sélecteurs/12 champs raccordés, case HTML non cochée, diff isolé relu. Cinq tests éditoriaux supplémentaires préparés, dont matrice huit combinaisons ; test navigateur et cas existants de blocage adaptés. Tests NON exécutés conformément à AGENTS.md.
+- Aucun appel LLM, génération, modification de projet runtime ou redémarrage de service. Travaux concurrents préexistants préservés.
+- Guide docs/design/story-v2-guide.md actualisé. Sauvegardes/diff de9 fichiers, rapport et static-checks.json : D:/Code/panelforge/.agent/diagnostics/story-v2-final-control-20260929/.
+
+### Next steps
+1. Charger le backend au prochain redémarrage habituel choisi par l’utilisateur, puis Ctrl+F5. Aucun redémarrage effectué par l’agent.
+2. L’utilisateur peut tester Gemma avec la case décochée puis cochée ; vérifier les comptes et l’arrêt À relire uniquement si le contrôle final activé signale encore des problèmes.
+3. Tests préparés à exécuter côté utilisateur : tests.test_story_v2, tests.test_story_v2_editorial et tests.test_story_v2_browser ; commande complète dans le guide.
+
+## Patch 2026-09-29 — Intentions de transition plus concises
+
+### Goal
+- Appliquer le petit patch demandé après l’audit : alléger l’intention proposée, sans affaiblir Fast ni modifier les règles d’identité/échelle.
+
+### Current state
+- Implémentation dans D:/Code/panelforge-krea2-flux : image.transitions.propose@3.0.1. Consignes du proposeur : viser deux ou trois phrases, environ 40–70 mots sans couper les contraintes essentielles ; annoncer le rythme une fois puis décrire les gestes qui causent la transformation. Ne pas ajouter tâches, matériel ou procédure détaillée pour remplir la durée.
+- Les détails de réalisation restent au Plan/Writer ; les presets Fast/Slow, le brief exporté et les références ouvriers/échelle gardent leur fonctionnement. Seuls SYSTEM et OPERATION changent dans le module applicatif. Schéma, décodage, payload, liens de référence, relecture et données historiques inchangés.
+- Deux attentes de version actualisées dans les tests existants, sans ajouter de tests de formulation. Guide docs/design/image-transitions.md mis à jour. Trois Python parsés/compilés sans exécution ; comparaison AST confirme l’absence de changement fonctionnel hors consignes/version. Diff isolé relu.
+- Sauvegardes, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/transition-concise-intention-20260929/.
+- Aucun test, appel LLM, rendu, modification de projet runtime, redémarrage ou publication. Qualité du texte à observer au prochain essai utilisateur.
+
+### Next steps
+- Au prochain redémarrage habituel du Lab choisi par l’utilisateur, reproposer une transition ; relire/appliquer la suggestion si une intention corrigée était conservée. Les anciennes intentions ne sont pas raccourcies automatiquement.
+- Continuer l’utilisation avant d’autres évolutions ; réorganisation UX globale/paires toujours différée.
+
+
+## Audit 2026-09-29 — Intention après essai de l’ouvrier détouré
+
+### Goal
+- Mini-audit de l’intention (et non du prompt final, correction explicite de l’utilisateur), sans modifier le fonctionnement que l’utilisateur souhaite conserver pour le moment.
+
+### Current state
+- Dernier essai examiné : usine factory-e7809794b2484e42906586f54ad23db6, transition 1 → 2 « Installation d’une plateforme en bois », rendu h3-render-f327f80f05fd49f29a23a24b47d05bd3 terminé à 14:38 UTC.
+- Intention visible : 548 caractères/environ 88 mots ; déroulé simple, mais répétitions du rythme Fast et formulation « structure s’élever » moins causale que pose/fixation des planches. Brief exporté : 3 558 caractères/environ 557 mots après ajout des consignes communes et temporelles.
+- Bon ouvrier détouré et montage correspondant ; quatre références correctement transmises au Plan et aux deux conditionnements Ref2VA. Ancien ratio et apparence textuelle absents des requêtes/réponses actives vérifiées ; ancien settings.worker conservé mais ignoré dans ce parcours visuel. Aucun nouvel oubli de transmission constaté.
+- Rapport : D:/Code/panelforge/.agent/diagnostics/transition-intention-audit-20260929/audit.md. Variante courte illustrative seulement ; aucun changement de code/runtime, test, appel LLM, génération ou redémarrage.
+
+### Next steps
+- Garder le fonctionnement en l’état et attendre les retours d’utilisation. Allègement éventuel de l’intention/brief à décider plus tard ; organisation UX globale ouvrier/échelle et exceptions par paire toujours différée.
+
+
+## Livraison 2026-09-29 — Onglet Test, comparaison VAE INT8 / FP16 à 3 MP
+
+### Goal
+- Appliquer le go utilisateur : mettre à jour l'onglet Test avec la reconstruction seule et les chaînes 3 MP / 18 passes pour les VAE INT8 ConvRot et FP16.
+
+### Current state
+- Implémentation dans D:/Code/panelforge-krea2-flux. Les nouveaux lancements du Test utilisent minimax-fidelity@2.0.0 : huit traitements séquentiels, reconstruction INT8 puis FP16, trois reproductions INT8 puis trois FP16. Une seule source 3 MP préparée depuis l'import ; les quatre branches repartent de cet asset. Les chaînes de génération ne partent pas des reconstructions seules.
+- Même prompt fixe, mêmes seeds correspondantes, dimensions fixes/natives, 18 passes et sortie brute. Chaque chaîne reprend uniquement sa propre sortie. VAE vidéo choisi pour encodage ET décodage ; audio, modèles, décodeur Fizgig, sampler et autres paramètres inchangés. Pas de VAE BF16 inventé : le fichier disponible et utilisé par le nouveau test est minimax_h3_video_vae_fp16.safetensors.
+- Nouvelle recette versionnée workflows/image.diagnose/minimax-fidelity/2.0.0, références et bindings VAE dans le manifeste ; version1.0.0 et recette MiniMax1.2.0 conservées. Variante VAE persistée dans les réglages de cas/tentative. Absence du champ dans les anciens cas = INT8 ConvRot. Anciennes étapes comparées par réglages normalisés pour permettre la reprise. Une ancienne tentative conserve sa recette enregistrée ; une nouvelle tentative reprise emploie l'adaptateur courant, dont le graphe INT8 demeure identique à l'ancien pour les mêmes entrées.
+- UI : descriptif du protocole dynamique (huit nouveaux cas ou ancien protocole de l'historique), dimensions issues des sources réellement présentes, durées terminées sur les cartes, bouton Comparer INT8 / FP16 sur les branches FP16 dès qu'une paire au même passage existe. Il ouvre le dernier passage commun ; les sélecteurs permettent de choisir les autres. Les essais anciens restent accessibles, sans conversion. Page et grille pleine largeur/repliage existants conservés. Cache JS 20260929.vae2.
+- Le parcours autonome reste sur son profil actuel ; réglages MiniMax usuels et vidéo inchangés. Aucun journal runtime réécrit, aucun modèle téléchargé/chargé, aucun appel LLM, génération ou redémarrage. Pas de mesure VRAM ajoutée ; les durées affichées sont applicatives, chargement/attente éventuellement inclus.
+- Vérifications statiques réussies : sept fichiers Python parsés/compilés sans import ni exécution, JavaScript applicatif et deux chaînes fixture/scénario compilés sans invocation, 2168 IDs HTML uniques au contrôle, 27 sélecteurs littéraux résolus, empreintes des deux manifests et de la base vérifiées, bindings du VAE vers conditionnement/encodeur et décodeur vérifiés. Diff isolé de douze fichiers relu. Aucune validation interactive ou qualité de rendu revendiquée.
+- Six tests backend VAE ajoutés (paramètres appariés, un seul départ, seule substitution vidéo, indépendance des chaînes, reprise FP16, compatibilité des anciennes tentatives et rejet de variante inconnue répartis en six méthodes) et scénario navigateur étendu avec deux cas ancien/nouveau. Tests NON exécutés conformément à AGENTS.md. Les onze régressions backend existantes sont conservées.
+- Guide docs/design/image-tests-guide.md actualisé. Sauvegardes, scripts d'application, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/image-test-vae-20260929/. Travaux concurrents préexistants conservés ; pas de commit/publication.
+
+### Next steps
+1. Au prochain redémarrage du Lab choisi par l'utilisateur, charger le backend puis Ctrl+F5. Dans Image Lab > Test, Nouvelle série, importer l'image et Lancer les tests. Le lot2.0.0 affiche huit traitements.
+2. L'utilisateur exécute, s'il le souhaite, les tests test_image_tests*.py selon la commande du guide. Aucun test ou rendu lancé automatiquement pendant la livraison.
+3. Après son essai, comparer reconstruction seule INT8/FP16 et mêmes passages des deux chaînes : détails, couleurs, assombrissement et durée. Décider ensuite du VAE et du profil de nouveaux parcours ; le bénéfice du FP16 n'est pas encore mesuré.
+
+
+## Livraison 2026-09-29 — Histoire V2 : retouche optionnelle, scènes de 10 s et suivi
+
+### Goal
+- Implémenter le dernier alignement explicitement autorisé : modèle de prose indépendant au bon endroit, durée par scène réglable, suivi textuel avec timer et automatique jusqu’au bac Préparation.
+
+### Current state
+- Code livré localement dans D:/Code/panelforge-krea2-flux ; aucune publication GitHub. Domaine story_v2@1.2.0, prompts story.v2.*@1.1.0, cache UI editorial1. Travaux concurrents préexistants préservés.
+- Réglages Dialogues : retouche légère optionnelle désactivée par défaut, troisième modèle indépendant Gemma 4 Unsloth proposé. Ordre : auteur -> première relecture -> correction auteur éventuelle -> retouche si activée -> relecture finale. Sans retouche, 2/4 appels ; avec, 4/5. Pas de boucle automatique après le contrôle final. Une relecture défavorable bloque l’automatique au scénario.
+- Retouche bornée aux phrases d’action et aux textes des tours de parole existants ; IDs, nombre/ordre de scènes et répliques, locuteurs, présences, états, intentions et durées préservés par construction. Consignes courtes pour naturel et légères clarifications sans changer faits/événements/fin ; vérification sémantique avant/après par le relecteur, pas de garantie de qualité annoncée.
+- Versions A · avant retouche / B · après retouche du même scénario accessibles dans Versions du scénario. Restaurer invalide l’approbation et conserve la version quittée ; aucun nouvel appel pour consulter A/B. Option automatique utilise B après relecture réussie.
+- Durée par scène 10 s par défaut, sélecteur 5–15. Découpage exact calculé avant écriture, schéma borné puis validation/export stricts : 60 s donne six scènes de 10 s. Reliquat ajusté dans les dernières scènes. Plafond existant de 18 scènes maintenu, combinaison incompatible rejetée avant appel.
+- Anciennes histoires sans scene_duration chargées en mode libre sans migration écrite ni découpage automatique. Changer la cible conserve le scénario et marque timing_pending, puis action explicite Actualiser le découpage ; approbation bloquée tant que la nouvelle durée n’est pas respectée.
+- Indicateur discret Appel n/total · étape · modèle · mm:ss. Total adapté à la branche/corrections et réessais explicites ; timer par appel incluant l’attente. Appels et résultats acceptés persistés avant application pour éviter la répétition des étapes réussies ; pause/reprise ; redémarrage fige l’appel interrompu et attend Reprendre.
+- Automatique conserve scénario -> références/états modifiés/miniature -> usine Préparation. Aucun Plan/prompt vidéo ni rendu lancé depuis Histoire.
+- Contrôles : 8 Python compilés/parsés, 5 modules importés, JS applicatif + fixture/scénario navigateur compilés sans invocation, 2166 IDs HTML uniques / 71 sélecteurs vérifiés, délimiteurs CSS et diff isolé relus. 15 tests éditoriaux ajoutés et scénario navigateur enrichi, NON exécutés selon AGENTS.md. Aucun LLM, rendu, génération, modification d’histoire runtime ou redémarrage. Pas de gain qualitatif mesuré.
+- Guide docs/design/story-v2-guide.md. Sauvegardes de 11 fichiers, nouveau module de tests, diff isolé de 12 fichiers et rapport/static-checks.json : D:/Code/panelforge/.agent/diagnostics/story-v2-polish-timing-20260929/.
+
+### Next steps
+1. Charger ces changements au prochain redémarrage habituel du backend choisi par l’utilisateur, puis Ctrl+F5 ; aucun redémarrage effectué par l’agent.
+2. L’utilisateur exécute les tests indiqués dans le guide et qualifie une histoire 60 s / 10 s, option retouche activée : comparer A/B, vérifier dialogues/clarté, durées, compteur et timer.
+3. Vérifier le dépôt automatique dans Préparation avec Plan/Prompt encore à faire ; observer la qualité réelle avant toute nouvelle modification de consignes ou de modèles.
+
+## Livraison 2026-09-29 — Ouvrier en pied détouré pour l’essai d’échelle
+
+### Goal
+- Détourer l’image fournie explicitement par l’utilisateur et conseiller nouvel essai ou patch.
+
+### Current state
+- Détourage demandé réalisé avec l’outil intégré imagegen, compétence imagegen lue. L’accès direct au fichier Windows par view_image/imagegen échoue via le helper ; l’édition a utilisé la pièce jointe visible dans la conversation.
+- PNG RGBA transparent généré, 940×1674, silhouette entière avec chaussures inspectée. Alpha0..255 vérifié ; fond transparent majoritaire et sujet principalement alpha253. Aucune retouche Python ou modification de l’original ; copie exacte du résultat outil dans D:/Code/panelforge/output/imagegen/ouvrier-en-pied-detoure.png.
+- Prompt exact et reçu JSON à côté du PNG. Résultat source conservé sous C:/Users/samue/.codex/generated_images/01a0e7d5-dfa8-7681-8790-f169d8288f22/.
+- Avis : retester d’abord avec cette image en pied détourée. Remplacer la référence, REFAIRE le placement (ne pas réutiliser l’ancien montage), reproposer/relire une paire et conserver les réglages vidéo. Ce nouveau personnage remplace le portrait précédent : l’essai ne mesure pas isolément l’effet du seul alpha.
+- Réorganisation UX globale/local toujours alignée mais non implémentée ; aucun nouveau patch du moteur/du prompteur, aucun projet runtime modifié ni service redémarré. Aucun test applicatif, appel LLM de préparation H3 ou rendu vidéo lancé ; seul le détourage imagegen explicitement demandé a été effectué.
+
+### Next steps
+1. L’utilisateur importe le PNG transparent, refait l’échelle sur le décor, repropose une paire puis lance volontairement le rendu.
+2. Auditer ce nouvel essai si demandé avant d’ajouter une correction de chaîne. Le patch UX frise -> ouvrier/échelle global -> exceptions par paire reste distinct.
+
+
+## Piste 2026-09-29 — VAE H3 FP16 disponible, comparaison proposée
+
+### Goal
+- Répondre à l'hypothèse utilisateur d'un VAE BF16 susceptible d'améliorer la fidélité ; vérifier les modèles disponibles sans changer la recette ni lancer de traitement.
+
+### Current state
+- GET en lecture seule http://bucket:8188/object_info/VAELoader effectué : VAE H3 listés = audio fp32, vidéo fp16, vidéo int8_convrot, vidéo int8_redcraft et taeh3. Aucun fichier vidéo H3 BF16 dans cet inventaire ; cela n'exclut pas un fichier accessible ailleurs à l'utilisateur.
+- Le fichier disponible pour la comparaison est minimax_h3_video_vae_fp16.safetensors. Le parcours et l'atelier Test utilisent minimax_h3_video_vae_int8_convrot.safetensors. Le dépôt officiel Comfy-Org propose FP16 et INT8 ConvRot ; le README Fizgig confirme la compatibilité du FP16.
+- Avis : comparer le VAE FP16 au VAE INT8 à environ 3 MP est une piste pertinente avant le masque. Notre essai VAE seul à 1 MP prouve une perte lors de la reconstruction, pas la responsabilité de la quantification INT8. Les limites de représentation et la réinterprétation générative persistent même avec des poids non quantifiés. Gain éventuel non mesuré.
+- Proposition uniquement : aller-retour VAE seul à 3 MP pour les deux variantes, puis trois reproductions successives à 3 MP / 18 passes, source initiale, prompt, seeds, décodeur Fizgig et autres paramètres identiques. Chaque branche conserve son VAE pour encodage et décodage. Comparer détails, assombrissement, couleur, durée et mémoire ; la branche INT8 déjà enregistrée sert de référence pour la chaîne complète si le protocole reste identique.
+- Aucun changement de réglage, de code applicatif, de modèle installé ou de projet runtime. Aucun chargement VAE, rendu, appel LLM, test applicatif ou redémarrage. Notes de continuité seulement.
+
+### Next steps
+1. Expliquer la distinction FP16/BF16 et l'intérêt limité mais réel de cette comparaison.
+2. Au go d'implémentation, ajouter le diagnostic comparatif dans l'onglet Test avec recette explicite ; laisser les parcours et les réglages vidéo existants inchangés. L'utilisateur lance les essais.
+
+
+## Diagnostic et alignement UX 2026-09-29 — Échelle après visual-only
+
+### Goal
+- Analyser la chaîne du nouveau run où l’ouvrier reste trop grand. Aligner le déplacement du placement vers un réglage global ; aucune implémentation demandée dans ce tour.
+
+### Current state
+- Alignement UX explicite : premier bandeau Images de la frise ; puis Ouvrier et échelle regroupant image de l’ouvrier et placement sur image 1. Par défaut, toutes les transitions héritent de ce réglage. Dérogation depuis la transition à l’emplacement actuel, application à cette paire seulement. Une future modification globale devrait préserver les dérogations. Actions toujours visibles, bandeaux repliables. Aucun déplacement UI effectué.
+- Dernier rendu terminé audité : factory-22130f9282f2470aa8344d97910d76bd, « Nettoyage du sol autour des racines », frise transitions-606bbcaa71a84eb8abf427afdaa4f47d, terminé 13:59:35 UTC. Session prompt-20bae47f512e4a7bb82e547b0396f6cb ; h3-render-38103935462f4e049567dc1c61fb46ef ; attempt-b131250a16de4573a58a4dcdc2643fb2.
+- Le correctif visual-only est actif : proposition @3.0.0 exclut worker textuel, ancienne intention, mesures et provenance descriptive ; pas de ratio du tronc ni costume dans intention/Plan/Writer. Plan Qwen reçoit quatre images et associe explicitement Picture 3 identité / Picture 4 échelle. Writer Gemma sans images conserve les deux labels dans ses actions et l’en-tête spécifique est compilé. Le prompt exécuté est identique au final, sauf saut de ligne terminal. Quatre images branchées dans les deux conditionnements T8 du workflow exécuté.
+- Défaut concret du montage : asset-7dd6ebde6f7c455db8a128357f77b701 est un portrait sur fond gris opaque, coupé avant les pieds. normalize_worker recadre seulement l’alpha, ne détoure pas. compose réduit le rectangle complet en 99×175 px, position (580,1315), décor1120×1984. Hauteur UI8,8 % = hauteur du portrait coupé, pas hauteur debout ; le bas est traité comme appui au sol alors que les pieds manquent. Montage asset-1e8d9758792a444d9194ac1179e0ab12.
+- Images du rendu à1,812/3,625s inspectées : personnage au premier plan droit, coupé par le bord, outil traversant le premier plan. Le montage le situait au fond entre les racines. Taille apparente et placement ne sont pas suivis ; ne pas annoncer une mesure d’échelle physique à profondeur égale.
+- Texte : lien sémantique clair dans consignes/invariant/en-tête, mais actions surtout « worker (Picture 3, Picture 4) ». Entrée au centre prévue, puis déplacements autour des racines sans maintien explicite de la zone/profondeur sur toute l’action. La disparition du lien d’échelle de l’ancien run n’explique donc plus ce cas.
+- Workflow REF2VA : les bornes A/B sont des références libres décrites comme début/fin dans le texte, pas les entrées natives FL2VA. Le rectangle UI n’est envoyé ni comme masque ni comme contrainte spatiale au sampler ; seule l’image composée est envoyée. Hybride FL2VA + overlayREF2VA blocs25–49, Turbo, Motion_Repair0,6/0,2,0,9MP,736×1280,seed0. Effets de ces variantes non isolés.
+- Hypothèses séparées des preuves : portrait d’identité occupant presque tout le cadre susceptible de concurrencer le petit collage ; fond opaque/corps tronqué rendant l’échelle ambiguë ; mouvement vers l’avant-plan. Aucun A/B ne permet encore d’attribuer une cause unique.
+- Source primaire MiniMax README vérifiée pour distinction FL2VA/Ref2VA. URL T8 conditioning.py trouvée en recherche mais404 à l’ouverture ; code installé du nœud côté serveur et redimensionnement interne non inspectés.
+- Rapport, intention, Plan, prompt effectif, métadonnées et copies PNG exactes : D:/Code/panelforge/.agent/diagnostics/transition-scale-audit-visual-only-20260929/audit.md.
+- Aucun code applicatif, projet runtime, réglage ou workflow modifié ; aucun test, LLM, génération ni redémarrage lancé. Écritures limitées au diagnostic et aux continuités.
+
+### Next steps
+1. Confirmer l’organisation globale/local ci-dessus, sans l’implémenter avant go.
+2. Priorité proposée : montage montrant un personnage entier avec pieds au sol, détouré/intégré ; garder le portrait pour identité si souhaité. Maintenir la zone de travail/profondeur et la relation entre références dans les actions, sans redescription physique ni ratio.
+3. Sur demande d’essai, isoler portrait séparé vs montage seul à autres réglages constants et références renumérotées ; puis éventuellement Turbo/LoRA séparément. Ne pas promettre une échelle exacte ni remplacer silencieusement les bornes vides par des frames avec ouvrier.
+
+
+## Audit 2026-09-29 — Série Test terminée, avis favorable au profil 3 MP / 18
+
+### Goal
+- Auditer la série lancée par l'utilisateur et donner un avis avant sa décision sur le passage des parcours à 3 MP tout du long. Aucun go de changement de réglage dans cette demande.
+
+### Current state
+- Série image-test-a702fdfb7de756eca873de349aa918be terminée : dix cas réussis. Import 1120 × 1984 ; source 1 MP 768 × 1376 ; source 3 MP 1344 × 2368 préparée une fois depuis l'import (léger agrandissement). Les trois références/sorties de la branche 3 MP restent à cette taille, sans retour à 1 MP.
+- Empreintes assets/graphes vérifiées ; sources et chaînes sortie→référence concordantes ; sortie brute, mode native effectif, absence de nœud de réduction externe. Comparaison des graphes exécutés : seuls dimensions ou nombre de passes changent entre branches, outre chemins de médias. Même prompt neutre et seeds correspondantes. Le champ reference_megapixels=1 n'est pas appliqué en mode native.
+- Inspection à taille égale et sur détails : 3 MP / 18 conserve mieux écorce, petites textures et contours du lierre. 1 MP / 50 ne retrouve pas cette fidélité. Le 3 MP conserve une réinterprétation des motifs et un assombrissement progressif ; pas de promesse de fidélité parfaite.
+- Le VAE seul à 1 MP dégrade déjà les détails, sans diffusion : preuve d'une contribution de la reconstruction, sans attribution chiffrée ni isolation encodeur/décodeur/précision. La résolution de travail compte même sans redimensionnement répété. Le protocole ne sépare pas préservation initiale de l'import et résolution de reconstruction.
+- Mesures RGB8 à grille commune 768 × 1376 : MAE au passage 3 = 20,90 (1 MP / 18), 22,94 (1 MP / 50), 17,20 (3 MP / 18). Luminance moyenne 3 MP : −3,68, −6,42, −9,05 sur 0–255 par rapport à l'import. Mesures indicatives sensibles aux déplacements et couleurs, pas des scores perceptuels.
+- Durées applicatives observées : 3 MP / 18 = 43,0 / 43,1 / 45,8 s ; 1 MP / 50 = 33,0 / 32,6 / 34,1 s ; 1 MP / 18 = 51,4 / 18,3 / 15,0 s. Premier cas lent, chargement initial possible non prouvé ; durées non isolées de la file et du chargement. Pas de mesure VRAM.
+- Avis : retenir environ 3 MP / 18 pour les nouveaux parcours, préparation unique depuis l'original puis références natives et dimensions constantes. Le README officiel Fizgig recommande aussi les résolutions à partir de 3 MP ; notre constat local reste la base de la recommandation.
+- Limites : une image, trois reproductions neutres, pas un parcours de cinq travaux. Pas d'essai VAE seul à 3 MP, autre précision VAE ou 3 MP / 50. Aucun masque, prompt d'accentuation ou branche supplémentaire proposé comme préalable obligatoire.
+- Aucun code applicatif, défaut de génération, parcours/runtime ou service modifié. Aucun test applicatif, appel LLM, nouveau rendu ou redémarrage. Analyse CPU et planches locales uniquement. Le profil ordinaire demeure fixed-1mp-v1 en attendant la décision utilisateur.
+- Rapport, mesures, preuves de graphes et cinq planches : D:/Code/panelforge/.agent/diagnostics/image-test-audit-3mp-20260929/audit.md et fichiers voisins. Relecture des détails et du protocole effectuée.
+
+### Next steps
+1. Présenter cet avis et les limites à l'utilisateur ; attendre sa décision avant de modifier le profil de génération.
+2. Si go : capturer un nouveau profil 3 MP / 18 à la création, depuis l'original, avec mêmes dimensions/références natives dans toute la chaîne ; préserver les anciens parcours et séparer tout choix de migration.
+3. Observer ensuite un parcours réel de travaux lancé par l'utilisateur, en particulier les textures et la luminosité ; ne pas lancer de génération de vérification automatiquement.
+
+
+## Livraison 2026-09-29 — Onglet temporaire Image Lab / Test
+
+### Goal
+- Fournir l'atelier demandé pour lancer les diagnostics de fidélité depuis une image et un bouton, avant toute intégration de masque. Périmètre MiniMax retenu par défaut après question facultative MiniMax/les trois moteurs restée sans réponse pendant le travail.
+
+### Current state
+- Implémentation locale dans D:/Code/panelforge-krea2-flux. Nouvel onglet Test ajouté à toutes les barres Image Lab et à la navigation restaurable. Interface : import, Lancer les tests, historique/Nouvelle série, protocole replié, résultats par branche, Suspendre/Reprendre, comparaison à deux sélecteurs, zoom taille réelle/défilement synchronisé et téléchargements. Pleine largeur avec grille à retour à la ligne.
+- Protocole minimax-fidelity@1.0.0 : 10 traitements séquentiels, un aller-retour VAE à1MP (VAEEncode + FizgigH3StillDecode, sans diffusion), trois reproductions neutres à1MP/18 passes, trois à1MP/50, trois àenviron3MP/18. Même prompt fixe, mêmes seeds correspondantes (base,+1,+2), pas de prompteur LLM. Chaque branche repart de son départ préparé puis utilise sa propre sortie précédente. Sources1/3MP préparées une fois depuis l'import normalisé ; mêmes tailles natives durant chaque chaîne, sortie brute.
+- L'image importée conservée dans le catalogue suit la normalisation PNG RGBA8 existante du Lab ; le fichier d'import brut/profil ICC n'est pas ajouté comme nouvel asset distinct. Les dimensions préparées et un éventuel agrandissement de la source pour3MP sont affichés. Cet essai neutre ne qualifie pas à lui seul une véritable modification de travaux.
+- Domain/application/infra séparés. Nouveau service ImageTestService et ImageTestRenderer réutilisant QwenEditService uniquement pour la file/rendu, avec gateway=None, policy dédiée et store séparé. Journaux workspace/image_tests et workspace/image-test_edits. Pas de projet enfant ajouté dans les ateliers MiniMax usuels.
+- Nouveau workflow versionné workflows/image.diagnose/minimax-fidelity/1.0.0 : graphe minimal VAE, sélection explicite du graphe MiniMax1.2.0 pour les autres cas, empreintes validées. Node IDs exclusivement dans les manifestes/workflows, pas le feature code. VAE identique au parcours (vidéo int8_convrot), recette hybride native inchangée. Aucun ajout de dépendance ni installation ComfyUI.
+- Un seul lot actif ; lancement idempotent lié au contenu importé. GET sans déclenchement de rendu. Persistance avant mise en file ; accusé de file perdu récupéré par identifiant. Suspension laisse finir le traitement déjà lancé. Erreur -> suspendu, reprise explicite du cas échoué ou Ignorer cette branche ; dimensions incorrectes conservées comme rejected_asset_id et non réinjectées.
+- Au redémarrage, série suspendue ; récupération des traitements déjà enregistrés, aucun nouveau cas sans Reprendre. Envoi interrompu/non confirmé conservativement marqué submission_uncertain : pas de réessai automatique ni via Reprendre, possibilité d'ignorer la branche après contrôle de la file.
+- Parcours autonome, essaisHQ et réglages1MP habituels inchangés. Travaux concurrents préexistants conservés ; aucune publication/commit.
+- Vérification : 10 fichiers Python parsés/compilés sans exécution, scripts applicatifs image-tests/lab-core et fixture/scénario navigateur compilés uniquement,46 règlesCSS,2159 IDsHTML uniques, sélecteurs vérifiés, empreintes/bindings/graphe VAE sans orphelin contrôlés, diff isolé relu. Aperçus HTML statiques démarrage/galerie examinés à1600px ; pas de validation interactive/mobile revendiquée.
+- 11 tests backend et1 scénario navigateur préparés, NON exécutés selon AGENTS.md. Aucun appel LLM, rendu GPU, traitement VAE réel, modification de projet runtime ou redémarrage lancé.
+- Guide docs/design/image-tests-guide.md. Sauvegardes, diff isolé de17 fichiers, static-checks.json et aperçus : D:/Code/panelforge/.agent/diagnostics/image-test-workshop-20260929/. Cache UI tests1.
+
+### Next steps
+1. Charger le backend au prochain redémarrage habituel du Lab choisi par l'utilisateur, puis Ctrl+F5 et Image Lab > Test. Aucun redémarrage automatique effectué.
+2. L'utilisateur importe l'image choisie et lance volontairement les10 traitements. Comparer source préparée/résultat, passages consécutifs et branches à même affichage avant de conclure sur VAE/passes/résolution.
+3. Exécuter côté utilisateur les tests test_image_tests*.py indiqués dans le guide, puis les régressions partagées pertinentes si souhaité.
+4. Exploiter les sorties pour choisir un éventuel réglage ou un essai de travaux ciblés. Ne pas intégrer le masque ni étendre àKrea/Qwen sans nouvel alignement.
+
+## Proposition révisée 2026-09-29 — Retouche après stabilisation, avant dernière relecture
+
+### Goal
+- Répondre à la demande de jugement sur la meilleure place du modèle à l’aise en prose. L’utilisateur retire la contrainte de retouche tout à la fin et demande une proposition ; aucune implémentation demandée dans ce message.
+
+### Current state
+- Recommandation présentée : retouche légère optionnelle après stabilisation du fond (première relecture et correction éventuelle), avant la dernière relecture. Le modèle reçoit le scénario complet et les relations/intentions nécessaires, mais intervient seulement sur le naturel des répliques et les clarifications légères autorisées. Informations, événements et fin préservés.
+- Ordre proposé lorsque l’option est active : auteur -> première relecture de compréhension -> correction auteur si nécessaire -> retouche par troisième modèle (Gemma proposé) -> relecture finale. La dernière relecture contrôle la version effectivement utilisée pour la production, afin qu’une reformulation ne réintroduise pas une ambiguïté. Ne pas lancer de nouvelle boucle automatique de corrections après ce contrôle final.
+- Compte corrigé par rapport à la proposition précédente : sans retouche, cycle existant deux ou quatre appels ; avec retouche, quatre appels si aucune correction de fond nécessaire, cinq s’il y a correction. Dans la branche avec correction, la relecture finale existante est déplacée après la retouche ; ne pas en conserver une avant puis en ajouter encore une après (six appels inutiles). Avec un premier scénario déjà clair, l’option coûte deux appels supplémentaires (retouche et contrôle), compromis explicité.
+- Cette recommandation remplace la proposition de retouche après toute relecture, ainsi que son décompte trois à cinq appels. Le choix définitif du nouvel ordre reste à confirmer par l’utilisateur avant patch. La retouche demeure optionnelle pour A/B, avec versions avant/après conservées et sélection déterminée par l’option en automatique.
+- Durée par scène 10 s réglable, durée globale maintenue, compteur réel par étape avec timer et parcours automatique jusqu’aux références puis bac Préparation restent acquis. Pas de prompts/rendus vidéo démarrés par Histoire.
+- Aucun code applicatif, histoire, préférence runtime, média ou service modifié. Aucun test, appel LLM/GPU, rendu ou redémarrage. Notes de continuité uniquement.
+
+### Next steps
+1. Expliquer simplement pourquoi le fond doit être stable avant le travail de prose et pourquoi la version retouchée doit encore être relue ; distinguer recommandation et fonctionnement actuellement codé.
+2. Au prochain go, appliquer le parcours retenu avec modèles indépendants, retouche optionnelle bornée, version A/B et compteur/timer correspondant aux appels réels ; préserver les scénarios existants.
+
+## Alignement révisé 2026-09-29 — Retouche finale optionnelle pour comparaison A/B
+
+### Goal
+- Décrire et aligner l’ordre du parcours scénario, une dernière retouche optionnelle pour comparer avant/après, une durée de scène de 10 s dans l’interface et un suivi discret avec timer. Discussion à ce stade, pas d’implémentation dans cette réponse.
+
+### Current state
+- L’utilisateur juge finalement que la réécriture existante a bien fonctionné. Sa nouvelle demande remplace la proposition précédente de retouche systématique avant relecture : garder le cycle actuel d’écriture/relecture/correction, puis proposer UNE passe finale optionnelle de retouche légère, destinée aux comparaisons A/B.
+- Ordre aligné : 1 écriture par writer_model ; 2 relecture par reader_model ; 3 correction ciblée par writer_model seulement si besoin ; 4 seconde relecture par reader_model après correction ; 5 retouche finale optionnelle par un troisième modèle indépendant, Gemma 4 proposé par défaut. La passe finale conserve sens/informations/intentions/événements/fin, et peut clarifier légèrement actions ou présentations selon les réponses précédentes. Elle ne sert pas à contourner une réserve bloquante de la relecture.
+- Nombre réel d’appels : deux sans correction ni retouche ; trois avec retouche seule ; quatre avec correction/relecture supplémentaires ; cinq si correction et retouche sont nécessaires/activées. Pas de boucle supplémentaire ni de nouvelle relecture LLM ajoutée après cette retouche finale ; contrôle déterministe du format, des identités et du timing à prévoir, sans prétendre garantir sémantiquement le naturel.
+- Pour l’A/B : conserver la version A avant retouche et B après retouche d’un même scénario, sans refaire l’écriture complète ni produire deux lots de médias. Option Retouche finale proposée désactivée par défaut ; modèle de retouche affiché dans ce petit réglage. En automatique, option désactivée -> A, activée -> B si valide ; ne pas ajouter un arrêt manuel de sélection au mode automatique. Une vraie comparaison/mesure de qualité n’a pas encore été effectuée.
+- Durée par scène : l’utilisateur confirme un champ dans l’interface avec 10 secondes proposé. Garder la durée globale demandée et adapter le découpage (60 s = six scènes), plutôt que réduire mécaniquement la durée des scènes existantes. Ce réglage n’est pas encore codé.
+- Suivi : ligne compacte avec numéro d’appel réel, étape, modèle et temps écoulé de l’appel en cours, ex. Appel 3/3 · Retouche finale · Gemma · 00:24. Le total tient compte de l’option et s’ajuste si la branche de correction devient nécessaire ; pas de cinq appels présentés comme obligatoires.
+- Mode automatique confirmé par l’utilisateur : poursuivre du scénario prêt vers création/sélection des références, états modifiés et miniature selon options, puis envoyer dans le bac Préparation de l’usine. Les Plan/prompts/rendus vidéo restent à lancer depuis l’usine. Manuel conserve la validation de scénario et le choix de version.
+- Aucun code applicatif, préférence runtime, histoire, média ou service modifié. Aucun test, appel LLM/GPU, rendu ni redémarrage. Notes de continuité uniquement ; autres tâches conservées.
+
+### Next steps
+1. Présenter cet ordre et distinguer les étapes conditionnelles, le compteur réel et la branche automatique après scénario prêt.
+2. Au go d’implémentation, conserver le cycle existant, ajouter la passe finale optionnelle avec conservation des deux versions et troisième modèle, puis intégrer durée par scène et timer sans ajouter de panneau lourd.
+3. Prévoir la persistance/reprise des étapes et versions ainsi que les validations de timing/identités ; ne pas réécrire les anciens scénarios ni déclencher des générations pendant l’implémentation.
+
+## Patch 2026-09-29 — Ouvrier décrit exclusivement par ses références
+
+### Goal
+- Appliquer le go utilisateur suivant l’alignement : supprimer la redescription de l’ouvrier et l’ancien ratio de tronc dans les nouvelles préparations visuelles.
+
+### Current state
+- Implémenté dans le checkout actif D:/Code/panelforge-krea2-flux. Le workspace partagé reste D:/Code/panelforge/workspace. Aucun projet runtime ni unité envoyée réécrit ; aucun service redémarré.
+- Transitions propose@3.0.0 : avec une image d’ouvrier, settings.worker, ancienne intention, titres automatiques, noms/historiques d’images et mesures numériques du montage sont exclus des requêtes. L’image définit seule l’apparence, le corps et la tenue ; le montage définit seul l’échelle et le placement. Actions, outils, effectif, rythme et son restent textuels.
+- Contrat explicite worker.visual-only@1 dans la configuration usine et PreparationIntent. Sérialisation optionnelle et source digest compatibles lorsque le contrat est absent. Résolution des numéros Picture par assets/rôles réellement liés ; règles d’identité et d’échelle ciblées dans l’en-tête et la cartographie du Plan. Aucun changement global des autres composition_reference.
+- Les schémas de ces Plan/Writer remplacent les anciennes exigences de ratios/descriptions. Consigne de non-redescription dans tous les champs. Validation des liens Picture dans les actions du Plan/Writer et le corps final ; rejet ciblé de l’ancien ratio de tronc. Le compilateur n’injecte aucune taille ni description physique.
+- Anciennes intentions conservées mais à reproposer avant validation/envoi visuel. Les corrections manuelles reçoivent une nouvelle proposition séparée à appliquer. Une réécriture manuelle fraîche doit citer les références ; effacer l’intention reste possible. Une ancienne suggestion ne peut pas rétablir la description. Le champ worker est vide/désactivé tant qu’une image existe, et redevient disponible sans référence.
+- Contrôles statiques réussis : 16 fichiers Python compilés sans import/exécution ; JavaScript Transitions compilé sans invocation dans Chromium hors ligne ; IDs HTML uniques et sélecteurs littéraux résolus. Tests rédigés/adaptés, NON exécutés ; aucun scénario navigateur, appel LLM ni rendu lancé.
+- Tests : tests/test_worker_visual_policy.py (contamination réelle, suggestions anciennes, sérialisation/hash, numéros réellement liés, schémas ciblés, perte du lien d’échelle dans les actions du Writer), fixtures test_image_transitions_references.py et version test_image_transitions.py adaptées. Autres modifications concurrentes préservées, dont index.html.
+- Limite : les consignes sémantiques de non-redescription restent à relire dans les sorties du LLM ; les gardes ne constituent pas une compréhension exhaustive de toute paraphrase. Le respect de l’échelle par H3 n’a pas été qualifié sur un nouveau rendu.
+- Sauvegardes, diff limité et reçu : D:/Code/panelforge/.agent/diagnostics/transition-visual-only-20260929/. Documentation docs/design/image-transitions.md ; cache Transitions 20260929.visual2.
+
+### Next steps
+1. Au prochain démarrage habituel choisi par l’utilisateur, charger le backend puis actualiser la page (Ctrl+F5). Pas de redémarrage automatique.
+2. Sur la paire du run diagnostiqué, reproposer, appliquer la proposition si l’intention manuelle a été conservée, relire puis envoyer une nouvelle unité. Les unités historiques restent accessibles.
+3. L’utilisateur lance les tests ciblés puis, lorsqu’il le souhaite, un rendu de qualification : vérifier absence de redescription/ratio et relation Picture identité / Picture échelle dans les actions. Ne pas lancer ces vérifications fonctionnelles spontanément.
+
+
+## Alignement confirmé 2026-09-29 — Troisième modèle pour la retouche légère
+
+### Goal
+- Intégrer les réponses d’alignement : retouche légère distincte de l’auteur et du relecteur, avec un troisième modèle sélectionnable. Discussion seulement à ce stade.
+
+### Current state
+- Réponse explicite : autoriser la reformulation des dialogues en conservant sens, informations et intentions. Cette autorisation remplace l’ancienne contrainte de garder les répliques mot pour mot pour cette passe.
+- Réponse explicite : autoriser aussi de petites clarifications d’action ou de présentation (ex. établir que Karim est le coach de Léa), sans changer les événements ni la fin.
+- L’utilisateur préfère un troisième modèle réservé à cette retouche, plutôt que réutiliser reader_model pour retouche et relecture. Trois choix indépendants à prévoir : Écriture, Retouche légère, Relecture. Gemma 4 Unsloth proposé par défaut pour la retouche conformément à sa préférence exprimée ; pas de changement imposé aux choix d’auteur/relecteur.
+- Parcours proposé conservé : écriture -> retouche légère -> relecture, soit trois appels habituels ; une correction ciblée et une vérification peuvent porter le total à cinq. La correction doit repartir de la version retouchée et préserver les répliques non concernées, pour ne pas annuler le travail de naturel. Ne pas rendre cinq appels systématiques.
+- Présentation prévue compacte : Appel 2/3 · Retouche des dialogues · Gemma ; si nécessaire, Appel 4/5 · Correction ciblée. Durée par scène 10 s et durée globale conservée restent dans le futur périmètre (60 s = six scènes).
+- Aucun go d’implémentation explicite reçu dans ces réponses d’alignement. Aucun code applicatif, projet runtime, réglage, média ou service modifié ; aucun test, appel LLM/rendu ou redémarrage. Notes de continuité uniquement.
+
+### Next steps
+1. Présenter les trois responsabilités et la progression compacte ; conserver cet accord pour le prochain go d’implémentation.
+2. Au patch autorisé, ajouter un champ de modèle de retouche distinct, sa passe bornée et les validations de préservation narrative/durée, puis le suivi exact par cycle avec branche de correction conditionnelle.
+3. Implémenter ensemble la durée par scène, son découpage et sa validation avant export, sans réduire mécaniquement la durée globale ni réécrire les histoires existantes hors demande.
+
+## Alignement en cours 2026-09-29 — Dialogues naturels, scènes de 10 s et compteur d’appels
+
+### Goal
+- Répondre aux questions sur le rôle du deuxième modèle et aligner une retouche légère des dialogues, une durée par scène réglable et un suivi compact des appels. L’utilisateur demande des questions avant implémentation ; discussion seulement.
+
+### Current state
+- Code lu : application/story_v2.py choisit reader_model uniquement pour role=review. Le READER actuel produit understood/issues, avec interdiction explicite d’écrire une histoire corrigée. Une remarque déclenche au plus une correction par writer_model, puis une seconde relecture. Deux appels habituels, quatre au maximum par cycle initial ; aucune passe dédiée au naturel des dialogues. Mettre Gemma dans Relecture ne lui confie actuellement aucune réécriture.
+- Dernier run lu : storyv2-279c136f19745847bc1e1e7cb04ff15f, Le vestiaire, Max/Léa/Karim. Quatre appels réussis côté contrat, tous Qwen3.8-27B (write/review/repair/review), terminé awaiting_review à 13:27:29 UTC. Durées 14/10/12/12/12 = 60 s. Dernière réserve : réplique « Tu vois bien » ambiguë sur le destinataire et contradictoire avec « C’est un accident ». Une correction a donc eu lieu, sans garantir une amélioration stylistique ni résoudre toutes les ambiguïtés. L’utilisateur avait cité une réserve précédente sur le statut de coach de Karim.
+- WRITER et Sequence autorisent encore 5–15 s. Entrée globale duration seulement ; l’éditeur permet de modifier une durée de scène après écriture, sans réglage global de durée par scène. L’alignement antérieur sur 10 s n’avait pas été implémenté. Orientation conservée : champ simple Durée par scène = 10 s, durée globale maintenue, découpage cohérent (60 s = six scènes de 10 s), contrôle du timing avant export ; pas de réduction mécanique de la durée des cinq scènes existantes.
+- Proposition présentée : écriture -> retouche légère par le deuxième modèle -> relecture finale ; une seule correction/vérification supplémentaire si nécessaire, trois appels habituels et cinq maximum. Afficher un état discret du type Appel 2/3 · Dialogues · Gemma, puis signaler explicitement les appels conditionnels ; ne pas présenter cinq appels comme systématiques. Le modèle choisi doit avoir un rôle de réécriture explicite, pas seulement un changement de nom dans le sélecteur. Aucune supériorité mesurée de Gemma revendiquée.
+- Trois questions asynchrones envoyées, réponses en attente : 1) autoriser une reformulation légère à sens/informations/intentions conservés, remplaçant la précédente exigence mot pour mot ; 2) autoriser aussi les petites clarifications d’action/présentation sans changer événements/fin, ou dialogues seuls ; 3) activer ce parcours à chaque écriture en réutilisant le deuxième modèle, ou seulement sur demande.
+- Aucun code applicatif, réglage runtime, histoire, média ou service modifié. Aucun test, appel LLM ou rendu exécuté, aucun redémarrage. Mise à jour des notes de continuité uniquement ; autres travaux conservés.
+
+### Next steps
+1. Recueillir les réponses, préciser le périmètre de la retouche et le rôle du deuxième modèle sans empiler des consignes contradictoires. La demande actuelle reste un alignement, pas un lancement d’implémentation.
+2. Pour le futur patch autorisé, relier durée par scène à l’écriture, au validateur et à l’export ; définir le comportement pour une durée globale non multiple et préserver les dialogues selon le nouvel accord.
+3. Implémenter ensuite les étapes réellement exécutées et leur suivi compact, avec compteur exact par cycle/réécriture et branche de correction conditionnelle ; conserver traces/versions et protéger les éléments narratifs non ciblés.
+
+## Diagnostic 2026-09-29 — Dérive avant toute intégration de masque
+
+### Goal
+- Comprendre la dégradation cumulative signalée sur Krea, Qwen et MiniMax et examiner des pistes plus simples avant de développer le masque automatique. Discussion/diagnostic uniquement.
+
+### Current state
+- Journaux réels lus : journey-a13459ee40025780847b11798d574b41, quatre sorties 768 x 1376, workflow MiniMax 1.2.0, reference_mode=native, resolution=source, color_finish=raw, 18 steps. Chaque source est bien la sortie précédente. raw_output_asset_id=output_asset_id sur les quatre essais ; aucune harmonisation couleur appliquée.
+- Graphes exécutés contrôlés : aucun ImageScaleToTotalPixels sur ce parcours, latent Fizgig de taille fixe, bruit complet/denoise=1, conditionnement MiniMaxH3ReferenceToVideo ref_image_size=max. Modèle hybride FL2VA/REF2VA bf16 (blocs 25..49), encodeur Qwen3VL bf16, VAE vidéo int8_convrot, sans LoRA Turbo dans ces graphes.
+- Préparation MiniMax = normalisation PNG RGBA8 sans changement de taille ; sorties SaveImage puis normalisation PNG, pas de réencodage JPEG récurrent. La normalisation retire les profils colorimétriques sans conversion ICC explicite : piste pour un écart initial sur import profilé, pas une explication démontrée de dérive croissante sur cette chaîne de PNG.
+- Source asset-c31fe445f9394b0da0119758e54b174f et sortie 4 asset-e9bd56616e144d17ac2ec6890955386a inspectées côte à côte via aperçu mémoire, sans modifier les assets. Écorce et branches devenues plus lissées/stylisées, changements de contraste et de texture dans le décor ; observation qualitative, pas mesure de fidélité. Le détail central affiché recouvre aussi le panneau ajouté : ne pas le traiter comme zone inchangée pour une métrique.
+- Les prompts réels sont déjà ciblés et demandent de préserver tronc, textures, cadrage et forêt. Le prompt final est plus développé (porte sculptée/décorations), mais les premières étapes ne contiennent pas de demande globale de netteté. Aucune preuve que le prompter est la cause principale.
+- Hypothèse principale : reconstruction de toute l'image depuis le bruit, guidée par une référence compressée, puis réutilisation des écarts à l'étape suivante. Le graphe ne recopie pas les pixels source ; same-size ne veut pas dire pixel-preserving. Graphes Qwen 2.1 et Krea identity consultés : diffusion guidée par référence aussi, sans établir que toutes les dégradations utilisateur ont une cause unique.
+- Source officielle ComfyUI nodes_minimax_h3.py consultée : référence encodée par VAE et encodeur visuel, branche max réduit seulement si petit côté >2048 puis aligne par32. 768x1376 demeure de même taille selon cette version publique. Version exacte du code distant installé non auditée.
+- README actuel Fizgig indique faiblesse des petites images, édition autour de2.5MP et meilleure qualité à partir de3MP ; exemple haute qualité sans Turbo à50 steps. Notre recette hybride18 steps diffère : indices pour des comparaisons, pas preuve ni réglages universels. L'essai fixe1MP exclut les changements répétés de taille comme cause unique, mais n'exclut pas l'effet de la faible résolution de travail.
+- Autres pistes à isoler : reconstruction VAE et éventuel impact int8 (aucune causalité démontrée), nombre de passes, résolution fixe plus haute, recette hybride. Ne pas proposer simplement denoise<1 sur le latent vide ; ce n'est pas un img2img initialisé avec la source.
+- Aucune modification applicative/runtime, aucun test exécuté, aucun appel LLM/GPU/rendu ni redémarrage. Lecture des journaux/graphes, sources publiques et aperçu CPU des images existantes seulement.
+
+### Next steps
+1. Expliquer la réinterprétation cumulative et distinguer la réduction initiale, les redimensionnements répétés et la résolution native du modèle ; corriger l'idée que fixe1MP élimine tout facteur résolution.
+2. Proposer un diagnostic limité : aller-retour encodeur/décodeur VAE avec le bon décodage still, puis génération neutre et répétition éventuelle pour voir la dérive sans travaux. Ne pas lancer sans demande de test.
+3. Comparer sur une modification locale identique les18 passes actuelles à40-50, puis séparément une taille fixe autour de3MP sur toute la chaîne, source préparée une fois. Une variable à la fois, juger fidélité des régions intactes et pas seulement netteté.
+4. Réévaluer ensuite référence originale supplémentaire ou masque automatique. Ne pas lancer maintenant l'implémentation du masque ni changer les défauts1MP sans alignement.
+
+## Alignement 2026-09-29 — Références visuelles seules pour apparence et échelle
+
+### Goal
+- Consigner la correction explicite de l’utilisateur après l’audit : une image d’ouvrier présente porte entièrement sa description ; supprimer la consigne historique « un dixième de la largeur du tronc ». Alignement demandé, pas encore un nouveau go d’implémentation.
+
+### Current state
+- Règle acquise : avec une image d’ouvrier, aucune redescription textuelle de son identité/apparence, morphologie ou tenue dans l’intention, le Plan ou le prompt. Pointer vers la référence suffit. Ne pas demander au LLM de redécrire l’image, même correctement.
+- Le montage visuel porte l’échelle et le placement. Ne pas le traduire en « 1/10 du tronc » ni en un autre ratio textuel inventé ou de substitution. Cette instruction remplace la piste précédente consistant à transmettre un repère chiffré dans la prose.
+- Relation minimale à préserver : personnage de Picture 3, taille et placement montrés dans Picture 4 (indices adaptés aux références réelles). Il s’agit d’attribuer les rôles aux images, pas de décrire physiquement le personnage.
+- Exclure les anciennes descriptions/ratios des requêtes de préparation lorsque la référence est présente, y compris les reprises depuis anciennes intentions, propositions et contexte. Une simple phrase « la référence prime » ne suffit pas si le texte contradictoire continue de circuler.
+- Le texte reste nécessaire pour les actions, outils, coopération/effectif, rythme, caméra et son. Ces éléments doivent être cohérents avec les images sans réinventer l’apparence ou une taille chiffrée. La description libre reste un repli pour le parcours sans image d’ouvrier ; aucune ancienne phrase 1/10 ne doit être réinjectée au parcours visuel.
+- Aucun besoin de question fonctionnelle identifié. Aucun code applicatif, projet runtime, prompt enregistré, média ou service modifié ; aucun test, LLM, rendu ni redémarrage lancé. Seules les continuités sont actualisées.
+
+### Next steps
+1. Au prochain go de patch, appliquer cette exclusivité visuelle de bout en bout dans Transitions et sa préparation H3, avec contrôle du non-retour des anciennes descriptions dans les nouvelles unités.
+2. Conserver le rôle d’échelle explicite de la référence jusqu’au prompt final, sans ajout automatique d’une phrase d’échelle numérique ; lier les références dans la rédaction LLM.
+3. Préserver l’historique des runs déjà envoyés. Qualifier le résultat d’une nouvelle préparation/rendu uniquement lorsque demandé par l’utilisateur.
+
+## Audit 2026-09-29 — Ouvrier réutilisé, échelle non respectée
+
+### Goal
+- Examiner le run signalé après le patch de références visuelles. Diagnostic demandé ; pas de nouvelle génération ni de modification de la préparation en cours.
+
+### Current state
+- Dernière unité identifiée : factory-c65cc4fbb7be4180aa81f781a10d6fb8, plateforme 1 → 2, envoyée 12:35 UTC et terminée 12:56 UTC. Projet h3-render-405324e84d024dadab94de59308ce2d3, tentative attempt-ee0114dd51614f86a7a3f4eb538599f0, mode REF2VA / BUNNY.
+- Inspection des références et images du rendu à 1,81/3,63 s : apparence générale torse nu/short bleu reprise, personnage nettement plus grand que dans le montage, même penché. Le rectangle collé mesure 12,704 % de la hauteur de la scène ; la silhouette est un peu plus petite (fond et marges). Ne pas confondre cette valeur avec une mesure corporelle exacte.
+- Pas d’omission du montage : les quatre assets sont présents dans la proposition, le Plan, la session, le projet de rendu et les deux conditionnements du workflow compilé (ref_image_0..3). Le dernier run utilise asset-3246b6be55604c139c9267b15c6a703b / scale-6e84ec922fa841a28e7e2dff5431a4ac. L’autre montage proche c209... concerne le run précédent.
+- Proposition Gemma4 llm-f25dbc9c9139414fbd77d66a747355aa reçoit le placement mais reprend l’ancien « un dixième du tronc ». Plan Qwen3.8 llm-fd6d604102684f1bb834d4e62b3e12a4 associe explicitement Picture 4 à la taille/position dans ses invariants.
+- Writer Gemma4 llm-7b313ffa97cf41f78a59022a0903324e reçoit ce plan complet sans images. Sa réponse ne reprend pas le lien « personnage Picture 3 à la taille montrée Picture 4 » ; elle conserve seulement l’ancien ratio. Le prompt final mentionne Picture 4 uniquement via l’en-tête générique composition/framing/spatial balance (application/direct_ref2v_prompt.py). Le sens particulier d’étalon de taille est donc affaibli entre Plan et prompt final.
+- Limite du patch reconnue : images bien transmises, rôle précis de l’échelle insuffisamment préservé dans le prompt. Ce défaut de transmission ne prouve pas qu’il explique à lui seul toute la dérive du générateur. Le fond rectangulaire du collage peut également affaiblir le repère, effet non mesuré.
+- Correction proposée : faire porter et conserver explicitement la relation identité Picture 3 / taille et emplacement Picture 4 par intention, Plan et Writer ; utiliser le placement enregistré comme repère en distinguant image et silhouette ; clarifier le rôle d’échelle sans changer indistinctement toutes les composition_reference ni injecter une phrase numérique au prompt final. Essai comparatif ensuite, seulement demandé par l’utilisateur.
+- Rapport et copies PNG exactes : D:/Code/panelforge/.agent/diagnostics/transition-scale-audit-20260929/audit.md. Aucun code applicatif, média source, journal runtime ni réglage actif modifié ; aucun test, LLM, rendu ou redémarrage lancé. Écritures limitées à ce diagnostic et aux continuités.
+
+### Next steps
+1. Présenter le constat et la correction ciblée ; l’échelle n’est pas absente des données, mais son lien à la référence visuelle doit survivre à la rédaction.
+2. Sur demande de patch, renforcer ce contrat de bout en bout avec une régression du cas observé ; ne pas réécrire les unités déjà rendues.
+3. Qualifier ensuite l’échelle sur un rendu volontaire. Si besoin, tester séparément une référence détourée/intégrée, sans promettre une garantie de taille.
+
+## Alignement 2026-09-29 — Masque automatique à chaque étape du parcours
+
+### Goal
+- Préserver les régions non modifiées sur tout le parcours autonome, dès la première des cinq nouvelles images, sans dessin de masque ni validation par l'utilisateur.
+
+### Current state
+- L'utilisateur précise explicitement que la demande concerne toutes les générations du parcours automatique, pas seulement les insertions et ajouts via les +. La même logique est envisagée pour ces opérations locales.
+- Calcul et application du masque doivent être automatiques. « Guidé par l'intention » signifie que le système exploite la transformation prévue par Progression visuelle ; aucune intervention de l'utilisateur pour définir ou approuver une zone.
+- Boucle proposée : dernière image protégée + transformation prévue -> rendu MiniMax -> masque automatique de la modification utile (y compris raccords/ombres) -> recomposition avec les pixels source hors masque -> relecture et étape suivante sur la version recomposée.
+- Pour la boucle principale, la source est la précédente image recomposée afin de préserver aussi les travaux acquis. Ne pas rétablir systématiquement l'original initial, ce qui effacerait les ajouts précédents.
+- La proposition précédente d'un essai sur une seule paire était un protocole de qualification, pas une restriction du périmètre. Même cet essai doit éprouver un masque calculé automatiquement ; visualiser le masque peut servir au diagnostic, pas devenir une étape manuelle obligatoire.
+- Le choix technique du masque n'est pas arrêté. La conservation exacte hors masque est réalisable par composition ; la justesse automatique des contours, raccords et effets plus diffus reste à qualifier.
+- La présente clarification établit le périmètre parcours ; ne pas attendre une réponse HQ pour comprendre cette demande. L'essai HQ reste distinct.
+- Alignement uniquement : aucun code applicatif, média ou runtime modifié ; aucun test, appel LLM, rendu ou redémarrage lancé.
+
+### Next steps
+1. Proposer/qualifier une méthode de calcul automatique de la zone utile, sans imposer de nouvelle UX de masquage ni de validation image par image.
+2. Après go, tester la chaîne automatique sur un cas existant puis plusieurs étapes consécutives ; observer à la fois la conservation des textures et les raccords.
+3. Intégrer ensuite la version recomposée comme résultat réellement observé et réutilisé à chaque étape du parcours.
+
+## Correctif 2026-09-29 — Miniature Histoire V2, sélection des références
+
+### Goal
+- Corriger le blocage « Le prompt doit préciser l’usage de chaque référence Minimax avec son label <Picture N> » après Préparer la miniature sur La mèche verte, sans lancer de génération de vérification.
+
+### Current state
+- Audit du projet storyv2-0229836abb315cf19fb81174bc88f946, épisode episode-c9275928251e585db474f00a4424a90d. Projet enfant minimax-1987e8a284b75cf882e0f02abd33c11b, message message-dd56ee1e6dd54938b46e5f20a59caf21, appel llm-9195e216592748e89c38a2eb0a0ffb01. Neuf références candidates envoyées ; le modèle utilise Picture 1, 2, 4 et 6 (Bananito, Cerisa, bébé, appartement) pour une seule scène. Ancien contrat exigeant les neuf : rejet avant rendu, zéro essai GPU. Aucun défaut de workflow multi-images observé dans cet échec.
+- Correctif dans D:/Code/panelforge-krea2-flux : politique compacte story-thumbnail@1.0.0, réservée aux compositions de miniature explicitement marquées par Histoire V2. Le même appel LLM choisit les références utiles en citant leurs labels. Sélection par IDs dans l’ordre initial, retrait des entrées inutilisées du rendu, renumérotation simultanée des labels et images, puis validation stricte normale. MiniMax et Qwen pris en charge ; variantes, retouches ordinaires, sources fixes et guides gardent leur contrat.
+- Snapshot initial et réponse brute conservés ; empreinte après sélection distincte pour contrôler le rendu automatique. Changement concurrent de références empêche l’application ; changement de réglages empêche le rendu automatique. Révision de fiche incrémentée après sélection. Reprise de réponse interrompue applique les mêmes règles sans déclencher de rendu. Le lien de miniature expose désormais les références effectivement actives.
+- Aucune modification des projets runtime, des images retenues, des dialogues, des durées ou des paramètres vidéo. Aucune génération, aucun appel LLM, aucun test ni redémarrage de service. Quatre Python compilés/analyés statiquement, huit tests préparés dans tests/test_story_thumbnail_references.py, non exécutés selon AGENTS.md. Politique générique MiniMax 1.0.0 et Qwen 2.0.0 inchangée.
+- Guide docs/design/story-v2-guide.md actualisé. Sauvegardes, rapport et diff isolé de cinq fichiers : D:/Code/panelforge/.agent/diagnostics/story-v2-thumbnail-references-20260929/. Modifications locales uniquement, non publiées sur GitHub. Les changements concurrents Image Journeys/Transitions restent conservés.
+
+### Next steps
+1. Charger le code au prochain redémarrage habituel du backend choisi par l’utilisateur ; aucun redémarrage effectué pendant son travail. Puis utiliser Préparer la miniature depuis sa carte pour relancer cette image seule. Reprendre l’histoire reste ciblé sur les médias manquants/échoués. L’ancien projet enfant conserve son erreur historique ; le correctif ne prétend pas l’avoir rendu avec succès.
+2. Utilisateur : exécuter tests.test_story_thumbnail_references et tests.test_story_v2_preparation, puis les régressions Qwen/MiniMax Edit et prompt/render. Vérifier le rendu réel et la lisibilité après le retest volontaire ; qualité visuelle non qualifiée pendant ce patch.
+3. Alignement antérieur sur les séquences de 10 s inchangé : durée totale conservée et paroles mot pour mot, découpage à revoir ; ce correctif de miniature ne l’implémente pas.
+
+## Proposition 2026-09-29 — Préserver les pixels hors modification dans les parcours
+
+### Goal
+- Répondre au retour de dégradation persistante, surtout dans les parties reprises entre images, et aligner une piste de masque automatique/composition. L’utilisateur demande une proposition, pas encore une implémentation.
+
+### Current state
+- Le constat utilisateur est compatible avec une dérive de réédition globale. Le code confirme que la sortie MiniMax remplace toute l’image ; le parcours 1 MP évite les changements d’échelle mais ne verrouille pas les pixels. Aucun nouveau run ou média n’a été inspecté visuellement dans cet échange : ne pas présenter cette explication comme un diagnostic mesuré du dernier essai.
+- Le guide peint MiniMax existant est une référence spatiale, explicitement pas un masque natif d’inpainting ni une garantie de pixels verrouillés (application/minimax_edit_assistance.py). Le mode natif du parcours n’accepte actuellement pas ce guide multi-référence.
+- Une brique de composition est réutilisable : infrastructure/krea2_retouch.py, PillowRetouchCompositor.compose (ligne 103), applique Image.composite(after, before, coverage) et sauvegarde en PNG. À dimensions identiques et masque nul hors de la zone autorisée, les pixels source y sont repris exactement. Cette brique n’est pas raccordée aux parcours et ne calcule pas elle-même un masque automatique.
+- Proposition prioritaire : transformation locale -> zone repérée selon l’intention -> contour affiné sur source et résultat -> conserver le rendu dans la zone utile et reprendre la source partout ailleurs, avec raccord borné à une petite bordure. Inclure l’emprise des ajouts/suppressions et leurs ombres/contacts/reflets utiles. Ne pas déduire le masque uniquement d’une différence globale : elle inclurait précisément la dérive à rejeter.
+- Enchaîner depuis l’image précédente recomposée, pour conserver les travaux acquis. Les zones jamais modifiées restent ainsi celles du départ propre, à la résolution de travail. Ne pas recoller systématiquement l’original initial partout hors du dernier ajout, ce qui effacerait les ajouts précédents. Un masque introduit tard ne restaure pas à lui seul la dégradation déjà acquise.
+- La conservation hors masque est déterministe ; le choix automatique de la bonne zone et la qualité des raccords restent à qualifier. Changements d’éclairage global ou déplacement de contours peuvent demander une zone plus large. Pas de promesse de masque automatique parfait.
+- Prompt de netteté : complément éventuel, pas correction principale. Demander une accentuation peut durcir contrastes et inventer de la texture ; préférer préserver textures fines, couleurs et contraste naturel. Les prompts actuels demandent déjà de conserver ce qui n’est pas visé.
+- Essai proposé : une paire existante source/rendu avec un ajout local (porte ou petit escalier), masque visible/ajustable pour l’essai, comparaison source / brut / recomposé sans relancer MiniMax. Contrôler pixels identiques hors zone et raccords naturels ; qualifier ensuite le masque automatique sur 2–3 étapes. L’objectif reste une boucle automatique, sans nouvelle validation humaine obligatoire à chaque étape.
+- Sources primaires consultées : documentation Pillow Image.composite ; dépôt facebookresearch/sam2 (segmentation et génération automatique de masques comme piste technique, sans sélection de dépendance ni installation).
+- Question envoyée : dégradation dans les images du parcours avant HQ, dans l’essai HQ, ou les deux ? Réponse encore attendue lors de cette note ; proposition formulée d’abord pour les modifications locales du parcours.
+- Aucune application, image, donnée runtime, configuration ou service modifié. Aucun test, appel LLM, segmentation ni rendu lancé ; notes de continuité uniquement.
+
+### Next steps
+1. Recueillir la précision parcours/HQ et discuter l’essai de composition limité à une paire existante.
+2. Si l’utilisateur demande l’essai, conserver source, rendu brut, masque et copie recomposée séparément ; mesurer la préservation hors zone et observer les bords.
+3. Aligner seulement ensuite l’automatisation du masque et son intégration dans la chaîne ; conserver l’UX épurée et le caractère autonome.
+
+## Implémentation 2026-09-29 — Étapes par + et essai HQ MiniMax isolé
+
+### Goal
+- Livrer le go utilisateur : ajouts/insertion par petits + et popup d’intention, essai HQ ×2 sur une image avec prompt modifiable ; corriger le next_action=null prématuré connu. Garder l’atelier compact et ne pas relier l’essai HQ à l’aval.
+
+### Current state
+- Code actif modifié dans D:/Code/panelforge-krea2-flux. Petits + après chaque carte, y compris en fin de ligne : deux images pour insérer, seulement la dernière pour ajouter, demande libre. Les cartes gardent leur grille pleine largeur, sans défilement horizontal. Saisie conservée au polling et après conflit. Statut d’opération compact, retiré quand elle est terminée.
+- Les opérations manuelles persistent sous image_operations ; les sorties relues deviennent manual_steps avec un sequence_order explicite. steps et count restent le budget automatique initial. Les originaux/sorties existants ne sont pas réécrits ; la nouvelle image s’insère dans le bon intervalle. L’ajout part de la dernière sortie réelle, même si current_asset_id était resté sur l’étape précédente après une relecture échouée. Les bornes sont validées à la demande et à l’insertion finale.
+- Progression visuelle observe les deux bornes pour une insertion et prépare une édition de l’image suivante afin de préserver la forme des ajouts déjà obtenus (deck) en retirant ce qui doit apparaître plus tard (porte). Le prompter MiniMax existant et une relecture finale sont réutilisés. Rôles EARLIER/LATER/CURRENT explicites. La conservation réelle des formes sera à qualifier par l’utilisateur ; aucun appel de modèle effectué pendant l’implémentation.
+- Les + demandent un parcours terminé ou suspendu et sans étape automatique encore à rendre. Une opération à la fois par parcours. Reprendre/Abandonner disponibles pour une opération interrompue ; une génération déjà soumise se récupère, une sortie existante se relit sans être régénérée. Journal avant mise en file, identifiants idempotents, protection de version et reprise explicite après redémarrage. Les essais HQ peuvent se faire pendant le parcours sur une image déjà disponible, sans changer la séquence.
+- Bouton HQ ×2 sous chaque image : prompt conservateur proposé prérempli/modifiable, génération directe sans réécriture LLM, comparaison Original/HQ, téléchargement, historique des essais par image et Nouveau test. Un clic ouvre l’image ; Taille réelle / Ajuster permet une inspection des pixels. Pas de nouveau grand panneau de tests ni de raccordement HQ à l’usine/transitions.
+- Contrat MiniMax : resolution=double avec reference_mode=native autorisé ; source laissée à sa taille et sortie exactement doublée (768 × 1376 → 1536 × 2752). Le workflow 1.2.0 existant fournit les bindings de dimensions et la référence directe ; aucun node ID ajouté au feature code ni changement de graphe/manifeste. Même recette de rendu, 18 steps, brut, nouvelle seed par nouvel essai. Refus explicite si la source n’est pas alignée par 32 ou si ×2 dépasse 4096 pixels par côté. Défauts du parcours 1 MP et de l’atelier MiniMax manuel conservés.
+- Correction de progression version 1.1.0 : une relecture valable avec next_action=null avant la dernière image est sauvegardée, puis la phase planning demande la prochaine action avec un schéma qui l’exige. Le budget initial n’est pas raccourci ni converti en maximum ; le prompt rappelle de répartir les travaux. Après un ajout manuel pendant une relecture interrompue, la reprise replanifie depuis la vraie fin de séquence. Les journaux runtime et anciennes erreurs ne sont pas réécrits hors reprise explicite.
+- Contrôles statiques OK : 12 Python analysés/compilés sans exécution, deux JS applicatifs + fixture/scénario navigateur compilés sans exécution, 98 règles CSS, 2 122 IDs HTML uniques et 57 sélecteurs vérifiés. Diff isolé relu. Aperçus HTML statiques grand écran de la grille et de la comparaison HQ examinés. L’aperçu nommé hq-mobile est un simple rendu headless non émulé et ne constitue pas une validation de viewport mobile.
+- Treize nouveaux cas backend et scénario navigateur enrichi préparés ; NON exécutés selon AGENTS.md. Aucun appel LLM, rendu MiniMax, test, écriture de projet runtime ou redémarrage de service lancé. Autres modifications locales préexistantes conservées.
+- Guide : docs/design/image-journeys-guide.md, section Ajout, insertion et essai HQ. Sauvegardes, patch isolé, sources de contrôles et rapport : D:/Code/panelforge/.agent/diagnostics/journey-edit-hq-20260929/. Cache UI image-journeys/image-journey-actions : 20260929.edit-hq.
+
+### Next steps
+1. Charger le backend au prochain redémarrage habituel du Lab choisi par l’utilisateur, puis Ctrl+F5. Aucun redémarrage automatique effectué.
+2. Utilisateur : exécuter les tests image_journey* et minimax* indiqués dans le guide ; tester une insertion deck seul et un ajout escalier en vérifiant les images suivantes inchangées.
+3. Sur une image du parcours 1 MP, lancer volontairement HQ ×2 et comparer détails, textures, couleurs et géométrie à taille égale puis en pixels. Qualité réelle non validée avant cet essai ; aucun raccordement en aval à ajouter dans ce périmètre.
+4. Pour le parcours suspendu sur une prochaine action manquante, Reprendre réutilise les images et applique la nouvelle logique. Conserver les rôles configurables et la suite existante.
+
+## Alignement confirmé 2026-09-29 — Histoire V2, rythme en séquences de 10 secondes
+
+### Goal
+- Aligner le passage des scènes de 15 secondes à une cible de 10 secondes et confirmer le format 9:16 Portrait Widescreen. L’utilisateur demande un alignement rapide et des questions ; aucun go d’implémentation de ce changement de rythme à ce stade.
+
+### Current state
+- Demande utilisateur : rythme perçu trop lent ; garder le contenu et les intentions, resserrer pauses/gestes et viser 10 secondes par scène. Format explicitement confirmé : 9:16 (Portrait Widescreen), déjà présent dans les défauts image/vidéo.
+- Réponse acquise à la question durée globale : conserver la durée totale demandée et revoir le découpage. Ne pas raccourcir le film de 60 à 40 secondes en remplaçant simplement quatre clips de 15 par quatre de 10.
+- Réponse acquise à la question dialogues : conserver les répliques mot pour mot. Pas d’autorisation de raccourcir, paraphraser ou supprimer une information pour tenir dans 10 secondes.
+- Direction proposée : par exemple six séquences de 10 secondes pour une histoire de 60 secondes ; mieux répartir les actions existantes et enchaîner les séquences, conserver setup/causalité/révélation/conséquence. Un échange dépassant naturellement 10 secondes peut continuer sur la séquence suivante sans modifier ses mots. Les séquences supplémentaires servent le découpage existant ; aucun ajout de remplissage pour atteindre la durée.
+- Limite à respecter : même durée globale et mêmes paroles impliquent un débit moyen comparable ; le gain recherché vient du découpage et de la mise en scène. Ne pas promettre que n’importe quelle quantité de parole/action devient intelligible dans un unique clip de 10 secondes. Ne pas transformer cette demande en accélération mécanique de toute la vidéo.
+- Lecture du code : WRITER autorise encore 5–15 secondes et demande de laisser du temps aux réactions. Le contrat accepte 5–15, contrôle 3,5 mots/s maximum et total proche de la cible (10 %, minimum 5 secondes de tolérance). L’export vidéo reprend la durée écrite par séquence : changer uniquement la durée technique par défaut ne corrigerait pas l’écriture. À aligner ensemble au futur patch, sans consignes de durée contradictoires.
+- Aucune application, histoire, préférence runtime, vidéo ou service modifié. Aucun test, appel LLM, rendu ni redémarrage. Notes de continuité seulement.
+
+### Next steps
+1. Présenter ce découpage et attendre le go d’implémentation ; ne pas interpréter les réponses d’alignement comme une autorisation de réécrire les histoires existantes.
+2. Au futur patch, aligner écriture/découpage, validation et durées envoyées à Préparation autour de 10 secondes, en conservant durée totale, paroles exactes et compréhension. Prévoir un reliquat si la durée demandée n’est pas un multiple de 10, sans modifier silencieusement les réglages.
+3. Qualifier ensuite le rythme réellement obtenu sur une histoire autorisée, en vérifiant particulièrement les raccords d’un échange entre deux séquences et la présence des personnages silencieux.
+
+## Réglages par défaut 2026-09-29 — Captures Histoire V2 Bananita/Kroma et BUNNY
+
+### Goal
+- Appliquer aux nouveaux réglages Histoire V2 les deux configurations image/vidéo fournies par l’utilisateur, en conservant la mémorisation des choix suivants.
+
+### Current state
+- Images : V6, preset Bananita fresh (ID explicite style-642721e10d124d5a83ad6bb907ef8fd3 vérifié dans le catalogue), English, Gemma 4 Unsloth, inspirations locales OFF, aucune direction artistique, KREA2 + Flux Klein, Krea2/kroma-v0.3-turbo.safetensors, 9:16, 2,1 MP, Finition 4 steps · 8 + 4, aucune LoRA. MiniMax Image Edit + Gemma 4 pour variantes et miniature, miniature activée.
+- Vidéo : Plan Qwen3.8-27B, prompt Gemma4, plans auto, liberté 3/3/3/3/1, BUNNY 0.1.3+vae-int8-convrot.1, Rapide 9/4/5, MP 0,9/0,9, musique OFF, checkpoint de la recette, Motion_Repair 0,6/0,2, seed auto, Spectrum OFF, DLSS ON, Turbo et aperçu ON. Le format 9:16 reprend la valeur réellement enregistrée et le défaut BUNNY, malgré le champ Par défaut/vide de la capture.
+- Les préférences serveur sous workspace/stories_v2/preferences.json correspondaient déjà exactement à ces captures ; elles ont été lues, pas réécrites. Les valeurs de base Python sont maintenant alignées, limitées à Histoire V2 ; default_render_setup partagé n’a pas été modifié.
+- Cache navigateur des derniers réglages passé à v3 : au premier chargement, choix image/vidéo repris du serveur et choix narratifs du cache v2 conservés. Les modifications suivantes restent mémorisées. Histoires déjà enregistrées non réécrites. Scripts versionnés 20260929.defaults1.
+- Métadonnées du Lab actif lues sur 127.0.0.1:7861 : la requête BUNNY 0.1.3 et la version 0.1.3+vae-int8-convrot.1 sont toutes deux acceptées et renvoient cette dernière version, avec 9:16 et 0,9 MP. L’erreur de recette de la capture n’a donc pas été reproduite par ces lectures. UI corrigée pour retenir la version effective reçue, restaurer 9:16 si ancien champ vide et effacer une ancienne erreur vidéo au chargement réussi, sans masquer une erreur image distincte.
+- Contrôles statiques réussis : quatre Python compilés, quatre sources JavaScript compilées seulement (deux applicatives et fixture/scénario), cache vérifié, diff/espaces contrôlés. Contrôles existants adaptés pour defaults, migration du cache et récupération après erreur de recette ; tests NON exécutés selon AGENTS.md. Aucun appel LLM, rendu ni redémarrage.
+- Guide docs/design/story-v2-guide.md actualisé. Sauvegardes, diff isolé de huit fichiers et rapport : D:/Code/panelforge/.agent/diagnostics/story-v2-defaults-20260929/. Changement HTML Image Journeys concurrent conservé et exclu du diff isolé. Code local dans D:/Code/panelforge-krea2-flux, aucune publication GitHub.
+
+### Next steps
+1. Ctrl+F5 puis Nouvelle histoire : les préférences actuelles du serveur correspondent déjà aux captures. Les nouveaux defaults Python seront chargés au prochain redémarrage normal ; ne pas interrompre les générations pour ce changement.
+2. L’utilisateur exécute tests.test_story_v2_preparation et tests.test_story_v2_browser, puis le contrôle fonctionnel souhaité. Le mode automatique continue de s’arrêter en Préparation, sans rédaction ni rendu vidéo lancés par Histoire.
+
+## Livraison 2026-09-29 — Ouvriers et échelle visuelle dans Transitions
+
+### Goal
+- Implémenter l’alignement autorisé : ouvrier existant/importé et réutilisable, placement/échelle visuelle, effectif, intentions adaptées, REF2VA avec références, frise repliable, barre fixe et miniatures agrandies.
+
+### Current state
+- Patch local terminé dans D:/Code/panelforge-krea2-flux ; aucune publication GitHub demandée pour cette évolution. Travaux concurrents Histoire V2 et Parcours d’images conservés. Diffs/sauvegardes/reçu : D:/Code/panelforge/.agent/diagnostics/transition-visual-references-20260929/ (18 fichiers, hors continuités).
+- Nouveau panneau compact « Ouvriers et échelle » : choisir dans Mes ouvriers / Images récentes des ateliers KREA, Qwen, MiniMax, ou importer PNG/JPEG/WEBP. Les références choisies sont conservées dans image_transitions/workers.json (100 dernières). Pas de génération de personnage ni de nouvel atelier.
+- Effectif : Ouvrier solo / Petite équipe / Petit chantier / Gros chantier industriel. Solo impose une personne ; les autres niveaux demandent au LLM de proposer une organisation utile, sans effectifs fixes arbitraires. L’échelle des humains reste indépendante de la taille du chantier.
+- « Régler l’échelle » dans la paire : déplacement sur le décor de départ, curseur/poignée de hauteur, flèches clavier. Coordonnées normalisées ; montage PNG distinct calculé avec Pillow, aucun rendu génératif. Originaux A/B conservés. Image en pied préférable, PNG transparent recommandé ; marges alpha rognées et côté max 2048 px. Aucun détourage automatique : le fond opaque reste dans le collage et son effet doit être qualifié.
+- Partage par défaut aux paires suivantes jusqu’à déplacement caméra identifié ou placement distinct ; option Cette paire seulement. Append reprend le groupe précédent, réordonnancement ne propage pas aux nouvelles paires. Si un changement caméra est identifié ensuite, l’échelle héritée après ce changement exige un repositionnement. Vérification manuelle du cadrage toujours nécessaire.
+- Proposition image.transitions.propose@2.0.0 : A/B + identité + montage d’échelle (2–4 images). Lire l’échelle avant de choisir outils, matériaux, levage et coopération. Références visuelles prioritaires sur anciennes indications contradictoires. Les nouvelles frises n’imposent plus le ratio 1/10 du tronc ; anciennes descriptions conservées.
+- Handoff : sans ouvrier de référence, FL2VA existant ; avec ouvrier, REF2VA via profil/cookbook classiques existants, ordre first_frame, last_frame, subject_reference, composition_reference si montage. Les quatre références sont acceptées par l’adaptateur multi-images existant. Intention/Plan/Writer portent la consigne ; pas d’ajout de phrase au prompt final. En REF2VA A/B restent des références guidées par prompt, pas le même conditionnement de bornes que FL2VA.
+- Modifier ouvrier/échelle/effectif invalide la relecture concernée. Référence de décor ou d’ouvrier remplacée : montage périmé signalé, proposition/validation bloquées jusqu’à correction ou retrait. Réponse LLM devenue obsolète non appliquée. Unités déjà envoyées conservées ; aucune génération automatique à la sélection, au placement ou à l’envoi.
+- UX : frise repliable depuis sa barre d’actions, choix mémorisé par frise dans la session ; actions restent visibles sous la navigation au défilement. Paires de 34×38 à 86×110 px, comparaison 300 px de haut avec panneau plus large. Aperçu ×3/loupes repris pour ouvriers et montages. Assets front 20260929.refs1.
+- Contrôles statiques OK : 13 Python compilés, 4 sources JS compilées sans invocation, 122 règles CSS, 68 sélecteurs résolus, IDs uniques et structure HTML du bloc contrôlée. Diff ciblé sans espaces finaux ajoutés ; modifications HTML concurrentes exclues du diff de livraison.
+- 14 tests de régression ajoutés dans tests/test_image_transitions_references.py ; scénario navigateur existant complété. Tests et scénario NON exécutés selon AGENTS.md. Aucun appel LLM, rendu, projet runtime modifié ou service redémarré. Aucune dépendance ajoutée. Guide actualisé : docs/design/image-transitions.md.
+
+### Next steps
+1. Au prochain redémarrage normal décidé par l’utilisateur, charger le backend puis Ctrl+F5. Ne pas redémarrer implicitement pendant des runs.
+2. L’utilisateur peut exécuter les tests test_image_transitions*.py depuis le checkout actif avec src dans PYTHONPATH (commande dans le guide).
+3. Qualifier une paire : choisir l’ouvrier en pied, régler une petite taille, choisir l’effectif, proposer puis relire les moyens du chantier. Vérifier les 3–4 références dans l’usine ; lancer ensuite volontairement un rendu pour évaluer échelle, causalité et raccords. Aucune fidélité visuelle parfaite annoncée.
+
+## Correction 2026-09-29 — Variable v non initialisée dans Histoire V2
+
+### Goal
+- Corriger le bandeau « can't access lexical declaration 'v' before initialization » signalé à l’ouverture d’Histoire V2.
+
+### Current state
+- Cause identifiée dans story-v2-settings.js, fill() : la boucle for(const [id,v] of Object.entries(...)) masquait le v externe contenant les réglages vidéo. Ses lectures v.plan_model/v.prompt_model/v.shot_count dans l’expression de boucle visaient la variable locale encore non initialisée, bloquant tout le chargement des réglages puis du catalogue d’histoires.
+- Correctif minimal : variable de boucle renommée fieldValue ; contenu et modèles des réglages inchangés. Cache du seul script modifié passé de 20260929.prep2 à 20260929.prep3 dans index.html.
+- Régression navigateur existante renforcée : vérifie dès l’ouverture l’absence du bandeau d’erreur, le catalogue, les deux modèles vidéo et le nombre de plans auto avant de charger une histoire. Test NON exécuté selon AGENTS.md.
+- Compilation JavaScript seule du module et du scénario navigateur réussie ; compilation Python du test et git diff --check ciblé OK. Cette vérification statique ne remplace pas l’exécution du navigateur et n’avait pas détecté le conflit lexical lors de la livraison initiale.
+- Aucun appel LLM, aucune génération, modification de projet runtime ni redémarrage de service. Correctif local dans D:/Code/panelforge-krea2-flux, pas de publication GitHub. Sauvegardes des trois fichiers, diff isolé et contrôle : D:/Code/panelforge/.agent/diagnostics/story-v2-lexical-v-20260929/.
+
+### Next steps
+1. L’utilisateur recharge Histoire V2 avec Ctrl+F5 pour charger le nouveau script ; ce correctif frontal ne nécessite pas de redémarrage du backend.
+2. L’utilisateur peut exécuter tests.test_story_v2_browser ; contrôler ouverture, modèles mémorisés et accès aux histoires. Les générations en cours restent gérées par leurs services existants.
+
+## Livraison 2026-09-29 — Histoire V2 jusqu’au bac Préparation
+
+### Goal
+- Implémenter l’alignement explicitement autorisé : une UX compacte et des derniers réglages mémorisés, scénario/références/variantes/miniature, puis envoi en Préparation. Les Plan/Prompt vidéo et les rendus appartiennent à l’Usine et ne démarrent pas dans Histoire.
+
+### Current state
+- Patch local dans D:/Code/panelforge-krea2-flux. Réglages repliables, quatre sous-groupes : Idée et réglages, Dialogues, Image + miniature, Vidéo. L’action principale reste visible. Nouvelle histoire reprend les derniers choix et vide l’idée ; préférences enregistrées côté serveur et formulaire mémorisé localement.
+- Images par défaut : V6, inspirations locales désactivées, sans preset ni direction artistique, English, Gemma 4 Unsloth ; KREA2 + Flux Klein, CielBleu, 2,1 MP, Finition 4 steps · 8 + 4, LoRA simple. Presets et direction artistique partagent les catalogues existants. Langue du prompt distincte de la langue parlée.
+- Variantes et miniature utilisent le même moteur choisi (MiniMax par défaut ou Qwen) et le prompteur Gemma 4 modifiable. États explicitement liés à leur séquence, dérivés de l’identité stable. Miniature activée/désactivable, démarre après rétention des bases, peut être refaite seule. Références réellement séparées transmises au moteur (MiniMax jusqu’à 9, Qwen jusqu’à 16), via contrats/workflows existants ; pas de collage.
+- Vidéo : Plan Qwen3.8, prompt Gemma4, plans auto ; liberté 3/3/3/3/1 comme la capture. BUNNY 0.1.3 Rapide 9/4/5, 9:16, 0,9/0,9 MP, musique OFF, Motion_Repair 0,6/0,2. Durée par séquence, seed auto ou explicite ; checkpoint/LoRA/avancé repliables. Aucun appel vidéo effectué lors de cette configuration.
+- Automatique s’arrête au statut prepared et au bac Préparation. L’envoi vide final_prompt, outputs Plan/Prompt et sessions de production héritées. Aucun appel factory.launch dans V2. Les références et la miniature sont préparées, puis l’utilisateur lance depuis Usine. La consigne V2 préserve événements/relations/causalité/répliques tout en respectant les curseurs créatifs et musique, sans l’ancienne interdiction générale contradictoire.
+- Reprise explicitement ciblée : attend un lot actif, ne réécrit pas le scénario, conserve images réussies et sélection manuelle. Miniature et variante peuvent être reprises ensemble après échec. Une variante liée à une ancienne image d’identité bloque l’envoi. Travaux déjà soumis continuent après pause ; redémarrage demande une reprise explicite des parcours interrompus.
+- Contrôles statiques OK : 14 Python compilés, imports des modules/route, 4 sources JavaScript compilées sans exécution (2 applicatives + 2 fixtures), 62 règles CSS, 2 073 IDs HTML uniques et 107 sélecteurs vérifiés, diff ciblé et espaces des ajouts contrôlés. Formulaire statique revu visuellement. 30 cas de tests préparés dans test_story_v2, test_story_v2_preparation et test_story_v2_browser ; NON exécutés selon AGENTS.md.
+- Aucun appel LLM, rendu, écriture de projet runtime ni redémarrage. Qualité/performance réelles et résultat MiniMax multi-images sur ce nouveau parcours restent à qualifier par l’utilisateur. Aucune nouvelle publication GitHub ; snapshot pré-V2 d40dc0038697cfb6ffdc6169c49e045233c7afa3 toujours disponible.
+- Guide actualisé : docs/design/story-v2-guide.md. Sauvegardes, diff isolé des 19 fichiers, rapport statique et aperçu : D:/Code/panelforge/.agent/diagnostics/story-v2-preparation-20260929/. Autres travaux locaux Image Journeys/Transitions conservés.
+
+### Next steps
+1. Charger le backend au prochain redémarrage normal choisi par l’utilisateur puis Ctrl+F5 ; ne pas redémarrer implicitement un service avec des générations possibles en cours.
+2. L’utilisateur exécute les trois modules de régression indiqués dans le guide, puis les contrôles existants pertinents épisodes/KREA/édition/usine/navigation.
+3. Qualifier un parcours court avec plusieurs personnages et un état modifié : fiches accessibles, présences silencieuses, état limité à sa scène, miniature, puis bac Préparation avec Plan et Prompt encore à faire. Mesurer ensuite les rendus réels sans annoncer une amélioration qualitative déjà démontrée.
+
+## Alignement 2026-09-29 — Boutons + validés et recherche d’un essai HQ MiniMax
+
+### Goal
+- Finaliser l’alignement des ajouts/insertions du parcours et examiner la piste d’upscale MiniMax demandée. Recherche et discussion uniquement ; pas de développement ni de génération demandés à ce stade.
+
+### Current state
+- Réponses utilisateur acquises : petits « + » discrets entre les étapes et à la fin. Insertion : popup avec les deux images encadrantes et une intention libre saisie par l’utilisateur. Ajout final : même popup avec seulement la dernière image et la demande. Une seule nouvelle image par action ; pas de proposition préalable obligatoire.
+- Exemple confirmé pour l’intermédiaire : deck seul avant l’image deck + porte/ouverture. L’intention reste libre, pas un choix limité à cet exemple. Les images suivantes sont conservées ; la nouvelle image s’insère dans l’ordre existant sans régénérer la suite. Conserver le cadrage, le profil 1 MP et les rôles Progression visuelle / Prompt MiniMax.
+- Le blocage next_action=null prématuré décrit dans la note précédente reste à traiter dans le futur patch. Les images produites sont conservées ; aucune correction applicative ou réécriture de journal n’a été effectuée pendant cet alignement.
+- Sources consultées : https://github.com/shootthesound/ComfyUI-Fizgig-H3-Still et son README brut, example_workflows/Edit_Workflow_example.json ; post Reddit https://www.reddit.com/r/StableDiffusion/comments/1wsb4h3/minimax_h3_ref_fizgig_nodes_as_sota_ref2img/ et son lien https://civitai.red/posts/31291351 .
+- Fizgig fournit un latent mono-image et un décodage adaptés à MiniMax H3, déjà présents dans le workflow image.edit/minimax-h3-still/1.2.0 local. Ce n’est pas un modèle dédié de super-résolution. Le README recommande des images de plusieurs MP et évoque une référence agrandie à 2,5 MP dans l’exemple d’édition ; le prompt concret de cet exemple change une robe en rouge. Aucun prompt d’upscale dédié retrouvé dans les sources lisibles.
+- Précision de recherche : le JSON actuel de l’exemple porte un AILab_ImageResize Lanczos, megapixels=2, resize_mode=longest_side ; des widgets latent/conditioning affichent 1344 × 768 et le scheduler denoise=1. Les liaisons du graphe peuvent fournir les dimensions réelles. Ne pas présenter les valeurs du README ou des widgets comme une recette d’upscale intégralement vérifiée.
+- Le post Reddit renvoie les prompts sur Civitai. Page non exploitable par le navigateur de recherche ; API publique /api/v1/images?postId=31291351&limit=20 accessible en lecture et retournant deux exemples 4096 × 1536 (144057569, 144058364), tous deux avec meta=null. Pas de prompt récupérable par cette voie ; ne pas inventer un prompt attribué à l’auteur.
+- Proposition à valider : conserver les états du parcours à 1 MP pour la chaîne et les futures éditions ; produire ensuite des copies HQ séparées pour la vidéo. Premier essai manuel sur une image riche en textures/ajouts, ×2 en largeur et hauteur (768 × 1376 vers 1536 × 2752, environ 4,2 MP), puis comparaison à taille commune et recadrages avant d’étendre aux autres images. Vérifier aussi le raccord entre deux images HQ consécutives avant généralisation.
+- L’essai serait une nouvelle génération haute résolution conditionnée par l’image : le gain sur les textures, couleurs et détails reste à constater, et les formes peuvent dériver. Proposition de consigne conservatrice : préserver cadrage, géométrie, position des objets, couleurs et lumière ; affiner seulement les textures fines et les contours, sans ajouter ni retirer d’éléments et sans durcir le contraste. Il s’agit d’une proposition locale, pas du prompt retrouvé de l’auteur.
+- UX proposée pour l’essai : une action discrète sur une image, comparaison Original/HQ et conservation des deux versions ; ne pas réintroduire les deux gros panneaux de test supprimés. Aucun remplacement automatique de toute la frise décidé.
+- Question envoyée : destination des copies HQ = vidéos MiniMax, tandis que parcours/ajouts/insertions restent à 1 MP (recommandation), ou également référence pour les prochaines éditions d’image ? Réponse encore attendue au moment de cette note.
+- Point technique à qualifier au futur essai : reference_mode=native impose actuellement resolution=source dans le contrat image local ; une sortie ×2 doit être préparée explicitement, pas obtenir silencieusement la taille source. Les workflows vidéo ont aussi leur propre redimensionnement/encodage de références (REF2VA contient ref_image_size=match) ; ne pas promettre que 4 MP seront intégralement exploités sans vérifier le chemin retenu.
+- Aucune application, donnée runtime, image, configuration active ou service modifié. Aucun test, LLM, rendu ni redémarrage lancé. Mise à jour des notes de continuité uniquement.
+
+### Next steps
+1. Clarifier la destination des HQ, puis arrêter un essai minimal et volontaire sur une image ; pas de lancement automatique ni d’intégration globale avant ce test.
+2. Sur go d’implémentation, livrer les + et popups selon les choix confirmés, préserver la suite, traiter la fin LLM prématurée et la référence explicite à la dernière sortie réelle.
+3. Sur demande d’essai technique, préciser résolution de sortie et référence, préparer un prompt fidèle, et vérifier le rendu à zoom égal ainsi que le prétraitement vidéo. Le bénéfice reste à évaluer avec l’utilisateur.
+
+## Alignement validé 2026-09-29 — Ouvriers et échelle dans Transitions
+
+### Goal
+- Consigner les réponses de l’utilisateur pour une première version compacte. Alignement uniquement ; ce message ne demande pas encore l’implémentation.
+
+### Current state
+- Choix validé : images d’ouvriers existantes et import suffisent. Aucun formulaire de génération de personnage ni nouvel atelier. Proposition de sélecteur compact avec images récentes et références réutilisables ; pas de surcharge de l’UX.
+- Choix validé : reprendre par défaut le réglage visuel de taille/placement entre les paires d’un même plan, au même cadrage. Garder un ajustement local possible, notamment au changement de point de vue ; ne pas transférer aveuglément une hauteur en pixels entre des perspectives différentes.
+- Menu validé, libellés utilisateur : Ouvrier solo / Petite équipe / Petit chantier / Gros chantier industriel. Solo impose un ouvrier ; les trois autres expriment une ampleur d’organisation et d’équipement, avec effectifs concrets proposés par le LLM selon la transformation. Ne pas inventer de nombres fixes non demandés.
+- L’échelle visuelle reste distincte du niveau de chantier. Un gros chantier de personnages minuscules reste miniature : engins cohérents avec leur taille, matériaux et levage adaptés (allumettes comme poutres, par exemple). Le niveau industriel ne doit pas agrandir les humains ni transformer les images A/B.
+- Parcours retenu : choisir personnage et échelle avant les intentions ; LLM de proposition voit les références et adapte actions/outils/effectifs, Plan et Writer conservent ces choix. Description/intention portent la consigne ; pas d’ajout automatique au prompt final. REF2VA pour les références supplémentaires, en conservant les états de départ et d’arrivée à atteindre.
+- Ajustements UX déjà demandés et conservés : frise horizontale repliable, barre d’actions visible au défilement, paires au moins ×2 et comparaison Départ/Arrivée agrandie.
+- Aucun code, projet, média, réglage actif ou service modifié ; aucun test, appel LLM ni rendu. Pas de question fonctionnelle bloquante retenue ; technique de fabrication de la référence de composition à préciser pendant la préparation du patch, sans promesse de fidélité parfaite.
+
+### Next steps
+1. Attendre une demande d’implémentation ; ne pas assimiler cet accord fonctionnel à un lancement du patch.
+2. Préparer alors une référence de composition avec placement contrôlé, des rôles explicites pour chaque image et la réutilisation par cadrage ; préserver les originaux A/B et les unités déjà envoyées.
+3. Qualifier ultérieurement l’échelle, la causalité des travaux et les raccords REF2VA sur un cas simple, uniquement sur autorisation de génération.
+
+## Alignement 2026-09-29 — Ajouter une étape et insérer un état intermédiaire
+
+### Goal
+- Discuter deux évolutions limitées du parcours apprécié par l’utilisateur : ajouter un petit escalier au deck depuis la dernière image, et scinder une étape trop riche en insérant un état. Questions d’alignement demandées ; aucune implémentation autorisée dans cet échange.
+
+### Current state
+- Erreur vérifiée dans journey-a13459ee40025780847b11798d574b41 (nouveau profil fixe 1 MP) : quatre images produites sur cinq, phase reviewing, deux relectures successives renvoient assessment=usable, completed_milestones=4/4 et next_action=null. Le contrat attend encore une transformation : « La prochaine transformation est manquante ou invalide. » C’est une fin prématurée décidée par le LLM, pas un échec MiniMax ni un défaut visuel établi. Les quatre sorties sont conservées.
+- Attention pour le futur patch : la validation échoue avant l’enregistrement de la relecture et de current_asset_id ; une action sur la dernière image doit référencer explicitement cette dernière sortie réelle, pas supposer que current_asset_id la désigne déjà. Une reprise identique a déjà reproduit le blocage. Le nombre demandé garde son sens acquis (N nouvelles images) ; aucun passage implicite à un simple maximum n’est décidé.
+- Proposition UX : un « + » après la dernière image (Ajouter une étape) et entre deux images (Insérer une étape), champ court décrivant l’état voulu, une seule nouvelle image par demande, cadrage/réglage 1 MP/rôles existants conservés. Pas de nouvel atelier ou éditeur complexe. À la fin : dernière image + demande de petit escalier en bois vers le deck → une image supplémentaire.
+- Pour l’insertion, recommandation encore à valider : conserver les images suivantes et construire l’intermédiaire pour rejoindre l’image déjà obtenue. Le LLM observe les deux bornes. Pour deck + porte/ouverture, une piste consiste à partir de l’image aboutie et retirer ce qui doit apparaître plus tard, en conservant le deck ; source d’édition à qualifier, sans garantie de conservation parfaite. Ne pas reconstruire silencieusement toute la suite.
+- Trois questions envoyées : génération directe ou proposition courte avant un ajout ; intermédiaire deck seul ou porte/ouverture d’abord ; conserver les images suivantes ou regénérer la suite. Réponses en attente au moment de cette note. Recommandations : génération directe d’une seule image, suite existante conservée.
+- Les transitions doivent ensuite recevoir l’ordre actualisé A → intermédiaire → B ; les frises/vidéos déjà envoyées restent des versions antérieures, pas des rendus à modifier implicitement. Le rapport entre nombre initial demandé et ajouts/insertions explicites devra être rendu clair lors de l’implémentation, sans confondre ajout et reprise automatique.
+- Lecture seulement du code/journal ; aucune application, donnée runtime, image, configuration ou service modifié. Aucun test, LLM, rendu ni redémarrage lancé. Seule cette note de continuité est ajoutée.
+
+### Next steps
+1. Recueillir les trois réponses et finaliser une première version minimale dans le même atelier.
+2. Intégrer au futur périmètre le traitement du next_action=null prématuré et la répartition des travaux entre les images demandées ; ne pas masquer le blocage en déclarant arbitrairement le parcours terminé.
+3. Attendre un go d’implémentation ; aucun développement de ces deux évolutions commencé.
+
+## Alignement 2026-09-29 — Références d’ouvrier, échelle visuelle et chantier miniature
+
+### Goal
+- Suite à l’échec visuel de la consigne textuelle (ouvrier encore trop grand), aligner l’évolution de Transitions : personnage réutilisable, référence de mise à l’échelle, travaux adaptés au monde miniature et UX compacte. L’utilisateur demande explicitement discussion/questions ; aucune implémentation autorisée à ce stade.
+
+### Current state
+- Retour utilisateur : plan intéressant mais personnage trop grand. Pas de nouvel audit du prompt ou de la vidéo dans cette discussion ; ne pas attribuer l’échec uniquement à la perte de consigne par le LLM.
+- Nomenclature clarifiée : Transitions actuel = H3 first/last FL2VA ; ajout de références personnage/composition = parcours REF2VA existant côté usine, encore à raccorder à cet atelier. Code vérifié : H3 accepte seulement first/last ; REF2VA transmet les images comme références libres, avec rôles textuels, pas par les mêmes entrées first/last. Fidélité des raccords à qualifier, pas de garantie d’échelle exacte.
+- Proposition : conserver les images A/B de la frise, choisir un ouvrier réutilisable via une galerie compacte (images récentes/import/favoris proposés), placer/redimensionner le personnage au sol sur une copie du décor, produire une référence de composition distincte. L’image de personnage définit l’apparence ; la composition définit taille/placement. Pas d’annotation gravée dans les A/B du film ni de quatrième état obligatoire dans la frise.
+- L’auteur de l’intention doit voir cette référence et les images A/B avant de proposer les moyens du chantier. L’échelle et le choix solo/équipe influencent matériaux, transport, outils, engins, gestes et effectifs. Pour le monde miniature : allumettes comme poutres, cordages, levage avec engins cohérents avec les ouvriers. Ce raisonnement reste porté par les LLM, sans phrase ajoutée automatiquement au prompt final.
+- UX explicitement demandée : conserver la frise horizontale et pouvoir la replier ; barre d’actions visible pendant le défilement ; miniatures de paires au moins ×2, comparaison inférieure à agrandir aussi. CSS actuel relevé : paire 34 × 38 px, comparaison 145 px de haut. Aucune modification effectuée.
+- Trois questions envoyées, réponses encore attendues : sélection/import/récents/favoris seuls ou génération intégrée dès V1 ; réglage d’échelle partagé par cadrage et corrigeable ou individuel par paire ; solo/équipe avec effectif/engins LLM, nombre fixé ou tout automatique.
+- Sources relues : contrats locaux usine/transitions et guide officiel MiniMax H3 ref-en (rôles sujet et composition). Aucun code, projet, média ou réglage actif modifié ; aucun test, appel LLM, rendu ou redémarrage.
+
+### Next steps
+1. Recueillir les trois réponses ; préciser ensuite le moyen de fabriquer la référence de composition (montage contrôlé et/ou édition MiniMax relue), sans promettre une taille exacte après édition générative.
+2. Aligner une première version dans le même atelier, références et échelle réglées avant l’intention, outils/équipe adaptés au contexte miniature ou réaliste.
+3. Sur autorisation ultérieure seulement, implémenter le raccord REF2VA et les trois ajustements UX ; conserver les rendus et versions déjà envoyés.
+
+## Implémentation 2026-09-29 — Réglage 1 MP adopté et atelier compact
+
+### Goal
+- Examiner l’essai jugé meilleur par l’utilisateur, appliquer son réglage aux nouveaux parcours et simplifier l’UX : bandeau repliable, pleine largeur, étapes sur plusieurs lignes, retrait des deux panneaux d’essai.
+
+### Current state
+- Essai terminé relu : journey-trial-3975e2066841523c8c35eb14c888f582, quatre nouvelles images de 768 × 1376, chaque sortie alimentant la suivante. Vues complètes et recadrages à échelle commune montrent une écorce et une mousse beaucoup plus proches du départ, moins de contrastes durcis et de relief artificiel que dans l’ancienne chaîne. Les formes des ajouts diffèrent ; validation de ce cas, sans garantie générale d’absence de dérive.
+- Patch actif dans D:/Code/panelforge-krea2-flux. Les nouveaux parcours enregistrent render_profile=fixed-1mp-v1 : préparation unique Lanczos autour de 1 MP, source et sorties aux mêmes dimensions, settings MiniMax resolution=source / reference_mode=native / reference_megapixels=1. Le départ importé avant préparation reste référencé par original_source_asset_id ; chaque étape reçoit le profil figé. Le workflow 1.2.0 contourne déjà le nœud de mise à l’échelle. La boucle LLM normale reste automatique et adaptative.
+- Les anciens parcours gardent leur source/résolution lors de la reprise, et l’atelier MiniMax manuel ses propres réglages. Vérification technique des dimensions du profil, aucune nouvelle critique esthétique ou suspension liée à la qualité. Aucun journal runtime ni média existant réécrit.
+- Bandeau Image de départ et réglages replié au lancement/ouverture d’un parcours existant, réouvrable ; les mises à jour ne réinitialisent pas le choix. Nouveau ouvre le formulaire. Reprendre reste accessible à côté de l’avancement, même bandeau fermé.
+- Atelier sans limite de largeur centrale ; galerie en grille, cartes d’environ 190 px minimum, images hautes de 280 px, retour à la ligne, aucun carrousel horizontal. Zoom, aperçu, téléchargement conservés. Les deux panneaux de test et leur code JS/CSS ont été retirés ; données/API historiques conservées pour compatibilité, aucune suppression d’assets.
+- Contrôles statiques OK : sept Python parsés/compilés, trois sources JavaScript compilées sans exécution, 2 023 IDs HTML uniques, 39 sélecteurs contrôlés, diff ciblé vérifié. Deux régressions backend ajoutées (nouveau profil/idempotence et ancien parcours), fixtures historiques adaptées, scénario navigateur enrichi (1920 px, 19 cartes, repli/polling/reprise, absence des panneaux). Tests NON exécutés conformément à AGENTS.md ; aucun LLM, rendu ou redémarrage lancé.
+- L’erreur rouge call_id des captures est encore stockée dans l’ancien journal principal. La signature applicative actuelle utilise déjà analysis_id (correction antérieure) ; ce patch ne réécrit ni ne relance ce parcours.
+- Guide : docs/design/image-journeys-guide.md. Audit visuel : docs/proposals/image-journey-1mp-adoption-2026-09-29.md. Planches, provenance, sauvegardes, diff et rapport statique : D:/Code/panelforge/.agent/diagnostics/journey-default-1mp-20260929/.
+
+### Next steps
+1. Charger les nouveaux defaults backend au prochain redémarrage habituel du Lab choisi par l’utilisateur, puis Ctrl+F5. Aucun service redémarré implicitement.
+2. Créer un nouveau parcours : il reprend automatiquement le réglage validé. Les anciens essais ne remplacent pas implicitement les images originales.
+3. L’utilisateur exécute les régressions image_journeys, navigateur, comparaisons/trials historiques et MiniMax indiquées dans le guide ; vérifier l’affichage sur son écran après actualisation.
+
+## Alignement 2026-09-29 — Histoire V2 automatique jusqu'au bac Préparation
+
+### Goal
+- Aligner la nouvelle vision utilisateur : tout préparamétrer dans Histoire jusqu'au bac Préparation de l'usine, avec références et miniature. Questions seulement, aucun code autorisé par cette demande.
+
+### Current state
+- Cette demande remplace le recadrage précédent : inclure références/variantes/miniature et configuration vidéo dans Histoire est souhaité. En automatique, ne jamais lancer directement la production vidéo ; terminer dans le bac Préparation. La profondeur de préparation des prompts vidéo reste à préciser.
+- UX demandée : Réglages repliables, avec Idée et réglages, Réglages Dialogues, Réglages Image + miniature, Réglages Vidéo. Menus compacts, contrôles existants réutilisés, réglages éditables.
+- Defaults image demandés : recette V6, inspirations locales désactivées, preset personnel vide, English pour les prompts image, direction artistique vide mais sélectionnable. KREA2 + Flux Klein, checkpoint CielBleu, 2.1 MP, preset Finition 4 steps et menu LoRA. Le catalogue local identifie le checkpoint cielbleukrea2_v1bf16.safetensors et le preset finish_4 libellé Finition 4 steps · 8 + 4. Un preset personnel choisi doit actualiser les réglages qu'il contient.
+- États modifiés : choix MiniMax Image Edit ou Qwen, MiniMax par défaut avec prompteur Unsloth Gemma 4. Miniature lançable durant l'étape références, une fois ses images sources disponibles, avec moteur préconfiguré ; mutualisation exacte du choix et activation par défaut à préciser.
+- Vidéo : reprendre au minimum les réglages de l'ancien atelier. Captures fournies : modèles Plan Qwen3.8-27B / Writer Gemma4, nombre de plans auto, axes créatifs ; rendu BUNNY, preset Rapide 9/4/5, 9:16, 0.9 MP initiaux et finaux, musique OFF, Motion_Repair. Les captures montrent des valeurs, sans décision finale sur tous les defaults ; ne pas imposer 10 secondes à toutes les scènes ni réutiliser la seed affichée comme défaut global.
+- Lecture seulement des menus existants : miniature actuelle centrée sur Qwen ; le support MiniMax n'est pas présenté comme déjà livré. L'usine distingue receive en préparation et launch en production. Aucun code, projet, réglage runtime ou service modifié ; aucun test, appel LLM ni génération.
+
+### Next steps
+1. Poser cinq questions : prompts vidéo déjà prêts ou rédigés ensuite dans l'usine ; defaults vidéo de la capture ; liberté créative sobre/dialogues exacts ; miniature automatique désactivable et moteur partagé ; mémorisation des réglages entre histoires.
+2. Attendre les réponses et l'autorisation d'implémenter ; conserver clairement demandes validées et propositions ouvertes. Respecter l'arrêt au bac Préparation dans toute évolution du mode automatique.
+
+## Implémentation 2026-09-29 — Essai séquentiel à dimensions fixes autour de 1 MP
+
+### Goal
+- Suite au « On peut essayer du coup ? », ajouter un essai lançable depuis Parcours d’images autonome pour produire toute une courte chaîne autour de 1 MP, sans redimensionnement externe entre les étapes.
+
+### Current state
+- Patch dans D:/Code/panelforge-krea2-flux. Panneau replié « Tester la suite à ~1 MP », nombre d’images déjà produites à rejouer (deux par défaut si disponibles), lancement explicite, progression, suspension/reprise, historique et comparaison original/essai côte à côte avec zoom/téléchargement. Aucun redimensionnement manuel nécessaire.
+- Départ préparé une seule fois avec Lanczos en PNG aux dimensions de la résolution 1 MP, multiples de 32 ; source 1120 × 1984 → 768 × 1376. Chaque nouvelle sortie devient la référence réelle suivante, à dimensions fixes. Prompts, seeds et échantillonnage sont figés depuis les tentatives d’origine. Aucun nouveau LLM de progression ou de prompt pour cet essai.
+- Workflow MiniMax still 1.2.0 : graphe source inchangé ; mode explicite reference_mode=native contourne le nœud de mise à l’échelle lié par manifeste, avec sortie resolution=source. Le réglage normal reste resize. Contrôle technique des dimensions source/sortie pour conserver la validité de l’essai ; aucun jugement esthétique bloquant ni garde-fou qualité ajouté.
+- Journaux fixed_trials séparés des étapes originales, commandes idempotentes, un essai inachevé par parcours ; persistance avant envoi, récupération d’un accusé perdu, collecte des rendus soumis après redémarrage, reprise explicite pour la suite. La boucle serveur avance également les essais d’un parcours principal terminé/suspendu. Les transitions continuent à recevoir la séquence originale.
+- Contrôles statiques : onze sources Python analysées/compilées, JavaScript applicatif et deux scripts de fixture navigateur compilés sans exécution, 2 037 IDs HTML uniques et 53 sélecteurs vérifiés, intégrité/bindings du manifeste et diff ciblé vérifiés. Sept tests backend préparés ; scénario navigateur existant enrichi. Aucun test exécuté, appel LLM, rendu ou redémarrage de service lancé, selon AGENTS.md.
+- Guide : docs/design/image-journeys-guide.md, section essai à dimensions fixes. Sauvegardes/diff/rapport statique : D:/Code/panelforge/.agent/diagnostics/journey-fixed-1mp-20260929/. Aucun projet runtime ni média existant modifié pendant l’implémentation.
+- Limites : qualité réelle et comportement interne du nœud MiniMax distant à qualifier ; même seed à une autre résolution ne garantit pas la même composition. Ce test évalue la chaîne complète à faible résolution, pas uniquement l’interpolation. Pas de seconde référence ni agrandissement automatique ; seules les étapes déjà produites sont rejouables.
+
+### Next steps
+1. L’utilisateur charge le nouveau backend au prochain redémarrage normal du Lab, puis Ctrl+F5. Ne pas redémarrer ses services implicitement.
+2. Dans le parcours existant, ouvrir « Tester la suite à ~1 MP », commencer par deux images puis comparer textures, couleurs et contrastes à taille commune ; quatre étapes disponibles dans le parcours de l’arbre au dernier audit.
+3. Tests à exécuter par l’utilisateur : tests/test_image_journey_trials.py, tests/test_image_journey_comparisons.py, tests/test_image_journeys*.py et régressions MiniMax concernées (commandes dans le guide). Ne pas annoncer de validation comportementale ou de gain visuel avant ces essais.
+
+## Implémentation 2026-09-29 — Échelle portée par l’intention et rédigée par les LLM
+
+### Goal
+- Implémenter l’alignement explicite : description de l’ouvrier → intention → Plan/Writer ; aucune phrase d’échelle injectée automatiquement dans le prompt final après génération.
+
+### Current state
+- Patch dans D:/Code/panelforge-krea2-flux, limité à sept fichiers. Le champ existant Description de l’ouvrier propose, pour les nouvelles frises et lorsque le chantier concerne un arbre, un adulte dont la hauteur debout au pied du tronc vaut environ 1/10 de la largeur du tronc à sa base. Rapport modifiable ; aide discrète dans le champ, aucun nouveau contrôle. Les anciennes descriptions, projets et unités restent intacts.
+- image.transitions.propose@1.2.0 demande au LLM d’intégrer la relation d’échelle dans une ou deux phrases de l’intention : rapport et sens de comparaison, repère, placement, proportions adultes et cohérence physique avec la perspective. Respect des conditions et des scènes caméra seules ; aucun arbre ou rapport inventé.
+- Descriptions de schéma Classic Plan/Writer renforcées pour conserver les contraintes d’échelle explicitement fournies, sans les affaiblir en « petit ». Le schéma Writer de longueur fixée reprend désormais la description du champ phases ; les recettes archivées ne sont pas réécrites. Aucun changement des champs, bornes ou structures de réponse.
+- Aucune extraction/insertion d’échelle, validation bloquante, réparation ou nouvelle tentative automatique. Les fonctions de compilation restent identiques ; seul schema change pour transmettre sa description complète aux phases. Les nouveaux textes sont des consignes aux LLM, pas une garantie de fidélité du rendu.
+- Validation statique OK : cinq Python parsés/compilés, 2 028 IDs HTML uniques, un seul champ worker, diff sans espace final ajouté. Une régression de compilation ajoutée et les tests de transmission/schéma existants complétés ; NON exécutés selon AGENTS.md. Aucun appel LLM, rendu, redémarrage, commit ou push.
+- Guide actualisé : docs/design/image-transitions.md. Sauvegardes, diff limité et reçu : D:/Code/panelforge/.agent/diagnostics/transition-worker-scale-20260929/.
+
+### Next steps
+1. Charger le backend lors du prochain redémarrage habituel choisi par l’utilisateur, puis Ctrl+F5. Aucun redémarrage effectué pendant le patch.
+2. Pour la frise existante, compléter Description de l’ouvrier avec le rapport souhaité, proposer à nouveau, relire/valider puis envoyer une nouvelle version. Un texte déjà corrigé manuellement reste conservé avec une proposition séparée.
+3. Tests à lancer par l’utilisateur : test_image_transitions et test_classic_cinematic. Qualifier ensuite le rendu ; le respect du rapport 1/10 reste une consigne générative à évaluer.
+
+## Alignement 2026-09-29 — Produire toute la suite autour de 1 MP
+
+### Goal
+- Évaluer la proposition utilisateur : produire les images autour de 1 MP tout au long du parcours afin d’éviter les redimensionnements répétés. Discussion seulement, aucune implémentation ni génération demandée ici.
+
+### Current state
+- Proposition pertinente à tester : éviter la boucle référence 1 MP → génération 7,2 MP → réduction à 1 MP. Cela peut limiter les détails reconstruits puis éliminés à chaque passage, sans démontrer que la dérive générative disparaîtrait. Contrepartie : moins de définition native.
+- Distinction nécessaire : même nombre nominal de MP ne garantit pas les mêmes dimensions. Le réglage de sortie PanelForge arrondit largeur et hauteur à des multiples de 32 ; le nœud officiel MiniMax arrondit aussi les références. Pour tester une chaîne réellement sans redimensionnement intermédiaire, préparer une fois le départ et garder exactement les mêmes dimensions de référence et sortie, en évitant la remise à l’échelle superflue. Version distante du nœud non inspectée.
+- Source officielle consultée : https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_minimax_h3.py (CANVAS_MULTIPLE=32 et préparation des références). Contrat local relu dans domain/minimax_edit.py et le manifeste still 1.1.0.
+- Proposition de comparaison : chaîne actuelle référence 1 MP/sortie 7,2 MP contre chaîne à dimensions fixes autour de 1 MP, mêmes transformations, comparaison visuelle à taille identique. Agrandissement éventuel des images seulement après construction de la suite. Le contrôle UX existant ne change que la résolution de référence, pas la sortie ; cette proposition n’est pas déjà disponible dans ce panneau.
+- Aucun code applicatif, réglage, runtime, test, appel LLM/rendu ni service modifié/lancé. Aucun garde-fou qualité ajouté.
+
+### Next steps
+1. Aligner le choix d’un essai à dimensions fixes avant de l’implémenter ; ne pas simplement affirmer qu’un réglage nominal 1 MP supprime tout redimensionnement.
+2. Évaluer fidélité des matières, nuances et stabilité de plusieurs états à échelle commune, en tenant compte de la définition plus faible. Une seconde référence reste une piste distincte et ultérieure.
+
+## Alignement 2026-09-29 — Échelle de l’ouvrier face à l’arbre
+
+### Goal
+- Répondre au retour positif sur Fast et discuter un moyen minimaliste de rendre l’ouvrier beaucoup plus petit face à l’arbre. Discussion seulement, aucun patch demandé.
+
+### Current state
+- Le champ commun worker décrit actuellement les vêtements, sans rapport d’échelle explicite ; il est transmis à la proposition et à l’intention de l’usine. Proposition : compléter ce champ existant par une relation visible et locale (hauteur debout rapportée à la largeur du tronc à sa base), position au pied du tronc et proportions adultes conservées. Rapport 1/10 cité comme exemple à ajuster, sans garantie de précision numérique H3.
+- Priorité proposée au texte court, repris dans l’intention et le prompt final. Une copie de composition avec silhouette à la taille souhaitée reste une piste si le texte ne suffit pas ; ne pas annoter implicitement les first/last frames du film. Un usage séparé comme référence visuelle demanderait un parcours adapté et une qualification.
+- Documentation officielle MiniMax H3 relue : base-en distingue les images first/last imposées ; ref-en distingue les références de composition. La supériorité d’une silhouette ou le respect d’un rapport chiffré ne sont pas démontrés ici.
+- Aucun code, preset, projet, prompt enregistré ou média modifié ; aucun test, appel LLM/rendu ni redémarrage.
+
+### Next steps
+1. Aligner la formulation et le rapport d’échelle souhaité ; commencer par le champ Description de l’ouvrier existant.
+2. L’utilisateur peut comparer une transition avec la consigne explicite ; référence de composition seulement comme étape ultérieure si nécessaire.
+
+## Implémentation 2026-09-29 — Histoire V2, lecture compacte et deux modes
+
+### Goal
+- Implémenter le parcours autorisé après alignement : onglet Histoire V2 à côté d'Histoires, histoires seules, idée/univers/style/durée ; modes automatique et manuel avec lecture compacte. Publier une version GitHub AVANT le patch.
+
+### Current state
+- Snapshot préalable publié et vérifié : d40dc0038697cfb6ffdc6169c49e045233c7afa3, branche snapshots/pre-story-v2-2026-09-29 et tag snapshot-pre-story-v2-2026-09-29. Index temporaire, HEAD/branche/index actifs conservés. Le patch V2 ultérieur reste local dans D:/Code/panelforge-krea2-flux.
+- Nouvel onglet Histoire V2 ; anciens Histoires conservés. Trois raccourcis globaux VRAM LLM, VRAM Comfy, DLSS local retirés ; Recette LLM en bouton vert gras. Statistiques GPU conservées.
+- Nouveau contrat/politique story.v2@1.0.0 et stockage indexé stories_v2, indépendants des prompts de saga. Résumé une/deux phrases ; chaque séquence une phrase d'action, une phrase d'intention et dialogues. Retouches directes, retour global/local, historique restaurable, versions attendues et création dédupliquée.
+- Relecture limitée à ce que scènes/actions/paroles établissent, sans résumé/intention/état final de l'auteur. Une réparation éditoriale maximum, nouvelle relecture, puis intervention utilisateur si défauts persistants. Modèles configurables, Qwen rédaction/relecture et Gemma prompts par défaut ; budget 24k, aucune performance nouvelle mesurée.
+- Manuel : scénario relu → approbation créant les fiches → génération/choix des images → lancement vidéos. Automatique : écriture/relecture puis références sélectionnées automatiquement et vidéos via usine. Pause aux frontières ; travaux déjà envoyés continuent ; reprise explicite après redémarrage ; scénario conservé si interruption de relecture.
+- Fiches visibles avant génération, description/import/choix/zoom/Image Lab ; vidéos ordonnées et lecteur, lien usine et retour V2. Export déterministe, images inchangées réutilisables, médias antérieurs conservés. Apparences temporaires explicitement limitées à chaque scène dans l'intention, sans création automatique d'une variante image pour chaque état ; fidélité à qualifier en rendu.
+- Contrôles : 13 Python AST/imports, lanceur --help, sept sources JS compilées sans exécution dont fixture, 2 028 IDs uniques et 63 sélecteurs V2 ; diff vérifié. Seize régressions préparées (quinze contrats/service/API/production et un navigateur), NON exécutées selon AGENTS.md. Aucun LLM, rendu ou redémarrage lancé.
+- Guide : docs/design/story-v2-guide.md ; snapshot : docs/releases/snapshot-pre-story-v2-2026-09-29.md. Diagnostics : D:/Code/panelforge/.agent/diagnostics/story-v2-20260929/. Pas de publication du patch V2 postérieur au snapshot.
+
+### Next steps
+1. Au prochain démarrage normal choisi par l'utilisateur, charger le backend puis actualiser la page ; ne pas redémarrer les services en cours implicitement.
+2. L'utilisateur exécute tests.test_story_v2 et tests.test_story_v2_browser, puis les régressions existantes de navigation/Lab pertinentes.
+3. Qualifier une histoire manuelle et un petit parcours automatique, puis comparer Kiwino/copine à qualité et réglages connus ; rendus et performance V2 non qualifiés par cette implémentation.
+
+
+## Audit 2026-09-29 — Deux éditions relancées à 2 MP
+
+### Goal
+- Donner un avis visuel sur les deux essais lancés par l’utilisateur après ajout du contrôle de résolution.
+
+### Current state
+- Parcours journey-323a50895e5f5c72bf755375b6070023 : porte 2 MP asset-9b4d4fcd383d4496b715b1f60cc28836, deck 2 MP asset-49b446f6fd75431ea1f05fb5ce1d0c8d, deux essais succeeded. Graphes exécutés comparés aux témoins : seuls noms de fichiers d’entrée/sortie et référence 1 → 2 MP changent. Prompts, assets, seeds, steps et dimensions conservés.
+- Vues complètes et gros plans écorce/mousse/racines examinés à échelle commune. Préférence visuelle pour les 2 MP : certaines fissures mieux conservées, simplification et contrastes moins marqués. Dégradation résiduelle visible dès la première édition ; la matière n’est pas conservée intacte. Indice favorable au rôle de la résolution, sans démonstration de cause principale ni garantie pour une chaîne longue.
+- Limite essentielle : la deuxième relance repart de l’ancienne porte à 1 MP, pas du nouveau résultat 2 MP. Le contrôle compare chaque édition séparément ; aucune chaîne complète 2 MP n’a encore été produite dans ces deux essais.
+- Rapport : docs/proposals/image-journey-2mp-results-2026-09-29.md, synchronisé dans les deux checkouts. Planches et provenance : D:/Code/panelforge/.agent/diagnostics/image-journey-2mp-review-20260929/. Aucun code applicatif, réglage, runtime, source, test, appel LLM/rendu ou service modifié/lancé pendant cet audit.
+
+### Next steps
+1. Essai proposé : deck à 2 MP depuis la nouvelle porte à 2 MP, avec prompt/seed/paramètres de son édition conservés, pour compléter une courte branche comparable à la chaîne 1 MP. Proposition uniquement, non lancée et non implémentée.
+2. Ne pas ajouter en même temps une seconde référence, changer l’interpolation ou introduire un garde-fou qualité ; l’utilisateur privilégie une qualité obtenue par conception.
+
+## Implémentation 2026-09-29 — Presets Slow / Fast pour les transitions H3
+
+### Goal
+- Répondre au retour sur les transitions trop peu accélérées : garder un mode doux et ajouter une avance rapide extrême inspirée du prompt H3 fourni par l’utilisateur.
+
+### Current state
+- Patch local dans D:/Code/panelforge-krea2-flux. Sélecteur Rythme visible près de Proposer les transitions : Slow (accéléré modéré, gestes fluides), Fast (compression temporelle globale, poses et positions par bonds, gestes saccadés, flou bref, sons en rafales), Personnalisé (texte libre). Fast par défaut pour les nouvelles frises.
+- Le contrat image.transitions.propose@1.1.0 demande l’effet temporel dans l’intention française. Le même preset est réaffirmé en tête de l’intention envoyée aux étapes Plan et Prompt H3, avec les expressions du prompt fourni. La durée, les références first/last et les instructions caméra sont conservées ; aucune coupe ni construction magique demandée.
+- Anciennes frises sans preset laissées intactes et affichées Personnalisé. Changer le rythme demande une nouvelle relecture des paires concernées ; les unités déjà envoyées restent immuables. Le rythme libre d’une paire remplace complètement le preset commun et garde sa validation si seul ce preset change. Modifier le texte commun passe en Personnalisé. Aucun appel automatique au choix du preset.
+- Audit textuel du premier rendu de la frise transitions-4cb147af824343e7a921211621f3bf8b : Plan/Prompt répètent strongly accelerated et gestes rapides, mais peu de signes explicites d’instants sautés ; cohérent avec le retour utilisateur. Pas de lecture audiovisuelle ni de qualification du nouveau rendu. Les tâches existantes n’ont pas été modifiées.
+- Vérifications statiques réussies : 6 fichiers Python parsés/compilés, 3 sources JavaScript compilées sans invocation (application et fragments de scénario), 88 règles CSS parsées, 1 955 IDs HTML uniques et 38 références présentes. Huit régressions de contrat/service/HTTP ajoutées et scénario navigateur étendu, NON exécutés conformément à AGENTS.md. Aucun LLM, rendu, redémarrage, commit ou push.
+- Guide : docs/design/image-transitions.md. Sauvegardes, aperçu des intentions existantes, diff des 10 fichiers et reçu : D:/Code/panelforge/.agent/diagnostics/transition-pace-presets-20260929/. Caches JS/CSS Transitions : 20260929.pace1. Changements préexistants préservés.
+
+### Next steps
+1. Au prochain redémarrage habituel choisi par l’utilisateur, charger le backend puis Ctrl+F5 ; aucun service redémarré pendant ce patch.
+2. Sur la frise existante, choisir Fast, Proposer les transitions, relire/accepter les suggestions si le texte était manuel, valider puis envoyer une nouvelle version à l’usine. Les anciens prompts ne sont pas réécrits.
+3. L’utilisateur exécute les tests ciblés s’il le souhaite et qualifie une courte transition H3 : effet d’avance rapide global, raccords first/last et causalité des travaux. L’effet visuel reste à mesurer.
+
+## Implémentation 2026-09-29 — Comparaison manuelle des références 1 MP / 2 MP
+
+### Goal
+- Donner à l’utilisateur un contrôle UX pour relancer une édition et tester l’effet de la résolution de référence. Redimensionnement automatique par le workflow, sans préparation manuelle de fichier.
+
+### Current state
+- Patch local dans D:/Code/panelforge-krea2-flux. Sous la frise, volet replié « Comparer la résolution de référence » : choix d’une édition produite, sélecteur 1 MP / 2 MP (2 présélectionné), bouton Relancer. Source, résultat initial et essais visibles ensemble, agrandissement/loupe/téléchargement, statuts et erreurs conservés.
+- Relance depuis la tentative exécutée : source, prompt, seed exacte, steps, finition, dimensions et graphe source conservés ; seule la cible de résolution change. Aucun appel LLM. L’état courant des champs du projet MiniMax n’est pas utilisé à la place de l’instantané. Projets enfants séparés, masqués de l’atelier manuel, file GPU existante et commandes idempotentes.
+- Une édition produite peut être comparée pendant que le parcours continue ; aucune suspension imposée. Une comparaison en cours par parcours. La frise, l’avancement et les exports Transitions ne sont pas remplacés. Aucun garde-fou qualité bloquant ni seconde référence originale ajouté.
+- Workflow versionné minimax.h3_still_edit@1.1.0 : graphe source identique, binding de résolution 1/2 MP, nearest-exact conservé. Ancien 1.0.0 inchangé, journaux sans champ lus à 1 MP ; défaut des nouveaux parcours maintenu à 1 MP. La comparaison porte sur une édition, pas encore sur deux chaînes entières. La taille interne au nœud MiniMax distant et le gain visuel ne sont pas qualifiés.
+- Collision de call_id corrigée dans le gestionnaire d’erreur de relecture : les prochaines erreurs afficheront leur cause réelle. Le journal du run existant n’a pas été réécrit et la décision prématurément finale du LLM n’a pas été modifiée.
+- Contrôles statiques : dix fichiers Python parsés/compilés sans exécution, interface JS et deux fragments du test navigateur compilés par V8 sans exécution, 1 955 IDs HTML uniques et 44 sélecteurs directs présents ; manifeste, bindings et empreinte du graphe vérifiés, diff isolé sans nouveaux espaces finaux. CSS relu ; aucun scénario navigateur exécuté.
+- Huit régressions simulées ajoutées dans tests/test_image_journey_comparisons.py, fixture partagée et scénario navigateur étendu. Tests NON exécutés conformément à AGENTS.md ; aucun appel LLM, rendu, service redémarré, commit ou push. Le test réel est laissé au clic utilisateur dans l’interface.
+- Guide : docs/design/image-journeys-guide.md dans le checkout actif. Sauvegardes, scripts, diff isolé et reçu statique : D:/Code/panelforge/.agent/diagnostics/journey-reference-control-20260929/. Changements préexistants préservés.
+
+### Next steps
+1. Charger le backend lors du prochain redémarrage normal choisi par l’utilisateur, puis Ctrl+F5. Dans le parcours existant, ouvrir le volet de comparaison, choisir l’image 1 et relancer à 2 MP ; 1 MP reste disponible pour refaire le témoin.
+2. L’utilisateur lance les tests test_image_journey_comparisons.py, test_image_journeys*.py et test_minimax*.py. Les tests sont entièrement simulés, sans génération réelle.
+3. Comparer les détails et nuances avec le résultat initial ; aucun gain visuel affirmé avant ces rendus. Une comparaison de chaînes et un changement du défaut global restent des étapes ultérieures à décider selon les résultats.
+
+## Alignement 2026-09-29 ? R?f?rence 1 MP et qualit? par conception
+
+### Goal
+- Expliquer le pr?traitement et la r?f?rence originale suppl?mentaire ; proposer une comparaison isolant le r?le du plafond ? 1 MP dans la d?gradation progressive.
+
+### Current state
+- D?cision explicite de l?utilisateur : r?sultats propres par conception, refus du garde-fou qualit? suspendant le parcours. Cette d?cision remplace cette proposition dans les audits ant?rieurs. Garder les deux r?les, l?UX ?pur?e et l?observation des ?tats pour guider les travaux ; aucun nouveau contr?le bloquant de qualit? ni rejeu implicite.
+- Pr?traitement confirm? dans le workflow versionn? : 1 MP nearest-exact avant MiniMax. Les r?f?rences suppl?mentaires h?ritent du m?me pr?traitement ; ajouter l?original ne contournerait pas le plafond.
+- Comparaison propos?e : m?me premi?re ?dition, m?me source/prompt/seed/mod?les/18 steps/sortie, r?f?rence 1 MP contre 2 MP avec interpolation inchang?e. Contr?ler les dimensions r?ellement re?ues ; examiner les zones non vis?es et la r?ussite de l?ajout. Puis courtes cha?nes appari?es pour mesurer la d?rive cumulative ; interpolation et seconde r?f?rence ?valu?es s?par?ment.
+- Document : docs/proposals/image-journey-reference-ab-alignment-2026-09-29.md, conserv? dans les deux checkouts. Aucun code applicatif, r?glage, runtime ou asset modifi? ; aucun test, appel LLM, rendu ou red?marrage lanc?.
+
+### Next steps
+1. Aligner puis pr?parer la comparaison isol?e de r?solution ; aucune g?n?ration autoris?e par cette demande d?explication.
+2. Retenir une pr?paration am?liorant r?ellement la fid?lit? ; original en seconde r?f?rence seulement comme piste distincte ? qualifier ensuite si utile.
+3. La correction de journalisation de l?arr?t reste identifi?e s?par?ment, non impl?ment?e dans cet alignement.
+
+## Alignement 2026-09-29 — reconstruire le parcours Histoire autour de la compréhension
+
+### Goal
+- Prendre en compte le retour détaillé sur Kiwino (cinq scènes) et la copine (sept scènes), proposer une reconstruction solide avec UX minimale. « On s'aligne » : conception seulement, aucune implémentation autorisée.
+
+### Current state
+- Exigences utilisateur : setup explicite, relations/intentions exprimées visuellement et vocalement, peu de sous-entendus ; grossesse, naissance, tromperie et rupture doivent être compréhensibles. Acceptation de principe d'un nouveau menu Histoire. Prompts sobres et non contradictoires restent requis.
+- Kiwino : notification trop indirecte ; annonce de grossesse/veste peu naturelles ; demande d'une scène des deux amants évoquant le mari ; bébé non introduit ; « jamais à nous » ambigu. Copine : présentation porte fermée ; drague avant invitation ; scène 3 acceptable si 2 corrigée ; 4 trop rapide ; dates/photos et réglages du lit incompréhensibles ; naissance/fausse preuve/grossesse finale confuses.
+- Intentions Kiwino et statuts relus : cinq tâches succeeded, dernière le 28/09 à 21:53:40 UTC. Scène 3 = Cerisa seule devant photo ; bébé déjà là en scène 4 ; valise puis personnage restant dans appartement en scène 5. Les champs de conclusion déclarent davantage que les scènes établissent. Pas de nouvel audit audiovisuel complet dans cette discussion ; défauts de réception rapportés par l'utilisateur.
+- Proposition NON encore validée : nouveau parcours et contrat d'écriture, réutilisant références/ateliers/usine. Scénario jouable actions/dialogues avant accessoires et découpage technique ; relecture autorisée à remettre en cause les moyens du plan. Clarté par défaut, pas de nouveau curseur ; explicite pour le public sans révéler tous les secrets aux personnages.
+- UX proposée : bibliothèque compacte puis trois vues Scénario → Références → Vidéos ; formulaire idée/univers-aspect/durée, réglages secondaires repliés, scènes éditables, un retour global ou local, arrêt de lecture du scénario avant images. Fiches de référence consultables sans génération. Versions existantes conservées, impacts des corrections signalés.
+- Responsabilités internes à simplifier, pas de nombre d'appels/modèles figé dans cet alignement. Retirer les anciennes obligations remplacées ; conserver identités, présence/parole, états temporaires, continuité utile et provenance des médias.
+- Note : docs/proposals/story-rebuild-alignment-2026-09-29.md, synchronisée dans les deux checkouts. Aucun code, prompt actif, réglage, runtime, test, appel LLM/rendu ou service modifié/lancé.
+
+### Next steps
+1. Discuter le principe scénario complet à relire, trois vues et périmètre des épisodes/suites ; propositions encore ouvertes, ne pas les traiter comme approuvées.
+2. Après alignement, préciser maquette compacte et contrats/rôles ; aucun développement sans demande explicite ultérieure.
+3. Conserver les douze retours de scènes comme critères de qualification : compréhension à la lecture d'abord, passages vidéo ensuite sur autorisation, puis performance à qualité comparable.
+
+
+## Diagnostic 2026-09-29 — Dégradation du parcours d’images autonome
+
+### Goal
+- Examiner le run signalé et aligner une correction. L’utilisateur précise que le défaut porte sur les détails, textures et couleurs. Aucune correction applicative demandée à ce stade d’alignement.
+
+### Current state
+- Parcours journey-323a50895e5f5c72bf755375b6070023 : porte, deck, panneau solaire, lanterne ; quatre images produites sur cinq, puis suspension. Comparaison visuelle des cinq états et gros plan d’écorce : textures simplifiées dès la première édition, contours/contrastes durcis et aspect artificiel croissant.
+- Moteur : seule l’image précédente est fournie à chaque édition, aucune référence supplémentaire ni masque. Le workflow réduit la référence à 1 MP avec nearest-exact puis produit 2016 × 3584 ; raw, 18 steps, denoise=1, sans DLSS. La réduction de référence peut contribuer au défaut, sans preuve isolant son effet du comportement du moteur.
+- La progression voit aussi l’original à partir de la deuxième relecture mais valide les ajouts sans relever la dérive de textures/couleurs. Le contrat ne distingue pas explicitement qualité d’apparence et avancement.
+- Arrêt séparé : la quatrième relecture complète renvoie next_action=null malgré une image restante ; validation rejetée, puis collision du paramètre call_id dans _call_update masquant l’erreur. Trace complète llm-001e6edf21ff4bc786d541f22c19693d retrouvée ; ne pas diagnostiquer à tort une réponse tronquée.
+- Rapport : docs/proposals/image-journey-degradation-detail-audit-2026-09-29.md. Planches : D:/Code/panelforge/.agent/diagnostics/image-journey-degradation-20260929/. Documentation conservée dans les deux checkouts. Aucun code applicatif, runtime, réglage ou asset source modifié ; aucun test, appel LLM, rendu, service redémarré, commit ou push.
+
+### Next steps
+1. Aligner une correction ciblée, à UX inchangée et deux rôles : qualité évaluée contre l’original, proposition de référence originale permanente en plus de l’état courant, prétraitement de référence à qualifier séparément. Ne pas présenter ces pistes comme une correction visuelle déjà démontrée.
+2. Corriger séparément la journalisation de l’erreur et clarifier la décision prématurément finale après autorisation d’implémenter. Conserver le contrat N nouvelles images et le comportement déjà aligné pour une image similaire.
+3. Qualification réelle ultérieure par l’utilisateur ou sur autorisation explicite ; aucune génération de vérification pendant le diagnostic.
+
+## Audit et ajustement 2026-09-29 — Parcours autonome, dégradation des images
+
+### Goal
+- Correction de contexte : le retour miniatures vise Parcours d’images autonome. Examiner le run et expliquer sa dégradation ; garder l’insertion d’une étape intermédiaire comme piste future.
+
+### Current state
+- Run journey-323a50895e5f5c72bf755375b6070023 inspecté : arbre avec deck, puis porte, rambarde, panneau solaire, lanterne. Suspendu après 4 sorties, 3 relues ; dernière en attente de relecture. Dérive visible hors travaux : textures lissées/remplacées, contours et contraste accentués, aspect illustré.
+- Source PNG 1120 × 1984 strictement identique au deck du projet Qwen qwen-50769e9edefb4302a0ffab8f34bd6125 (même SHA-256). Quatre PNG 2016 × 3584, sans JPEG ni finition couleur. Référence précédente seule, réduite à 1 MP nearest-exact ; régénération globale sans masque/composition. Original fourni uniquement à la relecture LLM.
+- Graphes autonome/manuels MiniMax comparés : seuls source/prompt/seed/préfixe diffèrent ; même modèle, sampler, référence 1 MP, 18 steps et sortie 7,23 MP. Qwen du même arbre : finition naturelle appliquée à 55 %. Dérive également, mais moins vers les aplats observés ici ; aucune attribution unique démontrée.
+- Relecture Gemma centrée sur les ajouts : valide les trois résultats sans relever la dérive. Cumul de reconstructions et perte de référence constituent le mécanisme plausible ; poids causal de la réduction/interpolation/VAE non mesuré.
+- Pistes qualité documentées seulement : référence plus détaillée/interpolation, relecture de fidélité, origine comme seconde référence, masque/composition. Aucun moteur/preset/prompter modifié ni génération de vérification.
+- Demande UI reportée sur le bon atelier : frise ×3 (450 × 330), source ×3 (216 × 198), aperçu flottant ×3 limité à l’écran, loupe visible sur chaque miniature ; dialogue existant accessible aussi avant import. Cache 20260929.zoom1. Patch Transitions précédent non supprimé.
+- Contrôles statiques : 3 sources JS compilées sans exécution, 63 règles CSS, 1 947 IDs uniques, 38 références et fragment navigateur vérifiés. Tests non exécutés selon AGENTS.md. Aucun appel LLM, rendu, redémarrage, commit ou push.
+- Rapport synchronisé : docs/proposals/image-journey-degradation-audit-2026-09-29.md. Guide image-journeys actualisé. Images, instantanés, planches, diff UI et validation : D:/Code/panelforge/.agent/diagnostics/image-journey-degradation-20260929/.
+
+### Next steps
+1. Ctrl+F5 pour les miniatures ; l’utilisateur vérifie sur le parcours réel. Aucun redémarrage requis.
+2. Discuter la priorité des corrections de fidélité avant de modifier le rendu ; ne pas reprendre le run suspendu implicitement.
+3. Garder pour plus tard l’insertion entre deux images A et B ; fonctionnalité non implémentée, comportement de la suite à aligner.
+
+## Ajustement 2026-09-29 — Miniatures de Transitions
+
+### Goal
+- Tripler la taille de base des images de la frise et ajouter à toutes les miniatures de l’atelier Transitions un aperçu ×3 au survol et un bouton loupe.
+
+### Current state
+- Patch local dans D:/Code/panelforge-krea2-flux : zone d’image de la frise portée de 120 × 84 à 360 × 252 px, défilement horizontal conservé et largeur adaptée aux petits écrans.
+- Composant de miniature partagé par la frise, les deux images de chaque paire, la comparaison et le sélecteur Depuis un atelier. Loupe explicite partout, ouvrant le dialogue agrandi existant ; dans la liste, zoom indépendant de la sélection de transition.
+- Aperçu flottant ×3 calculé sur l’image visible, limité à l’écran sans déformation ; hors des conteneurs défilants, compatible avec le sélecteur modal. Survol et focus clavier ; masqué au départ, défilement, redimensionnement, Échap, changement de vue et ouverture agrandie.
+- Consultation des images maintenue pendant l’analyse ; champs d’édition toujours verrouillés, y compris après rafraîchissement du panneau. JS/CSS chargés avec la version 20260929.zoom1 ; aucun changement backend.
+- Contrôles statiques OK : JavaScript compilé sans exécution, 85 règles CSS parsées, 1 943 IDs HTML sans doublon et 36 références directes présentes. Patch isolé relu, sans espaces finaux ajoutés. Tests et scénarios navigateur NON exécutés conformément à AGENTS.md ; aucun appel LLM, rendu, redémarrage, commit ou push.
+- Guide actualisé : docs/design/image-transitions.md. Sauvegardes, patch limité à cette demande et reçu de contrôle : D:/Code/panelforge/.agent/diagnostics/transition-thumbnails-20260929/. Changements préexistants préservés.
+
+### Next steps
+1. Ctrl+F5 dans le Lab suffit ; aucun redémarrage requis pour cet ajustement frontend.
+2. L’utilisateur vérifie le survol et les loupes sur sa frise réelle, les paires, la comparaison et le sélecteur d’atelier. Aucun test fonctionnel ni qualification visuelle exécuté pendant cette modification.
+
+## Implémentation 2026-09-28 — Parcours d’images autonome
+
+### Goal
+- Implémenter le deuxième volet autorisé explicitement par l’utilisateur : atelier « Parcours d’images autonome » dans Image Lab, à côté de « Modifier avec Minimax », avec une UX épurée. Les deux patches peuvent avancer indépendamment et se raccorder par des images ordonnées.
+
+### Current state
+- Implémentation locale dans D:/Code/panelforge-krea2-flux. Formulaire image/intention facultative/nouvelles images (5 par défaut), deux modèles repliés, cap court et jalons repliables, frise, détail agrandi, historique compact, pause/reprise et transfert vers Transitions. Navigation intégrée aux huit barres Image Lab.
+- Alignement acquis : preset travaux/aménagement/décors, destination et grands jalons logiques définis au départ, chemin adaptable au résultat réel, même cadrage et point de vue. Le mode créatif et les autres presets restent futurs. Les images sont les états du décor ; gestes/outils en action/accéléré appartiennent à la préparation vidéo.
+- Deux rôles : Progression visuelle (politique versionnée image.journey.progression@1.0.0) et Prompt MiniMax (prompter existant). Modèles séparés, même Gemma local par défaut que MiniMax. Aucun modèle indisponible remplacé silencieusement ; les deux assistants doivent pouvoir lire les images.
+- Boucle serveur persistante : plan initial, prompt, rendu par la file MiniMax existante, comparaison de la source et du résultat puis décision suivante en un appel ; relecture finale. Une image similaire est conservée et conduit à renforcer la demande suivante. Aucun rejeu sémantique automatique ; conserver cette évolution en tête.
+- Pause aux frontières d’opérations, sans annuler un rendu engagé ; résultat récupéré et sauvegardé. Intention/modèles modifiables à la reprise. Erreur technique ou image inexploitable : suspension. Reprise technique explicite et idempotente ; une image inexploitable est relue selon l’intention corrigée et bloque encore si elle reste inexploitable. Après redémarrage, reprise explicite ; un rendu existant peut être collecté sans nouvelle soumission.
+- Journaux atomiques indexés sous workspace/image_journeys ; assets référencés par ID. Projets MiniMax enfants déterministes, masqués de la liste manuelle, avec prompter et planification partagés. Aucun nœud ComfyUI dans la feature, aucune dépendance ajoutée. Contrats purs/domain, orchestration/application, stockage/infrastructure, routeur et JS/CSS séparés.
+- Contrat de séquence v1 : départ puis résultats relus exploitables, ordre et provenance précis. Préparer les transitions crée/réouvre une frise indépendante sans appel LLM ni envoi à l’usine ; relecture H3 maintenue. La dépendance transitions est facultative pour le module.
+- Contrôles : 13 fichiers Python parsés/compilés sans exécution ; 4 sources JS compilées par V8 sans exécution ; 1 940 IDs HTML uniques, 34 sélecteurs directs de l’atelier et huit barres de navigation vérifiés ; diff-check OK. Imports des nouveaux modules et aide du lanceur OK avec D:/Code/panelforge/.venv/Scripts/python.exe. Le Python système sans pydantic n’a pas été modifié.
+- 22 nouvelles régressions préparées (21 service/contrats/HTTP avec faux LLM et Comfy, 1 scénario navigateur), plus navigation et assertion de cache existantes actualisées. NON exécutées selon AGENTS.md. Aucun appel LLM, génération, redémarrage, commit ou push.
+- Guide : docs/design/image-journeys-guide.md ; brief initial marqué historique et renvoyant vers ce guide. Sauvegardes, patch isolé et contrôles : D:/Code/panelforge/.agent/diagnostics/image-journeys-20260928/. Changements préexistants, dont le patch transitions développé en parallèle, préservés.
+
+### Next steps
+1. Au prochain redémarrage normal choisi par l’utilisateur, charger le backend puis actualiser Image Lab. Ne pas interrompre les générations en cours pour ce patch.
+2. L’utilisateur lance les tests test_image_journeys*.py, test_minimax*.py, test_navigation_and_resource_preview_browser.py et test_lab_web.py dans l’environnement Python du projet.
+3. Qualifier un petit parcours réel : jalons cohérents, cadrage fixe, relecture de la dernière image, pause/reprise avec intention modifiée puis ouverture de la frise H3. Aucun rendu réel n’a qualifié la qualité visuelle pendant l’implémentation.
+
+## Implémentation 2026-09-28 — atelier de transitions d’images vers l’usine H3
+
+### Goal
+- Implémenter le premier patch conservé pendant l’alignement : images existantes ordonnées, intentions de transition relues, puis unités H3 first/last dans l’usine. Autorisation explicite reçue ; la création autonome d’images reste le deuxième volet, documenté séparément.
+
+### Current state
+- Implémentation locale dans D:/Code/panelforge-krea2-flux : nouvel onglet Transitions à côté de l’usine, interface compacte sur ses conventions ; réglages communs repliables, frise, liste avec sélection multiple, comparaison agrandissable et panneau d’intention.
+- Import de fichiers et de versions précises KREA/Qwen/MiniMax ; sélection de chaîne validée, remplacement, retrait et ordre par déplacement/flèches. Les assets et projets source restent intacts.
+- Propositions françaises avec observations/incertitudes via le gateway LLM coordonné et journalisé, deux images par appel ; modèle de proposition configurable, ainsi que Plan et Prompt H3. Prompter versionné image.transitions.propose@1.0.0.
+- Les textes corrigés manuellement sont conservés, une nouvelle suggestion reste distincte. Les réponses obsolètes ne sont pas appliquées. La validation porte sur les images, les textes et les réglages précis ; changer l’image centrale invalide seulement les deux paires concernées.
+- Envoi ordonné et dédupliqué en préparation dans l’usine, sans lancer les rendus. Entrées sauvegardées avant réception pour reprise après interruption ; versions envoyées immuables, liens/statuts et retour vers la frise avec indication des changements.
+- Contrats purs dans domain/image_transitions.py, service/adapter/prompter dans application, journal atomique indexé workspace/image_transitions dans infrastructure/storage, routeur HTTP séparé. Aucun nœud Comfy ajouté dans le code de feature.
+- 17 tests préparés (16 service/sources/HTTP et 1 navigateur simulé), NON exécutés selon AGENTS.md. Syntaxe de 11 fichiers Python et 5 sources JS contrôlée sans exécuter les scénarios ; imports des nouveaux modules et aide du lanceur OK ; IDs HTML et fichiers statiques vérifiés.
+- Documentation : docs/design/image-transitions.md. Sauvegardes initiales, diff d’intégration et validation : D:/Code/panelforge/.agent/diagnostics/image-transitions-20260928/. Aucun appel LLM, rendu, test fonctionnel, redémarrage, commit ou push ; changements préexistants préservés.
+
+### Next steps
+1. Au prochain redémarrage habituel choisi par l’utilisateur, charger le backend puis actualiser la page.
+2. L’utilisateur lance les tests test_image_transitions*.py et qualifie une petite frise réelle : relecture, une seule réception par version, puis rendu depuis l’usine.
+3. Poursuivre séparément l’alignement sur la création autonome d’images ; ne pas l’ajouter implicitement à ce patch.
+
+
+## Audit complémentaire 2026-09-28 — La même espèce après rendu, critique fondamentale
+
+### Goal
+- Expliquer l'échec signalé par l'utilisateur et remettre en cause l'approche de construction d'histoire ; conserver une direction corrective. Ne pas coder ni modifier les générations.
+
+### Current state
+- Sept bruts inspectés via 140 captures et transcription automatique locale, rapprochés des scénarios/plans/prompts réellement exécutés. Ce n'est pas une écoute humaine continue ; versions DLSS non réauditées intégralement. Ordre des références et prompt H3 conformes à la préparation sur les sept clips.
+- Premier audit trop indulgent : il validait la présence de signes narratifs sans assez juger leur causalité. « Je suis pas bizarre, j'espère » vient de l'écriture ; clé et baiser sont imposés dès le plan, sans construction de l'attirance. Le plan vidéo fait aussi commencer la présentation devant une porte fermée.
+- Grossesse visible et annonce transcrite, mais progression dîner → grossesse avancée → annonce → naissance confuse. L'état enceinte est expressément conservé dans l'intention du clip après naissance. L'échographie rendue est bien une photo tenue : ne pas maintenir l'hypothèse d'un moniteur comme défaut établi de cette vidéo.
+- Dernier brut : vers 3–6 s, le visage adulte de Léo contamine celui du bébé dans le reflet. Paroles correctement attribuées dans le texte ; prompt demandant deux profils presque superposés. Confusion visuelle confirmée, mécanisme interne d'attribution vocale non prouvé. Défaut antérieur au DLSS.
+- Adaptation : univers humain réaliste sans préparation suffisante du gag d'espèce ; source fruitière avec flirt, naïveté, alibis et comparaison d'espèces plus explicites. « Mêmes yeux » affaiblit la fausse preuve absurde. Le brief minimal de l'assistant n'assurait pas ces fonctions ; responsabilité du moteur de construire les liens sans exiger de l'utilisateur un scénario complet.
+- Diagnostic : moyens arbitraires du plan transformés en obligations, relecture confirmant ces choix, états temporaires et jeu figés comme identité, préparation locale sans autorité pour réparer le récit. Vingt plans pour sept clips de 10 s ; prompts 4,3–5,9 k caractères, répétitions aussi issues de la compilation, pas seulement de Gemma.
+- Préparation : sept plans Qwen3.8-27B = 12 min 31,3 s ; sept rédactions Gemma = 4 min 24,4 s ; total appels 16 min 55,7 s. Production première préparation → dernier DLSS ~56 min 21 s écoulées, étapes se chevauchant. Les deux essais H3 par projet sont brut + DLSS, pas deux relances brutes. Pas de comparaison permettant de désigner un meilleur modèle ou de blâmer les steps.
+- Kiwino : cinq tâches encore queued au dernier relevé ; aucun rendu qualifié dans ce complément. Ne pas préjuger son résultat ni agir sur la file.
+- Rapport : docs/proposals/story-same-species-fundamental-audit-2026-09-28.md ; preuves : D:/Code/panelforge/.agent/diagnostics/story-same-species-fundamental-audit-20260928/. Documentation synchronisée dans les deux checkouts ; aucun code, paramètre, runtime, service, test ou génération modifié/lancé.
+
+### Next steps
+1. Recueillir le retour Kiwino, puis compléter seulement sur des rendus disponibles ; aucune implémentation actuellement autorisée.
+2. Direction à discuter : histoire lisible et mécanisme comique avant verrouillage, relecture du point de vue spectateur autorisée à remettre en cause le plan, états valides à chaque étape, mise en scène proportionnée, prompts dédupliqués au niveau du contrat et de la compilation.
+3. Lors d'une autorisation future, qualifier compréhension et défauts sur cas gelés avant les comparaisons de modèles et l'optimisation du raisonnement ; éviter une nouvelle accumulation d'interdictions spécifiques.
+
+
+## Alignement 2026-09-28 — transitions vidéo et création itérative d’images
+
+### Goal
+- Conserver le premier patch de transitions H3 entre images, dont le principe est aligné, et esquisser le second volet de création autonome d’images. Fournir un brief transmissible à un autre LLM ; discussion et documentation uniquement.
+
+### Current state
+- Besoin compris : N images choisies et ordonnées → N−1 transitions ; actions facultatives par paire, propositions LLM, réglages communs et spécifiques, réutilisation de Plan/Prompt/Vidéo de l’usine.
+- Historique retrouvé du 7 septembre : quatre transitions FL2VA liées à la chaîne KREA2 krea2-edit-6462a7e65b4246b8a420db170dde6530, neuf essais succeeded au total. Sol marbré, finition de l’ouverture, murs/colonnes, décoration moderne.
+- Prompt exact fourni retrouvé dans h3-render-96f060a5c199483a9cac1339680073ba (session prompt-64b29935e2c34964b9a74fbca832741f) : trois essais 7 s, deux 0,2 MP puis 1,2 MP. Les deux images sont identiques octet pour octet aux résultats KREA validés. La première piste annoncée à deux essais était la transition suivante, h3-render-dbff2d404a7a41c3b848f9cf661e96d0 ; identification finale corrigée et documentée.
+- Vidéos non visionnées ; statuts enregistrés seulement. Dernier rendu du prompt exact : asset-3bb2b433987e4b089bdf67f843f90e00.
+- Code usine vérifié : configuration avec intention/first/last et service de réception en lot déjà présents ; manque le projet de frise, le choix de versions multiaatelier, l’analyse des transitions et le suivi de provenance vers l’usine.
+- FL2VA actuel accepte les deux frontières ; Ref2VA passe toutes les images comme références, avec rôles exprimés dans le prompt. Portrait d’ouvrier supplémentaire à qualifier en Ref2VA ; ne pas annoncer le même conditionnement temporel. Documentation officielle MiniMax consultée.
+- Proposition : onglet Transitions d’images, frise éditable, actions automatiques corrigeables, distinction travaux/nettoyage/déplacement caméra, gestes matériels causaux, effet de captation accélérée, entrée/sortie de l’ouvrier selon les images. Envoi des intentions à l’usine pour éviter de doubler la préparation existante.
+- Choix utilisateur précisés : description/tenue de l’ouvrier suffisante au départ ; préférence pour une relecture humaine avant envoi. FL2VA reste la base proposée.
+- Préférence UX : compact et fonctionnel comme l’usine vidéo et les ateliers image ; le mode histoire plaît moins. Proposition à discuter : barre d’actions, frise, liste dense des transitions, panneau partagé avant/après et intention ; réglages communs repliables.
+- Dernière demande : progression visuelle alignée, premier patch à garder prévu ; aligner maintenant une ébauche minimale de création autonome avec image de départ, intention facultative, nombre d’étapes, moteur d’édition MiniMax, LLM configurables par rôle. Aucune implémentation autorisée.
+- Proposition du second volet, encore à discuter : K étapes = K nouvelles images ; deux rôles LLM (Progression avec vision/relecture/décision, Prompt MiniMax) ; direction initiale puis boucle sur le résultat réel ; une candidate par étape, pas de réessais sémantiques automatiques, suspension si blocage.
+- UX proposée pour ce volet : « Créer une suite » dans le même atelier, formulaire compact image/intention/étapes, modèles repliés, frise qui se remplit, détail partagé, suspension/reprise, puis préparation des transitions avec relecture H3 avant envoi. Pas de validation humaine imposée entre toutes les images.
+- Brief autonome transmissible : docs/proposals/image-sequence-generation-brief-2026-09-28.md, dans D:/Code/panelforge-krea2-flux ; exigences utilisateur séparées des choix encore proposés.
+- Note détaillée actualisée : docs/proposals/image-transition-workshop-2026-09-28.md dans D:/Code/panelforge-krea2-flux. Analyse et documentation uniquement ; aucun code, runtime, LLM, rendu, test ou service modifié/lancé.
+
+### Next steps
+1. Discuter le squelette du second volet : convention de comptage, deux rôles LLM, comportement si résultat inexploitable et formulaire compact.
+2. Garder le premier patch de transitions en attente ; ne commencer aucune implémentation sans demande explicite après alignement.
+3. Réutiliser la série historique comme cas de comparaison lors d’une future qualification utilisateur.
+
+## Ajustement 2026-09-28 — Gemma Unsloth par défaut et rendu MiniMax après le prompt
+
+### Goal
+- Appliquer la demande utilisateur : Gemma 4 31B via Unsloth par défaut ; le clic de création du prompt lance ensuite automatiquement un rendu MiniMax.
+
+### Current state
+- Implémenté dans D:/Code/panelforge-krea2-flux. Nouveaux projets MiniMax : local::unsloth/gemma-4-31B-it-qat-GGUF, case Local cochée ; choix déjà enregistrés conservés. Le catalogue expose le modèle par défaut ; si indisponible, l’interface le signale sans substituer silencieusement un autre modèle.
+- Bouton « Créer le prompt et lancer ». La route MiniMax demande explicitement un enchaînement persistant ; après validation/application du prompt, le service partagé met un essai en file via la planification habituelle. Qwen garde la rédaction et le rendu séparés.
+- Répétition de commande dédupliquée, deuxième demande bloquée pendant un rendu actif ; aucun rendu si prompt invalide, contexte/réglages modifiés ou nouveau brouillon. Une erreur de mise en file reste distincte du prompt reçu, conservé et récupérable. La récupération d’un ancien prompt ne lance pas de rendu automatique. L’onglet n’a pas besoin de rester ouvert.
+- Sept Python parsés, six scripts/scénarios compilés par V8 sans exécution, imports via scripts/run_lab.py --help OK, HTML sans IDs dupliqués, diff isolé et espaces vérifiés.
+- Neuf régressions dans tests/test_minimax_prompt_render.py ; tests/test_qwen_edit_browser.py étendu au vrai sélecteur local et au clic unique, assertion de rendu manuel conservée dans tests/test_qwen_edit_web.py. Tests NON exécutés selon AGENTS.md ; aucun appel LLM, rendu, redémarrage, commit ou push.
+- Guide actualisé : docs/design/minimax-edit-guide.md. Sauvegardes/diff/contrôles : D:/Code/panelforge/.agent/diagnostics/minimax-auto-render-20260928/. Changements préexistants conservés.
+
+### Next steps
+1. Au prochain redémarrage normal choisi par l’utilisateur, charger le nouveau backend puis actualiser la page.
+2. L’utilisateur lance les tests ciblés MiniMax/Qwen et le scénario navigateur ; vérifier un projet neuf avec Gemma local, puis un seul clic donnant un seul essai.
+3. Le snapshot GitHub avant MiniMax reste 4c389d5 ; cet ajustement et l’implémentation MiniMax restent locaux.
+
+## Implémentation 2026-09-28 — Modifier avec Minimax et sauvegarde avant changement
+
+### Goal
+- Créer une version de retour avant modification, puis implémenter « Modifier avec Minimax » comme nouvel onglet sur la même base fonctionnelle et visuelle que Qwen, selon l’autorisation de l’utilisateur.
+
+### Current state
+- Checkout de lancement : D:/Code/panelforge-krea2-flux. Onglet MiniMax implémenté, contrôleur/CSS et cycle projet Qwen partagés ; instance, API, projets, historique et DLSS isolés par moteur. Références, guide peint, conversation, essais, comparaison, validation/reprise, recadrage et exports repris.
+- Recette minimax.h3_still_edit@1.0.0 : Image Edit Minimax.json copié exactement (SHA dca8614c053ce994f45c26c97288118fc4833ca058cfa266dfebcb8296b2215c). Modèles et sampler du preset conservés ; IDs uniquement dans le manifeste, dimensions liées au conditionnement et au latent. 18 steps, résolution preset ~7,2 MP, brut par défaut, aucun CFG/prompt négatif.
+- Références Picture N, neuf images au maximum source/guide compris. Source et masque encodés en RGBA puis guide noir/blanc transmis comme seconde image. Le guide reste approximatif ; aucune protection stricte des pixels ni rendu de qualification effectué.
+- Prompter MiniMax versionné 1.0.0, opération minimax.edit.assistance@1.0.0 : instruction courte ou structure H3 de référence, image fixe, conservation explicite, explication française/prompt anglais. Composition avec références comme Qwen ; aucun T2I pur ou changement des moteurs Stories.
+- Stockage workspace/minimax_edits, exports Minimax Projects. Régressions service/workflow/HTTP/DLSS préparées, scénario navigateur partagé Qwen/MiniMax et navigation étendue ; tests non exécutés selon AGENTS.md.
+- Contrôles statiques OK : 20 Python, deux JSON, empreinte originale et bindings, IDs DOM uniques et 97 contrôles par atelier, huit scripts compilés par V8 sans exécution, diff-check et lanceur --help/imports. Aucun appel LLM, génération, test fonctionnel ou redémarrage.
+- Snapshot local AVANT MiniMax : commit 4c389d53583947752bf42537668a36337f9ccbeb, branche snapshots/pre-minimax-edit-2026-09-28, tag snapshot-pre-minimax-edit-2026-09-28. Création via index temporaire sans modifier HEAD, branche active ou index de travail.
+- Publication GitHub effectuée après confirmation explicite « oui publie » de l’utilisateur. Push atomique de la branche et du tag vers le dépôt public https://github.com/EasyFrag/panelforge réussi ; git ls-remote confirme le commit 4c389d53583947752bf42537668a36337f9ccbeb pour les deux références. Le refus automatique initial est résolu. L’implémentation MiniMax postérieure reste locale.
+- Documentation active : docs/design/minimax-edit-guide.md ; docs/releases/snapshot-pre-minimax-edit-2026-09-28.md. Diagnostics et sauvegardes isolées : D:/Code/panelforge/.agent/diagnostics/minimax-edit-20260928/. Modifications préexistantes conservées.
+
+### Next steps
+1. L’utilisateur exécute les tests ciblés indiqués dans le guide et choisit le prochain redémarrage normal de PanelForge ; ne pas interrompre les traitements en cours.
+2. Qualifier les rendus réels : retouche simple, guide peint, référence d’identité et harmonisation facultative, puis ajuster le prompter si nécessaire.
+
+## Audit 2026-09-28 — deux séries, qualité et performance (aucun code)
+
+### Goal
+- Auditer les deux séries lancées et conserver les améliorations de prompts/modèles ainsi que les boucles de raisonnement. Instruction explicite : ne rien coder.
+
+### Current state
+- Scénarios, relectures et huit appels inspectés : « La même espèce » (`story-887454eeb15c4481b9db6a83ff708e3a`, sept clips), « La mèche de Kiwino » (`story-0be1a86194434102b0f6e0487ed3f487`, cinq clips). Deux écritures `ready`. Aucune préparation vidéo dans les épisodes exportés au relevé ; voix/animation non auditées.
+- Première série : présentation et baiser bien joués, identités inter-unités conservées, mais les « mêmes yeux » affaiblissent la fausse preuve d’espèce ; état « sans conviction » puis rassuré ; confusion échographie photo/écran devenue moniteur en référence ; grossesse persiste après naissance. Douze images sélectionnées examinées.
+- Seconde : rupture surtout symbolique, contradiction du plan partir/rester identifiée puis rationalisée par le modèle ; relecteur valide quand même. Dix images candidates examinées à 17:53:30 Paris, aucune sélectionnée à ce relevé : photo de Kiwino différente de sa fiche, photo du couple avec deux humains malgré Bananito banane, univers hétérogène, bébé debout peu adapté à la naissance, variante de photo créée pour un simple déplacement.
+- Performance écriture : Qwen3.8-27B sur tous les rôles ; 5 appels / 17 min 40,5 s (dont rejet initial ; chaîne réussie 15 min 16,6 s) et 3 appels / 8 min 57,3 s. Raisonnement = 85,2 % / 83,9 % des caractères enregistrés, pas pourcentage de tokens ou de temps. Relectures 4:02 et 2:59 ; aucune boucle de réparations narratives, suranalyse interne des schémas/états/budgets. Kiwino a réutilisé le plan rejeté après normalisation, sans deuxième composition.
+- Pistes conservées : effet dramatique réellement montré ; photos dérivées des identités ; contradictions du plan résolues ; apparence distincte de position/détenteur ; prompt dédupliqué ; comparaison lecteur au raisonnement plus court puis modèle alternatif sur cas gelés. Gemma disponible n’est pas déclaré meilleur sans comparaison. Vérifier compatibilité locale avant tout budget de pensée ; documentation llama.cpp consultée, aucun réglage appliqué.
+- Rapport : `docs/proposals/story-two-series-quality-performance-audit-2026-09-28.md`. Instantanés, métriques et quatre planches : `D:/Code/panelforge/.agent/diagnostics/story-two-series-audit-20260928/`. Audits copine/piscine antérieurs conservés. Aucun code, prompt actif, projet, validation ou réglage modifié ; aucune génération, test ou relance.
+
+### Next steps
+1. Restituer le bilan, les durées et les priorités ; laisser les traitements utilisateur continuer.
+2. À une demande ultérieure explicite, préparer un correctif limité en retirant les consignes redondantes plutôt qu’en ajoutant une nouvelle couche ; aucune implémentation autorisée dans cet audit.
+3. Pour une future comparaison de modèles, garder les cas et paramètres fixes, mesurer défauts détectés/fausses alertes, validité et temps total avec chargement. Ne pas juger les vidéos avant leur génération.
+
+## Impl?mentation 2026-09-28 ? Image Lab, onglet et d?filement vers les images
+
+### Goal
+- Appliquer l'alignement valid? de Cr?ation assist?e : conserver si possible la page actuelle lors de ? Nouvel onglet ? et descendre vers les images lors de cette action ou de l'ouverture d'un projet r?cent.
+
+### Current state
+- Correctif dans le checkout de lancement D:/Code/panelforge-krea2-flux : krea2-assisted-lab.js, lab.css, index.html ; assertion de version du script actualis?e dans le test UI existant. Changements pr?existants pr?serv?s et sauvegard?s.
+- ? Nouvel onglet ? conserve le transfert s?curis? du brouillon et la cr?ation/rendu dans l'onglet enfant. Demande de focus imm?diate sur la page source, puis d?filement ponctuel vers sa galerie si un projet y est affich?. Aucun rappel de focus diff?r?.
+- ? l'ouverture r?ussie d'un projet, d?filement apr?s affichage. Dans l'onglet enfant, m?me positionnement apr?s mise en file du premier essai. Cible : d?but de la galerie situ?e en bas du panneau droit, car les essais les plus r?cents sont affich?s en premier. Marge de 100 px pour l'en-t?te.
+- D?filement via requestAnimationFrame, annul? si le projet/la navigation ont chang? ou si la vue est masqu?e ; pr?f?rence de r?duction des animations respect?e. Aucun ajout de d?filement dans le polling ou les rafra?chissements ordinaires.
+- Le navigateur d?cide du focus final : window.focus() est une demande, sans garantie universelle d'ouverture en arri?re-plan. Limite document?e par https://developer.mozilla.org/en-US/docs/Web/API/Window/focus et le standard HTML. ? confirmer dans le navigateur de l'utilisateur.
+- Compilation V8 du script complet sans ex?cution OK ; syntaxe Python du test et r?f?rences HTML/cache v?rifi?es ; diff isol? relu. Tests fonctionnels et navigateur non ex?cut?s conform?ment ? AGENTS.md ; aucun appel LLM, g?n?ration, red?marrage, commit ou push.
+- Sauvegardes et diffs isol?s : D:/Code/panelforge/.agent/diagnostics/assisted-navigation-ux-20260928/174045/.
+
+### Next steps
+1. Recharger Image Lab pour prendre les nouveaux fichiers statiques ; aucun red?marrage de service n?cessaire pour ce correctif frontend.
+2. V?rifier manuellement ? Nouvel onglet ? et un projet r?cent : galerie visible, d?filement manuel ensuite libre ; v?rifier le maintien du focus dans le navigateur utilis?.
+3. L'utilisateur peut ex?cuter les tests UI/polling habituels s'il le souhaite.
+
+## Correctif 2026-09-28 — spectateur dans les personnages informés
+
+### Goal
+- Corriger le blocage `series_outline.secrets[0/1].known_by` signalé après le premier brief inspiré de Download(34), sans alourdir les consignes ni interrompre les traitements.
+
+### Current state
+- Cause vérifiée dans le premier appel `llm-c85bd97268be4e19bd02d6208c07de62` : `spectateur` ajouté à `known_by` aux côtés de `char-rene` et `char-lina`. Aucun doublon réel ; le brief est cohérent.
+- Correctif ciblé dans le checkout actif : `domain/long_stories.py` normalise uniquement les mentions explicites du public en politique v3 ; connaissance publique conservée dans le texte du secret, liste réservée aux personnages. Casting déclaré protégé, identifiants inconnus/doublons réels toujours rejetés, aucune troncature. `application/stories.py` conserve la provenance et le brouillon original.
+- Pas de changement de contrat, prompt de consigne, recette, empreinte ou réglage ; anciennes politiques conservées. Six régressions préparées, non exécutées selon AGENTS.md. Syntaxe Python et diff ciblé vérifiés.
+- Le projet `story-887454eeb15c4481b9db6a83ff708e3a` a évolué pendant le diagnostic : à 14:46:24 UTC, « La même espèce », version 299, arc déjà présent avec Léo/Mia/Marc et séquence en cours d’écriture. Aucune récupération ou mutation du runtime effectuée ; ne pas attribuer cette progression au patch.
+- Rapport : `docs/proposals/story-secret-audience-fix-2026-09-28.md`. Sauvegardes : `D:/Code/panelforge/.agent/diagnostics/story-secret-audience-20260928/`. Aucun appel LLM, génération, redémarrage, commit ou push dans cette intervention.
+
+### Next steps
+1. Laisser l’écriture en cours se terminer ; correctif backend disponible au prochain démarrage normal choisi par l’utilisateur.
+2. L’utilisateur peut exécuter `python -m unittest tests.test_story_secret_audience` dans le checkout actif.
+3. Si un futur brouillon équivalent est bloqué, la revalidation après chargement du correctif pourra normaliser ces mentions sans nouvel appel au modèle, sous réserve des autres contrôles.
+
+## Implémentation 2026-09-28 — lecture mobile des vidéos brutes uniquement
+
+### Goal
+- Appliquer l’alignement validé : lecteur mobile sur le brut H3, jamais sur le DLSS ; miniature/navigation conservées et indisponibilité explicite si le brut manque. Aucun changement PC/export/traitement.
+
+### Current state
+- Patch dans D:/Code/panelforge-krea2-flux : media_asset de domain/factory_mobile.py ne sélectionne que steps.video ; module utilisé exclusivement par le service mobile.
+- Résultats DLSS seuls encore visibles dans la galerie mobile, sans URL de lecture brute : bouton désactivé et « Vidéo brute indisponible ». Fichier brut référencé mais disparu : réponse 404 et message du lecteur, sans accès au DLSS. Qualité « Vidéo brute », Range conservé, aucune copie/conversion.
+- app.js et coque de cache mobile3 ; CSS/graphiques mobile2 préservés. Ordre des résultats, miniatures et pagination inchangés.
+- Compilation Python (3 fichiers), V8 (app.js, sw.js et 2 blocs de scénario), contrats de cache et git diff --check validés. Régressions existantes adaptées et deux nouveaux cas ajoutés : brut absent de la fiche / fichier absent malgré DLSS disponible. Tests fonctionnels et navigateur non exécutés selon AGENTS.md.
+- Documentation actualisée : docs/proposals/factory-mobile-implementation-2026-09-28.md. Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-mobile-raw-20260928/.
+- Aucun service redémarré, média lu/transféré/généré, fichier runtime modifié, commit ou push. Changements concurrents conservés.
+
+### Next steps
+1. L’utilisateur peut exécuter tests.test_factory_mobile et tests.test_factory_mobile_browser depuis le checkout actif.
+2. Au prochain démarrage normal de PanelForge, recharger le mobile pour activer le choix serveur du fichier brut.
+3. Vérifier sur Android une vidéo avec brut et DLSS prêts : libellé « Vidéo brute » et lecture du brut ; retest notifications laissé à l’utilisateur comme convenu.
+
+## Implémentation 2026-09-28 — courbes thermiques sur l’accueil mobile
+
+### Goal
+- Implémenter l’alignement mobile : en-tête compact, progression conservée, deux courbes de six heures et seuil de notification serveur proposé à 84 °C.
+- Dernière instruction utilisateur : il pense devoir activer les notifications dans l’application ; leur réception sera retestée ensuite. Ne pas poursuivre une refonte du transport Push.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux : titre/lot fusionnés au bandeau PanelForge, cartes instantanées remplacées par Serveur puis PC local, échelle 40–90 °C, min/pic/seuil, températures hors plage explicitement signalées et valeur exacte lisible au toucher/clavier.
+- GET /api/thermal-history mobile en lecture seule réutilise le coordinateur existant via injection dans FactoryMobile. Projection sans événements, chemins ou erreurs brutes, six heures filtrées de l’historique de 24 h ; tous les maxima 15 s conservés et trous visibles. Rafraîchissement indépendant 30 s, historique retenu sur échec.
+- Défaut serveur 84 °C, local 80 °C ; préférences déjà enregistrées conservées. Mécanisme Push et notification de lot terminé existants inchangés ; aucune notification réelle envoyée, réception Android non qualifiée.
+- Syntaxe Python (6 fichiers), V8 (3 scripts + 2 blocs de scénario), HTML/cache mobile2, structure CSS et git diff --check validés. Aperçu visuel fictif en émulation 390 px : viewport/contenu 390 px, pas de débordement, capture consultée.
+- Quatre régressions backend préparées et scénario navigateur étendu ; non exécutés selon AGENTS.md actif. Aucun appel LLM/génération, commande de production, redémarrage, commit ou push.
+- Rapport : docs/proposals/factory-mobile-history-2026-09-28.md. Sauvegardes/diffs/contrôles/aperçu : D:/Code/panelforge/.agent/diagnostics/factory-mobile-history-20260928/. Changements concurrents préservés.
+- Activation backend au prochain démarrage normal choisi par l’utilisateur ; le processus actuel ne connaît pas encore la route d’historique et le script thermique.
+
+### Next steps
+1. L’utilisateur exécute tests.test_factory_mobile et tests.test_factory_mobile_browser depuis le checkout actif.
+2. Au prochain démarrage normal de PanelForge, rouvrir/recharger l’interface mobile et contrôler les deux courbes sur Android.
+3. Dans Alertes, activer les notifications et autoriser le navigateur ; régler le serveur à 84 °C si une préférence antérieure existe, puis retester température / lot terminé.
+
+## Alignement 2026-09-28 — accueil mobile centré sur l’historique thermique
+
+### Goal
+- Cadrer la demande utilisateur : en-tête mobile compact, courbes thermiques serveur/PC sur six heures et notifications serveur à partir de 84 °C / lot terminé. Demande de confirmation du scope ; aucune implémentation dans ce tour.
+
+### Current state
+- Inspection en lecture seule : l’accueil possède un bandeau PanelForge/connexion/actualisation, un titre séparé avec état du lot, un résumé de progression, puis deux cartes de température instantanée.
+- Périmètre proposé : titre/lot réunis dans le bandeau supérieur ; résumé conservé ; remplacer les cartes par deux courbes empilées, serveur puis PC local, historique six heures existant, cadrage principal 40–90 °C avec valeurs hors plage signalées.
+- Notifications température et lot terminé déjà implémentées, seuils par abonnement, anti-répétition thermique et déduplication par lot. Défaut HTML serveur actuel 85 °C : la demande vise 84 °C configurable. L’API mobile actuelle ne propose pas encore l’historique thermique du PC ; prévoir un accès mobile dédié en lecture seule.
+- Aucune modification applicative, notification envoyée, commande de traitement, test ou redémarrage. Réception effective Android non vérifiée dans ce tour.
+
+### Next steps
+1. Restituer le scope à l’utilisateur pour alignement.
+2. Au passage à l’implémentation : réutiliser l’historique existant, préserver les pics dans la réduction des points pour mobile, raccorder les préférences de notifications sans modifier les protections thermiques.
+
+## UX 2026-09-28 — supprimer le doublon Prêt sur la sélection
+
+### Goal
+- Masquer le « Prêt » vert des vidéos cochées en Préparation pour alléger les lignes avec prévision.
+
+### Current state
+- Patch ciblé dans D:/Code/panelforge-krea2-flux : classe du statut prêt dans video-factory.js, visibilité synchronisée avec state.selected dans renderToolbar, masquage CSS et suppression de la marge au-dessus de la prévision.
+- Sélection individuelle, de groupe et globale prises en compte ; désélection rétablit le statut. Les avertissements, suppressions et états de production restent affichés.
+- Versions de cache video-factory.js et video-factory-monitor.css : 20260928.ready1. Syntaxe V8, structure CSS, références de cache et git diff --check validés ; tests navigateur non exécutés selon AGENTS.md.
+- Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-selected-ready-20260928/. Aucun redémarrage ni commande de traitement.
+
+### Next steps
+1. Ctrl+F5 pour charger l’interface, puis vérifier la sélection/désélection en Préparation.
+
+## Diagnostic 2026-09-28 — lancement LAN confirmé en fonctionnement
+
+### Goal
+- Vérifier le lancement « full local » effectué par l'utilisateur, sans interrompre les traitements.
+
+### Current state
+- Processus PanelForge 11416, parent lanceur venv 7952 : --network-mode lan --workspace D:/Code/panelforge/workspace --port 7861. API /api/network-mode : HTTP 200, mode lan, libellé Local.
+- Connexions établies du processus : 192.168.1.83 vers 192.168.1.72:8188 et :8083 ; Unsloth vers 127.0.0.1:8888. Aucune connexion Tailscale observée pour ces échanges.
+- ComfyUI LAN /system_stats et LLM LAN /v1/models répondent HTTP 200 ; catalogue de 30 modèles. /api/runtime/status voit ComfyUI et LLM disponibles, sans warning de connexion ; GPU serveur et PC disponibles.
+- Trois racines UNC directes \\sshfs.r\malmo@192.168.1.72 vérifiées accessibles en lecture : modèles KREA2, LoRA krea2 et output/video/Upscale. Connexions SSH établies vers 192.168.1.72:22.
+- /api/dlss/runtime : ready, owned=true, URL 127.0.0.1:8188. Une préparation H3 Plan par le LLM local était active pendant le relevé ; serveur en refroidissement entre vidéos, sans erreur signalée.
+- Vérifications en lecture seule. Aucun redémarrage, changement réseau, appel de génération, écriture sur partage, mutation de file ou modification de code. Aucune coupure Internet/Tailscale provoquée et aucun export de test réalisé.
+
+### Next steps
+1. Le lancement LAN et les accès observés sont confirmés fonctionnels ; conserver cette commande.
+2. La recette complète avec WAN réellement coupé et un export terminé sous ce lancement reste à qualifier, sans interrompre la production active.
+
+## UX 2026-09-28 — prévisions compactes sur deux lignes
+
+### Goal
+- Supprimer « Rendu vers… » et compacter les prévisions pour éviter les changements de hauteur pendant l’actualisation.
+
+### Current state
+- Patch dans le checkout actif D:/Code/panelforge-krea2-flux : video-factory-monitor.js, video-factory-monitor.css et versions de cache dans index.html (20260928.preview4).
+- « Rendu vers… » retiré des lignes. Au maximum deux lignes : heure de fin + durée, ou durée + « Estimation conservée ». La condition de reprise rejoint la seconde ligne ; les textes complets restent disponibles en infobulle.
+- Bloc non vide de Préparation et Production fixé à 32 px de haut et 140 px de large ; interligne 16 px, marges réduites, textes longs tronqués visuellement. Remplace la réserve de 58 px de la version précédente. Calculs et conservation des estimations inchangés.
+- Syntaxe JavaScript V8, structure CSS, références HTML/cache et git diff --check validés. Aucun test navigateur exécuté selon AGENTS.md actif ; rendu à confirmer au rechargement utilisateur.
+- Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-preview-compact-20260928/. Modifications concurrentes conservées ; aucun service redémarré ni traitement commandé.
+
+### Next steps
+1. Ctrl+F5 sur l’Usine pour charger le script et le style compactés.
+2. Vérifier visuellement les transitions entre estimation actualisée, estimation conservée et attente.
+
+## Correctif 2026-09-28 — prévision conservée après une réponse sans durée
+
+### Goal
+- Corriger l’alternance restante entre horaires et message d’attente en Préparation, liée aux transitions de la production.
+
+### Current state
+- Second cas identifié : une réponse /estimate réussie mais avec remaining_seconds=null remplaçait encore l’ancienne prévision. Le premier correctif couvrait les requêtes en cours et les erreurs, pas ce cas.
+- Correctif dans D:/Code/panelforge-krea2-flux : video-factory-monitor.js conserve la dernière durée de chaque vidéo si sélection/révisions identiques ; total recomposé seulement si toutes les vidéos disposent d’un budget. Valeur figée, « Estimation conservée », fin masquée et attente à confirmer ; nouvelles durées numériques prioritaires.
+- Changement réel de preset/réglages/sélection invalide toujours les valeurs précédentes. Sans première valeur, aucun chiffre inventé. Réponses API non mutées ; aucune modification du calcul/ordonnancement serveur.
+- CSS : bloc de prévision non vide stabilisé en Préparation (min-height 58 px, min-width 140 px). Cache du script et CSS : 20260928.preview3.
+- Relevé API de diagnostic sans commande de traitement : six fiches préparées, prévision numérique au moment du relevé, environ 95 min au total. Le cas nul est identifié par captures et code, pas reproduit en navigateur.
+- Troisième scénario synthétique ajouté à tests/test_factory_preview_browser.py : cas initial inconnu, réponses mixtes/nulles répétées, attente longue, récupération, dimensions et invalidation. Syntaxe Python/V8, contrat HTML/cache, structure CSS et git diff --check validés ; tests non exécutés selon AGENTS.md actif.
+- Rapport : docs/proposals/factory-preview-retention-2026-09-28.md. Sauvegardes/diffs/relevé/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-preview-retention-20260928/.
+- Modifications concurrentes conservées. Aucun redémarrage, génération, mutation runtime, commit ni push. Activation par rechargement de page.
+
+### Next steps
+1. Ctrl+F5 dans l’Usine : les transitions vers une attente sans durée gardent le dernier budget connu ; les chiffres valides peuvent encore s’affiner avec la production.
+2. L’utilisateur exécute tests.test_factory_preview_browser et tests.test_video_factory_web puis vérifie le rendu pendant une transition réelle.
+3. Le correctif backend distinct sur l’historique à sept références reste activé au prochain lancement choisi, sans interruption par l’agent.
+
+## Implémentation 2026-09-28 — profils réseau LAN / Tailscale
+
+### Goal
+- Implémenter les profils de lancement approuvés et le badge, en conservant strictement la commande historique sans --network-mode.
+
+### Current state
+- Code livré dans D:/Code/panelforge-krea2-flux : --network-mode lan|tailscale, résolveur unique, racines UNC du profil, badge Local/Tailscale près du logo. Aucun mode forcé lorsque l'argument est absent.
+- Profils explicites cohérents pour ComfyUI, LLM, administration, WebSocket et suivi ; connexions internes directes sans proxy système. En LAN, l'indexation FastEmbed utilise seulement les fichiers en cache.
+- DLSS et Unsloth conservent leur rôle sur le PC. Exports : chemins logiques X: préservés, écriture UNC selon le profil sans remonter X:, sans repli ni réécriture des jobs. Contrôles de destination/contenu conservés.
+- Compilation/AST de dix fichiers Python, syntaxe JavaScript V8, aperçu statique des deux badges et git diff --check validés. 22 tests préparés dans tests/test_network_modes.py ; non exécutés selon AGENTS.md, autorisation explicite non reçue.
+- Guides des commandes et rapport : docs/proposals/network-mode-launch-commands-2026-09-28.md et network-modes-implementation-2026-09-28.md, copiés dans les deux checkouts.
+- Sauvegardes/diff/hachages/validation : D:/Code/panelforge/.agent/diagnostics/network-modes-implementation-20260928/. Changements concurrents conservés.
+- Aucun redémarrage, test de service réel, appel LLM, rendu, job modifié, commit ou push. Master publié précédemment reste le snapshot avant modes réseau ; seul le checkout de lancement reçoit ce code.
+- WinError 5 du journal local DLSS hors périmètre ; aucun correctif ou rejeu ajouté.
+
+### Next steps
+1. L'utilisateur lance le module unittest test_network_modes.py, puis choisit le prochain démarrage normal avec la commande LAN ou Tailscale du guide.
+2. Qualifier les UNC directs et leurs identifiants dans la session Windows applicative, puis les exports par les deux accès vers le même dossier serveur.
+3. Effectuer une production représentative hors WAN/Tailscale en gardant le LAN actif et les modèles installés, puis retour Tailscale et reconnexion à froid. Ces recettes ne sont pas encore validées.
+
+## UX 2026-09-28 — tri des résultats et prévisions sans clignotement
+
+### Goal
+- Ajouter un tri discret récent → ancien dans Résultats, avec l’ordre habituel par défaut, et corriger les prévisions qui disparaissent/réapparaissent après un preset.
+
+### Current state
+- Changements dans D:/Code/panelforge-krea2-flux : static/video-factory.js, video-factory-monitor.js et index.html. Modifications concurrentes (notamment réseau) préservées.
+- Sélecteur « Ordre habituel » / « Plus récents d’abord », seulement dans Résultats. Dates de fin étapes/export, repli lancement/création ; histoires regroupées avec ordre interne conservé. Sélection et choix de tri conservés pendant les sondages/navigation ; aucune modification de priorité serveur.
+- Cause confirmée : clé de prévision incluant révision globale et intervalle 5 s, donc preview=null à chaque sondage même sans changement de sélection. Séparation de la clé sélection/révisions et de la clé de rafraîchissement.
+- Prévision conservée pendant recalcul, réponse lente encore acceptée si sélection identique ; ancien résultat ignoré après modification/désélection. Erreur transitoire : dernière valeur signalée ancienne, fin masquée. Changement réel de preset/réglages/sélection invalide l’ancienne valeur.
+- Protection supplémentaire : un GET d’état antérieur à une mutation ne peut plus rétablir une ancienne révision globale.
+- Deux scénarios navigateur hors ligne préparés dans tests/test_factory_preview_browser.py. Syntaxe Python, compilation V8 (2 scripts + 3 blocs de scénario/initialisation) et contrat HTML/cache vérifiés ; aucun test fonctionnel/navigateur exécuté selon AGENTS.md.
+- Rapport : docs/proposals/factory-results-preview-2026-09-28.md. Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-results-preview-20260928/.
+- Rechargement de page suffisant pour ce patch statique. Aucun redémarrage, génération, appel LLM, commande de file, écriture runtime, commit ni push.
+
+### Next steps
+1. Recharger la page Usine et vérifier le menu de tri dans Résultats puis la stabilité des prévisions en Préparation.
+2. L’utilisateur peut exécuter tests.test_factory_preview_browser et tests.test_video_factory_web ; scénarios uniquement fictifs, sans API réelle.
+3. Le correctif backend séparé des estimations à 7 références conserve son activation au prochain lancement du serveur.
+
+## Correctif 2026-09-28 — estimations des scènes à 7 références
+
+### Goal
+- Expliquer « Historique comparable insuffisant » sur un lot d’histoires courant et corriger le critère qui bloque ses prévisions.
+
+### Current state
+- Diagnostic sur API PC/mobile et copie du journal lue en partage Windows lecture/écriture/suppression : 615 mesures, dont 122 rendus vidéo et 129 DLSS, sans erreur du monitoring ni télémétrie périmée au relevé.
+- Quatre scènes de « La présentation » ont 7 références. Le comparateur exigeait exactement le même nombre/type de références, même en DLSS ; aucune mesure à 7, mais 24 vidéos et 29 DLSS à 2–6 références pour les mêmes autres paramètres. Les cinq scènes suivantes sont connues individuellement mais leurs dates et le total sont bloqués par cette dépendance.
+- Correction dans D:/Code/panelforge-krea2-flux/src/panelforge/domain/factory_timing.py : priorité aux profils exacts ; repli REF2V limité à une référence en plus/moins, mêmes types de rôles et tous les réglages de calcul identiques. Repli DLSS sans critère de références, autres paramètres conservés. Confiance faible, intervalle large et raison indicative.
+- Aucun changement du journal, des workers, de l’ordonnancement ni des protections thermiques. Les cas sans voisin compatible restent inconnus.
+- Quatre régressions préparées dans tests/test_factory_monitoring.py (priorité exacte, frontières de compatibilité, DLSS, propagation à la suite et au lot sans mutation). Syntaxe/compilation seules vérifiées ; tests non exécutés selon AGENTS.md actif.
+- Rapport : docs/proposals/factory-eta-reference-fallback-2026-09-28.md. Relevés, sauvegardes et diffs : D:/Code/panelforge/.agent/diagnostics/factory-eta-history-20260928/.
+- Aucun redémarrage, génération, LLM, commande de file, notification, commit ou push. Processus actuel inchangé ; correction chargée au prochain lancement choisi.
+
+### Next steps
+1. L’utilisateur exécute tests.test_factory_monitoring depuis le checkout actif.
+2. Au prochain démarrage choisi, vérifier les prévisions des scènes à 7 références et le temps global ; pas d’interruption de la production par l’agent.
+3. Garder la distinction entre estimation prudente et durée mesurée ; ne pas élargir aux autres recettes/machines/résolutions sans modèle validé.
+
+## Correctif 2026-09-28 — besoin ciblé dans Petits hommes expérimental existant
+
+### Goal
+- Implémenter la direction approuvée après les retours : apport d’eau pour sécheresse, protection de la vague, évacuation de l’inondation, feu vivant puis extinction ; conserver les objets libres et une intention courte.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux, sur le preset little_men_experimental existant. Version interne v4 ; aucun nouveau preset ou contrôle UI.
+- Base approuvée de 87 mots, une seule phrase ciblée si le besoin est identifiable ; total 99–102 mots hors contexte/durée/voix. Règle Plan passée de 92 à 40 mots, sans catalogue d’objets ni quota de gestes.
+- Besoin repéré depuis l’intention vidéo, le contexte saisi, l’intention KREA puis la description complète de l’image exacte. Noms/labels/styles ignorés. Vague prioritaire sur son inondation ; besoins absents/mixtes ou négations simples laissés au Plan. Tornades/réparations ne reçoivent pas de phrase ciblée.
+- Phrase identique transmise au Plan puis au Writer ; invariants besoin → mécanisme → bénéfice. La matière visuelle ne doit pas immobiliser eau/feu. Langue figée et onze remerciements minimaux stricts préservés.
+- Anciennes sessions v1/v2/v3 conservées ; helpers et règle v3 inchangés. Nouvelle préparation/copie actualise uniquement les défauts exacts v2/v3. Intentions personnalisées conservées ; réapplication explicite du preset passe en v4.
+- Durée, modèles, rendu, DLSS et autres presets inchangés. Texte IG reste désactivé par défaut. Pas de modification des sources KREA ; la qualité du feu peut rester limitée par une image de départ sculpturale.
+- Dix tests hors ligne préparés dans tests/test_video_factory_needs.py ; versions courantes adaptées dans les tests existants. Aucun test fonctionnel lancé conformément à AGENTS.md.
+- Validation statique OK : AST, sept imports, comparaison des constantes/helpers historiques, des règles de langue et du texte approuvé, diff --check.
+- Docs : docs/video-factory.md et docs/proposals/little-men-needs-v4-2026-09-28.md (checkout actif). Sauvegardes/diff/mesures : D:/Code/panelforge/.agent/diagnostics/little-men-needs-v4-20260928/.
+- Aucun appel LLM, rendu, redémarrage, modification des fiches de production, commit ou push. Changements concurrents conservés.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab, réappliquer le preset expérimental sur une nouvelle fiche/copie avant préparation.
+2. L’utilisateur peut lancer les tests préparés (commande dans la documentation).
+3. Comparer sécheresse/tsunami/feu et conserver tornade/réparation comme témoins ; aucune amélioration visuelle mesurée à ce stade.
+
+## Diagnostic 2026-09-28 — accès refusé au journal DLSS 01d6ce55
+
+### Goal
+- Déterminer si le WinError 5 signalé est lié aux évolutions récentes, sans relancer ni modifier la production.
+
+### Current state
+- Job dlss-01d6ce55f8aa2617fbbf48200e05cff1 en failed à 11:17:11 Paris ; refus os.replace du temporaire vers son JSON local dans workspace/dlss.
+- Rendu ComfyUI confirmé success/completed pour 6ecbf906-d96a-4356-9ce6-5495b0ebe8a5 ; MP4 existant de 142559048 octets sous D:/AI/PanelForge/LocalOutput/dlss. Métadonnées 1268x2206, 60 fps, 10,133 s, audio. Enregistrement PanelForge incomplet.
+- Routine LocalDlssJobs/atomic_json inchangée depuis le 9 septembre et sans retry du remplacement. Le réseau n'intervient pas dans cette écriture ; patch LAN/Tailscale non implémenté et workspace non modifié par Git.
+- ACL et attributs relevés sans blocage permanent évident ; le gestionnaire d'erreur a ensuite réussi à enregistrer l'échec. Hypothèse de verrou bref/externe, responsable non identifié.
+- Un serveur Lab observé (PID 23480 derrière lanceur venv 22952). Ne pas conclure à deux instances à partir de ces PID parent/enfant.
+- Une seule occurrence WinError 5 dans les jobs existants ; scan effectué avec partage lecture/écriture/suppression autorisé pour ne pas gêner l'application.
+- Rapport : docs/proposals/dlss-winerror5-diagnostic-2026-09-28.md. Documentation seulement ; aucun code, job, média ou droit changé, aucune reprise/test/génération ni aucun redémarrage.
+
+### Next steps
+1. Restituer : rendu conservé, échec du suivi local, aucun lien direct établi avec LAN/Tailscale ou Git ; cause précise du verrou non prouvée.
+2. Si correction demandée, prévoir un retry borné de l'écriture atomique avec tests ciblés, puis une reprise utilisant l'exécution existante ; ne pas recréer un rendu ni modifier manuellement le journal sans demande.
+
+## Proposition 2026-09-28 — contenu du futur patch réseau
+
+### Goal
+- Décrire le patch envisagé, sans le coder, après la mise à jour de master.
+
+### Current state
+- Points d'entrée relus dans le lanceur, l'interface et DlssVideoExporter. Aucun argument --network-mode actuellement.
+- Proposition documentée : docs/proposals/network-mode-patch-plan-2026-09-28.md.
+- Deux profils explicites lan/tailscale, configuration commune à tous les clients concernés et badge près du logo. Sans argument, compatibilité historique ; pas de promesse de profil intégral pour un lancement qui mélange déjà les accès.
+- Proposition affinée pour les fichiers : utiliser les UNC du profil sans remonter le lecteur X: ; préserver les chemins logiques d'exports existants et résoudre seulement la destination physique connue. Le contrôle d'égalité du chemin mémorisé dans DlssVideoExporter doit être préservé/adapté, pas supprimé.
+- L'accès UNC direct dans la session applicative, les identifiants des deux cibles et la reprise des exports après changement de profil restent à qualifier. Pas de migration massive ni de relance des anciens échecs.
+- Aucun code applicatif, service, montage, réglage, branche ou version GitHub modifié dans cette tâche ; documentation uniquement. Aucun test ni appel de génération lancé.
+
+### Next steps
+1. Restituer le périmètre et la stratégie des fichiers à l'utilisateur.
+2. Attendre sa demande d'implémentation. Puis couvrir les profils, la compatibilité, les chemins persistants et le badge par les vérifications ciblées, sans perturber les traitements actifs.
+
+## Intégration master 2026-09-28 — version actuelle publiée
+
+### Goal
+- Intégrer la version actuelle dans master local et GitHub, à la demande explicite de l'utilisateur.
+
+### Current state
+- Intégration et publication terminées : master, origin/master et master sur GitHub pointent sur 703624862d5951f9baa19adc0cdb94669c67f537, identique au tag snapshot-pre-network-modes-2026-09-28-v2.
+- Historique compatible : avancement direct sans commit de fusion ni réécriture. Ancien master local 6b45971 ; ancien master distant 123e388. Branches et tags de sauvegarde conservés.
+- L'arbre Git de master correspond exactement à la version publiée ; le code du checkout actif correspond à ce snapshot. Les seules différences relevées après la sauvegarde étaient la continuité et le rapport UX non suivi.
+- Le checkout D:/Code/panelforge est maintenant à jour sur master. Quinze fichiers locaux susceptibles de bloquer l'intégration sauvegardés et leurs octets restaurés après avancement ; seule la continuité reste modifiée parmi les fichiers suivis.
+- Le checkout de lancement D:/Code/panelforge-krea2-flux reste sur feature/krea2-v6-style-catalog-2026-09-26, HEAD c8e96dd et index conservés, avec ses changements de travail. La commande de lancement reste inchangée.
+- Aucun code réécrit, test fonctionnel, appel LLM, rendu ou redémarrage effectué. Aucun changement réseau ni implémentation de --network-mode.
+- Preuves, sauvegardes locales et reçu : .agent/diagnostics/master-integration-20260928/receipt.json. Publication : https://github.com/EasyFrag/panelforge/tree/master.
+
+### Next steps
+1. Restituer la confirmation : master local et GitHub portent la version actuelle.
+2. Continuer sur le checkout de travail existant ; ne pas changer de branche au milieu des modifications non commitées.
+3. Toute implémentation réseau reste soumise à une demande explicite distincte.
+
+## Version GitHub 2026-09-28 — deuxième sauvegarde avant les modes réseau
+
+### Goal
+- Créer la nouvelle version GitHub explicitement demandée, sans implémenter de patch réseau.
+
+### Current state
+- Publication vérifiée : commit 703624862d5951f9baa19adc0cdb94669c67f537 ; branche snapshots/pre-network-modes-2026-09-28-v2 ; tag snapshot-pre-network-modes-2026-09-28-v2. Parent f33db30, version précédente préservée.
+- 1557 fichiers inclus ; huit fichiers différents de la précédente sauvegarde : continuité, trois audits, note de version et trois fichiers de l'interface des références déjà modifiés dans le checkout actif.
+- Audits d'histoires (présentation et piscine) et retours Petits hommes copiés dans le checkout actif pour être sauvegardés ; aucune de leurs propositions appliquée dans cette tâche.
+- Arbre Git comparé aux fichiers source ; recherche de motifs usuels de secrets sans résultat ; git diff --check réussi. Branche active, HEAD c8e96dd et les deux index de travail conservés avec un index temporaire.
+- Aucun code applicatif modifié par cette tâche ; aucun test fonctionnel, appel LLM, génération ou redémarrage. Workspace, diagnostics privés, environnements et lanceur avec clé exclus.
+- Alignement conservé : futurs --network-mode lan|tailscale et badge près du logo non implémentés ; compatibilité souhaitée avec les anciens arguments d'URL. Le lancement historique bucket sélectionne les API Tailscale mais dépend encore du montage X: pour les exports.
+- Note : docs/releases/snapshot-pre-network-modes-2026-09-28-v2.md. Reçu local : .agent/diagnostics/git-pre-network-modes-20260928-v2/checkpoint.json.
+
+### Next steps
+1. Restituer le lien de la version publiée.
+2. Attendre une demande explicite avant l'implémentation réseau ; conserver la compatibilité du lancement existant et traiter aussi les chemins de fichiers.
+
+## Correctif UX 2026-09-28 — fiches de références accessibles avant génération
+
+### Goal
+- Afficher les références dès leur sélection pour ouvrir et retravailler leurs fiches sans lancer un lot.
+
+### Current state
+- Cause : episodes.js construisait les cartes uniquement depuis reference_batch.items ; le changement d’une case ne rafraîchissait que les contrôles.
+- Correctif dans le checkout actif D:/Code/panelforge-krea2-flux, limité à episodes.js, episodes.css et index.html : cartes dès sélection avec image retenue, bouton Ouvrir la fiche par ligne, galerie avant lancement, navigation avec sauvegarde et défilement vers la fiche.
+- Sélection consultable pendant un lot pour préparer le prochain ; lot actif inchangé, lancement concurrent toujours désactivé, résultats et validation du dernier lot conservés. Reprise automatique des réglages des fiches vierges évitée pendant un traitement.
+- URLs de cache renouvelées. Le serveur local 7861 sert déjà exactement les trois fichiers corrigés (HTTP 200) : rechargement de page suffisant, aucun redémarrage nécessaire.
+- Syntaxe JS finale V8 et contrôles statiques HTML/diff OK. Tests fonctionnels/navigateur non exécutés selon AGENTS.md actif ; aucun test ajouté, LLM, génération, modification de projet ou restart.
+- Rapport : docs/proposals/reference-preparation-ux-2026-09-28.md dans les deux checkouts. Sauvegardes/diff/reçus : D:/Code/panelforge/.agent/diagnostics/reference-preparation-ux-20260928/.
+- Améliorations des audits narratifs précédents conservées séparément ; aucune implémentation de ces points dans ce correctif UX.
+
+### Next steps
+1. Recharger la page après sauvegarde d’une éventuelle saisie et vérifier sélection → carte → ouverture de fiche, avant lancement et pendant un lot.
+2. Confirmer en usage navigateur la conservation des éditions et des actions de validation ; ne pas présenter cette recette comme déjà exécutée.
+3. Reprendre les améliorations d’écriture/rendu seulement dans leur périmètre convenu.
+
 ## Analyse 2026-09-28 — retours Petits hommes, vague / sécheresse / feu
 
 ### Goal

@@ -12,10 +12,11 @@
   function create({root,escape,request,getState,getSelection}) {
     const $=id=>document.getElementById("vf-"+id);
     let receivedAt=performance.now(), previewAt=0, preview=null, previewKey="", requestId=0, timer;
+    let previewRefreshKey="", previewPending=false, previewError="";
     const data=()=>getState().data?.monitoring;
     const age=which=>(performance.now()-(which==="preview"?previewAt:receivedAt))/1000;
     const source=which=>which==="preview"?preview:data();
-    const stale=which=>!source(which)||source(which).stale||age(which)>20;
+    const stale=which=>!source(which)||source(which).stale||age(which)>20||which==="preview"&&Boolean(previewError);
     const time=(seconds,which="main")=>{
       const value=source(which);
       if(!value||!finite(seconds)||stale(which))return "—";
@@ -38,13 +39,20 @@
       if(["failed","cancelled"].includes(item.status)||item.remove_requested)return "";
       const complete=value.remaining_seconds===0&&item.status==="succeeded";
       if(complete)return '<small class="vf-eta-ready">Livré · export terminé</small>';
-      const held=value.retained||stale(which);
-      let html=finite(value.remaining_seconds)?'<strong title="'+escape(held?value.indicative_reason||"Dernière estimation connue":range(value,which))+'">'+escape(held?"Reste "+remaining(value.remaining_seconds,which,value.retained):"Prêt vers "+time(value.remaining_seconds,which))+'</strong><small>'+escape(held?"Estimation conservée":remaining(value.remaining_seconds,which))+'</small>':
-        '<small class="vf-eta-muted">'+escape(value.reason||"Prévision à préciser")+'</small>';
-      if(!held&&item.steps.video.status==="pending"&&finite(value.video_start_in))
-        html+='<small>Rendu vers '+escape(time(value.video_start_in,which))+'</small>';
-      if(source(which)?.conditional_on_resume)html+='<small>Si reprise maintenant</small>';
-      return html;
+      const held=value.retained||stale(which),conditional=source(which)?.conditional_on_resume;
+      if(!finite(value.remaining_seconds)){
+        const reason=value.reason||"Prévision à préciser";
+        return '<small class="vf-eta-muted" title="'+escape(reason)+'">'+escape(reason)+'</small>'+
+          (conditional?'<small>Si reprise maintenant</small>':"");
+      }
+      const hint=(held?value.indicative_reason||"Dernière estimation connue":range(value,which))+
+        (conditional?" · Si reprise maintenant":"");
+      const primary=held?"Reste "+remaining(value.remaining_seconds,which,value.retained):
+        "Prêt vers "+time(value.remaining_seconds,which);
+      const secondary=(held?"Estimation conservée":remaining(value.remaining_seconds,which))+
+        (conditional?" · si reprise":"");
+      return '<strong title="'+escape(hint)+'">'+escape(primary)+'</strong>'+
+        '<small title="'+escape(secondary)+'">'+escape(secondary)+'</small>';
     }
     function rows() {
       const state=getState(),items=new Map((state.data?.items||[]).map(i=>[i.id,i]));
@@ -92,7 +100,7 @@
       const fabrication=unfinished.every(([,s])=>finite(s.seconds))?unfinished.reduce((sum,[,s])=>sum+s.seconds,0):null;
       const starts=unfinished.map(([,s])=>s.start_in).filter(finite),wait=starts.length?Math.min(...starts):null;
       node.innerHTML='<h3>'+ (which==="preview"?"Si lancé maintenant":"Prévision de livraison")+'</h3><p><strong>'+escape(finite(value.remaining_seconds)?value.retained||stale(which)?"Reste "+remaining(value.remaining_seconds,which,value.retained):"Prêt vers "+time(value.remaining_seconds,which):value.reason||"À préciser")+'</strong><br><small>'+escape(range(value,which))+'</small></p>'+
-        '<dl><dt>Attente avant la prochaine étape</dt><dd>'+escape(finite(wait)?duration(Math.max(0,wait-age(which))):"À préciser")+'</dd><dt>Étapes restantes, hors attentes</dt><dd>'+escape(duration(fabrication))+'</dd><dt>Vidéo brute disponible</dt><dd>'+escape(item.steps.video.status==="succeeded"?"Déjà prête":value.retained||stale(which)?"En attente":time(value.video_ready_in,which))+'</dd></dl>'+
+        '<dl><dt>Attente avant la prochaine étape</dt><dd>'+escape(value.retained?"À confirmer":finite(wait)?duration(Math.max(0,wait-age(which))):"À préciser")+'</dd><dt>Étapes restantes, hors attentes</dt><dd>'+escape(duration(fabrication))+'</dd><dt>Vidéo brute disponible</dt><dd>'+escape(item.steps.video.status==="succeeded"?"Déjà prête":value.retained||stale(which)?"En attente":time(value.video_ready_in,which))+'</dd></dl>'+
         '<ul>'+unfinished.map(([key,s])=>'<li><span>'+labels[key]+'</span><strong>'+escape(duration(s.seconds))+'</strong><small>'+escape(s.source==="allowance"?"Provision export, sans mesure":s.samples+" mesure(s) · "+(s.confidence==="medium"?"comparable":"indicatif"))+'</small></li>').join("")+'</ul>'+
         '<small>La livraison inclut le DLSS et le texte IG activés, puis l’export. Les temps restent indicatifs.</small>';
     }
@@ -107,26 +115,75 @@
         node.innerHTML=label+'<span title="'+escape(preview.error||preview.warning||"Prévision indisponible")+'">Indisponible</span>';
         return;
       }
-      const old=stale("preview"),hint=preview.conditional_on_resume?"Si la file reprend maintenant":range(preview,"preview");
+      const old=stale("preview"),held=preview.retained||old,hint=old?"Dernière estimation connue · "+(previewError||"actualisation attendue"):
+        preview.conditional_on_resume?"Si la file reprend maintenant":range(preview,"preview");
       node.innerHTML=label+
-        '<span class="vf-monitor-value" title="'+escape(hint)+'"><strong>'+escape(old?"À actualiser":remaining(preview.remaining_seconds,"preview"))+'</strong></span>'+
-        '<span class="vf-monitor-value" title="'+escape(hint)+'">Fin <strong>'+escape(time(preview.remaining_seconds,"preview"))+'</strong></span>'+
+        '<span class="vf-monitor-value" title="'+escape(hint)+'"><strong>'+escape(remaining(preview.remaining_seconds,"preview",held))+'</strong></span>'+
+        '<span class="vf-monitor-value" title="'+escape(hint)+'">Fin <strong>'+escape(held?"—":time(preview.remaining_seconds,"preview"))+'</strong></span>'+
         (preview.conditional_on_resume?'<span class="vf-monitor-condition">si reprise</span>':"");
+    }
+    function retainPreview(value) {
+      if(!preview||preview.error)return value;
+      const next={...value,items:{...value.items}};
+      const fields=["remaining_seconds","low_seconds","high_seconds","video_start_in","video_ready_in"];
+      for(const item of getSelection()){
+        const previous=preview.items?.[item.id],current=next.items[item.id];
+        if(finite(current?.remaining_seconds)||!finite(previous?.remaining_seconds))continue;
+        const reason="Dernière estimation conservée · "+(current?.reason||"attente en production");
+        const row={...current,steps:{...current?.steps},retained:true,confidence:"low",
+          estimated_at:previous.estimated_at??preview.generated_at,indicative_reason:reason};
+        for(const field of fields)if(finite(previous[field]))row[field]=previous[field];
+        for(const [stage,old] of Object.entries(previous.steps||{})){
+          const step=row.steps[stage];
+          if(!finite(step?.seconds)&&finite(old.seconds)){
+            row.steps[stage]={...old,...step,seconds:old.seconds,low:old.low,high:old.high,
+              samples:old.samples,retained:true,confidence:"low",indicative:true,reason};
+          }
+        }
+        next.items[item.id]=row;
+      }
+      const rows=getSelection().map(item=>next.items[item.id]);
+      if(rows.some(row=>row?.retained)){
+        for(const field of fields.slice(0,3)){
+          if(!finite(next[field])&&rows.every(row=>finite(row?.[field])))
+            next[field]=Math.max(...rows.map(row=>row[field]));
+        }
+        next.retained=true;next.confidence="low";
+        next.indicative_reason=rows.find(row=>row?.retained).indicative_reason;
+      }
+      return next;
     }
     function previewSelection() {
       const state=getState(),items=getSelection(),m=data();
       const valid=state.tab==="preparation"&&!state.dirty&&items.length&&items.every(i=>i.ready&&i.status==="preparation")&&m;
-      const key=valid?JSON.stringify([items.map(i=>[i.id,i.revision]),state.data.revision,Math.floor((m.generated_at||0)/5)]):"";
-      if(key===previewKey){renderPreview();return;}
-      previewKey=key;preview=null;requestId++;clearTimeout(timer);renderPreview();rows();detail();
+      // Selection/configuration changes invalidate the preview; ordinary polls do not.
+      const key=valid?JSON.stringify(items.map(i=>[i.id,i.revision])):"";
+      const changed=key!==previewKey;
+      if(changed){
+        previewKey=key;preview=null;previewError="";previewRefreshKey="";previewPending=false;
+        requestId++;clearTimeout(timer);
+        rows();detail();
+      }
+      renderPreview();
       if(!key)return;
-      const serial=requestId,body={ids:items.map(i=>i.id),revisions:Object.fromEntries(items.map(i=>[i.id,i.revision]))};
+      const refreshKey=JSON.stringify([state.data.revision,Math.floor((m.generated_at||0)/5)]);
+      // A slow calculation may finish even while newer live state is arriving.
+      if(previewPending||refreshKey===previewRefreshKey)return;
+      previewRefreshKey=refreshKey;previewPending=true;
+      const serial=++requestId,body={ids:items.map(i=>i.id),revisions:Object.fromEntries(items.map(i=>[i.id,i.revision]))};
       timer=setTimeout(async()=>{
         try{
           const value=await request("/estimate","POST",body);
           if(serial!==requestId)return;
-          preview=value;previewAt=performance.now();
-        }catch(error){if(serial!==requestId)return;preview={error:error.message};}
+          if(value.available===false)throw new Error(value.warning||"Prévision indisponible");
+          preview=retainPreview(value);previewAt=performance.now();previewError="";
+        }catch(error){
+          if(serial!==requestId)return;
+          previewError=error.message;
+          if(!preview||preview.error)preview={error:error.message};
+        }finally{
+          if(serial===requestId)previewPending=false;
+        }
         renderPreview();rows();detail();
       },300);
     }

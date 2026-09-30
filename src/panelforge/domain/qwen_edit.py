@@ -73,7 +73,7 @@ def validate_references(references):
             raise ValueError("Le rôle doit rester inférieur à 300 caractères.")
 
 
-def render_inputs(stage):
+def render_inputs(stage, *, max_images=MAX_RENDER_IMAGES, engine_label="Qwen", tag_template="<image{}>"):
     result = []
     if stage["source_asset_id"]:
         result.append({"id": "source", "asset_id": stage["source_asset_id"], "name": "Source", "role": "Image à modifier"})
@@ -83,16 +83,16 @@ def render_inputs(stage):
                            "role": "Masque visuel : blanc = zone où concentrer la modification"})
     result.extend({key: ref[key] for key in ("id", "asset_id", "name", "role")}
                   for ref in stage["references"] if ref["active"] and ref["usage"] == "render")
-    if len(result) > MAX_RENDER_IMAGES:
-        raise ValueError("Qwen accepte 16 images au total, source comprise.")
-    return [{**ref, "tag": f"<image{index}>"} for index, ref in enumerate(result, 1)]
+    if len(result) > max_images:
+        raise ValueError(f"{engine_label} accepte {max_images} images au total, source et guide compris.")
+    return [{**ref, "tag": tag_template.format(index)} for index, ref in enumerate(result, 1)]
 
 
-def context_snapshot(stage):
+def context_snapshot(stage, *, inputs=None):
     return {"mode": stage["mode"], "source_asset_id": stage["source_asset_id"],
             "guide": dict(stage["guide"]) if stage.get("guide") else None,
             "references": [dict(ref) for ref in stage["references"] if ref["active"]],
-            "render_inputs": render_inputs(stage),
+            "render_inputs": render_inputs(stage) if inputs is None else inputs,
             "aspect_ratio": stage["settings"]["aspect_ratio"] if stage["mode"] == "composition" else "source"}
 
 
@@ -112,3 +112,10 @@ def validate_prompt(prompt, inputs):
 
 def prompt_is_ready(stage):
     return bool(stage["prompt"].strip()) and stage.get("prompt_fingerprint") == context_fingerprint(stage)
+
+
+# Default policy for the shared workshop lifecycle.
+ENGINE = "qwen"
+LABEL = "Qwen"
+Settings = QwenEditSettings
+COMPOSITION_RESOLUTION = "1"

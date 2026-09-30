@@ -9,13 +9,17 @@
     krea2BatchLab: $("#krea2-batch-lab-workspace"),
     krea2EditLab: $("#krea2-edit-lab-workspace"),
     qwenEditLab: $("#qwen-edit-lab-workspace"),
+    minimaxEditLab: $("#minimax-edit-lab-workspace"),
+    imageJourney: $("#image-journey-workspace"),
     i2vDirect: $("#i2vd-workspace"),
     ref2vDirect: $("#ref2vd-workspace"),
     videoLab: $("#video-lab-workspace"),
     socialLab: $("#social-lab-workspace"),
     mediaAnalysis: $("#media-analysis-workspace"),
     stories: $("#stories-workspace"),
+    storyV2: $("#story-v2-workspace"),
     videoFactory: $("#video-factory-workspace"),
+    imageTransitions: $("#image-transitions-workspace"),
     recipeBadge: $("#recipe-badge"),
     i2vDirectNewRun: $("#i2vd-topbar-new"),
     ref2vDirectNewRun: $("#ref2vd-topbar-new"),
@@ -30,12 +34,16 @@
     ["krea2-assisted-lab", elements.krea2AssistedLab], ["krea2-batch-lab", elements.krea2BatchLab],
     ["krea2-edit-lab", elements.krea2EditLab], ["i2v-direct", elements.i2vDirect],
     ["qwen-edit-lab", elements.qwenEditLab],
+    ["minimax-edit-lab", elements.minimaxEditLab],
+    ["image-journey", elements.imageJourney],
     ["ref2v-direct", elements.ref2vDirect], ["video-lab", elements.videoLab],
     ["social-lab", elements.socialLab], ["media-analysis", elements.mediaAnalysis],
-    ["stories", elements.stories], ["video-factory", elements.videoFactory],
+    ["story-v2", elements.storyV2], ["stories", elements.stories], ["video-factory", elements.videoFactory],
+    ["image-transitions", elements.imageTransitions],
   ]);
   let activeView = null;
   const retiredViewFallbacks = Object.freeze({
+    "image-test": "image-journey",
     "krea2-image-lab": "krea2-assisted-lab",
     "krea2-batch-lab": "krea2-assisted-lab",
     "video-lab": "social-lab",
@@ -52,6 +60,8 @@
       "krea2-batch-lab",
       "krea2-edit-lab",
       "qwen-edit-lab",
+      "minimax-edit-lab",
+      "image-journey",
     ].includes(view);
     workspaces.forEach((element, name) => {
       if (element) element.hidden = name !== view;
@@ -99,6 +109,7 @@
   // Assisted does not start loading just because it was the HTML default.
   let savedView = null;
   try { savedView = window.sessionStorage.getItem(navigationKey); } catch (_) { /* private/blocked storage */ }
+  savedView = retiredViewFallbacks[savedView] || savedView;
   const initialView = workspaces.get(savedView) ? savedView : "krea2-assisted-lab";
   if (switchView(initialView)) {
     const activateRestoredMode = () => {

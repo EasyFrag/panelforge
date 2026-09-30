@@ -144,6 +144,15 @@ class VideoFactoryService:
                 settle(item)
         return self._monitoring_snapshot(candidate, target_ids=selected, assume_resumed=bool(candidate["paused"]))
 
+    def describe_items(self, identities):
+        """Lightweight, read-only status links for source workshops."""
+        selected = set(identities)
+        with self._lock:
+            return [dict(id=item["id"], name=item["name"], status=item["status"],
+                         archived=bool(item.get("archived_at")),
+                         steps={name: step["status"] for name, step in item["steps"].items()})
+                    for item in self._state["items"] if item["id"] in selected]
+
     def receive(self, entries):
         if not entries or len(entries) > 500:
             raise ValueError("Envoi vide ou trop volumineux.")

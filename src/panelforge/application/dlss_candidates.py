@@ -10,8 +10,8 @@ from panelforge.domain.h3_render import H3RenderAttemptStatus, H3RenderKeyframe
 
 
 class DlssCandidates:
-    def __init__(self, *, edit, assisted, h3, qwen=None):
-        self.services = {"edit": edit, "assisted": assisted, "h3": h3, "ref2v": h3, "qwen": qwen}
+    def __init__(self, *, edit, assisted, h3, qwen=None, minimax=None):
+        self.services = {"edit": edit, "assisted": assisted, "h3": h3, "ref2v": h3, "qwen": qwen, "minimax": minimax}
 
     def _service(self, owner):
         service = self.services.get(owner)
@@ -26,11 +26,11 @@ class DlssCandidates:
         service = self._service(owner)
         with service._lock:
             project = self._get(service, owner, owner_id)
-            if owner == "qwen":
+            if owner in {"qwen", "minimax"}:
                 stage = next((value for value in project["stages"]
                               if any(item["id"] == attempt_id for item in value["attempts"])), None)
                 if stage is None or project["active_stage_id"] != stage["id"] or stage.get("accepted_attempt_id"):
-                    raise ValueError("Choisis un résultat de l’étape Qwen active.")
+                    raise ValueError(f"Choisis un résultat de l’étape {service.label} active.")
                 attempt = next(item for item in stage["attempts"] if item["id"] == attempt_id)
                 if attempt["status"] != "succeeded" or not attempt.get("output_asset_id"):
                     raise ValueError("Choisis un résultat réussi à améliorer.")
@@ -72,9 +72,9 @@ class DlssCandidates:
                 is_ref = project.input_mode.value == "ref2va"
                 if (owner == "ref2v") != is_ref:
                     raise ValueError("La vidéo n’appartient pas à ce mode de rendu.")
-            if settings.size == "source" and owner not in {"edit", "qwen"}:
+            if settings.size == "source" and owner not in {"edit", "qwen", "minimax"}:
                 raise ValueError("La taille source est réservée à l’atelier Edit.")
-            if owner in {"edit", "assisted", "qwen"} and (settings.interpolate or settings.hdr):
+            if owner in {"edit", "assisted", "qwen", "minimax"} and (settings.interpolate or settings.hdr):
                 raise ValueError("Ces options sont réservées à la vidéo.")
             snapshot = {"owner": owner, "owner_id": owner_id, "parent_attempt_id": attempt.attempt_id,
                         "root_attempt_id": attempt.attempt_id, "input_asset_id": attempt.output_asset_id,
@@ -103,11 +103,11 @@ class DlssCandidates:
         service = self._service(snapshot["owner"])
         with service._lock:
             project = self._get(service, snapshot["owner"], snapshot["owner_id"])
-            if snapshot["owner"] == "qwen":
+            if snapshot["owner"] in {"qwen", "minimax"}:
                 stage = next((value for value in project["stages"] if value["id"] == snapshot["stage_id"]), None)
                 if (stage is None or project["active_stage_id"] != stage["id"] or stage.get("accepted_attempt_id")
                         or stage.get("source_asset_id") != snapshot.get("source_asset_id")):
-                    raise ValueError("L’étape Qwen a changé pendant l’upscale. Le fichier DLSS reste téléchargeable.")
+                    raise ValueError(f"L’étape {service.label} a changé pendant l’upscale. Le fichier DLSS reste téléchargeable.")
                 if not any(item["id"] == snapshot["parent_attempt_id"] for item in stage["attempts"]):
                     raise ValueError("L’essai d’origine n’est plus dans cet atelier.")
                 return
@@ -121,7 +121,7 @@ class DlssCandidates:
     def compose(self, snapshot, enhanced, assets):
         if not snapshot.get("mask_asset_id"):
             return enhanced
-        service = self._service(snapshot["owner"] if snapshot["owner"] == "qwen" else "edit")
+        service = self._service(snapshot["owner"] if snapshot["owner"] in {"qwen", "minimax"} else "edit")
         return service.retouch_compositor.compose(
             assets.read_bytes(snapshot["source_asset_id"]), enhanced, assets.read_bytes(snapshot["mask_asset_id"]),
             harmonize=snapshot["harmonize"], harmonize_strength=snapshot["harmonize_strength"],
@@ -137,7 +137,7 @@ class DlssCandidates:
                           fps=job["output_metadata"].get("fps"), duration_seconds=job["output_metadata"].get("duration_seconds"))
         with service._lock:
             project = self._get(service, owner, snapshot["owner_id"])
-            if owner == "qwen":
+            if owner in {"qwen", "minimax"}:
                 stage = next(value for value in project["stages"] if value["id"] == snapshot["stage_id"])
                 existing = next((item for item in stage["attempts"]
                                  if item.get("dlss", {}).get("job_id") == job["job_id"]), None)

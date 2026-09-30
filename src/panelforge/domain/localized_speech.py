@@ -2,7 +2,8 @@
 LOCALIZED_THANKS_V1 = "little_men.localized_thanks.v1"
 LOCALIZED_THANKS_V2 = "little_men.localized_thanks.v2"
 LOCALIZED_THANKS_V3 = "little_men.localized_thanks.v3"
-LOCALIZED_THANKS_POLICIES = (LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3)
+LOCALIZED_THANKS_V4 = "little_men.localized_thanks.v4"
+LOCALIZED_THANKS_POLICIES = (LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4)
 THANKS_LANGUAGES = {
     "auto": "Automatique · pays et ambiance",
     "French": "Français", "Korean": "Coréen", "English": "Anglais",

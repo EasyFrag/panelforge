@@ -85,6 +85,7 @@ _REFERENCE_RULES = {
 def direct_reference_mapping(
     session: PromptLabSession,
     mapping: PictureMapping,
+    *, rule_overrides: dict[int, str] | None = None,
 ) -> str:
     """Render the Brief-to-local-picture evidence map supplied to the planner."""
 
@@ -95,7 +96,7 @@ def direct_reference_mapping(
     chunks: list[str] = []
     for reference_id, picture_number in mapping:
         reference = session.reference(reference_id)
-        rule = _reference_rule(reference.role, picture_number)
+        rule = (rule_overrides or {}).get(picture_number) or _reference_rule(reference.role, picture_number)
         chunks.extend(
             (
                 f"<Picture {picture_number}> = <Image {session_numbers[reference_id]}>",
@@ -113,11 +114,12 @@ def direct_reference_mapping(
 def direct_reference_header(
     session: PromptLabSession,
     mapping: PictureMapping,
+    *, rule_overrides: dict[int, str] | None = None,
 ) -> str:
     """Compile the immutable one-to-nine-reference H3 header."""
 
     return "\n".join(
-        _reference_rule(session.reference(reference_id).role, picture_number)
+        (rule_overrides or {}).get(picture_number) or _reference_rule(session.reference(reference_id).role, picture_number)
         for reference_id, picture_number in mapping
     )
 

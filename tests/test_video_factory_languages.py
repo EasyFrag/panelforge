@@ -14,7 +14,7 @@ from panelforge.application.video_factory import VideoFactoryService
 from panelforge.application.video_factory_workflows import FactoryWorkflows
 from panelforge.application.vocal_policy import validate_speech, vocal_policy
 from panelforge.domain.localized_speech import (
-    LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, STABLE_THANKS_LANGUAGES, THANKS_LANGUAGES, FIXED_THANKS,
+    LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, STABLE_THANKS_LANGUAGES, THANKS_LANGUAGES, FIXED_THANKS,
 )
 from panelforge.domain.little_men_languages import (
     LANGUAGE_POOLS, classify_context, make_selection, recent_languages, selection_instructions,
@@ -267,7 +267,7 @@ class FactoryLanguageLifecycleTest(unittest.TestCase):
         adapter._session(item, Mock(), lambda: False, Mock())
         second = adapter.composition.configure.call_args.kwargs["preparation_intent"]
         self.assertEqual(first, second)
-        self.assertEqual((first.speech_policy, first.speech_language), (LOCALIZED_THANKS_V3, "Japanese"))
+        self.assertEqual((first.speech_policy, first.speech_language), (LOCALIZED_THANKS_V4, "Japanese"))
         adapter.composition.stream_generate.assert_not_called()
         adapter.prompt_lab.stream_structure_brief.assert_not_called()
 

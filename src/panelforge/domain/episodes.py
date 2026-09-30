@@ -263,11 +263,21 @@ def scene_inputs(episode, scene, *, require_images=True):
     requested_delivery = any(line.get("delivery", "spoken") != "spoken" for line in source_scene["dialogue"])
     delivery_rule = ("Respecte exactement les modes de restitution indiqués et n’ajoute aucune autre voix off, "
                      if requested_delivery else "Sans voix off, ")
-    lines.append("Invente une mise en scène créative, vivante et expressive. Les gestes et réactions accompagnent les paroles. "
-                 "Préserve les identités et les objets importants. "
-                 + ("Sans dialogue supplémentaire, " if axes.dialogue < 2 else
-                    "Ne remplace ni ne reformule les répliques du scénario. Les ajouts éventuels suivent le niveau Dialogues et réactions choisi. ")
-                 + delivery_rule + "musique ni texte à l’écran.")
+    if episode.get("source_story_v2"):
+        lines.append("Préserve les relations, les événements et leur causalité ; enrichis leur mise en scène selon les niveaux créatifs choisis. "
+                     "Pour une parole à l’image, garde le visage du locuteur identifiable ; respecte les voix hors champ prévues. "
+                     "Présences, entrées et sorties suivent les actions ; le silence ne fait pas disparaître un personnage. "
+                     "Les apparences temporaires indiquées valent pour cette séquence et priment sur les images. "
+                     "Conserve les répliques et leurs modes de restitution. "
+                     + ("Sans parole ajoutée. " if axes.dialogue < 2 else "Les ajouts de paroles suivent le niveau Dialogues et réactions choisi. ")
+                     + ("Musique autorisée. " if effective_video_setup(episode, scene).get("music_enabled") else "Sans musique. ")
+                     + "Sans texte à l'écran.")
+    else:
+        lines.append("Invente une mise en scène créative, vivante et expressive. Les gestes et réactions accompagnent les paroles. "
+                     "Préserve les identités et les objets importants. "
+                     + ("Sans dialogue supplémentaire, " if axes.dialogue < 2 else
+                        "Ne remplace ni ne reformule les répliques du scénario. Les ajouts éventuels suivent le niveau Dialogues et réactions choisi. ")
+                     + delivery_rule + "musique ni texte à l’écran.")
     result = dict(references=selected, source_text="\n\n".join(lines),
         plan_model_id=scene["plan_model_id"], writer_model_id=scene["writer_model_id"],
         shot_count=scene["shot_count"], audacity=scene["audacity"], cookbook=episode["cookbook"])

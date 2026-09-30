@@ -9,7 +9,7 @@
   const stages = ["plan","prompt","video","dlss","social"];
   const labels = {plan:"Plan",prompt:"Prompt",video:"Vidéo",dlss:"DLSS",social:"Texte IG"};
   const roles = {unassigned:"Rôle à choisir",first_frame:"Première frame",last_frame:"Dernière frame",subject_reference:"Sujet / identité",environment_reference:"Décor",style_reference:"Style",composition_reference:"Composition",motion_reference:"Mouvement",keyframe_reference:"Keyframe"};
-  const state = {data:null,tab:"preparation",selected:new Set(),focus:null,busy:false,dirty:false,draft:null,revision:null,undo:null,refreshing:false};
+  const state = {data:null,tab:"preparation",resultSort:"chronological",selected:new Set(),focus:null,busy:false,dirty:false,draft:null,revision:null,undo:null,refreshing:false};
   const uploads = new WeakMap();
   let noticeTimer;
   const topbar = document.querySelector(".topbar");
@@ -40,12 +40,26 @@
   const selected = () => (state.data?.items || []).filter(item=>state.selected.has(item.id));
   const selection = items => ({ids:items.map(item=>item.id), revisions:Object.fromEntries(items.map(item=>[item.id,item.revision]))});
   const monitoring=window.PanelForgeFactoryMonitor?.create({root,escape,request:api,getState:()=>state,getSelection:selected});
+  function resultDate(item) {
+    const completed=[item.delivery?.finished_at,...Object.values(item.steps).map(step=>step.finished_at)]
+      .map(value=>Date.parse(value)).filter(Number.isFinite);
+    return completed.length?Math.max(...completed):Date.parse(item.launched_at||item.created_at)||0;
+  }
   function visible() {
     const filter = $("filter").value;
-    return (state.data?.items || []).filter(item=>tab(item)===state.tab && (
+    const items=(state.data?.items || []).filter(item=>tab(item)===state.tab && (
       filter==="all" || filter==="ready" && item.status==="preparation" && item.ready ||
       filter==="incomplete" && item.status==="preparation" && !item.ready || filter==="failed" && errors(item) ||
       filter==="archivable" && canArchive(item)));
+    if(state.tab!=="results"||state.resultSort!=="newest")return items;
+    // Sort display blocks, keeping each story together and its scene order intact.
+    const blocks=new Map();
+    items.forEach((item,index)=>{
+      const key=group(item)?"episode:"+group(item):"item:"+item.id;
+      if(!blocks.has(key))blocks.set(key,{items:[],date:0,index});
+      const block=blocks.get(key);block.items.push(item);block.date=Math.max(block.date,resultDate(item));
+    });
+    return [...blocks.values()].sort((a,b)=>b.date-a.date||a.index-b.index).flatMap(block=>block.items);
   }
   function showNotice(message, action, label="Ouvrir") {
     clearTimeout(noticeTimer); const node=$("notice"); node.replaceChildren(document.createTextNode(message));
@@ -61,6 +75,8 @@
     finally{state.busy=false;renderToolbar();}
   }
   function accept(data) {
+    // A GET begun before a preset edit must not restore the previous revision.
+    if(state.data&&data.revision<state.data.revision)return;
     state.data=data;
     monitoring?.received();
     const ids=new Set(data.items.map(item=>item.id));
@@ -212,7 +228,7 @@
     monitoring?.render();
   }
   function stateCell(item,label,reason) {
-    const status='<strong class="'+(!item.ready&&item.status==="preparation"?"warning":errors(item)?"failed":"")+'">'+escape(label)+'</strong>';
+    const status='<strong class="'+(!item.ready&&item.status==="preparation"?"warning":errors(item)?"failed":item.status==="preparation"&&item.ready&&!item.remove_requested&&!item.archived_at?"vf-preparation-ready":"")+'">'+escape(label)+'</strong>';
     const forecast=monitoring?.row(item)||"";
     if(!["results","archives"].includes(state.tab))return status+escape(reason)+forecast;
     return resultActions(item,status,reason)+forecast;
@@ -271,6 +287,11 @@
   function renderToolbar() {
     if(!state.data)return;
     const items=selected(),preparation=state.tab==="preparation";
+    root.querySelectorAll(".vf-preparation-ready").forEach(node=>{
+      node.hidden=preparation&&state.selected.has(node.closest("[data-vf-id]").dataset.vfId);
+    });
+    $("results-sort").hidden=state.tab!=="results";$("results-sort").value=state.resultSort;
+    $("results-sort").disabled=state.busy;
     $("selected-count").textContent=items.length+" sélectionné"+(items.length>1?"s":"");
     $("select-all").checked=visible().length>0&&visible().every(item=>state.selected.has(item.id));
     $("select-all").indeterminate=!$("select-all").checked&&visible().some(item=>state.selected.has(item.id));
@@ -402,7 +423,9 @@
   }
   async function source(item) {
     const detail=clone(item.source);
+    if (detail.kind === "image_transition") return window.PanelForgeImageTransitions?.open(detail.id, detail.transition_id, detail.version);
     if (detail.kind === "image") return window.PanelForgeKrea2AssistedLab?.open(detail.id);
+    if (detail.story_v2_id) return window.PanelForgeStoryV2?.open(detail.story_v2_id);
     if (detail.kind === "episode") {
       await window.PanelForgeEpisodes?.prepareLibraryNavigation();
       window.PanelForgeLabNavigation?.switchView("stories");
@@ -445,6 +468,7 @@
   document.querySelector('[data-lab-view="video-factory"]')?.addEventListener("click",()=>refresh());
   $("refresh").onclick=()=>refresh();
   $("filter").onchange=()=>{state.selected.clear();render();};
+  $("results-sort").onchange=event=>{state.resultSort=event.target.value==="newest"?"newest":"chronological";render();};
   $("select-all").onchange=event=>{visible().forEach(item=>event.target.checked?state.selected.add(item.id):state.selected.delete(item.id));render();};
   $("rows").addEventListener("change",event=>{
     if(event.target.matches("[data-vf-group]"))visible().filter(item=>group(item)===event.target.dataset.vfGroup).forEach(item=>event.target.checked?state.selected.add(item.id):state.selected.delete(item.id));

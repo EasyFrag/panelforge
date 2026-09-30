@@ -1,7 +1,7 @@
 """Versioned permissions and validation for optional English speech."""
 
 from .prompt_recipe_text import prompt_text
-from panelforge.domain.localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_POLICIES, STABLE_THANKS_LANGUAGES, FIXED_THANKS
+from panelforge.domain.localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, LOCALIZED_THANKS_POLICIES, STABLE_THANKS_LANGUAGES, FIXED_THANKS
 
 from collections import Counter
 import re
@@ -32,14 +32,15 @@ def speech_lines(content: str) -> tuple[tuple[str, str], ...]:
 
 def vocal_policy(level: int, *, locked: bool = False, speech_policy=None, speech_language=None) -> str:
     validate_vocal_level(level)
-    if speech_policy == LOCALIZED_THANKS_V3:
+    if speech_policy in (LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4):
         if locked and speech_language not in FIXED_THANKS:
             raise ValueError("Le Prompt attend la langue déjà approuvée dans le Plan.")
         formulas = ({speech_language: FIXED_THANKS[speech_language]}
                     if speech_language in FIXED_THANKS else FIXED_THANKS)
         choice = ("Language fixed. " if speech_language else
                   "Choose once using the source's scene pools and frozen order. ")
-        return ("LOCALIZED THANK-YOU v3: the existing little people thank together once after the help. "
+        version = 4 if speech_policy == LOCALIZED_THANKS_V4 else 3
+        return (f"LOCALIZED THANK-YOU v{version}: the existing little people thank together once after the help. "
                 + choice + "Only these words: "
                 + "; ".join(f"{name}: {words}" for name, words in formulas.items()) + ". "
                 "No added words or other speech. "
@@ -113,9 +114,9 @@ def validate_speech(lines, protected, *, level: int, source_text: str,
         if len(lines) != 1:
             raise ValueError("Prévoir un unique remerciement localisé.")
         language, text = lines[0]
-        if speech_policy in (LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3) and language not in STABLE_THANKS_LANGUAGES:
+        if speech_policy in (LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4) and language not in STABLE_THANKS_LANGUAGES:
             raise ValueError("Le remerciement doit utiliser une des 11 langues stables.")
-        if speech_policy in (LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3):
+        if speech_policy in (LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4):
             expected = FIXED_THANKS[language]
             if _thanks_words(text, language) != _thanks_words(expected, language):
                 raise ValueError(f"Le remerciement en {language} doit être uniquement « {expected} », sans aucun ajout.")

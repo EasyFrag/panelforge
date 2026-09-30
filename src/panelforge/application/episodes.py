@@ -252,7 +252,7 @@ class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocali
             image_style = ref.get("image_style")
             ref["image_style_status"] = ("unknown" if image_style is None else
                 "current" if fingerprint(image_style) == fingerprint(active_style) else "outdated")
-        if value.get("localization"):
+        if value.get("localization") or value.get("source_story_v2"):
             view["story_changed"] = False
         else:
             try:
@@ -759,12 +759,21 @@ class EpisodeService(EpisodeStateImages, EpisodeContinuityActions, EpisodeLocali
                 available = 12000 - len(brief) - len(heading)
                 if available > 0:
                     brief += heading + visual["preset"]["prompt"][:available]
+            assistance_options = deepcopy(value.get("reference_assistance") or {})
+            if "prompt_language" in assistance_options:
+                from panelforge.domain.krea2_batch import Krea2PromptLanguage
+                assistance_options["prompt_language"] = Krea2PromptLanguage(assistance_options["prompt_language"])
+            assistance_options.setdefault("assistance_recipe_version", "3.0.0")
             def work(key):
                 project_id = snapshot["krea_project_id"]
                 if not project_id:
                     project = self.krea.create_project(name=snapshot["name"][:120], intention=brief,
-                        model_id=snapshot["model_id"], assistance_recipe_version="3.0.0")
+                        model_id=snapshot["model_id"], **assistance_options)
                     project_id = project.project_id
+                    if (assistance_options.get("assistance_recipe_version") == "6.0.0"
+                            and not assistance_options.get("art_style_id") and project.art_direction is not None):
+                        self.krea.select_art_direction(project_id, None, expected_branch_id=project.active_branch_id,
+                            current_prompt=None, settings=project.render_settings, seed=None)
                     self._change(key, lambda r: r.update(krea_project_id=project_id))
                 self._change(key, lambda r: r["job"].update(phase="KREA2 Assisted · rédaction du prompt…"))
                 guidance = visual["image"]

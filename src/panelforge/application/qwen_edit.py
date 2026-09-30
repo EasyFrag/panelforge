@@ -12,13 +12,14 @@ from threading import Event, RLock, Thread
 import time
 from uuid import uuid4
 
-from panelforge.domain.qwen_edit import (ACTIVE_ATTEMPTS, MAX_ASSISTANT_IMAGES, QwenEditSettings,
-    context_fingerprint, context_snapshot, prompt_is_ready, render_inputs, validate_prompt, validate_references)
+from panelforge.domain import qwen_edit as qwen_policy
+from panelforge.domain.qwen_edit import ACTIVE_ATTEMPTS, MAX_ASSISTANT_IMAGES, QwenEditSettings
 from panelforge.domain.production import ComputeResource, ProductionWorkload
 from .prompt_lab import (CompletionRequest, ImageInput, StreamEventKind, LlmCallApplicationOutcome,
                          truncated_response_message)
 from .production_resources import ResourceWaitCancelled
 from . import qwen_edit_assistance as assistance
+from . import story_thumbnail_assistance as thumbnail_assistance
 
 
 class QwenEditConflict(ValueError):
@@ -57,7 +58,9 @@ def _new_stage(index, source_asset_id, *, settings=None, model_id="", mode="edit
 class QwenEditService:
     def __init__(self, *, gateway, workflow, comfy, assets, projects, images, exporter=None,
                  edit_images=None, retouch_compositor=None, work_coordinator=None,
-                 run_timeout=3600, poll_interval=1):
+                 run_timeout=3600, poll_interval=1, policy=qwen_policy, prompting=assistance):
+        self.policy, self.assistance = policy, prompting
+        self.engine, self.label = policy.ENGINE, policy.LABEL
         self.gateway, self.workflow, self.comfy = gateway, workflow, comfy
         self.assets, self.projects, self.images = assets, projects, images
         self.edit_images, self.retouch_compositor = edit_images, retouch_compositor
@@ -68,6 +71,11 @@ class QwenEditService:
         self._worker = None
         self._prompt_claims = set()
         self._render_queue = deque()
+
+    def _new_stage(self, index, source_asset_id, *, settings=None, model_id="", mode="edit"):
+        settings = settings or self.policy.Settings(seed=str(secrets.randbits(64))).record()
+        model_id = model_id or getattr(self.policy, "DEFAULT_ASSISTANT_MODEL", "")
+        return _new_stage(index, source_asset_id, settings=settings, model_id=model_id, mode=mode)
 
     def list_models(self):
         return self.gateway.list_models()
@@ -97,15 +105,50 @@ class QwenEditService:
             raise ValueError("Choisis une image source.")
         if composition and source_id:
             raise ValueError("Une nouvelle composition utilise des références, sans source.")
-        stage = _new_stage(1, source_id, mode="composition" if composition else "edit")
+        stage = self._new_stage(1, source_id, mode="composition" if composition else "edit")
         if source_id:
             stage["source_dimensions"] = list(self.images.dimensions(self.assets.read_bytes(source_id)))
         if composition:
-            stage["settings"]["resolution"] = "1"
-        project = {"schema_version": 1, "id": _id("qwen"), "name": name.strip() or "Projet Qwen",
+            stage["settings"]["resolution"] = self.policy.COMPOSITION_RESOLUTION
+        project = {"schema_version": 1, "engine": self.engine, "id": _id(self.engine), "name": name.strip() or f"Projet {self.label}",
                    "version": 0, "created_at": _now(), "updated_at": _now(), "active_stage_id": stage["id"],
                    "stages": [stage], "export_path": None, "export_error": None}
         with self._lock:
+            return self._save(project)
+
+    def ensure_story_image(self, *, key, name, source_asset_id, references, draft, model_id, settings, thumbnail=False):
+        """Idempotent Story V2 edit/composition; references remain separate image assets."""
+        from uuid import NAMESPACE_URL, uuid5
+        if thumbnail and source_asset_id:
+            raise ValueError("Une miniature est une composition sans source fixe.")
+        identity = self.engine + "-" + uuid5(NAMESPACE_URL, "panelforge/story-image/" + key).hex
+        with self._lock:
+            try:
+                project = self.projects.get(identity)
+                if project.get("story_image_key") != key:
+                    raise ValueError("La réservation de cette image appartient à un autre projet.")
+                return project
+            except FileNotFoundError:
+                pass
+            for asset_id in [*([source_asset_id] if source_asset_id else []), *[r["asset_id"] for r in references]]:
+                if not self.assets.get(asset_id).media_type.startswith("image/"):
+                    raise ValueError("Une référence d’histoire doit être une image.")
+            stage = self._new_stage(1, source_asset_id, model_id=model_id,
+                mode="edit" if source_asset_id else "composition")
+            if source_asset_id:
+                stage["source_dimensions"] = list(self.images.dimensions(self.assets.read_bytes(source_asset_id)))
+            stage["settings"] = self.policy.Settings(**{**stage["settings"], **settings}).record()
+            stage["draft"] = draft
+            if thumbnail:
+                stage["story_thumbnail"] = True
+            stage["references"] = [dict(id="ref-" + uuid5(NAMESPACE_URL, key + str(i)).hex,
+                asset_id=r["asset_id"], name=r["name"], role=r["role"], usage="render", active=True)
+                for i, r in enumerate(references)]
+            self.policy.validate_references(stage["references"])
+            self.policy.render_inputs(stage)
+            project = dict(schema_version=1, engine=self.engine, id=identity, name=name[:120], version=0,
+                created_at=_now(), updated_at=_now(), active_stage_id=stage["id"], stages=[stage],
+                managed_by="story-v2", story_image_key=key, export_path=None, export_error=None)
             return self._save(project)
 
     def _editable(self, project, stage_id, revision=None):
@@ -123,12 +166,12 @@ class QwenEditService:
         with self._lock:
             project = self.projects.get(project_id)
             stage = self._editable(project, stage_id, revision)
-            old_signature = context_fingerprint(stage)
+            old_signature = self.policy.context_fingerprint(stage)
             for key, value in changes.items():
                 if key == "settings":
-                    stage[key] = QwenEditSettings(**value).record()
+                    stage[key] = self.policy.Settings(**value).record()
                 elif key == "references":
-                    validate_references(value)
+                    self.policy.validate_references(value)
                     known = {ref["id"]: ref for ref in stage["references"]}
                     if any(ref["id"] not in known or ref["asset_id"] != known[ref["id"]]["asset_id"] for ref in value):
                         raise ValueError("Ajoute les images avant de modifier leurs usages.")
@@ -146,17 +189,17 @@ class QwenEditService:
                     if key in {"name", "label"} and not value.strip():
                         raise ValueError("Le nom ne peut pas être vide.")
                     (project if key == "name" else stage)[key] = value
-            render_inputs(stage)
+            self.policy.render_inputs(stage)
             assistant_only = len([r for r in stage["references"]
                                   if r["active"] and r["usage"] == "assistant"])
-            if len(render_inputs(stage)) + assistant_only > MAX_ASSISTANT_IMAGES:
+            if len(self.policy.render_inputs(stage)) + assistant_only > MAX_ASSISTANT_IMAGES:
                 raise ValueError("L’assistant accepte au maximum 32 images dans cet atelier.")
-            if old_signature != context_fingerprint(stage):
+            if old_signature != self.policy.context_fingerprint(stage):
                 stage["prompt_fingerprint"] = None
             if "prompt" in changes:
                 if stage["prompt"].strip():
-                    validate_prompt(stage["prompt"], render_inputs(stage))
-                    stage["prompt_fingerprint"] = context_fingerprint(stage)
+                    self.policy.validate_prompt(stage["prompt"], self.policy.render_inputs(stage))
+                    stage["prompt_fingerprint"] = self.policy.context_fingerprint(stage)
                     stage["summary"] = "Prompt personnalisé, prêt pour le rendu."
                 else:
                     stage["prompt_fingerprint"] = None
@@ -184,11 +227,11 @@ class QwenEditService:
                 unique, suffix = f"{label} {suffix}", suffix + 1
             stage["references"].append({"id": _id("ref"), "asset_id": asset_id, "name": unique,
                                         "role": role, "usage": usage, "active": True})
-            validate_references(stage["references"])
-            render_inputs(stage)
+            self.policy.validate_references(stage["references"])
+            self.policy.render_inputs(stage)
             assistant_only = len([r for r in stage["references"]
                                   if r["active"] and r["usage"] == "assistant"])
-            if len(render_inputs(stage)) + assistant_only > MAX_ASSISTANT_IMAGES:
+            if len(self.policy.render_inputs(stage)) + assistant_only > MAX_ASSISTANT_IMAGES:
                 raise ValueError("L’assistant accepte au maximum 32 images dans cet atelier.")
             stage["prompt_fingerprint"] = None
             stage["revision"] += 1
@@ -222,7 +265,7 @@ class QwenEditService:
             stage["guide"] = {"mask_asset_id": asset.asset_id, "source_asset_id": source_asset_id,
                               "width": source_width, "height": source_height, "request_id": request_id,
                               "submitted_sha256": digest, "updated_at": _now()}
-            render_inputs(stage)
+            self.policy.render_inputs(stage)
             stage["prompt_fingerprint"] = None
             stage["revision"] += 1
             return self._save(project)
@@ -256,13 +299,13 @@ class QwenEditService:
             if any(a["status"] in ACTIVE_ATTEMPTS | {"submitting"} for a in stage["attempts"]) or any(
                     message["status"] in {"queued", "running"} for message in stage["messages"]):
                 raise QwenEditConflict("Attends la fin des traitements avant de recommencer cette étape.")
-            fresh = _new_stage(stage["index"], stage["source_asset_id"], model_id=stage["model_id"], mode=stage["mode"])
+            fresh = self._new_stage(stage["index"], stage["source_asset_id"], model_id=stage["model_id"], mode=stage["mode"])
             fresh.update(id=stage["id"], label=stage["label"], source_dimensions=deepcopy(stage["source_dimensions"]),
                          revision=stage["revision"] + 1, restart_request_id=request_id)
             project["stages"][project["stages"].index(stage)] = fresh
             return self._save(project)
 
-    def begin_message(self, project_id, stage_id, *, revision, request_id):
+    def begin_message(self, project_id, stage_id, *, revision, request_id, render_after_prompt=False):
         with self._lock:
             project = self.projects.get(project_id)
             stage = self._editable(project, stage_id)
@@ -272,25 +315,35 @@ class QwenEditService:
             self._editable(project, stage_id, revision)
             if any(m["status"] in {"queued", "running"} for m in stage["messages"]):
                 raise QwenEditConflict("L’assistant prépare déjà une instruction pour cette étape.")
+            if render_after_prompt and any(a["status"] in ACTIVE_ATTEMPTS | {"submitting"} for a in stage["attempts"]):
+                raise QwenEditConflict("Attends la fin du rendu avant de préparer la modification suivante.")
             if not stage["draft"].strip() or not stage["model_id"]:
                 raise ValueError("Écris une demande et choisis le modèle de l’assistant.")
-            inputs = render_inputs(stage)
+            inputs = self.policy.render_inputs(stage)
             if not inputs:
                 raise ValueError("Ajoute au moins une référence de génération pour composer l’image.")
             feedback = _attempt(stage, stage["feedback_attempt_id"]) if stage["feedback_attempt_id"] else None
             feedback_id = feedback["output_asset_id"] if feedback else None
-            snapshot = context_snapshot(stage)
+            snapshot = self.policy.context_snapshot(stage)
             image_count = len(snapshot["render_inputs"]) + len([ref for ref in snapshot["references"]
                                                                  if ref["usage"] == "assistant"]) + bool(feedback_id)
             if image_count > MAX_ASSISTANT_IMAGES:
                 raise ValueError("Trop d’images pour l’assistant : désactive une référence ou le retour visuel.")
             message = {"id": _id("message"), "request_id": request_id, "created_at": _now(),
                        "text": stage["draft"].strip(), "model_id": stage["model_id"], "status": "queued",
-                       "context": snapshot, "fingerprint": context_fingerprint(stage), "base_prompt": stage["prompt"],
+                       "context": snapshot, "fingerprint": self.policy.context_fingerprint(stage), "base_prompt": stage["prompt"],
                        "feedback_asset_id": feedback_id, "reply": "", "raw": "", "reasoning": "", "error": None,
-                       "user_prompt": assistance.user_prompt(stage, stage["draft"].strip(),
+                       "user_prompt": self.assistance.user_prompt(stage, stage["draft"].strip(),
                                                            {"attempt_id": feedback["id"]} if feedback else None),
-                       "system_prompt": assistance.SYSTEM, "policy_version": assistance.VERSION}
+                       "system_prompt": self.assistance.SYSTEM, "policy_version": self.assistance.VERSION}
+            if (project.get("managed_by") == "story-v2" and stage.get("story_thumbnail")
+                    and stage["mode"] == "composition" and not stage["source_asset_id"] and not stage.get("guide")):
+                message.update(reference_selection=thumbnail_assistance.VERSION,
+                               system_prompt=thumbnail_assistance.system_prompt(self.engine),
+                               policy_version=thumbnail_assistance.VERSION,
+                               operation_id=f"{self.engine}.{thumbnail_assistance.VERSION}")
+            if render_after_prompt:
+                message["auto_render"] = {"status": "waiting", "settings": deepcopy(stage["settings"])}
             stage["messages"].append(message)
             stage["draft"] = ""
             stage["prompt_fingerprint"] = None
@@ -314,9 +367,10 @@ class QwenEditService:
         try:
             images = []
             context = message["context"]
+            image_role = "CANDIDATE" if message.get("reference_selection") else "RENDER"
             for ref in context["render_inputs"]:
                 images.append(ImageInput("image/png", self.assets.read_bytes(ref["asset_id"]),
-                                         f"RENDER {ref['tag']} — {ref['name']} — {ref['role']}"))
+                                         f"{image_role} {ref['tag']} — {ref['name']} — {ref['role']}"))
             for ref in context["references"]:
                 if ref["usage"] == "assistant":
                     images.append(ImageInput("image/png", self.assets.read_bytes(ref["asset_id"]),
@@ -325,7 +379,7 @@ class QwenEditService:
                 images.append(ImageInput("image/png", self.assets.read_bytes(message["feedback_asset_id"]), "GENERATED FEEDBACK ONLY"))
             request = CompletionRequest(model_id=message["model_id"], system_prompt=message["system_prompt"],
                 user_prompt=message["user_prompt"], images=tuple(images), max_tokens=80000, include_reasoning=True,
-                operation_id=assistance.OPERATION, output_schema=assistance.SCHEMA,
+                operation_id=message.get("operation_id", self.assistance.OPERATION), output_schema=self.assistance.SCHEMA,
                 trace_context={"project_id": project_id, "stage_id": stage_id, "message_id": message_id})
             raw, reasoning, last_save, last_phase = "", "", time.monotonic(), None
             completed = False
@@ -346,19 +400,22 @@ class QwenEditService:
                     self._message_update(project_id, stage_id, message_id, raw=raw, reasoning=reasoning, call_id=call_id)
                     if event.kind is StreamEventKind.TRUNCATED:
                         raise ValueError(truncated_response_message(request.max_tokens))
-                    reply, prompt = assistance.decode(raw, context["render_inputs"])
+                    reply, prompt, selected_ids = self._decode_message(message, raw)
                     with self._lock:
                         project = self.projects.get(project_id)
                         stage = _stage(project, stage_id)
                         current = next(m for m in stage["messages"] if m["id"] == message_id)
                         apply = (project["active_stage_id"] == stage_id and not stage["accepted_attempt_id"]
-                                 and context_fingerprint(stage) == message["fingerprint"]
+                                 and self.policy.context_fingerprint(stage) == message["fingerprint"]
                                  and stage["prompt"] == message["base_prompt"])
                         current.update(status="succeeded", reply=reply, prompt=prompt, applied=apply,
                                        recovery_available=True, finished_at=_now())
                         if apply:
-                            stage.update(prompt=prompt, prompt_fingerprint=message["fingerprint"], summary=reply)
+                            self._apply_message_prompt(stage, current, reply, prompt, selected_ids)
+                            if selected_ids is not None:
+                                stage["revision"] += 1
                         self._save(project)
+                        self._queue_message_render(project_id, stage_id, message_id)
                     completed = True
                     self._report(call_id, True)
                     break
@@ -368,16 +425,69 @@ class QwenEditService:
         except Exception as error:
             recoverable = False
             try:
-                assistance.decode(raw, message["context"]["render_inputs"])
+                self._decode_message(message, raw)
                 recoverable = True
             except (ValueError, TypeError):
                 pass
             self._message_update(project_id, stage_id, message_id, status="failed", error=str(error),
                                  raw=raw, reasoning=reasoning, recovery_available=recoverable, finished_at=_now())
+            self._queue_message_render(project_id, stage_id, message_id)
             self._report(call_id, False, error)
         finally:
             with self._lock:
                 self._prompt_claims.discard(key)
+
+    def _decode_message(self, message, raw):
+        if message.get("reference_selection") == thumbnail_assistance.VERSION:
+            return thumbnail_assistance.decode(raw, message["context"], self.policy)
+        reply, prompt = self.assistance.decode(raw, message["context"]["render_inputs"])
+        return reply, prompt, None
+
+    def _apply_message_prompt(self, stage, message, reply, prompt, selected_ids):
+        if selected_ids is not None:
+            # Keep the original candidate snapshot/raw response immutable for diagnostics and recovery.
+            stage["references"] = [
+                {**ref, "active": False} if ref["usage"] == "render" and ref["id"] not in selected_ids else ref
+                for ref in stage["references"]]
+            self.policy.validate_prompt(prompt, self.policy.render_inputs(stage))
+            message["selected_reference_ids"] = selected_ids
+        fingerprint = self.policy.context_fingerprint(stage)
+        stage.update(prompt=prompt, prompt_fingerprint=fingerprint, summary=reply,
+                     prompt_policy_version=message["policy_version"])
+        message["applied_fingerprint"] = fingerprint
+
+    def _queue_message_render(self, project_id, stage_id, message_id):
+        """Queue the explicitly requested follow-up once, independently of the browser."""
+        with self._lock:
+            project = self.projects.get(project_id)
+            stage = _stage(project, stage_id)
+            message = next(m for m in stage["messages"] if m["id"] == message_id)
+            auto = message.get("auto_render")
+            if not auto or auto["status"] != "waiting":
+                return
+            reason = None
+            if message["status"] != "succeeded":
+                reason = "Le prompt n’a pas été validé ; aucun rendu automatique."
+            elif (not message.get("applied") or stage["prompt"] != message.get("prompt")
+                  or self.policy.context_fingerprint(stage) != message.get("applied_fingerprint", message["fingerprint"])
+                  or stage["settings"] != auto["settings"]):
+                reason = "La demande ou les réglages ont changé ; vérifie le prompt avant de lancer un rendu."
+            if reason:
+                auto.update(status="skipped", error=reason)
+                self._save(project)
+                return
+            request_id = f"prompt-{message_id}"
+            try:
+                project = self.queue_attempt(project_id, stage_id, revision=stage["revision"], request_id=request_id)
+                attempt = next(a for a in _stage(project, stage_id)["attempts"] if a["request_id"] == request_id)
+                result = {"status": "queued", "attempt_id": attempt["id"]}
+            except Exception as error:
+                # Keep the accepted prompt and any persisted failed attempt.
+                result = {"status": "failed", "error": "Rendu automatique non lancé : " + str(error)}
+                project = self.projects.get(project_id)
+            current = next(m for m in _stage(project, stage_id)["messages"] if m["id"] == message_id)
+            current["auto_render"].update(result)
+            self._save(project)
 
     def _report(self, call_id, accepted, error=None):
         reporter = getattr(self.gateway, "report_application_outcome", None)
@@ -403,10 +513,10 @@ class QwenEditService:
             message = next(m for m in stage["messages"] if m["id"] == message_id)
             if message["status"] in {"queued", "running"}:
                 raise QwenEditConflict("Attends la fin de cet appel.")
-            if context_fingerprint(stage) != message["fingerprint"]:
+            if self.policy.context_fingerprint(stage) not in {message["fingerprint"], message.get("applied_fingerprint")}:
                 raise QwenEditConflict("Les images ou leurs rôles ont changé. Actualise l’instruction avec le contexte actuel.")
-            reply, prompt = assistance.decode(message["raw"], render_inputs(stage))
-            stage.update(prompt=prompt, prompt_fingerprint=context_fingerprint(stage), summary=reply)
+            reply, prompt, selected_ids = self._decode_message(message, message["raw"])
+            self._apply_message_prompt(stage, message, reply, prompt, selected_ids)
             stage["revision"] += 1
             return self._save(project)
 
@@ -422,25 +532,26 @@ class QwenEditService:
                 raise QwenEditConflict("Un rendu de cette étape est déjà planifié ou en cours.")
             if any(m["status"] in {"queued", "running"} for m in stage["messages"]):
                 raise QwenEditConflict("L’assistant prépare encore l’instruction de cette étape.")
-            if not prompt_is_ready(stage):
+            if not self.policy.prompt_is_ready(stage):
                 raise ValueError("L’instruction est à actualiser après le changement des images ou de leurs rôles.")
             if stage["draft"].strip():
                 raise ValueError("Une demande n’a pas encore été envoyée à l’assistant. Envoie-la ou efface ce brouillon avant de générer.")
-            inputs = render_inputs(stage)
+            inputs = self.policy.render_inputs(stage)
             if not inputs:
                 raise ValueError("Ajoute une référence de génération.")
-            validate_prompt(stage["prompt"], inputs)
-            settings = QwenEditSettings(**stage["settings"])
+            self.policy.validate_prompt(stage["prompt"], inputs)
+            settings = self.policy.Settings(**stage["settings"])
             if not settings.reuse_seed:
                 settings = replace(settings, seed=str(secrets.randbits(64)))
                 stage["settings"] = settings.record()
             source_size = self.images.dimensions(self.assets.read_bytes(stage["source_asset_id"])) if stage["source_asset_id"] else None
             attempt = {"id": _id("attempt"), "request_id": request_id, "created_at": _now(), "status": "queued", "kind": "generation",
-                       "work_operation": "Qwen · " + project["name"],
-                       "prompt": stage["prompt"], "summary": stage["summary"], "settings": settings.record(), "context": context_snapshot(stage),
+                       "work_operation": self.label + " · " + project["name"],
+                       "prompt": stage["prompt"], "summary": stage["summary"], "settings": settings.record(), "context": self.policy.context_snapshot(stage),
                        "dimensions": list(settings.dimensions(source_size)), "message_ids": [m["id"] for m in stage["messages"]],
                        "feedback_asset_id": (_attempt(stage, stage["feedback_attempt_id"])["output_asset_id"]
                                              if stage["feedback_attempt_id"] else None),
+                       "engine": self.engine, "prompt_policy_version": stage.get("prompt_policy_version", self.assistance.VERSION),
                        "recipe": asdict(self.workflow.reference), "execution_id": None, "workflow_sha256": None,
                        "output_asset_id": None, "raw_output_asset_id": None,
                        "finish": {"mode": settings.color_finish,
@@ -475,10 +586,14 @@ class QwenEditService:
                         if message["status"] in {"queued", "running"}:
                             message.update(status="failed", error="L’application a été arrêtée pendant cet appel. Le brouillon reçu est conservé.")
                             try:
-                                assistance.decode(message.get("raw", ""), message["context"]["render_inputs"])
+                                self._decode_message(message, message.get("raw", ""))
                                 message["recovery_available"] = True
                             except (ValueError, TypeError):
                                 message["recovery_available"] = False
+                            changed = True
+                        if message.get("auto_render", {}).get("status") == "waiting":
+                            message["auto_render"].update(status="skipped",
+                                error="L’application a été arrêtée avant le rendu automatique. Vérifie le prompt avant de le lancer.")
                             changed = True
                     for attempt in stage["attempts"]:
                         if attempt["status"] == "submitting":
@@ -489,7 +604,7 @@ class QwenEditService:
                 if changed:
                     self._save(project)
             self._render_queue = deque(value[1:] for value in sorted(pending))
-            self._worker = Thread(target=self._work, name="qwen-edit-render", daemon=True)
+            self._worker = Thread(target=self._work, name=f"{self.engine}-edit-render", daemon=True)
             self._worker.start()
 
     def stop_worker(self):
@@ -529,7 +644,7 @@ class QwenEditService:
                 attempt = _attempt(_stage(project, stage_id), attempt_id)
                 # Admission must reuse the queued requirement, even after a rename.
                 # Older saved attempts predate this snapshot field.
-                operation = attempt.get("work_operation", "Qwen · " + project["name"])
+                operation = attempt.get("work_operation", self.label + " · " + project["name"])
             lease = (self.work_coordinator.lease(attempt_id, ComputeResource.REMOTE_GPU, ProductionWorkload.IMAGE_RENDER,
                      operation, cancelled=cancelled) if self.work_coordinator else nullcontext())
             with lease:
@@ -566,7 +681,7 @@ class QwenEditService:
         if attempt["status"] not in ACTIVE_ATTEMPTS or self._stop.is_set():
             return
         if attempt["status"] == "queued":
-            settings = QwenEditSettings(**attempt["settings"])
+            settings = self.policy.Settings(**attempt["settings"])
             uploaded = []
             guide = attempt["context"].get("guide")
             render_values = attempt["context"]["render_inputs"]
@@ -579,7 +694,7 @@ class QwenEditService:
                     tuple(attempt["dimensions"]),
                 )
                 result = self.comfy.upload_image(payload, filename=f"{attempt_id}-guide.png",
-                                                 subfolder="panelforge/qwen-edit")
+                                                 subfolder=f"panelforge/{self.engine}-edit")
                 guide_upload = result.workflow_value
                 render_values = render_values[2:]
             for ref in render_values:
@@ -588,11 +703,11 @@ class QwenEditService:
                 content = self.assets.read_bytes(ref["asset_id"])
                 dimensions = tuple(attempt["dimensions"]) if ref["id"] == "source" else settings.dimensions(self.images.dimensions(content))
                 prepared = self.images.prepare(content, dimensions)
-                result = self.comfy.upload_image(prepared, filename=f"{attempt_id}-{len(uploaded) + 1}.png", subfolder="panelforge/qwen-edit")
+                result = self.comfy.upload_image(prepared, filename=f"{attempt_id}-{len(uploaded) + 1}.png", subfolder=f"panelforge/{self.engine}-edit")
                 uploaded.append(result.workflow_value)
             graph = self.workflow.build(images=uploaded, prompt=attempt["prompt"], settings=settings,
                 dimensions=tuple(attempt["dimensions"]), composition=attempt["context"]["mode"] == "composition",
-                output_prefix=f"image/qwen-edit/{project_id}/{attempt_id}", guide=guide_upload)
+                output_prefix=f"image/{self.engine}-edit/{project_id}/{attempt_id}", guide=guide_upload)
             digest = self.projects.save_workflow(project_id, attempt_id, graph)
             with self._lock:
                 current = self._attempt_record(project_id, stage_id, attempt_id)
@@ -627,7 +742,7 @@ class QwenEditService:
                     if finish.get("mode") == "natural" and source_asset_id:
                         try:
                             if self.retouch_compositor is None:
-                                raise ValueError("La finition couleur Qwen n’est pas configurée.")
+                                raise ValueError(f"La finition couleur {self.label} n’est pas configurée.")
                             finished = self.retouch_compositor.harmonize(
                                 self.assets.read_bytes(source_asset_id), raw, strength=finish.get("strength", 55))
                             finish["status"] = "applied"
@@ -713,8 +828,9 @@ class QwenEditService:
             attempt = {"id": _id("attempt"), "request_id": request_id, "created_at": _now(),
                        "finished_at": _now(), "status": "succeeded", "kind": "crop",
                        "prompt": "Recadrage", "summary": "Source recadrée localement.",
-                       "settings": deepcopy(stage["settings"]), "context": context_snapshot(stage),
+                       "settings": deepcopy(stage["settings"]), "context": self.policy.context_snapshot(stage),
                        "dimensions": [width, height], "message_ids": [], "feedback_asset_id": None,
+                       "engine": self.engine, "prompt_policy_version": self.assistance.VERSION,
                        "recipe": asdict(self.workflow.reference), "execution_id": None,
                        "workflow_sha256": None, "output_asset_id": asset.asset_id,
                        "output_dimensions": [width, height], "error": None,
@@ -739,7 +855,7 @@ class QwenEditService:
                 raise QwenEditConflict("Attends la fin des traitements de cette étape.")
             stage["accepted_attempt_id"] = attempt_id
             stage["revision"] += 1
-            next_stage = _new_stage(stage["index"] + 1, attempt["output_asset_id"],
+            next_stage = self._new_stage(stage["index"] + 1, attempt["output_asset_id"],
                                     settings=deepcopy(attempt["settings"]), model_id=stage["model_id"])
             next_stage["source_dimensions"] = deepcopy(attempt["output_dimensions"])
             project["stages"].append(next_stage)
@@ -761,7 +877,7 @@ class QwenEditService:
             stage["settings"] = deepcopy(attempt["settings"])
             stage["guide"] = deepcopy(attempt["context"].get("guide"))
             stage.update(prompt=attempt["prompt"], summary=attempt["summary"], draft="", feedback_attempt_id=None)
-            stage["prompt_fingerprint"] = context_fingerprint(stage)
+            stage["prompt_fingerprint"] = self.policy.context_fingerprint(stage)
             stage["revision"] += 1
             return self._save(project)
 
@@ -773,10 +889,10 @@ class QwenEditService:
             old = self.projects.get(project_id)
             selected = _stage(old, stage_id)
             project = deepcopy(old)
-            project.update(id=_id("qwen"), name=old["name"] + " · reprise", parent_project_id=project_id,
+            project.update(id=_id(self.engine), name=old["name"] + " · reprise", parent_project_id=project_id,
                            resume_request_id=request_id, created_at=_now(), export_path=None, export_error=None,
                            stages=deepcopy(old["stages"][:selected["index"] - 1]))
-            stage = _new_stage(selected["index"], selected["source_asset_id"], settings=deepcopy(selected["settings"]),
+            stage = self._new_stage(selected["index"], selected["source_asset_id"], settings=deepcopy(selected["settings"]),
                                model_id=selected["model_id"], mode=selected["mode"])
             stage["source_dimensions"] = deepcopy(selected["source_dimensions"])
             stage["references"] = [{**r, "active": False} for r in selected["references"]]
@@ -804,13 +920,13 @@ class QwenEditService:
     def public(self, project):
         value = deepcopy(project)
         for stage in value["stages"]:
-            stage["prompt_ready"] = prompt_is_ready(stage)
-            stage["render_inputs"] = render_inputs(stage)
-            stage["render_dimensions"] = list(QwenEditSettings(**stage["settings"]).dimensions(stage["source_dimensions"]))
+            stage["prompt_ready"] = self.policy.prompt_is_ready(stage)
+            stage["render_inputs"] = self.policy.render_inputs(stage)
+            stage["render_dimensions"] = list(self.policy.Settings(**stage["settings"]).dimensions(stage["source_dimensions"]))
             for message in stage["messages"]:
                 # Full request is in the journal/export; avoid sending it on every poll.
                 message["can_recover"] = bool(message.get("recovery_available")
-                    and message["fingerprint"] == context_fingerprint(stage))
+                    and message["fingerprint"] == self.policy.context_fingerprint(stage))
                 message["has_draft"] = bool(message.get("raw"))
                 message["has_reasoning"] = bool(message.get("reasoning"))
                 message.pop("raw", None)

@@ -1,4 +1,5 @@
 """Comparable, versioned duration observations; no infrastructure dependencies."""
+from collections import Counter
 from datetime import datetime
 from statistics import median
 from math import isfinite
@@ -90,6 +91,28 @@ class DurationModel:
         for key in self.groups:
             self.groups[key] = self.groups[key][-40:]
 
+    def _nearby_gpu_records(self, profile):
+        stage = profile["stage"]
+        if stage not in {"video", "dlss"} or stage == "video" and profile.get("input_mode") != "ref2v":
+            return []
+        # Keep every compute setting and the versioned workflow/contract.
+        # DLSS processes the rendered video, independent of source references.
+        core = {k: v for k, v in profile.items() if k != "roles"}
+        roles = Counter(profile.get("roles", ()))
+        records = []
+        for group in self.groups.values():
+            candidate = group[0]["profile"]
+            if {k: v for k, v in candidate.items() if k != "roles"} != core:
+                continue
+            if stage == "video":
+                other = Counter(candidate.get("roles", ()))
+                # Only one additional/missing reference, with the same role kinds:
+                # do not extrapolate across unrelated inputs or distant sizes.
+                if set(roles) != set(other) or sum(abs(roles[k] - other[k]) for k in roles) != 1:
+                    continue
+            records.extend(group)
+        return sorted(records, key=lambda r: r.get("finished_at", ""))[-40:]
+
     def estimate(self, profile, elapsed=0):
         records = self.groups.get(fingerprint(profile), [])
         source = "comparable"
@@ -101,6 +124,9 @@ class DurationModel:
             records = [r for group in self.groups.values() for r in group
                        if {k: v for k, v in r["profile"].items() if k not in ignored} == core]
             records = sorted(records, key=lambda r: r["finished_at"])[-40:]
+            source = "similar"
+        if not records and profile["stage"] in {"video", "dlss"}:
+            records = self._nearby_gpu_records(profile)
             source = "similar"
         if not records:
             if profile["stage"] == "export":
@@ -126,7 +152,11 @@ class DurationModel:
                         reason="Durée habituelle dépassée · marge indicative, fin incertaine")
         confidence = "medium" if len(values) >= 5 and len(remaining) >= 3 and source == "comparable" else "low"
         margin = .15 if confidence == "medium" else .4
-        return dict(seconds=median(remaining), low=max(0, _quantile(remaining, .1) * (1 - margin)),
-                    high=_quantile(remaining, .9) * (1 + margin), samples=len(values),
-                    confidence=confidence, source=source,
-                    reason="Médiane des durées comparables" if source == "comparable" else "Configuration voisine")
+        result = dict(seconds=median(remaining), low=max(0, _quantile(remaining, .1) * (1 - margin)),
+                      high=_quantile(remaining, .9) * (1 + margin), samples=len(values),
+                      confidence=confidence, source=source,
+                      reason="Médiane des durées comparables" if source == "comparable" else "Configuration voisine")
+        if source == "similar" and profile["stage"] in {"video", "dlss"}:
+            result.update(indicative=True, reason="Références voisines · durée indicative"
+                          if profile["stage"] == "video" else "Format vidéo comparable · DLSS indicatif")
+        return result

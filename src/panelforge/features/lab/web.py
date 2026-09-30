@@ -974,6 +974,9 @@ def create_app(
     krea2_batch: Krea2BatchService | None = None,
     krea2_edit: Krea2EditService | None = None,
     qwen_edit=None,
+    minimax_edit=None,
+    image_journeys=None,
+    story_v2=None,
     krea2_assisted: Krea2AssistedService | None = None,
     dlss=None,
     social_lab: SocialLabService | None = None,
@@ -984,7 +987,9 @@ def create_app(
     production_v2: ProductionV2Service | None = None,
     machine_work=None,
     video_factory=None,
+    image_transitions=None,
     mobile_server=None,
+    network_mode: Literal["lan", "tailscale"] | None = None,
     model_runtime: ModelRuntimeControl | None = None,
     llm_activity_monitor: Any | None = None,
     comfy_runtime: Any | None = None,
@@ -994,6 +999,8 @@ def create_app(
     runtime_monitor_connector: Callable[[str], Any] | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
+    if network_mode not in (None, "lan", "tailscale"):
+        raise ValueError("Mode réseau inconnu.")
     static_root = (static_directory or _STATIC_DIRECTORY).resolve()
     index_path = static_root / "index.html"
     if not index_path.is_file():
@@ -1007,13 +1014,23 @@ def create_app(
             krea2_assisted.start_render_worker()
         if qwen_edit is not None:
             qwen_edit.start_worker()
+        if minimax_edit is not None:
+            minimax_edit.start_worker()
+        if image_journeys is not None:
+            image_journeys.start_worker()
         if video_factory is not None:
             video_factory.start()
+        if story_v2 is not None:
+            story_v2.start_worker()
         if mobile_server is not None:
             mobile_server.start()
         try:
             yield
         finally:
+            if story_v2 is not None:
+                await asyncio.to_thread(story_v2.stop_worker)
+            if image_journeys is not None:
+                await asyncio.to_thread(image_journeys.stop_worker)
             if mobile_server is not None:
                 await asyncio.to_thread(mobile_server.stop)
             if video_factory is not None:
@@ -1022,14 +1039,24 @@ def create_app(
                 await asyncio.to_thread(machine_work.stop_temperature_sampling)
             if qwen_edit is not None:
                 await asyncio.to_thread(qwen_edit.stop_worker)
+            if minimax_edit is not None:
+                await asyncio.to_thread(minimax_edit.stop_worker)
             if krea2_assisted is not None:
                 await asyncio.to_thread(krea2_assisted.stop_render_worker)
 
     app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
+    from .story_v2_web import story_v2_router
+    app.include_router(story_v2_router(story_v2))
+    from .image_transitions_web import image_transitions_router
+    app.include_router(image_transitions_router(image_transitions))
     from .video_factory_web import video_factory_router
     app.include_router(video_factory_router(video_factory, validate_image=detect_image_media_type))
     from .qwen_edit_web import qwen_edit_router
     app.include_router(qwen_edit_router(qwen_edit))
+    from .minimax_edit_web import minimax_edit_router
+    app.include_router(minimax_edit_router(minimax_edit))
+    from .image_journeys_web import image_journeys_router
+    app.include_router(image_journeys_router(image_journeys))
     from .prompt_recipes_web import prompt_recipes_router
     app.include_router(prompt_recipes_router(prompt_recipes, llm_traces, prompt_composition, h3_render, stories=stories))
     from .stories_web import stories_router
@@ -1066,6 +1093,11 @@ def create_app(
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/network-mode")
+    def network_configuration() -> dict[str, str | None]:
+        # Configuration only: no credentials, network probes, or availability claim.
+        return {"mode": network_mode, "label": {"lan": "Local", "tailscale": "Tailscale"}.get(network_mode)}
 
     @app.post("/api/model-runtime/unload")
     def unload_model_runtime() -> dict[str, str]:

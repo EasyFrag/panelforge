@@ -11,14 +11,14 @@ import re
 from typing import Protocol
 from uuid import uuid4
 from panelforge.domain.prompt_composition import PreparationIntent
-from panelforge.domain.localized_speech import LOCALIZED_THANKS_V3
-from panelforge.domain.little_men_direction import SOLUTION_PLAN_POLICY, writer_intention
+from panelforge.domain.localized_speech import LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4
+from panelforge.domain.little_men_direction import SOLUTION_PLAN_POLICY, SOLUTION_PLAN_POLICY_V4, writer_intention
 from .h3_multishot_preparation import (
     MULTISHOT_PLAN_CONTRACT, MULTISHOT_DIRECT_CONTRACT, compact_multishot_schema,
     compile_compact_multishot, validate_compact_multishot, multishot_state_warnings,
     align_state_multishot_duration,
 )
-from . import combat_sequence, classic_cinematic, sensual_cinematic
+from . import combat_sequence, classic_cinematic, sensual_cinematic, worker_visual_policy
 from .dialogue_placeholders import DialoguePlaceholders
 from .prompt_recipes import PromptRecipeStore
 
@@ -842,6 +842,9 @@ class PromptCompositionService:
                 raise ValueError("this recipe uses a generated Brief, not a direct intention")
         elif preparation_intent is None:
             raise ValueError("this recipe requires a preparation intention")
+        if (preparation_intent is not None and preparation_intent.worker_visual_policy is not None
+                and cookbook.output_contract not in classic_cinematic.PLAN_CONTRACTS):
+            raise ValueError("Le contrat visuel d’ouvrier requiert Classique Plan + Prompt.")
         if (preparation_intent is not None and preparation_intent.speech_policy is not None
                 and cookbook.output_contract not in classic_cinematic.CONTRACTS):
             raise ValueError("Le remerciement localisé demande le parcours Classique Mise en scène.")
@@ -2515,6 +2518,12 @@ class PromptCompositionService:
         mapping = (direct_h3_base_reference_mapping(session, composition_picture_mapping(composition))
                    if cookbook.target_mode == "fl2va_direct" else _preparation_reference_mapping(session, composition))
         output_schema = _sequence_schema(handler, session, stage, writer, context)
+        visual_binding = context.get("worker_visual_binding")
+        output_schema = worker_visual_policy.scoped_schema(output_schema, visual_binding)
+        if visual_binding:
+            worker_visual_policy.validate(source.source_text, visual_binding)
+            if context.get("plan"):
+                worker_visual_policy.validate(json.dumps(context["plan"], ensure_ascii=False), visual_binding)
         if package and stage is CompositionStage.BEAT_SHEET and package["fields"].get("camera_contract"):
             schema_document = json.loads(output_schema)
             camera = schema_document.get("$defs", {}).get("Camera", {}).get("properties", {}).get("target_clause")
@@ -2523,7 +2532,7 @@ class PromptCompositionService:
                 output_schema = json.dumps(schema_document, ensure_ascii=False)
 
         intention = (writer_intention(source.source_text)
-                     if writer and source.speech_policy == LOCALIZED_THANKS_V3 else source.source_text)
+                     if writer and source.speech_policy in (LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4) else source.source_text)
         user = "\n\n".join((
             "USER INTENTION:\n" + intention,
             ("APPROVED BRIEF:\n" + source.content) if composition.preparation_intent is None else "",
@@ -2535,8 +2544,12 @@ class PromptCompositionService:
             ("CURRENT CANDIDATE:\n" + current.content + "\nUSER REVISION:\n" + instruction) if instruction is not None else "",
         ))
         system += _sequence_policy(session, source.source_text)
-        if stage is CompositionStage.BEAT_SHEET and source.speech_policy == LOCALIZED_THANKS_V3:
-            system += "\n\n" + SOLUTION_PLAN_POLICY
+        system += worker_visual_policy.guidance(visual_binding)
+        if stage is CompositionStage.BEAT_SHEET:
+            if source.speech_policy == LOCALIZED_THANKS_V4:
+                system += "\n\n" + SOLUTION_PLAN_POLICY_V4
+            elif source.speech_policy == LOCALIZED_THANKS_V3:
+                system += "\n\n" + SOLUTION_PLAN_POLICY
         if writer and session.preparation.is_classic_cinematic:
             system += classic_cinematic.writer_layout(context["plan"])
         if writer and session.preparation.is_sensual:
@@ -5688,13 +5701,21 @@ def _normalize_arbitration_decisions(
     return normalized
 
 
+def _worker_visual_binding(session, composition):
+    intent = composition.preparation_intent
+    return worker_visual_policy.resolve(intent.worker_visual_policy if intent else None,
+                                        session, composition_picture_mapping(composition))
+
+
 def _preparation_reference_header(session, composition) -> str:
-    header = direct_reference_header(session, composition_picture_mapping(composition))
+    header = direct_reference_header(session, composition_picture_mapping(composition),
+        rule_overrides=worker_visual_policy.rules(_worker_visual_binding(session, composition)))
     return header.replace("approved Brief", "user intention") if composition.preparation_intent else header
 
 
 def _preparation_reference_mapping(session, composition) -> str:
-    mapping = direct_reference_mapping(session, composition_picture_mapping(composition))
+    mapping = direct_reference_mapping(session, composition_picture_mapping(composition),
+        rule_overrides=worker_visual_policy.rules(_worker_visual_binding(session, composition)))
     if composition.preparation_intent:
         mapping = "\n".join(line for line in mapping.splitlines() if not line.startswith("label:"))
         mapping = mapping.replace("approved Brief", "user intention")
@@ -5707,6 +5728,11 @@ def _mono_direct_context(session, composition, cookbook) -> str:
         session, mapping, preparation_source(session, composition).source_text,
         reference_header=(_preparation_reference_header(session, composition) if cookbook.target_mode == "ref2v_direct" else None),
     )
+    visual_binding = _worker_visual_binding(session, composition)
+    if visual_binding:
+        context = json.loads(value)
+        context["worker_visual_binding"] = visual_binding
+        value = json.dumps(context, ensure_ascii=False)
     if getattr(cookbook, "vocal_policy_version", None):
         source = preparation_source(session, composition)
         context = json.loads(value)
@@ -5726,7 +5752,7 @@ def _vocal_stage_policy(session, composition, cookbook, stage, *, plan=None) -> 
     locked = composition.preparation_intent is None or (
         stage is CompositionStage.FINAL_PROMPT and cookbook.preparation_steps > 1)
     language = source.speech_language
-    if source.speech_policy == LOCALIZED_THANKS_V3 and locked and plan is not None:
+    if source.speech_policy in (LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4) and locked and plan is not None:
         languages, words = plan.get("spoken_languages", []), plan.get("spoken_lines", [])
         if len(languages) != 1 or len(words) != 1:
             raise ValueError("Le Plan approuvé doit contenir un unique remerciement et sa langue.")

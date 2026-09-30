@@ -220,19 +220,16 @@ class LabWebTest(unittest.TestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("PanelForge", page.text)
-        self.assertIn('id="release-llm-vram"', page.text)
-        self.assertIn('id="release-comfy-vram"', page.text)
+        self.assertNotIn('id="release-llm-vram"', page.text)
+        self.assertNotIn('id="release-comfy-vram"', page.text)
         self.assertIn('id="runtime-monitor"', page.text)
         self.assertIn('id="runtime-server-monitor"', page.text)
         self.assertIn('id="runtime-local-monitor"', page.text)
         self.assertIn('id="runtime-local-vram"', page.text)
         self.assertIn('id="runtime-local-temp"', page.text)
         self.assertIn('id="runtime-services" class="runtime-services warning" hidden', page.text)
-        self.assertLess(
-            page.text.index('id="release-llm-vram"'),
-            page.text.index('id="release-comfy-vram"'),
-        )
-        self.assertIn("/static/lab.js?v=20260918.3", page.text)
+        self.assertLess(page.text.index('data-lab-view="stories"'), page.text.index('data-lab-view="story-v2"'))
+        self.assertIn("/static/lab.js?v=20260929.storyv2", page.text)
         self.assertIn("/static/work-queue.js?v=20260920.1", page.text)
         self.assertEqual(page.headers["cache-control"], "no-store")
         self.assertEqual(script.status_code, 200)
@@ -295,7 +292,7 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn("/references/${", direct_script.text)
         self.assertNotIn("crypto.randomUUID", direct_script.text)
         self.assertEqual(core_script.status_code, 200)
-        self.assertIn("/static/lab-core.js?v=20260918.1", page.text)
+        self.assertIn("/static/lab-core.js?v=20260928.journeys1", page.text)
         self.assertIn("function errorDetailMessage(detail)", core_script.text)
         self.assertIn('item.loc.filter((part) => part !== "body")', core_script.text)
         self.assertNotIn('data-lab-view="storyboard-lab"', page.text)
@@ -771,11 +768,11 @@ class LabWebTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertLess(
             page.text.index('id="i2vd-new-session"'),
-            page.text.index('id="release-llm-vram"'),
+            page.text.index('</header>'),
         )
         self.assertLess(
             page.text.index('id="ref2vd-new-session"'),
-            page.text.index('id="release-llm-vram"'),
+            page.text.index('</header>'),
         )
         self.assertLess(
             page.text.index('id="i2vd-new-session"'),

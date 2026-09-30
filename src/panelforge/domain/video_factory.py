@@ -8,7 +8,7 @@ from uuid import uuid4
 from .episodes import default_render_setup
 from .localized_speech import LEGACY_THANKS_LANGUAGES
 from .little_men_languages import scene_contexts, selection_input, selection_instructions
-from .little_men_direction import preparation_text_v3
+from .little_men_direction import preparation_text_v3, preparation_text_v4
 
 STAGES = ("plan", "prompt", "video", "dlss", "social")
 LABELS = dict(plan="Plan", prompt="Prompt", video="Vidéo", dlss="DLSS", social="Texte IG")
@@ -120,7 +120,7 @@ LITTLE_MEN_EXPERIMENTAL_INTENT_V2 = (
 )
 
 
-LITTLE_MEN_EXPERIMENTAL_INTENT = (
+LITTLE_MEN_EXPERIMENTAL_INTENT_V3 = (
     "Dans un plan continu, les petits hommes tentent de résoudre le problème visible dans l’image. "
     "Une main géante descend du ciel avec un objet du quotidien à échelle humaine, monumental "
     "pour eux, et le détourne de façon ingénieuse, surprenante et immédiatement compréhensible. "
@@ -132,9 +132,21 @@ LITTLE_MEN_EXPERIMENTAL_INTENT = (
 )
 
 
+LITTLE_MEN_EXPERIMENTAL_INTENT = (
+    "Les petits hommes affrontent le problème de l’image. Une main géante descend du ciel avec un "
+    "objet du quotidien, monumental pour eux, et le détourne pour apporter une aide ingénieuse et "
+    "immédiatement compréhensible. Chaque geste fait progresser la même solution et laisse un "
+    "bénéfice durable. Garder les personnages et le décor reconnaissables, avec des phénomènes "
+    "vivants qui réagissent à l’intervention. Une fois l’aide accomplie, la main remonte ; les petits "
+    "hommes lèvent les bras et prononcent ensemble, une seule fois, le remerciement fourni. Laisser "
+    "voir le résultat."
+)
+
+
 def current_experimental_intent(text):
-    """Upgrade only the untouched v2 default when starting a new preparation."""
-    return LITTLE_MEN_EXPERIMENTAL_INTENT if text == LITTLE_MEN_EXPERIMENTAL_INTENT_V2 else text
+    """Upgrade only untouched default intentions when starting a new preparation."""
+    return (LITTLE_MEN_EXPERIMENTAL_INTENT
+            if text in (LITTLE_MEN_EXPERIMENTAL_INTENT_V2, LITTLE_MEN_EXPERIMENTAL_INTENT_V3) else text)
 
 
 # Historical intentions remain stored unchanged; new v2 preparations supersede this paragraph.
@@ -231,6 +243,8 @@ def preparation_text(config, *, thanks_selection=None):
                   f"Aligner l’image de fin sur le dernier instant, à {duration:.2f} secondes. "
                   "Adapter tous les temps du plan et du prompt à cette durée.\n\n" + source)
     if is_experimental_little_men(config):
+        if thanks_selection and thanks_selection.get("version") == 4:
+            return preparation_text_v4(config, source, thanks_selection)
         if thanks_selection and thanks_selection.get("version") == 3:
             return preparation_text_v3(config, source, thanks_selection)
         duration = config["render"]["settings"]["duration_seconds"]
@@ -254,7 +268,7 @@ def preparation_text(config, *, thanks_selection=None):
 
 
 def validate_shape(config):
-    if set(config) - set(configuration()):
+    if set(config) - set(configuration()) - {"worker_visual_policy"}:
         raise ValueError("Champ de configuration inconnu.")
     for key in ("profile", "cookbook", "creative_axes", "render", "dlss", "social"):
         if not isinstance(config.get(key), dict):
@@ -294,6 +308,16 @@ def validate_shape(config):
                     or any(not isinstance(context.get(key), str) or len(context[key]) > limit
                            for key, limit in limits.items())):
                 raise ValueError("Contexte de l’image invalide.")
+    from .worker_visual_policy import WorkerVisualPolicy
+    visual = WorkerVisualPolicy.from_dict(config.get("worker_visual_policy"))
+    if visual:
+        if config["mode"] != "ref2v" or config["cookbook"]["id"] != "minimax.h3.ref2v.classic.cinematic.planned":
+            raise ValueError("Les références d’ouvrier attendent la recette REF2VA Classique Plan + Prompt.")
+        for asset_id, role in ((visual.identity_asset_id, "subject_reference"),
+                               (visual.scale_asset_id, "composition_reference")):
+            if asset_id and sum(r.get("asset_id") == asset_id and r.get("role") == role
+                                for r in config["references"]) != 1:
+                raise ValueError("Une référence d’ouvrier a changé ; réexportez la transition.")
     if type(config["creative_audacity"]) is not int or not 0 <= config["creative_audacity"] <= 3:
         raise ValueError("Audace : 0 à 3.")
     if type(config["creative_freedom"]) is not int or not 0 <= config["creative_freedom"] <= 100:
@@ -411,7 +435,7 @@ def invalidate(item, before):
                 and selection.get("input_hash") == selection_input(after)):
             item["runtime"]["thanks_selection"] = deepcopy(selection)
             if ("intention" in changed and after["intention"] == LITTLE_MEN_EXPERIMENTAL_INTENT):
-                item["runtime"]["thanks_selection"]["version"] = 3
+                item["runtime"]["thanks_selection"]["version"] = 4
             if selection.get("language"):
                 item["runtime"]["thanks_selection"]["requested_language"] = selection["language"]
     else:

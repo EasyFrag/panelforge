@@ -1,5 +1,6 @@
-"""Compact v3 scene direction; source metadata remains untouched on the fiche."""
+"""Versioned scene direction; source metadata remains untouched on the fiche."""
 import re
+import unicodedata
 
 from .little_men_languages import LANGUAGE_POOLS
 
@@ -14,6 +15,68 @@ SOLUTION_PLAN_POLICY = (
     "the thanks. Keep the solution playful and readable, with the improvement still visible "
     "after the hand withdraws."
 )
+
+
+SOLUTION_PLAN_POLICY_V4 = (
+    "HELP MECHANISM: Follow the author's stated problem; otherwise infer the need from the image. "
+    "In continuity_invariants, connect need, mechanism and lasting benefit in one sentence. "
+    "Keep object choice free; no gesture quota. Material styling must not immobilize water or fire."
+)
+NEED_DIRECTIONS = {
+    'drought': 'Apporter de l’eau pour soulager la sécheresse et rendre son bénéfice visible.',
+    'wave': 'Intercepter ou détourner la vague avant les habitants, avec une protection qui reste efficace.',
+    'flood': 'Évacuer l’eau hors de la zone protégée et montrer une baisse durable du niveau.',
+    'fire': 'Les flammes vacillent et la fumée monte, puis le feu s’éteint sous l’effet de l’aide.',
+}
+# Only scene descriptions are evidence; labels, filenames and style boilerplate are not.
+_NEED_PATTERNS = {
+    "drought": r"secheresse|drought|arid(?:e|ity)?|parched|manque d[' ]eau|penurie d[' ]eau|lack of water|water shortage",
+    "wave": r"tsunami|raz de maree|tidal wave|(?:giant|massive|towering|incoming) wave|vague (?:geante|de submersion)",
+    "flood": r"in+ondations?|flood(?:s|ed|ing)?",
+    "fire": r"incendies?|feu|flammes?|fire|wildfire|flames?|blaze|burning",
+    "tornado": r"tornades?|tornado(?:es)?|twister|cyclone|ouragan|hurricane",
+    "repair": r"reparations?|reparer|repairs?|broken|brise(?:e|s|es)?|casse(?:e|s|es)?",
+}
+_NEGATED_NEED = re.compile(r"\b(?:sans|aucune?|pas|no|not|without)\s*(?:d[' ]|de\s+|any\s+|a\s+|an\s+)?$")
+
+
+def _need_in_text(text):
+    text = "".join(c for c in unicodedata.normalize("NFKD", text.casefold())
+                   if not unicodedata.combining(c)).replace("’", "'").replace("-", " ")
+    found, denied = set(), False
+    for kind, pattern in _NEED_PATTERNS.items():
+        for match in re.finditer(r"\b(?:" + pattern + r")\b", text):
+            if _NEGATED_NEED.search(text[max(0, match.start() - 40):match.start()]):
+                denied = True
+            else:
+                found.add(kind)
+    # A flood caused by a wave is governed by the incoming threat.
+    if "wave" in found:
+        found.discard("flood")
+    if len(found) == 1:
+        return next(iter(found))
+    return "ambiguous" if found or denied else None
+
+
+def scene_need(config):
+    """Use author intent first, then the exact image's intent and full description."""
+    contexts = [config.get("intention", ""), config.get("little_men_context", "")]
+    refs = [ref.get("scene_context") or {} for ref in config.get("references", ())
+            if (ref.get("scene_context") or {}).get("asset_id") == ref.get("asset_id")]
+    for key in ("intention", "prompt"):
+        contexts.extend(context.get(key, "") for context in refs)
+    for text in contexts:
+        if isinstance(text, str) and (kind := _need_in_text(text)) is not None:
+            return kind
+    return "unknown"
+
+
+def preparation_text_v4(config, source, selection):
+    # This goal is deterministic and stays identical from Plan to Writer.
+    goal = NEED_DIRECTIONS.get(scene_need(config))
+    if goal:
+        source += "\n\n" + goal
+    return preparation_text_v3(config, source, selection)
 
 
 def _excerpt(text, limit=1200):

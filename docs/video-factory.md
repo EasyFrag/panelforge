@@ -12,11 +12,22 @@ et compréhensible. Les gestes utiles font progresser la même solution, sans
 quota de deux ou trois. Le résultat reste visible après le retrait de la main,
 puis les petits hommes remercient ensemble une seule fois.
 
-L’intention v3 est raccourcie. Le Plan relie problème, mécanisme et bénéfice
-durable dans une phrase de continuity_invariants. Pour une inondation ou une vague menaçante, il précise
-l’origine, la zone protégée, le trajet et la destination hors de cette zone.
-Un contenant peut repartir plein ; un afflux continu ou une vague doit être
-contenu ou détourné avant le remerciement. Le choix de l’objet reste libre.
+L’intention courante (v4 interne, même preset) comporte 87 mots. Une seule
+phrase liée au besoin s’ajoute lorsqu’il est identifiable : eau pour la
+sécheresse, interception/déviation pour une vague, évacuation pour une inondation,
+flammes vivantes puis extinction pour un incendie. Total : 99 à 102 mots, hors
+durée, contexte image et règles vocales. Tornades et réparations n’ajoutent
+aucune consigne ciblée ; le choix de l’objet et des gestes reste libre.
+
+Le repérage utilise l’intention vidéo et le contexte saisi, puis l’intention
+KREA et la description de l’image exacte. Les labels, noms de fichiers et styles
+ne servent pas à déterminer le problème. Une vague prime sur l’inondation
+qu’elle provoque. Les cas absents ou ambigus sont laissés au Plan visuel,
+sans ajouter plusieurs objectifs. Le contexte complet est lu avant réduction.
+
+Le Plan relie besoin, mécanisme et bénéfice durable dans une phrase de
+continuity_invariants. Sa consigne additionnelle passe de 92 à 40 mots ; elle
+précise que la matière du décor ne doit pas immobiliser l’eau ou le feu.
 
 ### Langues et contexte image
 
@@ -55,14 +66,14 @@ répliques imposées.
 
 ### Formule de remerciement
 
-Les politiques expérimentales v2 et v3 imposent uniquement la formule minimale de la langue
+Les politiques expérimentales v2, v3 et v4 imposent uniquement la formule minimale de la langue
 choisie : Thank you, Merci, 감사합니다, Gracias, ありがとう, Danke, Grazie,
 Obrigado, Спасибо, 谢谢 ou شكرا. Le Plan reçoit les mots exacts ; les contrôles
 du Plan et du Prompt refusent tout complément (« kind hand », « beaucoup »),
 répétition ou autre phrase. Casse et ponctuation peuvent varier ; les marques
 vocaliques arabes facultatives sont acceptées.
 
-La v3 conserve cette validation stricte. Une langue déjà choisie est transmise
+La v4 conserve cette validation stricte et la transmission vocale courte de la v3. Une langue déjà choisie est transmise
 avec sa seule formule minimale. Pour une scène ambiguë, seul le Plan reçoit
 les groupes et l’ordre de préférence ; le rédacteur reçoit la langue approuvée
 et préserve les paroles, sans refaire le choix.
@@ -89,11 +100,11 @@ Une nouvelle fiche, y compris une duplication, dispose de son propre tirage.
 Modifier la langue ou le contexte en préparation invalide le Plan et le Prompt.
 Le texte Instagram reste indépendant.
 
-La politique typée little_men.localized_thanks.v3 distingue les nouvelles
-préparations. Les sessions v1/v2 commencées gardent leurs entrées et règles.
-Une nouvelle préparation ou copie remplace uniquement l’intention standard v2
-exacte par la nouvelle intention ; une intention personnalisée reste intacte.
-Réappliquer explicitement le preset permet aussi de passer à la v3. Les choix
+La politique typée little_men.localized_thanks.v4 distingue les nouvelles
+préparations. Les sessions v1/v2/v3 commencées gardent leurs entrées et règles.
+Une nouvelle préparation ou copie remplace uniquement les intentions standard
+v2/v3 exactes par la nouvelle intention ; une intention personnalisée reste intacte.
+Réappliquer explicitement le preset permet aussi de passer à la v4. Les choix
 de langue résolus restent conservés si leurs entrées ne changent pas.
 
 Les métadonnées complètes restent enregistrées et consultables. Le contexte
@@ -122,9 +133,10 @@ expérimental en Préparation. Pour un ancien essai, utiliser **Dupliquer** puis
 préparer la nouvelle fiche. La langue et le remerciement sont visibles après
 le Plan. Cache usine : 20260928.solutions1.
 
+[Direction ciblée v4 et vérifications](proposals/little-men-needs-v4-2026-09-28.md).
 [Correctif v3 et comparaison manuelle sur six images](proposals/little-men-solutions-v3-2026-09-28.md).
 
-    python -m unittest tests.test_video_factory_solutions tests.test_video_factory_languages tests.test_video_factory_experimental tests.test_video_factory tests.test_video_factory_patch3 tests.test_video_factory_results tests.test_video_factory_web tests.test_classic_cinematic tests.test_video_preparation_recipes tests.test_vocal_policy tests.test_prompt_composition_storage tests.test_krea2_edit
+    python -m unittest tests.test_video_factory_needs tests.test_video_factory_solutions tests.test_video_factory_languages tests.test_video_factory_experimental tests.test_video_factory tests.test_video_factory_patch3 tests.test_video_factory_results tests.test_video_factory_web tests.test_classic_cinematic tests.test_video_preparation_recipes tests.test_vocal_policy tests.test_prompt_composition_storage tests.test_krea2_edit
 
 ## Patch du 26 septembre 2026
 

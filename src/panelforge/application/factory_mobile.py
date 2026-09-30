@@ -4,15 +4,16 @@ from threading import Event, RLock, Thread
 from hashlib import sha256
 import time
 
-from panelforge.domain.factory_mobile import mobile_view, media_asset, alert_conditions, number
+from panelforge.domain.factory_mobile import mobile_view, media_asset, alert_conditions, number, mobile_thermal_history
 
 
 class FactoryMobile:
-    def __init__(self, factory, store, sender, *, clock=time.time):
+    def __init__(self, factory, store, sender, *, clock=time.time, thermal_history=None):
         self.factory, self.store, self.sender, self.clock = factory, store, sender, clock
         self._lock, self._stop = RLock(), Event()
         self._thread = None
         self._media = {}
+        self._thermal_history = thermal_history
         self.warning = None
         try:
             self._subscriptions = self.store.load()
@@ -28,6 +29,14 @@ class FactoryMobile:
         value["alerts"] = list(alert_conditions(value, value["thresholds"]).values())
         value["notification_warning"] = self.warning
         return value
+
+    def thermal_history(self):
+        if self._thermal_history is not None:
+            try:
+                return mobile_thermal_history(self._thermal_history(), self.clock())
+            except Exception:
+                pass
+        return dict(available=False, warning="Historique momentanément indisponible.")
 
     def command(self, action, ids, revisions, active_runs=None):
         if action not in {"pause", "resume", "stop", "retry"}:

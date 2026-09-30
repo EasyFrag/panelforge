@@ -16,7 +16,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
     def test_exposes_a_distinct_assisted_creation_mode(self):
         self.assertIn('id="krea2-assisted-lab-workspace"', self.page)
         self.assertIn('data-image-lab-mode="krea2-assisted-lab"', self.page)
-        self.assertIn('/static/krea2-assisted-lab.js?v=20260926.krea6library1', self.page)
+        self.assertIn('/static/krea2-assisted-lab.js?v=20260928.navigation1', self.page)
         self.assertIn('Pertinence forte', self.script)
         self.assertIn('id="krea2-assisted-example-assessment"', self.page)
         self.assertIn("Aucune correspondance exacte dans le corpus", self.script)

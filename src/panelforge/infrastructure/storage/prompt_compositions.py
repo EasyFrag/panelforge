@@ -365,6 +365,7 @@ def intent_to_dict(intent: PreparationIntent | None) -> dict[str, object] | None
         return None
     return {
         "source_text": intent.source_text,
+        **({"worker_visual_policy": intent.worker_visual_policy.as_dict()} if intent.worker_visual_policy else {}),
         "creative_freedom": intent.creative_freedom,
         "creative_audacity": intent.creative_audacity,
         **({key: getattr(intent, key) for key in ("speech_policy", "speech_language")}
@@ -381,14 +382,16 @@ def intent_from_dict(value: object) -> PreparationIntent | None:
         return None
     data = _require_object(value, "preparation_intent")
     required = {"source_text", "creative_freedom", "creative_audacity", "creative_axes"}
-    if not required <= set(data) or set(data) - required - {"speech_policy", "speech_language"}:
+    if not required <= set(data) or set(data) - required - {"speech_policy", "speech_language", "worker_visual_policy"}:
         raise ValueError("invalid preparation_intent fields")
+    from panelforge.domain.worker_visual_policy import WorkerVisualPolicy
     axes = data["creative_axes"]
     return PreparationIntent(
         source_text=data["source_text"],
         creative_freedom=data["creative_freedom"],
         creative_audacity=data["creative_audacity"],
         speech_policy=data.get("speech_policy"), speech_language=data.get("speech_language"),
+        worker_visual_policy=WorkerVisualPolicy.from_dict(data.get("worker_visual_policy")),
         creative_axes=CreativeFreedomAxes(**_require_object(axes, "creative_axes")) if axes is not None else None,
     )
 

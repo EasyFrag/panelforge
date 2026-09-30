@@ -164,39 +164,39 @@ class ResourceLeaseManager:
                     claimed=True,
                 )
                 self._waiters[resource].append(waiter)
-            try:
-                while (
-                    resource in self._owners
-                    or resource in self._paused
-                    or self._waiters[resource][0].token is not waiter.token
-                ):
-                    if cancelled():
-                        raise ResourceWaitCancelled()
-                    if not announced and on_wait is not None:
-                        on_wait()
-                        announced = True
-                    self._condition.wait(self._wait_interval)
+        try:
+            while True:
+                # Service callbacks may acquire locks held by producers calling
+                # reserve(). Never invoke them under the shared queue condition.
                 if cancelled():
                     raise ResourceWaitCancelled()
-                self._waiters[resource].pop(0)
-                self._owners[resource] = waiter.owner
-                acquired = True
-            except BaseException:
-                if waiter in self._waiters[resource]:
-                    self._waiters[resource].remove(waiter)
-                self._condition.notify_all()
-                raise
-        try:
+                with self._condition:
+                    if (
+                        resource not in self._owners
+                        and resource not in self._paused
+                        and self._waiters[resource][0].token is waiter.token
+                    ):
+                        self._waiters[resource].pop(0)
+                        self._owners[resource] = waiter.owner
+                        acquired = True
+                        break
+                    if announced or on_wait is None:
+                        self._condition.wait(self._wait_interval)
+                        continue
+                on_wait()
+                announced = True
             if on_acquired is not None:
                 on_acquired()
             yield
         finally:
-            if acquired:
-                with self._condition:
+            with self._condition:
+                if acquired:
                     owner = self._owners.get(resource)
                     if owner is not None and owner.job_id == job_id:
                         del self._owners[resource]
-                    self._condition.notify_all()
+                elif waiter in self._waiters[resource]:
+                    self._waiters[resource].remove(waiter)
+                self._condition.notify_all()
 
 
 def llm_compute_resource(

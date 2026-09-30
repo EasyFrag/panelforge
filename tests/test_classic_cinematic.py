@@ -54,6 +54,22 @@ def compiled(mode="ref2va", count=2, **kwargs):
 
 
 class ClassicCinematicContractTest(unittest.TestCase):
+    def test_explicit_scale_is_llm_authored_not_appended_by_compiler(self):
+        source = "Un ouvrier adulte haut comme un dixième de la largeur du tronc à sa base."
+        baseline, _ = compiled(count=1)
+        unchanged, _ = compiled(count=1, source=source)
+        self.assertEqual(unchanged, baseline)  # No extraction/insertion from source_text.
+
+        plan, writer, context = fixture(count=1, source=source)
+        scale = ("An adult worker steps beside the trunk base, his standing height about "
+                 "one tenth of the trunk width at that base.")
+        plan["continuity_invariants"].append(scale)
+        plan["shots"][0]["phases"][0]["actions"].insert(0, scale)
+        writer["shots"][0]["phases"][0] = scale + " " + writer["shots"][0]["phases"][0]
+        context["plan"] = json.loads(classic.canonical_plan(json.dumps(plan), context))
+        prompt, _ = classic.compile_result(json.dumps(writer), classic.encode_context(context), "final_prompt")
+        self.assertEqual(prompt.count(scale), 1)  # Preserves the LLM text without duplicating it.
+
     def test_numbered_phase_key_preserves_exact_compilation_for_h3_and_ref2v(self):
         for mode in ("i2va", "ref2va"):
             for count in (1, 2):
@@ -108,6 +124,7 @@ class ClassicCinematicContractTest(unittest.TestCase):
         self.assertEqual((shape["minItems"], shape["maxItems"]), (1, 1))
         phases = shape["prefixItems"][0]["properties"]["phases"]
         self.assertEqual((phases["minItems"], phases["maxItems"]), (2, 2))
+        self.assertTrue(phases["description"].startswith(classic.WrittenShot.model_fields["phases"].description))
         self.assertIn('"shots": [{"phases": [', classic.writer_layout(plan))
         split["shots"].append({"phases": ["An unapproved extra action."]})
         with self.assertRaises(ValueError):

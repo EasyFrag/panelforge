@@ -1,31 +1,21 @@
-# Lancement LAN ou Tailscale — alignement du 28 septembre 2026
+# Lancement LAN ou Tailscale — 28 septembre 2026
 
-Les commandes ci-dessous utilisent les options existantes. Les arguments --network-mode lan
-et --network-mode tailscale, ainsi que le badge près du logo, restent à implémenter.
-Aucun code applicatif n'a été modifié pour ce chantier.
+Les profils sont implémentés dans le checkout de lancement
+D:\Code\panelforge-krea2-flux. Ce guide remplace les anciennes commandes avec
+remontage de X:. Le programme utilise directement les accès SSHFS du profil.
 
-La branche observée dans D:\Code\panelforge-krea2-flux est
-feature/krea2-v6-style-catalog-2026-09-26. Ne pas faire de checkout pour retrouver
-l'ancien nom feature/vocal-normalizer-dialogue-register du mémo.
+Le choix se fait au lancement. Attendre la fin des traitements et copies puis
+arrêter normalement PanelForge avant de choisir une autre commande. Le patch
+n'a pas redémarré l'instance en cours.
 
-## Avant de changer de mode
-
-Attendre la fin des traitements et copies, arrêter PanelForge normalement et fermer
-les fichiers ouverts sur X:. Utiliser la session PowerShell habituelle, non administrateur.
-Les commandes net use remplacent uniquement le montage X:, pas les données du serveur.
-Si X: est déjà monté sur la cible choisie et fonctionne, les deux lignes net use peuvent
-être sautées. Si X: est absent, son retrait peut simplement signaler cette absence.
-En cas d'échec du montage, ne pas lancer PanelForge.
-
-## Préparation commune, dans la console de lancement
+## Préparation commune dans PowerShell
 
 ~~~powershell
 Set-Location 'D:\Code\panelforge-krea2-flux'
-git branch --show-current
 
 $env:PANELFORGE_LOCAL_LLM_URL = 'http://127.0.0.1:8888/v1'
 if (-not $env:PANELFORGE_LOCAL_LLM_API_KEY) {
-    $pfSecret = Read-Host 'Cle API Unsloth' -AsSecureString
+    $pfSecret = Read-Host 'Clé API Unsloth' -AsSecureString
     $env:PANELFORGE_LOCAL_LLM_API_KEY = [System.Net.NetworkCredential]::new('', $pfSecret).Password
     Remove-Variable pfSecret
 }
@@ -36,89 +26,118 @@ $pfCommon = @(
     '--port', '7861'
     '--local-llm-base-url', 'http://127.0.0.1:8888/v1'
     '--dlss-base-url', 'http://127.0.0.1:8188'
-    '--krea2-models-root', 'X:\data\models\ComfyUi\diffusion_models\Krea2'
-    '--krea2-loras-root', 'X:\data\models\ComfyUi\loras\krea2'
-    '--dlss-video-export-root', 'X:\data\ComfyUI\output\video\Upscale'
 )
 ~~~
 
-La clé déjà définie dans cette console est conservée ; sinon elle est demandée sans
-affichage. Aucune clé ni aucun mot de passe n'est inclus dans ce guide ou la version GitHub.
+La clé déjà définie dans la console est conservée ; sinon elle est saisie sans
+affichage. Aucun secret réel n'est enregistré dans ce guide. Ne pas ajouter les
+anciens arguments de racines X: au tableau commun.
 
-## Choix A : production sur le LAN
-
-PC et bucket doivent être sur le LAN prévu. Le LAN/Wi-Fi doit rester actif même si
-Internet est coupé. Tailscale peut rester activé : ces adresses ne passent pas par lui.
+## Mode Local
 
 ~~~powershell
-net use X: /delete
-net use X: '\\sshfs.r\malmo@192.168.1.72' /persistent:yes
-if ($LASTEXITCODE -ne 0) { throw 'Montage LAN de X: impossible.' }
-
-foreach ($pfPath in @(
-    'X:\data\models\ComfyUi\diffusion_models\Krea2'
-    'X:\data\models\ComfyUi\loras\krea2'
-    'X:\data\ComfyUI\output\video\Upscale'
-)) {
-    if (-not (Test-Path -LiteralPath $pfPath)) { throw "Dossier inaccessible : $pfPath" }
-}
-
-& 'D:\Code\panelforge\.venv\Scripts\python.exe' '.\scripts\run_lab.py' @pfCommon --base-url 'http://192.168.1.72:8188' --llm-base-url 'http://192.168.1.72:8083/v1'
+& 'D:\Code\panelforge\.venv\Scripts\python.exe' '.\scripts\run_lab.py' @pfCommon --network-mode lan
 ~~~
 
-## Choix B : production via Tailscale
+ComfyUI et le LLM serveur utilisent respectivement 192.168.1.72:8188 et
+192.168.1.72:8083/v1. Les modèles, LoRA et exports utilisent
+\\sshfs.r\malmo@192.168.1.72. Le PC et bucket doivent rester connectés au même LAN,
+même lorsque l'accès Internet est coupé.
 
-Tailscale doit être connecté sur le PC et bucket ; dans la configuration vérifiée,
-bucket résout vers 100.85.117.28. Le montage utilise aussi Tailscale.
-SSHFS peut demander les identifiants de malmo pour cette cible distincte ; pour les
-mémoriser, utiliser la case de mémorisation dans l'Explorateur Windows.
+## Mode Tailscale
 
 ~~~powershell
-net use X: /delete
-net use X: '\\sshfs.r\malmo@bucket' /persistent:yes
-if ($LASTEXITCODE -ne 0) { throw 'Montage Tailscale de X: impossible.' }
-
-foreach ($pfPath in @(
-    'X:\data\models\ComfyUi\diffusion_models\Krea2'
-    'X:\data\models\ComfyUi\loras\krea2'
-    'X:\data\ComfyUI\output\video\Upscale'
-)) {
-    if (-not (Test-Path -LiteralPath $pfPath)) { throw "Dossier inaccessible : $pfPath" }
-}
-
-& 'D:\Code\panelforge\.venv\Scripts\python.exe' '.\scripts\run_lab.py' @pfCommon --base-url 'http://bucket:8188' --llm-base-url 'http://bucket:8083/v1'
+& 'D:\Code\panelforge\.venv\Scripts\python.exe' '.\scripts\run_lab.py' @pfCommon --network-mode tailscale
 ~~~
 
-Dans les deux cas, ouvrir http://127.0.0.1:7861/ et garder la console ouverte.
+ComfyUI et le LLM serveur utilisent bucket:8188 et bucket:8083/v1 ; les fichiers
+passent par \\sshfs.r\malmo@bucket. Tailscale doit fonctionner sur les deux machines
+et bucket doit résoudre vers son adresse Tailscale, comme dans la configuration
+déjà vérifiée.
 
-## Périmètre convenu pour la future modification
+Dans les deux cas, ouvrir http://127.0.0.1:7861/. Le badge près du logo indique
+Local ou Tailscale. Il décrit le profil choisi, pas l'état de connexion.
 
-- Un argument --network-mode, avec les deux valeurs lan et tailscale.
-- Le choix couvre les URL ComfyUI/LLM, les racines KREA2 et le transport des exports.
-- Même workspace, mêmes données et chemins logiques. Unsloth et DLSS restent sur le PC.
-- Changement au lancement ; pas de bascule à chaud ni de repli automatique.
-- Indication discrète Local ou Tailscale près du logo ; pas de sélecteur dans l'interface.
-- Prévoir la gestion explicite du montage X: et des anciens arguments pour éviter
-  un mode annoncé LAN avec des chemins encore Tailscale, ou l'inverse.
-- Valeur par défaut et traitement détaillé des anciennes options à arrêter avant implémentation.
+## Ancienne commande toujours compatible
 
-## Ce qui est validé et ce qui reste à vérifier
+Après la préparation commune des deux variables Unsloth :
 
-Adresses LAN réservées, accès ComfyUI, catalogue LLM LAN/Tailscale, trois dossiers X:
-et lecture/écriture/suppression LAN validés. Le montage conserve les chemins historiques
-d'export. La recette complète sans Internet/Tailscale et le démarrage à froid ne sont
-pas encore validés. Ces commandes sont préparées et contrôlées sans lancer l'application.
+~~~powershell
+& 'D:\Code\panelforge\.venv\Scripts\python.exe' '.\scripts\run_lab.py' --workspace 'D:\Code\panelforge\workspace' --base-url 'http://bucket:8188' --llm-base-url 'http://bucket:8083/v1' --port 7861
+~~~
 
-Le suivi Android est indépendant du mode PC vers bucket. Le serveur mobile démarre
-toujours par défaut sur 8766 ; son accès distant passe par Tailscale et ses notifications
-Web Push nécessitent Internet. Pour désactiver ce suivi lors d'un essai entièrement
-hors ligne, ajouter --mobile-port 0 à la commande Python. La production reste soumise
-à la disponibilité des modèles et ressources déjà installés ; les téléchargements et
-enrichissements externes ne deviennent pas des services locaux.
+Sans --network-mode, les règles et montages historiques sont conservés. Les API
+de cette commande utilisent bucket, mais les exports dépendent du montage X:
+existant, qui a été configuré sur le LAN. Aucun badge de profil intégral n'est
+affiché pour ce lancement. La console décrit les adresses et dossiers utilisés.
 
-Tailscale peut établir une liaison directe entre les deux machines sur le LAN :
-son utilisation ne signifie pas automatiquement que les données transitent par Internet.
+## Règles des profils
 
-Références de syntaxe et de comportement :
-- https://github.com/winfsp/sshfs-win
-- https://tailscale.com/docs/reference/connection-types
+- Avec --network-mode, les anciennes variables PANELFORGE_COMFY_URL,
+  PANELFORGE_LLM_URL, PANELFORGE_KREA2_MODELS_ROOT et PANELFORGE_KREA2_LORAS_ROOT
+  ne remplacent pas les valeurs du profil.
+- Les arguments explicites --base-url, --llm-base-url et les racines serveur
+  doivent correspondre au profil. Une contradiction produit une erreur au
+  lancement avec le nom de l'option à retirer.
+- Sans mode, les priorités historiques arguments > environnement > défauts
+  restent inchangées.
+- Le workspace, les sorties PC, la clé Unsloth et les options du LLM local restent
+  identiques. La préparation commune ci-dessus fixe Unsloth et DLSS sur 127.0.0.1.
+- Les connexions API et WebSocket internes des profils n'utilisent pas de proxy
+  système/environnement. Aucun réglage proxy global n'est modifié.
+- Aucun repli automatique vers l'autre mode ; aucun remontage de X:.
+- Les anciens jobs gardent leur chemin logique X:. L'export utilise le chemin UNC
+  du profil pour le même suffixe date/identifiant. Les destinations personnalisées
+  hors de la racine historique nécessitent le lancement sans --network-mode.
+
+## Vérification des accès fichiers dans la session Windows de lancement
+
+Le montage X: a déjà été vérifié en LAN. Le nouveau profil utilise l'UNC direct :
+il faut également que cet accès dispose des identifiants dans la même session.
+
+Pour le LAN :
+
+~~~powershell
+$pfShare = '\\sshfs.r\malmo@192.168.1.72'
+foreach ($pfRelative in @(
+    'data\models\ComfyUi\diffusion_models\Krea2'
+    'data\models\ComfyUi\loras\krea2'
+    'data\ComfyUI\output\video\Upscale'
+)) {
+    $pfPath = Join-Path $pfShare $pfRelative
+    [pscustomobject]@{ Chemin = $pfPath; Accessible = Test-Path -LiteralPath $pfPath }
+}
+~~~
+
+Pour Tailscale, réutiliser ce bloc avec $pfShare = '\\sshfs.r\malmo@bucket'.
+Si un accès échoue, ouvrir le chemin UNC dans l'Explorateur de la même session
+et renseigner les identifiants SSHFS de malmo pour cette cible. Le programme
+ne stocke ni ne modifie ces identifiants. Ne pas retirer X: pour ce contrôle.
+
+## Validation et limites
+
+Syntaxe Python/JavaScript et aperçu statique du badge vérifiés. Les tests unitaires
+sont préparés mais non exécutés conformément à AGENTS.md. Ils utilisent des
+simulations et dossiers temporaires, sans service réel ni génération :
+
+~~~powershell
+Set-Location 'D:\Code\panelforge-krea2-flux'
+& 'D:\Code\panelforge\.venv\Scripts\python.exe' -m unittest discover -s tests -p test_network_modes.py
+~~~
+
+La recette sur les deux machines reste nécessaire : accès UNC direct, export puis
+retour Tailscale, reconnexion après nouvelle session et production LAN sans WAN,
+en gardant le Wi-Fi/LAN actif. Ne pas déduire une recette complète d'un simple HTTP 200.
+
+Les modèles et ressources de production doivent être installés. En mode LAN,
+l'indexation des exemples utilise uniquement les modèles en cache ; un modèle
+manquant ne sera pas téléchargé automatiquement. Les enrichissements externes
+déclenchés volontairement et téléchargements nécessitent toujours Internet.
+
+Le mobile Android reste indépendant. Pour désactiver son serveur lors d'un essai
+hors ligne, ajouter --mobile-port 0 à la commande Python. L'accès distant et les
+notifications Web Push gardent leurs besoins réseau propres.
+
+Le patch est local au checkout de lancement ; aucune nouvelle publication GitHub
+n'a été effectuée dans cette étape. Le rapport technique est
+[network-modes-implementation-2026-09-28.md](network-modes-implementation-2026-09-28.md).

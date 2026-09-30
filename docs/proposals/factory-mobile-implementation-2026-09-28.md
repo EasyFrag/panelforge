@@ -9,7 +9,7 @@ Checkpoint **c4389c62aa8d7317ca0f5f7180c75b6a74984f92**, branche `snapshots/pre-
 ## Interface
 
 - **Suivi** : livrées / total, temps restant et fin prévue, températures PC / serveur, cartes des étapes actives, vidéos en attente et fiches à reprendre.
-- **Vidéos** : galerie paginée de 24 résultats, jusqu’aux 200 plus récents, y compris les résultats archivés. Lecteur intégré avec recherche dans la vidéo par requêtes HTTP Range. DLSS préféré lorsqu’il est prêt ; sinon vidéo brute disponible. Miniatures JPEG réduites, sans modifier les originaux.
+- **Vidéos** : galerie paginée de 24 résultats, jusqu’aux 200 plus récents, y compris les résultats archivés. Lecteur intégré avec recherche dans la vidéo par requêtes HTTP Range. Lecture de la vidéo brute H3 exclusivement, même lorsque le DLSS est prêt ; absence du brut signalée sans repli DLSS. Miniatures JPEG réduites, sans modifier les originaux.
 - **Alertes** : températures au-dessus des seuils choisis, erreurs et activation des notifications du téléphone. La fin d’un lot est également notifiée.
 - **Pause** laisse finir les étapes déjà actives et suspend les admissions suivantes. **Reprendre la file** reprend la file existante.
 - **Arrêter** demande confirmation, met la file en pause et annule seulement les étapes actives affichées. Le serveur compare les identités des étapes dans la même section verrouillée que l’action ; une simple mise à jour de progression ne rend pas la confirmation obsolète, mais un changement d’étape la refuse. Aucun résultat produit n’est supprimé. Une étape interrompue peut ensuite être relancée explicitement depuis « À reprendre » ; les étapes réussies sont conservées.
@@ -72,3 +72,15 @@ Recette sur Android à faire après activation : rafraîchissement, coupure / re
 Nouveaux modules `domain/factory_mobile.py`, `application/factory_mobile.py`, `infrastructure/factory_mobile.py`, `features/lab/factory_mobile_web.py`. Interface autonome dans `features/lab/static/factory-mobile/`. Raccords limités à `scripts/run_lab.py`, au cycle de vie du Lab et à la commande d’arrêt de l’Usine.
 
 Sauvegardes, diff et contrôles : `D:/Code/panelforge/.agent/diagnostics/factory-mobile-20260928/`. Reçu Git : `D:/Code/panelforge/.agent/diagnostics/git-pre-factory-mobile-20260928/checkpoint.json`.
+
+## Lecture brute sur mobile — évolution du 28 septembre
+
+Le lecteur mobile sert exclusivement l’asset de l’étape vidéo brute H3, même si le DLSS est terminé. Le choix des médias sur PC, les exports et les traitements ne changent pas. Aucun transcodage ni copie de média ajouté.
+
+Une fiche avec uniquement un résultat DLSS reste visible dans la galerie : sa miniature et son nom sont conservés, avec « Vidéo brute indisponible » et un bouton de lecture désactivé. Si le brut est encore référencé mais son fichier manque physiquement, la route mobile répond 404 et le lecteur affiche une indisponibilité ; aucun accès de secours au DLSS.
+
+Les requêtes Range continuent de lire le fichier brut existant. Le tri par date de fin et la pagination restent identiques. Le libellé de qualité devient « Vidéo brute ». Script mobile et coque du service worker versionnés mobile3 ; graphiques et CSS restent mobile2.
+
+Vérifications : compilation syntaxique Python de trois fichiers, V8 de deux scripts et deux blocs de scénario, cohérence des références de cache et git diff --check. Régressions préparées / adaptées : brut conservé après DLSS, galerie avec brut absent, non-mutation de l’état, Range lisant les octets du brut malgré un DLSS disponible, fichier brut disparu sans repli, carte mobile indisponible sans action de lecture. Tests fonctionnels et navigateur non exécutés selon AGENTS.md.
+
+Activation au prochain démarrage normal de PanelForge, puis rechargement de la page mobile. Aucun redémarrage, génération, transfert de média, mutation runtime, commit ni push effectué. Sauvegardes/diffs/contrôles : D:/Code/panelforge/.agent/diagnostics/factory-mobile-raw-20260928/.

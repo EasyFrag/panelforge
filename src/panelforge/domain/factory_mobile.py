@@ -22,10 +22,10 @@ def media_asset(item, kind):
         refs = (item.get("launch_snapshot") or item["config"]).get("references", [])
         return next((ref.get("asset_id") for ref in refs if ref.get("asset_id")), None)
     if kind == "video":
-        for stage in ("dlss", "video"):
-            step = item["steps"][stage]
-            if step["status"] == "succeeded" and step.get("output", {}).get("asset_id"):
-                return step["output"]["asset_id"]
+        # Mobile streams the original render only, even after DLSS completes.
+        step = item["steps"]["video"]
+        if step["status"] == "succeeded":
+            return (step.get("output") or {}).get("asset_id")
     return None
 
 
@@ -64,7 +64,7 @@ def mobile_view(state, machine_snapshot, now, *, result_limit=24):
             hint=estimate.get("indicative_reason") or estimate.get("reason") or item.get("waiting_reason"),
             video_url="/api/items/" + item["id"] + "/video" if media_asset(item, "video") else None,
             poster_url="/api/items/" + item["id"] + "/poster" if media_asset(item, "poster") else None,
-            quality="DLSS" if item["steps"]["dlss"]["status"] == "succeeded" else "Vidéo",
+            quality="Vidéo brute",
             completed_at=item["steps"]["dlss"].get("finished_at") or item["steps"]["video"].get("finished_at"),
             # Do not expose raw error strings, prompts, runtime paths or tokens.
             failed=any(s["status"] == "failed" for s in item["steps"].values()) or item.get("delivery", {}).get("status") == "failed",
@@ -75,7 +75,10 @@ def mobile_view(state, machine_snapshot, now, *, result_limit=24):
     rows = [view(i) for i in visible]
     work = [r for i, r in zip(visible, rows) if not i.get("archived_at") and
             (r["status"] in {"queued", "active", "failed", "cancelled"} or not r["delivered"])]
-    results = sorted((r for r in rows if r["video_url"]),
+    # Keep produced cards visible if only their DLSS output remains available.
+    results = sorted((row for item, row in zip(visible, rows) if any(
+        item["steps"][stage]["status"] == "succeeded" and
+        (item["steps"][stage].get("output") or {}).get("asset_id") for stage in ("video", "dlss"))),
                      key=lambda r: r["completed_at"] or "", reverse=True)
     remaining = monitor.get("remaining_seconds")
     held = bool(monitor.get("retained")) or stale
@@ -110,3 +113,25 @@ def alert_conditions(view, thresholds, previous=()):
         alerts[key] = dict(kind="complete", title="Lot terminé",
                           body=f'{view["counts"]["delivered"]} vidéo(s) livrée(s).', tag=key)
     return alerts
+
+
+def mobile_thermal_history(history, now):
+    """Six-hour view of the existing maxima, without runtime event details."""
+    start = now - 6 * 3600
+    lanes = []
+    for identity, name in (("remote_gpu", "Serveur"), ("local_gpu", "PC local")):
+        points = {}
+        for point in history.get("series", {}).get(identity, []):
+            stamp = epoch(point.get("timestamp"))
+            temperature = point.get("max_temperature_c")
+            if stamp is None or not start <= stamp <= now or not number(temperature) or not 0 <= temperature <= 150:
+                continue
+            points[stamp] = max(points.get(stamp, temperature), temperature)
+        lanes.append(dict(id=identity, name=name,
+                          points=[[stamp, round(value, 1)] for stamp, value in sorted(points.items())]))
+    bucket = history.get("bucket_seconds")
+    bucket = bucket if number(bucket) and 1 <= bucket <= 300 else 15
+    return dict(available=True, generated_at=now, start_at=start, end_at=now,
+                window_seconds=6 * 3600, bucket_seconds=bucket, machines=lanes,
+                warning="Historique partiel ; certaines mesures sont indisponibles."
+                        if history.get("error") else None)

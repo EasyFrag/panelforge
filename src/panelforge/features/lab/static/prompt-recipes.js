@@ -182,7 +182,7 @@
       }
     } catch (error) { if (dialog.isConnected) status.textContent = error.message; }
   }
-  const globalButton = button("Recettes LLM"); globalButton.addEventListener("click", () => open());
+  const globalButton = button("Recette LLM"); globalButton.className = "runtime-button"; globalButton.addEventListener("click", () => open());
   document.querySelector(".topbar-actions")?.append(globalButton);
   window.PanelForgePromptRecipes = {open, showHistory, historyButton(projectId, attemptId) {
     const el = button("Échanges LLM"); el.addEventListener("click", () => showHistory(`/history/render/${encodeURIComponent(projectId)}/${encodeURIComponent(attemptId)}`)); return el;

@@ -1,4 +1,4 @@
-"""User-run offline regressions for v3. No real LLM, renderer or production state."""
+"""User-run offline regressions for v3 and the current preset. No real LLM, renderer or production state."""
 from copy import deepcopy
 from dataclasses import replace
 import json
@@ -89,7 +89,7 @@ class DirectionLifecycleTest(unittest.TestCase):
                 expected = LITTLE_MEN_EXPERIMENTAL_INTENT if intention == LITTLE_MEN_EXPERIMENTAL_INTENT_V2 else intention
                 self.assertEqual(saved["config"]["intention"], expected)
                 self.assertEqual(saved["source_config"]["intention"], intention)
-                self.assertEqual(saved["runtime"]["thanks_selection"]["version"], 3)
+                self.assertEqual(saved["runtime"]["thanks_selection"]["version"], 4)
                 self.assertEqual(saved["config"]["render"], config["render"])
                 reopened = VideoFactoryService(store=store, adapter=adapter).snapshot()["items"][0]
                 self.assertEqual(reopened["runtime"]["thanks_selection"], saved["runtime"]["thanks_selection"])
@@ -116,7 +116,7 @@ class DirectionLifecycleTest(unittest.TestCase):
         self.assertNotIn("thanks_selection", duplicate["runtime"])
         self.assertEqual(duplicate["config"]["render"], config["render"])
 
-    def test_model_edit_keeps_v2_but_explicit_preset_reapply_uses_v3(self):
+    def test_model_edit_keeps_v2_but_explicit_preset_reapply_uses_current_version(self):
         config = config_for("Pays : Japon")
         config["intention"] = LITTLE_MEN_EXPERIMENTAL_INTENT_V2
         item = new_item("Image", config, {}, "old")
@@ -128,7 +128,7 @@ class DirectionLifecycleTest(unittest.TestCase):
         before = deepcopy(item["config"])
         item["config"] = apply_preset(before, "little_men_experimental", item["source_config"])
         invalidate(item, before)
-        self.assertEqual(item["runtime"]["thanks_selection"]["version"], 3)
+        self.assertEqual(item["runtime"]["thanks_selection"]["version"], 4)
         self.assertEqual(item["runtime"]["thanks_selection"]["requested_language"], "Japanese")
 
     def test_adapter_preserves_v1_and_v2_preparation_inputs(self):
@@ -158,7 +158,7 @@ class PreparedRequestTest(unittest.TestCase):
         for country in ("Pays : Japon", ""):
             with self.subTest(country=country), TemporaryDirectory() as directory:
                 config = config_for(country)
-                selection = make_selection(config, "image")
+                selection = {**make_selection(config, "image"), "version": 3}
                 source = preparation_text(config, thanks_selection=selection)
                 plan, writer, _ = speech_fixture("Japanese", "ありがとう！")
                 service, gateway, session, composition = preparation_service(

@@ -44,7 +44,7 @@ def preparation_source(session: PromptLabSession, composition: PromptComposition
     if intent is not None:
         snapshot = asdict(intent)
         # A new default field must not invalidate existing approved documents.
-        for key in ("speech_policy", "speech_language"):
+        for key in ("speech_policy", "speech_language", "worker_visual_policy"):
             if snapshot[key] is None:
                 snapshot.pop(key)
         if snapshot["creative_axes"] is not None and not snapshot["creative_axes"].get("dialogue"):

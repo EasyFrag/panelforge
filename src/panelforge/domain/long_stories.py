@@ -296,10 +296,50 @@ def normalize_event_dependencies(project, value):
                     + " : identifiants, séquences et ordre inchangés ; texte reçu et brouillon original conservés."]
 
 
+def normalize_secret_audience(project, outline):
+    """Keep explicit audience knowledge as narrative text, never as a cast ID."""
+    from .story_editions import refined
+    if not refined(project) or not isinstance(outline, dict):
+        return outline, []
+    if not isinstance(outline.get("characters"), list) or not isinstance(outline.get("secrets"), list):
+        return outline, []
+    audience_labels = {"spectateur", "spectateurs", "le spectateur", "les spectateurs",
+                       "public", "le public", "audience", "the audience", "viewer", "viewers"}
+    # A declared character can genuinely be called Public or Spectateur.
+    cast_labels = {value.strip().casefold() for character in outline["characters"] if isinstance(character, dict)
+                   for key in ("id", "name") if isinstance(value := character.get(key), str)}
+    annotation = "Le spectateur connaît cette vérité."
+    result, changed = None, []
+    for index, secret in enumerate(outline["secrets"]):
+        if not isinstance(secret, dict) or not isinstance(secret.get("known_by"), list):
+            continue
+        truth = secret.get("truth")
+        if not isinstance(truth, str) or not truth.strip():
+            continue
+        def audience(value):
+            return (isinstance(value, str) and value.strip().casefold() in audience_labels
+                    and value.strip().casefold() not in cast_labels)
+        if not any(audience(value) for value in secret["known_by"]):
+            continue
+        annotated = truth if annotation in truth else truth + "\n" + annotation
+        if len(annotated) > 3000:
+            continue  # Never truncate a secret to make a malformed response pass.
+        if result is None:
+            result = deepcopy(outline)
+        result["secrets"][index]["known_by"] = [value for value in secret["known_by"] if not audience(value)]
+        result["secrets"][index]["truth"] = annotated
+        changed.append(str(secret.get("id", index)))
+    if result is None:
+        return outline, []
+    return result, ["Connaissance du spectateur conservée dans le texte des secrets " + ", ".join(changed)
+                    + " ; la liste des personnages informés reste réservée au casting. Brouillon original conservé."]
+
+
 def validate_outline(project, value):
     from .story_editions import experimental
     from .story_fidelity import normalize_author_requirements
     value, _source_notes = normalize_author_requirements(project, value)
+    value, _audience_notes = normalize_secret_audience(project, value)
     extra = " author_requirements" if isinstance(value, dict) and "author_requirements" in value and (experimental(project) or
         "author_requirements" in (project["document"].get("series_outline") or {})) else ""
     from .story_editions import refined

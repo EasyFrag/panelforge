@@ -11,8 +11,8 @@ from panelforge.domain.dlss_image_presets import PRESET_VERSION, selected_image_
 
 
 def queue_image_comparison(service, *, owner, owner_id, attempt_id, settings, preset_ids, request_id):
-    if owner not in {"assisted", "edit"}:
-        raise ValueError("La comparaison DLSS est réservée aux images Assisted et Edit.")
+    if owner not in {"assisted", "edit", "qwen", "minimax"}:
+        raise ValueError("La comparaison DLSS est réservée aux ateliers image.")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", request_id):
         raise ValueError("Identifiant de demande DLSS invalide.")
     presets = selected_image_presets(settings, preset_ids)

@@ -125,6 +125,14 @@ def create_mobile_app(service):
             raise HTTPException(422, "Limite de résultats invalide.")
         return invoke(lambda: service.snapshot(limit))
 
+    @app.get("/api/thermal-history")
+    def thermal_history():
+        return service.thermal_history()
+
+    @app.get("/thermal.js")
+    def thermal_script():
+        return FileResponse(STATIC / "thermal.js", media_type="text/javascript")
+
     @app.post("/api/commands/{action}")
     def command(action: str, body: Command):
         return invoke(lambda: service.command(action, body.ids, body.revisions, body.active_runs))

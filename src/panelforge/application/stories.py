@@ -1161,6 +1161,9 @@ class StoryService:
                     received["series_outline"], source_notes = normalize_author_requirements(
                         source_context, received["series_outline"])
                     normalizations.extend(source_notes)
+                    received["series_outline"], audience_notes = long_narrative.normalize_secret_audience(
+                        source_context, received["series_outline"])
+                    normalizations.extend(audience_notes)
                 if normalizations:
                     current["job"].setdefault("original_draft", raw)
                     current["job"]["normalized_draft"] = json.dumps(received, ensure_ascii=False)

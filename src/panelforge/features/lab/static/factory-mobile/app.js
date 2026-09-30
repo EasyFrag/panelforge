@@ -5,6 +5,7 @@
   let data=null,received=0,busy=false,loading=false,serial=0,tab="follow",limit=24,installPrompt=null,registration=null,push=null,dialogAction=null;
   const saved=(key,value)=>{try{if(value===undefined)return localStorage.getItem(key);if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,value);}catch{}return null;};
   let subscriptionId=saved("factory-mobile-subscription");
+  let thermal=null,thermalLoading=false,thermalAttempt=-Infinity,thermalError="";
   const secondsAge=()=>Math.max(0,(performance.now()-received)/1000);
   const stale=()=>!data||secondsAge()>20;
   const duration=seconds=>{
@@ -31,13 +32,35 @@
     try{
       const value=await request("/api/state?limit="+limit);
       if(seq!==serial)return;
-      data=value;received=performance.now();message("");render();
+      data=value;received=performance.now();message("");render();refreshThermal();
     }catch(error){if(seq===serial){received=-Infinity;message("Connexion interrompue. Vérifiez Tailscale et le PC ; les dernières valeurs restent affichées.");tick();}}
     finally{loading=false;}
   }
   function safeMedia(url){return typeof url==="string"&&/^\/api\/items\/[a-zA-Z0-9_-]+\/(poster|video)$/.test(url)?url:"";}
   function poster(item){const url=safeMedia(item.poster_url);return url?'<img class="poster" src="'+esc(url)+'" loading="lazy" alt="">':'<span class="poster" aria-hidden="true"></span>';}
-  const thresholdFor=m=>push?.registered&&push.thresholds?push.thresholds[m.id]:m.threshold;
+  const thresholdFor=m=>push?.registered&&push.thresholds?push.thresholds[m.id]:m.id==="remote_gpu"?84:80;
+  function thermalStatus(){
+    const old=thermal&&Date.now()/1000-thermal.generated_at>90;
+    const text=thermalError||thermal?.warning||(old?"Historique conservé · actualisation attendue":thermal?"":"Chargement de l’historique…");
+    $("thermal-status").textContent=text;$("thermal-status").hidden=!text;
+  }
+  function renderThermal(){
+    window.PanelForgeMobileThermal?.render($("thermal-charts"),thermal,{
+      remote_gpu:thresholdFor({id:"remote_gpu"}),local_gpu:thresholdFor({id:"local_gpu"})
+    });
+    thermalStatus();
+  }
+  async function refreshThermal(force=false){
+    if(thermalLoading||!force&&performance.now()-thermalAttempt<30000)return;
+    thermalLoading=true;thermalAttempt=performance.now();
+    try{
+      const value=await request("/api/thermal-history");
+      if(!value.available)throw new Error(value.warning||"Historique momentanément indisponible.");
+      thermal=value;thermalError="";
+    }catch{
+      thermalError=thermal?"Historique conservé · actualisation indisponible":"Historique momentanément indisponible.";
+    }finally{thermalLoading=false;renderThermal();}
+  }
   const stageLabel=item=>item.stopping?"Arrêt demandé":item.steps.find(s=>s.status==="running")?.label||({queued:"En attente",failed:"À vérifier",cancelled:"Interrompue",succeeded:"Export"}[item.status]||"En cours");
   function workCard(item,compact=false){
     const current=item.steps.find(s=>s.status==="running");
@@ -46,6 +69,14 @@
       (!compact?'<div class="steps">'+item.steps.map(s=>'<span class="step '+esc(s.status)+'">'+esc(s.label)+(s.status==="succeeded"?" ✓":s.status==="skipped"?" · off":"")+'</span>').join("")+'</div>':"")+
       '<p class="eta" title="'+esc(item.hint||"Estimation indicative")+'">'+(finite(item.remaining_seconds)?'<span data-seconds="'+item.remaining_seconds+'" data-held="'+Boolean(item.retained)+'">'+esc(remaining(item.remaining_seconds,item.retained))+'</span>'+(item.retained?" · estimation conservée":finite(item.finish_at)?" · vers "+esc(hour(item.finish_at)):""):esc(item.hint||"Prévision à préciser"))+'</p>'+
       (item.can_retry?'<button class="secondary" data-retry="'+esc(item.id)+'">Reprendre cette vidéo</button>':"")+'</article>';
+  }
+  function resultCard(item){
+    const playable=Boolean(safeMedia(item.video_url));
+    const label=playable?"Lire la vidéo brute : ":"Vidéo brute indisponible : ";
+    const status=playable?item.quality+(item.delivered?" · Livrée":" · Vidéo prête"):"Vidéo brute indisponible";
+    return '<article class="result"><button data-play="'+esc(item.id)+'" '+(playable?"":"disabled ")+'aria-label="'+esc(label+item.name)+'">'+
+      (safeMedia(item.poster_url)?'<img src="'+esc(item.poster_url)+'" loading="lazy" alt="">':"")+
+      (playable?'<span class="play" aria-hidden="true">▷</span>':"")+'</button><div class="result-info"><h3>'+esc(item.name)+'</h3><small>'+esc(status)+'</small></div></article>';
   }
   function render(){
     if(!data)return;
@@ -56,9 +87,8 @@
     $("queue").innerHTML=queue.map(i=>workCard(i,true)).join("")||'<p class="empty">Aucune vidéo en attente.</p>';
     $("attention-section").hidden=!attention.length;$("attention-count").textContent="("+attention.length+")";
     $("attention").innerHTML=attention.map(i=>workCard(i)).join("");
-    $("machines").innerHTML=data.machines.map(m=>'<article class="card machine '+(!data.stale&&finite(m.temperature_c)&&m.temperature_c>=thresholdFor(m)?"hot":"")+'"><span>'+esc(m.name)+'</span><strong>'+esc(data.stale?"—":finite(m.temperature_c)?Math.round(m.temperature_c)+" °C":"— °C")+'</strong><small>'+esc(data.stale?"Mesure ancienne":({idle:"Disponible",busy:"En activité",cooling:"Refroidissement",hot:"Température élevée",paused:"En pause",unavailable:"Mesure indisponible"}[m.state]||"Mesure indisponible"))+'</small></article>').join("");
     $("result-count").textContent=data.result_total;
-    $("results").innerHTML=data.results.map(i=>'<article class="result"><button data-play="'+esc(i.id)+'" aria-label="Lire '+esc(i.name)+'">'+(safeMedia(i.poster_url)?'<img src="'+esc(i.poster_url)+'" loading="lazy" alt="">':"")+'<span class="play" aria-hidden="true">▷</span></button><div class="result-info"><h3>'+esc(i.name)+'</h3><small>'+esc(i.quality+(i.delivered?" · Livrée":" · Vidéo prête"))+'</small></div></article>').join("")||'<p class="empty">Les vidéos produites apparaîtront ici.</p>';
+    $("results").innerHTML=data.results.map(resultCard).join("")||'<p class="empty">Les vidéos produites apparaîtront ici.</p>';
     $("more").hidden=data.results.length>=data.result_total||limit>=200;
     renderAlerts();tick();
   }
@@ -79,7 +109,7 @@
     $("pause").disabled=busy||old;$("stop").disabled=busy||old||!data?.work.some(i=>i.status==="active"&&!i.stopping);
     document.querySelectorAll("[data-retry]").forEach(b=>b.disabled=busy||old);
     if(!data)return;
-    if(old)document.querySelectorAll(".machine small").forEach(node=>node.textContent="Dernière mesure · hors connexion");
+    thermalStatus();
     const counts=data.counts;
     $("lot-status").textContent=old?"Hors connexion":({running:"Lot en cours",paused:"En pause",complete:"Lot livré",attention:"À vérifier",empty:"Disponible"}[data.status]||"Disponible");
     $("delivered").textContent=counts.delivered+" / "+counts.total+" livrées";
@@ -134,8 +164,8 @@
   });
   function closeVideo(){$("video").pause();$("video").removeAttribute("src");$("video").load();}
   $("close-player").onclick=()=>$("player").close();$("player").addEventListener("close",closeVideo);
-  $("video").addEventListener("error",()=>{$("player-error").textContent="Lecture indisponible. Vérifiez la connexion ; vous pouvez réessayer.";});
-  $("refresh").onclick=()=>refresh();
+  $("video").addEventListener("error",()=>{$("player-error").textContent="Vidéo brute indisponible. Vérifiez la connexion puis réessayez.";});
+  $("refresh").onclick=()=>{refresh();refreshThermal(true);};
   $("more").onclick=()=>{limit=Math.min(200,limit+24);refresh();};
   function decodeKey(key){const raw=atob(key.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-key.length%4)%4));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
   async function setupPush(){
@@ -150,6 +180,7 @@
       $("disable-notifications").hidden=!push.registered;
       if(supported&&Notification.permission==="denied")$("notification-status").textContent="Notifications bloquées dans le navigateur. Autorisez-les dans les paramètres du site.";
       if(data)render();
+      renderThermal();
     }catch{$("notification-status").textContent="Réglages des notifications indisponibles ; actualisez la page.";}
   }
   $("notification-form").addEventListener("submit",async event=>{
@@ -184,5 +215,5 @@
   $("install").onclick=async()=>{if(installPrompt){await installPrompt.prompt();installPrompt=null;$("install").hidden=true;}};
   document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh();});
   window.addEventListener("online",()=>{refresh();setupPush();});
-  refresh();setupPush();setInterval(()=>{if(!document.hidden)refresh();},5000);setInterval(tick,1000);
+  renderThermal();refresh();setupPush();setInterval(()=>{if(!document.hidden)refresh();},5000);setInterval(tick,1000);
 })();

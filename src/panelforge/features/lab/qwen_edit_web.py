@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from panelforge.application.qwen_edit import QwenEditConflict
-from panelforge.domain.qwen_edit import MAX_ASSISTANT_IMAGES, MAX_RENDER_IMAGES, QwenEditSettings, RATIOS
+from panelforge.domain import qwen_edit as qwen_policy
 from panelforge.infrastructure.qwen_project_exports import project_zip
 
 
@@ -44,12 +44,12 @@ class CropBody(RequestBody):
     height: int = Field(ge=1)
 
 
-def qwen_edit_router(service):
-    router = APIRouter(prefix="/api/image-lab/qwen-edit")
+def qwen_edit_router(service, *, engine="qwen", label="Qwen", policy=qwen_policy, render_after_prompt=False):
+    router = APIRouter(prefix=f"/api/image-lab/{engine}-edit")
 
     def require():
         if service is None:
-            raise HTTPException(503, "L’atelier Qwen n’est pas configuré. Redémarre PanelForge après sa mise à jour.")
+            raise HTTPException(503, f"L’atelier {label} n’est pas configuré. Redémarre PanelForge après sa mise à jour.")
 
     def action(callback, *, public=True):
         require()
@@ -77,15 +77,18 @@ def qwen_edit_router(service):
     @router.get("/spec")
     def spec():
         require()
-        return {"enabled": True, "defaults": QwenEditSettings().record(), "aspect_ratios": RATIOS,
-                "max_render_images": MAX_RENDER_IMAGES, "max_assistant_images": MAX_ASSISTANT_IMAGES,
-                "recipe": {"name": "Qwen Image 2.1", "version": service.workflow.reference.version},
-                "features": {"visual_guide": True, "natural_color_finish": True},
-                "fixed": {"sampler": "euler", "scheduler": "simple", "denoise": 1}}
+        return {"enabled": True, "defaults": policy.Settings().record(), "aspect_ratios": policy.RATIOS,
+                "max_render_images": policy.MAX_RENDER_IMAGES, "max_assistant_images": policy.MAX_ASSISTANT_IMAGES,
+                "recipe": {"name": "Qwen Image 2.1" if engine == "qwen" else "Minimax H3 Still", "version": service.workflow.reference.version},
+                "features": {"visual_guide": True, "natural_color_finish": True, "cfg": engine == "qwen",
+                             "negative_prompt": engine == "qwen", "protected_inpainting": False},
+                "engine": engine,
+                "fixed": service.workflow.manifest.get("fixed", {"sampler": "euler", "scheduler": "simple", "denoise": 1})}
 
     @router.get("/models")
     def models():
-        return action(lambda: {"models": [{"id": m.model_id, "source": m.source,
+        return action(lambda: {"default_model_id": getattr(policy, "DEFAULT_ASSISTANT_MODEL", ""),
+                               "models": [{"id": m.model_id, "source": m.source,
                                            "label": m.display_name or m.model_id} for m in service.list_models()]}, public=False)
 
     @router.get("/projects")
@@ -93,7 +96,7 @@ def qwen_edit_router(service):
         return action(lambda: {"projects": service.list()}, public=False)
 
     @router.post("/projects", status_code=201)
-    async def create(name: Annotated[str, Form(max_length=120)] = "Projet Qwen",
+    async def create(name: Annotated[str, Form(max_length=120)] = "",
                      composition: Annotated[bool, Form()] = False,
                      source_image: Annotated[UploadFile | None, File()] = None):
         require()
@@ -127,7 +130,7 @@ def qwen_edit_router(service):
     @router.post("/projects/{project_id}/stages/{stage_id}/messages", status_code=202)
     def message(project_id: str, stage_id: str, body: RequestBody, tasks: BackgroundTasks):
         def start():
-            project, message_id = service.begin_message(project_id, stage_id, **body.model_dump())
+            project, message_id = service.begin_message(project_id, stage_id, render_after_prompt=render_after_prompt, **body.model_dump())
             tasks.add_task(service.execute_message, project_id, stage_id, message_id)
             return project
         return action(start)

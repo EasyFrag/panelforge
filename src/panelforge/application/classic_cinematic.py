@@ -66,7 +66,7 @@ class Camera(_Model):
 class Phase(_Model):
     cue: str = Field(min_length=1, description="English sentence anchoring this phase to a visible event, e.g. 'The lid reaches its open position.' First phase may begin with the initial state. No camera or cut instruction.")
     camera: Camera
-    actions: tuple[str, ...] = Field(min_length=1, max_length=6, description="English visible actions, reactions or evolving states in causal order. A quiet observation is valid. Name each actor and object ownership; respect reference roles. No camera, cut or timestamp. Every spoken line uses <d>[English] exact words</d> (or its actual full language name); never a bare <d>words</d>. Declare the same exact words and language in spoken_lines and spoken_languages.")
+    actions: tuple[str, ...] = Field(min_length=1, max_length=6, description="English visible actions, reactions or evolving states in causal order. A quiet observation is valid. Name each actor and object ownership; respect reference roles. At a subject's appearance, express any explicit scale constraint from the intention: retain the numeric ratio, compared dimensions, named scene landmark, placement and body proportions. Apply its stated conditions and keep physical scale consistent with perspective. Do not replace a precise relation with merely 'small' or invent an unspecified ratio. No camera, cut or timestamp. Every spoken line uses <d>[English] exact words</d> (or its actual full language name); never a bare <d>words</d>. Declare the same exact words and language in spoken_lines and spoken_languages.")
 
 
 class PlannedShot(_Model):
@@ -79,7 +79,7 @@ class PlannedShot(_Model):
 
 
 class Plan(_Model):
-    continuity_invariants: tuple[str, ...] = Field(min_length=1, description="English reference-to-subject associations, stable appearance, setting, object ownership and intended progression. Do not invent identities, costumes or extra events.")
+    continuity_invariants: tuple[str, ...] = Field(min_length=1, description="English reference-to-subject associations, stable appearance, setting, object ownership and intended progression. Preserve explicit scale relations from the intention, including numeric ratios, compared dimensions, named landmarks and conditions; express the relevant relation in the actions when that subject appears. Do not invent identities, costumes or extra events.")
     shots: tuple[PlannedShot, ...] = Field(min_length=1, max_length=6)
     spoken_lines: tuple[str, ...] = Field(description="Exact spoken words, in chronological order, without <d> tags or language prefixes. Empty when nobody speaks.")
     spoken_languages: tuple[str, ...] = Field(default=(), description="One full English language name per spoken_lines entry, in the same order, e.g. ['English', 'French']. Preserve each requested line's original language. Empty only when spoken_lines is empty. This explicit metadata lets the compiler supply a missing language tag without guessing from the words.")
@@ -99,7 +99,7 @@ class Plan(_Model):
 
 
 class WrittenShot(_Model):
-    phases: tuple[str, ...] = Field(min_length=1, max_length=2, description="One English action paragraph per approved phase, same order. Preserve actions, reactions, state changes and identities. Every spoken line keeps its exact <d>[English] words</d> tag or its approved original language. No camera, framing, cue, pacing, end-state or transition repetition: the compiler inserts those fields.")
+    phases: tuple[str, ...] = Field(min_length=1, max_length=2, description="One English action paragraph per approved phase, same order. Preserve actions, reactions, state changes and identities. Integrate the approved explicit scale relation naturally at the subject's appearance: retain its ratio, compared dimensions, scene landmark and body proportions rather than summarizing it as 'small'. Keep physical scale coherent with perspective during movement. If already established in opening_composition, respect it without repeating it. Every spoken line keeps its exact <d>[English] words</d> tag or its approved original language. No camera, framing, cue, pacing, end-state or transition repetition: the compiler inserts those fields.")
 
 
 class Writer(_Model):
@@ -121,7 +121,8 @@ def schema(stage: str, *_unused, plan: dict | None = None) -> str:
             {"type": "object", "additionalProperties": False, "required": ["phases"], "properties": {
                 "phases": {"type": "array", "items": {"type": "string"},
                     "minItems": len(shot.phases), "maxItems": len(shot.phases),
-                    "description": f"Shot {index + 1}: {len(shot.phases)} continuous phase(s) as strings inside this ONE array, same order, no extra cut. Never create a phases2 key."}}}
+                    "description": WrittenShot.model_fields["phases"].description +
+                        f" Shot {index + 1}: {len(shot.phases)} continuous phase(s) as strings inside this ONE array, same order, no extra cut. Never create a phases2 key."}}}
             for index, shot in enumerate(approved.shots)
         ]
     return json.dumps(value, ensure_ascii=False)
@@ -218,7 +219,11 @@ def decode_context(value: str) -> dict:
 
 
 def canonical_plan(content: str, context: dict) -> str:
+    from .worker_visual_policy import validate as validate_worker
     plan = Plan.model_validate_json(strip_markdown_fence(content))
+    validate_worker(plan.model_dump_json(), context.get("worker_visual_binding"))
+    actions = " ".join(action for shot in plan.shots for phase in shot.phases for action in phase.actions)
+    validate_worker(actions, context.get("worker_visual_binding"), require_links=True)
     plan = Plan.model_validate(_normalize_speech(plan.model_dump(mode="json"), _speech_languages(plan)))
     check_count(plan.shots, context)
     header = core.reference_header(context, len(plan.shots))
@@ -281,6 +286,10 @@ def _normalize_numbered_phase_key(value, plan: Plan):
 
 
 def _compile(plan: Plan, writer: Writer, context: dict) -> tuple[str, str]:
+    from .worker_visual_policy import validate as validate_worker
+    validate_worker(writer.model_dump_json(), context.get("worker_visual_binding"))
+    validate_worker(" ".join(phase for shot in writer.shots for phase in shot.phases),
+                    context.get("worker_visual_binding"), require_links=True)
     # Unambiguous packaging mistake observed with local Writer: one approved
     # continuous shot / two phases returned as two singleton shot objects.
     # Keep exact prose/order; all camera, speech and content checks still run.
@@ -320,6 +329,8 @@ def validate_final(content: str, context: dict) -> None:
     if list(map(len, core.camera_layout(content))) != context["camera_phase_counts"]:
         errors.append("Conservez les phases dans leur plan.")
     bodies = core.shot_bodies(content)
+    from .worker_visual_policy import validate as validate_worker
+    validate_worker(" ".join(bodies), context.get("worker_visual_binding"), require_links=True)
     if len(bodies) != len(context["cinematic_protected"]) or any(
             item not in body for body, fields in zip(bodies, context["cinematic_protected"]) for item in fields):
         errors.append("Conservez les cadrages, rythmes et raccords approuvés.")

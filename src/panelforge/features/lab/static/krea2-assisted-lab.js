@@ -1556,6 +1556,22 @@
     }
   }
 
+  function scrollToGallery() {
+    const projectId = state.project?.project_id;
+    const navigationSerial = state.navigationSerial;
+    requestAnimationFrame(() => {
+      // A background tab may paint later: discard navigation that is no longer current.
+      if (!projectId || state.project?.project_id !== projectId
+        || state.navigationSerial !== navigationSerial
+        || elements.workspace.hidden || elements.editor.hidden) return;
+      // Latest attempts come first; the bottom of a long gallery contains older images.
+      elements.gallery.closest(".krea2-assisted-gallery-section").scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+        block: "start",
+      });
+    });
+  }
+
   async function openProject(projectId) {
     if ((state.busy && !state.projectRequest) || restagingEditor.saving) return;
     state.projectRequest?.abort();
@@ -1574,6 +1590,7 @@
       loadRenderQueue().catch(error => setMessage(error.message, true));
       renderProject(payload.project);
       restoreRenderState(payload.project);
+      scrollToGallery();
       setHistoryMessage();
       if ((state.renderQueue.items || []).length) schedulePoll();
     } catch (error) {
@@ -1690,6 +1707,10 @@
     }
     setNewMessage();
     pendingCrossTabLaunches.set(token, { tab, draft });
+    // Request focus during the click only; browsers may choose to keep the new tab active.
+    // Do not retry after loading, when the user may already have switched tabs deliberately.
+    try { window.focus(); } catch (_) { /* Focus restrictions must not cancel creation. */ }
+    scrollToGallery();
   }
 
   async function handleCrossTabLaunch(event) {
@@ -1711,7 +1732,7 @@
     window.PanelForgeLabNavigation?.switchView("krea2-assisted-lab");
     await initialize();
     applyNewProjectDraft(event.data.draft);
-    await createAndRenderProject(event.data.draft);
+    if (await createAndRenderProject(event.data.draft)) scrollToGallery();
   }
 
   async function sendChat(mode, explicitMessage = null, refreshPromptExamples = true) {

@@ -4,10 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260927.thermal1">
-  <script src="/static/lab.js?v=20260918.3" defer></script>
+  <link rel="stylesheet" href="/static/lab.css?v=20260928.navigation1">
+  <script src="/static/lab.js?v=20260929.storyv2" defer></script>
+  <script src="/static/network-mode.js?v=20260928.1" defer></script>
   <script src="/static/work-queue.js?v=20260927.remote-thermal1" defer></script>
-  <script src="/static/lab-core.js?v=20260925.palette1" defer></script>
+  <script src="/static/lab-core.js?v=20260929.mask1" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
   <script src="/static/story-continuity.js?v=20260927.sparse-states" defer></script>
@@ -20,13 +21,13 @@
   <script src="/static/story-library.js?v=20260924.2" defer></script>
   <link rel="stylesheet" href="/static/episode-thumbnails.css?v=20260924.4">
   <link rel="stylesheet" href="/static/episodes.css?v=20260928.reference-preparation">
-  <script src="/static/dlss-image-comparison.js?v=20260923.1" defer></script>
-  <script src="/static/dlss-lab.js?v=20260923.1" defer></script>
+  <script src="/static/dlss-image-comparison.js?v=20260928.minimax1" defer></script>
+  <script src="/static/dlss-lab.js?v=20260929.storyv2" defer></script>
   <script src="/static/quick-pipeline.js?v=20260905.1" defer></script>
   <script src="/static/classic-cinematic-controls.js?v=20260910.9" defer></script>
   <script src="/static/combat-controls.js?v=20260910.6" defer></script>
   <script src="/static/sensual-controls.js?v=20260911.1" defer></script>
-  <script src="/static/prompt-recipes.js?v=20260916.1" defer></script>
+  <script src="/static/prompt-recipes.js?v=20260929.storyv2" defer></script>
   <script src="/static/prompt-writer-model.js?v=20260918.1" defer></script>
   <script src="/static/chinese-prompt-variant.js?v=20260918.2" defer></script>
   <script src="/static/i2v-direct.js?v=20260925.factory1" defer></script>
@@ -48,25 +49,39 @@
   <script src="/static/episodes.js?v=20260928.reference-preparation" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260926.krea6library1" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20260928.navigation1" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
-  <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260925.1">
-  <script src="/static/qwen-edit-v2.js?v=20260923.2" defer></script>
+  <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260928.minimax1">
+  <script src="/static/qwen-edit-v2.js?v=20260928.minimax2" defer></script>
+  <link rel="stylesheet" href="/static/image-journeys.css?v=20260929.mask1">
+  <script src="/static/image-journey-actions.js?v=20260929.mask1" defer></script>
+  <script src="/static/image-journeys.js?v=20260929.mask1" defer></script>
   <link rel="stylesheet" href="/static/video-factory.css?v=20260928.compact1">
-  <link rel="stylesheet" href="/static/video-factory-monitor.css?v=20260928.compact1">
-  <script src="/static/video-factory-monitor.js?v=20260928.eta1" defer></script>
-  <script src="/static/video-factory.js?v=20260928.solutions1" defer></script>
+  <link rel="stylesheet" href="/static/video-factory-monitor.css?v=20260928.ready1">
+  <script src="/static/video-factory-monitor.js?v=20260928.preview4" defer></script>
+  <script src="/static/video-factory.js?v=20260929.storyv2" defer></script>
+  <link rel="stylesheet" href="/static/image-transitions.css?v=20260929.refs1">
+  <script src="/static/image-transition-references.js?v=20260929.refs1" defer></script>
+  <script src="/static/image-transitions.js?v=20260929.visual2" defer></script>
+  <link rel="stylesheet" href="/static/story-v2.css?v=20260929.editorial1">
+  <script src="/static/story-v2-settings.js?v=20260929.defaults1" defer></script>
+  <script src="/static/story-v2.js?v=20260929.control1" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
+    <div class="brand-cluster">
+      <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
+      <span id="network-mode" class="network-mode" hidden></span>
+    </div>
     <nav class="lab-nav" aria-label="Ateliers">
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
       <button type="button" data-lab-view="i2v-direct">H3 Base</button>
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
       <button type="button" data-lab-view="video-lab">Video Lab</button>
       <button type="button" data-lab-view="stories">Histoires</button>
+      <button type="button" data-lab-view="story-v2">Histoire V2</button>
+      <button type="button" data-lab-view="image-transitions">Transitions</button>
       <button type="button" data-lab-view="video-factory">Usine <span id="vf-nav-errors" hidden></span></button>
     </nav>
     <div class="topbar-actions">
@@ -88,13 +103,171 @@
       <span id="runtime-message" class="runtime-message" role="status" aria-live="polite" hidden></span>
       <span id="i2vd-topbar-new" class="run-actions" hidden><button id="i2vd-new-session" class="runtime-button" type="button">Nouveau run</button><button id="i2vd-fork-session" class="runtime-button" type="button" hidden>Repartir de ce run</button></span>
       <span id="ref2vd-topbar-new" class="run-actions" hidden><button id="ref2vd-new-session" class="runtime-button" type="button">Nouveau run</button><button id="ref2vd-fork-session" class="runtime-button" type="button" hidden>Repartir de ce run</button></span>
-      <span class="runtime-maintenance">
-        <button id="release-llm-vram" class="runtime-button" type="button" title="État du serveur en cours de lecture." disabled>VRAM LLM</button>
-        <button id="release-comfy-vram" class="runtime-button" type="button" title="État du serveur en cours de lecture." disabled>VRAM Comfy</button>
-      </span>
+
     </div>
   </header>
 
+
+
+  <main id="story-v2-workspace" class="sv2-workspace" hidden>
+    <header class="sv2-heading"><h1>Histoire V2</h1><select id="sv2-projects" aria-label="Ouvrir une histoire"></select><button id="sv2-new" type="button">Nouvelle histoire</button><button id="sv2-refresh" type="button">Actualiser</button><span id="sv2-status" role="status"></span><button id="sv2-pause" type="button" title="Suspend l’enchaînement ; les tâches déjà envoyées continuent dans leur atelier." hidden>Pause après l’étape</button><button id="sv2-resume" type="button" hidden>Reprendre</button></header>
+    <p id="sv2-progress" class="muted" hidden><span id="sv2-progress-label" role="status"></span><span id="sv2-progress-time" aria-label="Temps écoulé de cet appel"></span></p>
+    <p id="sv2-message" role="status" aria-live="polite"></p>
+    <nav class="sv2-tabs" aria-label="Étapes de l’histoire"><button type="button" data-sv2-tab="scenario" class="active">Scénario</button><button type="button" data-sv2-tab="references">Références</button><button type="button" data-sv2-tab="videos">Vidéos</button></nav>
+    <section id="sv2-scenario">
+      <form id="sv2-form">
+        <details id="sv2-brief" open><summary>Réglages <span id="sv2-settings-summary" class="muted"></span></summary>
+          <details id="sv2-idea-settings" class="sv2-setting-group" open><summary>Idée et réglages</summary>
+            <label>Ton idée<textarea id="sv2-idea" rows="3" required minlength="3" maxlength="12000" placeholder="Qui, quelle situation, quel retournement ? Quelques phrases suffisent."></textarea></label>
+            <div class="sv2-grid"><label>Univers<input id="sv2-universe" required minlength="2" maxlength="1500" placeholder="Ex. fruits adultes anthropomorphes"></label><label>Style visuel<input id="sv2-style" required minlength="2" maxlength="1500" placeholder="Ex. animation 3D expressive"></label><label>Durée visée (s)<input id="sv2-duration" type="number" min="10" max="180" step="1" value="60" required></label><label>Durée par scène (s)<select id="sv2-scene-duration"><option value="" disabled>Ancien découpage · libre</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10" selected>10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option></select></label><label>Parcours<select id="sv2-mode"><option value="manual">Manuel</option><option value="automatic">Automatique</option></select></label></div>
+            <small class="muted">La durée totale est conservée ; les dernières scènes s’ajustent si nécessaire.</small>
+            <div class="sv2-grid"><label>Écriture<select id="sv2-writer-model"></select></label><div><label>Relecture<select id="sv2-reader-model"></select></label><label class="sv2-check"><input id="sv2-final-review-enabled" type="checkbox"> Ajouter une étape de contrôle final</label></div></div>
+          </details>
+          <details class="sv2-setting-group"><summary>Réglages Dialogues</summary><div class="sv2-grid"><label>Langue parlée<select id="sv2-language"><option value="French">Français</option><option value="English">Anglais</option><option value="Korean">Coréen</option><option value="Japanese">Japonais</option><option value="Russian">Russe</option></select></label><label class="sv2-check"><input id="sv2-polish-enabled" type="checkbox"> Retouche légère des dialogues</label><label id="sv2-polish-model-field" hidden>Modèle de retouche<select id="sv2-polish-model"></select></label></div><small class="muted">Optionnelle · dialogues plus naturels et petites clarifications. Versions avant/après conservées.</small></details>
+          <details class="sv2-setting-group"><summary>Réglages Image + miniature</summary>
+            <div class="sv2-grid"><label>Recette d’assistance<select id="sv2-image-recipe"><option value="6.0.0">V6 · directions modulaires</option></select></label><label>Preset personnel<select id="sv2-image-style-preset"><option value="">Sans preset</option></select></label><label>Langue du prompt<select id="sv2-image-language"><option value="en">English</option><option value="zh">中文</option></select></label><label>Prompteur image<select id="sv2-prompt-model"></select></label></div>
+            <div class="sv2-actions"><label class="sv2-check"><input id="sv2-image-inspirations" type="checkbox"> Inspirations locales</label><span id="sv2-art-name" class="muted">Sans direction artistique</span><button id="sv2-art-choose" type="button">Choisir</button><button id="sv2-art-clear" type="button" hidden>Retirer</button></div>
+            <div class="sv2-grid"><label>Workflow<select id="sv2-image-workflow"></select></label><label>Checkpoint<select id="sv2-image-model"></select></label><label>Format<select id="sv2-image-ratio"></select></label><label>Mégapixels<input id="sv2-image-mp" type="number" min="0.5" max="4" step="0.1" value="2.1" required></label><label>Finition<select id="sv2-image-sampling"></select></label></div>
+            <div id="sv2-image-loras" class="sv2-loras"></div>
+            <div class="sv2-grid"><label>Variantes et miniature<select id="sv2-edit-engine"><option value="minimax">MiniMax Image Edit</option><option value="qwen">Qwen Image Edit</option></select></label><label>Prompteur d’édition<select id="sv2-edit-model"></select></label><label class="sv2-check"><input id="sv2-thumbnail" type="checkbox" checked> Créer la miniature avec les références</label></div>
+          </details>
+          <details id="sv2-video-settings" class="sv2-setting-group"><summary>Réglages Vidéo</summary>
+            <div class="sv2-grid"><label>Plan · dans l’usine<select id="sv2-video-plan-model"></select></label><label>Prompt · dans l’usine<select id="sv2-video-prompt-model"></select></label><label>Nombre de plans<select id="sv2-video-shots"><option value="">Auto</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label></div>
+            <details class="sv2-sub-settings"><summary>Liberté créative <span id="sv2-creative-summary" class="muted"></span></summary><div id="sv2-creative-axes" class="sv2-sliders"></div></details>
+            <div class="sv2-grid"><label>Recette de rendu<select id="sv2-video-recipe"></select></label><label>Preset de rendu<select id="sv2-video-preset"></select></label><label>Format<select id="sv2-video-ratio"></select></label><label>MP initiaux<input id="sv2-video-initial-mp" type="number" min="0.1" max="16" step="0.1" required></label><label>MP finaux<input id="sv2-video-mp" type="number" min="0.1" max="16" step="0.1" required></label><label>Musique<select id="sv2-video-music"><option value="off">OFF</option><option value="on">ON</option></select></label></div>
+            <small class="muted">La durée suit chaque séquence. Les prompts et les rendus démarrent uniquement depuis l’usine.</small>
+            <details id="sv2-video-checkpoint-panel" class="sv2-sub-settings"><summary>Checkpoint <span id="sv2-video-checkpoint-summary" class="muted"></span></summary><div class="sv2-actions"><select id="sv2-video-checkpoint" aria-label="Checkpoint vidéo"></select><button id="sv2-video-checkpoint-refresh" type="button">Actualiser</button></div><small id="sv2-video-checkpoint-note" class="muted"></small></details>
+            <details class="sv2-sub-settings"><summary>LoRA vidéo</summary><div id="sv2-video-lora-stack"></div></details>
+            <details class="sv2-sub-settings"><summary>Réglages avancés</summary><div class="sv2-grid"><label>Seed · vide = automatique<input id="sv2-video-seed" inputmode="numeric" pattern="[0-9]*" maxlength="20"></label><label>Steps<input id="sv2-video-steps" type="number" min="1" max="100"></label><label class="sv2-check"><input id="sv2-video-spectrum" type="checkbox"> Spectrum</label><label class="sv2-check"><input id="sv2-dlss" type="checkbox"> DLSS après le rendu</label></div><div id="sv2-bunny-settings" class="sv2-grid"><label>Base<input id="sv2-video-base" type="number" min="2" max="100"></label><label>Première passe<input id="sv2-video-coarse" type="number" min="1" max="99"></label><label>Finition<select id="sv2-video-refine"><option>3</option><option>4</option><option>5</option></select></label><label class="sv2-check"><input id="sv2-video-turbo" type="checkbox"> Turbo</label><label class="sv2-check"><input id="sv2-video-preview" type="checkbox"> Aperçu</label></div></details>
+          </details>
+        </details>
+        <p id="sv2-mode-help" class="muted"></p><p id="sv2-model-note" class="muted" role="status"></p>
+        <div class="sv2-actions"><button id="sv2-create" type="submit" class="primary">Écrire le scénario</button><button id="sv2-save" type="button" hidden>Enregistrer les modifications</button></div>
+      </form>
+      <section id="sv2-reader" hidden><header class="sv2-heading"><h2 id="sv2-title"></h2><span id="sv2-timing" class="muted"></span><button id="sv2-approve" type="button" class="primary">Valider et préparer les références</button></header><p id="sv2-summary"></p><div id="sv2-review" class="sv2-review" hidden></div><div id="sv2-sequences"></div>
+        <form id="sv2-feedback-form" class="sv2-feedback"><label>Ton retour<textarea id="sv2-feedback" rows="2" maxlength="6000" required placeholder="Ex. montre la drague avant l’invitation."></textarea></label><div class="sv2-actions"><select id="sv2-target" aria-label="Portée du retour"><option value="">Toute l’histoire</option></select><button id="sv2-revise" type="submit">Retravailler</button></div></form>
+        <details id="sv2-history-wrap" hidden><summary>Versions du scénario</summary><div id="sv2-history" class="sv2-actions"></div></details>
+      </section><p id="sv2-empty" class="muted">Une histoire courte, des intentions claires, des dialogues qui se répondent.</p>
+    </section>
+    <section id="sv2-references" hidden><div class="sv2-actions"><button id="sv2-generate" type="button" class="primary">Générer la sélection</button><button id="sv2-select-all" type="button">Tout sélectionner</button><button id="sv2-cancel-refs" type="button" hidden>Annuler le lot</button><span id="sv2-ref-progress" class="muted"></span></div><div id="sv2-ref-list" class="sv2-ref-list"></div><div id="sv2-thumbnail-card" class="sv2-thumbnail-card" hidden></div><p id="sv2-ref-empty" class="muted">Valide le scénario pour ouvrir ses fiches de référence.</p></section>
+    <section id="sv2-videos" hidden><div class="sv2-actions"><button id="sv2-produce" type="button" class="primary">Envoyer en préparation</button><button id="sv2-play-all" type="button">Tout lire dans l’ordre</button><button id="sv2-factory" type="button">Ouvrir l’usine</button></div><div id="sv2-video-list" class="sv2-video-list"></div></section>
+    <dialog id="sv2-editor"><form id="sv2-edit-form"><div class="sv2-heading"><h2 id="sv2-edit-title">Modifier la séquence</h2><button type="button" id="sv2-edit-close">Fermer</button></div><label>Ce qui se passe · une phrase<textarea id="sv2-edit-action" rows="2" maxlength="420" required></textarea></label><label>Intention des personnages · une phrase<textarea id="sv2-edit-intention" rows="2" maxlength="320" required></textarea></label><div id="sv2-edit-dialogues"></div><button id="sv2-add-line" type="button">Ajouter une réplique</button><details><summary>Lieu, temps et durée</summary><label>Situation<input id="sv2-edit-setting" maxlength="200" required></label><label>Durée (s)<input id="sv2-edit-duration" type="number" min="5" max="15" required></label></details><p id="sv2-edit-error" role="alert"></p><button class="primary" type="submit">Appliquer à la lecture</button></form></dialog>
+    <dialog id="sv2-ref-editor"><div class="sv2-heading"><h2 id="sv2-ref-title"></h2><button id="sv2-ref-close" type="button">Fermer</button></div><label>Description<textarea id="sv2-ref-description" rows="4" maxlength="6000"></textarea></label><div class="sv2-actions"><button id="sv2-ref-save" type="button">Enregistrer la fiche</button><button id="sv2-ref-open-lab" type="button">Ouvrir dans Image Lab</button><label class="sv2-import">Importer une image<input id="sv2-ref-upload" type="file" accept="image/*"></label></div><p id="sv2-ref-error" role="status"></p><div id="sv2-ref-images" class="sv2-ref-list"></div></dialog>
+    <dialog id="sv2-art-picker"><div class="sv2-heading"><h2>Direction artistique</h2><button id="sv2-art-close" type="button">Fermer</button></div><input id="sv2-art-search" type="search" aria-label="Rechercher une direction artistique" placeholder="Rechercher un style…"><p id="sv2-art-status" class="muted"></p><div id="sv2-art-list" class="sv2-art-list"></div></dialog>
+    <dialog id="sv2-image-viewer"><button id="sv2-image-close" type="button">Fermer</button><img id="sv2-large-image" alt="Référence agrandie"></dialog>
+  </main>
+
+  <main id="image-transitions-workspace" class="vf-workspace it-workspace" hidden>
+    <header class="it-heading">
+      <h1>Transitions d’images</h1>
+      <select id="it-projects" aria-label="Ouvrir une frise"></select>
+      <button id="it-new" type="button">Nouvelle frise</button>
+      <button id="it-refresh" type="button">Actualiser</button>
+      <button id="it-factory" type="button">Ouvrir l’usine</button>
+    </header>
+    <div id="it-message" role="status" aria-live="polite"></div>
+    <div id="it-sticky-controls">
+    <div class="it-toolbar">
+      <button id="it-frieze-toggle" type="button" aria-controls="it-frieze-panel" aria-expanded="true">Masquer les images</button>
+      <button id="it-upload" type="button">Ajouter des images</button>
+      <button id="it-library" type="button">Depuis un atelier</button>
+      <label><input id="it-all" type="checkbox"> <span id="it-count">Sélection</span></label>
+      <label>Rythme<select id="it-pace-preset" data-it-setting="pace_preset" aria-label="Preset de rythme des transitions"></select></label>
+      <button id="it-propose" type="button">Proposer les transitions</button>
+      <button id="it-review" type="button">Valider la sélection</button>
+      <button id="it-send" type="button" class="factory-button">Envoyer à l’usine</button>
+      <button id="it-save" type="button">Enregistrer</button>
+      <span id="it-progress" aria-live="polite"></span>
+    </div>
+    <p id="it-pace-hint" class="it-pace-hint" hidden></p>
+    </div>
+    <input id="it-files" type="file" accept="image/*" multiple hidden>
+    <fieldset id="it-editor">
+      <details id="it-people" class="it-people">
+        <summary>Ouvriers et échelle <span id="it-people-summary"></span></summary>
+        <div class="it-people-controls">
+          <div id="it-worker-preview"></div>
+          <div><div class="it-worker-actions">
+            <button id="it-worker-choose" type="button">Choisir un ouvrier</button>
+            <button id="it-worker-upload" type="button">Importer</button>
+            <button id="it-worker-clear" type="button" hidden>Retirer la référence</button>
+          </div><p id="it-worker-label" class="it-help"></p>
+          <label>Organisation du chantier<select id="it-crew" data-it-setting="crew_size"></select></label></div>
+        </div>
+        <p class="it-help">Choisis une image en pied, puis règle sa taille depuis la paire à droite. Les ouvriers choisis restent disponibles pour les prochaines frises.</p>
+      </details>
+      <details id="it-settings"><summary>Réglages communs <span id="it-dirty"></span></summary>
+        <div class="it-settings-grid">
+          <label>Nom de la frise<input id="it-name" maxlength="120"></label>
+          <label>Durée par transition (s)<input data-it-setting="duration" type="number" min="5" max="15" step="0.5"></label>
+          <label>Cadrage<select data-it-setting="aspect_ratio"></select></label>
+          <label>Description textuelle de l’ouvrier<textarea data-it-setting="worker" rows="3" maxlength="2000"></textarea><small id="it-worker-text-hint">Utilisée uniquement en l’absence d’image de référence d’ouvrier.</small></label>
+          <label>Description du rythme<textarea data-it-setting="pace" rows="2" maxlength="2000"></textarea></label>
+          <label>Caméra<textarea data-it-setting="camera" rows="2" maxlength="2000"></textarea></label>
+          <label>Ambiance sonore<textarea data-it-setting="audio" rows="2" maxlength="2000"></textarea></label>
+          <label>Éléments à conserver<textarea data-it-setting="preserve" rows="2" maxlength="2000"></textarea></label>
+          <label>LLM · propositions visuelles<select data-it-setting="model_id"></select></label>
+          <label>LLM · plan H3<select data-it-setting="plan_model_id"></select></label>
+          <label>LLM · prompt H3<select data-it-setting="writer_model_id"></select></label>
+          <div class="it-checks"><label><input data-it-setting="music" type="checkbox"> Musique autorisée</label><label><input data-it-setting="dlss" type="checkbox"> DLSS dans l’usine</label></div>
+        </div>
+      </details>
+      <details id="it-frieze-panel" class="it-frieze-panel" open><summary>Images de la frise <span id="it-frieze-count"></span></summary>
+      <div id="it-frieze" class="it-frieze" aria-label="Images dans l’ordre de la progression"></div></details>
+      <div class="it-layout">
+        <section class="vf-panel it-list" aria-label="Transitions">
+          <table><thead><tr><th><span class="sr-only">Sélection</span></th><th>Paire</th><th>Action</th><th>Durée</th><th>État</th></tr></thead><tbody id="it-rows"></tbody></table>
+          <p id="it-empty" class="vf-empty">Crée une frise puis ajoute au moins deux images.</p>
+        </section>
+        <aside id="it-inspector" class="vf-panel" aria-label="Comparaison et intention"></aside>
+      </div>
+    </fieldset>
+    <p class="it-help">Une paire = une vidéo. Avec une référence d’ouvrier, les états et l’échelle guident REF2VA. Relis les intentions avant l’envoi ; les rendus se lancent dans l’usine.</p>
+  </main>
+  <dialog id="it-library-dialog" class="it-dialog">
+    <header><h2 id="it-library-title">Choisir des versions d’images</h2><button type="button" data-it-close aria-label="Fermer">×</button></header>
+    <div class="it-library-controls">
+      <label>Atelier<select id="it-library-engine"><option value="krea">KREA</option><option value="qwen">Qwen</option><option value="minimax">MiniMax</option></select></label>
+      <label>Projet<select id="it-library-project"></select></label>
+      <button id="it-library-chain" type="button">Sélectionner la chaîne validée</button>
+    </div>
+    <p id="it-library-message" role="status"></p>
+    <div id="it-library-images"></div>
+    <footer><button id="it-library-add" type="button" class="factory-button">Ajouter la sélection</button></footer>
+  </dialog>
+  <input id="it-worker-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+  <dialog id="it-worker-dialog" class="it-dialog">
+    <header><h2>Choisir un ouvrier</h2><button type="button" data-it-close aria-label="Fermer">×</button></header>
+    <p class="it-help">Image en pied ; un PNG transparent facilite le placement. Une image avec fond reste utilisable comme montage de référence.</p>
+    <button id="it-worker-import-dialog" type="button">Importer une image</button>
+    <p id="it-worker-message" role="status"></p>
+    <h3>Mes ouvriers</h3><div id="it-worker-saved" class="it-worker-gallery"></div>
+    <h3>Images récentes des ateliers</h3><div id="it-worker-recent" class="it-worker-gallery"></div>
+  </dialog>
+  <dialog id="it-scale-dialog" class="it-dialog">
+    <header><h2 id="it-scale-title">Échelle de l’ouvrier</h2><button type="button" data-it-close aria-label="Fermer">×</button></header>
+    <p class="it-help">Déplace le personnage au sol. Ajuste sa hauteur avec le curseur ou la poignée. Flèches du clavier pour déplacer le personnage.</p>
+    <div id="it-scale-stage"><img id="it-scale-base" alt="Décor de départ" draggable="false">
+      <div id="it-scale-piece" tabindex="0" aria-label="Déplacer l’ouvrier avec les flèches du clavier">
+        <img id="it-scale-worker" alt="Ouvrier à l’échelle choisie" draggable="false">
+        <span id="it-scale-handle" aria-hidden="true"></span>
+      </div>
+    </div>
+    <label class="it-scale-height-label">Hauteur dans l’image <input id="it-scale-height" type="range" min="0.5" max="85" step="0.1"><output id="it-scale-size"></output></label>
+    <label>Appliquer à<select id="it-scale-scope"><option value="following">Cette paire et les suivantes du même cadrage</option><option value="pair">Cette paire seulement</option></select></label>
+    <small>Le partage s’arrête au prochain cadrage déjà défini ou déplacement caméra identifié. Ajuste localement si le point de vue change.</small>
+    <p id="it-scale-message" role="status"></p>
+    <footer><button id="it-scale-remove" type="button">Retirer cette échelle</button> <button id="it-scale-save" type="button" class="factory-button">Enregistrer l’échelle</button></footer>
+  </dialog>
+  <dialog id="it-image-dialog" class="it-dialog">
+    <header><h2 id="it-image-title">Image</h2><button type="button" data-it-close aria-label="Fermer">×</button></header>
+    <img id="it-image-content" alt="">
+  </dialog>
+
+  <div id="it-image-preview" class="it-preview" popover="manual" role="tooltip" hidden>
+    <img id="it-preview-content" alt="">
+    <span id="it-preview-caption"></span>
+  </div>
 
   <main id="video-factory-workspace" class="vf-workspace" hidden>
     <div class="vf-sticky-header">
@@ -112,6 +285,7 @@
     <div class="vf-toolbar">
       <label class="vf-select"><input id="vf-select-all" type="checkbox"> <span id="vf-selected-count">Sélection</span></label>
       <select id="vf-filter" aria-label="Filtrer les traitements"><option value="all">Tous</option><option value="ready">Prêts</option><option value="incomplete">À compléter</option><option value="failed">En erreur</option><option value="archivable">À archiver</option></select>
+      <select id="vf-results-sort" aria-label="Trier les résultats" title="Tri par date de fin ; scènes d’une histoire regroupées" hidden><option value="chronological">Ordre habituel</option><option value="newest">Plus récents d’abord</option></select>
       <select id="vf-bulk-preset" aria-label="Appliquer un preset à la sélection"><option value="">Appliquer un preset…</option><option value="source">Réglages source</option><option value="lips">Lèvres</option><option value="little_men">Petits hommes</option><option value="little_men_experimental">Petits hommes — expérimental</option><option value="custom">Personnalisé</option></select>
       <button id="vf-bulk-settings" type="button">Réglages du lot</button>
       <button id="vf-up" type="button" title="Remonter la sélection">↑ Priorité</button><button id="vf-down" type="button" title="Descendre la sélection">↓</button>
@@ -583,6 +757,8 @@
       <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
       <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
     </nav>
     <aside class="controls">
       <div class="title-row">
@@ -693,6 +869,8 @@
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
       <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
     </nav>
 
     <aside class="controls krea2-image-lab-controls">
@@ -784,6 +962,8 @@
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
       <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
     </nav>
 
     <aside class="controls krea2-assisted-controls">
@@ -1082,6 +1262,8 @@
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
       <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
     </nav>
 
     <aside class="controls krea2-batch-controls">
@@ -1206,6 +1388,8 @@
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
       <button class="active" type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
     </nav>
 
     <aside class="controls qv2-sidebar">
@@ -1328,12 +1512,240 @@
     <input id="qv2-attachment-files" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
   </main>
   <dialog id="qv2-dialog" class="qv2-dialog"><div class="qv2-dialog-head"><h2 id="qv2-dialog-title"></h2><button id="qv2-dialog-close" type="button" aria-label="Fermer">×</button></div><div id="qv2-dialog-body"></div></dialog>
+  <main id="image-journey-workspace" class="ij-workspace" hidden>
+    <nav class="image-lab-modebar" aria-label="Modes Image Lab">
+      <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button class="active" type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
+    </nav>
+    <section class="ij-content">
+      <header class="ij-heading">
+        <h1>Parcours d’images autonome</h1>
+        <select id="ij-projects" aria-label="Parcours enregistrés"><option value="">Nouveau parcours</option></select>
+        <button id="ij-new" type="button">Nouveau</button>
+      </header>
+      <details id="ij-setup" class="ij-setup" open>
+        <summary>Image de départ et réglages</summary>
+      <form id="ij-form" class="ij-form">
+        <div class="ij-inputs">
+          <div class="ij-source"><label for="ij-source">Image de départ</label>
+            <span><button id="ij-source-open" class="ij-source-open" type="button" data-ij-thumbnail aria-label="Agrandir l’image de départ" title="Agrandir l’image de départ" hidden><img id="ij-source-preview" alt="Image de départ" hidden></button><input id="ij-source" type="file" accept="image/png,image/jpeg,image/webp" required></span>
+          </div>
+          <label class="ij-intention">Intention <small>facultative</small>
+            <textarea id="ij-intention" rows="2" maxlength="6000" placeholder="Transformer cette cave en un salon chaleureux…"></textarea>
+          </label>
+          <label class="ij-count">Nouvelles images<input id="ij-count" type="number" value="5" min="1" max="30" required></label>
+        </div>
+        <div class="ij-quality">
+          <small id="ij-resolution">≈ 3 MP · 18 passes</small>
+          <label><input id="ij-auto-mask" type="checkbox" checked> Masque automatique · préserver le décor</label>
+        </div>
+        <div class="ij-form-bottom">
+          <details id="ij-models">
+            <summary>Modèles</summary>
+            <div class="ij-model-fields">
+              <label>Progression visuelle<select id="ij-progression-model" required></select></label>
+              <label>Prompt MiniMax<select id="ij-prompt-model" required></select></label>
+            </div>
+            <small id="ij-model-note">Choisis des modèles capables de lire les images. Ils peuvent être identiques.</small>
+          </details>
+          <button id="ij-start" type="submit" class="ij-primary">Créer la suite</button>
+        </div>
+      </form>
+      </details>
+      <p id="ij-message" role="status" aria-live="polite" hidden></p>
+      <section id="ij-result" hidden>
+        <div class="ij-status-line">
+          <span id="ij-status" role="status" aria-live="polite"></span>
+          <button id="ij-resume" type="submit" form="ij-form" class="ij-primary" hidden>Reprendre</button>
+          <button id="ij-pause" type="button">Suspendre</button>
+        </div>
+        <progress id="ij-progress" max="5" value="0" aria-label="Images créées"></progress>
+        <p id="ij-destination" class="ij-destination"></p>
+        <details id="ij-plan" hidden><summary>Étapes prévues</summary><ol id="ij-milestones"></ol></details>
+        <p id="ij-warning" class="ij-warning" hidden></p>
+        <div id="ij-frieze" class="ij-frieze" aria-label="Images du parcours"></div>
+        <div id="ij-operations" class="ij-operations" aria-live="polite" hidden></div>
+        <div class="ij-handoff"><button id="ij-transitions" type="button" hidden>Préparer les transitions</button></div>
+      </section>
+    </section>
+  <div id="ij-image-preview" class="ij-preview" popover="manual" role="tooltip" hidden>
+    <img id="ij-preview-content" alt=""><span id="ij-preview-caption"></span>
+  </div>
+
+    <dialog id="ij-operation" class="ij-detail ij-operation" aria-labelledby="ij-operation-title">
+      <header><h2 id="ij-operation-title"></h2><button id="ij-operation-close" type="button">Fermer</button></header>
+      <p id="ij-operation-hint" class="ij-operation-hint"></p>
+      <select id="ij-operation-history" aria-label="Essais HQ précédents" hidden></select>
+      <div id="ij-operation-images" class="ij-operation-images"></div>
+      <form id="ij-operation-form">
+        <label for="ij-operation-input" id="ij-operation-input-label">État souhaité</label>
+        <textarea id="ij-operation-input" rows="3" maxlength="6000" required></textarea>
+        <div class="ij-operation-controls">
+          <span id="ij-operation-status" role="status" aria-live="polite"></span>
+          <button id="ij-operation-cancel" type="button" hidden>Abandonner</button>
+          <button id="ij-operation-resume" type="button" hidden>Reprendre</button>
+          <button id="ij-operation-generate" type="submit" class="ij-primary">Générer</button>
+        </div>
+      </form>
+      <p id="ij-operation-error" role="alert" hidden></p>
+      <div id="ij-operation-result" class="ij-operation-result"></div>
+      <p id="ij-operation-review"></p>
+    </dialog>
+    <dialog id="ij-detail" class="ij-detail" aria-labelledby="ij-detail-title">
+      <header><h2 id="ij-detail-title"></h2><button id="ij-detail-zoom" type="button" aria-pressed="false">Taille réelle</button><button id="ij-close" type="button">Fermer</button></header>
+      <img id="ij-detail-image" alt="">
+      <p id="ij-detail-action"></p><p id="ij-detail-review"></p>
+      <details id="ij-detail-protection" hidden><summary>Masque automatique</summary>
+        <p id="ij-mask-note"></p>
+        <div id="ij-mask-views" class="ij-mask-views" role="group" aria-label="Comparer la protection"></div>
+      </details>
+      <details id="ij-detail-prompt"><summary>Prompt et modèles</summary><p id="ij-detail-models"></p><pre id="ij-prompt-text"></pre></details>
+      <a id="ij-download" download>Télécharger l’image</a>
+    </dialog>
+  </main>
+
+  <main id="minimax-edit-lab-workspace" class="qwen-v2-workspace" hidden>
+    <nav class="image-lab-modebar" aria-label="Modes Image Lab">
+      <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button class="active" type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
+    </nav>
+
+    <aside class="controls qv2-sidebar">
+      <div class="title-row"><div><small>IMAGE · EDIT</small><h1>Modifier avec Minimax</h1></div><span class="experimental">● V2</span></div>
+      <p class="muted">Choisis une image, peins grossièrement la zone à transformer et décris le résultat attendu.</p>
+      <form id="mv2-upload-form" class="qv2-upload">
+        <label>Nouvelle image<input id="mv2-source-file" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+        <button id="mv2-upload" type="submit">Ajouter à l’atelier</button>
+      </form>
+      <button id="mv2-new-composition" class="text-button" type="button">＋ Nouvelle composition sans source</button>
+      <div class="section-title"><h2>Projets Minimax</h2><button id="mv2-refresh" class="text-button" type="button">Actualiser</button></div>
+      <p id="mv2-projects-empty" class="muted">Aucun projet Minimax.</p>
+      <ul id="mv2-projects" class="qv2-projects"></ul>
+      <p id="mv2-sidebar-error" class="error" role="alert" hidden></p>
+    </aside>
+
+    <div class="content qv2-content">
+      <section id="mv2-empty" class="results qv2-welcome">
+        <small>MINIMAX H3 STILL · GUIDE LOCAL</small>
+        <h2>Montre où. Explique quoi.</h2>
+        <p>Le pinceau donne la zone à Minimax ; l’assistant transforme ton intention en prompt propre. La source reste la référence de tout le parcours.</p>
+        <button id="mv2-empty-import" class="primary" type="button">Choisir une image</button>
+      </section>
+
+      <section id="mv2-editor" class="results qv2-editor" hidden>
+        <div class="result-head">
+          <div><small>ÉDITION ITÉRATIVE</small><h2 id="mv2-title">Projet Minimax · Étape 1</h2></div>
+          <button id="mv2-restart" type="button">Recommencer cette étape</button>
+          <button id="mv2-resume" type="button" hidden>Reprendre depuis cette étape</button>
+          <span id="mv2-status" class="run-status">● Prêt</span>
+        </div>
+        <nav id="mv2-timeline" class="qv2-timeline" aria-label="Étapes du projet"></nav>
+        <div id="mv2-metadata" class="render-metadata"></div>
+        <p id="mv2-error" class="error" role="alert" hidden></p>
+        <section class="qv2-project-naming">
+          <label>Nom du projet<input id="mv2-name" maxlength="120"></label>
+          <label>Nom du résultat validé<input id="mv2-label" maxlength="120"></label>
+          <span id="mv2-save-state" class="muted" role="status">✓ Enregistré</span>
+          <a id="mv2-download" href="#">Télécharger le projet</a>
+          <button id="mv2-export" class="text-button" type="button">Enregistrer une copie</button>
+          <small id="mv2-export-note" class="muted"></small>
+        </section>
+
+        <div class="qv2-workbench">
+          <section class="qv2-visual-panel" aria-label="Image et guide visuel">
+            <div class="qv2-view-tabs" role="tablist" aria-label="Mode d’affichage">
+              <button id="mv2-show-compare" type="button" role="tab" aria-selected="true">Comparer</button>
+              <button id="mv2-show-guide" type="button" role="tab" aria-selected="false">Délimiter la zone <span id="mv2-guide-dot" class="qv2-guide-dot"></span></button>
+            </div>
+            <div id="mv2-compare-panel">
+              <div class="qv2-compare-controls">
+                <label>Avant<select id="mv2-before"></select></label><label>Après<select id="mv2-after"></select></label>
+              </div>
+              <div id="mv2-compare-view" class="qv2-compare-view" style="--qv2-split:50%">
+                <img id="mv2-before-image" alt="Avant"><img id="mv2-after-image" class="qv2-compare-overlay" alt="Après">
+                <span class="qv2-compare-divider" aria-hidden="true"></span><span class="qv2-compare-tag before">Avant</span><span class="qv2-compare-tag after">Après</span>
+                <div id="mv2-compare-placeholder" class="qv2-image-placeholder">Le résultat apparaîtra ici.</div>
+              </div>
+              <input id="mv2-split" type="range" min="0" max="100" value="50" aria-label="Séparation avant après">
+              <div class="qv2-compare-actions">
+                <label><input id="mv2-follow-pointer" type="checkbox"> Suivre la souris sans cliquer</label>
+                <button id="mv2-zoom-before" type="button">Agrandir avant</button><button id="mv2-zoom-after" type="button">Agrandir après</button>
+                <button id="mv2-crop" type="button">Recadrer</button><button id="mv2-dlss" type="button">Upscale DLSS</button>
+                <button id="mv2-accept" class="primary" type="button">Valider et continuer</button>
+              </div>
+              <small id="mv2-compare-note" class="muted"></small>
+            </div>
+
+            <div id="mv2-guide-panel" class="qv2-guide-panel" hidden>
+              <div class="qv2-guide-heading"><div><b>Peins l’endroit à modifier</b><small>Le rouge est un guide de placement, pas un contour à reproduire.</small></div><span id="mv2-guide-state" class="qv2-guide-state">Aucun guide</span></div>
+              <div class="qv2-guide-tools" role="toolbar" aria-label="Outils du guide visuel">
+                <button id="mv2-tool-paint" type="button" aria-pressed="true">Pinceau</button><button id="mv2-tool-box" type="button" aria-pressed="false">Zone</button><button id="mv2-tool-erase" type="button" aria-pressed="false">Gomme</button>
+                <label>Taille <input id="mv2-brush-size" type="range" min="8" max="420" value="90"><output id="mv2-brush-value">90 px</output></label>
+                <button id="mv2-guide-undo" type="button">Annuler</button><button id="mv2-guide-clear" type="button">Effacer</button>
+              </div>
+              <div id="mv2-guide-stage" class="qv2-guide-stage"><canvas id="mv2-guide-canvas" aria-label="Peindre la zone de modification sur l’image source"></canvas></div>
+              <div class="qv2-guide-footer"><p><b>Astuce :</b> un trait large, une tache ou un rectangle grossier suffisent. Décris ensuite précisément le changement à droite.</p><div><button id="mv2-guide-remove" type="button">Retirer le guide</button><button id="mv2-guide-save" class="primary" type="button">Utiliser ce guide</button></div></div>
+            </div>
+          </section>
+
+          <section class="qv2-prompt-panel">
+            <section class="qv2-exchange" aria-label="Conversation de cette étape">
+              <div class="section-title"><b>Conversation de l’étape</b><small id="mv2-revision-count">Aucun échange</small></div>
+              <p id="mv2-messages-empty" class="muted">Décris la modification. Le guide peint précise où elle doit apparaître.</p>
+              <div id="mv2-messages" role="log" aria-live="polite"></div>
+            </section>
+            <div id="mv2-context-summary" class="qv2-context-summary"><span>Source</span><span id="mv2-guide-summary">Guide non défini</span><span id="mv2-reference-summary">0 référence</span></div>
+            <label class="field-label"><b>Instruction de modification</b><textarea id="mv2-draft" rows="4" maxlength="12000" placeholder="Ex. Remplace le vase dans la zone rouge par une lampe Art déco, sans modifier le reste."></textarea></label>
+            <div class="qv2-prompt-actions">
+              <label>Modèle LLM<select id="mv2-model"><option value="">Chargement…</option></select></label>
+              <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="mv2-model" checked> Local · Unsloth</label>
+              <button id="mv2-send" type="button" title="Prépare le prompt puis lance automatiquement un rendu Minimax.">Créer le prompt et lancer</button>
+            </div>
+            <details id="mv2-prompt-details" class="qv2-prompt-details"><summary><b>Prompt Minimax</b><small id="mv2-prompt-status">À préparer</small></summary><textarea id="mv2-prompt" rows="6" maxlength="24000" spellcheck="false"></textarea><small id="mv2-prompt-mapping" class="muted"></small><button id="mv2-save-prompt" type="button">Enregistrer le prompt</button></details>
+            <details class="qv2-references"><summary><b>Références visuelles</b><small>Facultatif</small></summary><p class="muted">Une référence Minimax participe au rendu. Une inspiration assistant sert uniquement à écrire le prompt.</p><div id="mv2-references" class="qv2-reference-list"></div><div class="qv2-reference-actions"><button id="mv2-add-render" type="button">＋ Référence Minimax</button><button id="mv2-add-assistant" type="button">＋ Inspiration</button><button id="mv2-reuse" class="text-button" type="button">Réutiliser</button></div></details>
+            <label id="mv2-feedback-wrap" class="qv2-feedback" hidden><input id="mv2-feedback" type="checkbox"> Montrer le résultat sélectionné à l’assistant</label>
+          </section>
+        </div>
+
+        <details class="qv2-settings" open>
+          <summary><b>Paramètres du rendu</b><small id="mv2-settings-summary">Minimax H3 · couleurs brutes</small></summary>
+          <div class="qv2-settings-grid">
+            <label>Résolution<select id="mv2-resolution"><option value="preset">Preset · 7,2 MP</option><option value="source">Taille de la source</option><option value="1">1 MP</option><option value="2">2 MP</option><option value="4">4 MP</option><option value="8">8 MP</option></select></label>
+            <label id="mv2-ratio-wrap">Format<select id="mv2-ratio"><option>1:1</option><option>3:2</option><option>2:3</option><option>3:4</option><option>16:9</option><option>9:16</option></select></label>
+            <label>Steps<input id="mv2-steps" type="number" min="1" max="100"></label>
+            <label>Seed<input id="mv2-seed" inputmode="numeric" pattern="[0-9]+" maxlength="20"></label>
+            <label class="qv2-seed-option"><input id="mv2-reuse-seed" type="checkbox"> Réutiliser la seed</label><button id="mv2-new-seed" type="button">Nouvelle variation</button>
+          </div>
+          <fieldset class="qv2-color-finish"><legend>Couleurs après Minimax</legend><label><input type="radio" name="mv2-color-finish" value="natural"><span><b>Harmoniser avec la source</b><small>Rapproche doucement les couleurs de la source. Le rendu brut reste archivé.</small></span></label><label><input type="radio" name="mv2-color-finish" value="raw" checked><span><b>Minimax brut</b><small>Aucune correction de dominante.</small></span></label></fieldset>
+          <details class="qv2-advanced" hidden><summary>Réglages avancés</summary><label>CFG<input id="mv2-cfg" disabled type="number" min="1" max="10" step="0.1"></label><label id="mv2-negative-wrap">Prompt négatif<textarea id="mv2-negative" disabled rows="2" maxlength="12000"></textarea></label></details>
+        </details>
+        <div class="qv2-render-actions"><button id="mv2-render" class="primary" type="button">Lancer un rendu Minimax</button><button id="mv2-cancel" type="button">Annuler</button></div>
+      </section>
+
+      <section id="mv2-attempts-section" class="history qv2-attempts" hidden>
+        <div class="result-head"><div><small>ESSAIS</small><h2>Historique de cette étape</h2></div><span id="mv2-attempt-count" class="muted"></span></div>
+        <p id="mv2-attempts-empty" class="muted">Les résultats apparaîtront ici.</p><div id="mv2-attempts"></div>
+      </section>
+    </div>
+    <input id="mv2-attachment-files" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+  </main>
+  <dialog id="mv2-dialog" class="qv2-dialog"><div class="qv2-dialog-head"><h2 id="mv2-dialog-title"></h2><button id="mv2-dialog-close" type="button" aria-label="Fermer">×</button></div><div id="mv2-dialog-body"></div></dialog>
   <main id="krea2-edit-lab-workspace" class="krea2-edit-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button class="active" type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
       <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
     </nav>
 
     <aside class="controls krea2-edit-controls">

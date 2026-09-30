@@ -102,6 +102,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   min-height: 64px; padding: .6rem clamp(1rem, 3vw, 2.5rem);
   border-bottom: 1px solid var(--line); background: #fcfbf8e8; backdrop-filter: blur(12px);
 }
+.brand-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem .7rem; }
+.network-mode { display: inline-flex; align-items: center; padding: .25rem .5rem; border: 1px solid #bfd3c8; border-radius: 6px; background: #eaf2ed; color: var(--green); font-size: .64rem; font-weight: 700; line-height: 1.15; letter-spacing: .025em; white-space: nowrap; }
+.network-mode[hidden] { display: none; }
+.network-mode[data-mode="tailscale"] { color: #5a576c; border-color: #d6d2df; background: #eeecf2; }
 .brand { display: flex; gap: .65rem; align-items: center; color: inherit; font-weight: 750; text-decoration: none; }
 .brand > b { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; color: white; background: var(--ink); font-size: .7rem; }
 .brand small { margin-left: .25rem; color: var(--green); font-size: .65rem; letter-spacing: .1em; text-transform: uppercase; }
@@ -1192,7 +1196,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .krea2-batch-revision-language { margin: .25rem 0 .55rem; }
 .krea2-assisted-recipe-panel > summary { display: flex; cursor: pointer; justify-content: space-between; gap: .5rem; }
 .krea2-assisted-recipe-panel textarea { margin-top: .55rem; }
-.krea2-assisted-gallery-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.krea2-assisted-gallery-section { scroll-margin-top: 100px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .krea2-assisted-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: .7rem; margin-top: .7rem; align-items: start; }
 .krea2-assisted-gallery > figure, .krea2-assisted-attempt { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #f8f6f1; }
 .krea2-assisted-gallery figure { min-width: 0; margin: 0; }

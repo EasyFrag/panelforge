@@ -1,15 +1,20 @@
 (() => {
   "use strict";
+function mountEditWorkshop({engine, idPrefix, label, modelName, shortName, publicName}) {
+  const viewId = `${engine}-edit-lab`;
+  const cfgEnabled = engine === "qwen";
+  const renderAfterPrompt = engine === "minimax";
+  const storageKey = `panelforge.${engine}.last-project`;
 
-  const workspace = document.getElementById("qwen-edit-lab-workspace");
+  const workspace = document.getElementById(`${viewId}-workspace`);
   if (!workspace) return;
 
-  const $ = id => document.getElementById(`qv2-${id}`);
-  const api = "/api/image-lab/qwen-edit";
+  const $ = id => document.getElementById(`${idPrefix}-${id}`);
+  const api = `/api/image-lab/${engine}-edit`;
   const activeStatuses = new Set(["queued", "submitting", "running", "cancel_pending"]);
   const imageTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
   const state = {
-    project: null, stageId: null, projects: [], models: [], selectedOutput: null, beforeId: null,
+    project: null, stageId: null, projects: [], models: [], defaultModelId: "", selectedOutput: null, beforeId: null,
     view: "compare", attachmentUsage: "assistant", pending: {}, saving: null, saveTimer: null,
     promptDraft: null, busy: false, initialized: null, pollTimer: null,
   };
@@ -19,7 +24,7 @@
     commands: [], active: null, tool: "paint", frame: null,
   };
   const statusLabels = {
-    queued: "◷ Planifié", submitting: "● Envoi à Qwen", running: "● Rendu en cours",
+    queued: "◷ Planifié", submitting: `● Envoi à ${label}`, running: "● Rendu en cours",
     cancel_pending: "● Annulation à vérifier", succeeded: "✓ Terminé",
     failed: "✕ Erreur", cancelled: "— Annulé",
   };
@@ -179,7 +184,7 @@
     });
     resetGuide();
     apply(project, {selectActive: true});
-    try { localStorage.setItem("panelforge.qwen.last-project", project.id); } catch (_) { /* Optional. */ }
+    try { localStorage.setItem(storageKey, project.id); } catch (_) { /* Optional. */ }
   }
 
   function renderProjectCards() {
@@ -209,9 +214,12 @@
 
   function renderModels() {
     const select = $("model");
-    const current = stage()?.model_id || select.value;
+    const current = stage()?.model_id || select.value || state.defaultModelId;
     if (window.PanelForgeModelPicker) {
       window.PanelForgeModelPicker.populate(select, state.models, current);
+      if (renderAfterPrompt && current && ![...select.options].some(option => option.value === current)) {
+        window.PanelForgeModelPicker.select(select, current);
+      }
       return;
     }
     select.replaceChildren(new Option("Choisir un modèle…", ""));
@@ -243,12 +251,12 @@
     setValue("resolution", current.settings.resolution, "settings");
     setValue("ratio", current.settings.aspect_ratio, "settings");
     setValue("steps", current.settings.steps, "settings");
-    setValue("cfg", current.settings.cfg, "settings");
+    if (cfgEnabled) setValue("cfg", current.settings.cfg, "settings");
     setValue("seed", current.settings.seed, "settings");
     if (!Object.hasOwn(state.pending, "settings")) {
       $("reuse-seed").checked = current.settings.reuse_seed;
-      $("negative").value = current.settings.negative_prompt;
-      workspace.querySelector(`input[name="qv2-color-finish"][value="${current.settings.color_finish || "natural"}"]`).checked = true;
+      $("negative").value = current.settings.negative_prompt || "";
+      workspace.querySelector(`input[name="${idPrefix}-color-finish"][value="${current.settings.color_finish || "natural"}"]`).checked = true;
     }
     if (state.promptDraft === null && document.activeElement !== $("prompt")) $("prompt").value = current.prompt;
     if (!Object.hasOwn(state.pending, "model_id") && current.model_id) {
@@ -257,19 +265,19 @@
     }
 
     $("title").textContent = `${project.name} · Étape ${current.index}`;
-    $("metadata").textContent = `${current.mode === "composition" ? "Composition" : "Source à modifier"} · ${current.render_dimensions.join(" × ")} px · Qwen Image 2.1`;
+    $("metadata").textContent = `${current.mode === "composition" ? "Composition" : "Source à modifier"} · ${current.render_dimensions.join(" × ")} px · ${modelName}`;
     $("download").href = `${api}/projects/${project.id}/download`;
     $("export-note").textContent = project.export_error ? `Export : ${project.export_error}`
       : project.export_path ? `Copie : ${project.export_path}` : "";
     $("ratio-wrap").hidden = current.mode !== "composition";
-    $("negative-wrap").hidden = Number(current.settings.cfg) === 1;
-    $("settings-summary").textContent = `Qwen 2.1 · ${current.settings.color_finish === "raw" ? "couleurs brutes" : "harmonisation source"}`;
+    $("negative-wrap").hidden = !cfgEnabled || Number(current.settings.cfg) === 1;
+    $("settings-summary").textContent = `${shortName} · ${current.settings.color_finish === "raw" ? "couleurs brutes" : "harmonisation source"}`;
     $("guide-summary").textContent = current.guide ? "Guide visuel actif" : "Guide non défini";
     $("guide-summary").classList.toggle("ready", Boolean(current.guide));
     $("guide-dot").classList.toggle("ready", Boolean(current.guide));
     const activeReferences = current.references.filter(ref => ref.active);
     $("reference-summary").textContent = `${activeReferences.length} référence${activeReferences.length > 1 ? "s" : ""}`;
-    $("context-summary").firstElementChild.textContent = current.mode === "composition" ? "Composition" : "Source <image1>";
+    $("context-summary").firstElementChild.textContent = current.mode === "composition" ? "Composition" : `Source ${current.render_inputs[0]?.tag || ""}`;
     $("prompt-status").textContent = current.prompt_ready ? "Prêt" : current.prompt ? "À actualiser" : "À préparer";
     $("prompt-mapping").textContent = current.render_inputs.map(ref => `${ref.tag} ${ref.name}`).join(" · ");
     $("prompt-details").open = Boolean(current.prompt) && !current.prompt_ready;
@@ -376,10 +384,10 @@
     current.attempts.forEach((attempt, index) => {
       if (attempt.status !== "succeeded" || !attempt.output_asset_id) return;
       const finish = hasNaturalFinish(attempt) ? "harmonisé à la source"
-        : attempt.finish?.status === "fallback" ? "Qwen brut · harmonisation indisponible" : "Qwen";
+        : attempt.finish?.status === "fallback" ? `${label} brut · harmonisation indisponible` : `${label}`;
       after.add(new Option(`${attemptName(attempt, index)} · ${finish}`, `attempt:${attempt.id}`));
       if (attempt.raw_output_asset_id && attempt.raw_output_asset_id !== attempt.output_asset_id) {
-        after.add(new Option(`${attemptName(attempt, index)} · Qwen brut`, `raw:${attempt.id}`));
+        after.add(new Option(`${attemptName(attempt, index)} · ${label} brut`, `raw:${attempt.id}`));
       }
     });
     if (state.selectedOutput && [...after.options].some(option => option.value === state.selectedOutput)) after.value = state.selectedOutput;
@@ -390,11 +398,11 @@
     setImage($("after-image"), choice?.assetId);
     $("compare-placeholder").hidden = Boolean(choice?.assetId);
     $("compare-note").textContent = choice?.raw
-      ? "Version brute sortie de Qwen. La version à finition naturelle reste disponible dans la liste."
+      ? `Version brute sortie de ${label}. La version à finition naturelle reste disponible dans la liste.`
       : choice?.attempt?.finish_error
-        ? `Rendu Qwen conservé brut : l’harmonisation locale n’a pas pu être appliquée (${choice.attempt.finish_error}).`
+        ? `Rendu ${label} conservé brut : l’harmonisation locale n’a pas pu être appliquée (${choice.attempt.finish_error}).`
       : hasNaturalFinish(choice?.attempt)
-        ? "Harmonisé avec la source : la dominante est rapprochée doucement, sans masquer le brut Qwen archivé."
+        ? `Harmonisé avec la source : la dominante est rapprochée doucement, sans masquer le brut ${label} archivé.`
         : "";
   }
 
@@ -420,6 +428,9 @@
         : message.status === "running" ? "L’assistant rédige le prompt…"
           : message.error || "Aucune réponse.");
       card.append(element("div", "assistant", response));
+      if (message.auto_render?.error) {
+        card.append(element("p", "error", message.auto_render.error));
+      }
       const footer = element("footer");
       footer.append(element("span", "", message.model_id || "Assistant"));
       if (message.has_draft || message.has_reasoning || message.error) {
@@ -445,7 +456,7 @@
       image.alt = ref.name;
       const copy = element("div");
       copy.append(element("b", "", ref.name),
-        element("small", "", ref.usage === "render" ? "Assistant + Qwen" : "Assistant uniquement"),
+        element("small", "", ref.usage === "render" ? `Assistant + ${label}` : "Assistant uniquement"),
         actionButton("Usage et rôle", () => editReference(ref)));
       card.append(image, copy);
       list.append(card);
@@ -501,7 +512,7 @@
       }
       if (attempt.output_asset_id && window.PanelForgeDlss) {
         copy.append(window.PanelForgeDlss.inlineStatus({
-          owner: "qwen", ownerId: state.project.id,
+          owner: engine, ownerId: state.project.id,
           attempt: {attempt_id: attempt.id, dlss: attempt.dlss || null},
         }));
       }
@@ -533,11 +544,12 @@
     window.PanelForgeModelPicker?.setDisabled($("model"), !canEdit || Boolean(activeMessage));
     $("send").disabled = !canEdit || guide.commands.length > 0
       || !$("draft").value.trim() || !$("model").value
-      || Boolean(activeMessage) || state.promptDraft !== null;
-    $("prompt").disabled = !canEdit;
-    $("save-prompt").disabled = !canEdit || !$("prompt").value.trim() || state.promptDraft === null;
+      || Boolean(activeMessage) || state.promptDraft !== null
+      || (renderAfterPrompt && (Boolean(activeAttempt) || $("model").selectedOptions[0]?.dataset.missing === "true"));
+    $("prompt").disabled = !canEdit || (renderAfterPrompt && Boolean(activeMessage));
+    $("save-prompt").disabled = $("prompt").disabled || !$("prompt").value.trim() || state.promptDraft === null;
     $("render").textContent = guide.commands.length
-      ? "Enregistre le guide avant le rendu" : "Lancer un rendu Qwen";
+      ? "Enregistre le guide avant le rendu" : `Lancer un rendu ${label}`;
     $("render").disabled = !canEdit || locked || guide.commands.length > 0 || !current.prompt_ready
       || Boolean(current.draft.trim()) || state.promptDraft !== null;
     $("cancel").disabled = !activeAttempt || state.busy;
@@ -554,7 +566,7 @@
     $("zoom-before").disabled = !state.beforeId;
     $("zoom-after").disabled = !choice?.assetId;
     $("feedback-wrap").hidden = !choice?.attempt || choice.raw || choice.attempt.status !== "succeeded";
-    $("feedback").disabled = !canEdit;
+    $("feedback").disabled = !canEdit || (renderAfterPrompt && Boolean(activeMessage));
     $("show-guide").disabled = !current.source_asset_id;
     $("guide-save").disabled = !canEdit || locked || !guide.commands.length || !guide.source;
     $("guide-remove").disabled = !canEdit || locked || !current.guide;
@@ -565,9 +577,9 @@
     }
     for (const id of ["resolution", "ratio", "steps", "cfg", "seed", "reuse-seed", "negative",
       "new-seed", "add-render", "add-assistant", "reuse"]) {
-      $(id).disabled = !canEdit || locked;
+      $(id).disabled = !canEdit || locked || (!cfgEnabled && ["cfg", "negative"].includes(id));
     }
-    workspace.querySelectorAll('input[name="qv2-color-finish"]').forEach(control => {
+    workspace.querySelectorAll(`input[name="${idPrefix}-color-finish"]`).forEach(control => {
       control.disabled = !canEdit || locked;
     });
     $("upload").disabled = state.busy;
@@ -609,7 +621,7 @@
       const {message: full} = await request(`${stageUrl()}/messages/${message.id}`);
       openDialog("Réponse complète de l’assistant", body => {
         body.append(element("p", "muted",
-          `${full.model_id} · ${full.context?.render_inputs?.length || 0} image(s) envoyée(s) à Qwen`));
+          `${full.model_id} · ${full.context?.render_inputs?.length || 0} image(s) envoyée(s) à ${label}`));
         body.append(element("h3", "", "Réponse reçue"), element("pre", "", full.raw || "Aucun texte reçu."));
         if (full.reasoning) {
           const details = element("details");
@@ -649,7 +661,7 @@
       roleLabel.append(role);
       const usageLabel = element("label", "", "Utilisation");
       const usage = element("select");
-      usage.append(new Option("Assistant uniquement", "assistant"), new Option("Assistant + Qwen", "render"));
+      usage.append(new Option("Assistant uniquement", "assistant"), new Option(`Assistant + ${label}`, "render"));
       usage.value = ref.usage;
       usageLabel.append(usage);
       const actions = element("div", "qv2-dialog-actions");
@@ -672,7 +684,7 @@
       for (const control of [name, role, usage]) control.disabled = !editable();
       body.append(image, nameLabel, roleLabel, usageLabel,
         element("p", "muted",
-          "L’assistant peut comprendre @nom. Une référence Qwen est aussi injectée dans le workflow de génération."),
+          `L’assistant peut comprendre @nom. Une référence ${label} est aussi injectée dans le workflow de génération.`),
         actions);
     });
   }
@@ -699,8 +711,8 @@
         image.src = media(ref.asset_id);
         image.alt = ref.name;
         row.append(image, element("b", "", ref.name));
-        for (const [usage, label] of [["assistant", "Assistant"], ["render", "Assistant + Qwen"]]) {
-          row.append(actionButton(label, () => run(async () => {
+        for (const [usage, optionLabel] of [["assistant", "Assistant"], ["render", `Assistant + ${label}`]]) {
+          row.append(actionButton(optionLabel, () => run(async () => {
             const existing = stage().references.find(item => item.id === ref.id);
             if (existing) await saveReference(ref.id, {usage, active: true});
             else {
@@ -756,7 +768,7 @@
     apply(project, {selectActive: true});
     await refreshProjects();
     if (!stage().model_id && $("model").value) queueChanges({model_id: $("model").value});
-    try { localStorage.setItem("panelforge.qwen.last-project", project.id); } catch (_) { /* Optional. */ }
+    try { localStorage.setItem(storageKey, project.id); } catch (_) { /* Optional. */ }
   }
 
   function readSettings() {
@@ -764,11 +776,10 @@
       resolution: $("resolution").value,
       aspect_ratio: $("ratio").value,
       steps: Number($("steps").value),
-      cfg: Number($("cfg").value),
+      ...(cfgEnabled ? {cfg: Number($("cfg").value), negative_prompt: $("negative").value} : {}),
       seed: $("seed").value.trim(),
       reuse_seed: $("reuse-seed").checked,
-      negative_prompt: $("negative").value,
-      color_finish: workspace.querySelector('input[name="qv2-color-finish"]:checked')?.value || "natural",
+      color_finish: workspace.querySelector(`input[name="${idPrefix}-color-finish"]:checked`)?.value || "natural",
     };
   }
 
@@ -798,7 +809,7 @@
   function openDlss(attempt) {
     if (!window.PanelForgeDlss) return fail(new Error("L’outil DLSS n’est pas chargé."));
     window.PanelForgeDlss.open({
-      owner: "qwen",
+      owner: engine,
       ownerId: state.project.id,
       attempt: {
         attempt_id: attempt.id, output_url: media(attempt.output_asset_id),
@@ -1138,10 +1149,11 @@
       ]);
       state.projects = projects.projects || [];
       state.models = models.models || [];
+      state.defaultModelId = models.default_model_id || "";
       renderProjectCards();
       renderModels();
       let preferred = null;
-      try { preferred = localStorage.getItem("panelforge.qwen.last-project"); } catch (_) { /* Optional. */ }
+      try { preferred = localStorage.getItem(storageKey); } catch (_) { /* Optional. */ }
       const first = state.projects.find(item => item.id === preferred) || state.projects[0];
       if (first) await openProject(first.id);
       if (!state.pollTimer) state.pollTimer = setInterval(poll, 2200);
@@ -1186,6 +1198,7 @@
     await refreshProjects();
     const models = await request(`${api}/models`);
     state.models = models.models || [];
+    state.defaultModelId = models.default_model_id || "";
     renderModels();
     if (state.project) apply((await request(`${api}/projects/${state.project.id}`)).project);
   }, {sidebar: true}));
@@ -1203,13 +1216,13 @@
   for (const id of ["resolution", "ratio", "steps", "cfg", "seed", "reuse-seed", "negative"]) {
     $(id).addEventListener("change", () => {
       queueChanges({settings: readSettings()});
-      $("negative-wrap").hidden = Number($("cfg").value) === 1;
+      $("negative-wrap").hidden = !cfgEnabled || Number($("cfg").value) === 1;
     });
   }
-  workspace.querySelectorAll('input[name="qv2-color-finish"]').forEach(control =>
+  workspace.querySelectorAll(`input[name="${idPrefix}-color-finish"]`).forEach(control =>
     control.addEventListener("change", () => {
       queueChanges({settings: readSettings()});
-      $("settings-summary").textContent = `Qwen 2.1 · ${control.value === "raw" ? "couleurs brutes" : "harmonisation source"}`;
+      $("settings-summary").textContent = `${shortName} · ${control.value === "raw" ? "couleurs brutes" : "harmonisation source"}`;
     }));
   $("new-seed").addEventListener("click", () => {
     const seed = new Uint32Array(2);
@@ -1229,7 +1242,7 @@
   }));
   $("send").addEventListener("click", () => run(async () => {
     if (state.promptDraft !== null) {
-      throw new Error("Enregistre d’abord le prompt Qwen que tu as modifié.");
+      throw new Error(`Enregistre d’abord le prompt ${label} que tu as modifié.`);
     }
     if (!stage().model_id && $("model").value) {
       queueChanges({model_id: $("model").value});
@@ -1293,7 +1306,7 @@
   });
   $("zoom-before").addEventListener("click", () => zoomAsset(state.beforeId, "Image avant"));
   $("zoom-after").addEventListener("click", () =>
-    zoomAsset(outputChoice()?.assetId, outputChoice()?.raw ? "Qwen brut" : "Résultat"));
+    zoomAsset(outputChoice()?.assetId, outputChoice()?.raw ? `${label} brut` : "Résultat"));
   $("crop").addEventListener("click", () => run(cropSource));
   $("dlss").addEventListener("click", () => {
     const choice = outputChoice();
@@ -1360,7 +1373,7 @@
 
   window.addEventListener("panelforge:dlss-complete", async event => {
     const job = event.detail;
-    if (job?.snapshot?.owner !== "qwen" || job.snapshot.owner_id !== state.project?.id) return;
+    if (job?.snapshot?.owner !== engine || job.snapshot.owner_id !== state.project?.id) return;
     try {
       if (job.candidate_id) state.selectedOutput = `attempt:${job.candidate_id}`;
       apply((await request(`${api}/projects/${state.project.id}`)).project);
@@ -1377,16 +1390,16 @@
     }
   });
 
-  window.PanelForgeQwenEdit = {
+  window[publicName] = {
     open: async projectId => {
       await init();
       if (projectId) await openProject(projectId);
-      window.PanelForgeLabNavigation.switchView("qwen-edit-lab");
+      window.PanelForgeLabNavigation.switchView(viewId);
     },
   };
-  document.querySelectorAll('[data-image-lab-mode="qwen-edit-lab"]').forEach(control =>
+  document.querySelectorAll(`[data-image-lab-mode="${viewId}"]`).forEach(control =>
     control.addEventListener("click", () => {
-      window.PanelForgeLabNavigation.switchView("qwen-edit-lab");
+      window.PanelForgeLabNavigation.switchView(viewId);
       init().catch(error => fail(error, true));
     }));
   document.querySelectorAll("[data-image-lab-mode],[data-lab-view]").forEach(control =>
@@ -1394,4 +1407,10 @@
       if (state.project) flush().catch(fail);
     }));
   if (!workspace.hidden) init().catch(error => fail(error, true));
+}
+
+mountEditWorkshop({engine: "qwen", idPrefix: "qv2", label: "Qwen",
+  modelName: "Qwen Image 2.1", shortName: "Qwen 2.1", publicName: "PanelForgeQwenEdit"});
+mountEditWorkshop({engine: "minimax", idPrefix: "mv2", label: "Minimax",
+  modelName: "Minimax H3 Still", shortName: "Minimax H3", publicName: "PanelForgeMinimaxEdit"});
 })();

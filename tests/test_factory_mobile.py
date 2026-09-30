@@ -67,14 +67,33 @@ class MobileViewTest(unittest.TestCase):
         self.assertEqual(result["work"][0]["name"], item["name"])
         self.assertEqual(result["machines"][1]["temperature_c"], 60)
 
-    def test_media_prefers_ready_dlss_then_falls_back_to_raw_video(self):
+    def test_mobile_media_remains_raw_after_dlss_finishes(self):
         _, _, _, item = fixture()
         self.assertIsNone(media_asset(item, "video"))
         item["steps"]["video"].update(status="succeeded", output={"asset_id": "raw"})
         self.assertEqual(media_asset(item, "video"), "raw")
         item["steps"]["dlss"].update(status="succeeded", output={"asset_id": "upscaled"})
-        self.assertEqual(media_asset(item, "video"), "upscaled")
+        self.assertEqual(media_asset(item, "video"), "raw")
         self.assertIsNone(media_asset(item, "../private"))
+
+
+    def test_dlss_only_result_remains_visible_without_a_mobile_playback_url(self):
+        _, state, machines, item = fixture()
+        item["steps"]["video"].update(status="succeeded", output={"asset_id": "raw"})
+        item["steps"]["dlss"].update(status="succeeded", output={"asset_id": "upscaled"})
+        before = deepcopy(state)
+        result = mobile_view(state, machines, NOW)
+        self.assertEqual(result["results"][0]["quality"], "Vidéo brute")
+        self.assertEqual(result["results"][0]["video_url"], f"/api/items/{item['id']}/video")
+        self.assertEqual(state, before)
+        item["steps"]["video"]["output"] = None
+        result = mobile_view(state, machines, NOW)
+        self.assertEqual(result["result_total"], 1)
+        self.assertEqual(result["results"][0]["id"], item["id"])
+        self.assertIsNone(result["results"][0]["video_url"])
+        self.assertIsNone(media_asset(item, "video"))
+        item["steps"]["video"].update(status="running", output={"asset_id": "old-raw"})
+        self.assertIsNone(media_asset(item, "video"))
 
     def test_stale_telemetry_keeps_estimate_but_suppresses_end_and_thermal_alerts(self):
         _, state, machines, _ = fixture()
@@ -281,17 +300,41 @@ class MobileHttpTest(unittest.TestCase):
         self.factory.adapter.assets.get.assert_not_called()
         self.assertEqual(self.client.post("/api/commands/remove", json={}, headers=self.headers).status_code, 422)
 
-    def test_ranges_stream_only_a_factory_video_and_unknown_kinds_are_rejected(self):
+    def test_ranges_stream_raw_bytes_even_when_dlss_is_available(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "video.bin";path.write_bytes(b"0123456789")
+            upscaled = Path(directory) / "dlss.bin";upscaled.write_bytes(b"DLSS-LARGE")
             self.item["steps"]["video"].update(status="succeeded", output={"asset_id": "raw"})
+            self.item["steps"]["dlss"].update(status="succeeded", output={"asset_id": "upscaled"})
             assets = self.factory.adapter.assets
             assets.get.return_value = SimpleNamespace(media_type="video/mp4")
-            assets.verified_path.return_value = path
+            assets.verified_path.side_effect = lambda identity: {"raw": path, "upscaled": upscaled}[identity]
             response = self.client.get(f"/api/items/{self.item['id']}/video", headers={"Range": "bytes=2-5"})
             self.assertEqual(response.status_code, 206)
             self.assertEqual(response.content, b"2345")
+            assets.get.assert_called_once_with("raw")
+            assets.verified_path.assert_called_once_with("raw")
             self.assertEqual(self.client.get(f"/api/items/{self.item['id']}/private").status_code, 404)
+
+
+    def test_missing_raw_file_never_reads_the_available_dlss_file(self):
+        with TemporaryDirectory() as directory:
+            upscaled = Path(directory) / "upscaled.mp4"
+            upscaled.write_bytes(b"large-dlss-file")
+            self.item["steps"]["video"].update(status="succeeded", output={"asset_id": "raw"})
+            self.item["steps"]["dlss"].update(status="succeeded", output={"asset_id": "upscaled"})
+            assets = self.factory.adapter.assets
+            assets.get.return_value = SimpleNamespace(media_type="video/mp4")
+            def verified(identity):
+                if identity == "raw":
+                    raise FileNotFoundError("missing raw video")
+                return upscaled
+            assets.verified_path.side_effect = verified
+            response = self.client.get(f"/api/items/{self.item['id']}/video")
+            self.assertEqual(response.status_code, 404)
+            assets.get.assert_called_once_with("raw")
+            assets.verified_path.assert_called_once_with("raw")
+            self.factory.action.assert_not_called()
 
     def test_pwa_assets_and_notification_validation(self):
         self.assertEqual(self.client.get("/").status_code, 200)
@@ -302,6 +345,65 @@ class MobileHttpTest(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         response = self.client.get("/api/state", headers={"Host": "attacker.example"})
         self.assertEqual(response.status_code, 403)
+
+
+
+class MobileThermalHistoryTest(unittest.TestCase):
+    def sample(self, offset, temperature):
+        return dict(timestamp=datetime.fromtimestamp(NOW + offset, UTC).isoformat(),
+                    max_temperature_c=temperature)
+
+    def test_six_hour_projection_preserves_peaks_gaps_and_does_not_expose_events(self):
+        from panelforge.domain.factory_mobile import mobile_thermal_history
+        raw = dict(bucket_seconds=15, error="C:/private/log", events=[{"operation": "secret prompt"}],
+                   series=dict(remote_gpu=[
+                       self.sample(-21615, 99), self.sample(-21600, 40),
+                       self.sample(-120, 55), self.sample(-120, 96),
+                       self.sample(-60, 27), self.sample(0, 84), self.sample(15, 100)],
+                       local_gpu=[self.sample(-600, 42), self.sample(0, 38)]))
+        before = deepcopy(raw)
+        result = mobile_thermal_history(raw, NOW)
+        self.assertEqual(result["window_seconds"], 21600)
+        self.assertEqual(result["start_at"], NOW - 21600)
+        self.assertEqual([m["id"] for m in result["machines"]], ["remote_gpu", "local_gpu"])
+        self.assertEqual(result["machines"][0]["points"],
+                         [[NOW - 21600, 40], [NOW - 120, 96], [NOW - 60, 27], [NOW, 84]])
+        self.assertEqual(result["machines"][1]["points"], [[NOW - 600, 42], [NOW, 38]])
+        self.assertTrue(result["warning"])
+        self.assertNotIn("C:/private", json.dumps(result))
+        self.assertNotIn("secret prompt", json.dumps(result))
+        self.assertEqual(raw, before)
+
+    def test_invalid_values_are_omitted_without_inventing_measurements(self):
+        from panelforge.domain.factory_mobile import mobile_thermal_history
+        points = [self.sample(-15, value) for value in (None, True, float("nan"), float("inf"), -1, 151)]
+        points += [dict(timestamp="invalid", max_temperature_c=84), self.sample(0, 84)]
+        result = mobile_thermal_history(dict(series=dict(remote_gpu=points)), NOW)
+        self.assertEqual(result["machines"][0]["points"], [[NOW, 84]])
+        self.assertEqual(result["machines"][1]["points"], [])
+        self.assertEqual(result["bucket_seconds"], 15)
+
+    def test_mobile_history_is_read_only_and_independent_of_factory_snapshot(self):
+        factory, _, _, _ = fixture()
+        history = Mock(return_value=dict(series=dict(remote_gpu=[self.sample(0, 84)])))
+        service = FactoryMobile(factory, MobileStore(), Sender(), clock=lambda: NOW, thermal_history=history)
+        with TestClient(create_mobile_app(service)) as client:
+            response = client.get("/api/thermal-history", headers={"Host": "localhost"})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["machines"][0]["points"], [[NOW, 84]])
+            self.assertEqual(client.get("/thermal.js", headers={"Host": "localhost"}).status_code, 200)
+        history.assert_called_once_with()
+        factory.snapshot.assert_not_called()
+        factory.action.assert_not_called()
+
+    def test_missing_or_failing_history_has_a_safe_mobile_message(self):
+        factory, _, _, _ = fixture()
+        for provider in (None, Mock(side_effect=OSError("private filesystem error"))):
+            service = FactoryMobile(factory, MobileStore(), Sender(), clock=lambda: NOW, thermal_history=provider)
+            value = service.thermal_history()
+            self.assertFalse(value["available"])
+            self.assertNotIn("private", json.dumps(value))
+        factory.snapshot.assert_not_called()
 
 
 if __name__ == "__main__":

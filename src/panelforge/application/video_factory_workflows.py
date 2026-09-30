@@ -16,8 +16,9 @@ from panelforge.domain.video_preparation import (
 from panelforge.domain.h3_bunny import H3BunnySettings, bunny_geometry
 from panelforge.domain.h3_render import H3VideoLoraStack
 from panelforge.domain.h3_render import derive_h3_render_input_mode
+from panelforge.domain.worker_visual_policy import WorkerVisualPolicy
 from panelforge.domain.prompt_composition import PreparationIntent
-from panelforge.domain.localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, STABLE_THANKS_LANGUAGES
+from panelforge.domain.localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, STABLE_THANKS_LANGUAGES
 from panelforge.domain.video_factory import is_experimental_little_men
 from panelforge.domain.prompt_writer import supports_writer_model
 from panelforge.domain.dlss import DlssSettings, dlss_progress_ratio
@@ -164,6 +165,8 @@ class FactoryWorkflows:
                 config["shot_count"] = value.shot_count
         intent = composition.preparation_intent if composition else None
         if intent:
+            if intent.worker_visual_policy:
+                config["worker_visual_policy"] = intent.worker_visual_policy.as_dict()
             config.update(intention=intent.source_text, creative_freedom=intent.creative_freedom,
                           creative_axes=asdict(intent.creative_axes) if intent.creative_axes else config["creative_axes"],
                           creative_audacity=intent.creative_audacity)
@@ -381,13 +384,14 @@ class FactoryWorkflows:
         localized = is_experimental_little_men(config)
         language = config.get("little_men_language", "auto")
         selection = runtime.get("thanks_selection") if localized else None
-        policy = ({2: LOCALIZED_THANKS_V2, 3: LOCALIZED_THANKS_V3}.get(
+        policy = ({2: LOCALIZED_THANKS_V2, 3: LOCALIZED_THANKS_V3, 4: LOCALIZED_THANKS_V4}.get(
             selection.get("version") if selection else None, LOCALIZED_THANKS_V1)
             if localized else None)
         requested = selection.get("requested_language") if selection else (
             language if localized and language != "auto" else None)
         intent = PreparationIntent(source_text=preparation_text(config, thanks_selection=selection),
                                   speech_policy=policy, speech_language=requested,
+                                  worker_visual_policy=WorkerVisualPolicy.from_dict(config.get("worker_visual_policy")),
                                   creative_axes=CreativeFreedomAxes(**config["creative_axes"]),
                                   creative_audacity=config["creative_audacity"],
                                   creative_freedom=config["creative_freedom"])
@@ -424,7 +428,7 @@ class FactoryWorkflows:
             self.composition.approve(session.session_id, stage)
         document = self.composition.get(session.session_id).document(CompositionStage.BEAT_SHEET)
         selection = item["runtime"].get("thanks_selection")
-        if selection and selection.get("version") in (2, 3) and document.active_revision:
+        if selection and selection.get("version") in (2, 3, 4) and document.active_revision:
             plan = json.loads(document.active_revision.content)
             languages = plan.get("spoken_languages", [])
             if len(languages) != 1 or languages[0] not in STABLE_THANKS_LANGUAGES:
