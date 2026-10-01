@@ -134,11 +134,13 @@ class ImageJourneyService:
             if 'protection' in step:
                 step['protection'].pop('raw', None)
         result.update(generated=policy.generated(project), transitions_available=self.transitions is not None,
-                      transferable_images=len(policy.sequence(project)["frames"]))
+                      transferable_images=len(policy.sequence(project)["frames"]),
+                      transferable_frame_ids=policy.transferable_frame_ids(project))
         return result
 
-    def create(self, *, command, content, intention, count, progression_model_id, prompt_model_id, auto_mask=True):
-        config = policy.configuration(intention, count, progression_model_id, prompt_model_id)
+    def create(self, *, command, content, intention, count, progression_model_id, prompt_model_id,
+               auto_mask=False, mask_model_id=None):
+        config = policy.configuration(intention, count, progression_model_id, prompt_model_id, mask_model_id)
         if type(auto_mask) is not bool:
             raise ValueError('Le réglage du masque automatique doit être un booléen.')
         config['auto_mask'] = auto_mask
@@ -178,7 +180,7 @@ class ImageJourneyService:
         self._wake.set()
         return project
 
-    def resume(self, identity, *, version, command, intention, progression_model_id, prompt_model_id):
+    def resume(self, identity, *, version, command, intention, progression_model_id, prompt_model_id, mask_model_id=None):
         policy.request_id(command)
         with self._lock:
             project = self._load(identity)
@@ -190,7 +192,7 @@ class ImageJourneyService:
             from panelforge.domain.image_journey_edits import pending
             if pending(project, sequence_only=True):
                 raise JourneyConflict('Termine ou abandonne l’ajout en cours avant de reprendre le parcours.')
-            config = policy.configuration(intention, project["count"], progression_model_id, prompt_model_id)
+            config = policy.configuration(intention, project["count"], progression_model_id, prompt_model_id, mask_model_id)
             changed = project["intention"] != config["intention"]
             prompt_changed = project["prompt_model_id"] != config["prompt_model_id"]
             step = project["steps"][-1] if project["steps"] else None
@@ -222,12 +224,12 @@ class ImageJourneyService:
     def sequence(self, identity):
         return policy.sequence(self.get(identity))
 
-    def prepare_transitions(self, identity):
+    def prepare_transitions(self, identity, *, frame_ids=None):
         if self.transitions is None:
             raise ValueError("L’atelier de transitions n’est pas encore disponible.")
         with self._lock:
             project = self._load(identity)
-            sequence = policy.sequence(project)
+            sequence = policy.sequence(project, frame_ids)
             if len(sequence["frames"]) < 2:
                 raise ValueError("Une première image relue est nécessaire pour préparer les transitions.")
             key = policy.fingerprint(sequence)

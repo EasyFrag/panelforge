@@ -44,6 +44,12 @@ La nouvelle recette possède son schéma `actions`, ses consignes, ses exemples 
 
 Le réglage `cinematic_settings.shot_count` est distinct des réglages Combat. Il suit la session, les forks, le projet de rendu, ses révisions, la conversion H3 → REF2V et la reprise depuis une dernière frame. Une conversion conserve les phases dans leur plan. Le réglage Auto reste enregistré comme Auto, même lorsque le Plan a choisi un nombre précis. Aucun fichier d’atelier existant n’est migré au démarrage.
 
+Depuis le correctif du 30 septembre 2026, le contrôle caméra distingue les
+formulations de progression narrative (« the shot moves from urgent flood… »,
+« from the arrival of… ») des déplacements réels. Le texte du rythme reste
+intact dans le Plan et le Prompt ; les mouvements caméra hors directives
+structurées restent rejetés, y compris s’ils suivent une phrase narrative.
+
 ## Vérification et expérimentation
 
 Tests préparés dans `test_classic_cinematic.py` et `test_classic_cinematic_browser.py` : cinq modes d’entrée, Auto/priorité manuelle, 1/2/6 plans, durée, phases, références, paroles, deux appels avec réponses simulées, streaming, réouverture, fork, révisions, conversion, anciens schémas et isolation. Les suites Combat existantes couvrent également le compilateur partagé. Un inventaire de 591 empreintes protège les anciens prompts, profils et recettes. Les assertions de cache et de schéma existantes sont actualisées.

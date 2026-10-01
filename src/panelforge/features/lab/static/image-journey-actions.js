@@ -63,10 +63,10 @@
         if (selection.projectId !== bridge.project()?.id) return reset();
         const op = operations().find(op => op.id === selectedOperation);
         const active = op && !terminal(op), blocked = pending() || selection.kind !== "hq" && !editable();
-        $("operation-input").readOnly = !!active || busy;
-        $("operation-generate").hidden = !!active || !!op && selection.kind !== "hq";
+        $("operation-input").readOnly = !!active || busy || selection.kind === "hq";
+        $("operation-generate").hidden = selection.kind === "hq" || !!active || !!op;
         $("operation-generate").disabled = busy || blocked;
-        $("operation-generate").textContent = selection.kind === "hq" ? op ? "Nouveau test" : "Tester en HQ" : "Générer";
+        $("operation-generate").textContent = "Générer";
         $("operation-resume").hidden = op?.status !== "paused";
         $("operation-cancel").hidden = op?.status !== "paused";
         $("operation-resume").disabled = busy;
@@ -107,11 +107,6 @@
           b.disabled = bridge.busy() || busy || !editable();
           b.title = editable() ? b.getAttribute("aria-label") : "Suspends le parcours et termine l’opération en cours pour ajouter une image";
         });
-        document.querySelectorAll("#ij-frieze [data-ij-hq]").forEach(b => {
-          const latest = operations().filter(op => op.kind === "hq" && op.after_frame_id === b.dataset.ijHq).at(-1);
-          b.textContent = latest ? latest.status === "completed" ? "Voir HQ" : "Essai HQ" : "HQ ×2";
-          b.disabled = bridge.busy() || busy || pending() && !latest;
-        });
         const rows = operations().filter(op => !terminal(op));
         const journal = $("operations");
         journal.hidden = !rows.length;
@@ -125,19 +120,16 @@
         paintDialog();
       }
       function card(frame, following, thumbnail) {
-        const card = document.createElement("div"), plus = document.createElement("button"), hq = document.createElement("button");
+        const card = document.createElement("div"), plus = document.createElement("button");
         card.className = "ij-card"; card.append(thumbnail);
         plus.type = "button"; plus.className = "ij-add"; plus.dataset.ijAdd = ""; plus.textContent = "+";
         plus.setAttribute("aria-label", following ? `Insérer une étape après ${frame.title}` : "Ajouter une étape à la fin");
         plus.onclick = () => open(following ? "insert" : "append", frame, following);
-        hq.type = "button"; hq.className = "ij-hq"; hq.dataset.ijHq = frame.key;
-        hq.setAttribute("aria-label", "Tester en HQ · " + frame.title);
-        hq.onclick = () => open("hq", frame, null, operations().filter(op => op.kind === "hq" && op.after_frame_id === frame.key).at(-1));
-        card.append(plus, hq); return card;
+        card.append(plus); return card;
       }
       async function submit(event) {
         event.preventDefault();
-        if (busy || !selection) return;
+        if (busy || !selection || selection.kind === "hq") return;
         const target = {...selection}, value = $("operation-input").value.trim();
         if (!value) return error(target.kind === "hq" ? "Renseigne le prompt MiniMax." : "Décris l’état souhaité.");
         busy = true; error(""); command ||= bridge.commandId(); paint();

@@ -13,7 +13,7 @@ from panelforge.application.video_factory_workflows import FactoryWorkflows
 from panelforge.application.vocal_policy import validate_speech
 from panelforge.domain import CompositionStage
 from panelforge.domain.little_men_direction import (
-    NEED_DIRECTIONS, SOLUTION_PLAN_POLICY, SOLUTION_PLAN_POLICY_V4, scene_need,
+    NEED_DIRECTIONS, SOLUTION_PLAN_POLICY, SOLUTION_PLAN_POLICY_V4, preparation_text_v3, scene_need,
 )
 from panelforge.domain.little_men_languages import make_selection
 from panelforge.domain.localized_speech import FIXED_THANKS, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4
@@ -88,6 +88,26 @@ class SceneNeedTest(unittest.TestCase):
 
 
 class NeedLifecycleTest(unittest.TestCase):
+    def test_existing_v4_needs_keep_locked_source_and_new_selections_use_current_goals(self):
+        for context, kind, marker, old_goal in (
+            ("Une inondation en ville", "flood", "flood_first_action",
+             "Évacuer l’eau hors de la zone protégée et montrer une baisse durable du niveau."),
+            ("Une sécheresse en ville", "drought", "drought_result",
+             "Apporter de l’eau pour soulager la sécheresse et rendre son bénéfice visible."),
+        ):
+            with self.subTest(kind=kind):
+                config = config_for(context)
+                selection = make_selection(config, kind)
+                old_selection = {key: value for key, value in selection.items() if key != marker}
+                old_source = config["intention"] + "\n\n" + old_goal
+                self.assertEqual(preparation_text(config, thanks_selection=old_selection),
+                                 preparation_text_v3(config, old_source, old_selection))
+                new_source = preparation_text(config, thanks_selection=selection)
+                self.assertIn(NEED_DIRECTIONS[kind], new_source)
+                self.assertNotEqual(new_source, preparation_text(config, thanks_selection=old_selection))
+                resolved = {**selection, "language": "French", "words": "Merci"}
+                self.assertEqual(preparation_text(config, thanks_selection=resolved), new_source)
+
     def test_old_v3_session_is_unchanged_and_duplicate_upgrades_only_default(self):
         for original_intent in (LITTLE_MEN_EXPERIMENTAL_INTENT_V3, "Sécheresse : mon idée personnalisée."):
             with self.subTest(custom=original_intent != LITTLE_MEN_EXPERIMENTAL_INTENT_V3):
@@ -122,6 +142,8 @@ class NeedLifecycleTest(unittest.TestCase):
         config["intention"] = LITTLE_MEN_EXPERIMENTAL_INTENT_V3
         item = new_item("Image", config, {}, "old")
         selection = {**make_selection(config, "old"), "version": 3}
+        selection.pop("flood_first_action")  # Fields absent in historical selections.
+        selection.pop("drought_result")
         item["runtime"].update(session_id="session", thanks_selection=selection)
         adapter._session(item, Mock(), lambda: False, Mock())
         intent = adapter.composition.configure.call_args.kwargs["preparation_intent"]
@@ -131,6 +153,8 @@ class NeedLifecycleTest(unittest.TestCase):
         item["config"] = apply_preset(before, "little_men_experimental", item["source_config"])
         invalidate(item, before)
         self.assertEqual(item["runtime"]["thanks_selection"]["version"], 4)
+        self.assertEqual(item["runtime"]["thanks_selection"]["flood_first_action"], "plunger")
+        self.assertEqual(item["runtime"]["thanks_selection"]["drought_result"], "lush_growth")
         self.assertEqual(item["runtime"]["thanks_selection"]["language"], selection["language"])
         self.assertIn(NEED_DIRECTIONS["drought"],
                       preparation_text(item["config"], thanks_selection=item["runtime"]["thanks_selection"]))
@@ -139,7 +163,8 @@ class NeedLifecycleTest(unittest.TestCase):
 class NeedRequestTest(unittest.TestCase):
     def test_plan_and_writer_receive_one_goal_with_frozen_language_and_short_policy(self):
         for context, kind, country in (("Sécheresse", "drought", "Pays : Japon"),
-                                       ("Un tsunami", "wave", ""), ("Un incendie", "fire", "")):
+                                       ("Un tsunami", "wave", ""), ("Une inondation", "flood", ""),
+                                       ("Un incendie", "fire", "")):
             with self.subTest(kind=kind), TemporaryDirectory() as directory:
                 config = config_for(context + "\n" + country)
                 selection = make_selection(config, "image")

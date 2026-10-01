@@ -11,7 +11,7 @@
     queueing:"Mise en file",rendering:"Génération",protecting:"Masque automatique et préservation du décor",reviewing:"Relecture",completed:"Terminé"};
   const states = {running:"En cours",pausing:"Suspension…",paused:"Suspendu",completed:"Terminé"};
   const state = {p:null, spec:null, projects:[], models:[], busy:false, polling:false, loading:null,
-    epoch:0, createCommand:null, resumeCommand:null, previewUrl:null, formDirty:false, galleryKey:""};
+    epoch:0, createCommand:null, resumeCommand:null, previewUrl:null, formDirty:false, galleryKey:"", excludedFrames:new Set()};
   const api = (path, method="GET", body) => core.request(apiRoot + path,
     {method, ...(body === undefined ? {} : {headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})});
   const endpoint = suffix => "/projects/" + encodeURIComponent(state.p.id) + suffix;
@@ -61,7 +61,7 @@
     $("auto-mask").disabled = state.busy || !!p;
     $("intention").readOnly = !editable;
     $("intention").disabled = state.busy;
-    for (const id of ["progression-model", "prompt-model"]) $(id).disabled = state.busy || !editable;
+    for (const id of ["progression-model", "prompt-model", "mask-model"]) $(id).disabled = state.busy || !editable;
     $("start").hidden = !!p;
     $("start").disabled = state.busy || !state.spec;
     $("resume").hidden = !p || p.status !== "paused";
@@ -71,8 +71,7 @@
     $("pause").textContent = p?.status === "pausing" ? "Suspension…" : "Suspendre";
     $("new").disabled = state.busy;
     $("projects").disabled = state.busy;
-    $("transitions").hidden = !p || p.transferable_images < 2 || !p.transitions_available;
-    $("transitions").disabled = state.busy;
+    paintSelection();
     actions.paint();
   }
   function frames() {
@@ -80,6 +79,48 @@
     return [{key:"source",asset_id:state.p.source_asset_id,title:"Départ",index:0},
       ...(state.p.ordered_steps || state.p.steps).filter(step => step.output_asset_id).map((step, index) => ({key:step.id,
         asset_id:step.output_asset_id,title:step.action.title,index:index + 1,step}))];
+  }
+  function availableFrameIds() {
+    if (!state.p) return [];
+    return state.p.transferable_frame_ids || frames().slice(0, state.p.transferable_images || 0).map(frame => frame.key);
+  }
+  function selectedFrameIds() {
+    const available = new Set(availableFrameIds());
+    return frames().filter(frame => available.has(frame.key) && !state.excludedFrames.has(frame.key)).map(frame => frame.key);
+  }
+  function restoreSelection(projectId) {
+    state.excludedFrames = new Set();
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(storageKey + ".excluded." + projectId) || "[]");
+      if (Array.isArray(saved)) state.excludedFrames = new Set(saved.filter(id => typeof id === "string"));
+    } catch (_) {}
+  }
+  function paintSelection() {
+    const available = new Set(availableFrameIds()), count = selectedFrameIds().length;
+    $("transitions").hidden = !state.p?.transitions_available;
+    $("transitions").disabled = state.busy || count < 2;
+    $("selection-count").hidden = $("transitions").hidden;
+    $("selection-count").textContent = `${count} image${count === 1 ? "" : "s"} sélectionnée${count === 1 ? "" : "s"}`
+      + (count < 2 ? " · 2 minimum" : ` · ${count - 1} transition${count === 2 ? "" : "s"}`);
+    $("frieze").querySelectorAll("[data-ij-select]").forEach(input => {
+      const ready = available.has(input.dataset.ijSelect);
+      input.checked = ready && !state.excludedFrames.has(input.dataset.ijSelect);
+      input.disabled = state.busy || !ready;
+      input.parentElement.title = ready ? input.getAttribute("aria-label") : "Image pas encore disponible pour les transitions";
+    });
+  }
+  function frameSelector(frame) {
+    const label = document.createElement("label"), input = document.createElement("input");
+    label.className = "ij-frame-select";
+    input.type = "checkbox"; input.dataset.ijSelect = frame.key;
+    input.setAttribute("aria-label", `Inclure ${frame.index ? "l’image " + frame.index + " · " : ""}${frame.title} dans les transitions`);
+    input.addEventListener("change", () => {
+      if (input.checked) state.excludedFrames.delete(frame.key); else state.excludedFrames.add(frame.key);
+      try { sessionStorage.setItem(storageKey + ".excluded." + state.p.id, JSON.stringify([...state.excludedFrames])); } catch (_) {}
+      hidePreview(); paintSelection();
+    });
+    label.append(input);
+    return label;
   }
   function showImage(frame) {
     hidePreview();
@@ -96,6 +137,9 @@
     $("detail-prompt").open = false;
     $("detail-models").textContent = frame.step
       ? `Progression : ${frame.step.review?.model_id || state.p.progression_model_id}\nPrompt MiniMax : ${frame.step.prompt_model_id}` : "";
+    if (frame.step?.protection?.model_id) {
+      $("detail-models").textContent += `\nAnalyse du masque : ${frame.step.protection.model_id}`;
+    }
     $("prompt-text").textContent = frame.step?.prompt || "";
     $("download").href = url;
     $("download").download = frame.filename || `parcours-${frame.index}.png`;
@@ -164,15 +208,21 @@
           : frame.step.review?.assessment === "unusable" ? "Progression bloquée" : frame.step.review ? "Image relue" : "À relire";
         button.append(img, title, note, zoomBadge());
         button.onclick = () => showImage(frame);
-        return actions.card(frame, entries[index + 1], button);
+        const card = actions.card(frame, entries[index + 1], button);
+        card.append(frameSelector(frame));
+        return card;
       }));
     }
     actions.paint();
+    paintSelection();
   }
   function accept(project, syncForm=false) {
     if (state.p?.id === project.id && state.p.version > project.version) return;
     // Set the initial fold only once; polling must respect subsequent user toggles.
-    if (state.p?.id !== project.id) $("setup").open = false;
+    if (state.p?.id !== project.id) {
+      $("setup").open = false;
+      restoreSelection(project.id);
+    }
     state.p = project;
     if (syncForm || !state.formDirty) {
       $("intention").value = project.intention;
@@ -182,6 +232,7 @@
       $("resolution").textContent = size ? `${size[0]} × ${size[1]} · ${project.render_profile?.settings?.steps || 18} passes` : "";
       fillModels($("progression-model"), project.progression_model_id);
       fillModels($("prompt-model"), project.prompt_model_id);
+      fillModels($("mask-model"), project.mask_model_id || project.progression_model_id);
       state.formDirty = false;
     }
     revokePreview();
@@ -205,7 +256,7 @@
     $("setup").open = true;
     hidePreview();
     state.epoch += 1;
-    state.p = null; state.formDirty = false; state.galleryKey = "";
+    state.p = null; state.formDirty = false; state.galleryKey = ""; state.excludedFrames = new Set();
     state.createCommand = null; state.resumeCommand = null;
     revokePreview();
     $("form").reset();
@@ -216,6 +267,7 @@
     $("source-preview").removeAttribute("src");
     fillModels($("progression-model"), state.spec?.default_model_id);
     fillModels($("prompt-model"), state.spec?.default_model_id);
+    fillModels($("mask-model"), state.spec?.default_mask_model_id || state.spec?.default_model_id);
     $("models").open = false; $("plan").open = false;
     try { sessionStorage.removeItem(storageKey); } catch (_) {}
     message(""); paintProjects(); paint();
@@ -244,6 +296,7 @@
       else $("model-note").textContent = "Catalogue des modèles indisponible. Le choix enregistré est conservé. " + results[2].reason.message;
       fillModels($("progression-model"), state.spec.default_model_id);
       fillModels($("prompt-model"), state.spec.default_model_id);
+      fillModels($("mask-model"), state.spec.default_mask_model_id || state.spec.default_model_id);
       paintProjects();
       let saved = null;
       try { saved = sessionStorage.getItem(storageKey); } catch (_) {}
@@ -343,7 +396,8 @@
         if (state.p.status !== "paused") return;
         state.resumeCommand ||= commandId();
         const response = await api(endpoint("/resume"), "POST", {version:state.p.version, command:state.resumeCommand,
-          intention:$("intention").value, progression_model_id:$("progression-model").value, prompt_model_id:$("prompt-model").value});
+          intention:$("intention").value, progression_model_id:$("progression-model").value,
+          prompt_model_id:$("prompt-model").value, mask_model_id:$("mask-model").value});
         state.resumeCommand = null; accept(response.project, true);
       } else {
         const file = $("source").files[0];
@@ -355,6 +409,7 @@
         body.append("intention", $("intention").value); body.append("count", $("count").value);
         body.append("progression_model_id", $("progression-model").value);
         body.append("prompt_model_id", $("prompt-model").value);
+        body.append("mask_model_id", $("mask-model").value);
         body.append("auto_mask", String($("auto-mask").checked));
         const response = await core.request(apiRoot + "/projects", {method:"POST",body});
         accept(response.project, true); state.createCommand = null;
@@ -369,7 +424,9 @@
     if (identity) run(() => open(identity)); else newJourney();
   };
   $("transitions").onclick = () => run(async () => {
-    const response = await api(endpoint("/transitions"), "POST");
+    const frameIds = selectedFrameIds();
+    if (frameIds.length < 2) throw new Error("Sélectionne au moins deux images.");
+    const response = await api(endpoint("/transitions"), "POST", {frame_ids:frameIds});
     if (window.PanelForgeImageTransitions?.open) await window.PanelForgeImageTransitions.open(response.project_id);
     else message("La frise est enregistrée dans l’atelier Transitions.");
   });

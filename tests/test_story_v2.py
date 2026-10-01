@@ -78,7 +78,7 @@ class StoryV2Test(unittest.TestCase):
         self.assertEqual(p["status"],"awaiting_review")
         self.assertEqual(len(p["script"]["summary"]),2)
         self.assertFalse(self.production.exported or self.production.started)
-        self.assertEqual([r.operation_id for r in self.gateway.requests],["story.v2.write@1.1.0","story.v2.review@1.1.0"])
+        self.assertEqual([r.operation_id for r in self.gateway.requests],["story.v2.write@1.2.0","story.v2.review@1.2.0"])
         self.service.approve(p["id"],p["version"])
         self.assertEqual(self.latest()["status"],"references_ready")
         self.assertFalse(self.production.started)

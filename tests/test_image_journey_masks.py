@@ -121,6 +121,40 @@ class JourneyProtectionTest(ImageJourneyFixture):
             mask = np.array(Image.open(BytesIO(self.assets.read_bytes(step['protection']['mask_asset_id']))))
             np.testing.assert_array_equal(output[mask == 0], before[mask == 0])
 
+    def test_independent_mask_model_survives_restart_and_does_not_replace_other_roles(self):
+        project = self.create_journey(count=1, auto_mask=True, mask_model_id=journey.DEFAULT_MASK_MODEL_ID)
+        self.journeys = self.new_service()
+        self.journeys.recover()
+        # An older client omitting this field must retain the persisted selection.
+        self.resume_journey()
+        result = self.until('completed')
+        self.assertEqual(result['mask_model_id'], journey.DEFAULT_MASK_MODEL_ID)
+        self.assertTrue(all(r.model_id == 'progression-vision' for r in self.progression_calls()))
+        other_calls = [r for r in self.gateway.requests if r not in self.progression_calls() + self.mask_calls()]
+        self.assertTrue(other_calls)
+        self.assertTrue(all(r.model_id == 'minimax-prompter' for r in other_calls))
+        self.assertEqual([r.model_id for r in self.mask_calls()], [journey.DEFAULT_MASK_MODEL_ID])
+        public = self.journeys.public(result)
+        self.assertEqual(public['steps'][0]['protection']['model_id'], journey.DEFAULT_MASK_MODEL_ID)
+        self.assertNotIn('raw', public['steps'][0]['protection'])
+        self.assertEqual(result['id'], project['id'])
+
+    def test_failed_analysis_can_switch_only_mask_model_and_keep_raw_render(self):
+        self.create_journey(count=1, auto_mask=True, mask_model_id='first-mask-model')
+        pending = self.until('protecting')['steps'][0]
+        self.gateway.bad_mask = True
+        self.journeys.advance(self.journey_id)
+        self.assertEqual(self.current_journey()['status'], 'paused')
+        self.gateway.bad_mask = False
+        self.resume_journey(mask_model_id=journey.DEFAULT_MASK_MODEL_ID)
+        result = self.until('completed')
+        self.assertEqual(result['progression_model_id'], 'progression-vision')
+        self.assertEqual(result['prompt_model_id'], 'minimax-prompter')
+        self.assertEqual(result['steps'][0]['id'], pending['id'])
+        self.assertEqual(result['steps'][0]['raw_output_asset_id'], pending['raw_output_asset_id'])
+        self.assertEqual(len(self.comfy.submitted), 1)
+        self.assertEqual([r.model_id for r in self.mask_calls()], ['first-mask-model', journey.DEFAULT_MASK_MODEL_ID])
+
     def test_raw_render_is_not_published_before_protection_and_review(self):
         self.create_journey(count=1, auto_mask=True)
         result = self.until('protecting')
@@ -151,7 +185,7 @@ class JourneyProtectionTest(ImageJourneyFixture):
         self.assertEqual(self.mask_calls()[-1].model_id, 'replacement-vision')
 
     def test_restart_after_localization_reuses_plan_and_raw_render(self):
-        self.create_journey(count=1, auto_mask=True)
+        self.create_journey(count=1, auto_mask=True, mask_model_id='original-mask-model')
         self.until('protecting')
         with patch.object(self.journeys.protection.compositor, 'compose', side_effect=OSError('disk unavailable')):
             self.journeys.advance(self.journey_id)
@@ -159,8 +193,10 @@ class JourneyProtectionTest(ImageJourneyFixture):
         self.assertTrue(self.current_journey()['steps'][0]['protection']['plan'])
         self.journeys = self.new_service()
         self.journeys.recover()
-        self.resume_journey()
-        self.until('completed')
+        self.resume_journey(mask_model_id=journey.DEFAULT_MASK_MODEL_ID)
+        result = self.until('completed')
+        self.assertEqual(result['mask_model_id'], journey.DEFAULT_MASK_MODEL_ID)
+        self.assertEqual(result['steps'][0]['protection']['model_id'], 'original-mask-model')
         self.assertEqual(len(self.mask_calls()), 1)
         self.assertEqual(len(self.comfy.submitted), 1)
 
@@ -212,6 +248,21 @@ class ManualProtectionTest(ImageJourneyFixture):
         self.assertEqual(result['steps'][0], first)
         self.assertEqual(result['manual_steps'][0]['output_asset_id'], appended['output_asset_id'])
         self.assertEqual([s['id'] for s in journey.ordered_steps(result)], [first['id'], inserted['id'], appended['id']])
+        self.assertEqual(len(self.comfy.submitted), 3)
+
+    def test_append_and_insert_use_the_independent_mask_model(self):
+        self.create_journey(count=1, auto_mask=True, mask_model_id=journey.DEFAULT_MASK_MODEL_ID)
+        first = self.until('completed')['steps'][0]
+        self.start_operation()
+        appended = deepcopy(self.operation_until('completed'))
+        self.assertEqual(appended['mask_model_id'], journey.DEFAULT_MASK_MODEL_ID)
+        self.assertEqual(appended['protection']['model_id'], journey.DEFAULT_MASK_MODEL_ID)
+        self.assertEqual(appended['progression_model_id'], 'progression-vision')
+        self.assertEqual(appended['prompt_model_id'], 'minimax-prompter')
+        self.start_operation(kind='insert', after_frame_id=first['id'], before_frame_id=appended['id'])
+        inserted = self.operation_until('completed')
+        self.assertEqual(inserted['protection']['model_id'], journey.DEFAULT_MASK_MODEL_ID)
+        self.assertEqual(self.current_journey()['steps'][0], first)
         self.assertEqual(len(self.comfy.submitted), 3)
 
     def test_manual_mask_failure_resumes_only_protection(self):

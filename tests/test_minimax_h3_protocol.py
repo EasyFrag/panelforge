@@ -63,6 +63,42 @@ class MiniMaxH3ProtocolTest(unittest.TestCase):
                         {issue.code for issue in lint_h3_prompt(mode, sentence)},
                     )
 
+    def test_narrative_shot_progression_does_not_hide_actual_camera_motion(self):
+        # Exact pacing from the rejected Japan/Tibet Plans, plus an abstract rhythm.
+        narrative = (
+            "The continuous shot moves from urgent flood to deliberate suction, "
+            "then settles into a brief raised-arm thank-you.",
+            "The single continuous shot moves steadily from the arrival of the hand "
+            "through the suction, the receding water, and the final collective gratitude without rushing.",
+            "The shot moves from tension to relief.",
+        )
+        forbidden = (
+            "The shot moves from the street to the roof.",
+            "The shot moves steadily from the street to the roof.",
+            "The shot moves from the arrival gate to the runway.",
+            "The shot moves toward the survivors.",
+            "The camera moves from tension to relief.",
+            "The lens moves from the arrival of the hand toward the drain.",
+            narrative[0] + " The shot moves left.",
+            narrative[1] + " The camera drifts toward the survivors.",
+            narrative[1] + " The lens tracks the hand.",
+            narrative[0] + " There is gentle handheld movement.",
+            narrative[2] + " The camera pushes in with enormous amplitude.",
+        )
+        directive = H3CameraDirective("camera_1", H3CameraMotion.STATIC_SHOT)
+        canonical = compile_camera_motion(directive)
+        for mode in ("t2va", "i2va", "l2va", "fl2va", "ref2va"):
+            for expected in ((), (directive,)):
+                for sentence in narrative:
+                    with self.subTest(mode=mode, expected=expected, sentence=sentence):
+                        self.assertEqual(lint_h3_prompt(
+                            mode, canonical + " " + sentence, expected_directives=expected), ())
+                for sentence in forbidden:
+                    with self.subTest(mode=mode, expected=expected, sentence=sentence):
+                        issues = lint_h3_prompt(
+                            mode, canonical + " " + sentence, expected_directives=expected)
+                        self.assertIn("free_camera_motion", {issue.code for issue in issues})
+
     def test_protocol_provenance_is_pinned(self) -> None:
         self.assertEqual(PROTOCOL_ID, "minimax.h3.protocol")
         self.assertEqual(PROTOCOL_VERSION, "0.1.0")

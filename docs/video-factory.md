@@ -3,7 +3,7 @@
 Implémentation du 25 septembre 2026 dans le checkout `D:\Code\panelforge-krea2-flux`, branche `feature/video-factory-2026-09-25`.
 
 
-## Preset Petits hommes — expérimental (28 septembre 2026)
+## Preset Petits hommes — expérimental (30 septembre 2026)
 
 Le preset garde une image de départ et un plan continu de 10 secondes. Une main
 géante détourne un objet du quotidien à échelle humaine, monumental pour les
@@ -12,12 +12,20 @@ et compréhensible. Les gestes utiles font progresser la même solution, sans
 quota de deux ou trois. Le résultat reste visible après le retrait de la main,
 puis les petits hommes remercient ensemble une seule fois.
 
-L’intention courante (v4 interne, même preset) comporte 87 mots. Une seule
-phrase liée au besoin s’ajoute lorsqu’il est identifiable : eau pour la
-sécheresse, interception/déviation pour une vague, évacuation pour une inondation,
-flammes vivantes puis extinction pour un incendie. Total : 99 à 102 mots, hors
-durée, contexte image et règles vocales. Tornades et réparations n’ajoutent
+L’intention courante (v4 interne, même preset) comporte 87 mots. Une courte
+consigne liée au besoin s’ajoute lorsqu’il est identifiable : irrigation et
+végétation luxuriante pour la sécheresse, interception/déviation pour une vague,
+ventouse de débouchage au premier geste d’aide pour une inondation,
+flammes vivantes puis extinction
+pour un incendie. La ventouse doit évacuer l’eau et abaisser durablement son
+niveau ; les gestes suivants restent libres, si nécessaires. Cette contrainte
+d’objet ne concerne pas les tsunamis. Tornades et réparations n’ajoutent
 aucune consigne ciblée ; le choix de l’objet et des gestes reste libre.
+
+Pour la sécheresse, la consigne demande systématiquement une pousse magique,
+immédiate et luxuriante partout où l’eau touche la terre. La végétation suit
+la progression de l’arrosage et reste visible après le retrait de la main.
+Elle se développe pendant l’irrigation dans les dix secondes du plan.
 
 Le repérage utilise l’intention vidéo et le contexte saisi, puis l’intention
 KREA et la description de l’image exacte. Les labels, noms de fichiers et styles
@@ -26,8 +34,8 @@ qu’elle provoque. Les cas absents ou ambigus sont laissés au Plan visuel,
 sans ajouter plusieurs objectifs. Le contexte complet est lu avant réduction.
 
 Le Plan relie besoin, mécanisme et bénéfice durable dans une phrase de
-continuity_invariants. Sa consigne additionnelle passe de 92 à 40 mots ; elle
-précise que la matière du décor ne doit pas immobiliser l’eau ou le feu.
+continuity_invariants. Sa consigne courte respecte les outils imposés et laisse
+sinon le choix libre ; la matière du décor ne doit pas immobiliser l’eau ou le feu.
 
 ### Langues et contexte image
 
@@ -102,6 +110,12 @@ Le texte Instagram reste indépendant.
 
 La politique typée little_men.localized_thanks.v4 distingue les nouvelles
 préparations. Les sessions v1/v2/v3 commencées gardent leurs entrées et règles.
+Depuis le 30 septembre, les nouvelles sélections fixent aussi la ventouse au
+premier geste d’inondation, puis le résultat végétal luxuriant pour la sécheresse.
+Les marqueurs correspondants sont conservés entre Plan et Prompt. Les anciennes
+sélections v4 sans ces marqueurs conservent leur texte verrouillé ; dupliquer
+une ancienne fiche permet d’adopter la
+nouvelle consigne dans une nouvelle préparation.
 Une nouvelle préparation ou copie remplace uniquement les intentions standard
 v2/v3 exactes par la nouvelle intention ; une intention personnalisée reste intacte.
 Réappliquer explicitement le preset permet aussi de passer à la v4. Les choix

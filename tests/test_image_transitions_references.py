@@ -139,7 +139,7 @@ class TransitionReferencesTest(ReferenceFixture):
         identity = active(p)[0]["id"]
         p = self.propose(identity)
         request = self.gateway.requests[-1]
-        self.assertEqual(request.operation_id, "image.transitions.propose@3.0.1")
+        self.assertEqual(request.operation_id, "image.transitions.propose@3.1.0")
         self.assertEqual(len(request.images), 4)
         setup = reference_state(p, active(p)[0])["scale"]
         expected = [p["frames"][0]["asset_id"], p["frames"][1]["asset_id"],

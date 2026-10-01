@@ -116,8 +116,8 @@ def alert_conditions(view, thresholds, previous=()):
 
 
 def mobile_thermal_history(history, now):
-    """Six-hour view of the existing maxima, without runtime event details."""
-    start = now - 6 * 3600
+    """Two-hour view of the existing maxima, without runtime event details."""
+    start = now - 2 * 3600
     lanes = []
     for identity, name in (("remote_gpu", "Serveur"), ("local_gpu", "PC local")):
         points = {}
@@ -132,6 +132,6 @@ def mobile_thermal_history(history, now):
     bucket = history.get("bucket_seconds")
     bucket = bucket if number(bucket) and 1 <= bucket <= 300 else 15
     return dict(available=True, generated_at=now, start_at=start, end_at=now,
-                window_seconds=6 * 3600, bucket_seconds=bucket, machines=lanes,
+                window_seconds=2 * 3600, bucket_seconds=bucket, machines=lanes,
                 warning="Historique partiel ; certaines mesures sont indisponibles."
                         if history.get("error") else None)

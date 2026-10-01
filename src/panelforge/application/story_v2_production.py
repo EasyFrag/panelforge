@@ -6,6 +6,23 @@ from panelforge.domain.story_v2_settings import image_settings
 from .story_v2_images import StoryV2Images, attach_variants
 from panelforge.domain.story_v2 import digest, validate_script
 
+def dialogue_addressing(sequence, names):
+    """A compact story brief, not a video Plan or an additional model call."""
+    lines = []
+    for index, line in enumerate(sequence["dialogue"], 1):
+        recipients = line.get("addressee_ids") or []
+        if not recipients:
+            continue
+        target = ", ".join(names[identity] for identity in recipients)
+        cue = line.get("address_cue", "")
+        lines.append(f"Réplique {index} — {names[line['speaker_id']]} s'adresse à {target}."
+                     + (" " + cue if cue else ""))
+    if lines:
+        lines.append("Rythme de l'échange : laisser le temps de dire chaque réplique naturellement ; "
+                     "enchaîner les réponses, hors pauses nécessaires à l'intention.")
+    return lines
+
+
 class StoryV2Production:
     def __init__(self, episodes, factory, *, minimax=None, qwen=None):
         self.episodes, self.factory = episodes, factory
@@ -26,7 +43,9 @@ class StoryV2Production:
             locations=deepcopy(script["locations"]), scenes=[])
         for s in script["sequences"]:
             scenario["scenes"].append(dict(title=s["title"], location_id=s["location_id"],
-                character_ids=s["character_ids"], dialogue=s["dialogue"], action=s["action"],
+                character_ids=s["character_ids"],
+                dialogue=[{k:d[k] for k in ("speaker_id", "text", "delivery")} for d in s["dialogue"]],
+                action=s["action"],
                 opening_state=s["setting"], ending_state="La scène se termine après les actions et répliques décrites."))
         story = dict(project_id=project["id"], document=dict(scenario=scenario), clip_seconds=10,
                      revisions=[dict(revision=project["version"])], dialogue_language=settings["language"])
@@ -60,6 +79,7 @@ class StoryV2Production:
             scene["render_setup"]["settings"]["duration_seconds"] = source["duration"]
             scene["intention"] = "\n".join([source["setting"], source["action"],
                 "Intention de jeu : " + source["intention"],
+                *dialogue_addressing(source, names),
                 "Univers et style : " + episode["style"],
                 *[f"Apparence dans cette séquence uniquement — {names[a['character_id']]} : {a['state']}"
                   for a in source["appearances"]]])

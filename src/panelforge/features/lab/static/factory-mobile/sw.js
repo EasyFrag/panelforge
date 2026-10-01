@@ -1,6 +1,6 @@
 "use strict";
-const CACHE="panelforge-mobile-20260928-3";
-const SHELL=["/","/app.css?v=20260928.mobile2","/thermal.js?v=20260928.mobile2","/app.js?v=20260928.mobile3","/icon.svg","/icon-192.png","/manifest.webmanifest"];
+const CACHE="panelforge-mobile-20260930-status1";
+const SHELL=["/","/app.css?v=20260930.mobile-status1","/thermal.js?v=20260930.mobile-status1","/app.js?v=20260930.mobile-status1","/icon.svg","/icon-192.png","/manifest.webmanifest"];
 self.addEventListener("install",event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()));});
 self.addEventListener("activate",event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith("panelforge-mobile-")&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));});
 self.addEventListener("fetch",event=>{

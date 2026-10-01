@@ -54,9 +54,9 @@
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
   <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260928.minimax1">
   <script src="/static/qwen-edit-v2.js?v=20260928.minimax2" defer></script>
-  <link rel="stylesheet" href="/static/image-journeys.css?v=20260929.mask1">
-  <script src="/static/image-journey-actions.js?v=20260929.mask1" defer></script>
-  <script src="/static/image-journeys.js?v=20260929.mask1" defer></script>
+  <link rel="stylesheet" href="/static/image-journeys.css?v=20260930.selection1">
+  <script src="/static/image-journey-actions.js?v=20260930.selection1" defer></script>
+  <script src="/static/image-journeys.js?v=20260930.selection1" defer></script>
   <link rel="stylesheet" href="/static/video-factory.css?v=20260928.compact1">
   <link rel="stylesheet" href="/static/video-factory-monitor.css?v=20260928.ready1">
   <script src="/static/video-factory-monitor.js?v=20260928.preview4" defer></script>
@@ -66,7 +66,7 @@
   <script src="/static/image-transitions.js?v=20260929.visual2" defer></script>
   <link rel="stylesheet" href="/static/story-v2.css?v=20260929.editorial1">
   <script src="/static/story-v2-settings.js?v=20260929.defaults1" defer></script>
-  <script src="/static/story-v2.js?v=20260929.control1" defer></script>
+  <script src="/static/story-v2.js?v=20260930.address1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -209,7 +209,7 @@
           <label>LLM · propositions visuelles<select data-it-setting="model_id"></select></label>
           <label>LLM · plan H3<select data-it-setting="plan_model_id"></select></label>
           <label>LLM · prompt H3<select data-it-setting="writer_model_id"></select></label>
-          <div class="it-checks"><label><input data-it-setting="music" type="checkbox"> Musique autorisée</label><label><input data-it-setting="dlss" type="checkbox"> DLSS dans l’usine</label></div>
+          <div class="it-checks"><label><input data-it-setting="music" type="checkbox"> Musique autorisée</label><label><input data-it-setting="dlss" type="checkbox" checked> DLSS dans l’usine</label></div>
         </div>
       </details>
       <details id="it-frieze-panel" class="it-frieze-panel" open><summary>Images de la frise <span id="it-frieze-count"></span></summary>
@@ -1541,7 +1541,7 @@
         </div>
         <div class="ij-quality">
           <small id="ij-resolution">≈ 3 MP · 18 passes</small>
-          <label><input id="ij-auto-mask" type="checkbox" checked> Masque automatique · préserver le décor</label>
+          <label><input id="ij-auto-mask" type="checkbox"> Masque automatique · préserver le décor</label>
         </div>
         <div class="ij-form-bottom">
           <details id="ij-models">
@@ -1549,6 +1549,7 @@
             <div class="ij-model-fields">
               <label>Progression visuelle<select id="ij-progression-model" required></select></label>
               <label>Prompt MiniMax<select id="ij-prompt-model" required></select></label>
+              <label>Analyse du masque<select id="ij-mask-model" required></select></label>
             </div>
             <small id="ij-model-note">Choisis des modèles capables de lire les images. Ils peuvent être identiques.</small>
           </details>
@@ -1569,7 +1570,10 @@
         <p id="ij-warning" class="ij-warning" hidden></p>
         <div id="ij-frieze" class="ij-frieze" aria-label="Images du parcours"></div>
         <div id="ij-operations" class="ij-operations" aria-live="polite" hidden></div>
-        <div class="ij-handoff"><button id="ij-transitions" type="button" hidden>Préparer les transitions</button></div>
+        <div class="ij-handoff">
+          <small id="ij-selection-count" role="status" aria-live="polite" hidden></small>
+          <button id="ij-transitions" type="button" aria-describedby="ij-selection-count" hidden>Préparer les transitions</button>
+        </div>
       </section>
     </section>
   <div id="ij-image-preview" class="ij-preview" popover="manual" role="tooltip" hidden>

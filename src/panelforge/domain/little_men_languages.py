@@ -136,7 +136,8 @@ def make_selection(config, identity, recent=()):
             evidence = origin + " : " + evidence
     ordered = [language for language in priority if language in candidates]
     chosen = ordered[0] if group != "visual" else None
-    return dict(version=4, input_hash=selection_input(config), priority=priority,
+    return dict(version=4, flood_first_action="plunger", drought_result="lush_growth",
+                input_hash=selection_input(config), priority=priority,
                 candidates=ordered, group=group, reason=POOL_LABELS[group], evidence=evidence,
                 requested_language=chosen, language=chosen)
 

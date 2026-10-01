@@ -197,6 +197,34 @@ class ClassicCinematicContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             classic.compile_result(json.dumps(writer), classic.encode_context(saved), "final_prompt")
 
+    def test_narrative_pacing_survives_plan_and_writer_but_camera_travel_is_rejected(self):
+        pacing_cases = (
+            "The continuous shot moves from urgent flood to deliberate suction, "
+            "then settles into a brief raised-arm thank-you.",
+            "The single continuous shot moves steadily from the arrival of the hand "
+            "through the suction, the receding water, and the final collective gratitude without rushing.",
+        )
+        for mode in ("fl2va", "ref2va"):
+            for pacing in pacing_cases:
+                with self.subTest(mode=mode, pacing=pacing):
+                    plan, writer, context = fixture(mode, count=1)
+                    plan["shots"][0]["pacing"] = pacing
+                    for phase in plan["shots"][0]["phases"]:
+                        phase["camera"] = dict(motion="static_shot", amplitude=None, speed=None, target_clause="")
+                    context["plan"] = json.loads(classic.canonical_plan(json.dumps(plan), context))
+                    self.assertEqual(context["plan"]["shots"][0]["pacing"], pacing)
+                    prompt, encoded = classic.compile_result(
+                        json.dumps(writer), classic.encode_context(context), "final_prompt")
+                    self.assertEqual(prompt.count(pacing), 1)
+                    classic.validate_final(prompt, classic.decode_context(encoded))
+                    for invalid in ("The shot moves from the street to the roof.",
+                                    pacing + " The camera drifts toward the hand."):
+                        plan["shots"][0]["pacing"] = invalid
+                        with self.assertRaisesRegex(ValueError, "camera movement must come from"):
+                            classic.canonical_plan(json.dumps(plan), context)
+                        with self.assertRaisesRegex(ValueError, "camera movement must come from"):
+                            classic.validate_final(prompt.replace(pacing, invalid), classic.decode_context(encoded))
+
     def test_references_and_speech_are_not_invented(self):
         plan, writer, context = fixture()
         context["plan"] = json.loads(classic.canonical_plan(json.dumps(plan), context))

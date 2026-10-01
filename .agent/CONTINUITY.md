@@ -1,5 +1,312 @@
 # CONTINUITY
 
+## Audit 2026-10-01 — Essais Histoire V2 à 8 secondes
+
+### Goal
+- Petit bilan demandé des deux derniers essais à 8 s : qualité narrative, densité des dialogues et coût de préparation. Audit uniquement ; aucun correctif autorisé par cette demande.
+
+### Current state
+- Scénarios finaux lus : Box 3 (storyv2-0bbaf3b216f853d0829f706ec63c9b05) et Table cinq (storyv2-4a5d3f42b8a852f9ae6fc24d5cbd7f7d). Chacun compte dix séquences de 8 s, total 80 s ; durée aussi vérifiée dans chaque render_setup. Table cinq a terminé ses références pendant l’audit : les deux histoires sont désormais en Préparation Usine, dix fiches chacune, sans Plans/Prompts/vidéos lancés. Aucun rendu vidéo de ces essais visionné : la densité écrite ne mesure pas les pauses réelles.
+- Comptage hors ponctuation isolée : Box 3 109 mots / 80 s (1,36 mot/s), Table cinq 87 / 80 s (1,09), Fini 85 / 60 s (1,42). Histoires différentes, comparaison indicative. Les deux nouveaux scénarios ont sept clips à seulement deux répliques ; les 8 s seules n’ont pas densifié les échanges.
+- Gemma améliore les formulations ; sa consigne actuelle conserve nombre/ordre des répliques et interdit d’augmenter leur densité (story_v2_prompting.py:63–66). La densité doit être travaillée au stade scénario ; aucune consigne modifiée.
+- Faiblesses concrètes : Box 3 accumule les indices puis revient au soupçon après un je t’aime explicite. Table cinq séq. 7 invite Linh à discuter dans une pièce puis séq. 8 lui fait découvrir Marc embrassant Ken sans transition causale ; première relecture Qwen sans issues. La retouche ne répare pas cette structure. Téléphone face contre le sol et table cinq inexpliquée restent présents.
+- Coût références : Box 3 11 dont deux variantes strictement identiques aux bases ; Table cinq 28 dont 24 variantes, souvent simples indications de jeu (regard, voix basse, silence). Le champ appearances de Qwen est transformé en variante pour chaque texte distinct par attach_variants ; absence de distinction apparence/jeu. Box 3 définit cinq objets mais aucune séquence ne les lie via object_ids.
+- Destinataires bien produits/transmis au brief, sans surcharge générale des cues. Restent des choix narratifs douteux : voix téléphonique Karim classée voice_over ; rupture finale de Linh adressée à Marc et Ken. Aucun diagnostic du regard vidéo possible avant rendu.
+- Temps scénario enregistrés : Box 3 8 min 47, quatre appels ; Table cinq 6 min 09, trois appels. Evidence et instantané : D:/Code/panelforge/.agent/diagnostics/story-v2-8s-audit-20261001/audit.json. Aucun code/runtime modifié, test/génération/redémarrage/commit/push lancé.
+
+### Next steps
+1. Restituer le bilan : conserver 8 s pour l’essai, échanges plus continus et utiles dès l’écriture ; ne pas imposer une nouvelle situation à chaque clip ni une cadence artificielle.
+2. Proposer seulement, sans implémentation, des correctifs ciblés causalité/références ; le prompteur vidéo reste hors périmètre. Ne pas réintroduire le second sélecteur MP annulé.
+3. Évaluer pauses, débit, regard et attribution vocale seulement à partir des vidéos effectivement produites par l’utilisateur.
+
+
+## Alignement 2026-10-01 — Résolution source MiniMax conservée ; rythme en discussion
+
+### Goal
+- Dernière clarification utilisateur : conserver le fonctionnement existant, le sélecteur MP pilote Krea2 et les variantes MiniMax reprennent la résolution de l'image d'entrée. Annulation explicite du second sélecteur MP.
+
+### Current state
+- Un second réglage MiniMax 4 MP avait commencé à être préparé après la demande précédente ; l'utilisateur a annulé en apprenant le comportement existant. Tous les changements de cette tâche ont été retirés : huit fichiers code/UI/tests/guide restaurés exactement depuis leur sauvegarde préalable, empreintes vérifiées. Le patch Histoire destinataires/regards du 30 septembre et les autres changements préexistants sont conservés.
+- Fonctionnement rétabli inchangé : images.megapixels pilote Krea2 (défaut 2,1 MP, derniers choix conservés) ; variantes MiniMax/Qwen resolution=source ; miniatures composées sans source fixe toujours à 2 MP comme auparavant. Pas de champ minimax_resolution ni de second sélecteur. Aucun état runtime, rendu, service ou génération modifié ; aucun test, appel LLM, commit ou push.
+- Preuves de restauration : D:/Code/panelforge/.agent/diagnostics/story-v2-image-mp-20261001/reverted.json ; before et cancelled-draft pour traçabilité locale seulement. Ne pas réappliquer le brouillon annulé.
+- Rythme : échange d'alignement seulement. Utilisateur favorable à un essai de scènes de 8 s et paroles distinctes, sans chevauchement. La durée totale demandée reste conservée. Recommandation proposée : autoriser une même conversation sur deux séquences successives si utile, sans nouvelle situation/lieu forcé à chaque clip. L'utilisateur demandait un avis sur ce point ; aucun correctif de durée, densité, continuité ou prompteur vidéo implémenté dans ce tour.
+
+### Next steps
+1. Confirmer que le second réglage est annulé et le comportement image antérieur conservé.
+2. Poursuivre l'alignement sur le rythme uniquement si l'utilisateur le souhaite ; aucune refonte du prompteur vidéo autorisée. Ne pas reprendre la séparation des MP.
+
+## Réglage 2026-09-30 — Sécheresse : végétation luxuriante au contact de l’eau
+
+### Goal
+- Implémenter la consigne validée par l’utilisateur : après irrigation du sol desséché, une végétation luxuriante pousse immédiatement comme par magie partout où l’eau touche la terre, suit l’arrosage et persiste après le retrait de la main.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux pour le preset Petits hommes expérimental existant. La direction sécheresse reprend exactement le texte validé et remplace l’ancienne courte consigne ; elle est transmise par le parcours Plan/Prompt existant. La pousse se produit pendant l’irrigation, sans geste supplémentaire imposé.
+- Marqueur drought_result=lush_growth ajouté aux nouvelles sélections et aux passages explicites vers l’intention courante lors de l’invalidation. Les anciennes sélections v4 sans ce marqueur reproduisent exactement leur texte initial pour préserver les entrées verrouillées. Aucun Plan ou Prompt enregistré réécrit.
+- Autres besoins, ventouse au premier geste d’inondation, détection des besoins, intention générale, langues/remerciements, durée et défauts Instagram conservés. Aucun changement du preset classique ni du correctif caméra précédent.
+- Couverture existante étendue à la compatibilité sécheresse v4 et au passage explicite v3 → v4 ; le scénario Plan/Writer existant couvre déjà la transmission de la direction sécheresse et sa stabilité après résolution de la langue. Tests NON exécutés selon AGENTS.md.
+- Vérifications statiques : quatre Python parsés/compilés sans exécution, texte validé comparé exactement, AST des autres directions/constantes/fonctions contrôlé inchangé, git diff --check et diff isolé relu. Guide docs/video-factory.md actualisé.
+- Sauvegardes exactes, review.diff, changes.json, approved-direction.txt et static-checks.json : D:/Code/panelforge/.agent/diagnostics/drought-lush-growth-20260930/. Aucun état runtime, rendu, appel LLM, test, redémarrage, commit ou push.
+
+### Next steps
+- Au prochain redémarrage habituel du Lab choisi par l’utilisateur, lancer une nouvelle préparation expérimentale de sécheresse ; dupliquer une fiche déjà préparée pour adopter la nouvelle consigne.
+- Vérifier visuellement lors d’un prochain run utilisateur que la végétation suit les zones arrosées, pousse pendant l’irrigation et persiste à la fin. Tests utilisateur depuis le checkout actif avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_video_factory_needs.py".
+
+
+## Correctif 2026-09-30 — Progression narrative prise pour une caméra
+
+### Goal
+- Go utilisateur limité à la correction du faux positif caméra des Plans d’inondations futuristes Japon et Tibet.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux : le contrôle H3 exempte le seul groupe « shot moves » lorsqu’il introduit une progression narrative identifiable (arrival of / tension / urgency / anticipation / urgent flood), avec from et éventuellement steadily. Les deux formulations observées sont couvertes.
+- Le reste de la phrase reste contrôlé ; aucune exemption globale du champ pacing, aucune suppression des contrôles de noms/modificateurs caméra. Les sujets camera/lens et les trajets spatiaux, notamment street → roof, arrival gate → runway et toward the survivors, restent soumis au rejet. Aucun texte de Plan ou de Prompt n’est réécrit.
+- Deux régressions préparées : contrôle partagé sur cinq modes, avec/sans directives attendues, cas narratifs et mouvements explicites seuls ou après une phrase narrative ; compilation Plan → Prompt en H3 FL2VA/REF2VA avec rythme conservé et mouvements non autorisés rejetés. Tests NON exécutés selon AGENTS.md.
+- Contrôles statiques réussis : trois Python parsés/compilés sans exécution, expression régulière compilée, git diff --check et diff isolé relu. AST confirme les constantes/fonctions historiques hors lint_h3_prompt et tous les tests préexistants inchangés.
+- Guide docs/h3-classic-cinematic-1.0.md actualisé. Sauvegardes et review.diff/static-checks.json : D:/Code/panelforge/.agent/diagnostics/camera-narrative-progression-20260930/. Aucun runtime, run, prompt enregistré, preset ou langue modifié ; aucun appel LLM, rendu, redémarrage, commit ou push.
+
+### Next steps
+- Au prochain redémarrage habituel du Lab choisi par l’utilisateur, reprendre les étapes Plan échouées Japon factory-980751dd57e84c1b9d9fa834a782e3d8 et Tibet factory-1214d112eb364bbe9e7f12243ed7b9dd.
+- Tests utilisateur depuis le checkout actif avec PYTHONPATH=src : python -m unittest tests.test_minimax_h3_protocol tests.test_classic_cinematic. Aucun run n’a été relancé par l’agent.
+- Le cas Amérique du Sud (sortie Qwen non JSON) et le classement linguistique South American restent des sujets séparés, hors de ce go.
+
+
+## Diagnostic 2026-09-30 — Échecs d’inondations futuristes
+
+### Goal
+- Examiner les erreurs de préparation signalées sur les inondations futuristes et leur lien éventuel avec la nouvelle consigne ventouse.
+
+### Current state
+- Diagnostic seulement. Trois échecs retrouvés entre 15:00 et 15:04 heure de Paris, tous au Plan Qwen3.8-27B ; le Prompt Gemma n’a pas été exécuté sur ces fiches.
+- Japon factory-980751dd57e84c1b9d9fa834a782e3d8 / prompt-45178508dad14b128da2e3cf89f054a4 et Tibet factory-1214d112eb364bbe9e7f12243ed7b9dd / prompt-7381f204e90e4d1fa46e2e86f599a2cc : JSON fourni, caméras toutes static_shot. L’unique correspondance interdite est « shot moves » dans pacing, décrivant la progression narrative. Faux positif de _FREE_CAMERA_MOTION (minimax_h3_protocol.py:90), remonté par la compilation de contrôle du Plan. Répliques minimales japonaises/chinoises présentes.
+- Amérique du Sud factory-7bcce781e76b4dd7b6183f68e10b2ccd / prompt-ffdd425706534ff19bcbe1643c13d79c : réponse enregistrée de 44 894 caractères, identique à reasoning_text, répétitive, non JSON au niveau racine. finish_reason=stop, 9 752 completion_tokens pour max_tokens=262144 ; aucune preuve d’atteinte du plafond déclaré. Trace applicative insuffisante pour distinguer origine modèle vs serveur/canal.
+- Consigne ventouse bien transmise sur les trois fiches et intégrée dans les deux Plans JSON rejetés ; aucune erreur de texte verrouillé. Même lot futuriste Maroc, Égypte, Algérie, États-Unis et Russie : Plan/Prompt réussis. Aucun élément n’établit un blocage général dû à la ventouse.
+- Autre défaut indépendant confirmé : South American dans la description image est classé English par le motif american. Ne provoque pas le rejet JSON ; à traiter séparément.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/futuristic-flood-errors-20260930/evidence.json et findings.json. Aucun code applicatif, état runtime, Plan, prompt ou média modifié ; aucun test, appel LLM, génération ou redémarrage.
+
+### Next steps
+- Correction proposée : distinguer la progression narrative de pacing des vrais mouvements caméra, sans désactiver le contrôle. Prévoir des régressions sur ces deux phrases et sur de vrais mouvements à rejeter.
+- Pour le cas Qwen : erreur explicite de sortie non structurée et reprise ciblée ; ne pas accepter le raisonnement comme Plan ni supposer un problème de budget sans preuve. Examiner les trames fournisseur seulement si le défaut se répète.
+- Après correctif autorisé, reprendre seulement les Plans en échec en conservant la consigne ventouse. Aucun correctif ni relancement effectué pendant ce diagnostic.
+
+
+## Réglage 2026-09-30 — Inondations : ventouse au premier geste
+
+### Goal
+- Demande utilisateur : imposer une ventouse de débouchage au premier mouvement d’aide pour les inondations du preset Petits hommes expérimental ; gestes suivants libres si nécessaires.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. La courte direction inondation exige une ventouse au premier geste pour évacuer l’eau et abaisser durablement son niveau ; la suite reste libre, sans quota de gestes. Le Plan respecte les outils imposés, sinon conserve son choix libre.
+- Tsunamis/vagues restent soumis à leur direction distincte de protection, inchangée. Détection des besoins, autres directions, intention de base, langues/formules minimales, durée, preset classique et défauts Instagram inchangés.
+- Le marqueur flood_first_action=plunger est figé avec les nouvelles sélections. Les anciennes sélections v4 sans marqueur reproduisent exactement leur ancien texte pour éviter une erreur de préparation verrouillée à la reprise Plan/Prompt. Aucun plan, prompt, média ou projet runtime réécrit.
+- Régression de compatibilité préparée et cas inondation ajouté à la couverture Plan/Writer existante ; tests NON exécutés conformément à AGENTS.md. Quatre Python parsés/compilés sans exécution, diff isolé relu, espaces contrôlés ; AST confirme les helpers historiques et directions hors inondation inchangés.
+- Guide docs/video-factory.md actualisé. Sauvegardes exactes, review.diff et static-checks.json dans D:/Code/panelforge/.agent/diagnostics/flood-first-plunger-20260930/. Aucun appel LLM, génération, redémarrage, commit ou push.
+
+### Next steps
+- Au prochain redémarrage habituel du Lab choisi par l’utilisateur, lancer une nouvelle préparation expérimentale d’inondation. Pour adopter la règle sur une fiche déjà préparée, la dupliquer puis préparer la copie.
+- Tests à lancer par l’utilisateur depuis le checkout actif avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_video_factory_needs.py". Le rendu effectif de la ventouse reste à qualifier lors d’un prochain run utilisateur.
+
+
+## UX 2026-09-30 — bandeau machines et thermiques mobile compacts
+
+### Goal
+- Sur la PWA téléphone de l’Usine, rendre l’état instantané Local/Cloud lisible dans le bandeau et concentrer les deux graphes thermiques sur les informations utiles.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux, uniquement sur la surface factory-mobile. Le bandeau sticky contient maintenant deux indicateurs compacts : icône écran violette Local et icône nuage bleue Cloud, libellé Idle / Working / Cooling Down (plus états exceptionnels), température instantanée ; une mesure ancienne devient Offline/— sans conserver une valeur trompeuse.
+- Les deux graphes utilisent désormais une projection serveur de 2 h et une échelle visuelle fixe de 60 à 90 °C, avec repères −2 h / −1 h / maintenant. Le pic réel et le seuil restent affichés, y compris si une valeur dépasse visuellement 90 °C ; les mentions Min, Sous 40 °C et l’ancienne échelle 40–90 ont été retirées.
+- Sous chaque graphe, « Derniers dépassements » affiche au maximum les trois épisodes récents au-dessus du seuil, du plus récent au plus ancien. Les échantillons successifs d’un même épisode sont regroupés et représentés par l’heure et le pic, afin d’éviter une liste répétitive. L’absence de dépassement est explicite.
+- Interaction de lecture au toucher/clavier, gestion des trous, historique conservé en cas d’échec temporaire, notifications et règles thermiques inchangés. Versions PWA/cache passées à 20260930.mobile-status1 / panelforge-mobile-20260930-status1.
+- Régressions Python et navigateur adaptées pour fenêtre 2 h, échelle 60–90, suppression des basses, regroupement des dépassements et indicateurs du bandeau. Tests NON exécutés selon AGENTS.md. Contrôles statiques réussis : AST de 3 Python, parsing HTML, compilation V8 de 3 scripts, espaces et retrait de l’ancien contrat 6 h. Aucun service, génération, file, réglage thermique, média, commit ou push modifié/lancé.
+
+### Next steps
+1. Au prochain redémarrage habituel du serveur mobile choisi par l’utilisateur, recharger puis fermer/réouvrir la PWA si l’ancien service worker reste affiché.
+2. Vérifier sur la largeur du téléphone : Local/Cloud lisibles sans retour à la ligne, deux graphes 2 h, axe 60–90 et épisodes de dépassement cohérents avec les pics.
+3. L’utilisateur peut lancer tests.test_factory_mobile et tests.test_factory_mobile_browser ; aucune vérification fonctionnelle n’a été déclenchée par l’agent.
+
+## Réglage 2026-09-30 — DLSS coché par défaut dans Transitions
+
+### Goal
+- Appliquer la demande « DLSS dans l’usine coché de base » aux nouvelles frises de l’atelier Transitions.
+
+### Current state
+- Défaut dlss=True dans domain.image_transitions.defaults et case HTML cochée. L’interface reprend toujours le choix enregistré de la frise ; aucune activation forcée sur les projets existants. La case reste désactivable et l’envoi à l’usine utilise le booléen choisi.
+- Changement dans D:/Code/panelforge-krea2-flux, guide docs/design/image-transitions.md actualisé. Syntaxe Python compilée sans exécution, case HTML contrôlée et diff de trois fichiers relu. Tests NON exécutés ; aucun test ajouté pour ce simple défaut.
+- Sauvegardes, review.diff et checks.json : D:/Code/panelforge/.agent/diagnostics/transition-dlss-default-on-20260930/. Aucun projet runtime, LLM, rendu, service ou réglage global de l’usine modifié.
+
+### Next steps
+- Au prochain redémarrage habituel du Lab choisi par l’utilisateur, actualiser la page et créer une nouvelle frise : DLSS sera coché. Les frises déjà enregistrées conservent leur choix.
+
+
+## Réglage 2026-09-30 — Masque automatique décoché par défaut
+
+### Goal
+- Appliquer « Le bouton masque automatique décoché » comme défaut des nouveaux parcours, interprétation annoncée à l’utilisateur.
+
+### Current state
+- Case ij-auto-mask décochée dans le formulaire ; défaut auto_mask=False également dans l’API de création et ImageJourneyService.create. Une activation explicite reste possible avant création. Les réglages enregistrés des parcours existants, les étapes et les images ne sont pas modifiés. Aucun changement du masque lui-même, de Qwen ou du profil 3 MP.
+- Attentes existantes HTTP/navigateur mises à jour pour le défaut désactivé ; aucun nouveau test ajouté. Guide actualisé. Quatre Python compilés sans exécution ; diff limité contrôlé. Tests NON exécutés suivant AGENTS.md ; aucun appel LLM, rendu ou redémarrage.
+- Modifications dans D:/Code/panelforge-krea2-flux ; sauvegardes exactes, review.diff et checks.json dans D:/Code/panelforge/.agent/diagnostics/journey-mask-default-off-20260930/.
+
+### Next steps
+- Actualiser la page puis Nouveau : le masque doit être décoché. Les utilisateurs qui veulent le masque peuvent le recocher avant Créer la suite. Le défaut de l’API/service sera chargé au prochain redémarrage habituel du backend choisi par l’utilisateur ; le formulaire transmet déjà explicitement false.
+
+## Livraison 2026-09-30 — Coches pour Transitions, retrait des boutons HQ ×2
+
+### Goal
+- Go utilisateur après alignement : retirer l’accès HQ ×2 dans Parcours d’images autonome et sélectionner par coches les images à envoyer à l’atelier Transitions. Présélection de toutes les images disponibles retenue selon la recommandation annoncée ; génération actuelle conservée.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Petite coche indépendante du bouton de zoom, en haut à gauche de chaque vignette, y compris Départ. Images relues utilisables/similaires sélectionnables, attente de relecture ou image inutilisable désactivée. Toutes les images disponibles sont cochées initialement ; Départ peut être exclu, comme les étapes automatiques ou insérées. Une image nouvellement disponible est cochée par défaut.
+- Sélection libre non contiguë, ordre de la frise respecté : 1,3,5 => 1→3 puis 3→5. Compteur discret images/transitions et bouton désactivé sous deux images. Exclusions mémorisées par IDs stables et par parcours dans sessionStorage ; conservées au polling, aux insertions, à la réouverture d’un parcours et au rechargement dans la même session navigateur. Pas de persistance serveur des coches ni de synchronisation entre appareils.
+- Nouveau contrat optionnel POST .../projects/{id}/transitions avec frame_ids explicites (source ou IDs d’étapes, pas IDs d’assets). Vérification de liste, minimum deux, unicité et appartenance aux états disponibles avant création. Ordre canonique côté domaine ; une sélection peut sauter une image indisponible et retenir un état relu ultérieur. Le projet public expose transferable_frame_ids. Ancien appel sans corps et GET sequence conservent le préfixe relu antérieur.
+- Empreinte calculée sur la séquence effectivement sélectionnée : même sélection/mêmes états réutilise la frise ; autre sélection produit une frise indépendante ; une sélection complète rejoint l’export complet existant. Aucun changement ni génération des images du parcours, aucune réécriture des frises déjà préparées, aucune génération vidéo déclenchée par transfert.
+- Boutons HQ ×2 retirés de la frise, ainsi que leurs styles/rafraîchissements. Un ancien suivi HQ encore actif conserve consultation/reprise/abandon mais ne permet plus de lancer un nouvel essai via le dialogue. Backend historique HQ, journaux et assets conservés pour compatibilité, sans suppression de données. Les + et le zoom restent disponibles.
+- Versions cache des trois ressources front actualisées, guide docs/design/image-journeys-guide.md mis à jour. Aucun changement du modèle de masque/Qwen, des prompts, des contours, de la composition, du 3 MP/18 passes, du renderer MiniMax ou du proposeur de transitions. Dix fichiers correspondants contrôlés inchangés par empreinte ; AST confirme génération et réglages du service/domaine inchangés hors public/sequence/prepare_transitions.
+- Vérifications statiques réussies : cinq Python compilés sans exécution ; deux JS applicatifs et deux scripts de scénario compilés sans invocation ; 2138 IDs HTML uniques, 64 sélecteurs raccordés ; diff applicatif relu et espaces contrôlés. Six nouvelles régressions préparées dans tests/test_image_journey_selection.py (ordre/insertions, trous indisponibles, IDs invalides, compatibilité, exports indépendants/idempotents, HTTP) ; scénario navigateur actualisé pour coches, polling, minimum deux, insertion, réouverture, transfert exact, retrait HQ et zoom. Tests NON exécutés selon AGENTS.md.
+- Sauvegardes exactes, scripts d’application, changes.json, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-selection-20260930/. Aucun projet runtime, asset ou frise existante modifié ; aucun appel LLM, génération, test applicatif, redémarrage, commit ou push. Changements préexistants du checkout conservés.
+
+### Next steps
+1. Charger le backend au prochain redémarrage habituel choisi par l’utilisateur puis Ctrl+F5. Ouvrir un parcours, décocher Départ et quelques étapes, vérifier le compteur, puis Préparer les transitions : seules les images cochées doivent apparaître dans la frise cible, dans l’ordre d’origine.
+2. Tests à lancer par l’utilisateur depuis le checkout actif avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_image_journey*.py". Aucun service n’a été relancé pour vérifier.
+3. Conserver les évolutions différées du masque et de la transformation principale comme pistes ultérieures ; ne pas les appliquer sans nouvelle demande. La suppression HQ est une suppression d’accès au lancement dans l’UI, pas un effacement des anciens résultats.
+
+## Alignement 2026-09-30 — Sélection des images pour Transitions et retrait HQ ×2
+
+### Goal
+- L’utilisateur apprécie la version actuelle, souhaite la conserver et garder les évolutions discutées pour plus tard. Nouvelle demande à aligner : retirer le bouton HQ ×2 et choisir par coches les images envoyées à l’atelier Transitions, avec UX très discrète.
+
+### Current state
+- Aucune modification applicative dans ce tour d’alignement. Lecture du transfert actuel : domain.image_journeys.sequence envoie le départ puis le préfixe des images relues utilisables/similaires ; prepare_transitions crée/réutilise une frise indépendante selon l’empreinte exacte de cette séquence. Les opérations + restent distinctes de l’export.
+- Proposition : petite coche sur chaque vignette exportable, y compris Départ ; sélection libre et non nécessairement contiguë, ordre de la frise conservé. Exemple 1, 3, 5 sélectionnées => transitions 1→3 et 3→5. Départ facultatif ; deux images minimum. Compteur discret près du bouton Préparer les transitions, bouton inactif en dessous de deux. Les images décochées restent dans le parcours et les + restent disponibles. Le transfert prépare une frise ; il ne lance pas de vidéo. À confirmer dans l’alignement, pas encore implémenté.
+- Question async posée : toutes cochées au départ (recommandé pour conserver le comportement actuel et retirer les exclusions) ou aucune cochée (sélection explicite) ? Réponse pas encore reçue lors de cette note ; aucune préférence tenue pour acquise.
+- Périmètre HQ envisagé : supprimer l’accès HQ ×2 de la frise, sans supprimer les anciens assets ou résultats. Pas de nettoyage destructif demandé.
+- Évolutions différées à conserver en mémoire : (1) masque couvrant mieux l’objet entier, supports/câbles/raccords et anciennes emprises, sans nouveau moteur de segmentation ; réparation possible d’un résultat existant en recomposant le brut sauvegardé sans relancer MiniMax ; (2) une transformation principale, majeure et visible par image, avec le prompter limité à l’action courante pour éviter plusieurs ajouts anticipés. Ces changements du parcours ne sont pas implémentés, le sélecteur Qwen seul a été livré précédemment. Ne pas confondre avec le patch distinct du proposeur de transitions @3.1.0 livré dans une autre tâche.
+- Aucun test, appel LLM, génération, redémarrage, projet runtime, image ou code applicatif modifié.
+
+### Next steps
+1. Intégrer la préférence de présélection et confirmer le fonctionnement simple décrit ci-dessus.
+2. Au passage à l’implémentation : transmettre des IDs explicites d’images choisies, valider appartenance/disponibilité et deux images minimum côté serveur, garder l’ordre du parcours et calculer la clé d’export à partir de la sélection effective. Préserver les frises déjà préparées.
+3. Conserver la version de génération/masque actuelle ; ne pas profiter de ce patch UX pour appliquer les évolutions différées.
+
+## Patch 2026-09-30 — Actions limitées à la modification visible
+
+### Goal
+- Appliquer l’accord utilisateur : améliorer action/intention dans l’atelier Transitions pour éviter l’anticipation de l’objet complet et écarter l’historique de retouche des images.
+
+### Current state
+- Implémentation dans D:/Code/panelforge-krea2-flux : image.transitions.propose@3.1.0. Le titre généré décrit l’opération locale, les pièces et matériaux visibles. Pour une construction partielle, les consignes demandent la géométrie de cette étape, sans nommer le monument reconnu ni anticiper les étapes suivantes. Les comparaisons des réglages d’ouvriers ne constituent pas une demande de terminer l’objet.
+- L’intention reste courte et doit borner une construction additive à l’état final de la paire pendant tout le plan : pièces déjà fixées conservées, pas de dépassement suivi de démontage/réduction. Démolitions explicites et déplacements caméra ne sont pas soumis à cette règle d’assemblage.
+- Payload commun aux modes avec/sans ouvrier visuel : états désignés par Picture 1/2, ordre de frise par indices seuls, sans noms d’images, provenance, anciennes opérations de retouche. Anciens titres/intentions automatiques retirés pour une nouvelle analyse. Consignes manuelles conservées ; anciennes intentions restent exclues en mode visuel comme avant. Images réellement envoyées, provenance stockée et mécanique de relecture inchangées.
+- Description textuelle de l’ouvrier conservée sans référence visuelle. Aucun remplacement automatique dans les réglages de l’utilisateur : pour l’essai Eiffel, remplacer manuellement la comparaison par « un chantier à leur échelle » avant de reproposer, faute de quoi ce nom reste aussi transmis au Plan par le champ Ouvrier.
+- Deux régressions de service ajoutées dans tests/test_image_transitions.py : provenance/titres automatiques exclus sans modifier les images ; consignes et intention manuelles préservées avec suggestion séparée. Attentes de version actualisées dans deux tests existants. Tests NON exécutés suivant AGENTS.md.
+- Trois fichiers Python parsés/compilés sans exécution. AST confirme que seuls SYSTEM, OPERATION et payload changent dans le module applicatif ; sept fichiers de domaine/service/Plan/Writer/références/rendu/stockage inchangés par empreinte. Diff isolé relu, espaces contrôlés ; guide docs/design/image-transitions.md mis à jour.
+- Sauvegardes, review.diff, protected-before.json et static-checks.json : D:/Code/panelforge/.agent/diagnostics/transition-local-change-20260930/. Aucun projet runtime, intention enregistrée ou rendu modifié ; aucun LLM, génération, redémarrage, commit ou push.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab choisi par l’utilisateur, actualiser l’interface, retirer la comparaison Eiffel de la description d’ouvrier dans la frise concernée puis Proposer les transitions. Appliquer la suggestion si un texte manuel est conservé, relire puis envoyer une nouvelle unité si souhaité.
+2. Tests utilisateur depuis le checkout actif avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_image_transitions*.py", puis test_worker_visual_policy.py si souhaité.
+3. Qualifier une nouvelle vidéo volontairement : le respect de l’état partiel reste à mesurer. Pas d’autre modification du prompteur H3 ni de l’organisation UX globale/paires dans ce patch.
+
+
+## Analyse 2026-09-30 — Dépassement de la base en allumettes
+
+### Goal
+- Analyser seulement le run où de petits ouvriers construisent une tour complète puis reviennent au socle ; examiner l’influence du nom Eiffel et les données transmises.
+
+### Current state
+- Run factory-f6582c085cf642e890a359aef61d4677, paire 1 → 2 de transitions-b81ea0ea1dec4d82973f2fcbb10cc402 ; session prompt-7cb6c3da248e4c05b0d64f4627ee0b67 ; rendu h3-render-4b0954f274584c6ebc9e679a040a844d, tentative attempt-0dd15526b8fb46fea5945d223ee35a85 terminée le 30 septembre à 01:47 UTC.
+- Références inspectées : table vide -> charpente basse en allumettes (base carrée, quatre appuis inclinés, arches, petit cadre supérieur). Images de contrôle : chantier à 1,812 / 3,625 s, tour complète avec flèche à 5,438 s, base seule à 7,250 s. Dépassement effectivement visible.
+- Proposeur concis @3.0.1 actif. Plan Qwen3.8 et Writer Gemma4 prescrivent base/premier niveau, aucune instruction explicite de construire tout puis démonter. Eiffel est présent dans titre action, description d’ouvrier, provenance de l’image, puis Plan et prompt final.
+- Sans référence d’ouvrier, payload transmet encore origin.action/observation de l’image : « Retirer les niveaux supérieurs et la flèche présents dans LATER ». Texte de retouche historique vu par le proposeur, pas repris dans le brief/Plan/prompt de rendu ; risque de contamination, pas cause démontrée.
+- Les deux bonnes images sont reliées aux first/last_frame aux deux conditionnements FL2VA ; empreintes du Plan conformes, aucune image de tour complète envoyée. Prompt effectif conforme à la sortie Writer. Hypothèse principale : extrapolation du monument complet encouragée par son nom, puis convergence vers la dernière image ; un run ne prouve pas causalement l’effet du nom. Limite de progression jusqu’à l’état partiel non explicite sur toute la durée.
+- Avertissement « 7 / 0 s » identifié comme diagnostic lexical incluant le repère initial 0.00 s ; ne change pas les entrées de durée. Recette BUNNY 0.1.3+vae-int8-convrot.1 / Turbo / Motion Repair conservée, aucune attribution causale à ces paramètres sans comparaison.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/transition-eiffel-overshoot-20260930/ (evidence.json, entrée du proposeur et trois PNG copiés sans retouche). Guide H3 officiel consulté : détail visuel concret et chemin continu entre images, sans preuve documentaire spécifique de l’effet du nom Eiffel. Aucun changement du code/runtime, test, appel LLM, génération ou redémarrage.
+
+### Next steps
+- Discussion seulement : décrire la modification locale et la géométrie du socle, éviter le nom du monument dans les données textuelles de cette paire, séparer la provenance de retouche de la scène vidéo, borner la construction à l’état visible final sans dépassement/réduction. Garder Fast.
+- Ne pas appliquer un patch, réécrire les intentions existantes ou lancer un nouvel essai sans demande.
+
+
+## Livraison 2026-09-30 — Histoire V2 : destinataires et regards ciblés
+
+### Goal
+- Accord utilisateur : destinataires déduits sans affichage supplémentaire ; regards précisés uniquement si l'échange est ambigu ; patch limité à Histoire et aux indications transmises. Aucun changement du prompteur vidéo.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Contrat Histoire 1.4.0, consignes éditoriales 1.2.0. Dialogue possède addressee_ids (personnages connus, distincts, différents du locuteur) et address_cue (facultatif, une ligne de 180 caractères maximum, nécessite un destinataire). Le schéma d'écriture demande une décision explicite ; narration/pensée/monologue/public non identifié utilisent liste vide. Champs vides omis à la sérialisation pour préserver l'empreinte des anciens scripts.
+- Auteur Histoire distingue destinataire et personne citée ; cue seulement si risque d'ambiguïté (tiers, hors champ, POV déjà prévu). Action et cue doivent rester cohérents, sans introduire un découpage caméra. Temps pour toutes les réponses avant gestes/pauses accessoires ; réactions utiles conservées. Retouche Gemma garde les destinataires/cues via le mécanisme existant, consigne de compatibilité ajoutée. Relecture reçoit le geste visible, pas les IDs des destinataires comme preuve de compréhension.
+- Export Histoire ajoute dans l'intention une courte ligne par réplique adressée et une indication de rythme. Les mots des dialogues ne sont pas recopiés dans cette indication. Conversion vers contrat épisode existant limitée à speaker_id/text/delivery ; aucune modification de ce contrat partagé, de scene_inputs, du Plan ou du Writer vidéo. Hors champ/à distance n'ajoute pas de référence ou présence. Ancien script sans indications garde le même export.
+- Aucune nouvelle UI. L'éditeur garde les données cachées si la réplique est inchangée ; changement texte/locuteur/delivery les retire. Changement action/intention/lieu retire uniquement les cues devenus potentiellement obsolètes. Une réécriture Histoire peut les recalculer. Version cache story-v2.js actualisée ; markup inchangé.
+- Aucun appel LLM supplémentaire, modèle ni réglage modifié ; timing/validation et algorithme de retouche inchangés, contrôlés par AST. Mode automatique et référence chaining conservés : références puis Préparation, sans génération de prompt ou vidéo par Histoire. 114 empreintes (prompt_sources, générateur classique, cœur cinématique, orchestration Histoire/usine, épisodes et réglages UI) contrôlées inchangées.
+- Six Python compilés sans exécution, JS applicatif + fixture + scénario navigateur compilés sans invocation, diff ciblé et espaces contrôlés. Sept nouveaux tests dans tests.test_story_v2_addressing : anciens scripts/champs vides, destinataires invalides/groupes, bornes des cues, export du vrai interlocuteur plutôt que personne citée, hors champ/à distance, préservation retouche et preuve relecture, deux appels puis Préparation. Régression navigateur étendue pour données cachées et invalidation manuelle ; version opération mise à jour dans test_story_v2. Tests NON exécutés suivant AGENTS.md.
+- Guide docs/design/story-v2-guide.md actualisé. Sauvegardes, review.diff, protected-before.json et static-checks.json dans D:/Code/panelforge/.agent/diagnostics/story-v2-addressees-20260930/. Aucun projet runtime, prompt préparé ou asset modifié ; aucun LLM, rendu, test applicatif, redémarrage, commit ou push. Changements préexistants conservés.
+
+### Next steps
+1. Charger le code au prochain redémarrage habituel choisi par l'utilisateur, puis recharger la page (Ctrl+F5). Écrire une nouvelle histoire ou demander une réécriture Histoire pour obtenir ces indications ; une simple ouverture, une retouche seule ou un ancien prompt déjà envoyé ne les ajoute pas.
+2. Tests utilisateur : python -m unittest tests.test_story_v2_addressing tests.test_story_v2 tests.test_story_v2_editorial tests.test_story_v2_preparation tests.test_story_v2_browser depuis le checkout actif avec PYTHONPATH=src.
+3. Qualifier les futurs regards sur des échanges à trois et un interlocuteur hors champ. Le patch améliore l'intention transmise, sans garantie sur le respect des regards ou l'allocation du temps par le prompteur vidéo inchangé. Ne pas appliquer la refonte/les identifiants vocaux du diagnostic précédent sans nouvelle demande.
+
+## Livraison 2026-09-30 — Sélecteur indépendant pour l’analyse du masque
+
+### Goal
+- Demande finale explicite : uniquement un sélecteur de LLM pour essayer Qwen sur l’analyse du masque. Aucun correctif de contours ou de composition. La stratégie à grandes étapes puis insertions automatiques est abandonnée ; la proposition « une modification principale par image » n’est pas implémentée dans cette tâche.
+
+### Current state
+- Code actif modifié dans D:/Code/panelforge-krea2-flux. Troisième sélecteur discret « Analyse du masque » dans Modèles, indépendant de Progression visuelle et Prompt MiniMax. Qwen local présélectionné pour les nouveaux formulaires : local::unsloth/Qwen3.8-27B-GGUF, identifiant déjà utilisé dans les réglages Histoire V2. La consultation du catalogue HTTP sur localhost:7860 a échoué (connexion indisponible), aucun serveur démarré pour cela ; le catalogue réel est chargé par l’interface habituelle, qui signale les modèles absents sans remplacement silencieux.
+- Champ optionnel mask_model_id validé et persisté à la création ou à la reprise d’un parcours suspendu. Les anciens journaux/appels sans champ gardent le repli sur Progression visuelle ; une reprise API qui omet ce champ conserve le choix indépendant déjà enregistré. Les deux autres rôles gardent leurs modèles et leurs prompts.
+- ImageJourneyProtection route uniquement l’appel de localisation vers ce choix. Pour les étapes automatiques, lecture du réglage au début de l’analyse ; changer à la reprise permet de réessayer une analyse échouée avec le même rendu. Aucun recalcul implicite d’un plan déjà enregistré ni d’une image réussie. Les opérations + copient le modèle de masque au lancement ; les anciennes opérations sans champ utilisent leur modèle de progression enregistré. Les sélecteurs restent verrouillés pendant la génération et sur les parcours terminés, comme les deux rôles existants.
+- Détail d’image : affichage de protection.model_id, le modèle effectivement exécuté, distinct du réglage courant du parcours. Trois colonnes dans Modèles, une sur mobile ; versions des ressources CSS/JS actualisées. Guide d’utilisation mis à jour.
+- Aucune modification de géométrie, consigne de masque, rasterisation/dilatation/raccord Pillow, composition, résolution 3 MP, workflow MiniMax, VAE, prompts de progression ou prompter. Six empreintes des fichiers concernés contrôlées inchangées. Aucun projet runtime ni asset modifié.
+- Vérifications statiques réussies : 8 Python compilés sans exécution ; JS applicatif et deux scripts de scénario compilés sans invocation ; 2137 IDs HTML uniques et 47 sélecteurs raccordés ; diff de cette tâche relu. Trois nouvelles régressions préparées (routage indépendant persistant, changement sur échec sans rendu supplémentaire, append/insert), plus extensions de la reprise après composition, du contrat HTTP et du scénario navigateur. Tests NON exécutés suivant AGENTS.md. Aucun appel LLM, génération, redémarrage, commit ou push.
+- Sauvegardes exactes, scripts, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-mask-model-20260930/. Changements préexistants du checkout conservés.
+
+### Next steps
+1. Au prochain chargement/redémarrage du backend choisi par l’utilisateur, Ctrl+F5 puis nouveau parcours : Modèles > Analyse du masque = Qwen. Pour un parcours suspendu : choisir Qwen puis Reprendre ; cela concerne les analyses à venir, pas les anciens masques.
+2. Tests à exécuter par l’utilisateur : python -m unittest discover -s tests -p "test_image_journey*.py". Comparer ensuite les vrais contours obtenus par Qwen avec le même algorithme. La qualité Qwen n’est pas qualifiée par l’agent.
+3. Ne pas appliquer les correctifs de masque/prompter discutés ni une recomposition des anciens résultats sans nouvelle demande ; le dernier périmètre autorisé était uniquement le sélecteur.
+
+## Audit 2026-09-30 — Fini : destinataires des répliques et regards
+
+### Goal
+- Examiner les mauvaises directions de regard signalées dans Fini, scènes 2 et 3, et proposer des pratiques MiniMax ciblées. Demande d'analyse, aucune implémentation demandée.
+
+### Current state
+- Run storyv2-5ba7dff2723a591ebc877a4d602e18c1, six séquences de 10 s. Audit ciblé sur scènes 2 et 3 : scénario, intention exportée, Plan, prompt réellement rendu et huit images par vidéo brute. Pas d'écoute/transcription indépendante de l'audio ; paroles comparées aux textes et retour utilisateur.
+- Scène 2 : intention « Lina passe sa portion de riz à Yanis et ignore Adam ». Le Plan vidéo Qwen3.8-27B transforme cela en attention sur Yanis pendant toute la scène et réponse « Je suis déjà avec Yanis » sans se tourner vers Adam. Gemma4 conserve cette mise en scène. Prompt : « while keeping her gaze on Yanis ». Image à 6 s confirme regard vers Yanis, Adam derrière à gauche. Évitement du regard possible comme jeu, mais contraire à la lisibilité souhaitée ici ; ne pas attribuer cette consigne explicite à une désobéissance MiniMax.
+- Scène 3 : Plan Qwen puis Gemma prescrivent face à Adam mais ajoutent échange de regards entre Lina et Yanis, geste de col, transfert de poids, silence. Deux réponses dans le dernier plan de 3 s, après 2,8 s baiser et 4,2 s réaction/réplique Adam. Pas de POV d'Adam explicitement défini. Images 7,5 / 8,5 / 9,6 s : couple vers caméra, Lina vers Yanis, puis couple face à face. Concurrence des actions et cadrage insuffisamment relié au destinataire, hypothèse fondée sur texte et images ; ne pas prétendre avoir isolé chaque cause par expérimentation.
+- Contrat Dialogue actuel : speaker_id, text, delivery ; pas de destinataire. Distinguer locuteur, destinataire, cible du regard et position caméra. Éviter une règle absolue imposant toujours le regard à l'interlocuteur : les exceptions doivent être intentionnelles et lisibles.
+- Prompts des deux rendus : 681 / 732 mots, aucune balise <Subject N> ni identité vocale (Sx). Guide officiel H3 full-reference recommande association Subject / image et ID locuteur stable aux prises de parole ; ces IDs concernent qui parle, pas à qui. Documentation prévoit descriptions détaillées : longueur seule non démontrée comme cause. Priorité à consignes cohérentes et suppression des répétitions/gestes concurrents.
+- Source primaire : https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md (sections 5.2–5.4 et définitions). Piste POV : placer la caméra aux yeux d'Adam et diriger les réponses vers ce point ; alternative à tester, amorce épaule d'Adam. Aucune garantie de suivi parfait du modèle, aucun nouveau LLM nécessaire à ce stade.
+- Preuves et prompts : D:/Code/panelforge/.agent/diagnostics/fini-addressee-20260930/findings.json, scene-2.jpg, scene-3.jpg. Lecture médias existants via FFmpeg CPU uniquement. Aucun code applicatif, projet runtime, réglage ou prompt modifié ; aucun test, appel modèle, génération, redémarrage ou push.
+
+### Next steps
+1. Présenter le diagnostic : problème de mise en scène dans Plan/Writer avant de changer le scénariste ou les modèles.
+2. Si correctif autorisé : expliciter destinataire dès préparation existante, conserver cette relation dans Writer, décider cible de regard et caméra au moment de chaque réplique ; alléger actions concurrentes et utiliser les identifiants vocaux documentés.
+3. Proposer A/B ciblé scènes 2/3 avec mêmes références, réglages et seed ; ne pas lancer de génération sans demande. Conserver les scénarios appréciés et les 10 s.
+
+## Audit et alignement 2026-09-30 — Contours du masque et grandes étapes avec insertions
+
+### Goal
+- Analyser le dernier parcours apprécié par l’utilisateur, expliquer les défauts du panneau et du mobilier, critiquer l’idée de 3 grandes étapes puis insertions automatiques, expliquer la charge Local/GPU. Demande d’alignement, aucun go de correctif ou nouvelle fonctionnalité.
+
+### Current state
+- Parcours inspecté : journey-bf29661da4d35eadbcdb5b09a9662031, terminé, 5 images automatiques et 1 insertion manuelle. Profil fixed-3mp-v1, 1344 × 2368, 18 passes, masque activé. Progression et prompter = local::unsloth/gemma-4-31B-it-qat-GGUF.
+- Panneau solaire : présent entier et cohérent dans le brut de l’étape 2. Le masque calculé ne conserve qu’une bande diagonale (contour x610..770, y45..115), coupant le panneau lors du collage. Défaut établi par comparaison avant/brut/masque/protégé ; ce défaut précis n’est pas attribuable au VAE. L’insertion « deck seul » retire le panneau dans son brut mais son masque de suppression laisse subsister une partie du panneau/câble. Même problème de couverture complète de l’ancienne emprise.
+- Mobilier étape 4 : chaise et table plus cohérentes dans le brut ; le masque schématique tronque notamment une partie du dossier, de l’assise et du plateau, réinjectant porte/végétation à leur place. Étape 5 conserve ensuite la chaise tronquée alors que son nouveau brut la reconstruit : effet attendu de la protection d’un état déjà mauvais. Une part importante du manque de réalisme vient donc du découpage, sans prétendre que le brut est esthétiquement parfait.
+- Autre défaut indépendant établi : action étape 2 = deck seul, mais prompt MiniMax effectif demande deck + porte + panneau + décorations. Le prompter reçoit la destination complète dans edit_request et l’a prise comme travail immédiat. Le masque a accepté aussi les ajouts anticipés. La relecture a marqué tous les jalons atteints puis les consignes actuelles d’exactement 5 images ont poussé des raffinements (rambardes, meubles, livre/tasse) pour finir le budget. Corriger le respect de l’action courante avant d’accuser la longueur de chaîne seule.
+- Vérification CPU des assets existants (empreintes validées) : zéro pixel RGBA modifié là où chaque masque vaut zéro, sur les six transformations. Hors-masque conservé = 61,49 à 99,19 % des pixels selon étape ; la conservation fonctionne, la localisation est le point faible. Durée phase protection des cinq étapes automatiques : 9,12 / 25,24 / 12,59 / 11,13 / 15,19 s ; insertion 25,96 s. Ces durées incluent appel modèle, composition et écritures, pas une mesure isolée GPU.
+- Explication technique : MiniMax génère son brut ; un appel supplémentaire à Progression visuelle/Gemma local fournit une liste de coordonnées/polygones. Pillow rasterise, dilate et adoucit légèrement puis compose sur CPU côté PanelForge. Aucun modèle spécialisé SAM ni génération diffusion supplémentaire pour le masque actuel. L’inférence locale utilise le GPU selon son chargement/offload ; ne pas inventer un profil hardware mesuré.
+- Contournement proposé, non exécuté : reprendre le brut existant et recomposer avec une zone couvrant l’objet entier, support/câble et raccords nécessaires ; pas besoin de relancer MiniMax. Pour un défaut déjà propagé, corriger aussi les états suivants où cette zone est conservée, avec correspondance/occlusions vérifiées. Piste automatique simple : localisation de zones complètes moins serrées et inspection locale ; compromis = un peu plus de décor régénéré autour de l’objet. Piste spécialisée à qualifier : LLM pour désigner, segmentation pour contours, masques séparés pour ombres/raccords ; ne pas garantir SAM sur tout type de travaux.
+- Avis sur l’idée : 3 jalons canoniques puis intermédiaires indépendants dérivés des jalons voisins peut réduire la profondeur de rééditions et garder la fin stable. Ne réduit pas nécessairement le nombre total de rendus ni les coûts ; chaque intermédiaire passe aussi dans le générateur/VAE. Ne pas réutiliser les intermédiaires comme sources des jalons suivants, ni enchaîner les insertions entre elles. Risques : changements trop gros dans un jalon, phases cachées difficiles à reconstruire (isolation/supports), cohérence géométrique entre bornes, raccords du masque inchangés. Favorable comme évolution après correction des contours et du périmètre du prompter, pas remède à ces deux bugs.
+- Questions async posées : (1) 3 jalons proposés par LLM et modifiables, ou saisis par utilisateur ? (2) insertions utiles choisies par LLM avec plafond, ou nombre total imposé ? Réponses non reçues lors de cette note ; aucune préférence supposée acquise.
+- Sources primaires consultées : Hugging Face Diffusers img2img (encodage/génération/décodage) et dépôt officiel facebookresearch/sam3 (segmentation par texte/points/boîtes). Pas d’installation ni qualification SAM.
+- Diagnostic uniquement : script audit.py, audit-data.json, sequence.jpg, solar.png, solar-insert.png, furniture.jpg dans D:/Code/panelforge/.agent/diagnostics/journey-mask-audit-20260930/. Aucun code applicatif ou projet runtime modifié ; aucun test applicatif, appel LLM, rendu ou redémarrage.
+
+### Next steps
+1. Présenter le diagnostic exact, le contournement du panneau et les limites de l’architecture à jalons ; intégrer les réponses aux questions.
+2. Attendre un go avant correction/recomposition des assets ou implémentation des insertions automatiques. Ne pas confondre cet alignement avec l’autorisation d’implémentation du tour précédent.
+
 ## Version GitHub 2026-09-30 — Instantané de l'application pour master
 
 ### Goal
@@ -12,7 +319,8 @@
 - Reçu détaillé et commit de publication enregistrés hors snapshot : D:/Code/panelforge/.agent/diagnostics/github-master-20260930/snapshot.json et checks.json.
 
 ### Next steps
-- Publication en fast-forward sans force, puis vérification du SHA distant. Conserver les dossiers de travail et poursuivre les tests fonctionnels côté utilisateur selon AGENTS.md.
+- Publication terminée sur origin/master : d3f0ca0f1868a728edfcb5e1439a7b82f833e021, push sans force et SHA distant vérifié. Version : https://github.com/EasyFrag/panelforge/commit/d3f0ca0f1868a728edfcb5e1439a7b82f833e021.
+- Dossiers de travail et index conservés ; le checkout master local reste sur 7036248 avec ses changements préexistants, origin/master porte la nouvelle version. Ne pas faire de reset ou checkout sur les modifications locales pour le synchroniser. Poursuivre les tests fonctionnels côté utilisateur selon AGENTS.md. Cette confirmation locale est postérieure au snapshot publié.
 
 ## Livraison 2026-09-29 — Enchaînement des références sans validation intermédiaire
 

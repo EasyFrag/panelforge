@@ -5,11 +5,11 @@ from hashlib import sha256
 import json
 import re
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from .story_v2_settings import ImageOptions, VideoOptions, CHECKPOINT
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 DEFAULT_MODEL = "local::unsloth/Qwen3.8-27B-GGUF"
 DEFAULT_PROMPT_MODEL = "local::unsloth/gemma-4-31B-it-qat-GGUF"
 ACTIVE = {"queued", "writing", "reviewing", "repairing", "polishing", "references", "producing"}
@@ -61,6 +61,19 @@ class Dialogue(Contract):
     speaker_id: str = Field(min_length=1, max_length=50)
     text: str = Field(min_length=1, max_length=450)
     delivery: Literal["spoken", "off_screen", "voice_over", "thought", "mediated"] = "spoken"
+
+    # Narrative recipients are independent of visible presence and vocal delivery.
+    addressee_ids: list[str] = Field(default_factory=list, max_length=10)
+    address_cue: str = Field(default="", max_length=180, pattern=r"^[^\r\n]*$")
+
+    @model_serializer(mode="wrap")
+    def compact_addressing(self, handler):
+        # Empty defaults must not change legacy script hashes or episode identities.
+        data = handler(self)
+        for key in ("addressee_ids", "address_cue"):
+            if not data.get(key):
+                data.pop(key, None)
+        return data
 
 class Appearance(Contract):
     character_id: str = Field(min_length=1, max_length=50)
@@ -126,6 +139,11 @@ class Script(Contract):
             for line in s.dialogue:
                 if line.speaker_id not in people or (line.delivery == "spoken" and line.speaker_id not in s.character_ids):
                     raise ValueError(f"{s.id} : locuteur inconnu ou absent sans mode hors champ.")
+                if (len(line.addressee_ids) != len(set(line.addressee_ids))
+                        or not set(line.addressee_ids) <= people or line.speaker_id in line.addressee_ids):
+                    raise ValueError(f"{s.id} : destinataire inconnu, répété ou identique au locuteur.")
+                if line.address_cue and not line.addressee_ids:
+                    raise ValueError(f"{s.id} : une indication de regard nécessite un destinataire identifié.")
             words = sum(len(re.findall(r"\S+", d.text)) for d in s.dialogue)
             if words > s.duration * 3.5:
                 raise ValueError(f"{s.id} : trop de paroles pour laisser jouer la scène en {s.duration} s.")
@@ -161,6 +179,8 @@ def scene_durations(settings):
 
 def writing_schema(settings):
     schema = Script.model_json_schema()
+    # Require the author to decide explicitly; old stored scripts remain optional.
+    schema["$defs"]["Dialogue"]["required"].extend(["addressee_ids", "address_cue"])
     timing = scene_durations(settings)
     if timing is not None:
         schema["properties"]["sequences"].update(minItems=len(timing), maxItems=len(timing))
@@ -216,7 +236,8 @@ def audience_view(script):
     names = {p["id"]: p["name"] for p in script["characters"]}
     return [dict(sequence=s["id"], visible=s["action"],
         present=[names[x] for x in s["character_ids"]],
-        dialogue=[dict(speaker=names[d["speaker_id"]], text=d["text"], delivery=d["delivery"])
+        dialogue=[dict(speaker=names[d["speaker_id"]], text=d["text"], delivery=d["delivery"],
+                       **({"visible_address":d["address_cue"]} if d.get("address_cue") else {}))
                   for d in s["dialogue"]]) for s in script["sequences"]]
 
 

@@ -20,12 +20,13 @@ SOLUTION_PLAN_POLICY = (
 SOLUTION_PLAN_POLICY_V4 = (
     "HELP MECHANISM: Follow the author's stated problem; otherwise infer the need from the image. "
     "In continuity_invariants, connect need, mechanism and lasting benefit in one sentence. "
-    "Keep object choice free; no gesture quota. Material styling must not immobilize water or fire."
+    "Respect specified tools; otherwise keep object choice free. No gesture quota. "
+    "Material styling must not immobilize water or fire."
 )
 NEED_DIRECTIONS = {
-    'drought': 'Apporter de l’eau pour soulager la sécheresse et rendre son bénéfice visible.',
+    'drought': 'La main irrigue le sol desséché. Partout où l’eau touche la terre, une végétation luxuriante pousse aussitôt comme par magie, suit la progression de l’arrosage et reste visible après le retrait de la main.',
     'wave': 'Intercepter ou détourner la vague avant les habitants, avec une protection qui reste efficace.',
-    'flood': 'Évacuer l’eau hors de la zone protégée et montrer une baisse durable du niveau.',
+    'flood': 'Premier geste d’aide : utiliser une ventouse de débouchage pour évacuer l’eau et abaisser durablement son niveau ; gestes suivants libres si nécessaires.',
     'fire': 'Les flammes vacillent et la fumée monte, puis le feu s’éteint sous l’effet de l’aide.',
 }
 # Only scene descriptions are evidence; labels, filenames and style boilerplate are not.
@@ -73,7 +74,13 @@ def scene_need(config):
 
 def preparation_text_v4(config, source, selection):
     # This goal is deterministic and stays identical from Plan to Writer.
-    goal = NEED_DIRECTIONS.get(scene_need(config))
+    need = scene_need(config)
+    goal = NEED_DIRECTIONS.get(need)
+    # Older selections must reproduce their locked Plan/Writer input exactly.
+    if need == "flood" and selection.get("flood_first_action") != "plunger":
+        goal = "Évacuer l’eau hors de la zone protégée et montrer une baisse durable du niveau."
+    if need == "drought" and selection.get("drought_result") != "lush_growth":
+        goal = "Apporter de l’eau pour soulager la sécheresse et rendre son bénéfice visible."
     if goal:
         source += "\n\n" + goal
     return preparation_text_v3(config, source, selection)

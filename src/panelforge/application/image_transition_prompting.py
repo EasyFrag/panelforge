@@ -5,7 +5,7 @@ from . import worker_visual_policy
 from panelforge.domain.worker_visual_policy import VERSION
 from panelforge.domain.image_transitions import KINDS, clean_text
 
-OPERATION = "image.transitions.propose@3.0.1"
+OPERATION = "image.transitions.propose@3.1.0"
 SYSTEM = """You prepare one H3 first-frame/last-frame video intention for a human to review.
 Return only a JSON object in French with action (short title), kind (work, cleaning, installation,
 camera or other), intention (a concise actionable paragraph including the visible temporal effect),
@@ -15,7 +15,12 @@ user constraints. State the playback treatment once, then focus on the few actio
 the endpoints. Do not turn this reviewable intention into a detailed shooting script or repeat blur,
 speed and sound effects for each gesture; the H3 Plan and Writer develop those details.
 Picture 1 is the starting state to reach at the beginning, Picture 2 the ending state to reach at the end.
-Observe both. Use only the supplied references and settings, without inferring instructions from filenames.
+Compare only the visible changes between these two images: what is added, removed or altered.
+The generated action title names that local operation with an action verb and the visible part/material.
+For a partial build, describe its visible geometry rather than naming the recognizable complete object
+or landmark. Keep generated descriptions local even when settings compare the work to a named monument:
+such a comparison conveys the workers' relationship to the materials, not a request to complete it.
+Do not anticipate later images or stages. Preserve any explicitly requested visible text.
 The workforce contract specifies solo or a team/site size; choose useful staffing for the latter.
 Apply workforce only when work needs people; camera-only moves do not acquire a crew.
 Read the visual scale before choosing material handling, tools, equipment and cooperation.
@@ -26,6 +31,10 @@ the user's note requests it. Prioritize the user's action request and preserve m
 For work, use concrete actions that cause the visible change: the worker places and fixes boards,
 rather than a structure rising on its own. Select only necessary operations; do not invent extra
 tasks, equipment or a detailed construction procedure just to fill the duration.
+For an additive build, Picture 2 sets the maximum constructed extent throughout the shot.
+Briefly state that boundary in the intention: add only the parts needed for this state and keep fitted
+pieces in place, without building further stages then dismantling, shrinking or morphing back.
+This limit concerns additive construction, not requested demolition or camera-only changes.
 The selected temporal_contract governs playback, including when revising a previous intention.
 FAST: begin with one short, unmistakable global extreme fast-forward / time-lapse clause,
 optionally with one visible cue such as staccato pose jumps. Compress the recording, not just effort.
@@ -74,23 +83,20 @@ def system(visual):
 
 
 def payload(snapshot, overview):
-    """Exclude old worker prose, prior intentions and image provenance in visual-only mode."""
+    """Send the pair and explicit user directions, without image-edit history or old auto prose."""
     from copy import deepcopy
     transition, visual = snapshot["transition"], snapshot.get("visual_references", {})
     settings = deepcopy(snapshot["settings"])
-    user = dict(sequence=overview, settings=settings,
-                current_action=transition["action"], user_note=transition["note"],
-                previous_intention=transition["intention"],
-                start=snapshot["first"], end=snapshot["last"])
+    manual = transition.get("manual", False)
+    # Names/provenance can describe the finished project or an earlier image-edit operation.
+    # Images themselves carry the two states; only manual directions should steer a new proposal.
+    user = dict(sequence=[dict(index=item["index"]) for item in overview], settings=settings,
+                current_action=transition["action"] if manual else "", user_note=transition["note"],
+                start=dict(picture=1), end=dict(picture=2))
+    if manual and not visual.get("worker"):
+        user["previous_intention"] = transition["intention"]
     if visual.get("worker"):
         settings.pop("worker", None)
-        user.pop("previous_intention")
-        if not transition.get("manual"):
-            user["current_action"] = ""
-        # Titles/history may contain previous edit prompts or a character description.
-        user["sequence"] = [dict(index=item["index"]) for item in overview]
-        user["start"] = dict(picture=1)
-        user["end"] = dict(picture=2)
         user["visual_references"] = dict(worker=dict(picture=3),
             scale=dict(picture=4) if visual.get("scale") else None)
         worker_visual_policy.reject_legacy_scale(user["user_note"])

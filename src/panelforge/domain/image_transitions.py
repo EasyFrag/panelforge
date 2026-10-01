@@ -72,7 +72,7 @@ def defaults():
                 audio="Sons des outils et du lieu synchronisés aux actions, sans parole.",
                 music=False, preserve="Préserver les éléments du décor qui ne sont pas concernés.",
                 model_id=WRITER_MODEL, plan_model_id=PLAN_MODEL, writer_model_id=WRITER_MODEL,
-                aspect_ratio="auto", dlss=False)
+                aspect_ratio="auto", dlss=True)
 
 
 def clean_text(value, name, limit, required=False):

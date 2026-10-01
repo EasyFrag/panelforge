@@ -8,6 +8,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 MAX_IMAGES = 30
 DEFAULT_IMAGES = 5
+DEFAULT_MASK_MODEL_ID = "local::unsloth/Qwen3.8-27B-GGUF"
 PRESET = "construction"
 ACTIVE = {"running", "pausing"}
 
@@ -36,12 +37,16 @@ def project_id(command):
     return "journey-" + uuid5(NAMESPACE_URL, "panelforge/image-journey/" + request_id(command)).hex
 
 
-def configuration(intention, count, progression_model_id, prompt_model_id):
+def configuration(intention, count, progression_model_id, prompt_model_id, mask_model_id=None):
     if type(count) is not int or not 1 <= count <= MAX_IMAGES:
         raise ValueError(f"Choisis de 1 à {MAX_IMAGES} nouvelles images.")
-    return dict(intention=text(intention, "Intention", 6000), count=count,
+    config = dict(intention=text(intention, "Intention", 6000), count=count,
                 progression_model_id=text(progression_model_id, "Modèle de progression", 300, True),
                 prompt_model_id=text(prompt_model_id, "Modèle MiniMax", 300, True))
+    # Omission preserves legacy callers and their progression-model fallback.
+    if mask_model_id is not None:
+        config["mask_model_id"] = text(mask_model_id, "Modèle d’analyse du masque", 300, True)
+    return config
 
 
 def fingerprint(value):
@@ -72,17 +77,38 @@ def ordered_steps(project):
     return [lookup[key] for key in order if key in lookup] + [step for step in steps if step['id'] not in order]
 
 
-def sequence(project):
-    """Versioned handoff of reviewed states; no video intentions are implied."""
+def transferable_frame_ids(project):
+    """Explicit frame identities, including reviewed states after an excluded gap."""
+    return ['source', *[step['id'] for step in ordered_steps(project)
+                       if step.get('output_asset_id') and
+                       (step.get('review') or {}).get('assessment') in {'usable', 'similar'}]]
+
+
+def sequence(project, frame_ids=None):
+    """Selected reviewed states in journey order; omission keeps the legacy prefix."""
+    available = set(transferable_frame_ids(project))
+    selected = None
+    if frame_ids is not None:
+        if not isinstance(frame_ids, list) or len(frame_ids) < 2:
+            raise ValueError('Sélectionne au moins deux images pour préparer les transitions.')
+        if any(not isinstance(identity, str) or identity not in available for identity in frame_ids):
+            raise ValueError('Une image sélectionnée est introuvable ou pas encore disponible pour les transitions.')
+        selected = set(frame_ids)
+        if len(selected) != len(frame_ids):
+            raise ValueError('Chaque image ne peut être sélectionnée qu’une fois.')
     frames = [dict(asset_id=project["source_asset_id"], label="Départ",
                    origin=dict(engine="image-journey", project_id=project["id"], index=0))]
     for index, step in enumerate(ordered_steps(project), 1):
-        if (step.get("review") or {}).get("assessment") not in {"usable", "similar"}:
-            break
+        if step['id'] not in available:
+            if selected is None:
+                break
+            continue
         frames.append(dict(asset_id=step["output_asset_id"], label=step["action"]["title"],
             origin=dict(engine="image-journey", project_id=project["id"], step_id=step["id"],
                         index=index, source_asset_id=step["source_asset_id"],
                         action=step["action"]["change"], observation=step["review"]["observation"])))
+    if selected is not None:
+        frames = [frame for frame in frames if frame['origin'].get('step_id', 'source') in selected]
     return dict(schema_version=1, project_id=project["id"], destination=project["destination"], frames=frames)
 
 

@@ -18,6 +18,8 @@ class StoryV2BrowserTest(unittest.TestCase):
         start=html.index('  <main id="story-v2-workspace"');end=html.index('</main>',start)+len('</main>')
         markup='<meta charset="utf-8"><pre id="result">PENDING</pre><button data-lab-view="story-v2">V2</button>'+html[start:end]
         project=dict(id="storyv2-"+"a"*32,version=1,status="awaiting_review",script=screenplay(),settings=settings(),history=[],review=dict(issues=[]),approved=None,episode_id=None,factory_ids=[],videos=[],error=None)
+        project["script"]["sequences"][0]["dialogue"][0].update(addressee_ids=["marc"],
+            address_cue="Mia se tourne vers Marc pour lui répondre.")
         fixture='const original='+json.dumps(project,ensure_ascii=False)+';'+r'''
           let current=structuredClone(original),requests=[];
           localStorage.setItem('panelforge.story-v2.last-settings.v2',JSON.stringify({...original.settings,
@@ -106,10 +108,23 @@ class StoryV2BrowserTest(unittest.TestCase):
           check(document.querySelectorAll('.sv2-intention').length===2,'one intention per sequence');
           check(document.querySelectorAll('.sv2-dialogue').length===2,'dialogue readable');
           const edit=document.querySelector('.sv2-sequence button');check(!edit.disabled,'edit enabled after loading');edit.click();
+          check(!el('sequences').textContent.includes('se tourne vers Marc'),'address metadata stays invisible');
+          el('edit-form').dispatchEvent(new Event('submit',{cancelable:true}));
+          el('save').click();await settle();
+          check(current.script.sequences[0].dialogue[0].addressee_ids[0]==='marc','unchanged edit keeps recipient');
+          check(current.script.sequences[0].dialogue[0].address_cue.includes('se tourne'),'unchanged edit keeps cue');
+          document.querySelector('.sv2-sequence button').click();
           el('edit-action').value='Mia annonce la naissance prochaine à Marc.';
           el('edit-form').dispatchEvent(new Event('submit',{cancelable:true}));
           check(!el('save').disabled,'local correction marked dirty');el('save').click();await settle();
           check(current.script.sequences[0].action.includes('annonce'),'edit saved');
+          check(current.script.sequences[0].dialogue[0].addressee_ids[0]==='marc','action edit keeps recipient');
+          check(!current.script.sequences[0].dialogue[0].address_cue,'changed staging clears stale gaze cue');
+          document.querySelector('.sv2-sequence button').click();
+          el('edit-dialogues').querySelector('textarea').value='Je voudrais te parler.';
+          el('edit-form').dispatchEvent(new Event('submit',{cancelable:true}));
+          el('save').click();await settle();
+          check(!current.script.sequences[0].dialogue[0].addressee_ids&&!current.script.sequences[0].dialogue[0].address_cue,'changed line clears hidden addressing');
           check(current.settings.final_review_enabled&&current.settings.polish_enabled,'independent options persisted');
           el('approve').click();await settle();
           check(!el('references').hidden,'manual approval opens references');

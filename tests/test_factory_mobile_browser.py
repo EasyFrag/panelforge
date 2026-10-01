@@ -16,9 +16,9 @@ class FactoryMobileBrowserTest(unittest.TestCase):
             self.skipTest("local Chromium not installed")
         directory = STATIC / "factory-mobile"
         html = (directory / "index.html").read_text(encoding="utf-8")
-        html = html.replace('<script src="/app.js?v=20260928.mobile3" defer></script>', "")
-        html = html.replace('<script src="/thermal.js?v=20260928.mobile2" defer></script>', "")
-        html = html.replace('<link rel="stylesheet" href="/app.css?v=20260928.mobile2">', "<style>" + (directory / "app.css").read_text(encoding="utf-8") + "</style>")
+        html = html.replace('<script src="/app.js?v=20260930.mobile-status1" defer></script>', "")
+        html = html.replace('<script src="/thermal.js?v=20260930.mobile-status1" defer></script>', "")
+        html = html.replace('<link rel="stylesheet" href="/app.css?v=20260930.mobile-status1">', "<style>" + (directory / "app.css").read_text(encoding="utf-8") + "</style>")
         bootstrap = r"""
           const calls=[],intervals=[];let fail=false,historyFail=false;
           Object.defineProperty(window,"isSecureContext",{value:false,configurable:true});
@@ -26,8 +26,8 @@ class FactoryMobileBrowserTest(unittest.TestCase):
           let fixture={
             generated_at:1800000000,revision:3,paused:false,cycle_id:"lot",status:"running",
             counts:{delivered:5,total:7},remaining_seconds:900,retained:false,stale:false,finish_at:1800000900,
-            machines:[{id:"local_gpu",name:"PC",temperature_c:44,threshold:80,state:"busy"},
-                      {id:"remote_gpu",name:"Serveur",temperature_c:65,threshold:85,state:"busy"}],
+            machines:[{id:"local_gpu",name:"PC",temperature_c:44,threshold:80,state:"idle"},
+                      {id:"remote_gpu",name:"Serveur",temperature_c:65,threshold:85,state:"cooling"}],
             thresholds:{local_gpu:80,remote_gpu:85},alerts:[],
             work:[{id:"A",revision:3,active_run:"a-clock",name:"<em>La vidéo</em>",status:"active",remaining_seconds:400,retained:false,
                    steps:[{id:"video",label:"Vidéo",status:"running",remaining_seconds:100}],can_retry:false}],
@@ -41,9 +41,9 @@ class FactoryMobileBrowserTest(unittest.TestCase):
             if(url==="/api/thermal-history"){
               if(historyFail)throw new Error("history offline");
               const end=Date.now()/1000;
-              return {ok:true,json:async()=>({available:true,generated_at:end,start_at:end-21600,end_at:end,bucket_seconds:15,
-                machines:[{id:"remote_gpu",points:[[end-21600,30],[end-120,81],[end-105,96],[end-90,83]]},
-                          {id:"local_gpu",points:[[end-30,38],[end-15,44],[end,42]]}]})};
+              return {ok:true,json:async()=>({available:true,generated_at:end,start_at:end-7200,end_at:end,bucket_seconds:15,
+                machines:[{id:"remote_gpu",points:[[end-7200,58],[end-1800,86],[end-1785,82],[end-120,81],[end-105,96],[end-90,83]]},
+                          {id:"local_gpu",points:[[end-30,79],[end-15,81],[end,78]]}]})};
             }
             if(url.startsWith("/api/push"))return {ok:true,json:async()=>({available:false,registered:false,warning:"fixture"})};
             if(url.includes("/commands/pause"))fixture.paused=true;
@@ -60,13 +60,21 @@ class FactoryMobileBrowserTest(unittest.TestCase):
             await settle();
             check(document.getElementById("delivered").textContent==="5 / 7 livrées","global KPI");
             check(document.querySelector("header #lot-status"),"lot status merged into top bar");
-            check(!document.querySelector(".page-title")&&!document.getElementById("machines"),"redundant title and instant tiles removed");
+            check(!document.querySelector(".page-title")&&!document.getElementById("machines"),"redundant title and instant tiles stay removed");
+            const indicators=[...document.querySelectorAll("[data-machine-status]")];
+            check(indicators.length===2&&indicators.every(node=>node.querySelector("svg")),"two compact machine icons in top bar");
+            check(indicators[0].textContent.includes("Local")&&indicators[0].textContent.includes("Idle")&&indicators[0].textContent.includes("44°"),"local live state and temperature");
+            check(indicators[1].textContent.includes("Cloud")&&indicators[1].textContent.includes("Cooling Down")&&indicators[1].textContent.includes("65°"),"cloud live state and temperature");
             check(document.getElementById("threshold-remote").value==="84","default server alert threshold");
             const cards=[...document.querySelectorAll("[data-thermal]")];
             check(cards.map(n=>n.dataset.thermal).join()==="remote_gpu,local_gpu","server then local history");
-            check(cards[0].textContent.includes("Pic 96")&&cards[0].textContent.includes("Sous 40"),"extreme temperatures remain explicit");
-            check(cards[0].textContent.includes("Au-dessus de 90"),"high peak is not silently clipped");
+            check(cards.every(card=>card.querySelector(".thermal-exceedances")),"both charts show recent exceedances");
+            check(cards[0].querySelectorAll(".thermal-exceedances li").length===2&&cards[0].textContent.includes("96°"),"server exceedances are grouped by episode");
+            check(cards[1].querySelectorAll(".thermal-exceedances li").length===1,"local exceedances use the same compact list");
+            check(!cards.some(card=>card.textContent.includes("Min ")||card.textContent.includes("Sous 40")),"low-temperature summaries are removed");
             const chart=cards[0].querySelector("svg");
+            const labels=[...chart.querySelectorAll("text")].map(node=>node.textContent);
+            check(labels.includes("60")&&labels.includes("90")&&labels.includes("−2 h")&&!labels.includes("40"),"two-hour chart uses a 60 to 90 scale");
             chart.dispatchEvent(new KeyboardEvent("keydown",{key:"End",bubbles:true}));
             check(cards[0].querySelector(".thermal-reading").textContent.includes("83 °C"),"chart reads an actual sample");
             const path=cards[0].querySelector(".thermal-line.hot").getAttribute("d");

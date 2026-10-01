@@ -32,46 +32,54 @@ class ImageJourneyBrowserTest(unittest.TestCase):
         const check=(value,message)=>{if(!value)throw Error(message);};
         window.fixtureImage='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
         sessionStorage.removeItem('panelforge.image-journey.project');
+        sessionStorage.removeItem('panelforge.image-journey.project.excluded.journey-fixture');
         window.setInterval=callback=>{window.pollJourney=callback;return 1;};
-        const calls=[];let project=null,resumeConflict=true,opened=null,holdGet=false,releaseGet=null;
+        const calls=[];let project=null,resumeConflict=true,opened=null,holdGet=false,releaseGet=null,transferred=null;
         window.PanelForgeImageTransitions={open:async identity=>{opened=identity;}};
         const clone=value=>structuredClone(value);
+        const publicProject=()=>({...clone(project),transferable_frame_ids:['source',
+          ...(project.ordered_steps||project.steps).filter(s=>s.output_asset_id&&['usable','similar'].includes(s.review?.assessment)).map(s=>s.id)]});
         window.PanelForgeLabCore={request:async(url,options={})=>{
           const method=options.method||'GET';calls.push([url,method,options.body]);
-          if(url.endsWith('/spec'))return {default_images:5,max_images:30,default_model_id:'vision',transitions_available:true,hq_prompt:'Create a higher-resolution version of <Picture 1>. Preserve geometry and colors.'};
+          if(url.endsWith('/spec'))return {default_images:5,max_images:30,default_model_id:'vision',default_mask_model_id:'qwen-mask',transitions_available:true,hq_prompt:'Create a higher-resolution version of <Picture 1>. Preserve geometry and colors.'};
           if(url.endsWith('/models'))return {models:[{id:'vision',label:'Vision local',source:'local'},
-            {id:'writer',label:'MiniMax writer',source:'server'}]};
+            {id:'writer',label:'MiniMax writer',source:'server'}, {id:'qwen-mask',label:'Qwen vision',source:'local'}]};
           if(url.endsWith('/projects')&&method==='GET')return {projects:project?[clone(project)]:[]};
           if(url.endsWith('/projects')&&method==='POST'){
             check(options.body instanceof FormData,'creation must upload the selected image');
             check(options.body.get('source_image') instanceof File,'source image missing');
-            check(options.body.get('auto_mask')==='true','mask default must reach the API');
+            check(options.body.get('auto_mask')==='false','disabled mask default must reach the API');
+            check(options.body.get('mask_model_id')==='qwen-mask','independent mask selection must reach the API');
             project={id:'journey-fixture',version:1,name:'Cave aménagée',source_asset_id:'source',status:'running',
               phase:'planning',intention:options.body.get('intention'),count:Number(options.body.get('count')),
               progression_model_id:options.body.get('progression_model_id'),prompt_model_id:options.body.get('prompt_model_id'),
-              auto_mask:options.body.get('auto_mask')==='true',source_dimensions:[1344,2368],
+              auto_mask:options.body.get('auto_mask')==='true',mask_model_id:options.body.get('mask_model_id'),source_dimensions:[1344,2368],
               render_profile:{dimensions:[1344,2368],settings:{steps:18}},generated:0,milestones:[],destination:'',completed_milestones:0,steps:[],warning:null,error:null,
               transferable_images:1,transitions_available:true};
-            return {project:clone(project)};
+            return {project:publicProject()};
           }
-          if(url.endsWith('/pause')){project.status='paused';project.version++;return {project:clone(project)};}
+          if(url.endsWith('/pause')){project.status='paused';project.version++;return {project:publicProject()};}
           if(url.endsWith('/resume')){
             const body=JSON.parse(options.body);
             if(resumeConflict){resumeConflict=false;project.version++;throw Error('Version modifiée');}
             check(body.version===project.version,'resume must use the refreshed revision');
-            project.intention=body.intention;project.status='running';project.version++;
-            return {project:clone(project)};
+            project.intention=body.intention;project.mask_model_id=body.mask_model_id;project.status='running';project.version++;
+            return {project:publicProject()};
           }
           if(url.endsWith('/image-operations')&&method==='POST'){
             const body=JSON.parse(options.body);
             check(body.version===project.version,'manual operation must use the refreshed revision');
             const op={...body,id:'operation-'+((project.image_operations||[]).length+1),status:'running',phase:'rendering',
               action:{title:body.kind==='hq'?'Essai HQ':'Étape demandée',change:body.intention},error:null,output_asset_id:null};
-            (project.image_operations||=[]).push(op);project.version++;return {project:clone(project)};
+            (project.image_operations||=[]).push(op);project.version++;return {project:publicProject()};
           }
-          if(url.endsWith('/transitions'))return {project_id:'transitions-fixture'};
+          if(url.endsWith('/transitions')){
+            transferred=JSON.parse(options.body).frame_ids;
+            check(transferred.length>=2,'selection must contain at least two images');
+            return {project_id:'transitions-fixture'};
+          }
           if(url.endsWith('/projects/journey-fixture')&&method==='GET'){
-            const result={project:clone(project)};
+            const result={project:publicProject()};
             if(holdGet)await new Promise(resolve=>{releaseGet=resolve;});
             return result;
           }
@@ -85,7 +93,8 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           await wait(()=>!el('start').disabled&&el('progression-model').value==='vision');
           check(el('setup').open,'new journey settings should be open');
           check(!el('models').open,'models should be collapsed');
-          check(el('auto-mask').checked,'mask should be enabled by default');
+          check(el('mask-model').value==='qwen-mask','Qwen should be the default mask model');
+          check(!el('auto-mask').checked,'mask should be disabled by default');
           check(!el('plan').open,'milestones should be collapsed');
           const dt=new DataTransfer();dt.items.add(new File(['fixture'],'start.png',{type:'image/png'}));
           el('source').files=dt.files;el('source').dispatchEvent(new Event('change',{bubbles:true}));
@@ -93,25 +102,31 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           el('count').value='1';el('prompt-model').value='writer';
           el('start').click();await wait(()=>project&&!el('pause').disabled);
           check(!el('setup').open,'settings should fold after generation starts');
+          check(el('transitions').disabled,'source alone cannot create a transition');
           el('setup').open=true;project.version++;await window.pollJourney();
           check(el('setup').open,'polling must preserve an explicitly opened panel');
           el('setup').open=false;project.version++;await window.pollJourney();
           check(!el('setup').open,'polling must preserve a folded panel');
           check(project.prompt_model_id==='writer','independent prompt model selection lost');
+          check(project.mask_model_id==='qwen-mask'&&el('mask-model').disabled,'running mask selection should be persisted and locked');
           check(el('intention').readOnly,'running intention should be read-only');
           check(calls.filter(row=>row[0].endsWith('/projects')&&row[1]==='POST').length===1,'duplicate create request');
           el('pause').click();await wait(()=>!el('resume').hidden&&!el('resume').disabled);
           el('setup').open=true;
+          check(!el('mask-model').disabled,'mask selection should be editable while paused');
+          el('mask-model').value='vision';el('mask-model').dispatchEvent(new Event('input',{bubbles:true}));
           const draft='Créer une bibliothèque <img src=x onerror=alert(1)>';
           el('intention').value=draft;el('intention').dispatchEvent(new Event('input',{bubbles:true}));
           await window.pollJourney();check(el('intention').value===draft,'poll erased a paused draft');
           el('resume').click();await wait(()=>el('message').textContent.includes('Version modifiée')&&!el('resume').disabled);
           check(el('intention').value===draft,'conflict erased the local intention');
+          check(el('mask-model').value==='vision','poll or conflict erased the local mask selection');
           el('resume').click();await wait(()=>project.status==='running'&&el('resume').hidden);
           check(project.intention===draft,'updated intention was not submitted');
+          check(project.mask_model_id==='vision'&&project.prompt_model_id==='writer','mask change was not independent at resume');
           project.steps=[{id:'journey-step-fixture',index:1,source_asset_id:'source',output_asset_id:'output',action:{title:'Isolation terminée',change:'Isoler les murs.'},
             prompt:'Edit <Picture 1>. Keep the camera fixed.',prompt_model_id:'writer',
-            raw_output_asset_id:'raw',protection:{mask_asset_id:'mask',coverage:0.2,status:'completed'},
+            raw_output_asset_id:'raw',protection:{mask_asset_id:'mask',coverage:0.2,status:'completed',model_id:'qwen-mask'},
             review:{assessment:'similar',observation:'Changement faible, conservé.',model_id:'vision'}}];
           Object.assign(project,{generated:1,status:'completed',phase:'completed',destination:draft,
             milestones:['Préparation','Isolation'],completed_milestones:2,transferable_images:2,version:project.version+1});
@@ -122,6 +137,7 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           check(el('detail').open,'thumbnail should open the full image');
           check(el('detail-review').textContent.includes('Changement faible'),'real review missing');
           check(el('prompt-text').textContent.includes('<Picture 1>'),'prompt tags must remain literal');
+          check(el('detail-models').textContent.includes('Analyse du masque : qwen-mask'),'detail must show the executed mask model');
           check(!el('detail-protection').hidden&&el('mask-views').children.length===4,'mask comparison views missing');
           el('mask-views').children[2].click();
           check(el('detail-image').alt==='Rendu brut','raw view should use the raw image');
@@ -131,6 +147,22 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           check(el('detail-image').alt==='Résultat protégé','protected view should remain the default result');
           el('close').click();
           check(!el('comparison')&&!el('fixed-trial'),'experimental controls must be removed');
+          check(!el('frieze').querySelector('[data-ij-hq]'),'HQ launch controls must be removed');
+          const checks=()=>[...el('frieze').querySelectorAll('[data-ij-select]')];
+          const checked=()=>checks().filter(c=>c.checked).map(c=>c.dataset.ijSelect);
+          const box=id=>checks().find(c=>c.dataset.ijSelect===id);
+          check(checks().length===2&&checks().every(c=>c.checked),'all reviewed images should start checked');
+          check(!checks()[0].closest('button'),'checkbox must be separate from the zoom button');
+          box('source').click();
+          check(!el('detail').open&&el('transitions').disabled,'unchecking the source must not zoom or allow a single-frame handoff');
+          box('journey-step-fixture').click();
+          check(checked().length===0&&el('transitions').disabled,'empty selection must disable handoff');
+          box('journey-step-fixture').click();
+          project.steps[0].review=null;project.version++;await window.pollJourney();
+          check(box('journey-step-fixture').disabled&&!box('journey-step-fixture').checked,'unreviewed image must be unavailable');
+          project.steps[0].review={assessment:'usable',observation:'Image relue.'};project.version++;await window.pollJourney();
+          check(box('journey-step-fixture').checked&&!box('source').checked,'review completion must preserve exclusions');
+          box('journey-step-fixture').click();
           const plus=()=>[...el('frieze').querySelectorAll('[data-ij-add]')];
           const manualState=()=>project.image_operations.at(-1);
           const finishManual=()=>{
@@ -155,27 +187,16 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           finishManual();await window.pollJourney();
           check(el('frieze').querySelectorAll('[data-ij-thumbnail]').length===3,'inserted image missing from wrapped gallery');
           check(project.steps.length===1&&project.count===1,'insertion changed the original generation budget');
+          check(box(manualState().id).checked&&!box('journey-step-fixture').checked&&!box('source').checked,'insertion must preserve choices by identity');
           el('operation-close').click();plus().at(-1).click();
           check(el('operation-images').querySelectorAll('img').length===1,'append must show only the actual last image');
           el('operation-input').value='Ajouter un petit escalier';el('operation-input').dispatchEvent(new Event('input',{bubbles:true}));
           el('operation-generate').click();await wait(()=>project.image_operations.length===2&&!el('operation-close').disabled);
           check(manualState().kind==='append'&&manualState().before_frame_id===null,'append should have no following image');
           finishManual();await window.pollJourney();el('operation-close').click();
-          const sequenceBeforeHq=JSON.stringify(project.ordered_steps);
-          el('frieze').querySelector('[data-ij-hq]').click();
-          check(el('operation-input').value.includes('<Picture 1>'),'HQ prompt must be prefilled and literal');
-          el('operation-input').value+=' Keep all deck boards.';
-          el('operation-input').dispatchEvent(new Event('input',{bubbles:true}));
-          el('operation-generate').click();await wait(()=>project.image_operations.length===3&&!el('operation-close').disabled);
-          check(manualState().kind==='hq'&&manualState().prompt.includes('deck boards'),'edited HQ prompt was not submitted');
-          Object.assign(manualState(),{status:'completed',phase:'completed',output_asset_id:'hq-result'});project.version++;
-          await window.pollJourney();
-          check(el('operation-images').querySelectorAll('img').length===2,'HQ comparison must show original and result');
-          check(JSON.stringify(project.ordered_steps)===sequenceBeforeHq,'HQ changed the journey sequence');
-          el('operation-images').querySelectorAll('button')[1].click();
-          check(el('detail').open,'HQ result must open at larger size');
+          el('frieze').querySelectorAll('[data-ij-thumbnail]')[1].click();
           el('detail-zoom').click();check(el('detail-zoom').getAttribute('aria-pressed')==='true','pixel zoom unavailable');
-          el('close').click();el('operation-close').click();
+          el('close').click();
           delete project.ordered_steps;project.image_operations=[];project.manual_generated=0;
           // Many steps must wrap in the available width, never in a horizontal scroller.
           project.steps=Array.from({length:18},(_,i)=>({...clone(project.steps[0]),id:'step-'+i,index:i+1}));
@@ -186,13 +207,26 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           check(cards.at(-1).getBoundingClientRect().top>cards[0].getBoundingClientRect().top,'steps did not wrap');
           check(el('frieze').scrollWidth<=el('frieze').clientWidth+2,'gallery requires horizontal scrolling');
           check(document.getElementById('image-journey-workspace').getBoundingClientRect().width>=document.documentElement.clientWidth-4,'workspace is still width-limited');
+          // Choose three nonconsecutive states and exclude the source.
+          const wanted=['step-0','step-2','step-4'];
+          for(const input of checks())if(input.checked!==wanted.includes(input.dataset.ijSelect))input.click();
+          check(JSON.stringify(checked())===JSON.stringify(wanted),'selected states are incorrect');
+          check(el('selection-count').textContent.includes('3 images')&&el('selection-count').textContent.includes('2 transitions'),'selection count is incorrect');
+          project.steps[0].action={...project.steps[0].action,title:'Titre actualisé'};project.version++;await window.pollJourney();
+          check(JSON.stringify(checked())===JSON.stringify(wanted),'gallery rebuild erased selection');
+          el('new').click();
+          el('projects').value='journey-fixture';el('projects').dispatchEvent(new Event('change'));
+          await wait(()=>!el('result').hidden&&!el('transitions').disabled);
+          check(JSON.stringify(checked())===JSON.stringify(wanted),'reopening the same project lost its selection');
           el('transitions').click();await wait(()=>opened==='transitions-fixture');
+          check(JSON.stringify(transferred)===JSON.stringify(wanted),'handoff must send selected IDs in gallery order');
           check(!calls.some(row=>/\/messages|\/attempts|\/send/.test(row[0])),'browser must not orchestrate renders or send videos');
           check(document.documentElement.scrollWidth<=window.innerWidth+2,'workshop overflows horizontally');
           await wait(()=>!el('new').disabled);
           holdGet=true;const pending=window.pollJourney();await wait(()=>releaseGet);
           el('new').click();releaseGet();await pending;
           check(el('result').hidden&&!el('source').disabled&&el('setup').open,'stale poll replaced the new-project form');
+          check(el('mask-model').value==='qwen-mask','new journey should restore the Qwen default');
           document.body.innerHTML='<pre id="result">IMAGE_JOURNEY_BROWSER_OK</pre>';
         }catch(error){document.body.innerHTML='<pre id="result"></pre>';document.getElementById('result').textContent=error.stack;}})();
         """

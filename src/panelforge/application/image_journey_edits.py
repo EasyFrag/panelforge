@@ -88,6 +88,7 @@ class ImageJourneyEdits:
                 before_asset_id=before['asset_id'] if before else None, intention=intention, source_asset_id=source,
                 source_dimensions=dimensions, dimensions=output_dimensions, render_profile=profile,
                 auto_mask=kind != 'hq' and project.get('auto_mask', False),
+                mask_model_id=project.get('mask_model_id', project['progression_model_id']),
                 destination=project['destination'], index=index + 1,
                 action=dict(title='Essai HQ ×2' if kind == 'hq' else 'Étape intermédiaire' if kind == 'insert' else 'Nouvelle étape',
                             change=intention, preserve='Le cadrage, la perspective et les couleurs.'),

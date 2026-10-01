@@ -92,6 +92,12 @@ _FREE_CAMERA_MOTION = re.compile(
     r"tilts?|pedestals?|moves?|arcs?|tracks?|follows?|shakes?|rolls?|"
     r"orbits?|dollies|cranes?|drifts?)\b"
 )
+# Exempt only 'shot moves' introducing narrative events/states, not camera/lens
+# motion or spatial travel. Keep the rest of the sentence available to all checks.
+_NARRATIVE_SHOT_PROGRESSION = re.compile(
+    r"(?i)\bshot\s+moves?\b(?=\s+(?:steadily\s+)?from\s+"
+    r"(?:(?:the\s+)?arrival\s+of\b|(?:tension|urgency|anticipation)\b|urgent\s+flood\b))"
+)
 _FREE_CAMERA_NOUN = re.compile(
     r"(?i)\b(?:(?:slow|fast|subtle|gentle|visible)\s+)?(?:dolly|handheld)\s+"
     r"(?:shot|move|movement|in|out|left|right)\b|"
@@ -441,7 +447,7 @@ def lint_h3_prompt(
         else _SPATIAL_CAMERA_POSITION.sub("", content)
     )
     if (
-        _FREE_CAMERA_MOTION.search(free_camera_source)
+        _FREE_CAMERA_MOTION.search(_NARRATIVE_SHOT_PROGRESSION.sub("", free_camera_source))
         or _FREE_CAMERA_NOUN.search(_NEGATED_CAMERA_NOUN.sub("", free_camera_source))
         or _has_noncanonical_camera_modifier(modifier_source)
     ):

@@ -6,8 +6,9 @@ Il construit les états successifs d’un même décor : travaux, aménagement e
 ## Utilisation
 
 1. Choisir une image, saisir éventuellement une intention et le nombre de **nouvelles images** (5 par défaut, de 1 à 30).
-2. Le volet replié **Modèles** permet de choisir séparément **Progression visuelle** et **Prompt MiniMax**.
-   Les deux peuvent utiliser le même modèle. Le défaut reprend Gemma local de l’atelier MiniMax.
+2. Le volet replié **Modèles** sépare **Progression visuelle**, **Prompt MiniMax** et **Analyse du masque**.
+   Les deux premiers gardent Gemma local par défaut ; le masque présélectionne Qwen local
+   (`local::unsloth/Qwen3.8-27B-GGUF`) pour un nouveau parcours. Les rôles peuvent partager un modèle.
    Les modèles doivent accepter les images ; le catalogue ne certifie pas cette capacité. Un choix indisponible
    reste affiché et n’est jamais remplacé silencieusement.
 3. **Créer la suite** lance le parcours côté serveur et replie le bandeau **Image de départ et réglages**.
@@ -18,7 +19,7 @@ Il construit les états successifs d’un même décor : travaux, aménagement e
 5. **Suspendre** laisse finir l’opération déjà engagée. Un rendu en cours est conservé, sans annulation implicite.
    Une fois suspendu, rouvrir le bandeau pour modifier l’intention ou les modèles puis **Reprendre**.
    Le bouton de reprise reste visible à côté de l’avancement même lorsque le bandeau est replié.
-6. **Préparer les transitions** transmet les états relus à l’atelier H3. Les intentions vidéo y sont préparées
+6. Cocher les images souhaitées puis **Préparer les transitions** pour transmettre la sélection à l’atelier H3. Les intentions vidéo y sont préparées
    et relues avant envoi à l’usine ; ce bouton ne lance aucun appel vidéo ou rendu.
 
 5 nouvelles images donnent 6 images avec le départ et jusqu’à 5 transitions. **Nouveau** ouvre un autre formulaire ;
@@ -32,6 +33,28 @@ ligne : aucun défilement horizontal n’est nécessaire pour voir la suite. Les
 conservées. Chaque vignette ouvre l’image agrandie, l’action et la relecture ; loupe, aperçu au survol ou
 au focus clavier et téléchargement restent disponibles. L’interface s’adapte aussi aux petits écrans.
 
+## Sélection pour les transitions
+
+Une petite coche indépendante du zoom apparaît en haut à gauche de chaque vignette, y compris **Départ**.
+Toutes les images disponibles sont cochées au départ. Décocher une image la conserve dans le parcours.
+Les images en attente de relecture ou jugées inutilisables ne sont pas sélectionnables. Une sélection
+explicite peut sauter ces images et utiliser les états relus suivants, y compris les insertions manuelles.
+
+L’ordre de la frise prime sur l’ordre des clics : sélectionner **1, 3, 5** prépare **1 → 3**, puis **3 → 5**.
+Le départ est facultatif ; le bouton exige au moins deux images et affiche le nombre retenu et les
+transitions correspondantes. Les exclusions sont conservées par parcours dans la session du navigateur,
+y compris lors du polling, d’une insertion, d’un changement de parcours et d’un rafraîchissement de page.
+Une nouvelle image disponible est cochée par défaut.
+
+Une sélection différente prépare une frise indépendante ; renvoyer la même sélection et les mêmes états
+rouvre la frise correspondante. Les frises existantes ne sont pas réécrites. Ce bouton ne lance pas de vidéo.
+Le serveur vérifie les identifiants sélectionnés et leur disponibilité avant de créer une frise.
+
+`POST /api/image-lab/journeys/projects/{id}/transitions` accepte `{ "frame_ids": ["source", "<step_id>"] }`.
+Les IDs sont ceux des étapes (automatiques ou manuelles), pas ceux des assets. Le corps JSON exige au moins
+deux IDs distincts valides ; l’ordre exporté reste canonique. Un ancien appel sans corps garde le transfert
+du préfixe relu. Le projet public expose `transferable_frame_ids` pour l’interface.
+
 ## Réglage des nouveaux parcours : 3 MP et masque automatique
 
 Les nouveaux parcours utilisent `fixed-3mp-v1` : environ 3 × 1024² pixels, dimensions arrondies
@@ -41,11 +64,12 @@ Exemple : 1120 × 1984 devient 1344 × 2368. Toutes les sorties gardent ensuite 
 `resolution=source`, `reference_mode=native` : aucun redimensionnement intermédiaire à 1 MP.
 L’image importée avant préparation reste conservée dans `original_source_asset_id`.
 
-**Masque automatique · préserver le décor** est coché par défaut. Ce réglage est enregistré à la
+**Masque automatique · préserver le décor** est décoché par défaut pour les nouveaux parcours. Ce réglage est enregistré à la
 création, puis appliqué à chaque étape automatique et aux ajouts/insertions avec **+**. Il ne nécessite
-ni dessin ni validation entre les images. On peut le décocher avant de créer un parcours pour comparer.
+ni dessin ni validation entre les images. Cocher cette option avant de créer un parcours pour l’activer.
+Les parcours existants conservent leur choix enregistré.
 
-Après chaque rendu, le rôle **Progression visuelle** reçoit la source exacte, le rendu brut et l’action
+Après chaque rendu, le rôle **Analyse du masque** reçoit la source exacte, le rendu brut et l’action
 de l’étape. Un appel supplémentaire délimite automatiquement les modifications utiles par contours
 normalisés, avec plusieurs zones et exclusions possibles. Les consignes couvrent les objets retirés,
 leurs anciennes emprises, les ombres, les reflets et les raccords locaux ; elles excluent la dérive
@@ -63,6 +87,12 @@ utilisent **le résultat recomposé**. Le rendu brut n’est pas publié comme n
 calcul du masque. Dans le détail d’une image, ouvrir **Masque automatique** pour basculer entre
 **Résultat protégé / Avant / Rendu brut / Masque**, y compris en taille réelle et au téléchargement.
 Les journaux conservent les IDs de ces assets, les contours, le modèle et la version de la politique.
+Le détail affiche le modèle réellement utilisé pour le masque. Le sélecteur est modifiable avant
+création ou sur un parcours suspendu, puis enregistré par **Reprendre**. Il s’applique aux analyses
+à venir ; les plans de masque déjà calculés et les images existantes restent conservés. Les ajouts
+et insertions copient ce choix au lancement. Un ancien parcours sans `mask_model_id` continue
+d’utiliser son modèle de progression jusqu’à sélection explicite. Les anciens appels API qui
+omettent ce champ gardent ce comportement ; une reprise sans le champ conserve le choix enregistré.
 
 La localisation est réalisée par le modèle visuel, sans modèle de segmentation supplémentaire installé.
 Ce premier mécanisme ne garantit pas une segmentation au pixel près : un contour trop large peut laisser
@@ -112,7 +142,7 @@ redémarrage n’a été lancé pendant cette implémentation.
 - `application/image_journey_prompting.py` : politique versionnée `image.journey.progression@1.1.0`.
 - `application/image_journey_trials.py` : compatibilité et récupération des anciens essais, sans UX de lancement.
 - `application/image_journey_protection.py` : localisation durable et composition avant relecture.
-- `application/image_journey_mask_prompting.py` : politique `image.journey.mask@1.0.0`, rôle Progression visuelle.
+- `application/image_journey_mask_prompting.py` : politique `image.journey.mask@1.0.0`, rôle Analyse du masque.
 - `domain/image_journey_masks.py`, `infrastructure/image_journey_masks.py` : contours bornés et composition locale.
 - `application/image_journey_rendering.py` : petit adaptateur au prompter MiniMax existant et à sa file GPU.
 - `infrastructure/storage/image_journeys.py` : fichiers atomiques sous `workspace/image_journeys`, index explicite.
@@ -145,7 +175,7 @@ Le scénario navigateur nécessite Chromium local ; sinon il est ignoré. La qua
 MiniMax réels reste à faire par l’utilisateur. Charger le backend au prochain redémarrage normal choisi par
 l’utilisateur puis actualiser la page. Aucun service n’a été redémarré par cette implémentation.
 
-## Ajout, insertion et essai HQ
+## Ajout et insertion
 
 Les petits **+** apparaissent après chaque image, même lorsque la grille revient à la ligne.
 Le parcours doit être terminé ou suspendu, avec ses rendus en cours récupérés avant de modifier la
@@ -165,22 +195,9 @@ séquence. Un formulaire ouvert conserve la demande saisie pendant le rafraîchi
   sans changer la séquence. Un rendu déjà soumis doit d’abord être récupéré. Une relecture techniquement
   interrompue reprend sur son image, sans la régénérer. Un résultat trop similaire reste conservé.
 
-**HQ ×2** ouvre un essai isolé sur l’image choisie. Le prompt conservateur proposé est prérempli et
-modifiable. Le bouton lance directement ce prompt dans MiniMax ; aucun LLM ne le réécrit. L’image
-originale reste la référence à sa taille native et la sortie double exactement largeur et hauteur
-(`resolution=double`, `reference_mode=native`). Exemple : 768 × 1376 → 1536 × 2752. Les autres paramètres
-reprennent la recette MiniMax actuelle (18 steps, finition brute), avec une nouvelle seed pour chaque
-nouvel essai. Le graphe 1.2.0 conserve sa référence directe sans redimensionnement intermédiaire.
-
-Original et HQ apparaissent côte à côte. Un clic agrandit l’image ; **Taille réelle** permet l’inspection
-des pixels, puis **Ajuster** revient à l’affichage adapté. Les résultats sont téléchargeables ; plusieurs
-essais sur une image se retrouvent dans le sélecteur du dialogue. **Nouveau test** reprend le prompt
-affiché, modifiable avant envoi. La copie HQ reste séparée : elle ne remplace aucune image de la frise.
-Aucun raccordement aval ni traitement HQ de toute la séquence n’est ajouté.
-
-L’essai ×2 exige une source de dimensions multiples de 32, avec sortie au plus de 4096 pixels par côté.
-Une image déjà trop grande est refusée explicitement plutôt que réduite silencieusement. Il s’agit d’une
-génération guidée par l’original ; le gain visuel et la fidélité restent à évaluer sur les vrais essais.
+Les boutons **HQ ×2** sont retirés de la frise. Aucun nouvel essai HQ ne peut être lancé par
+l’interface du parcours. Les anciens résultats et journaux restent conservés ; une opération ancienne
+encore en cours reste consultable et peut être reprise ou abandonnée depuis son suivi.
 
 Le blocage « prochaine transformation manquante » est corrigé pour une relecture qui retourne `null`
 avant épuisement du budget : la relecture et la sortie sont enregistrées, puis une décision initiale
@@ -215,8 +232,11 @@ python -m unittest discover -s tests -p "test_minimax*.py"
 Les nouveaux cas utilisent uniquement des doubles : insertion sans régénération, source réelle après
 relecture échouée, ajout après ajout, ordre exporté, HQ natif à dimensions doublées sans LLM, commandes
 idempotentes, conflit de version/bornes, reprise après redémarrage, accusé de file perdu, relecture
-échouée, décision prématurément vide et validation HTTP. Le scénario navigateur couvre les deux
-popups, la saisie conservée au polling, l’essai HQ, le zoom et la grille sans défilement horizontal.
+échouée, décision prématurément vide et validation HTTP. Le scénario navigateur couvre les dialogues
+d’ajout/insertion, la saisie conservée au polling, les coches et leur persistance, le transfert sélectif,
+le retrait des boutons HQ, le zoom et la grille sans défilement horizontal.
+`tests/test_image_journey_selection.py` couvre les exclusions, l’ordre avec insertions, les images
+indisponibles, les IDs invalides, les exports idempotents et la compatibilité des anciens appels.
 Ces tests sont préparés mais ne sont pas exécutés par l’agent, conformément à AGENTS.md.
 
 ### Régressions spécifiques au masque (préparées, non exécutées)

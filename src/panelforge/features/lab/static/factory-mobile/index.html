@@ -5,10 +5,10 @@
 <meta name="theme-color" content="#f4f1eb"><meta name="description" content="Votre usine à vidéo, à portée de main.">
 <title>Usine · PanelForge</title>
 <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg">
-<link rel="stylesheet" href="/app.css?v=20260928.mobile2"><script src="/thermal.js?v=20260928.mobile2" defer></script><script src="/app.js?v=20260928.mobile3" defer></script>
+<link rel="stylesheet" href="/app.css?v=20260930.mobile-status1"><script src="/thermal.js?v=20260930.mobile-status1" defer></script><script src="/app.js?v=20260930.mobile-status1" defer></script>
 </head>
 <body>
-<header class="top"><a href="/" class="brand"><img src="/icon.svg" alt="" width="28" height="28">PanelForge</a><div class="connection"><i id="connection-dot"></i><span id="connection">Connexion…</span></div><button id="refresh" class="icon-button" aria-label="Actualiser">↻</button><div class="top-factory"><h1>Usine à vidéo</h1><span id="lot-status" class="pill">Chargement</span></div></header>
+<header class="top"><a href="/" class="brand"><img src="/icon.svg" alt="" width="28" height="28">PanelForge</a><div class="connection"><i id="connection-dot"></i><span id="connection">Connexion…</span></div><button id="refresh" class="icon-button" aria-label="Actualiser">↻</button><div id="machine-strip" class="machine-strip" aria-label="État instantané des machines"><span>Local · —</span><span>Cloud · —</span></div><div class="top-factory"><h1>Usine à vidéo</h1><span id="lot-status" class="pill">Chargement</span></div></header>
 <main>
 <p id="message" class="message" role="status" aria-live="polite" hidden></p>
 <section id="panel-follow" aria-label="Suivi de production">
@@ -18,8 +18,8 @@
     <div class="kpis"><div><span>Temps restant</span><strong id="remaining">—</strong></div><div><span>Fin prévue</span><strong id="finish">—</strong></div></div>
     <p id="eta-hint" class="muted">Les prévisions apparaîtront avec le prochain état de l’Usine.</p>
   </article>
-  <section class="thermal-history" aria-label="Historique des températures sur six heures">
-    <div class="thermal-section-title"><h2>Températures</h2><span>6 dernières heures</span></div>
+  <section class="thermal-history" aria-label="Historique des températures sur deux heures">
+    <div class="thermal-section-title"><h2>Températures</h2><span>2 dernières heures</span></div>
     <p id="thermal-status" class="muted small" role="status">Chargement de l’historique…</p>
     <div id="thermal-charts" class="stack"></div>
   </section>

@@ -73,7 +73,7 @@ Les projets dérivés et leurs commandes ont des identifiants stables pour évit
 
 ## Cohérence narrative et consignes
 
-L’écriture éditoriale reste indépendante (`story.v2.*@1.1.0`). L’auteur écrit, le relecteur vérifie la compréhension et l’auteur effectue au plus une correction ciblée. La première relecture reste systématique.
+L’écriture éditoriale reste indépendante (`story.v2.*@1.2.0`). L’auteur écrit, le relecteur vérifie la compréhension et l’auteur effectue au plus une correction ciblée. La première relecture reste systématique.
 
 **Retouche légère optionnelle**, désactivée par défaut dans Réglages Dialogues : troisième modèle indépendant, Gemma 4 Unsloth proposé. Elle intervient après la première relecture et la correction éventuelle. Le modèle reçoit l’histoire complète ; sa réponse peut modifier uniquement la phrase d’action et le texte des tours de parole existants. Personnages, locuteurs, ordre, présences, apparences, intentions et durées restent identiques. Les consignes demandent de conserver toutes les informations, les événements et la fin. Ces contraintes structurelles ne garantissent pas à elles seules la qualité du style ni la préservation sémantique.
 
@@ -146,3 +146,16 @@ Correctif du 29 septembre limité à l’orchestration Histoire V2. Les modèles
 La récupération se fonde sur les liens de projet/message existants et sur l’identifiant exact de requête du rendu. Elle ne parcourt pas les anciens projets pour rattacher des essais dont le lien a déjà été remplacé avant ce correctif. Ces anciens essais restent dans l’atelier ; aucune migration de l’histoire en cours n’est exécutée pendant l’implémentation.
 
 Sauvegardes et vérifications statiques : `D:/Code/panelforge/.agent/diagnostics/story-v2-reference-chaining-20260929/`. Charger le code au prochain redémarrage habituel choisi par l’utilisateur, puis reprendre explicitement un lot interrompu. Aucun service redémarré et aucune génération de vérification lancée.
+
+
+## Destinataires et regards dans Histoire V2
+
+Patch du 30 septembre, contrat Histoire 1.4.0 / consignes éditoriales 1.2.0. L'auteur identifie automatiquement les destinataires de chaque réplique avec `addressee_ids` : il s'agit des personnes auxquelles on parle, pas de celles citées dans la phrase. Un destinataire peut rester hors champ ou être à distance ; cela ne crée ni présence ni référence supplémentaire. Narration, pensée, monologue et public non identifié gardent une liste vide.
+
+`address_cue` reste vide par défaut. Lorsque l'échange risque d'être mal compris (tiers, interlocuteur hors champ, POV déjà prévu), l'auteur peut ajouter une seule indication visible courte et compatible avec l'action. Pas de nouvelle commande de caméra ni de regard imposé à chaque réplique. La retouche Gemma conserve les destinataires et le sens de cette indication ; le relecteur reçoit uniquement le geste visible, sans prendre les identifiants des destinataires comme preuve d'une relation comprise par le public.
+
+L'export ajoute à l'intention de la scène une courte ligne par réplique adressée, sans recopier le dialogue, puis une indication de rythme laissant place à toutes les réponses. Le Plan et le prompteur vidéo conservent leurs consignes, modèles, schémas, paramètres et responsabilité de découpage. Aucun appel LLM ajouté. Le parcours automatique reste références puis bac Préparation.
+
+Aucun affichage ou réglage supplémentaire. L'éditeur conserve les indications cachées pour une réplique inchangée ; une modification du texte, du locuteur ou du mode de parole les retire pour éviter une consigne devenue fausse. Une modification manuelle d'action, d'intention ou de lieu retire le seul geste associé. Une réécriture demandée à Histoire peut établir de nouvelles indications. Les histoires existantes sans ces champs restent valides et leur empreinte reste stable ; aucun enrichissement ni changement d'un prompt déjà envoyé n'est exécuté au chargement.
+
+Qualification : sept régressions ciblées préparées dans `tests.test_story_v2_addressing`, scénario navigateur étendu pour conservation/invalidation des données cachées et absence d'affichage supplémentaire. Tests non exécutés conformément à AGENTS.md. Aucun rendu ou appel réel de qualification. La précision des regards reste à évaluer lors d'une prochaine génération utilisateur : il s'agit d'une meilleure intention transmise, pas d'un contrôle garanti du rendu.

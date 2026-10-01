@@ -268,6 +268,61 @@ class TransitionServiceTest(TransitionFixture):
         self.assertEqual(self.adapter.calls,[])
 
 
+class TransitionLocalChangeTest(TransitionFixture):
+    def test_image_history_and_old_auto_prose_do_not_steer_reproposal(self):
+        p = self.latest()
+        t = active(p)[0]
+        t.update(action="Construire la tour Eiffel", intention="Terminer la tour Eiffel.", manual=False,
+                 note="Assembler uniquement le socle visible.")
+        for frame in p["frames"]:
+            frame["label"] = "Tour Eiffel complete.png"
+            frame["origin"] = dict(action="Retirer les niveaux superieurs et la fleche dans LATER.",
+                                   observation="La tour Eiffel complete a ete reduite.")
+        p["settings"]["worker"] = "Des ouvriers minuscules manipulent les allumettes comme des poutres."
+        frames = deepcopy(p["frames"])
+        worker = p["settings"]["worker"]
+        self.store.save(p)
+
+        result = self.propose(t["id"])
+        request = self.gateway.requests[-1]
+        payload = json.loads(request.user_prompt)
+        for fragment in ("Eiffel", "LATER", "origin"):
+            self.assertNotIn(fragment, request.user_prompt)
+        self.assertEqual(payload["sequence"], [dict(index=i + 1) for i in range(len(frames))])
+        self.assertEqual(payload["current_action"], "")
+        self.assertNotIn("previous_intention", payload)
+        self.assertEqual(payload["user_note"], t["note"])
+        self.assertEqual(payload["settings"]["worker"], worker)
+        self.assertEqual([payload["start"], payload["end"]], [dict(picture=1), dict(picture=2)])
+        self.assertEqual([image.content for image in request.images],
+                         [self.assets.read_bytes(frame["asset_id"]) for frame in frames[:2]])
+        self.assertEqual(result["frames"], frames)  # Keep provenance for browsing, outside the LLM input.
+        self.assertEqual(result["settings"]["worker"], worker)
+        self.assertEqual(result["jobs"][-1]["status"], "succeeded")
+        self.assertEqual(self.adapter.calls, [])
+
+    def test_manual_directions_and_textual_worker_constraints_are_preserved(self):
+        p = self.latest()
+        identity = active(p)[0]["id"]
+        action = "Assembler le socle et conserver son inscription."
+        intention = "Assembler les supports autour de l'inscription sans la masquer."
+        note = "Le texte lisible doit rester : Tour Eiffel."
+        worker = "Deux ouvriers, chacun de la hauteur d'une allumette, utilisent un palan."
+        p = self.service.update(p["id"], p["version"], dict(settings=dict(worker=worker)))
+        self.edit(identity, action=action, intention=intention, note=note)
+
+        result = self.propose(identity)
+        payload = json.loads(self.gateway.requests[-1].user_prompt)
+        self.assertEqual(payload["current_action"], action)
+        self.assertEqual(payload["previous_intention"], intention)
+        self.assertEqual(payload["user_note"], note)
+        self.assertEqual(payload["settings"]["worker"], worker)
+        current = active(result)[0]
+        self.assertEqual((current["action"], current["intention"]), (action, intention))
+        self.assertIsNotNone(current["suggestion"])
+        self.assertEqual(self.adapter.calls, [])
+
+
 class TransitionPaceTest(TransitionFixture):
     def set_preset(self, preset):
         p = self.latest()
@@ -280,7 +335,7 @@ class TransitionPaceTest(TransitionFixture):
         p = self.propose(identity)
         request = self.gateway.requests[-1]
         intent = json.loads(request.user_prompt)
-        self.assertEqual(request.operation_id, "image.transitions.propose@3.0.1")
+        self.assertEqual(request.operation_id, "image.transitions.propose@3.1.0")
         self.assertEqual(intent["temporal_contract"]["preset"], "fast")
         self.assertIn("aggressively fast-forwarded time-lapse", intent["temporal_contract"]["h3_guidance"])
         p = self.service.review(p["id"], p["version"], [identity])

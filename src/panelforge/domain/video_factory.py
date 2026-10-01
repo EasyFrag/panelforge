@@ -436,6 +436,8 @@ def invalidate(item, before):
             item["runtime"]["thanks_selection"] = deepcopy(selection)
             if ("intention" in changed and after["intention"] == LITTLE_MEN_EXPERIMENTAL_INTENT):
                 item["runtime"]["thanks_selection"]["version"] = 4
+                item["runtime"]["thanks_selection"]["flood_first_action"] = "plunger"
+                item["runtime"]["thanks_selection"]["drought_result"] = "lush_growth"
             if selection.get("language"):
                 item["runtime"]["thanks_selection"]["requested_language"] = selection["language"]
     else:

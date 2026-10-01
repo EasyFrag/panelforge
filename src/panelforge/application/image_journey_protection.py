@@ -28,8 +28,9 @@ class ImageJourneyProtection:
         with service._lock:
             project = service._load(identity)
             step = deepcopy(find(project))
-            # A paused automatic journey may select a different vision model before retrying.
-            model_id = step['progression_model_id'] if manual else project['progression_model_id']
+            # Resume can change automatic analysis; manual operations retain their snapshot.
+            settings = step if manual else project
+            model_id = settings.get('mask_model_id', settings['progression_model_id'])
         if self.compositor is None:
             raise ValueError('Le composant de masque automatique n’est pas configuré.')
         source = service.assets.read_bytes(step['source_asset_id'])

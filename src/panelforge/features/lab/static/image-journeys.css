@@ -26,7 +26,7 @@
 .ij-form-bottom { margin-top: 14px; align-items: flex-start; }
 .ij-form-bottom details { flex: 1; }
 .ij-workspace summary { cursor: pointer; font-size: .8rem; color: var(--muted); }
-.ij-model-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0 8px; }
+.ij-model-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 12px 0 8px; }
 .ij-model-fields select { max-width: 100%; font-size: .8rem; }
 #ij-model-note { color: var(--muted); font-size: .72rem; }
 #ij-message { color: var(--red, #9c3225); font-size: .86rem; white-space: pre-wrap; }
@@ -43,7 +43,8 @@
 .ij-frieze img { width: 100%; height: 280px; object-fit: contain; background: #e8e8e2; display: block; border-radius: 4px; }
 .ij-frieze span, .ij-frieze small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 7px; }
 .ij-frieze span { font-size: .78rem; }.ij-frieze small { color: var(--muted); font-size: .7rem; }
-.ij-handoff { margin-top: 14px; display: flex; justify-content: flex-end; }
+.ij-handoff { margin-top: 14px; display: flex; justify-content: flex-end; align-items: center; gap: 12px; flex-wrap: wrap; }
+#ij-selection-count { color: var(--muted); font-size: .76rem; }
 .ij-detail { width: min(1000px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; border: 1px solid var(--line); border-radius: 12px; padding: 20px; background: var(--panel); color: var(--ink); }
 .ij-detail::backdrop { background: #0009; }
 .ij-detail h2 { font-size: 1.05rem; margin: 0; }
@@ -80,7 +81,10 @@
 /* Each small + belongs to its preceding image, including across grid line wraps. */
 .ij-card { position: relative; min-width: 0; padding-right: 30px; }
 .ij-frieze .ij-add { position: absolute; right: 0; top: 134px; width: 26px; height: 26px; padding: 0; text-align: center; border-radius: 50%; font-size: 19px; line-height: 22px; color: var(--muted); background: var(--panel); }
-.ij-frieze .ij-hq { width: auto; max-width: 100%; margin-top: 3px; padding: 3px 5px; border-color: transparent; background: transparent; color: var(--muted); font-size: .72rem; }
+.ij-content .ij-frame-select { position: absolute; top: 12px; left: 12px; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid #a9aba5; border-radius: 6px; background: #fffffff2; box-shadow: 0 1px 4px #0002; cursor: pointer; }
+.ij-frame-select input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); cursor: pointer; }
+.ij-frame-select:focus-within { outline: 2px solid var(--green); outline-offset: 2px; }
+.ij-frame-select input:disabled { cursor: default; }
 .ij-operations { margin: 4px 0; }
 .ij-operation-line { display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: .76rem; color: var(--muted); }
 .ij-operation-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

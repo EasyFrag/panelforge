@@ -94,9 +94,10 @@ class ImageJourneyFixture(MinimaxFixture):
             gateway=self.gateway, renderer=MinimaxJourneyRenderer(self.minimax), transitions=self.transitions,
             mask_compositor=PillowJourneyMasks())
 
-    def create_journey(self, count=2, intention="Aménager la cave", command="create", legacy=False, auto_mask=False, content=None):
+    def create_journey(self, count=2, intention="Aménager la cave", command="create", legacy=False,
+                       auto_mask=False, content=None, mask_model_id=None):
         project = self.journeys.create(command=command, content=content if content is not None else png(),
-            auto_mask=auto_mask, intention=intention, count=count,
+            auto_mask=auto_mask, intention=intention, count=count, mask_model_id=mask_model_id,
             progression_model_id="progression-vision", prompt_model_id="minimax-prompter")
         self.journey_id = project["id"]
         if legacy:
@@ -432,21 +433,25 @@ class ImageJourneyTest(ImageJourneyFixture):
         app.include_router(image_journeys_router(self.journeys))
         prefix = "/api/image-lab/journeys"
         with TestClient(app) as client:
-            data = dict(command="http-create", intention="", count="2",
+            self.assertEqual(client.get(prefix + "/spec").json()["default_mask_model_id"], policy.DEFAULT_MASK_MODEL_ID)
+            data = dict(command="http-create", intention="", count="2", mask_model_id=policy.DEFAULT_MASK_MODEL_ID,
                         progression_model_id="progression-vision", prompt_model_id="minimax-prompter")
             response = client.post(prefix + "/projects", data=data, files={"source_image":("start.png", png(), "image/png")})
             self.assertEqual(response.status_code, 201, response.text)
             project = response.json()["project"]
             self.assertEqual(project["status"], "running")
             self.assertEqual(project["transferable_images"], 1)
-            self.assertTrue(project["auto_mask"])
+            self.assertFalse(project["auto_mask"])
+            self.assertEqual(project["mask_model_id"], policy.DEFAULT_MASK_MODEL_ID)
             self.assertEqual(self.gateway.requests, [])
             url = prefix + "/projects/" + project["id"]
             paused = client.post(url + "/pause").json()["project"]
             self.assertEqual(paused["status"], "paused")
             response = client.post(url + "/resume", json=dict(version=paused["version"], command="http-resume",
-                intention="Aménager la cave", progression_model_id="progression-vision", prompt_model_id="minimax-prompter"))
+                intention="Aménager la cave", progression_model_id="progression-vision",
+                prompt_model_id="minimax-prompter", mask_model_id="other-mask-vision"))
             self.assertEqual(response.status_code, 202, response.text)
+            self.assertEqual(response.json()["project"]["mask_model_id"], "other-mask-vision")
             self.assertEqual(client.get(url + "/sequence").json()["schema_version"], 1)
             invalid = client.post(prefix + "/projects", data={**data, "count":"0"},
                 files={"source_image":("start.png", png(), "image/png")})

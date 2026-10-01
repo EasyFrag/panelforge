@@ -29,7 +29,7 @@ Le front se recharge avec **Ctrl+F5**. Les nouvelles routes de sélection/placem
 
 ## Réglages
 
-Les réglages communs comprennent description de l’ouvrier, rythme, caméra, ambiance sonore, musique, conservation, durée, cadrage et DLSS. Le cadrage automatique choisit le format H3 supporté le plus proche de la première image.
+Les réglages communs comprennent description de l’ouvrier, rythme, caméra, ambiance sonore, musique, conservation, durée, cadrage et DLSS. **DLSS dans l’usine** est coché par défaut pour les nouvelles frises et reste désactivable ; les frises existantes conservent leur choix enregistré. Le cadrage automatique choisit le format H3 supporté le plus proche de la première image.
 
 Trois modèles sont paramétrables : propositions visuelles, plan H3 et prompt H3. Les identifiants locaux/serveur du catalogue existant sont conservés ; aucun remplacement silencieux d’un modèle absent. L’analyse des paires nécessite un modèle et un accès capables de lire les images. Les valeurs initiales reprennent les modèles de l’usine : Gemma Unsloth pour les propositions et le prompt, Qwen local pour le plan.
 
@@ -95,6 +95,9 @@ Le contrat worker.visual-only@1 est transmis explicitement de la frise à l’us
 
 ## Relecture et versions
 
+- Depuis image.transitions.propose@3.1.0, l’action désigne la modification visible entre les deux images. Une construction partielle est décrite par ses pièces et sa géométrie, sans anticiper le monument ou l’objet complet. L’intention borne la progression à cet état, sans construction supplémentaire suivie d’une réduction ; cette règle vise l’assemblage, pas une démolition demandée ni un déplacement de caméra.
+- Le proposeur ne reçoit plus les noms ou historiques de retouche des images, ni les anciens titres/intentions automatiques, avec ou sans référence d’ouvrier. Les images restent transmises à l’identique. La provenance reste disponible dans la frise. Les notes, actions corrigées et contraintes manuelles sont conservées ; avec image d’ouvrier, l’ancien texte d’intention reste exclu conformément au contrat visuel.
+- Sans image d’ouvrier, sa description textuelle reste une consigne utilisateur transmise au Plan. Pour éviter qu’un nom de monument soit réintroduit par ce champ, préférer une description de l’échelle du chantier : « Des ouvriers réalistes et minuscules manipulent les allumettes comme des poutres, sur un chantier à leur échelle. » Les réglages enregistrés ne sont pas réécrits automatiquement.
 - Depuis image.transitions.propose@3.0.1, l’intention proposée vise deux ou trois phrases (environ 40–70 mots, sans couper les consignes essentielles) : rythme annoncé une fois, gestes concrets et résultat. Les détails de réalisation restent au Plan/Writer ; les consignes Fast et les références visuelles sont conservées. Les intentions déjà enregistrées ne sont pas réécrites.
 - Une proposition distingue observations, opération suggérée et incertitudes. Un outil inféré n’est pas présenté comme un fait visible.
 - Une intention modifiée manuellement est conservée lors d’une nouvelle analyse. La nouvelle proposition apparaît séparément et ne la remplace qu’au clic explicite.

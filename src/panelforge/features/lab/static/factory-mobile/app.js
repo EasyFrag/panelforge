@@ -39,6 +39,22 @@
   function safeMedia(url){return typeof url==="string"&&/^\/api\/items\/[a-zA-Z0-9_-]+\/(poster|video)$/.test(url)?url:"";}
   function poster(item){const url=safeMedia(item.poster_url);return url?'<img class="poster" src="'+esc(url)+'" loading="lazy" alt="">':'<span class="poster" aria-hidden="true"></span>';}
   const thresholdFor=m=>push?.registered&&push.thresholds?push.thresholds[m.id]:m.id==="remote_gpu"?84:80;
+  const machineIcons={
+    local_gpu:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+    remote_gpu:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.2 8.4 4.8 4.8 0 0 0 7 18Z"/></svg>'
+  };
+  function renderMachineStrip(){
+    const host=$("machine-strip");if(!host)return;
+    const old=stale()||Boolean(data?.stale),states={idle:"Idle",busy:"Working",cooling:"Cooling Down",hot:"Hot",paused:"Paused",unavailable:"Offline",stale:"Offline"};
+    const machines=new Map((data?.machines||[]).map(machine=>[machine.id,machine]));
+    const html=[["local_gpu","Local"],["remote_gpu","Cloud"]].map(([id,label])=>{
+      const machine=machines.get(id)||{},raw=old?"stale":machine.state;
+      const state=states[raw]?raw:"unavailable",temperature=!old&&finite(machine.temperature_c)?Math.round(machine.temperature_c)+"°":"—°";
+      const aria=label+" : "+states[state]+", "+temperature.replace("°"," degrés");
+      return '<article class="top-machine '+id+' '+state+'" data-machine-status="'+id+'" aria-label="'+esc(aria)+'"><span class="top-machine-icon">'+machineIcons[id]+'</span><span class="top-machine-copy"><b>'+label+'</b><small>'+states[state]+'</small></span><strong>'+temperature+'</strong></article>';
+    }).join("");
+    if(host.innerHTML!==html)host.innerHTML=html;
+  }
   function thermalStatus(){
     const old=thermal&&Date.now()/1000-thermal.generated_at>90;
     const text=thermalError||thermal?.warning||(old?"Historique conservé · actualisation attendue":thermal?"":"Chargement de l’historique…");
@@ -106,6 +122,7 @@
     const old=stale();
     $("connection").textContent=old?data?"Connexion perdue":"Connexion…":"À jour";
     $("connection-dot").className=old?"old":"live";
+    renderMachineStrip();
     $("pause").disabled=busy||old;$("stop").disabled=busy||old||!data?.work.some(i=>i.status==="active"&&!i.stopping);
     document.querySelectorAll("[data-retry]").forEach(b=>b.disabled=busy||old);
     if(!data)return;

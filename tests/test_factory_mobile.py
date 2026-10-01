@@ -353,21 +353,21 @@ class MobileThermalHistoryTest(unittest.TestCase):
         return dict(timestamp=datetime.fromtimestamp(NOW + offset, UTC).isoformat(),
                     max_temperature_c=temperature)
 
-    def test_six_hour_projection_preserves_peaks_gaps_and_does_not_expose_events(self):
+    def test_two_hour_projection_preserves_peaks_gaps_and_does_not_expose_events(self):
         from panelforge.domain.factory_mobile import mobile_thermal_history
         raw = dict(bucket_seconds=15, error="C:/private/log", events=[{"operation": "secret prompt"}],
                    series=dict(remote_gpu=[
-                       self.sample(-21615, 99), self.sample(-21600, 40),
+                       self.sample(-7215, 99), self.sample(-7200, 60),
                        self.sample(-120, 55), self.sample(-120, 96),
                        self.sample(-60, 27), self.sample(0, 84), self.sample(15, 100)],
                        local_gpu=[self.sample(-600, 42), self.sample(0, 38)]))
         before = deepcopy(raw)
         result = mobile_thermal_history(raw, NOW)
-        self.assertEqual(result["window_seconds"], 21600)
-        self.assertEqual(result["start_at"], NOW - 21600)
+        self.assertEqual(result["window_seconds"], 7200)
+        self.assertEqual(result["start_at"], NOW - 7200)
         self.assertEqual([m["id"] for m in result["machines"]], ["remote_gpu", "local_gpu"])
         self.assertEqual(result["machines"][0]["points"],
-                         [[NOW - 21600, 40], [NOW - 120, 96], [NOW - 60, 27], [NOW, 84]])
+                         [[NOW - 7200, 60], [NOW - 120, 96], [NOW - 60, 27], [NOW, 84]])
         self.assertEqual(result["machines"][1]["points"], [[NOW - 600, 42], [NOW, 38]])
         self.assertTrue(result["warning"])
         self.assertNotIn("C:/private", json.dumps(result))
