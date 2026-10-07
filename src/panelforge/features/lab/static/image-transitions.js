@@ -9,7 +9,7 @@
   const state = {p:null, spec:null, projects:[], models:[], selected:new Set(), focus:null,
     busy:false, loading:null, drafts:{}, settings:{}, name:null, replace:null, library:[], librarySerial:0};
   let referenceUI=null;
-  const labels = {empty:"À préparer",review:"À relire",ready:"Prête",sent:"Envoyée"};
+  const labels = {empty:"À préparer",review:"Prête",ready:"Prête",sent:"Envoyée"};
   const factoryStates = {preparation:"Préparation",queued:"En attente",active:"En cours",
     succeeded:"Terminée",failed:"Erreur",cancelled:"Annulée"};
   const api = (path, method="GET", body) => core.request("/api/image-transitions" + path,
@@ -35,15 +35,64 @@
     const changedProject=state.p?.id!==project.id;
     state.p = project;
     if(changedProject) {
+      // Drafts belong to the previous frieze and are saved before explicit navigation.
+      state.settings={}; state.drafts={}; state.name=null;
       let folded=false;
       try {folded=sessionStorage.getItem("panelforge.transitions.fold."+project.id)==="true";} catch (_) {}
       $("frieze-panel").open=!folded;
     }
+    // Missing legacy data uses the server default; an explicit empty string stays empty.
+    if(project.settings.worker==null && state.settings.worker===undefined && state.spec?.defaults?.worker!==undefined)
+      state.settings.worker=state.spec.defaults.worker;
     const available = new Set(transitions().map(t=>t.id));
     state.selected = new Set([...state.selected].filter(id=>available.has(id)));
     if(selectNew) transitions().filter(t=>!previous.has(t.id)).forEach(t=>state.selected.add(t.id));
     if(!available.has(state.focus)) state.focus=transitions()[0]?.id || null;
     try { sessionStorage.setItem("panelforge.transitions.project",project.id); } catch (_) {}
+  }
+  function pendingVersion(t) {
+    const normalize=value=>typeof value==="string"?value.trim():value;
+    const draft=state.drafts[t.id] || {};
+    if(Object.entries(draft).some(([key,value])=>normalize(value)!==normalize(t[key])))return true;
+    const effective={...t,...draft};
+    return Object.entries(state.settings).some(([key,value])=>{
+      if(key==="model_id" || (key==="worker" && state.p.worker_reference))return false;
+      const override=key==="pace_preset"?"pace":key;
+      if(["duration","camera","pace"].includes(override) &&
+        effective[override]!==null && effective[override]!==undefined && normalize(effective[override])!=="")return false;
+      return normalize(value)!==normalize(state.p.settings[key]);
+    });
+  }
+  const needsFresh=t=>t?.needs_visual_refresh &&
+    !(state.drafts[t.id]?.intention?.trim() && state.drafts[t.id].intention.trim()!==t.intention);
+  function paintSend() {
+    const chosen=selected(), send=$("send");
+    const allSent=chosen.length>0 && chosen.every(t=>t.state==="sent" && !pendingVersion(t));
+    const invalid=chosen.find(t=>t.visual_references?.error);
+    const serverError=chosen.find(t=>t.send_error &&
+      !["intention","note","kind"].some(key=>state.drafts[t.id]?.[key]!==undefined &&
+        String(state.drafts[t.id][key]).trim()!==String(t[key]).trim()));
+    let reason="";
+    if(!state.p || !chosen.length)reason="Sélectionne au moins une transition.";
+    else if(state.busy)reason="Une opération est en cours.";
+    else if(job())reason="Attends la fin de l’analyse.";
+    else if(!state.spec?.direct_send)reason="L’envoi direct sera disponible après redémarrage du Lab.";
+    else if(state.p.send_error)reason=state.p.send_error;
+    else if(invalid)reason=invalid.visual_references.error;
+    else if(chosen.some(t=>!(state.drafts[t.id]?.intention ?? t.intention ?? "").trim()))
+      reason="Propose ou rédige une intention pour chaque transition sélectionnée.";
+    else if(chosen.some(needsFresh))reason="Repropose les anciennes intentions avec les références d’ouvrier actuelles.";
+    else if(root.querySelector("input:invalid,select:invalid,textarea:invalid"))reason="Corrige les champs invalides avant l’envoi.";
+    else if(serverError)reason=serverError.send_error;
+    else if(allSent)reason="Toutes les versions sélectionnées sont déjà dans l’usine.";
+    send.disabled=!!reason;
+    send.classList.toggle("it-sent",allSent);
+    send.innerHTML=allSent?'<span class="it-send-check" aria-hidden="true">✓</span> Envoyé à l’usine':"Envoyer à l’usine";
+    send.title=reason || "Envoyer les versions manquantes à la préparation de l’usine.";
+    const status=$("send-status");
+    status.title=send.title;
+    status.tabIndex=send.disabled?0:-1;
+    status.setAttribute("aria-label",send.title);
   }
   function controls() {
     const blocked = state.busy || !!job(), has=!!state.p;
@@ -62,21 +111,17 @@
     $("pace-preset").disabled=blocked || !has || !state.spec?.pace_presets?.length;
     paintPaceHint();
     for(const id of ["new","projects","refresh"]) $(id).disabled=state.busy;
-    for(const id of ["propose","review","send"]) $(id).disabled=blocked || !selected().length;
+    $("propose").disabled=blocked || !selected().length;
     $("save").disabled=blocked || !dirty();
     $("frieze-toggle").disabled=!has;
     $("frieze-toggle").textContent=$("frieze-panel").open?"Masquer les images":"Afficher les images";
     $("frieze-toggle").setAttribute("aria-expanded",String($("frieze-panel").open));
     const invalidReferences=selected().filter(t=>t.visual_references?.error);
-    if(invalidReferences.length)for(const id of ["propose","review","send"])$(id).disabled=true;
+    if(invalidReferences.length)$("propose").disabled=true;
     referenceUI?.controls();
     const workerText=root.querySelector('[data-it-setting="worker"]');
     workerText.disabled=blocked || !has || !!state.p?.worker_reference;
-    const needsFresh=t=>t?.needs_visual_refresh &&
-      !(state.drafts[t.id]?.intention && state.drafts[t.id].intention!==t.intention);
-    if(selected().some(needsFresh))for(const id of ["review","send"])$(id).disabled=true;
-    const reviewOne=$("inspector").querySelector("[data-it-review-one]");
-    if(reviewOne && needsFresh(current()))reviewOne.disabled=true;
+    paintSend();
     $("all").disabled=blocked || !transitions().length;
     $("all").checked=transitions().length>0 && selected().length===transitions().length;
     $("all").indeterminate=selected().length>0 && selected().length<transitions().length;
@@ -179,7 +224,7 @@
         '<button type="button" data-it-focus aria-label="Voir la transition '+(i+1)+' vers '+(i+2)+'">'+(i+1)+' → '+(i+2)+'</button>'+
         imageButton(last,"",true)+'</div></td>'+
         '<td><input data-it-action maxlength="240" aria-label="Action '+(i+1)+'" value="'+esc(draft.action??t.action)+'" placeholder="Indiquer une action ou laisser proposer"></td>'+
-        '<td>'+esc(t.effective.duration)+' s</td><td><span class="it-state '+t.state+'">'+labels[t.state]+'</span></td></tr>';
+        '<td>'+esc(t.effective.duration)+' s</td><td><span class="it-state '+t.state+'">'+(t.send_error && t.state!=="sent" ? labels.empty : labels[t.state])+'</span></td></tr>';
     }).join("");
     $("empty").hidden=transitions().length>0;
   }
@@ -194,17 +239,17 @@
       (referenceUI?.inspector(t)||"")+
       '<label>Ton indication<textarea data-it-field="note" rows="2" maxlength="4000" placeholder="Par exemple : travail à la tronçonneuse">'+esc(t.note)+'</textarea></label>'+
       '<p class="it-pace-summary" data-it-pace-summary></p>'+
-      '<label>Intention à relire<textarea data-it-field="intention" rows="8" maxlength="14000" placeholder="Le LLM proposera une intention ; tu peux aussi la rédiger ici.">'+esc(t.intention)+'</textarea></label>'+
+      '<label>Intention<textarea data-it-field="intention" rows="8" maxlength="14000" placeholder="Le LLM proposera une intention ; tu peux aussi la rédiger ici.">'+esc(t.intention)+'</textarea></label>'+
       '<div class="it-detail-grid"><label>Type<select data-it-field="kind">'+Object.entries(state.spec.kinds).map(([id,label])=>'<option value="'+id+'" '+(t.kind===id?"selected":"")+'>'+esc(label)+'</option>').join("")+'</select></label>'+
       '<label>Durée spécifique (s)<input data-it-field="duration" type="number" min="5" max="15" step="0.5" placeholder="'+esc(t.effective.duration)+'" value="'+esc(t.duration??"")+'"></label></div>'+
       '<label>Caméra spécifique<textarea data-it-field="camera" rows="2" maxlength="2000" placeholder="Utiliser le réglage commun">'+esc(t.camera)+'</textarea></label>'+
       '<label>Rythme spécifique (remplace le rythme commun)<textarea data-it-field="pace" rows="2" maxlength="2000" placeholder="Utiliser le réglage commun">'+esc(t.pace)+'</textarea></label>'+
-      (t.needs_visual_refresh?'<p class="it-evidence">Ancienne intention : clique sur « Proposer les transitions », puis applique et relis la proposition. L’ouvrier doit être désigné par ses images, sans description ni ratio.</p>':
-        t.stale?'<p class="it-evidence">Cette transition a changé depuis la proposition. Relis l’intention avant de la valider.</p>':"")+
+      (t.needs_visual_refresh?'<p class="it-evidence">Ancienne intention : clique sur « Proposer les transitions », puis applique la proposition. L’ouvrier doit être désigné par ses images, sans description ni ratio.</p>':
+        t.stale?'<p class="it-evidence">Les images ou les consignes ont changé depuis la proposition. Tu peux adapter l’intention avant l’envoi.</p>':"")+
       (t.observations?'<details><summary>Différences observées</summary><p class="it-evidence">'+esc(t.observations)+'</p></details>':"")+
       (t.uncertainties?'<p class="it-evidence">'+esc(t.uncertainties)+'</p>':"")+
       (t.suggestion?'<div class="it-suggestion"><b>Nouvelle proposition</b><p>'+esc(t.suggestion.value.intention)+'</p><button type="button" data-it-apply>Remplacer par cette proposition</button></div>':"")+
-      '<div class="it-links"><button type="button" data-it-review-one>Valider cette transition</button>'+
+      '<div class="it-links">'+
       t.factory_ids.map(id=>{const item=state.p.factory_items.find(v=>v.id===id);return '<button type="button" data-it-factory-id="'+esc(id)+'">'+esc(item?(item.archived?"Archivée":factoryStates[item.status]||item.status):"Unité indisponible")+'</button>';}).join("")+'</div>';
   }
   function paint() {
@@ -213,7 +258,7 @@
   }
   async function updateProjects() { state.projects=(await api("/projects")).projects; }
   async function open(identity, transitionId, expectedVersion) {
-    await initialize();
+    await initialize(identity);
     await run(async()=>{
       const project=(await api("/projects/"+encodeURIComponent(identity))).project;
       state.selected=new Set(); state.focus=transitionId||null; accept(project,true);
@@ -224,17 +269,19 @@
         expectedVersion&&target?.context_key!==expectedVersion ? "La frise a évolué depuis cet envoi. La version envoyée reste conservée dans l’usine." : "");
     });
   }
-  async function initialize() {
-    if(state.spec) return;
+  async function initialize(initialIdentity=null) {
     if(state.loading) return state.loading;
+    if(state.spec) return;
     state.busy=true; controls();
     state.loading=(async()=>{
       const [spec,list]=await Promise.all([api("/spec"),api("/projects")]);
-      state.spec=spec; state.projects=list.projects;
       let previous=null; try { previous=sessionStorage.getItem("panelforge.transitions.project"); } catch (_) {}
-      if(previous && !state.projects.some(p=>p.id===previous)) previous=null;
-      const id=previous||state.projects[0]?.id;
-      if(id) accept((await api("/projects/"+encodeURIComponent(id))).project,true);
+      if(previous && !list.projects.some(p=>p.id===previous)) previous=null;
+      const id=initialIdentity||previous||list.projects[0]?.id;
+      const project=id?(await api("/projects/"+encodeURIComponent(id))).project:null;
+      // Publish initialization only after the requested project has loaded successfully.
+      state.spec=spec; state.projects=list.projects;
+      if(project) accept(project,true);
       const lastJob=state.p?.jobs[state.p.jobs.length-1];
       if(lastJob?.status==="failed"&&lastJob.error)message(lastJob.error);
       paint();
@@ -378,17 +425,12 @@
   $("inspector").addEventListener("click",event=>{
     const factory=event.target.closest("[data-it-factory-id]");
     if(factory)run(()=>window.PanelForgeVideoFactory?.open([factory.dataset.itFactoryId]));
-    if(event.target.closest("[data-it-review-one]"))run(async()=>accept((await api(endpoint("/review"),"POST",withVersion({ids:[state.focus]}))).project));
     if(event.target.closest("[data-it-apply]"))run(async()=>accept((await api(endpoint("/transitions/"+state.focus+"/suggestion"),"POST",withVersion({}))).project));
   });
   $("propose").onclick=()=>run(async()=>{
     const requestId=window.crypto?.randomUUID?.()||("request-"+Date.now()+"-"+Math.random().toString(16).slice(2));
     accept((await api(endpoint("/proposals"),"POST",withVersion({ids:selected().map(t=>t.id),request_id:requestId}))).project);
-    message("Analyse en cours. Les propositions seront à relire ; tes intentions corrigées seront conservées.");
-  });
-  $("review").onclick=()=>run(async()=>{
-    accept((await api(endpoint("/review"),"POST",withVersion({ids:selected().map(t=>t.id)}))).project);
-    message("Sélection validée pour l’envoi.");
+    message("Analyse en cours. Tu pourras envoyer les propositions directement ou les modifier ; tes corrections seront conservées.");
   });
   $("send").onclick=()=>run(async()=>{
     const result=await api(endpoint("/send"),"POST",withVersion({ids:selected().map(t=>t.id)}));
@@ -529,7 +571,7 @@
       else if(JSON.stringify(state.p.factory_items)!==JSON.stringify(project.factory_items)) {state.p.factory_items=project.factory_items;paintInspector();controls();}
       if(wasRunning&&!job()) {
         const last=state.p.jobs[state.p.jobs.length-1];
-        message(last?.error||"Propositions prêtes à relire.");
+        message(last?.error||"Propositions prêtes à envoyer. Tu peux les modifier si tu le souhaites.");
       }
     } catch(error) { message(error.message); } finally {polling=false;}
   },2500);

@@ -18,6 +18,7 @@ class StoryV2BrowserTest(unittest.TestCase):
         start=html.index('  <main id="story-v2-workspace"');end=html.index('</main>',start)+len('</main>')
         markup='<meta charset="utf-8"><pre id="result">PENDING</pre><button data-lab-view="story-v2">V2</button>'+html[start:end]
         project=dict(id="storyv2-"+"a"*32,version=1,status="awaiting_review",script=screenplay(),settings=settings(),history=[],review=dict(issues=[]),approved=None,episode_id=None,factory_ids=[],videos=[],error=None)
+        project["settings"].pop("tone_profile")  # Historical project without this optional setting.
         project["script"]["sequences"][0]["dialogue"][0].update(addressee_ids=["marc"],
             address_cue="Mia se tourne vers Marc pour lui répondre.")
         fixture='const original='+json.dumps(project,ensure_ascii=False)+';'+r'''
@@ -31,7 +32,7 @@ class StoryV2BrowserTest(unittest.TestCase):
           window.fetch=async(url,options={})=>{
             requests.push([url,options.method||'GET']);
             if(url==='/api/stories/models')return response({models:[{id:'fake',label:'Fake'}]});
-            if(url==='/api/stories-v2/preferences')return response({settings:original.settings});
+            if(url==='/api/stories-v2/preferences')return response({settings:{tone_profile:'from_idea',...original.settings}});
             if(url==='/api/image-lab/krea2-assisted/style-presets')return response({presets:[{preset_id:'style-642721e10d124d5a83ad6bb907ef8fd3',name:'Bananita fresh',category:'work',prompt_language:'en',settings:{model_id:'Krea2/kroma-v0.3-turbo.safetensors',loras:[]},art_direction:null},{preset_id:'test-style',name:'Style test',category:'work',prompt_language:'en',settings:{model_id:'preset-checkpoint',loras:[{name:'style.safetensors',strength:.6}],aspect_ratio:'9:16 (Portrait Widescreen)',megapixels:2.1},art_direction:{style_id:'art-test',name:'Test'}}]});
             if(url==='/api/image-lab/krea2-assisted/spec')return response({render_models:[],workflows:[{id:'krea2-flux-klein@1.0.0',label:'KREA2 + Flux Klein'}],aspect_ratios:['9:16 (Portrait Widescreen)'],assistance_recipes:[{version:'6.0.0',label:'V6'}],sampling:{presets:[{id:'finish_4',label:'Finition 4 steps · 8 + 4',settings:original.settings.images.sampling}]}});
             if(url.startsWith('/api/h3-render/spec')){
@@ -59,8 +60,16 @@ class StoryV2BrowserTest(unittest.TestCase):
           const settle=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setTimeout(r,0));};
           document.querySelector('[data-lab-view="story-v2"]').click();await settle();
           check(!el('message').textContent&&!el('model-note').textContent,'initial settings load without an error banner');
-          check(el('universe').value==='Univers mémorisé','cache migration preserves narrative settings');
+          check(el('universe').tagName==='SELECT'&&el('style').tagName==='SELECT','universe and style use compact menus');
+          check(el('universe').value==='__custom__'&&el('universe-custom').value==='Univers mémorisé','cache migration preserves custom universe');
+          check(!el('universe-custom-field').hidden&&el('universe-custom').required,'custom field only appears when needed');
           check(el('scene-duration').value==='10','new scene duration defaults to ten seconds');
+           check(el('writing-version').value==='2.1'&&!el('writing-version').disabled,'new edition selected despite old cached settings');
+           el('writing-version').value='2.0';el('writing-version').dispatchEvent(new Event('change',{bubbles:true}));
+           check(JSON.parse(localStorage.getItem('panelforge.story-v2.last-settings.v3')).writing_version==='2.0','explicit edition choice is captured');
+          check(el('tone-profile').value==='from_idea'&&!el('tone-profile').disabled,'tone choice available without changing existing default');
+          el('tone-profile').value='provocative_sketch';el('tone-profile').dispatchEvent(new Event('change',{bubbles:true}));
+          check(JSON.parse(localStorage.getItem('panelforge.story-v2.last-settings.v3')).tone_profile==='provocative_sketch','tone remembered in browser');
           check(!el('final-review-enabled').checked,'final control off by default');
           check(el('reader-model').parentElement.parentElement.contains(el('final-review-enabled')),'final control placed below reader model');
           check(!el('polish-enabled').checked&&el('polish-model-field').hidden,'polish optional and compact by default');
@@ -81,6 +90,10 @@ class StoryV2BrowserTest(unittest.TestCase):
           recipe.value=chosenRecipe;recipe.dispatchEvent(new Event('change',{bubbles:true}));await settle();
           check(!el('model-note').textContent,'successful video load clears stale recipe error');
           el('projects').value=current.id;el('projects').dispatchEvent(new Event('change'));await settle();
+           check(el('writing-version').value==='2.0'&&el('writing-version').disabled,'old project keeps and locks its edition');
+          check(el('tone-profile').value==='from_idea','old story resets tone instead of inheriting remembered sketch');
+          check(el('universe-custom').value===original.settings.universe&&el('style-custom').value===original.settings.style,'old descriptions retained exactly');
+          check(JSON.parse(localStorage.getItem('panelforge.story-v2.last-settings.v3')).tone_profile==='provocative_sketch','opening old story does not overwrite remembered tone');
 
           current.status='polishing';current.version++;
           current.progress={id:'call-polish',index:3,total:4,label:'Retouche des dialogues',model:'local::unsloth/gemma-4-31B-it-qat-GGUF',status:'running',started_at:new Date(Date.now()-2200).toISOString()};
@@ -88,6 +101,8 @@ class StoryV2BrowserTest(unittest.TestCase):
           check(!el('progress').hidden&&el('progress-label').textContent.includes('Appel 3/4'),'real call count displayed');
           check(el('progress-label').textContent.includes('Gemma 4'),'compact active model name');
           check(el('polish-enabled').disabled&&el('final-review-enabled').disabled,'polishing locks both independent options');
+          check(el('tone-profile').disabled,'running cycle locks tone');
+          check(el('universe').disabled&&el('universe-custom').disabled&&el('style-custom').disabled,'running cycle locks menus and custom fields');
           const beforeTimer=el('progress-time').textContent;await new Promise(r=>setTimeout(r,1150));
           check(el('progress-time').textContent!==beforeTimer,'timer advances between server polls');
           current.status='awaiting_review';current.progress.status='succeeded';current.progress.elapsed_seconds=2.4;current.version++;
@@ -126,6 +141,7 @@ class StoryV2BrowserTest(unittest.TestCase):
           el('save').click();await settle();
           check(!current.script.sequences[0].dialogue[0].addressee_ids&&!current.script.sequences[0].dialogue[0].address_cue,'changed line clears hidden addressing');
           check(current.settings.final_review_enabled&&current.settings.polish_enabled,'independent options persisted');
+          check(current.settings.universe===original.settings.universe&&current.settings.style===original.settings.style,'unrelated edits preserve custom descriptions in API payload');
           el('approve').click();await settle();
           check(!el('references').hidden,'manual approval opens references');
           check(!requests.some(([u])=>u.endsWith('/references')),'approval does not generate images in manual mode');
@@ -137,12 +153,74 @@ class StoryV2BrowserTest(unittest.TestCase):
           el('image-style-preset').value='test-style';el('image-style-preset').dispatchEvent(new Event('change',{bubbles:true}));
           check(el('image-model').value==='preset-checkpoint','preset checkpoint applied');
           check(el('art-name').textContent==='Test','preset art direction applied');
-          el('save').click();await settle();el('new').click();await settle();
+          const fruits=[...el('universe').options].find(o=>o.textContent==='Fruits anthropomorphes').value;
+          const animated=[...el('style').options].find(o=>o.textContent==='Animation 3D expressive').value;
+          el('universe').value=fruits;el('universe').dispatchEvent(new Event('change',{bubbles:true}));
+          el('style').value='__custom__';el('style').dispatchEvent(new Event('change',{bubbles:true}));
+          el('style-custom').value='Animation 3D rétro, couleurs pastel';el('style-custom').dispatchEvent(new Event('input',{bubbles:true}));
+          el('save').click();await settle();el('refresh').click();await settle();
+          check(current.settings.universe===fruits&&current.settings.style==='Animation 3D rétro, couleurs pastel','preset text and custom text transmitted without sentinels');
+          check(el('style').value==='__custom__'&&el('style-custom').value===current.settings.style,'custom style restored after refresh');
+          el('style').value=animated;el('style').dispatchEvent(new Event('change',{bubbles:true}));
+          check(el('universe-custom-field').hidden&&el('style-custom-field').hidden,'preset choices hide custom inputs');
+          check(el('style-custom').disabled&&!el('style-custom').required,'hidden custom input does not block submission');
+          el('tone-profile').value='provocative_sketch';el('tone-profile').dispatchEvent(new Event('change',{bubbles:true}));
+          el('save').click();await settle();
+          check(current.settings.tone_profile==='provocative_sketch','tone saved with story');
+          el('refresh').click();await settle();check(el('tone-profile').value==='provocative_sketch','refresh restores project tone');
+          el('new').click();await settle();
+          check(el('tone-profile').value==='provocative_sketch','new story retains latest tone');
+          check(el('universe').value===fruits&&el('style').value===animated,'new story remembers both profile selections');
+          check(JSON.parse(localStorage.getItem('panelforge.story-v2.last-settings.v3')).style===animated,'remembered profile remains its text value');
           check(el('idea').value===''&&el('image-model').value==='preset-checkpoint','new story retains latest settings but clears idea');
+           check(el('writing-version').value==='2.1'&&!el('writing-version').disabled,'new story defaults to dense edition again');
           check(el('final-review-enabled').checked&&el('polish-enabled').checked,'new story keeps latest independent choices');
           check(!requests.some(([u,m])=>m!=='GET'&&(/minimax|qwen|h3-render|launch/.test(u))),'no generation from setting changes');
           document.getElementById('result').textContent='PASS';
         }catch(e){document.getElementById('result').textContent='FAIL: '+e.stack;}})();
         '''
         source=(STATIC/'story-v2-settings.js').read_text(encoding='utf-8')+'\n'+(STATIC/'story-v2.js').read_text(encoding='utf-8')
+        self.run_browser(browsers[-1],markup+'<script>'+fixture+'</script><script>'+source+'</script><script>'+scenario+'</script>')
+
+    def test_new_form_omits_tone_until_running_backend_supports_it(self):
+        browsers=sorted((Path(os.environ.get("LOCALAPPDATA",""))/"ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
+        if not browsers and Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe").is_file():
+            browsers=[Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")]
+        if not browsers:self.skipTest("local Chromium not installed")
+        html=(STATIC/"index.html").read_text(encoding="utf-8")
+        start=html.index('  <main id="story-v2-workspace"');end=html.index('</main>',start)+len('</main>')
+        markup='<meta charset="utf-8"><pre id="result">PENDING</pre><button data-lab-view="story-v2">V2</button>'+html[start:end]
+        config=settings();config.pop("tone_profile")
+        fixture='const original='+json.dumps(config,ensure_ascii=False)+';'+r'''
+          localStorage.clear();sessionStorage.clear();let submitted=null;
+          const response=value=>({ok:true,status:200,json:async()=>structuredClone(value)});
+          window.PanelForgeStoryV2Settings={mount:()=>({busy:false,initialize:async()=>{},fill:()=>{},
+            read:()=>({...original}),setDisabled:()=>{}})};
+          window.fetch=async(url,options={})=>{
+            if(url==='/api/stories-v2/preferences')return response({settings:original});
+            if(url==='/api/stories/models')return response({models:[]});
+            if(url==='/api/stories-v2/projects'&&options.method==='POST'){
+              submitted=JSON.parse(options.body).settings;
+              if('tone_profile' in submitted)return {ok:false,status:422,json:async()=>({detail:'Extra inputs are not permitted'})};
+              return response({project:{id:'storyv2-'+'b'.repeat(32),version:1,status:'queued',settings:submitted,
+                script:null,review:null,history:[],episode_id:null,factory_ids:[],videos:[],error:null}});
+            }
+            if(url==='/api/stories-v2/projects')return response({projects:[]});
+            throw Error('Unexpected request '+url);
+          };
+        '''
+        scenario=r'''
+          (async()=>{try{
+            const check=(v,m)=>{if(!v)throw Error(m);},el=id=>document.getElementById('sv2-'+id);
+            const settle=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setTimeout(r,0));};
+            document.querySelector('[data-lab-view="story-v2"]').click();await settle();
+            check(el('tone-profile').disabled,'unsupported tone stays disabled');
+            check(el('tone-profile').title.includes('backend'),'disabled control explains next backend start');
+            el('form').dispatchEvent(new Event('submit',{cancelable:true}));await settle();
+            check(submitted&&!('tone_profile' in submitted),'old API receives no unknown tone field');
+            check(!el('message').textContent,'no extra-input error on an already running backend');
+            document.getElementById('result').textContent='PASS';
+          }catch(e){document.getElementById('result').textContent='FAIL: '+e.stack;}})();
+        '''
+        source=(STATIC/'story-v2.js').read_text(encoding='utf-8')
         self.run_browser(browsers[-1],markup+'<script>'+fixture+'</script><script>'+source+'</script><script>'+scenario+'</script>')

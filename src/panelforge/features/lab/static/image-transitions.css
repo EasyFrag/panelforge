@@ -31,8 +31,7 @@ main.it-workspace { max-width:none; margin:auto; padding:18px 22px 30px; }
 .it-pair { display:flex; align-items:center; gap:3px; padding:2px; white-space:nowrap; }
 .it-pair img { height:110px; width:86px; object-fit:contain; }
 .it-state { white-space:nowrap; border-radius:4px; background:#eee; padding:3px 5px; font-size:11px; }
-.it-state.ready { background:#deefe4; color:#315b3f; } .it-state.sent { background:#dfeaf7; color:#345878; }
-.it-state.review { background:#fff0ce; color:#76551b; }
+.it-state.ready,.it-state.review { background:#deefe4; color:#315b3f; } .it-state.sent { background:#dfeaf7; color:#345878; }
 #it-inspector { padding:12px; position:sticky; top:calc(var(--it-header-top,0px) + var(--it-actions-height,80px) + 10px); display:grid; gap:10px; }
 #it-inspector h2 { font-size:15px; margin:0; }
 .it-comparison { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
@@ -112,3 +111,10 @@ main.it-workspace { max-width:none; margin:auto; padding:18px 22px 30px; }
 @media(min-width:1001px) { #it-inspector { max-height:calc(100vh - var(--it-header-top,0px) - var(--it-actions-height,80px) - 24px); overflow:auto; } }
 @media(max-width:1000px) and (min-width:721px) { .it-layout { grid-template-columns:minmax(0,1fr) 350px; } .it-comparison { grid-template-columns:1fr; } }
 @media(max-width:720px) { .it-people-controls { align-items:start; } .it-toolbar { gap:5px; } .it-toolbar button { font-size:11px; padding:7px; } .it-comparison img { height:260px; } }
+
+/* The wrapper keeps the explanation reachable when the send button is disabled. */
+#it-send-status { display:inline-flex; border-radius:6px; }
+#it-send-status:focus-visible { outline:2px solid #7351a2; outline-offset:2px; }
+#it-send:disabled { pointer-events:none; background:#e9e8e3; border-color:#d9d8d2; color:#777; }
+#it-send.it-sent:disabled { opacity:1; }
+#it-send .it-send-check { color:#238044; margin-right:3px; }

@@ -152,7 +152,6 @@ class TransitionReferencesTest(ReferenceFixture):
         self.assertNotIn("worker", payload["settings"])
         self.assertNotIn("previous_intention", payload)
         self.assertEqual(status(p, active(p)[0]), "review")
-        p = self.service.review(p["id"], p["version"], [identity])
         p, ids, count = self.service.send(p["id"], p["version"], [identity])
         config = self.factory.snapshot()["items"][0]["config"]
         self.assertEqual(config["mode"], "ref2v")
@@ -190,9 +189,9 @@ class TransitionReferencesTest(ReferenceFixture):
         original = deepcopy(self.factory.snapshot()["items"][0])
         p = self.service.update(p["id"], p["version"], {"settings": {"crew_size": "team"}})
         self.assertEqual(status(p, active(p)[0]), "review")
-        with self.assertRaises(TransitionConflict):
-            self.service.send(p["id"], p["version"], [identity])
-        p = self.service.review(p["id"], p["version"], [identity])
+        p, revised, added = self.service.send(p["id"], p["version"], [identity])
+        self.assertEqual(added, 1)
+        self.assertNotEqual(revised, ids)
         p = self.scale(0, "pair", .02)
         self.assertEqual(status(p, active(p)[0]), "review")
         self.assertEqual(self.factory.snapshot()["items"][0], original)
@@ -205,12 +204,36 @@ class TransitionReferencesTest(ReferenceFixture):
         p = self.worker(b"different worker")
         with self.assertRaisesRegex(ValueError, "ouvrier a changé"):
             self.service.review(p["id"], p["version"], [identity])
+        self.assertIn("ouvrier a changé", self.service.public(p)["transitions"][0]["send_error"])
+        with self.assertRaisesRegex(ValueError, "ouvrier a changé"):
+            self.service.send(p["id"], p["version"], [identity])
+        self.assertEqual(self.factory.snapshot()["items"], [])
         p = self.scale()
         p = self.service.upload(p["id"], p["version"], b"new scene", "Nouveau décor", p["frames"][0]["id"])
         with self.assertRaisesRegex(ValueError, "décor de référence"):
             self.service.begin_proposals(p["id"], p["version"], [identity], "changed-basis")
         p = self.service.set_scale(p["id"], p["version"], identity, None)
         self.assertIsNone(reference_state(p, active(p)[0])["error"])
+
+    def test_direct_send_preserves_worker_visual_contract_checks(self):
+        self.worker()
+        self.scale()
+        p = self.latest()
+        identity = active(p)[0]["id"]
+        p = self.edit(identity, intention=self.visual_intention())
+        # Legacy saved prose still needs the visual contract, even with no review step.
+        active(p)[0].pop("worker_visual_version", None)
+        self.store.save(p)
+        self.assertIn("Reproposez", self.service.public(p)["transitions"][0]["send_error"])
+        with self.assertRaisesRegex(ValueError, "Reproposez"):
+            self.service.send(p["id"], p["version"], [identity])
+        p = self.edit(identity, intention=self.visual_intention() + " Il emporte le balai.")
+        p = self.edit(identity, note="L’ouvrier mesure un dixième de la largeur du tronc.")
+        self.assertTrue(self.service.public(p)["transitions"][0]["send_error"])
+        with self.assertRaises(ValueError):
+            self.service.send(p["id"], p["version"], [identity])
+        self.assertEqual(self.factory.snapshot()["items"], [])
+        self.assertEqual(self.latest()["deliveries"], [])
 
     def test_scale_change_during_proposal_does_not_apply_old_intention(self):
         self.worker()

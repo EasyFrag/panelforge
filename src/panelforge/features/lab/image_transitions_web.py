@@ -73,7 +73,7 @@ def image_transitions_router(service):
     @router.get("/spec")
     def spec():
         return invoke(lambda: dict(defaults=defaults(), kinds=KINDS, max_images=MAX_IMAGES,
-                                    pace_presets=pace_presets(), crews=crew_catalog(),
+                                    pace_presets=pace_presets(), crews=crew_catalog(), direct_send=True,
                                     visual_references=service.reference_images is not None,
                                     aspect_ratios=[r.value for r in VideoAspectRatio]))
 

@@ -64,3 +64,5 @@ body[data-workshop="story-v2"] { --workshop-accent:#2f6654; --workshop-soft:#e0e
 
 #sv2-progress { margin:.35rem 0; font-size:.85rem; }
 #sv2-progress-time { font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+.sv2-workspace .sv2-writing-version { max-width: 24rem; margin-bottom: .75rem; }

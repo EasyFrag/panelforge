@@ -57,6 +57,31 @@ class JourneySelectionContractTest(unittest.TestCase):
                          policy.sequence(project))
 
 
+    def test_reverse_order_keeps_insertions_selection_and_generation_origins(self):
+        project = sample_project()
+        project['journey_direction'] = 'reverse'
+        before = deepcopy(project)
+        selected = policy.sequence(project, ['source', 'last', 'middle'], frame_order='reverse_generation')
+        self.assertEqual([f['asset_id'] for f in selected['frames']], ['asset-last', 'asset-middle', 'asset-source'])
+        self.assertEqual([f['origin']['index'] for f in selected['frames']], [3, 2, 0])
+        self.assertEqual(selected['frames'][-1]['label'], 'Bâtiment terminé')
+        self.assertEqual(project, before)
+        self.assertEqual(policy.sequence(project, frame_order='generation'), policy.sequence(project))
+        project['manual_steps'][0]['review'] = None
+        selected = policy.sequence(project, ['source', 'last', 'first'], frame_order='reverse_generation')
+        self.assertEqual([f['asset_id'] for f in selected['frames']], ['asset-last', 'asset-first', 'asset-source'])
+        with self.assertRaises(ValueError):
+            policy.sequence(project, ['source', 'middle'], frame_order='reverse_generation')
+
+    def test_invalid_order_is_rejected_without_mutation(self):
+        project = sample_project()
+        before = deepcopy(project)
+        for value in ('construction', '', None, True, [], {}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                policy.sequence(project, ['source', 'first'], frame_order=value)
+        self.assertEqual(project, before)
+
+
 class JourneySelectionHandoffTest(ImageJourneyFixture):
     def test_selection_has_its_own_idempotent_export_without_touching_existing_frise(self):
         self.create_journey(count=3)
@@ -83,6 +108,32 @@ class JourneySelectionHandoffTest(ImageJourneyFixture):
         self.assertEqual(full, self.journeys.prepare_transitions(self.journey_id,
                          frame_ids=policy.transferable_frame_ids(project)))
 
+    def test_export_order_is_idempotent_and_never_changes_generation_or_prior_exports(self):
+        self.create_journey(count=3)
+        project = self.until('completed')
+        calls, renders = len(self.gateway.requests), len(self.comfy.submitted)
+        ids = ['source', project['steps'][0]['id'], project['steps'][2]['id']]
+        forward = self.journeys.prepare_transitions(self.journey_id, frame_ids=ids)
+        previous = deepcopy(self.transitions.get(forward['project_id']))
+        backward = self.journeys.prepare_transitions(self.journey_id, frame_ids=ids, frame_order='reverse_generation')
+        self.assertNotEqual(forward, backward)
+        target = self.transitions.get(backward['project_id'])
+        self.assertEqual([f['asset_id'] for f in target['frames']],
+                         [project['steps'][2]['output_asset_id'], project['steps'][0]['output_asset_id'], project['source_asset_id']])
+        by_id = {frame['id']: frame['asset_id'] for frame in target['frames']}
+        self.assertEqual([(by_id[t['left']], by_id[t['right']]) for t in target['transitions']],
+                         [(project['steps'][2]['output_asset_id'], project['steps'][0]['output_asset_id']),
+                          (project['steps'][0]['output_asset_id'], project['source_asset_id'])])
+        self.assertEqual(backward, self.journeys.prepare_transitions(self.journey_id,
+                         frame_ids=list(reversed(ids)), frame_order='reverse_generation'))
+        self.assertEqual(forward, self.journeys.prepare_transitions(self.journey_id, frame_ids=ids))
+        self.assertEqual(self.transitions.get(forward['project_id']), previous)
+        current = self.current_journey()
+        for field in ('steps', 'manual_steps', 'sequence_order', 'source_asset_id', 'current_asset_id', 'count'):
+            self.assertEqual(current.get(field), project.get(field), field)
+        self.assertEqual(len(self.gateway.requests), calls)
+        self.assertEqual(len(self.comfy.submitted), renders)
+
     def test_http_rejects_invalid_ids_and_supports_legacy_and_explicit_handoffs(self):
         self.create_journey(count=2)
         project = self.until('completed')
@@ -94,7 +145,8 @@ class JourneySelectionHandoffTest(ImageJourneyFixture):
         with TestClient(app) as client:
             for body in ({}, {'frame_ids': []}, {'frame_ids': ['source']}, {'frame_ids': None},
                          {'frame_ids': 'source'}, {'frame_ids': ['source', 'source']},
-                         {'frame_ids': ['source', 'foreign']}, {'frame_ids': ['source', 1]}):
+                         {'frame_ids': ['source', 'foreign']}, {'frame_ids': ['source', 1]},
+                         {'frame_ids': ['source', project['steps'][0]['id']], 'frame_order': 'unknown'}):
                 with self.subTest(body=body):
                     self.assertEqual(client.post(url, json=body).status_code, 422)
             self.assertEqual(self.transitions.list(), [])
@@ -103,6 +155,11 @@ class JourneySelectionHandoffTest(ImageJourneyFixture):
             self.assertEqual(response.status_code, 200, response.text)
             exported = self.transitions.get(response.json()['project_id'])
             self.assertEqual([f['origin']['step_id'] for f in exported['frames']], ids)
+            reverse = client.post(url, json={'frame_ids': ids, 'frame_order': 'reverse_generation'})
+            self.assertEqual(reverse.status_code, 200, reverse.text)
+            reversed_export = self.transitions.get(reverse.json()['project_id'])
+            self.assertEqual([f['origin']['step_id'] for f in reversed_export['frames']], list(reversed(ids)))
+            self.assertNotEqual(response.json(), reverse.json())
             legacy = client.post(url)
             self.assertEqual(legacy.status_code, 200, legacy.text)
             self.assertEqual(len(self.transitions.get(legacy.json()['project_id'])['frames']), 3)

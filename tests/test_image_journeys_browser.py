@@ -33,6 +33,7 @@ class ImageJourneyBrowserTest(unittest.TestCase):
         window.fixtureImage='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
         sessionStorage.removeItem('panelforge.image-journey.project');
         sessionStorage.removeItem('panelforge.image-journey.project.excluded.journey-fixture');
+        sessionStorage.removeItem('panelforge.image-journey.project.order.journey-fixture');
         window.setInterval=callback=>{window.pollJourney=callback;return 1;};
         const calls=[];let project=null,resumeConflict=true,opened=null,holdGet=false,releaseGet=null,transferred=null;
         window.PanelForgeImageTransitions={open:async identity=>{opened=identity;}};
@@ -41,16 +42,17 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           ...(project.ordered_steps||project.steps).filter(s=>s.output_asset_id&&['usable','similar'].includes(s.review?.assessment)).map(s=>s.id)]});
         window.PanelForgeLabCore={request:async(url,options={})=>{
           const method=options.method||'GET';calls.push([url,method,options.body]);
-          if(url.endsWith('/spec'))return {default_images:5,max_images:30,default_model_id:'vision',default_mask_model_id:'qwen-mask',transitions_available:true,hq_prompt:'Create a higher-resolution version of <Picture 1>. Preserve geometry and colors.'};
+          if(url.endsWith('/spec'))return {default_journey_version:'2',default_images:5,max_images:30,default_model_id:'vision',default_mask_model_id:'qwen-mask',transitions_available:true,hq_prompt:'Create a higher-resolution version of <Picture 1>. Preserve geometry and colors.'};
           if(url.endsWith('/models'))return {models:[{id:'vision',label:'Vision local',source:'local'},
             {id:'writer',label:'MiniMax writer',source:'server'}, {id:'qwen-mask',label:'Qwen vision',source:'local'}]};
           if(url.endsWith('/projects')&&method==='GET')return {projects:project?[clone(project)]:[]};
           if(url.endsWith('/projects')&&method==='POST'){
             check(options.body instanceof FormData,'creation must upload the selected image');
             check(options.body.get('source_image') instanceof File,'source image missing');
+            check(['1','2'].includes(options.body.get('journey_version')),'journey version missing from creation');
             check(options.body.get('auto_mask')==='false','disabled mask default must reach the API');
             check(options.body.get('mask_model_id')==='qwen-mask','independent mask selection must reach the API');
-            project={id:'journey-fixture',version:1,name:'Cave aménagée',source_asset_id:'source',status:'running',
+            project={id:'journey-fixture',journey_direction:options.body.get('journey_direction'),journey_version:options.body.get('journey_version'),version:1,name:'Cave aménagée',source_asset_id:'source',status:'running',
               phase:'planning',intention:options.body.get('intention'),count:Number(options.body.get('count')),
               progression_model_id:options.body.get('progression_model_id'),prompt_model_id:options.body.get('prompt_model_id'),
               auto_mask:options.body.get('auto_mask')==='true',mask_model_id:options.body.get('mask_model_id'),source_dimensions:[1344,2368],
@@ -61,6 +63,8 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           if(url.endsWith('/pause')){project.status='paused';project.version++;return {project:publicProject()};}
           if(url.endsWith('/resume')){
             const body=JSON.parse(options.body);
+            check(!('journey_version' in body),'resume must keep the saved journey version');
+            check(!('journey_direction' in body),'resume must keep the saved direction');
             if(resumeConflict){resumeConflict=false;project.version++;throw Error('Version modifiée');}
             check(body.version===project.version,'resume must use the refreshed revision');
             project.intention=body.intention;project.mask_model_id=body.mask_model_id;project.status='running';project.version++;
@@ -95,6 +99,23 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           check(!el('models').open,'models should be collapsed');
           check(el('mask-model').value==='qwen-mask','Qwen should be the default mask model');
           check(!el('auto-mask').checked,'mask should be disabled by default');
+          check(el('journey-version').value==='2'&&!el('journey-version').disabled,'new journey should default to selectable V2');
+          check(el('journey-direction').value==='reverse','new journey should default to reverse');
+          check(el('count').value==='3','new journey should default to three new images');
+          const reverseDefault=el('intention').value;
+          check(reverseDefault.includes('terrain plat'),'initial intention should match reverse mode');
+          el('journey-direction').value='forward';el('journey-direction').dispatchEvent(new Event('change'));
+          check(el('intention').value===el('intention').defaultValue,'construction should retain its default intention');
+          el('intention').value='Mon chantier personnalisé';
+          el('journey-direction').value='reverse';el('journey-direction').dispatchEvent(new Event('change'));
+          check(el('intention').value.includes('terrain plat')&&el('source-label').textContent==='Image finale fournie','reverse labels and default missing');
+          el('intention').value='';
+          el('journey-direction').value='forward';el('journey-direction').dispatchEvent(new Event('change'));
+          check(el('intention').value==='Mon chantier personnalisé','mode switch erased the forward draft');
+          el('journey-direction').value='reverse';el('journey-direction').dispatchEvent(new Event('change'));
+          check(el('intention').value==='','mode switch must preserve an intentionally empty draft');
+          el('journey-direction').value='forward';el('journey-direction').dispatchEvent(new Event('change'));
+          el('journey-version').value='1';el('journey-version').dispatchEvent(new Event('change'));
           check(!el('plan').open,'milestones should be collapsed');
           const dt=new DataTransfer();dt.items.add(new File(['fixture'],'start.png',{type:'image/png'}));
           el('source').files=dt.files;el('source').dispatchEvent(new Event('change',{bubbles:true}));
@@ -102,6 +123,7 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           el('count').value='1';el('prompt-model').value='writer';
           el('start').click();await wait(()=>project&&!el('pause').disabled);
           check(!el('setup').open,'settings should fold after generation starts');
+          check(project.journey_version==='1'&&el('journey-version').disabled,'selected V1 should be persisted and locked');
           check(el('transitions').disabled,'source alone cannot create a transition');
           el('setup').open=true;project.version++;await window.pollJourney();
           check(el('setup').open,'polling must preserve an explicitly opened panel');
@@ -114,6 +136,7 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           el('pause').click();await wait(()=>!el('resume').hidden&&!el('resume').disabled);
           el('setup').open=true;
           check(!el('mask-model').disabled,'mask selection should be editable while paused');
+          check(el('journey-version').value==='1'&&el('journey-version').disabled,'pause must not allow changing version');
           el('mask-model').value='vision';el('mask-model').dispatchEvent(new Event('input',{bubbles:true}));
           const draft='Créer une bibliothèque <img src=x onerror=alert(1)>';
           el('intention').value=draft;el('intention').dispatchEvent(new Event('input',{bubbles:true}));
@@ -218,15 +241,89 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           el('projects').value='journey-fixture';el('projects').dispatchEvent(new Event('change'));
           await wait(()=>!el('result').hidden&&!el('transitions').disabled);
           check(JSON.stringify(checked())===JSON.stringify(wanted),'reopening the same project lost its selection');
+          delete project.journey_version;delete project.journey_direction;project.version++;await window.pollJourney();
+          check(el('journey-version').value==='1'&&el('journey-version').disabled,'legacy project must display locked V1');
           el('transitions').click();await wait(()=>opened==='transitions-fixture');
           check(JSON.stringify(transferred)===JSON.stringify(wanted),'handoff must send selected IDs in gallery order');
+          check(JSON.parse(calls.filter(row=>row[0].endsWith('/transitions')).at(-1)[2]).frame_order==='generation','forward handoff must explicitly send gallery order');
           check(!calls.some(row=>/\/messages|\/attempts|\/send/.test(row[0])),'browser must not orchestrate renders or send videos');
           check(document.documentElement.scrollWidth<=window.innerWidth+2,'workshop overflows horizontally');
           await wait(()=>!el('new').disabled);
           holdGet=true;const pending=window.pollJourney();await wait(()=>releaseGet);
-          el('new').click();releaseGet();await pending;
+          el('new').click();releaseGet();await pending;holdGet=false;
           check(el('result').hidden&&!el('source').disabled&&el('setup').open,'stale poll replaced the new-project form');
           check(el('mask-model').value==='qwen-mask','new journey should restore the Qwen default');
+          check(el('journey-version').value==='2'&&!el('journey-version').disabled,'new journey must restore V2 after a legacy project');
+          el('source').files=dt.files;el('source').dispatchEvent(new Event('change',{bubbles:true}));
+          el('start').click();await wait(()=>project.journey_version==='2'&&!el('pause').disabled);
+          check(el('journey-version').disabled,'default V2 creation should lock its version');
+          check(project.journey_direction==='reverse'&&project.count===3,'new creation should send reverse and three images');
+          el('new').click();
+          check(el('intention').value===reverseDefault,'New must restore the reverse default');
+          el('journey-direction').value='reverse';el('journey-direction').dispatchEvent(new Event('change'));
+          el('source').files=dt.files;el('source').dispatchEvent(new Event('change',{bubbles:true}));
+          el('start').click();await wait(()=>project.journey_direction==='reverse'&&!el('pause').disabled);
+          check(el('journey-direction').disabled&&el('journey-version').value==='2','direction must lock independently of V2');
+          check(el('frieze').textContent.includes('Bâtiment terminé'),'reverse supplied image should be labelled');
+          el('pause').click();await wait(()=>!el('resume').hidden&&!el('resume').disabled);
+          check(el('journey-direction').disabled,'paused journey must keep direction locked');
+          el('new').click();
+          el('projects').value='journey-fixture';el('projects').dispatchEvent(new Event('change'));
+          await wait(()=>!el('result').hidden&&!el('new').disabled);
+          check(el('journey-direction').value==='reverse'&&el('intention').value===project.intention,'reopening must restore saved direction and intention');
+          // Reverse generation opens as construction, including a subset export and manual + anchors.
+          project.steps=['roof','walls','ground'].map((id,index)=>({id,index:index+1,source_asset_id:'source',
+            output_asset_id:'asset-'+id,action:{title:id,change:'Remove '+id},prompt:'Edit <Picture 1>.',
+            prompt_model_id:'writer',review:{assessment:'usable',observation:'Reviewed '+id}}));
+          Object.assign(project,{generated:3,count:3,status:'completed',phase:'completed',image_operations:[]});
+          project.version++;await window.pollJourney();
+          const identities=()=>checks().map(c=>c.dataset.ijSelect);
+          const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+          check(same(identities(),['ground','walls','roof','source']),'reverse must open with the supplied finished building at the right');
+          check(el('order-label').textContent==='Construction → bâtiment terminé','construction order should be explicit');
+          for(const input of checks())if(!input.checked)input.click();
+          box('walls').click();
+          check(same(checked(),['ground','roof','source']),'reverse subset order lost');
+          const exportCount=()=>calls.filter(row=>row[0].endsWith('/transitions')).length;
+          let exported=exportCount();
+          el('transitions').click();await wait(()=>exportCount()>exported&&!el('new').disabled);
+          check(same(transferred,['ground','roof','source']),'reverse handoff must follow the visible selected states');
+          check(JSON.parse(calls.filter(row=>row[0].endsWith('/transitions')).at(-1)[2]).frame_order==='reverse_generation','API would silently restore generation order');
+          el('reverse-order').click();
+          check(same(identities(),['source','roof','walls','ground'])&&same(checked(),['source','roof','ground']),'one click must reverse without losing exclusions');
+          check(el('order-label').textContent==='Bâtiment terminé → début du chantier','reversed label missing');
+          project.version++;await window.pollJourney();
+          check(same(identities(),['source','roof','walls','ground']),'poll reset the chosen order');
+          el('new').click();el('projects').value='journey-fixture';el('projects').dispatchEvent(new Event('change'));
+          await wait(()=>!el('result').hidden&&!el('new').disabled);
+          check(same(identities(),['source','roof','walls','ground'])&&!box('walls').checked,'reopening lost order or selection');
+          exported=exportCount();el('transitions').click();await wait(()=>exportCount()>exported&&!el('new').disabled);
+          check(same(transferred,['source','roof','ground']),'second handoff must follow the new order');
+          el('reverse-order').click();
+          // The + at the left extends the generation tail. Inner + retain canonical anchor IDs.
+          const firstCard=plus()[0].closest('.ij-card');
+          check(plus()[0].getBoundingClientRect().right<=firstCard.querySelector('[data-ij-thumbnail]').getBoundingClientRect().left,'reverse tail + should sit before the first image');
+          plus()[0].click();
+          check(el('operation-images').querySelectorAll('img').length===1&&el('operation-hint').textContent.includes('avant cet état'),'reverse tail addition is ambiguous');
+          el('operation-close').click();plus()[1].click();
+          el('operation-images').querySelector('button').click();
+          check(el('detail-action').textContent==='Remove ground','insertion popup must show neighbors in gallery order');
+          el('close').click();
+          el('operation-input').value='Un état entre le terrain et les murs';el('operation-input').dispatchEvent(new Event('input',{bubbles:true}));
+          el('operation-generate').click();await wait(()=>project.image_operations.length===1&&!el('operation-close').disabled);
+          check(manualState().kind==='insert'&&manualState().after_frame_id==='walls'&&manualState().before_frame_id==='ground','reversal changed canonical insertion anchors');
+          finishManual();await window.pollJourney();el('operation-close').click();
+          check(same(identities(),['ground',manualState().id,'walls','roof','source']),'inserted frame is in the wrong visible gap');
+          check(!box('walls').checked&&box(manualState().id).checked,'insert after reversal lost selection');
+          check(el('frieze').scrollWidth<=el('frieze').clientWidth+2,'reverse gallery requires horizontal scrolling');
+          // A reverse endpoint may be reached before the planned image budget; never claim all renders happened.
+          project.steps=project.steps.slice(0,2);delete project.ordered_steps;
+          Object.assign(project,{generated:2,count:3,manual_generated:0,image_operations:[],status:'completed',phase:'completed',
+            completion_reason:'reverse_endpoint',warning:'Terrain dégagé atteint après 2 images sur 3 demandées.'});
+          project.version++;await window.pollJourney();
+          check(el('status').textContent.includes('2 nouvelles images sur 3 demandées')&&el('status').textContent.includes('Terrain dégagé'),'early completion hides the actual image count');
+          check(el('progress').value===2&&el('progress').max===3,'early completion must not inflate the render counter');
+          check(el('warning').textContent.includes('2 images sur 3')&&el('resume').hidden,'early completion should explain the stop without suggesting a no-op resume');
           document.body.innerHTML='<pre id="result">IMAGE_JOURNEY_BROWSER_OK</pre>';
         }catch(error){document.body.innerHTML='<pre id="result"></pre>';document.getElementById('result').textContent=error.stack;}})();
         """

@@ -1,4 +1,4 @@
-"""Persistent image friezes, reviewed LLM proposals and idempotent factory handoff."""
+"""Persistent image friezes, optional proposal review and idempotent factory handoff."""
 from copy import deepcopy
 import json
 from threading import RLock
@@ -53,6 +53,7 @@ class ImageTransitionService:
 
     def public(self, project):
         result = deepcopy(project)
+        result["send_error"] = "L’usine n’est pas configurée." if self.factory is None else None
         result["transitions"] = deepcopy(policy.active(project))
         for transition in result["transitions"]:
             transition["state"] = policy.status(project, transition)
@@ -60,6 +61,11 @@ class ImageTransitionService:
             transition["effective"] = policy.effective(project, transition)
             transition["visual_references"] = references.reference_state(project, transition)
             transition["needs_visual_refresh"] = policy.needs_visual_refresh(project, transition)
+            try:
+                self._require_sendable(project, transition)
+                transition["send_error"] = None
+            except ValueError as error:
+                transition["send_error"] = str(error)
             transition["factory_ids"] = [d["factory_id"] for d in project["deliveries"]
                 if d["transition_id"] == transition["id"] and d.get("factory_id")]
             transition["stale"] = bool(transition["proposal_context"] and
@@ -239,19 +245,24 @@ class ImageTransitionService:
                     transition.pop("worker_visual_version", None)
             return self._save(project)
 
+    @staticmethod
+    def _require_sendable(project, transition):
+        references.require_references(project, transition)
+        policy.require_current_visual_intention(project, transition)
+        if not transition["intention"].strip():
+            raise ValueError("Rédigez ou proposez une intention avant l’envoi.")
+        if project.get("worker_reference"):
+            prompting.worker_visual_policy.validate(
+                transition["intention"] + "\n" + transition["note"],
+                prompting.binding(references.reference_state(project, transition), transition["kind"]),
+                require_links=True)
+
     def review(self, identity, version, ids):
+        # Compatibility for older clients; sending no longer requires this command.
         with self._lock:
             project = self._load(identity, version)
             for transition in self._selected(project, ids):
-                references.require_references(project, transition)
-                policy.require_current_visual_intention(project, transition)
-                if project.get("worker_reference"):
-                    prompting.worker_visual_policy.validate(
-                        transition["intention"] + "\n" + transition["note"],
-                        prompting.binding(references.reference_state(project, transition), transition["kind"]),
-                        require_links=True)
-                if not transition["intention"].strip():
-                    raise ValueError("Rédigez ou proposez une intention avant de la valider.")
+                self._require_sendable(project, transition)
                 transition["reviewed"] = policy.context_key(project, transition)
             return self._save(project)
 
@@ -405,13 +416,16 @@ class ImageTransitionService:
             raise ValueError("L’usine n’est pas configurée.")
         with self._lock:
             project = self._load(identity, version)
+            if any(j["status"] in {"queued", "running"} for j in project["jobs"]):
+                raise TransitionConflict("Attendez la fin de l’analyse avant l’envoi.")
             selected = self._selected(project, ids)
+            # Check the whole selection before persisting or delivering any entry.
+            for transition in selected:
+                self._require_sendable(project, transition)
             active_ids = [t["id"] for t in policy.active(project)]
             deliveries = []
             for transition in selected:
                 key = policy.context_key(project, transition)
-                if transition["reviewed"] != key:
-                    raise TransitionConflict("Relisez et validez chaque transition avant l’envoi.")
                 delivery = next((d for d in project["deliveries"]
                                  if d["transition_id"] == transition["id"] and d["key"] == key), None)
                 if delivery is None:
@@ -419,10 +433,14 @@ class ImageTransitionService:
                         entry=policy.factory_entry(project, transition, active_ids.index(transition["id"])))
                     project["deliveries"].append(delivery)
                 deliveries.append(delivery)
-            # Persist exact entries before receive: retry after a crash reuses the same dedupe material.
-            self._save(project)
-            received = self.factory.receive([d["entry"] for d in deliveries])
-            for delivery, factory_id in zip(deliveries, received["ids"]):
-                delivery.update(factory_id=factory_id, sent_at=policy.timestamp())
-            self._save(project)
-            return project, received["ids"], received["added"]
+            pending = [d for d in deliveries if not d.get("factory_id")]
+            added = 0
+            if pending:
+                # Retry after a crash reuses the exact saved entry and factory deduplication.
+                self._save(project)
+                received = self.factory.receive([d["entry"] for d in pending])
+                for delivery, factory_id in zip(pending, received["ids"]):
+                    delivery.update(factory_id=factory_id, sent_at=policy.timestamp())
+                added = received["added"]
+                self._save(project)
+            return project, [d["factory_id"] for d in deliveries], added

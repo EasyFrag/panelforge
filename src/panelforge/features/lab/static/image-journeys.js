@@ -11,7 +11,25 @@
     queueing:"Mise en file",rendering:"Génération",protecting:"Masque automatique et préservation du décor",reviewing:"Relecture",completed:"Terminé"};
   const states = {running:"En cours",pausing:"Suspension…",paused:"Suspendu",completed:"Terminé"};
   const state = {p:null, spec:null, projects:[], models:[], busy:false, polling:false, loading:null,
-    epoch:0, createCommand:null, resumeCommand:null, previewUrl:null, formDirty:false, galleryKey:"", excludedFrames:new Set()};
+    epoch:0, createCommand:null, resumeCommand:null, previewUrl:null, formDirty:false, galleryKey:"", excludedFrames:new Set(), frameOrder:"generation"};
+  const defaultIntentions = {
+    forward: $("intention").defaultValue,
+    reverse: "Partir du bâtiment terminé fourni et retrouver progressivement ses états antérieurs de construction, jusqu’à un terrain plat sans ce bâtiment.\n\nRetirer progressivement les finitions, les façades et les éléments de structure selon ce que montre l’image. Répartir les transformations sur toutes les nouvelles images demandées, avec un changement principal bien visible par image. La dernière image doit montrer le terrain plat et dégagé ; l’image juste avant doit encore comporter un volume ou un assemblage important au-dessus du sol, pour une transition de construction visuellement marquée. Ne pas consacrer d’étape aux fondations, au terrassement ou aux réseaux enterrés. Pas de fosse, de ruines ni de gravats de démolition.\n\nConserver exactement le cadrage, le point de vue, l’emplacement du bâtiment, les bâtiments voisins et les éléments fixes environnants. Suivre le style, l’échelle et les matériaux de l’image fournie, réalistes ou miniatures. Utiliser le bâtiment terminé comme référence pour la forme et les matières des parties restantes, sans faire réapparaître les parties déjà retirées.\n\nChaque image est un instant net, sans flou de mouvement. Les travaux restent le changement principal."
+  };
+  const defaultDirection = $("journey-direction").value;
+  let draftDirection = defaultDirection, intentionDrafts = {...defaultIntentions};
+  $("intention").value = intentionDrafts[draftDirection];
+  function reverseJourney() { return $("journey-direction").value === "reverse"; }
+  function sourceLabel() { return reverseJourney() ? "Image finale fournie" : "Image de départ"; }
+  function directionLabels() {
+    const label = sourceLabel();
+    $("source-label").textContent = label;
+    $("setup-label").textContent = label + " et réglages";
+    $("source-preview").alt = label;
+    $("source-open").title = "Agrandir : " + label;
+    $("source-open").setAttribute("aria-label", "Agrandir : " + label);
+    $("intention").placeholder = reverseJourney() ? "Revenir au terrain plat en conservant le décor…" : "Transformer cette cave en un salon chaleureux…";
+  }
   const api = (path, method="GET", body) => core.request(apiRoot + path,
     {method, ...(body === undefined ? {} : {headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})});
   const endpoint = suffix => "/projects/" + encodeURIComponent(state.p.id) + suffix;
@@ -22,7 +40,7 @@
   };
   const actions = window.PanelForgeJourneyActions.attach({
     project:() => state.p, spec:() => state.spec, frames, asset, api, commandId, accept, showImage, hidePreview,
-    busy:() => state.busy
+    busy:() => state.busy, reversedOrder
   });
   function message(value) {
     $("message").textContent = value || "";
@@ -59,6 +77,9 @@
     $("source").hidden = !!p;
     $("count").disabled = state.busy || !!p;
     $("auto-mask").disabled = state.busy || !!p;
+    $("journey-version").disabled = state.busy || !!p;
+    $("journey-direction").disabled = state.busy || !!p;
+    directionLabels();
     $("intention").readOnly = !editable;
     $("intention").disabled = state.busy;
     for (const id of ["progression-model", "prompt-model", "mask-model"]) $(id).disabled = state.busy || !editable;
@@ -71,18 +92,40 @@
     $("pause").textContent = p?.status === "pausing" ? "Suspension…" : "Suspendre";
     $("new").disabled = state.busy;
     $("projects").disabled = state.busy;
+    $("order-controls").hidden = !p || frames().length < 2;
+    $("reverse-order").disabled = state.busy;
+    $("reverse-order").setAttribute("aria-pressed", String(reversedOrder()));
+    $("order-label").textContent = reverseJourney() === reversedOrder()
+      ? "Construction → bâtiment terminé" : "Bâtiment terminé → début du chantier";
     paintSelection();
     actions.paint();
   }
-  function frames() {
+  function generationFrames() {
     if (!state.p) return [];
-    return [{key:"source",asset_id:state.p.source_asset_id,title:"Départ",index:0},
+    return [{key:"source",asset_id:state.p.source_asset_id,title:reverseJourney() ? "Bâtiment terminé" : "Départ",index:0},
       ...(state.p.ordered_steps || state.p.steps).filter(step => step.output_asset_id).map((step, index) => ({key:step.id,
         asset_id:step.output_asset_id,title:step.action.title,index:index + 1,step}))];
   }
+  function reversedOrder() { return state.frameOrder === "reverse_generation"; }
+  function frames() {
+    const entries = generationFrames();
+    if (reversedOrder()) entries.reverse();
+    return entries.map((frame, position) => ({...frame, position}));
+  }
+  function frameLabel(frame) {
+    const position = frame.position ?? frame.index;
+    return position ? `${position} · ${frame.title}` : frame.title;
+  }
+  function restoreOrder(project) {
+    state.frameOrder = project.journey_direction === "reverse" ? "reverse_generation" : "generation";
+    try {
+      const saved = sessionStorage.getItem(storageKey + ".order." + project.id);
+      if (["generation", "reverse_generation"].includes(saved)) state.frameOrder = saved;
+    } catch (_) {}
+  }
   function availableFrameIds() {
     if (!state.p) return [];
-    return state.p.transferable_frame_ids || frames().slice(0, state.p.transferable_images || 0).map(frame => frame.key);
+    return state.p.transferable_frame_ids || generationFrames().slice(0, state.p.transferable_images || 0).map(frame => frame.key);
   }
   function selectedFrameIds() {
     const available = new Set(availableFrameIds());
@@ -113,7 +156,7 @@
     const label = document.createElement("label"), input = document.createElement("input");
     label.className = "ij-frame-select";
     input.type = "checkbox"; input.dataset.ijSelect = frame.key;
-    input.setAttribute("aria-label", `Inclure ${frame.index ? "l’image " + frame.index + " · " : ""}${frame.title} dans les transitions`);
+    input.setAttribute("aria-label", `Inclure ${frameLabel(frame)} dans les transitions`);
     input.addEventListener("change", () => {
       if (input.checked) state.excludedFrames.delete(frame.key); else state.excludedFrames.add(frame.key);
       try { sessionStorage.setItem(storageKey + ".excluded." + state.p.id, JSON.stringify([...state.excludedFrames])); } catch (_) {}
@@ -125,7 +168,7 @@
   function showImage(frame) {
     hidePreview();
     const url = frame.url || asset(frame.asset_id);
-    $("detail-title").textContent = frame.detailTitle || (frame.index ? `Image ${frame.index} · ${frame.title}` : "Image de départ");
+    $("detail-title").textContent = frame.detailTitle || (frame.position !== undefined ? frameLabel(frame) : sourceLabel());
     $("detail").classList.remove("ij-native-zoom");
     $("detail-zoom").textContent = "Taille réelle";
     $("detail-zoom").setAttribute("aria-pressed", "false");
@@ -171,7 +214,8 @@
     $("result").hidden = !p;
     if (!p) return;
     const index = p.phase === "reviewing" || p.phase === "completed" ? p.generated : Math.min(p.generated + 1, p.count);
-    $("status").textContent = p.status === "completed" ? `${p.generated} nouvelles images${p.manual_generated ? ` + ${p.manual_generated} ajoutées` : ""} · Terminé`
+    const earlyEnd = p.completion_reason === "reverse_endpoint" && p.generated < p.count;
+    $("status").textContent = p.status === "completed" ? `${p.generated} nouvelle${p.generated === 1 ? "" : "s"} image${p.generated === 1 ? "" : "s"}${earlyEnd ? ` sur ${p.count} demandées` : ""}${p.manual_generated ? ` + ${p.manual_generated} ajoutées` : ""} · ${earlyEnd ? "Terrain dégagé" : "Terminé"}`
       : p.status === "pausing" ? `Étape ${index}/${p.count} · L’opération en cours se termine…`
       : p.status === "paused" ? `Étape ${index}/${p.count} · Suspendu — tu peux modifier l’intention avant de reprendre.`
       : `Étape ${index}/${p.count} · ${phases[p.phase] || p.phase}`;
@@ -191,24 +235,27 @@
     $("warning").textContent = p.warning || "";
     $("warning").hidden = !p.warning;
     const entries = frames();
+    const generation = reversedOrder() ? [...entries].reverse() : entries;
+    const following = new Map(generation.map((frame, index) => [frame.key, generation[index + 1]]));
+    $("frieze").classList.toggle("ij-reversed", reversedOrder());
     const galleryKey = JSON.stringify(entries.map(f => [f.key, f.asset_id, f.title, f.step?.review?.assessment]));
     if (galleryKey !== state.galleryKey) {
       hidePreview();
       state.galleryKey = galleryKey;
-      $("frieze").replaceChildren(...entries.map((frame, index) => {
+      $("frieze").replaceChildren(...entries.map(frame => {
         const button = document.createElement("button"), img = document.createElement("img");
         const title = document.createElement("span"), note = document.createElement("small");
         button.type = "button";
         button.title = "Agrandir l’image · " + frame.title;
         button.dataset.ijThumbnail = "";
-        button.setAttribute("aria-label", frame.index ? `Ouvrir l’image ${frame.index} : ${frame.title}` : "Ouvrir l’image de départ");
+        button.setAttribute("aria-label", "Ouvrir : " + frameLabel(frame));
         img.src = asset(frame.asset_id); img.alt = frame.title; img.loading = "lazy";
-        title.textContent = frame.index ? `${frame.index} · ${frame.title}` : "Départ";
+        title.textContent = frameLabel(frame);
         note.textContent = !frame.step ? "Image d’origine" : frame.step.review?.assessment === "similar" ? "Changement faible"
           : frame.step.review?.assessment === "unusable" ? "Progression bloquée" : frame.step.review ? "Image relue" : "À relire";
         button.append(img, title, note, zoomBadge());
         button.onclick = () => showImage(frame);
-        const card = actions.card(frame, entries[index + 1], button);
+        const card = actions.card(frame, following.get(frame.key), button);
         card.append(frameSelector(frame));
         return card;
       }));
@@ -222,8 +269,11 @@
     if (state.p?.id !== project.id) {
       $("setup").open = false;
       restoreSelection(project.id);
+      restoreOrder(project);
     }
     state.p = project;
+    $("journey-version").value = project.journey_version || "1";
+    $("journey-direction").value = project.journey_direction || "forward";
     if (syncForm || !state.formDirty) {
       $("intention").value = project.intention;
       $("count").value = project.count;
@@ -257,11 +307,15 @@
     hidePreview();
     state.epoch += 1;
     state.p = null; state.formDirty = false; state.galleryKey = ""; state.excludedFrames = new Set();
-    state.createCommand = null; state.resumeCommand = null;
+    state.createCommand = null; state.resumeCommand = null; state.frameOrder = "generation";
     revokePreview();
     $("form").reset();
+    draftDirection = defaultDirection;
+    intentionDrafts = {...defaultIntentions};
+    $("journey-direction").value = draftDirection;
+    $("intention").value = intentionDrafts[draftDirection];
+    $("journey-version").value = state.spec?.default_journey_version || "2";
     $("resolution").textContent = "≈ 3 MP · 18 passes";
-    $("count").value = state.spec?.default_images || 5;
     $("source-preview").hidden = true;
     $("source-open").hidden = true;
     $("source-preview").removeAttribute("src");
@@ -289,6 +343,7 @@
       const results = await Promise.allSettled([api("/spec"), api("/projects"), api("/models")]);
       if (results[0].status === "rejected") throw results[0].reason;
       state.spec = results[0].value;
+      $("journey-version").value = state.spec.default_journey_version || "2";
       $("count").max = state.spec.max_images;
       if (results[1].status === "fulfilled") state.projects = results[1].value.projects;
       else message(results[1].reason.message);
@@ -313,7 +368,7 @@
     return badge;
   }
   $("source-open").append(zoomBadge());
-  $("source-open").onclick = () => showImage({index:0, title:"Image de départ",
+  $("source-open").onclick = () => showImage({index:0, title:sourceLabel(),
     url:$("source-preview").src, filename:state.p ? null : $("source").files[0]?.name});
   const preview = $("image-preview"), previewImage = $("preview-content");
   document.body.append(preview);
@@ -378,6 +433,15 @@
   window.addEventListener("resize", hidePreview);
   window.addEventListener("blur", hidePreview);
   $("setup").addEventListener("toggle", hidePreview);
+  $("journey-version").addEventListener("change", () => { state.createCommand = null; });
+  $("journey-direction").addEventListener("change", () => {
+    if (state.p) return;
+    intentionDrafts[draftDirection] = $("intention").value;
+    draftDirection = $("journey-direction").value;
+    $("intention").value = intentionDrafts[draftDirection];
+    state.createCommand = null;
+    directionLabels();
+  });
   $("form").addEventListener("input", () => {
     state.formDirty = true; state.createCommand = null; state.resumeCommand = null;
   });
@@ -401,7 +465,7 @@
         state.resumeCommand = null; accept(response.project, true);
       } else {
         const file = $("source").files[0];
-        if (!file) throw new Error("Choisis l’image de départ.");
+        if (!file) throw new Error(reverseJourney() ? "Choisis l’image du bâtiment terminé." : "Choisis l’image de départ.");
         if (file.size > 25 * 1024 ** 2) throw new Error("Une image est limitée à 25 Mio.");
         state.createCommand ||= commandId();
         const body = new FormData();
@@ -411,6 +475,8 @@
         body.append("prompt_model_id", $("prompt-model").value);
         body.append("mask_model_id", $("mask-model").value);
         body.append("auto_mask", String($("auto-mask").checked));
+        body.append("journey_version", $("journey-version").value);
+        body.append("journey_direction", $("journey-direction").value);
         const response = await core.request(apiRoot + "/projects", {method:"POST",body});
         accept(response.project, true); state.createCommand = null;
       }
@@ -423,10 +489,16 @@
     const identity = $("projects").value;
     if (identity) run(() => open(identity)); else newJourney();
   };
+  $("reverse-order").onclick = () => {
+    if (!state.p || state.busy) return;
+    state.frameOrder = reversedOrder() ? "generation" : "reverse_generation";
+    try { sessionStorage.setItem(storageKey + ".order." + state.p.id, state.frameOrder); } catch (_) {}
+    paint();
+  };
   $("transitions").onclick = () => run(async () => {
     const frameIds = selectedFrameIds();
     if (frameIds.length < 2) throw new Error("Sélectionne au moins deux images.");
-    const response = await api(endpoint("/transitions"), "POST", {frame_ids:frameIds});
+    const response = await api(endpoint("/transitions"), "POST", {frame_ids:frameIds, frame_order:state.frameOrder});
     if (window.PanelForgeImageTransitions?.open) await window.PanelForgeImageTransitions.open(response.project_id);
     else message("La frise est enregistrée dans l’atelier Transitions.");
   });

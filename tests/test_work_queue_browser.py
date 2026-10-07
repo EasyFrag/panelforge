@@ -64,6 +64,11 @@ class WorkQueueBrowserTest(unittest.TestCase):
           check(floating.textContent.includes('Working')&&floating.textContent.includes('50 %'),'working state and progress are visible');
           check(floating.textContent.includes('42,7 tok/s')&&floating.textContent.includes('Th : 22,0k')&&floating.textContent.includes('Wr : 0,1k'),'live LLM metrics are visible');
           check(floating.querySelectorAll('.work-queue-temperature-chart').length===2&&floating.textContent.includes('pic 81 °C'),'both one-hour temperature charts are visible');
+          const compactCharts=[...floating.querySelectorAll('.work-queue-temperature-chart')];
+          const compactAxisLabels=[...compactCharts[0].querySelectorAll('svg text')].map(node=>node.textContent);
+          check(['30','50','70','90'].every(value=>compactAxisLabels.includes(value))&&!compactAxisLabels.includes('0')&&!compactAxisLabels.includes('100'),'compact charts use the 30 to 90 degree scale');
+          const compactLanes=[...floating.querySelectorAll('.work-queue-compact-lane')];
+          check(compactLanes.every((lane,index)=>Math.abs(lane.getBoundingClientRect().top-compactCharts[index].getBoundingClientRect().top)<1),'local and server compact rows are aligned');
           check(floating.textContent.includes('1 en attente')&&floating.querySelectorAll('[data-compact] progress').length===2,'both queue meters are visible');
           floating.querySelector('[data-minimize]').click();
           check(floating.classList.contains('minimized'),'monitor can be minimized');
@@ -78,6 +83,9 @@ class WorkQueueBrowserTest(unittest.TestCase):
           check(dialog.querySelectorAll('.work-queue-long-temperature-chart').length===2,'two separate 24 hour charts are visible');
           const local24=dialog.querySelector('.work-queue-long-temperature-chart');
           check(local24.dataset.windowHours==='24'&&local24.dataset.bucketSeconds==='30'&&local24.dataset.sampleCount==='1','24 hour chart uses 30 second maxima');
+          const detailAxisLabels=[...local24.querySelectorAll('svg text')].map(node=>node.textContent);
+          check(['50','60','70','80','90'].every(value=>detailAxisLabels.includes(value))&&!detailAxisLabels.includes('0')&&!detailAxisLabels.includes('100'),'detail charts use the 50 to 90 degree scale');
+          check(local24.querySelector('svg').getAttribute('aria-label').includes('de 50 à 90 degrés'),'detail chart exposes its visible scale');
           check(dialog.querySelectorAll('.work-queue-event-bars button').length===3,'local and remote activity bars are visible');
           check(dialog.querySelector('.work-queue-event-bar.status-interrupted'),'interrupted activity is rendered separately');
           check(dialog.querySelector('.work-queue-temperature-peak'),'the main peak is marked');

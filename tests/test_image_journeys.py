@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from panelforge.application.image_journeys import ImageJourneyService, JourneyConflict
 from panelforge.application.image_journey_rendering import MinimaxJourneyRenderer
 from panelforge.application import image_journey_prompting as prompting
+from panelforge.application import image_journey_v2_prompting as prompting_v2
 from panelforge.application.image_transitions import ImageTransitionService
 from panelforge.application.prompt_lab import CompletionResult, CompletionStreamEvent, StreamEventKind, StreamPhase
 from panelforge.domain import image_journeys as policy
@@ -45,7 +46,7 @@ class JourneyGateway(Gateway):
             yield CompletionStreamEvent(StreamEventKind.COMPLETED, StreamPhase.COMPLETED,
                 result=CompletionResult(request.model_id, raw, call_id='mask-call'))
             return
-        if request.operation_id != prompting.OPERATION:
+        if request.operation_id not in {prompting.OPERATION, prompting_v2.OPERATION}:
             yield from super().stream(request)
             return
         self.requests.append(request)
@@ -67,6 +68,8 @@ class JourneyGateway(Gateway):
                 dict(title="Prochaine transformation", change="Installer une isolation nettement visible.",
                      preserve="Le cadrage, la porte et les travaux déjà réalisés.",
                      through_milestone=min(len(milestones), done + 1)))
+        if request.operation_id == prompting_v2.OPERATION and value['next_action']:
+            value['next_action']['change'] += ' Déplacer la personne vers la droite du chantier.'
         raw = "invalid {" if self.bad_progression else json.dumps(value, ensure_ascii=False)
         yield CompletionStreamEvent(StreamEventKind.DELTA, StreamPhase.GENERATING, raw)
         if self.progression_hook:
@@ -95,13 +98,15 @@ class ImageJourneyFixture(MinimaxFixture):
             mask_compositor=PillowJourneyMasks())
 
     def create_journey(self, count=2, intention="Aménager la cave", command="create", legacy=False,
-                       auto_mask=False, content=None, mask_model_id=None):
+                       auto_mask=False, content=None, mask_model_id=None, journey_version="1", journey_direction=None):
         project = self.journeys.create(command=command, content=content if content is not None else png(),
-            auto_mask=auto_mask, intention=intention, count=count, mask_model_id=mask_model_id,
+            auto_mask=auto_mask, intention=intention, count=count, mask_model_id=mask_model_id, journey_version=journey_version, journey_direction=journey_direction,
             progression_model_id="progression-vision", prompt_model_id="minimax-prompter")
         self.journey_id = project["id"]
         if legacy:
             # Reconstruct an old persisted journal; production code never migrates old journeys.
+            project.pop('journey_version')
+            project.pop('journey_direction')
             project.pop('auto_mask')
             project.pop('render_profile')
             source = project.pop('original_source_asset_id')
@@ -140,7 +145,7 @@ class ImageJourneyFixture(MinimaxFixture):
         self.fail("The fake journey did not reach " + phase)
 
     def progression_calls(self):
-        return [r for r in self.gateway.requests if r.operation_id == prompting.OPERATION]
+        return [r for r in self.gateway.requests if r.operation_id in {prompting.OPERATION, prompting_v2.OPERATION}]
 
     def prompt_calls(self):
         return [r for r in self.gateway.requests if r.operation_id == "minimax.edit.assistance@1.0.0"]

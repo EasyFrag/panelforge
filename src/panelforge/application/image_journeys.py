@@ -6,7 +6,7 @@ from threading import Event, RLock, Thread
 import time
 
 from panelforge.domain import image_journeys as policy
-from . import image_journey_prompting as prompting
+from . import image_journey_policies as policies
 from .prompt_lab import CompletionRequest, ImageInput, StreamEventKind, LlmCallApplicationOutcome
 
 logger = logging.getLogger(__name__)
@@ -133,13 +133,19 @@ class ImageJourneyService:
         for step in [*result['steps'], *result['ordered_steps'], *result.get('manual_steps', []), *result.get('image_operations', [])]:
             if 'protection' in step:
                 step['protection'].pop('raw', None)
-        result.update(generated=policy.generated(project), transitions_available=self.transitions is not None,
+        result.update(journey_version=policy.journey_version(project),
+                      journey_direction=policy.journey_direction(project),
+                      generated=policy.generated(project), transitions_available=self.transitions is not None,
                       transferable_images=len(policy.sequence(project)["frames"]),
                       transferable_frame_ids=policy.transferable_frame_ids(project))
         return result
 
     def create(self, *, command, content, intention, count, progression_model_id, prompt_model_id,
-               auto_mask=False, mask_model_id=None):
+               auto_mask=False, mask_model_id=None, journey_version=None, journey_direction=None):
+        if journey_direction is not None:
+            policy.journey_direction(dict(journey_direction=journey_direction))
+        if journey_version is not None:
+            policy.journey_version(dict(journey_version=journey_version))
         config = policy.configuration(intention, count, progression_model_id, prompt_model_id, mask_model_id)
         if type(auto_mask) is not bool:
             raise ValueError('Le réglage du masque automatique doit être un booléen.')
@@ -147,19 +153,28 @@ class ImageJourneyService:
         identity = policy.project_id(command)
         if not isinstance(content, bytes) or not content or len(content) > 25 * 1024**2:
             raise ValueError("Choisis une image de moins de 25 Mio.")
-        key = policy.fingerprint(dict(config=config, source=hashlib.sha256(content).hexdigest()))
         with self._lock:
             try:
                 previous = self.store.get(identity)
             except FileNotFoundError:
                 previous = None
+            selected_version = journey_version or (policy.journey_version(previous) if previous
+                                                   else policy.DEFAULT_JOURNEY_VERSION)
+            # An old client retrying a legacy creation must keep its original fingerprint.
+            if not previous or "journey_version" in previous or selected_version != "1":
+                config["journey_version"] = selected_version
+            selected_direction = journey_direction or (policy.journey_direction(previous) if previous
+                                                       else policy.DEFAULT_JOURNEY_DIRECTION)
+            if not previous or "journey_direction" in previous or selected_direction != "forward":
+                config["journey_direction"] = selected_direction
+            key = policy.fingerprint(dict(config=config, source=hashlib.sha256(content).hexdigest()))
             if previous:
                 if previous["creation_key"] != key:
                     raise JourneyConflict("Cette commande correspond déjà à un autre parcours.")
                 return previous
             normalized = self.images.normalize_source(content)
             original_dimensions = self.images.dimensions(normalized)
-            prepared, profile = self.renderer.prepare_source(normalized)
+            prepared, profile = self.renderer.prepare_source(normalized, journey_direction=selected_direction)
             original = self.assets.create(normalized, media_type="image/png", source_run_id=identity)
             source = original if prepared == normalized else self.assets.create(prepared, media_type="image/png", source_run_id=identity)
             project = policy.new_project(command, config, source.asset_id, profile['dimensions'], key)
@@ -193,7 +208,10 @@ class ImageJourneyService:
             if pending(project, sequence_only=True):
                 raise JourneyConflict('Termine ou abandonne l’ajout en cours avant de reprendre le parcours.')
             config = policy.configuration(intention, project["count"], progression_model_id, prompt_model_id, mask_model_id)
-            changed = project["intention"] != config["intention"]
+            # A textarea submits LF even when its saved default originally contained CRLF.
+            # Equivalent line endings must not discard an action or unlock its plan on Resume.
+            changed = (project["intention"].replace("\r\n", "\n").replace("\r", "\n")
+                       != config["intention"].replace("\r\n", "\n").replace("\r", "\n"))
             prompt_changed = project["prompt_model_id"] != config["prompt_model_id"]
             step = project["steps"][-1] if project["steps"] else None
             if step and not step.get("output_asset_id"):
@@ -224,12 +242,12 @@ class ImageJourneyService:
     def sequence(self, identity):
         return policy.sequence(self.get(identity))
 
-    def prepare_transitions(self, identity, *, frame_ids=None):
+    def prepare_transitions(self, identity, *, frame_ids=None, frame_order="generation"):
         if self.transitions is None:
             raise ValueError("L’atelier de transitions n’est pas encore disponible.")
         with self._lock:
             project = self._load(identity)
-            sequence = policy.sequence(project, frame_ids)
+            sequence = policy.sequence(project, frame_ids, frame_order=frame_order)
             if len(sequence["frames"]) < 2:
                 raise ValueError("Une première image relue est nécessaire pour préparer les transitions.")
             key = policy.fingerprint(sequence)
@@ -322,11 +340,15 @@ class ImageJourneyService:
                     current = self._load(identity)
                     if current["pause_requested"] or self._stop.is_set():
                         self._settle_pause(current)
+                    elif policy.reverse_endpoint_reached(current, dict(assessment="initial",
+                            milestones=current["milestones"], completed_milestones=current["completed_milestones"])):
+                        self._complete_reverse(current)
                     else:
                         current["steps"].append(dict(id=policy.identity("journey-step"), journey_id=identity, index=policy.generated(current) + 1,
                             source_asset_id=current["current_asset_id"], destination=current["destination"],
                             render_profile=deepcopy(current.get("render_profile")),
                             auto_mask=current.get("auto_mask", False),
+                            journey_version=policy.journey_version(current), **policy.direction_snapshot(current),
                             action=deepcopy(current["next_action"]), output_asset_id=None, review=None,
                             prompt_model_id=current["prompt_model_id"], prompt="",
                             progression_model_id=current["analyses"][-1]["model_id"],
@@ -414,6 +436,9 @@ class ImageJourneyService:
             items = [(project["current_asset_id"], "CURRENT — état actuel du décor")]
             if project["source_asset_id"] != project["current_asset_id"]:
                 items.append((project["source_asset_id"], "ORIGINAL — cadrage et identité du lieu"))
+        if policy.journey_direction(project) == "reverse":
+            items = [(asset_id, label + (" — FINISHED_REFERENCE, bâtiment terminé fourni"
+                      if asset_id == project["source_asset_id"] else "")) for asset_id, label in items]
         images = []
         for asset_id, label in items:
             content = self.assets.read_bytes(asset_id)
@@ -424,11 +449,14 @@ class ImageJourneyService:
         return items, tuple(images)
 
     def _analyze(self, snapshot):
+        prompting = policies.progression(snapshot)
         identity = snapshot["id"]
         context = prompting.user_prompt(snapshot)
         call = dict(id=policy.identity("analysis"), status="running", created_at=policy.timestamp(),
                     model_id=snapshot["progression_model_id"], phase=snapshot["phase"],
-                    policy_version=prompting.VERSION, context=context, input_assets=[], raw="", call_id=None)
+                    policy_version=prompting.VERSION, journey_version=policy.journey_version(snapshot),
+                    journey_direction=policy.journey_direction(snapshot),
+                    context=context, input_assets=[], raw="", call_id=None)
         with self._lock:
             current = self._load(identity)
             current["analyses"].append(call)
@@ -474,6 +502,8 @@ class ImageJourneyService:
                                       if decision["assessment"] == "similar" else None)
                 if decision["assessment"] == "unusable":
                     current.update(status="paused", pause_requested=True, error=decision["observation"])
+                elif policy.reverse_endpoint_reached(snapshot, decision):
+                    self._complete_reverse(current)
                 elif policy.generated(current) == current["count"]:
                     current.update(status="completed", phase="completed", pause_requested=False)
                     current["warning"] = ("Le parcours est terminé ; certains jalons restent inachevés."
@@ -489,6 +519,8 @@ class ImageJourneyService:
                     self._settle_pause(current)
                 analysis = next(c for c in current["analyses"] if c["id"] == call["id"])
                 analysis.update(status="succeeded", raw=raw[:100000], call_id=call_id, finished_at=policy.timestamp())
+                if decision.get("next_action_error"):
+                    analysis["next_action_error"] = decision["next_action_error"]
                 self._save(current)
             self._report(call_id, True)
         except Exception as error:
@@ -496,6 +528,14 @@ class ImageJourneyService:
                               error=str(error), finished_at=policy.timestamp())
             self._report(call_id, False, error)
             raise
+
+    @staticmethod
+    def _complete_reverse(project):
+        project.update(status="completed", phase="completed", pause_requested=False,
+                       next_action=None, completion_reason="reverse_endpoint", error=None)
+        if policy.generated(project) < project["count"]:
+            project["warning"] = (f"Terrain dégagé atteint après {policy.generated(project)} images sur {project['count']} demandées. "
+                                  "Tu peux ajouter une étape intermédiaire avec +.")
 
     def _call_update(self, identity, analysis_id, **changes):
         with self._lock:

@@ -9,7 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 
 from .story_v2_settings import ImageOptions, VideoOptions, CHECKPOINT
 
-VERSION = "1.4.0"
+VERSION = "1.6.1"
+LEGACY_WRITING_VERSION = "2.0"
+DEFAULT_WRITING_VERSION = "2.1"
 DEFAULT_MODEL = "local::unsloth/Qwen3.8-27B-GGUF"
 DEFAULT_PROMPT_MODEL = "local::unsloth/gemma-4-31B-it-qat-GGUF"
 ACTIVE = {"queued", "writing", "reviewing", "repairing", "polishing", "references", "producing"}
@@ -24,6 +26,8 @@ class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 class Settings(Contract):
+    writing_version: Literal["2.0", "2.1"] = DEFAULT_WRITING_VERSION
+    tone_profile: Literal["from_idea", "provocative_sketch"] = "from_idea"
     idea: str = Field(min_length=3, max_length=12000)
     universe: str = Field(min_length=2, max_length=1500)
     style: str = Field(min_length=2, max_length=1500)
@@ -75,9 +79,23 @@ class Dialogue(Contract):
                 data.pop(key, None)
         return data
 
+class VisualState(Contract):
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,49}$")
+    character_id: str = Field(min_length=1, max_length=50)
+    kind: Literal["clothing", "hair", "physical"]
+    description: str = Field(min_length=2, max_length=240)
+
 class Appearance(Contract):
     character_id: str = Field(min_length=1, max_length=50)
     state: str = Field(min_length=2, max_length=240)
+    state_id: str = Field(default="", max_length=50)
+
+    @model_serializer(mode="wrap")
+    def compact_state(self, handler):
+        data = handler(self)
+        if not self.state_id:
+            data.pop("state_id", None)
+        return data
 
 class Sequence(Contract):
     id: str = Field(pattern=r"^seq-[0-9]+$")
@@ -106,7 +124,15 @@ class Script(Contract):
     characters: list[Character] = Field(min_length=1, max_length=10)
     locations: list[Entity] = Field(min_length=1, max_length=6)
     objects: list[Entity] = Field(default_factory=list, max_length=10)
+    visual_states: list[VisualState] = Field(default_factory=list, max_length=24)
     sequences: list[Sequence] = Field(min_length=1, max_length=18)
+
+    @model_serializer(mode="wrap")
+    def compact_visual_states(self, handler):
+        data = handler(self)
+        if not self.visual_states:
+            data.pop("visual_states", None)
+        return data
 
     @field_validator("summary")
     @classmethod
@@ -144,9 +170,11 @@ class Script(Contract):
                     raise ValueError(f"{s.id} : destinataire inconnu, répété ou identique au locuteur.")
                 if line.address_cue and not line.addressee_ids:
                     raise ValueError(f"{s.id} : une indication de regard nécessite un destinataire identifié.")
-            words = sum(len(re.findall(r"\S+", d.text)) for d in s.dialogue)
+            # French typography separates !, ? and : with spaces; these are not spoken words.
+            words = sum(any(c.isalnum() for c in token) for d in s.dialogue for token in d.text.split())
             if words > s.duration * 3.5:
-                raise ValueError(f"{s.id} : trop de paroles pour laisser jouer la scène en {s.duration} s.")
+                raise ValueError(f"{s.id} : trop de paroles pour laisser jouer la scène en {s.duration} s "
+                                 f"({words} mots, limite {int(s.duration * 3.5)}).")
         return self
 
 class Review(Contract):
@@ -178,18 +206,38 @@ def scene_durations(settings):
 
 
 def writing_schema(settings):
-    schema = Script.model_json_schema()
+    if settings.get("writing_version", LEGACY_WRITING_VERSION) == DEFAULT_WRITING_VERSION:
+        from .story_v21 import WritingScript
+        schema = WritingScript.model_json_schema()
+        schema["required"].append("visual_states")
+    else:
+        schema = Script.model_json_schema()
+        schema["properties"].pop("visual_states")
+        schema["$defs"].pop("VisualState")
+        schema["$defs"]["Appearance"]["properties"].pop("state_id")
     # Require the author to decide explicitly; old stored scripts remain optional.
     schema["$defs"]["Dialogue"]["required"].extend(["addressee_ids", "address_cue"])
     timing = scene_durations(settings)
     if timing is not None:
         schema["properties"]["sequences"].update(minItems=len(timing), maxItems=len(timing))
-        schema["$defs"]["Sequence"]["properties"]["duration"]["enum"] = sorted(set(timing))
+        sequence_type = schema["properties"]["sequences"]["items"]["$ref"].rsplit("/", 1)[-1]
+        schema["$defs"][sequence_type]["properties"]["duration"]["enum"] = sorted(set(timing))
     return schema
 
 
-def validate_script(value, settings):
+def parse_script(value, settings):
+    dense = settings.get("writing_version", LEGACY_WRITING_VERSION) == DEFAULT_WRITING_VERSION
+    if dense:
+        from .story_v21 import normalize_script
+        value = normalize_script(value)
     script = Script.model_validate(value)
+    if not dense and (script.visual_states or any(a.state_id for s in script.sequences for a in s.appearances)):
+        raise ValueError("Le catalogue d'états visuels appartient à la version V2.1.")
+    return script
+
+
+def validate_script(value, settings):
+    script = parse_script(value, settings)
     durations = [s.duration for s in script.sequences]
     expected = scene_durations(settings)
     if expected is not None and durations != expected:
@@ -217,7 +265,10 @@ class Polish(Contract):
 
 
 def validate_polish(value, original, settings):
-    """Only actions and existing spoken text are writable; cast, speakers and timing stay fixed."""
+    """Dispatch the selected retouching contract; legacy turns remain immutable."""
+    if settings.get("writing_version", LEGACY_WRITING_VERSION) == DEFAULT_WRITING_VERSION:
+        from .story_v21 import polish
+        return polish(value, original, settings)
     patch = Polish.model_validate(value)
     if [s.id for s in patch.sequences] != [s["id"] for s in original["sequences"]]:
         raise ValueError("La retouche doit conserver toutes les scènes, dans leur ordre.")
@@ -229,6 +280,15 @@ def validate_polish(value, original, settings):
         for text, line in zip(revised.dialogue, scene["dialogue"], strict=True):
             line["text"] = text
     return validate_script(result, settings)
+
+
+def polish_schema(settings):
+    if settings.get("writing_version", LEGACY_WRITING_VERSION) == DEFAULT_WRITING_VERSION:
+        from .story_v21 import Polish as DensePolish
+        schema = DensePolish.model_json_schema()
+        schema["$defs"]["Dialogue"]["required"].extend(["addressee_ids", "address_cue"])
+        return schema
+    return Polish.model_json_schema()
 
 
 def audience_view(script):

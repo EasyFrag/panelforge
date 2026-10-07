@@ -2,10 +2,11 @@
   "use strict";
   const root = document.getElementById("story-v2-workspace"); if (!root) return;
   const $ = id => document.getElementById(`sv2-${id}`);
-  const state = {project:null, script:null, dirty:false, busy:false, tab:"scenario", selection:new Set(), edit:null, ref:null, epoch:0, loaded:false};
+  const state = {project:null, script:null, dirty:false, busy:false, tab:"scenario", selection:new Set(), edit:null, ref:null, epoch:0, loaded:false, toneSupported:false};
   const active = new Set(["queued","writing","reviewing","repairing","polishing","references","producing"]);
   const statusNames = {draft:"Brouillon",queued:"Écriture en attente",writing:"Écriture",reviewing:"Relecture",repairing:"Correction ciblée",polishing:"Retouche des dialogues",awaiting_review:"À relire",references_ready:"Références à préparer",references:"Préparation des références",producing:"Production vidéo",prepared:"Dans le bac Préparation",complete:"Terminé",paused:"En pause",failed:"À reprendre",preparation:"Prêt à lancer",succeeded:"Terminé",cancelled:"Annulé",active:"En cours"};
-  const fields = ["idea","universe","style","duration","scene-duration","mode","language","writer-model","reader-model","final-review-enabled","polish-enabled","polish-model"];
+  const fields = ["writing-version","tone-profile","idea","universe","style","duration","scene-duration","mode","language","writer-model","reader-model","final-review-enabled","polish-enabled","polish-model"];
+  const profileFields = ["universe","style"];
   const uid = () => globalThis.crypto?.randomUUID?.() || `sv2-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const node = (tag,text,cls) => {const e=document.createElement(tag); if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
   const button = (text,fn) => {const b=node("button",text);b.type="button";b.addEventListener("click",fn);return b;};
@@ -20,7 +21,18 @@
   function rememberSettings(){
     try {const value=settings();delete value.idea;state.lastSettings=structuredClone(value);localStorage.setItem(preferencesKey,JSON.stringify(value));}catch(_){}
   }
-  function changedSettings(){rememberSettings();if(state.project)dirty();else modeHelp();}
+  function profileValue(id){return $(id).value==="__custom__"?$(id+"-custom").value:$(id).value;}
+  function paintProfile(id,value){
+    const select=$(id),custom=$(id+"-custom");
+    if(value!==undefined){
+      const preset=[...select.options].some(o=>o.value!=="__custom__"&&o.value===value);
+      select.value=preset?value:"__custom__";custom.value=preset?"":value;
+    }
+    const personalized=select.value==="__custom__";
+    $(id+"-custom-field").hidden=!personalized;custom.required=personalized;
+    custom.disabled=!personalized||state.busy||running();
+  }
+  function changedSettings(){profileFields.forEach(id=>paintProfile(id));rememberSettings();if(state.project)dirty();else modeHelp();}
   function controls(){
     const locked=state.busy||running();
     $("form").querySelectorAll("input,textarea,select").forEach(e=>e.disabled=locked);
@@ -43,13 +55,22 @@
     root.querySelectorAll("[data-sv2-editable]").forEach(b=>b.disabled=locked||b.dataset.sv2Retained==="1");
     root.querySelectorAll("[data-sv2-select-image]").forEach(b=>b.disabled=state.busy||b.dataset.sv2Retained==="1");
     root.querySelectorAll("[data-sv2-thumbnail-retry]").forEach(b=>b.disabled=locked||state.dirty||state.project?.episode?.references.some(r=>!r.story_v2_state&&!r.image_asset_id));
+    $("writing-version").disabled=locked||!!state.project;
+    $("writing-version").title=state.project?"Version conservée pour cette histoire. Nouvelle histoire pour comparer.":"";
+    $("tone-profile").disabled=locked||!state.toneSupported;
+    $("tone-profile").title=state.toneSupported?"Sketch provocateur : hook fort, langage cru, répartie et fin marquante.":"Disponible après le prochain démarrage du backend.";
+    profileFields.forEach(id=>paintProfile(id));
     setup.setDisabled(locked);
     modeHelp();drawProgress();
   }
   function modeHelp(){$("polish-model").disabled=state.busy||running()||!$("polish-enabled").checked;$("duration").max=String(Math.min(180,(sceneDuration()||15)*18));$("polish-model-field").hidden=!$("polish-enabled").checked;const automatic=$("mode").value==="automatic";$("mode-help").textContent=automatic?"Automatique : scénario, références et miniature, puis envoi au bac Préparation. Les prompts et les vidéos se lancent dans l’usine.":"Manuel : relis le scénario, choisis les références, puis envoie les scènes au bac Préparation.";$("create").textContent=automatic?"Préparer l’histoire":"Écrire le scénario";}
   function sceneDuration(){return $("scene-duration").value===""?null:Number($("scene-duration").value);}
   function needsTimingRewrite(){return !!state.script&&(!!state.project?.timing_pending||Number($("duration").value)!==state.project.settings.duration||sceneDuration()!==(state.project.settings.scene_duration??null));}
-  function settings(){return {...Object.fromEntries(fields.map(k=>[k.replaceAll("-","_"),$(k).type==="checkbox"?$(k).checked:k==="duration"?Number($(k).value):k==="scene-duration"?sceneDuration():$(k).value])),...setup.read()};}
+  function settings(){
+    const value={...Object.fromEntries(fields.map(k=>[k.replaceAll("-","_"),$(k).type==="checkbox"?$(k).checked:k==="duration"?Number($(k).value):k==="scene-duration"?sceneDuration():profileFields.includes(k)?profileValue(k):$(k).value])),...setup.read()};
+    if(!state.toneSupported)delete value.tone_profile;
+    return value;
+  }
   function drawProgress(){
     const p=state.project?.progress,box=$("progress");box.hidden=!p;
     if(!p)return;
@@ -64,7 +85,7 @@
     box.title=`${p.model} — Temps écoulé de cet appel, attente comprise.`;
   }
   function option(select,value,label){if(![...select.options].some(o=>o.value===value))select.add(new Option(label||value,value));}
-  function fillSettings(value){for(const k of fields){const e=$(k),v=value[k.replaceAll("-","_")];if(v==null){if(k==="scene-duration")e.value="";continue;}if(e.tagName==="SELECT")option(e,String(v));if(e.type==="checkbox")e.checked=v;else e.value=v;}setup.fill(value);modeHelp();}
+  function fillSettings(value){value={writing_version:"2.0",tone_profile:"from_idea",...value};for(const k of fields){const e=$(k),v=value[k.replaceAll("-","_")];if(profileFields.includes(k)){paintProfile(k,String(v??""));continue;}if(v==null){if(k==="scene-duration")e.value="";continue;}if(e.tagName==="SELECT")option(e,String(v));if(e.type==="checkbox")e.checked=v;else e.value=v;}setup.fill(value);modeHelp();}
   function selectTab(tab){state.tab=tab;for(const name of ["scenario","references","videos"])$(name).hidden=name!==tab;root.querySelectorAll("[data-sv2-tab]").forEach(b=>b.classList.toggle("active",b.dataset.sv2Tab===tab));}
   async function action(fn){if(state.busy)return;state.busy=true;controls();try{await fn();}catch(e){message(e.message,true);}finally{state.busy=false;controls();}}
   function apply(project){const changed=state.project?.episode_id!==project.episode_id;state.project=project;state.script=project.script?structuredClone(project.script):null;state.dirty=false;if(changed)state.selection=new Set((project.episode?.references||[]).filter(r=>!r.image_asset_id).map(r=>r.id));fillSettings(project.settings);try{localStorage.setItem("panelforge.story-v2.current",project.id);}catch(_){}draw();}
@@ -146,6 +167,7 @@
     if(state.loaded)return;state.loaded=true;
     const results=await Promise.allSettled([request("/api/stories-v2/preferences"),request("/api/stories/models")]);
     if(results[0].status==="rejected"){state.loaded=false;throw results[0].reason;}
+    state.toneSupported=Object.prototype.hasOwnProperty.call(results[0].value.settings,"tone_profile");
     let defaults={scene_duration:10,final_review_enabled:false,polish_enabled:false,polish_model:"local::unsloth/gemma-4-31B-it-qat-GGUF",...results[0].value.settings};
     try{
       let local=JSON.parse(localStorage.getItem(preferencesKey)||"null");
@@ -156,6 +178,7 @@
       if(local)defaults={...defaults,...local,images:{...defaults.images,...local.images},video:{...defaults.video,...local.video}};
     }catch(_){}
     defaults.scene_duration??=10;
+    defaults.writing_version="2.1";
     state.lastSettings=structuredClone(defaults);
     const models=results[1].status==="fulfilled"?results[1].value.models:[];
     for(const id of ["writer-model","reader-model","polish-model"]){$(id).replaceChildren(...models.map(m=>new Option(m.label,m.id)));}
@@ -171,7 +194,7 @@
   $("approve").addEventListener("click",()=>action(async()=>{await save();await command("/approve");selectTab("references");}));
   $("feedback-form").addEventListener("submit",e=>{e.preventDefault();action(async()=>{await save();await command("/revise",{feedback:$("feedback").value.trim()||(state.project.timing_pending?"Adapte le découpage à la durée par scène choisie, en conservant les informations, les événements et la durée totale.":""),sequence_id:state.project.timing_pending?null:$("target").value||null});$("feedback").value="";});});
   $("projects").addEventListener("change",()=>{const id=$("projects").value;if(id&&guard())action(()=>load(id));else $("projects").value=state.project?.id||"";});
-  $("new").addEventListener("click",()=>{if(!guard())return;++state.epoch;try{sessionStorage.removeItem("panelforge.story-v2.pending-create");}catch(_){}state.project=null;state.script=null;state.dirty=false;state.selection.clear();if(state.lastSettings)fillSettings({...state.lastSettings,scene_duration:state.lastSettings.scene_duration??10,idea:""});$("idea").value="";$("projects").value="";$("brief").open=true;$("idea-settings").open=true;selectTab("scenario");draw();});
+  $("new").addEventListener("click",()=>{if(!guard())return;++state.epoch;try{sessionStorage.removeItem("panelforge.story-v2.pending-create");}catch(_){}state.project=null;state.script=null;state.dirty=false;state.selection.clear();if(state.lastSettings)fillSettings({...state.lastSettings,writing_version:"2.1",scene_duration:state.lastSettings.scene_duration??10,idea:""});$("idea").value="";$("projects").value="";$("brief").open=true;$("idea-settings").open=true;selectTab("scenario");draw();});
   $("refresh").addEventListener("click",()=>action(async()=>{await refresh();await catalog();}));
   $("pause").addEventListener("click",()=>action(async()=>{const d=await request(api("/pause"),json({}));apply(d.project);}));
   $("resume").addEventListener("click",()=>action(()=>command("/resume")));

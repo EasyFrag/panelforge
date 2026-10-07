@@ -9,11 +9,14 @@ L’onglet **Transitions**, à côté de l’usine, prépare les vidéos interm�
 3. Réordonner les vignettes par déplacement ou par les flèches. Le bouton de remplacement accepte un fichier ou une version d’atelier. Retirer une vignette ne supprime aucun asset ni projet source.
 4. Sélectionner les transitions à préparer. Une action courte peut être saisie dans la liste ; le panneau de droite contient l’indication personnelle et les réglages particuliers.
 5. Facultatif : ouvrir **Ouvriers et échelle**, choisir/importer un ouvrier, choisir l’organisation du chantier et régler son échelle depuis une paire.
-6. Choisir **Slow** ou **Fast** dans le sélecteur **Rythme**, puis cliquer sur **Proposer les transitions**. Le LLM voit les deux images de chaque paire, l’ouvrier et le montage d’échelle s’ils sont renseignés, les réglages communs et les indications disponibles. Les propositions sont françaises et restent à relire.
-7. Corriger si nécessaire, puis **Valider la sélection** ou **Valider cette transition**.
-8. **Envoyer à l’usine** ajoute les versions relues à sa préparation. **Voir dans l’usine** ouvre les unités reçues ; leur lancement utilise le parcours habituel Plan → Prompt → Vidéo, avec DLSS facultatif.
+6. Choisir **Slow** ou **Fast** dans le sélecteur **Rythme**, puis cliquer sur **Proposer les transitions**. Le LLM voit les deux images de chaque paire, l’ouvrier et le montage d’échelle s’ils sont renseignés, les réglages communs et les indications disponibles. Les propositions sont françaises ; la relecture et les corrections sont facultatives.
+7. **Envoyer à l’usine** ajoute directement les versions sélectionnées à sa préparation, après correction facultative et sans étape de validation ni confirmation supplémentaire. **Voir dans l’usine** ouvre les unités reçues ; leur lancement utilise le parcours habituel Plan → Prompt → Vidéo, avec DLSS facultatif.
 
-Les champs non enregistrés sont signalés. **Enregistrer** les conserve ; les actions de préparation, validation, import, navigation entre paires et envoi enregistrent également les champs avant de poursuivre. Actualiser permet de recharger une modification venant d’une autre fenêtre, en demandant confirmation avant d’abandonner des champs non enregistrés.
+Les champs non enregistrés sont signalés. **Enregistrer** les conserve ; les actions de préparation, import, navigation entre paires et envoi enregistrent également les champs avant de poursuivre. Actualiser permet de recharger une modification venant d’une autre fenêtre, en demandant confirmation avant d’abandonner des champs non enregistrés.
+
+Le bouton **Envoyer à l’usine** est grisé si la sélection est vide, si une intention manque, si une analyse/enregistrement est en cours, si un champ est invalide ou si une référence d’ouvrier/échelle nécessite une correction. Le motif est disponible au survol et au focus. Les contrôles de contenu et de références sont conservés côté serveur ; aucune validation humaine n’est exigée.
+
+Si toutes les versions sélectionnées sont déjà reçues, le bouton grisé affiche **✓ Envoyé à l’usine**, avec une coche verte. Une modification pertinente réactive l’envoi, y compris avant enregistrement ; revenir au texte initial restaure la coche. Renommer la frise ou changer uniquement le modèle de proposition ne crée pas une nouvelle version. Pour une sélection mêlant versions envoyées et nouvelles, seules les versions manquantes sont transmises ; une reprise retrouve aussi une réception interrompue sans doublon.
 
 ## Miniatures et agrandissement
 
@@ -43,11 +46,11 @@ Le sélecteur **Rythme** est visible près de **Proposer les transitions** :
 - **Fast — avance rapide** : toute la captation est fortement comprimée, avec gestes saccadés, sauts de pose et de position, instants sautés, bref flou des membres et des outils, étapes de travaux rapprochées et sons en rafales. Les mouvements déjà visibles dans le décor suivent la même accélération. L’entrée et la sortie sont expéditives, sans longue attente finale.
 - **Personnalisé** : conserve le texte libre du rythme. Modifier la description du rythme sélectionne automatiquement ce mode.
 
-Les nouvelles frises utilisent **Fast**. Les frises antérieures gardent leur texte et apparaissent en **Personnalisé**, sans modification de leurs validations ou des unités déjà envoyées. Pour comparer sur une frise existante : sélectionner Fast, proposer à nouveau, relire puis envoyer la nouvelle version. Une intention corrigée manuellement reste conservée ; accepter la nouvelle proposition avec le bouton prévu si elle convient.
+Les nouvelles frises utilisent **Fast**. Les frises antérieures gardent leur texte et apparaissent en **Personnalisé**, sans modification des unités déjà envoyées. Pour comparer sur une frise existante : sélectionner Fast, proposer à nouveau puis envoyer la nouvelle version, avec relecture facultative. Une intention corrigée manuellement reste conservée ; accepter la nouvelle proposition avec le bouton prévu si elle convient.
 
 Le preset remplit les consignes de proposition puis est repris explicitement, en tête de l’intention transmise à l’usine, pour les étapes Plan et Prompt H3. Fast y emploie notamment « aggressively fast-forwarded time-lapse » et « staccato, frame-jumping beats ». La durée choisie, la caméra et les deux références restent celles de la transition : les ellipses temporelles ne demandent ni montage ni assemblage magique. Le rythme spécifique d’une paire remplace intégralement le preset commun ; l’interface signale ces exceptions.
 
-Choisir un preset ne lance aucun appel. Changer le rythme retire la validation des paires concernées, qui doivent être relues. Les vidéos et unités déjà reçues dans l’usine restent inchangées.
+Choisir un preset ne lance aucun appel. Changer le rythme crée une nouvelle version des paires concernées, qui peut être envoyée directement. Les vidéos et unités déjà reçues dans l’usine restent inchangées.
 
 Exemple d’intention Fast rédigé pour illustrer le traitement, sans appel LLM :
 
@@ -87,13 +90,15 @@ Le LLM doit lire l’échelle **avant** de choisir les moyens du chantier : outi
 
 La description textuelle est disponible uniquement sans image d’ouvrier. Avec une référence, le champ est désactivé et vide à l’écran ; son ancien contenu reste conservé mais exclu des requêtes. Les anciennes intentions, titres automatiques, noms/historiques des images et mesures du placement ne sont pas envoyés à la nouvelle proposition. Aucun ratio ne remplace le montage visuel.
 
+Les nouvelles frises préremplissent cette description avec des humains réalistes et minuscules, sans apparence imposée. L’ouverture depuis un parcours charge directement la frise demandée et attend la fin de l’initialisation ; les brouillons restent propres à chaque frise. Si le champ manque dans des données anciennes, la valeur du serveur est proposée et enregistrée à la prochaine action de sauvegarde. Un texte personnalisé ou volontairement vide est conservé. Le texte demande une échelle constante, des outils adaptés et du levage lorsque nécessaire ; seuls les ouvriers réalisent les travaux, sans main géante ou aide humaine extérieure. L’effectif reste réglé séparément. Cette consigne guide la génération sans garantir son respect. Les descriptions enregistrées et les unités déjà envoyées restent inchangées.
+
 La présence d’un ouvrier bascule la nouvelle unité en **REF2VA** : références first_frame, last_frame, subject_reference, puis composition_reference si disponible. Le profil et le cookbook REF2V existants transmettent ces références au Plan et au Writer. A/B définissent les transformations ; le montage peut montrer un état de chantier antérieur et ne constitue pas une étape intermédiaire imposée.
 
 Le contrat worker.visual-only@1 est transmis explicitement de la frise à l’usine et à la composition. L’en-tête distingue l’identité et l’échelle à partir des assets et des numéros Picture réellement liés. Le LLM doit conserver dans les actions « personnage de Picture 3, à l’échelle et au placement de Picture 4 » ; aucun ratio ni description physique ne sont ajoutés par le compilateur. La disparition d’un de ces liens bloque l’acceptation du Plan/Prompt de travaux. Les déplacements de caméra seuls ne doivent pas acquérir un personnage. En REF2VA, les états de départ/arrivée sont des références guidées par le prompt : ils ne bénéficient pas du même conditionnement de bornes que FL2VA. L’échelle réelle, les raccords et la fidélité aux états nécessitent donc une qualification sur des rendus.
 
 **Retirer la référence** retire ses placements de la frise et retrouve FL2VA pour les prochaines unités. Les images et unités déjà envoyées restent conservées.
 
-## Relecture et versions
+## Versions et relecture facultative
 
 - Depuis image.transitions.propose@3.1.0, l’action désigne la modification visible entre les deux images. Une construction partielle est décrite par ses pièces et sa géométrie, sans anticiper le monument ou l’objet complet. L’intention borne la progression à cet état, sans construction supplémentaire suivie d’une réduction ; cette règle vise l’assemblage, pas une démolition demandée ni un déplacement de caméra.
 - Le proposeur ne reçoit plus les noms ou historiques de retouche des images, ni les anciens titres/intentions automatiques, avec ou sans référence d’ouvrier. Les images restent transmises à l’identique. La provenance reste disponible dans la frise. Les notes, actions corrigées et contraintes manuelles sont conservées ; avec image d’ouvrier, l’ancien texte d’intention reste exclu conformément au contrat visuel.
@@ -102,11 +107,11 @@ Le contrat worker.visual-only@1 est transmis explicitement de la frise à l’us
 - Une proposition distingue observations, opération suggérée et incertitudes. Un outil inféré n’est pas présenté comme un fait visible.
 - Une intention modifiée manuellement est conservée lors d’une nouvelle analyse. La nouvelle proposition apparaît séparément et ne la remplace qu’au clic explicite.
 - Une réponse arrivée après modification des images ou consignes n’est pas appliquée.
-- Remplacer une image retire la validation des transitions adjacentes ; si cette image sert aussi de décor à un montage partagé, ce montage doit être refait. Les intentions restent consultables.
+- Remplacer une image change la version des transitions adjacentes ; si cette image sert aussi de décor à un montage partagé, ce montage doit être refait. Les intentions restent consultables.
 - Réordonner conserve les transitions dont les deux voisins restent les mêmes, et crée celles nécessaires au nouvel ordre.
-- La relecture est liée aux images, au texte, à l’effectif et aux références exactes envoyées. Changer l’ouvrier ou l’échelle impose une nouvelle relecture. Un montage lié à un ancien ouvrier/décor bloque la proposition et la validation jusqu’à correction ou retrait.
+- Chaque version est liée aux images, au texte, à l’effectif et aux références exactes envoyées. Changer l’ouvrier ou l’échelle change cette version. Un montage lié à un ancien ouvrier/décor bloque la proposition et l’envoi jusqu’à correction ou retrait ; les anciens textes incompatibles avec le contrat visuel doivent être reproposés ou corrigés.
 - L’envoi répété de la même version retrouve l’unité existante. Les entrées exactes sont enregistrées avant réception par l’usine pour permettre une reprise après interruption.
-- Modifier la frise ne modifie jamais une unité déjà envoyée. Une nouvelle version relue crée une nouvelle unité ; les anciennes restent accessibles.
+- Modifier la frise ne modifie jamais une unité déjà envoyée. Une nouvelle version envoyée crée une nouvelle unité ; les anciennes restent accessibles.
 - L’ordre de la frise détermine celui des nouvelles unités lors de l’envoi. La priorité des unités déjà présentes reste gérée dans l’usine.
 - Le retour depuis une ancienne unité signale une frise modifiée ou une transition retirée.
 
@@ -124,6 +129,8 @@ La création autonome de nouvelles images reste dans son atelier distinct, docum
 
 Préparés : tests de domaine/service, sources et HTTP dans `tests/test_image_transitions.py`, et un scénario navigateur avec API simulée dans `tests/test_image_transitions_browser.py`. Ils couvrent les références exactes, la relecture, la conservation des corrections, les réponses obsolètes, l’envoi dédupliqué et sa reprise après interruption. Le patch Slow/Fast ajoute huit cas sur la propagation des presets, leur validation HTTP, les versions envoyées, les exceptions par paire et la compatibilité des anciennes frises ; le scénario navigateur prépare aussi la sélection et l’enregistrement du rythme avant proposition.
 
+Régressions d’envoi direct préparées : proposition non relue, correction manuelle enregistrée au clic, sélection partiellement envoyée, nouvelle version et rejeu sans réception supplémentaire, intention vide bloquant tout le lot, analyse en cours et contrôles des références visuelles. Le scénario navigateur couvre les états grisés et leurs motifs, la coche verte, les brouillons/reverts, la sélection mixte et l’absence de bouton/appel de validation.
+
 **Tests non exécutés**, conformément aux consignes du projet. Aucun appel LLM, rendu ni redémarrage de service effectué pour cette évolution.
 
 Pour lancer les tests ciblés depuis le checkout actif, avec `src` dans `PYTHONPATH` :
@@ -133,7 +140,7 @@ $env:PYTHONPATH = 'D:\Code\panelforge-krea2-flux\src'
 & 'D:\Code\panelforge\.venv\Scripts\python.exe' -m unittest discover -s tests -p 'test_image_transitions*.py'
 ```
 
-Le nouveau backend sera chargé au prochain démarrage habituel du Lab ; actualiser ensuite la page. La validation visuelle se fait alors sur une courte frise, en relisant les intentions avant le lancement dans l’usine.
+Le nouveau backend sera chargé au prochain démarrage habituel du Lab ; actualiser ensuite la page. Le nouveau parcours est Proposer → Envoyer à l’usine, avec corrections facultatives. Assets front : 20261004.send1. Tant que l’ancien backend tourne, l’envoi direct reste grisé avec une explication ; aucun service n’est redémarré par le patch.
 
 Sauvegardes et diagnostic isolé du patch : `D:/Code/panelforge/.agent/diagnostics/image-transitions-20260928/`.
 

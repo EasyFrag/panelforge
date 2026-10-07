@@ -205,6 +205,8 @@
     : value >= 80 ? "#d13b2e" : value >= 70 ? "#c47b08" : "#23895a";
 
   function temperatureChart(resource, machine) {
+    const minimumTemperature = 30;
+    const maximumTemperature = 90;
     const history = status?.temperature_history || {};
     const windowSeconds = Number(history.window_seconds || 3600);
     const values = Array.isArray(history?.series?.[resource])
@@ -232,7 +234,7 @@
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 330 108");
     svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", `Historique thermique ${name.textContent}, de 0 à 100 degrés sur une heure`);
+    svg.setAttribute("aria-label", `Historique thermique ${name.textContent}, de ${minimumTemperature} à ${maximumTemperature} degrés sur une heure`);
     const node = (tag, attributes, text = null) => {
       const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
       for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
@@ -244,8 +246,12 @@
     const right = 324;
     const top = 5;
     const bottom = 81;
-    for (let temperature = 0; temperature <= 100; temperature += 20) {
-      const y = bottom - (temperature / 100) * (bottom - top);
+    const temperatureY = temperature => {
+      const visible = Math.max(minimumTemperature, Math.min(maximumTemperature, temperature));
+      return bottom - ((visible - minimumTemperature) / (maximumTemperature - minimumTemperature)) * (bottom - top);
+    };
+    for (const temperature of [30, 50, 70, 90]) {
+      const y = temperatureY(temperature);
       node("line", {x1: left, y1: y, x2: right, y2: y, class: "work-queue-temperature-grid"});
       node("text", {x: left - 4, y: y + 3, "text-anchor": "end"}, temperature);
     }
@@ -257,10 +263,10 @@
     }
     const points = values.map(value => {
       const age = Math.max(0, Math.min(windowSeconds, Number(value.age_seconds || 0)));
-      const temperature = Math.max(0, Math.min(100, Number(value.max_temperature_c)));
+      const temperature = Number(value.max_temperature_c);
       return {
         x: left + (1 - age / windowSeconds) * (right - left),
-        y: bottom - (temperature / 100) * (bottom - top),
+        y: temperatureY(temperature),
         temperature,
         age,
       };
@@ -360,6 +366,8 @@
   };
 
   function longTemperatureChart(resource, history, config) {
+    const minimumTemperature = 50;
+    const maximumTemperature = 90;
     const historyEnd = Date.parse(history?.to);
     const windowEnd = Number.isFinite(historyEnd) ? historyEnd : Date.now();
     const windowStart = windowEnd - config.hours * 60 * 60 * 1000;
@@ -391,7 +399,7 @@
     svg.setAttribute("viewBox", "0 0 1200 250");
     svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", `Température de ${title.textContent}, de 0 à 100 degrés sur les dernières ${config.hours} heures`);
+    svg.setAttribute("aria-label", `Température de ${title.textContent}, de ${minimumTemperature} à ${maximumTemperature} degrés sur les dernières ${config.hours} heures`);
     const svgNode = (tag, attributes, text = null) => {
       const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
       for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
@@ -403,13 +411,16 @@
     const right = 1188;
     const top = 8;
     const bottom = 205;
-    const y = temperature => bottom - (temperature / 100) * (bottom - top);
+    const y = temperature => {
+      const visible = Math.max(minimumTemperature, Math.min(maximumTemperature, temperature));
+      return bottom - ((visible - minimumTemperature) / (maximumTemperature - minimumTemperature)) * (bottom - top);
+    };
     for (const [minimum, maximum, fill] of [
-      [0, 70, "#f5faf7"], [70, 80, "#fff9ed"], [80, 90, "#fff3f1"], [90, 100, "#fbe8e6"],
+      [50, 70, "#f5faf7"], [70, 80, "#fff9ed"], [80, 90, "#fff3f1"],
     ]) {
       svgNode("rect", {x: left, y: y(maximum), width: right - left, height: y(minimum) - y(maximum), fill});
     }
-    for (let temperature = 0; temperature <= 100; temperature += 20) {
+    for (let temperature = minimumTemperature; temperature <= maximumTemperature; temperature += 10) {
       const lineY = y(temperature);
       svgNode("line", {x1: left, y1: lineY, x2: right, y2: lineY, class: "work-queue-temperature-grid"});
       svgNode("text", {x: left - 8, y: lineY + 4, "text-anchor": "end"}, temperature);
@@ -423,7 +434,7 @@
     const width = Math.max(1, windowEnd - windowStart);
     const points = values.map(value => ({
       x: left + ((value.timestamp - windowStart) / width) * (right - left),
-      y: y(Math.max(0, Math.min(100, value.temperature))),
+      y: y(value.temperature),
       ...value,
     }));
     const maximumGap = config.bucketSeconds * 1600;

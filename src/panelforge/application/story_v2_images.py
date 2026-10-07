@@ -12,12 +12,15 @@ def attach_variants(episode, script):
         for appearance in source["appearances"]:
             base = bases[appearance["character_id"]]
             state = appearance["state"].strip()
-            key = digest([base["id"], state.casefold()])[:20]
+            state_id = appearance.get("state_id")
+            key = digest([base["id"], "visual-state", state_id] if state_id else [base["id"], state.casefold()])[:20]
             if key not in variants:
                 ref = deepcopy(base)
                 ref.update(id="state-" + key, name=base["name"] + " · " + state,
                     description=state, image_asset_id=None, images=[], krea_project_id=None, prompt="",
                     story_v2_state=dict(base_id=base["id"], state=state), story_v2_edit=None)
+                if state_id:
+                    ref["story_v2_state"]["state_id"] = state_id
                 variants[key] = ref
                 episode["references"].append(ref)
             for binding in scene["references"]:

@@ -36,9 +36,9 @@ class MinimaxEditWorkflow:
                 and settings.reference_megapixels != self.manifest["fixed"]["reference_megapixels"]):
             raise ValueError("Ce workflow ne permet pas de changer la résolution de référence.")
         native = settings.reference_mode == "native"
-        if native and (not self.manifest["capabilities"].get("native_reference")
-                       or count != 1 or composition or guide):
-            raise ValueError("Ce workflow exige une référence unique pour le mode natif.")
+        if native and (not self.manifest["capabilities"].get("native_reference") or composition or guide
+                       or count != 1 and not self.manifest["capabilities"].get("native_multi_reference")):
+            raise ValueError("Ce workflow ne prend pas en charge ces références en mode natif.")
         graph = deepcopy(self.template)
         values = {"prompt": prompt, "seed": int(settings.seed), "steps": settings.steps,
                   "width": dimensions[0], "height": dimensions[1], "output_prefix": output_prefix,
@@ -71,8 +71,9 @@ class MinimaxEditWorkflow:
             graph[slot["scale_node"]]["inputs"]["image"] = [slot["load_node"], 0]
             encoder[slot["input"]] = [slot["scale_node"], 0]
         if native:
-            encoder[slots[0]["input"]] = [slots[0]["load_node"], 0]
-            del graph[slots[0]["scale_node"]]
+            for slot in slots[:count]:
+                encoder[slot["input"]] = [slot["load_node"], 0]
+                del graph[slot["scale_node"]]
         _validate_no_orphans(graph, self.output_node_id)
         return graph
 

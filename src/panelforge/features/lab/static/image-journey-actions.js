@@ -24,6 +24,12 @@
         button.onclick = () => bridge.showImage({...frame, title:caption, detailTitle:caption});
         return figure;
       }
+      function inputImages(kind, frame, following) {
+        if (kind === "hq") return [image(frame, "Original")];
+        if (!following) return [image(frame, bridge.reversedOrder() ? "Première image" : "Dernière image")];
+        const pair = bridge.reversedOrder() ? [following, frame] : [frame, following];
+        return [image(pair[0], "État précédent conservé"), image(pair[1], "État suivant conservé")];
+      }
       function reset() {
         if (dialog.open) dialog.close();
         selection = null; selectedOperation = null; command = null; resultKey = "";
@@ -44,9 +50,9 @@
         const dims = frame.step?.output_dimensions || (frame.index === 0 ? project.source_dimensions : null);
         $("operation-hint").textContent = kind === "hq"
           ? `Copie HQ ×2${dims ? ` · ${dims[0] * 2} × ${dims[1] * 2} px` : ""}. L’original est conservé.`
-          : kind === "insert" ? "Une image entre ces deux états. La suite est conservée." : "Une nouvelle image depuis cet état.";
-        $("operation-images").replaceChildren(image(frame, kind === "hq" ? "Original" : kind === "insert" ? "État précédent" : "Dernière image"),
-          ...(following ? [image(following, "État suivant conservé")] : []));
+          : kind === "insert" ? "Une image entre ces deux états. La suite est conservée."
+          : bridge.reversedOrder() ? "Une nouvelle image placée avant cet état dans la frise." : "Une nouvelle image depuis cet état.";
+        $("operation-images").replaceChildren(...inputImages(kind, frame, following));
         $("operation-result").replaceChildren();
         paintDialog();
         if (!dialog.open) dialog.showModal();
@@ -79,8 +85,7 @@
           resultKey = key;
           $("operation-result").replaceChildren();
           if (!key) {
-            $("operation-images").replaceChildren(image(selection.frame, selection.kind === "hq" ? "Original" : selection.following ? "État précédent" : "Dernière image"),
-              ...(selection.following ? [image(selection.following, "État suivant conservé")] : []));
+            $("operation-images").replaceChildren(...inputImages(selection.kind, selection.frame, selection.following));
           }
           if (key) {
             const frame = {asset_id:key, index:0, title:selection.kind === "hq" ? "Version HQ" : "Nouvelle image"};
@@ -123,9 +128,11 @@
         const card = document.createElement("div"), plus = document.createElement("button");
         card.className = "ij-card"; card.append(thumbnail);
         plus.type = "button"; plus.className = "ij-add"; plus.dataset.ijAdd = ""; plus.textContent = "+";
-        plus.setAttribute("aria-label", following ? `Insérer une étape après ${frame.title}` : "Ajouter une étape à la fin");
+        plus.setAttribute("aria-label", following ? `Insérer une étape entre ${frame.title} et ${following.title}`
+          : bridge.reversedOrder() ? "Ajouter une étape au début de la frise" : "Ajouter une étape à la fin");
         plus.onclick = () => open(following ? "insert" : "append", frame, following);
-        card.append(plus); return card;
+        if (bridge.reversedOrder()) card.prepend(plus); else card.append(plus);
+        return card;
       }
       async function submit(event) {
         event.preventDefault();

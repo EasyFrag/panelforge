@@ -31,12 +31,16 @@ from tests.test_video_preparation_recipes import preparation_service
 
 
 class SceneNeedTest(unittest.TestCase):
-    def test_four_goals_use_context_in_french_and_english(self):
+    def test_targeted_goals_use_context_in_french_and_english(self):
         for text, expected in (
             ("Sécheresse en Corée", "drought"), ("A parched city street", "drought"),
             ("Un tsunami à Rome", "wave"), ("A tidal wave flooding a city", "wave"),
             ("Une innondation en ville", "flood"), ("A flooded town", "flood"),
             ("Un incendie en laine", "fire"), ("A burning building", "fire"),
+            ("Une tornade en laine", "tornado"), ("A tornado in the rain", "tornado"),
+            ("Un orage avec de la pluie et du tonnerre", "storm"), ("A thunderstorm", "storm"),
+            ("Le tonère gronde", "storm"), ("Lightning above the village", "storm"),
+            ("La pluie tombe sur les petits hommes", "rain"), ("A heavy downpour", "rain"),
         ):
             with self.subTest(text=text):
                 config = config_for(text)
@@ -64,17 +68,41 @@ class SceneNeedTest(unittest.TestCase):
         source = preparation_text(config, thanks_selection=make_selection(config, "new"))
         self.assertFalse(any(phrase in source for phrase in NEED_DIRECTIONS.values()))
 
-    def test_tornado_repair_unknown_and_conflicting_scenes_add_no_forced_water_goal(self):
+    def test_repair_unknown_and_conflicting_scenes_add_no_forced_goal(self):
         for text, expected in (
-            ("Une tornade en laine", "tornado"), ("Pont brisé", "repair"),
+            ("Pont brisé", "repair"),
             ("Un village miniature", "unknown"), ("Sécheresse et incendie", "ambiguous"),
             ("Pas d’incendie", "ambiguous"), ("No fire", "ambiguous"),
+            ("Sans orage", "ambiguous"), ("No rain", "ambiguous"),
+            ("An open storm drain", "unknown"),
         ):
             with self.subTest(text=text):
                 config = config_for(text)
                 self.assertEqual(scene_need(config), expected)
                 source = preparation_text(config, thanks_selection=make_selection(config, "new"))
                 self.assertFalse(any(phrase in source for phrase in NEED_DIRECTIONS.values()))
+
+    def test_weather_keeps_existing_hazards_and_limits_umbrella_ban_to_tornado(self):
+        for text, expected in (
+            ("Une tornade, pluie et tonnerre", "tornado"),
+            ("A tornado in a thunderstorm", "tornado"),
+            ("An ongoing flood with thunder and rain", "flood"),
+            ("Un tsunami sous la pluie", "wave"),
+            ("Sécheresse et manque de pluie", "drought"),
+            ("Réparer le pont sous la pluie", "repair"),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(scene_need(config_for(text)), expected)
+        for text, expected in (("Tornade sous la pluie", "tornado"),
+                               ("Orage et pluie", "storm"), ("Pluie", "rain")):
+            with self.subTest(kind=expected):
+                config = config_for(text)
+                source = preparation_text(config, thanks_selection=make_selection(config, "weather"))
+                self.assertEqual("Aucun parapluie." in source, expected == "tornado")
+                self.assertIn(NEED_DIRECTIONS[expected], source)
+        config = config_for(image_context={"intention": "Une tornade", "prompt": "A tornado in the rain"})
+        config["little_men_context"] = "Un orage avec du tonnerre"
+        self.assertEqual(scene_need(config), "storm")
 
     def test_description_is_read_before_excerpt_but_wrong_asset_and_style_are_ignored(self):
         description = "A quiet village. " + "Some tiny buildings. " * 200 + "Water shortage."
@@ -107,6 +135,26 @@ class NeedLifecycleTest(unittest.TestCase):
                 self.assertNotEqual(new_source, preparation_text(config, thanks_selection=old_selection))
                 resolved = {**selection, "language": "French", "words": "Merci"}
                 self.assertEqual(preparation_text(config, thanks_selection=resolved), new_source)
+
+    def test_existing_v4_weather_keeps_locked_input_and_metadata_priority(self):
+        for text, kind in (("Tornade", "tornado"), ("Orage et pluie", "storm"), ("Pluie", "rain")):
+            with self.subTest(kind=kind):
+                config = config_for(text)
+                selected = make_selection(config, "weather")
+                historical = {key: value for key, value in selected.items() if key != "weather_direction"}
+                self.assertEqual(preparation_text(config, thanks_selection=historical),
+                                 preparation_text_v3(config, config["intention"], historical))
+                current = preparation_text(config, thanks_selection=selected)
+                self.assertIn(NEED_DIRECTIONS[kind], current)
+                resolved = {**selected, "language": "French", "words": "Merci"}
+                self.assertEqual(preparation_text(config, thanks_selection=resolved), current)
+        # Previously, these manual notes were unrecognized and image drought won.
+        config = config_for("Pluie", {"intention": "Sécheresse"})
+        selected = make_selection(config, "weather")
+        historical = {key: value for key, value in selected.items() if key != "weather_direction"}
+        self.assertEqual(preparation_text(config, thanks_selection=historical),
+                         preparation_text_v3(config, config["intention"] + "\n\n" + NEED_DIRECTIONS["drought"], historical))
+        self.assertIn(NEED_DIRECTIONS["rain"], preparation_text(config, thanks_selection=selected))
 
     def test_old_v3_session_is_unchanged_and_duplicate_upgrades_only_default(self):
         for original_intent in (LITTLE_MEN_EXPERIMENTAL_INTENT_V3, "Sécheresse : mon idée personnalisée."):
@@ -144,6 +192,7 @@ class NeedLifecycleTest(unittest.TestCase):
         selection = {**make_selection(config, "old"), "version": 3}
         selection.pop("flood_first_action")  # Fields absent in historical selections.
         selection.pop("drought_result")
+        selection.pop("weather_direction")
         item["runtime"].update(session_id="session", thanks_selection=selection)
         adapter._session(item, Mock(), lambda: False, Mock())
         intent = adapter.composition.configure.call_args.kwargs["preparation_intent"]
@@ -155,6 +204,7 @@ class NeedLifecycleTest(unittest.TestCase):
         self.assertEqual(item["runtime"]["thanks_selection"]["version"], 4)
         self.assertEqual(item["runtime"]["thanks_selection"]["flood_first_action"], "plunger")
         self.assertEqual(item["runtime"]["thanks_selection"]["drought_result"], "lush_growth")
+        self.assertEqual(item["runtime"]["thanks_selection"]["weather_direction"], "v1")
         self.assertEqual(item["runtime"]["thanks_selection"]["language"], selection["language"])
         self.assertIn(NEED_DIRECTIONS["drought"],
                       preparation_text(item["config"], thanks_selection=item["runtime"]["thanks_selection"]))
@@ -164,7 +214,8 @@ class NeedRequestTest(unittest.TestCase):
     def test_plan_and_writer_receive_one_goal_with_frozen_language_and_short_policy(self):
         for context, kind, country in (("Sécheresse", "drought", "Pays : Japon"),
                                        ("Un tsunami", "wave", ""), ("Une inondation", "flood", ""),
-                                       ("Un incendie", "fire", "")):
+                                       ("Un incendie", "fire", ""), ("Une tornade", "tornado", ""),
+                                       ("Un orage", "storm", ""), ("De la pluie", "rain", "")):
             with self.subTest(kind=kind), TemporaryDirectory() as directory:
                 config = config_for(context + "\n" + country)
                 selection = make_selection(config, "image")

@@ -438,6 +438,7 @@ def invalidate(item, before):
                 item["runtime"]["thanks_selection"]["version"] = 4
                 item["runtime"]["thanks_selection"]["flood_first_action"] = "plunger"
                 item["runtime"]["thanks_selection"]["drought_result"] = "lush_growth"
+                item["runtime"]["thanks_selection"]["weather_direction"] = "v1"
             if selection.get("language"):
                 item["runtime"]["thanks_selection"]["requested_language"] = selection["language"]
     else:

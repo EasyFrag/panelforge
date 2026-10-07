@@ -65,7 +65,12 @@ def identity(prefix):
 
 def defaults():
     return dict(duration=7.0,
-                worker="Un ouvrier en jean bleu, tee-shirt blanc et casquette bleue.",
+                worker=("Des ouvriers humains réalistes et minuscules par rapport au décor. "
+                        "Ils conservent la même échelle pendant tout le plan. "
+                        "Eux seuls réalisent les travaux, avec des outils à leur taille et des moyens de levage "
+                        "si les matériaux sont trop grands pour être portés. "
+                        "Aucun humain de taille normale, aucune main géante ni outil manipulé depuis l’extérieur "
+                        "de la scène n’intervient."),
                 crew_size="solo",
                 pace_preset="fast", pace=PACE_PRESETS["fast"]["pace"],
                 camera="Caméra fixe pour les travaux ; déplacement cohérent pour changer de lieu.",
@@ -189,7 +194,7 @@ def needs_visual_refresh(project, transition):
 
 def require_current_visual_intention(project, transition):
     if needs_visual_refresh(project, transition):
-        raise ValueError("Reproposez cette intention avec les références visuelles, puis relisez-la. "
+        raise ValueError("Reproposez cette intention avec les références visuelles. "
                          "L’ancienne description de l’ouvrier ne doit plus être réutilisée.")
 
 

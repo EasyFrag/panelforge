@@ -17,7 +17,7 @@ from panelforge.infrastructure.storage.episodes import LocalEpisodeStore
 
 
 def settings(mode="manual"):
-    return Settings(idea="Un couple prépare une naissance puis accueille son bébé.", universe="Humains adultes", style="Cinéma réaliste", duration=20, mode=mode, image_model="fake-image").model_dump()
+    return Settings(writing_version="2.0", idea="Un couple prépare une naissance puis accueille son bébé.", universe="Humains adultes", style="Cinéma réaliste", duration=20, mode=mode, image_model="fake-image").model_dump()
 
 
 def screenplay():
@@ -160,6 +160,21 @@ class StoryV2Test(unittest.TestCase):
         with self.assertRaises(ValueError):Script.model_validate(s)
         s=screenplay();s["sequences"][0]["dialogue"][0]["text"]="mot "*40
         with self.assertRaises(ValueError):Script.model_validate(s)
+
+    def test_french_punctuation_does_not_spend_the_spoken_word_budget(self):
+        config = {**settings(), "duration":16, "scene_duration":8}
+        for separator in (" ", "\u00a0", "\u202f"):
+            with self.subTest(separator=repr(separator)):
+                script = screenplay()
+                for scene in script["sequences"]:scene["duration"] = 8
+                words = ["été", "69", "aujourd’hui", "soixante-neuf"] * 7
+                text = (separator+"!"+separator).join(words) + separator + "?!"
+                script["sequences"][0]["dialogue"][0]["text"] = text
+                result = validate_script(script, config)
+                self.assertEqual(result["sequences"][0]["dialogue"][0]["text"], text)
+                script["sequences"][0]["dialogue"][0]["text"] += separator + "non"
+                with self.assertRaisesRegex(ValueError, r"29 mots, limite 28"):
+                    validate_script(script, config)
 
     def test_appearance_is_scoped_to_scene_and_render_export_is_repeatable(self):
         p=self.create();p["script"]=validate_script(screenplay(),settings())

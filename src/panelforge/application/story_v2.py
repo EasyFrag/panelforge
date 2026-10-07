@@ -34,7 +34,7 @@ class StoryV2Service:
             or p["status"] in narrative or (p["status"] in {"paused", "failed"} and p.get("resume_stage") in narrative))
         p["settings"].setdefault("final_review_enabled", legacy_control)
         # Existing stories keep their timing until an explicit target is chosen.
-        p["settings"] = policy.Settings.model_validate({"scene_duration":None, **p["settings"]}).model_dump()
+        p["settings"] = policy.Settings.model_validate({"scene_duration":None, "writing_version":policy.LEGACY_WRITING_VERSION, **p["settings"]}).model_dump()
         if version is not None and p["version"] != version:
             raise StoryV2Conflict("Le projet a changé. Actualisez avant de réessayer.")
         if editable and p["status"] in policy.ACTIVE:
@@ -61,9 +61,10 @@ class StoryV2Service:
         return p
 
     def preferences(self):
-        return {**policy.default_settings(), **self.store.preferences(), "idea":""}
+        return {**policy.default_settings(), **self.store.preferences(), "idea":"", "writing_version":policy.DEFAULT_WRITING_VERSION}
 
     def create(self, command, settings):
+        supplied = set(settings)
         settings = policy.Settings.model_validate(settings).model_dump()
         if settings["mode"] == "automatic" and not settings["image_model"]:
             raise ValueError("Choisissez le modèle image dans Réglages pour le parcours automatique.")
@@ -71,7 +72,9 @@ class StoryV2Service:
         with self._lock:
             try:
                 old = self.store.get(identity)
-                if old["settings"] != settings:
+                existing = self._load(identity)["settings"]
+                requested = {**settings, **{k:existing[k] for k in ("writing_version", "tone_profile") if k not in supplied}}
+                if existing != requested:
                     raise StoryV2Conflict("Cette commande a déjà créé une autre histoire.")
                 return old
             except FileNotFoundError:
@@ -90,12 +93,15 @@ class StoryV2Service:
     def update(self, identity, version, script, settings):
         with self._lock:
             p = self._load(identity, version, editable=True)
-            settings = policy.Settings.model_validate(settings).model_dump()
+            settings = policy.Settings.model_validate({"writing_version":p["settings"]["writing_version"],
+                "tone_profile":p["settings"]["tone_profile"], **settings}).model_dump()
+            if settings["writing_version"] != p["settings"]["writing_version"]:
+                raise StoryV2Conflict("La version d’écriture est conservée par histoire. Créez une nouvelle histoire pour comparer.")
             parsed, timing_pending = None, False
             if script is not None:
-                parsed = policy.Script.model_validate(script).model_dump()
+                parsed = policy.parse_script(script, settings).model_dump()
                 try:
-                    policy.validate_script(parsed, settings)
+                    parsed = policy.validate_script(parsed, settings)
                 except ValueError:
                     changed_timing = any(settings[k] != p["settings"].get(k) for k in ("duration", "scene_duration"))
                     if not (changed_timing or p.get("timing_pending")):
@@ -116,7 +122,9 @@ class StoryV2Service:
             if not 0 <= index < len(p["history"]):
                 raise ValueError("Version introuvable.")
             entry = deepcopy(p["history"][index])
-            return self.update(identity, version, entry["script"], {"scene_duration":None, **entry.get("settings", p["settings"])})
+            settings = {"scene_duration":None, "writing_version":policy.LEGACY_WRITING_VERSION, **entry.get("settings", p["settings"])}
+            settings["tone_profile"] = entry.get("settings", {}).get("tone_profile", "from_idea")
+            return self.update(identity, version, entry["script"], settings)
 
     def revise(self, identity, version, feedback, sequence_id=None):
         with self._lock:
@@ -255,7 +263,8 @@ class StoryV2Service:
     @staticmethod
     def _reset_scenario(p):
         p["scenario"] = dict(id=uuid4().hex, next_step="write", call_start=len(p["calls"]),
-                             polish=p["settings"]["polish_enabled"], final_review=p["settings"]["final_review_enabled"])
+                             polish=p["settings"]["polish_enabled"], final_review=p["settings"]["final_review_enabled"],
+                             writing_version=p["settings"]["writing_version"], tone_profile=p["settings"]["tone_profile"])
         p["progress"] = None
 
     def _scenario(self, p):
@@ -266,6 +275,8 @@ class StoryV2Service:
             p["scenario"]["next_step"] = ("final_review" if p.get("repair_attempt") else "review") if p.get("needs_review") else (
                 "repair" if p.get("repair_attempt") else "write")
         p["scenario"].setdefault("final_review", p["settings"]["final_review_enabled"])
+        p["scenario"].setdefault("writing_version", p["settings"]["writing_version"])
+        p["scenario"].setdefault("tone_profile", p["settings"]["tone_profile"])
         return p["scenario"]
 
     @staticmethod
@@ -278,6 +289,7 @@ class StoryV2Service:
             p = self._load(identity)
             cycle = self._scenario(p)
             step = cycle["next_step"]
+            recipe = prompts.for_version(cycle["writing_version"], cycle["tone_profile"])
             # A restart between accepted response and application must not replay the LLM call.
             prior = next((c for c in reversed(p["calls"]) if c.get("cycle_id") == cycle["id"]
                           and c.get("step") == step and c.get("accepted") and "result" in c), None)
@@ -290,7 +302,8 @@ class StoryV2Service:
             index = len(p["calls"]) - cycle["call_start"] + 1
             labels = dict(write="Écriture", review="Relecture", repair="Correction ciblée",
                           polish="Retouche des dialogues", final_review="Relecture finale")
-            record = dict(id=uuid4().hex, cycle_id=cycle["id"], step=step, role=role, model=model,
+            record = dict(id=uuid4().hex, cycle_id=cycle["id"], writing_version=cycle["writing_version"],
+                          tone_profile=cycle["tone_profile"], step=step, role=role, model=model,
                           index=index, total=index+remaining-1, label=labels[step], started_at=policy.now(),
                           status="running", accepted=False, call_id=None, error=None)
             p["calls"].append(record)
@@ -302,8 +315,8 @@ class StoryV2Service:
             request = CompletionRequest(model_id=model, system_prompt=system,
                 user_prompt=json.dumps(payload, ensure_ascii=False), temperature=.25 if role=="review" else .4 if role=="polish" else .55,
                 max_tokens=24000, include_reasoning=False, output_schema=schema,
-                operation_id=f"story.v2.{role}@{prompts.VERSION}", trace_context=dict(project_id=identity, role=role,
-                    scenario_cycle=cycle["id"], scenario_step=step, call_index=index))
+                operation_id=f"story.v2.{role}@{recipe['version']}", trace_context=dict(project_id=identity, role=role, writing_version=cycle["writing_version"],
+                    tone_profile=cycle["tone_profile"], scenario_cycle=cycle["id"], scenario_step=step, call_index=index))
             complete = False
             for event in self.gateway.stream(request):
                 if event.kind is StreamEventKind.DELTA: raw += event.text
@@ -360,7 +373,12 @@ class StoryV2Service:
                     return
                 if not self._boundary(p, statuses[step]): return
                 settings, script = deepcopy(p["settings"]), deepcopy(p["script"])
+                settings["writing_version"] = cycle["writing_version"]
+                settings["tone_profile"] = cycle["tone_profile"]
+                recipe = prompts.for_version(cycle["writing_version"], cycle["tone_profile"])
                 brief = {k:settings[k] for k in ("idea", "universe", "style", "duration", "scene_duration", "language")}
+                if settings["tone_profile"] != "from_idea":
+                    brief["tone_profile"] = settings["tone_profile"]
                 if step == "polish" and "pre_polish" not in cycle:
                     cycle["pre_polish"] = deepcopy(script)
                     self._snapshot(p, "A · avant retouche")
@@ -370,17 +388,17 @@ class StoryV2Service:
                     sequence=p.get("feedback_sequence"), editorial_issues=(p.get("review") or {}).get("issues", []),
                     scene_durations=policy.scene_durations(settings))
             if step in {"write", "repair"}:
-                value = self._call(identity, step, prompts.WRITER, payload, policy.writing_schema(settings),
+                value = self._call(identity, step, recipe["write"], payload, policy.writing_schema(settings),
                                    lambda v:policy.validate_script(v, settings))
             elif step == "polish":
-                value = self._call(identity, "polish", prompts.POLISH,
-                    dict(brief=brief, screenplay=script, feedback=p["feedback"]), policy.Polish.model_json_schema(),
+                value = self._call(identity, "polish", recipe["polish"],
+                    dict(brief=brief, screenplay=script, feedback=p["feedback"]), policy.polish_schema(settings),
                     lambda v:policy.validate_polish(v, script, settings))
             else:
                 evidence = dict(brief=brief, scenes=policy.audience_view(script))
                 if step == "final_review" and before_polish:
                     evidence["pre_polish_scenes"] = policy.audience_view(before_polish)
-                value = self._call(identity, "review", prompts.READER, evidence, policy.Review.model_json_schema(),
+                value = self._call(identity, "review", recipe["review"], evidence, policy.Review.model_json_schema(),
                                    lambda v:policy.Review.model_validate(v).model_dump())
             with self._lock:
                 p = self._load(identity)

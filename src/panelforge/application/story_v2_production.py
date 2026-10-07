@@ -4,7 +4,7 @@ from uuid import uuid5, NAMESPACE_URL
 from panelforge.domain.episodes import initial_episode
 from panelforge.domain.story_v2_settings import image_settings
 from .story_v2_images import StoryV2Images, attach_variants
-from panelforge.domain.story_v2 import digest, validate_script
+from panelforge.domain.story_v2 import digest, validate_script, LEGACY_WRITING_VERSION
 
 def dialogue_addressing(sequence, names):
     """A compact story brief, not a video Plan or an additional model call."""
@@ -32,7 +32,10 @@ class StoryV2Production:
         settings = project["settings"]
         script = validate_script(project["script"], settings)
         image_options, video = settings["images"], settings["video"]
-        key = digest(dict(script=script, production={k:v for k,v in settings.items() if k not in {"mode", "reader_model", "idea", "duration", "scene_duration", "final_review_enabled", "polish_enabled", "polish_model"}}))
+        excluded = {"mode", "reader_model", "idea", "duration", "scene_duration", "final_review_enabled", "polish_enabled", "polish_model", "tone_profile"}
+        if settings.get("writing_version", LEGACY_WRITING_VERSION) == LEGACY_WRITING_VERSION:
+            excluded.add("writing_version")  # Keep historical episode identities byte-for-byte.
+        key = digest(dict(script=script, production={k:v for k,v in settings.items() if k not in excluded}))
         identity = "episode-" + uuid5(NAMESPACE_URL, project["id"] + key).hex
         try:
             return self.episodes.store.get(identity)["episode_id"]

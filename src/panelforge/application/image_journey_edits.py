@@ -6,7 +6,7 @@ from uuid import NAMESPACE_URL, uuid5
 from panelforge.domain import image_journeys as journey
 from panelforge.domain import image_journey_edits as policy
 from panelforge.domain.minimax_edit import MinimaxEditSettings, validate_prompt
-from . import image_journey_edit_prompting as prompting
+from . import image_journey_policies as policies
 from .prompt_lab import CompletionRequest, ImageInput, StreamEventKind
 from .revised_documents import strip_markdown_fence
 
@@ -88,6 +88,7 @@ class ImageJourneyEdits:
                 before_asset_id=before['asset_id'] if before else None, intention=intention, source_asset_id=source,
                 source_dimensions=dimensions, dimensions=output_dimensions, render_profile=profile,
                 auto_mask=kind != 'hq' and project.get('auto_mask', False),
+                journey_version=journey.journey_version(project),
                 mask_model_id=project.get('mask_model_id', project['progression_model_id']),
                 destination=project['destination'], index=index + 1,
                 action=dict(title='Essai HQ ×2' if kind == 'hq' else 'Étape intermédiaire' if kind == 'insert' else 'Nouvelle étape',
@@ -96,6 +97,8 @@ class ImageJourneyEdits:
                 prompt=prompt, prompt_model_id=project['prompt_model_id'], progression_model_id=project['progression_model_id'],
                 prompt_request_id=journey.identity('prompt'), render_request_id=journey.identity('render'),
                 output_asset_id=None, review=None, analyses=[], created_at=journey.timestamp())
+            if kind != 'hq':
+                op.update(journey.direction_snapshot(project))
             if settings:
                 op['settings'] = settings
             project.setdefault('image_operations', []).append(op)
@@ -199,6 +202,7 @@ class ImageJourneyEdits:
             self._update(identity, op['id'], **values)
 
     def _analyze(self, identity, op):
+        prompting = policies.manual(op)
         service = self.service
         reviewing = op['phase'] == 'reviewing'
         items = [(op['after_asset_id'], 'EARLIER — état précédent conservé' if op['kind'] == 'insert'
@@ -207,10 +211,18 @@ class ImageJourneyEdits:
             items.append((op['before_asset_id'], 'LATER — état suivant conservé, source à éditer'))
         if reviewing:
             items.append((op['output_asset_id'], 'RESULT — image réellement obtenue'))
+        reference = op.get('finished_reference_asset_id')
+        if reference:
+            if reference not in {asset_id for asset_id, _ in items}:
+                items.append((reference, 'FINISHED_REFERENCE — bâtiment terminé fourni'))
+            else:
+                items = [(asset_id, label + (' — FINISHED_REFERENCE, bâtiment terminé fourni'
+                          if asset_id == reference else '')) for asset_id, label in items]
         context = prompting.context(op)
         call = dict(id=journey.identity('analysis'), status='running', phase=op['phase'], context=context,
             input_assets=items, model_id=op['progression_model_id'], created_at=journey.timestamp(),
-            policy_version=prompting.VERSION, raw='', call_id=None)
+            policy_version=prompting.VERSION, journey_version=journey.journey_version(op),
+            journey_direction=journey.journey_direction(op), raw='', call_id=None)
         with service._lock:
             project = service._load(identity)
             self._operation(project, op['id'])['analyses'].append(call)

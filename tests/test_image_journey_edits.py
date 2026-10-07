@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from panelforge.application import image_journey_edit_prompting as prompting
+from panelforge.application import image_journey_v2_prompting as prompting_v2
 from panelforge.application.image_journeys import JourneyConflict
 from panelforge.application.prompt_lab import CompletionResult, CompletionStreamEvent, StreamEventKind, StreamPhase
 from panelforge.domain import image_journeys as policy
@@ -21,13 +22,16 @@ class EditGateway(JourneyGateway):
     premature_end = False
 
     def stream(self, request):
-        if request.operation_id in {prompting.PLAN_OPERATION, prompting.REVIEW_OPERATION}:
+        reviewing = request.operation_id in {prompting.REVIEW_OPERATION, prompting_v2.REVIEW_OPERATION}
+        if reviewing or request.operation_id in {prompting.PLAN_OPERATION, prompting_v2.PLAN_OPERATION}:
             self.requests.append(request)
             value = (dict(assessment='usable', observation='Le deck demandé est visible.')
-                     if request.operation_id == prompting.REVIEW_OPERATION else
+                     if reviewing else
                      dict(title='Deck seul', change='Retirer la porte et son ouverture en conservant le deck.',
                           preserve='Le même deck, le cadrage et les couleurs.'))
-            raw = 'invalid' if self.bad_manual_review and request.operation_id == prompting.REVIEW_OPERATION else json.dumps(value)
+            if not reviewing and request.operation_id == prompting_v2.PLAN_OPERATION:
+                value['change'] += ' Déplacer la personne vers la droite du chantier.'
+            raw = 'invalid' if self.bad_manual_review and reviewing else json.dumps(value)
             yield CompletionStreamEvent(StreamEventKind.COMPLETED, StreamPhase.COMPLETED,
                 result=CompletionResult(request.model_id, raw, call_id='manual-call'))
             return

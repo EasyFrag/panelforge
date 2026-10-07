@@ -3,7 +3,7 @@
 Implémentation du 25 septembre 2026 dans le checkout `D:\Code\panelforge-krea2-flux`, branche `feature/video-factory-2026-09-25`.
 
 
-## Preset Petits hommes — expérimental (30 septembre 2026)
+## Preset Petits hommes — expérimental (1er octobre 2026)
 
 Le preset garde une image de départ et un plan continu de 10 secondes. Une main
 géante détourne un objet du quotidien à échelle humaine, monumental pour les
@@ -19,8 +19,16 @@ ventouse de débouchage au premier geste d’aide pour une inondation,
 flammes vivantes puis extinction
 pour un incendie. La ventouse doit évacuer l’eau et abaisser durablement son
 niveau ; les gestes suivants restent libres, si nécessaires. Cette contrainte
-d’objet ne concerne pas les tsunamis. Tornades et réparations n’ajoutent
-aucune consigne ciblée ; le choix de l’objet et des gestes reste libre.
+d’objet ne concerne pas les tsunamis. Les réparations gardent le choix libre
+de l’objet et des gestes, sans consigne ciblée supplémentaire.
+
+Depuis le 1er octobre, une tornade reçoit la consigne « Aucun parapluie », avec
+aspirateur, éventail ou saisie directe pour l’envoyer au loin comme pistes.
+L’orage/tonnerre reçoit une direction de dissipation du nuage, par exemple
+avec un éventail, puis arrêt des éclairs et éclaircie. Pour la pluie seule,
+la main abrite les petits hommes, par exemple sous un parapluie laissé en
+place. L’interdiction du parapluie reste limitée aux tornades ; les exemples
+sont alternatifs, les gestes suivants restent libres si nécessaires.
 
 Pour la sécheresse, la consigne demande systématiquement une pousse magique,
 immédiate et luxuriante partout où l’eau touche la terre. La végétation suit
@@ -30,7 +38,9 @@ Elle se développe pendant l’irrigation dans les dix secondes du plan.
 Le repérage utilise l’intention vidéo et le contexte saisi, puis l’intention
 KREA et la description de l’image exacte. Les labels, noms de fichiers et styles
 ne servent pas à déterminer le problème. Une vague prime sur l’inondation
-qu’elle provoque. Les cas absents ou ambigus sont laissés au Plan visuel,
+qu’elle provoque. Un besoin déjà explicite (tornade, inondation, sécheresse,
+incendie, réparation) prime sur la pluie ou le tonnerre qui l’accompagnent ;
+un orage prime sur la pluie seule. Les cas absents ou ambigus sont laissés au Plan visuel,
 sans ajouter plusieurs objectifs. Le contexte complet est lu avant réduction.
 
 Le Plan relie besoin, mécanisme et bénéfice durable dans une phrase de
@@ -112,6 +122,9 @@ La politique typée little_men.localized_thanks.v4 distingue les nouvelles
 préparations. Les sessions v1/v2/v3 commencées gardent leurs entrées et règles.
 Depuis le 30 septembre, les nouvelles sélections fixent aussi la ventouse au
 premier geste d’inondation, puis le résultat végétal luxuriant pour la sécheresse.
+Depuis le 1er octobre, un marqueur weather_direction=v1 active aussi les
+directions tornade/orage/pluie et leur détection. Les anciennes sélections
+gardent leur détection antérieure pour préserver exactement leurs entrées.
 Les marqueurs correspondants sont conservés entre Plan et Prompt. Les anciennes
 sélections v4 sans ces marqueurs conservent leur texte verrouillé ; dupliquer
 une ancienne fiche permet d’adopter la

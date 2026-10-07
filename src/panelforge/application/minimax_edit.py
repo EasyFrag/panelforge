@@ -1,6 +1,7 @@
 """MiniMax workshop using the same project lifecycle as Qwen."""
 from panelforge.domain import minimax_edit as policy
 from . import minimax_edit_assistance as assistance
+from . import image_journey_reference_prompting as journey_references
 from .qwen_edit import QwenEditService
 
 
@@ -8,10 +9,37 @@ class MinimaxEditService(QwenEditService):
     def __init__(self, **kwargs):
         super().__init__(policy=policy, prompting=assistance, **kwargs)
 
+    def begin_message(self, project_id, stage_id, *, revision, request_id, render_after_prompt=False):
+        with self._lock:
+            project, message_id = super().begin_message(project_id, stage_id, revision=revision,
+                request_id=request_id, render_after_prompt=render_after_prompt)
+            stage = next(s for s in project["stages"] if s["id"] == stage_id)
+            message = next(m for m in stage["messages"] if m["id"] == message_id)
+            if (project.get("managed_by") == "image-journey" and message["status"] == "queued"
+                    and not message.get("journey_reference_policy") and journey_references.supports(message["context"])):
+                message.update(journey_reference_policy=journey_references.VERSION,
+                    policy_version=assistance.VERSION + "+journey-reference-" + journey_references.VERSION,
+                    system_prompt=message["system_prompt"] + "\n" + journey_references.SYSTEM)
+                self._save(project)
+            return project, message_id
+
+    def _decode_message(self, message, raw):
+        if message.get("journey_reference_policy") == journey_references.VERSION:
+            reply, prompt = journey_references.decode(raw, message["context"])
+            return reply, prompt, None
+        return super()._decode_message(message, raw)
+
     def ensure_journey_step(self, step):
         """Idempotent child project sharing the existing prompt and GPU queue services."""
         from .qwen_edit import _now
         identity = policy.journey_child_id(step["id"])
+        finished = step.get("finished_reference_asset_id")
+        references = []
+        if finished and finished != step["source_asset_id"]:
+            references = [dict(id="journey-finished", asset_id=finished, name="Bâtiment terminé",
+                role="Référence permanente de forme, proportions et matériaux des parties restantes. "
+                     "Ne pas rétablir les éléments retirés hors demande explicite ni copier les positions des personnages.",
+                usage="render", active=True)]
         with self._lock:
             try:
                 project = self.projects.get(identity)
@@ -20,6 +48,8 @@ class MinimaxEditService(QwenEditService):
             if project:
                 if project.get("journey_step_id") != step["id"] or project["stages"][0]["source_asset_id"] != step["source_asset_id"]:
                     raise ValueError("Le projet MiniMax ne correspond pas à cette étape du parcours.")
+                if finished and project["stages"][0]["references"] != references:
+                    raise ValueError("La référence du bâtiment terminé ne correspond plus à cette étape.")
                 return project
             source = self.assets.get(step["source_asset_id"])
             if not source.media_type.startswith("image/"):
@@ -31,6 +61,15 @@ class MinimaxEditService(QwenEditService):
                 if stage['source_dimensions'] != profile['dimensions']:
                     raise ValueError('La source ne respecte plus les dimensions fixes du parcours.')
                 stage['settings'] = policy.Settings(**{**stage['settings'], **profile['settings']}).record()
+            for reference in references:
+                if not self.assets.get(reference["asset_id"]).media_type.startswith("image/"):
+                    raise ValueError("La référence du bâtiment terminé doit être une image.")
+                dimensions = self.images.dimensions(self.assets.read_bytes(reference["asset_id"]))
+                if profile and list(dimensions) != profile["dimensions"]:
+                    raise ValueError("La référence terminée doit garder les dimensions fixes du parcours.")
+            stage["references"] = references
+            policy.validate_references(references)
+            policy.render_inputs(stage)
             project = dict(schema_version=1, engine=self.engine, id=identity, version=0,
                 name=f"Parcours · {step['index']} · {step['action']['title']}"[:120],
                 created_at=_now(), updated_at=_now(), active_stage_id=stage["id"], stages=[stage],
@@ -44,9 +83,13 @@ class MinimaxEditService(QwenEditService):
             stage = next(s for s in project["stages"] if s["id"] == stage_id)
             settings = policy.Settings(**stage["settings"])
             if settings.reference_mode == "native":
-                source = self.images.dimensions(self.assets.read_bytes(stage["source_asset_id"]))
-                if any(v < 64 or v > 4096 or v % 32 for v in source):
-                    raise ValueError("La référence native doit déjà être alignée aux dimensions MiniMax.")
+                inputs = policy.render_inputs(stage)
+                if len(inputs) > 1 and not self.workflow.manifest["capabilities"].get("native_multi_reference"):
+                    raise ValueError("Les références natives multiples nécessitent le workflow MiniMax 1.3.0.")
+                for reference in inputs:
+                    dimensions = self.images.dimensions(self.assets.read_bytes(reference["asset_id"]))
+                    if any(v < 64 or v > 4096 or v % 32 for v in dimensions):
+                        raise ValueError("Chaque référence native doit être alignée aux dimensions MiniMax.")
             return super().queue_attempt(project_id, stage_id, revision=revision, request_id=request_id)
 
     def list(self):

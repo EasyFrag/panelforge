@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from panelforge.application.image_journeys import JourneyConflict
-from panelforge.domain.image_journeys import DEFAULT_IMAGES, MAX_IMAGES, DEFAULT_MASK_MODEL_ID
+from panelforge.domain.image_journeys import DEFAULT_IMAGES, MAX_IMAGES, DEFAULT_MASK_MODEL_ID, DEFAULT_JOURNEY_VERSION, DEFAULT_JOURNEY_DIRECTION
 from panelforge.domain.minimax_edit import DEFAULT_ASSISTANT_MODEL
 
 
@@ -21,6 +21,7 @@ class ResumeBody(BaseModel):
 
 class TransitionSelectionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    frame_order: Literal["generation", "reverse_generation"] = "generation"
     frame_ids: list[Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")]] = Field(min_length=2)
 
 
@@ -79,7 +80,7 @@ def image_journeys_router(service):
     @router.get("/spec")
     def spec():
         from panelforge.domain.image_journey_edits import HQ_PROMPT
-        return invoke(lambda: dict(default_images=DEFAULT_IMAGES, max_images=MAX_IMAGES, hq_prompt=HQ_PROMPT,
+        return invoke(lambda: dict(default_journey_direction=DEFAULT_JOURNEY_DIRECTION, default_journey_version=DEFAULT_JOURNEY_VERSION, default_images=DEFAULT_IMAGES, max_images=MAX_IMAGES, hq_prompt=HQ_PROMPT,
                                   default_model_id=DEFAULT_ASSISTANT_MODEL, default_mask_model_id=DEFAULT_MASK_MODEL_ID,
                                   transitions_available=service.transitions is not None))
 
@@ -100,14 +101,17 @@ def image_journeys_router(service):
                      intention: Annotated[str, Form(max_length=6000)] = "",
                      count: Annotated[int, Form(ge=1, le=MAX_IMAGES)] = DEFAULT_IMAGES,
                      auto_mask: Annotated[bool, Form()] = False,
-                     mask_model_id: Annotated[str | None, Form(min_length=1, max_length=300)] = None):
+                     mask_model_id: Annotated[str | None, Form(min_length=1, max_length=300)] = None,
+                     journey_version: Annotated[str | None, Form(pattern=r"^[12]$")] = None,
+                     journey_direction: Annotated[str | None, Form(pattern=r"^(forward|reverse)$")] = None):
         try:
             content = await source_image.read(25 * 1024**2 + 1)
             if len(content) > 25 * 1024**2:
                 raise HTTPException(413, "Une image est limitée à 25 Mio.")
             return await run_in_threadpool(lambda: invoke(lambda: service.create(command=command, content=content,
                 intention=intention, count=count, progression_model_id=progression_model_id,
-                prompt_model_id=prompt_model_id, auto_mask=auto_mask, mask_model_id=mask_model_id), True))
+                prompt_model_id=prompt_model_id, auto_mask=auto_mask, mask_model_id=mask_model_id,
+                journey_version=journey_version, journey_direction=journey_direction), True))
         finally:
             await source_image.close()
 
@@ -141,6 +145,7 @@ def image_journeys_router(service):
 
     @router.post("/projects/{identity}/transitions")
     def transitions(identity: str, body: TransitionSelectionBody | None = None):
-        return invoke(lambda: service.prepare_transitions(identity, frame_ids=body.frame_ids if body else None))
+        return invoke(lambda: service.prepare_transitions(identity, frame_ids=body.frame_ids if body else None,
+                                                          frame_order=body.frame_order if body else "generation"))
 
     return router

@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20260928.navigation1">
+  <link rel="stylesheet" href="/static/lab.css?v=20261001.thermal-scale1">
   <script src="/static/lab.js?v=20260929.storyv2" defer></script>
   <script src="/static/network-mode.js?v=20260928.1" defer></script>
-  <script src="/static/work-queue.js?v=20260927.remote-thermal1" defer></script>
+  <script src="/static/work-queue.js?v=20261001.thermal-scale1" defer></script>
   <script src="/static/lab-core.js?v=20260929.mask1" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
@@ -54,19 +54,19 @@
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
   <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260928.minimax1">
   <script src="/static/qwen-edit-v2.js?v=20260928.minimax2" defer></script>
-  <link rel="stylesheet" href="/static/image-journeys.css?v=20260930.selection1">
-  <script src="/static/image-journey-actions.js?v=20260930.selection1" defer></script>
-  <script src="/static/image-journeys.js?v=20260930.selection1" defer></script>
+  <link rel="stylesheet" href="/static/image-journeys.css?v=20261005.align2">
+  <script src="/static/image-journey-actions.js?v=20261004.order1" defer></script>
+  <script src="/static/image-journeys.js?v=20261005.defaults1" defer></script>
   <link rel="stylesheet" href="/static/video-factory.css?v=20260928.compact1">
   <link rel="stylesheet" href="/static/video-factory-monitor.css?v=20260928.ready1">
   <script src="/static/video-factory-monitor.js?v=20260928.preview4" defer></script>
   <script src="/static/video-factory.js?v=20260929.storyv2" defer></script>
-  <link rel="stylesheet" href="/static/image-transitions.css?v=20260929.refs1">
+  <link rel="stylesheet" href="/static/image-transitions.css?v=20261004.send1">
   <script src="/static/image-transition-references.js?v=20260929.refs1" defer></script>
-  <script src="/static/image-transitions.js?v=20260929.visual2" defer></script>
-  <link rel="stylesheet" href="/static/story-v2.css?v=20260929.editorial1">
+  <script src="/static/image-transitions.js?v=20261005.prefill1" defer></script>
+  <link rel="stylesheet" href="/static/story-v2.css?v=20261001.edition21">
   <script src="/static/story-v2-settings.js?v=20260929.defaults1" defer></script>
-  <script src="/static/story-v2.js?v=20260930.address1" defer></script>
+  <script src="/static/story-v2.js?v=20261005.profiles1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -116,10 +116,11 @@
     <nav class="sv2-tabs" aria-label="Étapes de l’histoire"><button type="button" data-sv2-tab="scenario" class="active">Scénario</button><button type="button" data-sv2-tab="references">Références</button><button type="button" data-sv2-tab="videos">Vidéos</button></nav>
     <section id="sv2-scenario">
       <form id="sv2-form">
+        <label class="sv2-writing-version">Version d’écriture<select id="sv2-writing-version"><option value="2.1" selected>V2.1 — Dialogues denses</option><option value="2.0">V2 — Actuelle</option></select></label>
         <details id="sv2-brief" open><summary>Réglages <span id="sv2-settings-summary" class="muted"></span></summary>
           <details id="sv2-idea-settings" class="sv2-setting-group" open><summary>Idée et réglages</summary>
             <label>Ton idée<textarea id="sv2-idea" rows="3" required minlength="3" maxlength="12000" placeholder="Qui, quelle situation, quel retournement ? Quelques phrases suffisent."></textarea></label>
-            <div class="sv2-grid"><label>Univers<input id="sv2-universe" required minlength="2" maxlength="1500" placeholder="Ex. fruits adultes anthropomorphes"></label><label>Style visuel<input id="sv2-style" required minlength="2" maxlength="1500" placeholder="Ex. animation 3D expressive"></label><label>Durée visée (s)<input id="sv2-duration" type="number" min="10" max="180" step="1" value="60" required></label><label>Durée par scène (s)<select id="sv2-scene-duration"><option value="" disabled>Ancien découpage · libre</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10" selected>10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option></select></label><label>Parcours<select id="sv2-mode"><option value="manual">Manuel</option><option value="automatic">Automatique</option></select></label></div>
+            <div class="sv2-grid"><div><label>Univers<select id="sv2-universe" required><option value="" disabled>Choisir…</option><option value="Fruits adultes anthropomorphes, avec bras, jambes, vêtements et visages expressifs">Fruits anthropomorphes</option><option value="Humains, France contemporaine">Humains · France contemporaine</option><option value="__custom__">Personnalisé…</option></select></label><label id="sv2-universe-custom-field" hidden>Univers personnalisé<input id="sv2-universe-custom" minlength="2" maxlength="1500" disabled></label></div><div><label>Style visuel<select id="sv2-style" required><option value="" disabled>Choisir…</option><option value="Animation 3D expressive, couleurs vives">Animation 3D expressive</option><option value="Cinéma réaliste, éclairage naturel">Cinéma réaliste</option><option value="__custom__">Personnalisé…</option></select></label><label id="sv2-style-custom-field" hidden>Style personnalisé<input id="sv2-style-custom" minlength="2" maxlength="1500" disabled></label></div><label>Durée visée (s)<input id="sv2-duration" type="number" min="10" max="180" step="1" value="60" required></label><label>Durée par scène (s)<select id="sv2-scene-duration"><option value="" disabled>Ancien découpage · libre</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10" selected>10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option></select></label><label>Ton<select id="sv2-tone-profile" title="Sketch provocateur : hook fort, langage cru, répartie et fin marquante."><option value="from_idea">Selon l’idée</option><option value="provocative_sketch">Sketch provocateur</option></select></label><label>Parcours<select id="sv2-mode"><option value="manual">Manuel</option><option value="automatic">Automatique</option></select></label></div>
             <small class="muted">La durée totale est conservée ; les dernières scènes s’ajustent si nécessaire.</small>
             <div class="sv2-grid"><label>Écriture<select id="sv2-writer-model"></select></label><div><label>Relecture<select id="sv2-reader-model"></select></label><label class="sv2-check"><input id="sv2-final-review-enabled" type="checkbox"> Ajouter une étape de contrôle final</label></div></div>
           </details>
@@ -174,8 +175,7 @@
       <label><input id="it-all" type="checkbox"> <span id="it-count">Sélection</span></label>
       <label>Rythme<select id="it-pace-preset" data-it-setting="pace_preset" aria-label="Preset de rythme des transitions"></select></label>
       <button id="it-propose" type="button">Proposer les transitions</button>
-      <button id="it-review" type="button">Valider la sélection</button>
-      <button id="it-send" type="button" class="factory-button">Envoyer à l’usine</button>
+      <span id="it-send-status"><button id="it-send" type="button" class="factory-button" disabled>Envoyer à l’usine</button></span>
       <button id="it-save" type="button">Enregistrer</button>
       <span id="it-progress" aria-live="polite"></span>
     </div>
@@ -1524,20 +1524,40 @@
     <section class="ij-content">
       <header class="ij-heading">
         <h1>Parcours d’images autonome</h1>
+        <select id="ij-journey-direction" aria-label="Sens du parcours" title="Sens du parcours — conservé après création">
+          <option value="forward">Construction</option>
+          <option value="reverse" selected>À rebours</option>
+        </select>
+        <select id="ij-journey-version" aria-label="Version du parcours" title="Version du parcours — conservée après création">
+          <option value="1">V1 — Actuelle</option>
+          <option value="2" selected>V2 — Scène vivante</option>
+        </select>
         <select id="ij-projects" aria-label="Parcours enregistrés"><option value="">Nouveau parcours</option></select>
         <button id="ij-new" type="button">Nouveau</button>
       </header>
       <details id="ij-setup" class="ij-setup" open>
-        <summary>Image de départ et réglages</summary>
+        <summary id="ij-setup-label">Image de départ et réglages</summary>
       <form id="ij-form" class="ij-form">
         <div class="ij-inputs">
-          <div class="ij-source"><label for="ij-source">Image de départ</label>
+          <div class="ij-source"><label id="ij-source-label" for="ij-source">Image de départ</label>
             <span><button id="ij-source-open" class="ij-source-open" type="button" data-ij-thumbnail aria-label="Agrandir l’image de départ" title="Agrandir l’image de départ" hidden><img id="ij-source-preview" alt="Image de départ" hidden></button><input id="ij-source" type="file" accept="image/png,image/jpeg,image/webp" required></span>
           </div>
           <label class="ij-intention">Intention <small>facultative</small>
-            <textarea id="ij-intention" rows="2" maxlength="6000" placeholder="Transformer cette cave en un salon chaleureux…"></textarea>
+            <textarea id="ij-intention" rows="2" maxlength="6000" placeholder="Transformer cette cave en un salon chaleureux…">Créer une progression dans un monde miniature surréaliste, où de minuscules habitants bâtissent un édifice avec des objets du quotidien détournés. L’objectif final est un bâtiment achevé, habité et immédiatement reconnaissable, intégré au décor de départ.
+
+Les objets doivent rester clairement identifiables : un bouton conserve ses trous, une pièce ses gravures, une allumette sa tête colorée. Ces objets ordinaires sont gigantesques à l’échelle des petits personnages. Rechercher le charme d’une maquette artisanale photographiée en macro, avec des matières tangibles et des assemblages inventifs.
+
+Choisir librement quelques matériaux dans cette palette, sans chercher à tous les utiliser : boutons pour les façades et fenêtres ; allumettes, cure-dents ou bâtonnets de café pour les structures ; pièces de monnaie pour les plateformes ; capsules pour les toits ; trombones pour les arches et garde-corps ; perles pour les lampes et ornements ; bouchons de liège, dés ou dominos pour les volumes ; bobines de fil pour les tours ; coquilles de pistache pour les tuiles ; emballage transparent pour les vitres. Les nouveaux éléments construits doivent provenir de ces objets détournés, sans devenir du béton, des parpaings ou des matériaux de chantier conventionnels.
+
+Organiser dès le départ la progression pour terminer le bâtiment dans le nombre d’images demandé. Privilégier les transformations visibles : apparition du volume principal, développement des façades, puis toiture et finitions. Commencer rapidement à construire au-dessus du sol. Éviter de consacrer les étapes au terrassement, aux fondations enterrées ou aux réseaux techniques. L’architecture peut être fantaisiste et physiquement improbable : sa lisibilité et son inventivité comptent davantage que les règles du bâtiment.
+
+La dernière image montre obligatoirement l’édifice terminé, avec son volume complet, ses façades, une entrée identifiable, des ouvertures et une toiture installée. Aucun élément essentiel ne reste « à construire ensuite ».
+
+Entre les images, renouveler visiblement la population sur le chantier et en arrière-plan : personnages différents, déplacements, arrivées, départs, attroupements et dispersions. Varier les emplacements et les concentrations de façon spontanée, désordonnée mais plausible. Les ouvriers accompagnent la construction ; les passants vivent indépendamment du chantier. Garder une échelle humaine minuscule et cohérente.
+
+Conserver exactement le cadrage, le point de vue et les éléments fixes environnants. Les travaux restent centraux. Chaque image est un instant net, sans flou de mouvement.</textarea>
           </label>
-          <label class="ij-count">Nouvelles images<input id="ij-count" type="number" value="5" min="1" max="30" required></label>
+          <label class="ij-count">Nouvelles images<input id="ij-count" type="number" value="3" min="1" max="30" required></label>
         </div>
         <div class="ij-quality">
           <small id="ij-resolution">≈ 3 MP · 18 passes</small>
@@ -1568,6 +1588,10 @@
         <p id="ij-destination" class="ij-destination"></p>
         <details id="ij-plan" hidden><summary>Étapes prévues</summary><ol id="ij-milestones"></ol></details>
         <p id="ij-warning" class="ij-warning" hidden></p>
+        <div id="ij-order-controls" class="ij-order-controls" hidden>
+          <small id="ij-order-label" role="status"></small>
+          <button id="ij-reverse-order" type="button" aria-pressed="false" aria-controls="ij-frieze" title="Les transitions suivront l’ordre affiché">Inverser l’ordre</button>
+        </div>
         <div id="ij-frieze" class="ij-frieze" aria-label="Images du parcours"></div>
         <div id="ij-operations" class="ij-operations" aria-live="polite" hidden></div>
         <div class="ij-handoff">

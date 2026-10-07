@@ -1,5 +1,584 @@
 # CONTINUITY
 
+## Publication 2026-10-07 — Version majeure 2.0.0
+
+### Goal
+- Demande explicite : « Fais une version git hub majeure ». Publier l’état applicatif présent comme v2.0.0.
+
+### Current state
+- Préparation depuis D:/Code/panelforge-krea2-flux ; parent distant master 30453c4f346667b6c560c00293ba8715c16519c7. Le checkout actif reste sur feature/krea2-v6-style-catalog-2026-09-26 / c8e96dd.
+- Version applicative portée à 2.0.0 dans pyproject.toml et src/panelforge/__init__.py. Notes docs/releases/2.0.0.md et lien README ajoutés.
+- Publication prévue par index temporaire, commit descendant du dernier master et tag annoté v2.0.0, avec branche releases/v2.0.0. Index et branches de travail conservés ; aucun code fonctionnel modifié pour cette tâche.
+- Le correctif de transmission contre les mains géantes reste proposé, non implémenté. Cette limite est explicitée dans les notes de version.
+- Tests réservés à l’utilisateur ; aucun appel LLM, génération ou redémarrage autorisé/nécessaire pour la publication.
+
+### Next steps
+- Terminer les contrôles statiques, publier master/branche de release/tag sans force et vérifier les références distantes.
+- Consigner le commit publié et les contrôles dans D:/Code/panelforge/.agent/diagnostics/github-major-20261007/.
+
+## Audit 2026-10-05 — Mains extérieures dans les chantiers miniatures
+
+### Goal
+- Petit état des lieux demandé sur les dernières générations avec la nouvelle intention. Audit uniquement, aucun patch demandé à ce tour.
+
+### Current state
+- Échantillon figé : 13 dernières unités créées ayant un rendu brut terminé et la nouvelle description d’ouvriers ; cinq images clés par vidéo (0 / 1,812 / 3,625 / 5,438 / 7,250 s). Pas de lecture continue ni d’écoute, donc pas de taux de défaut ni de garantie d’absence entre ces images.
+- Défauts confirmés : factory-2504e6586b8c41189e1e21359e911684 (Eiffel, 2→3), main extérieure avec marteau vers 1,812 et 5,438 s ; factory-eea9092870d04ce08cc92e378c01b339 (toits en pistaches, 2→3), main avec pince aux mêmes instants ; factory-e66cd40d68934daea087cd5aada91b65 (flèche cure-dents, 3→4), main et flacon de colle vers 1,812 s. Outils extérieurs aussi sur deux autres unités de l’échantillon. Pas de main extérieure visible dans les images examinées de plusieurs autres plans, notamment palissade et château ; certains ouvriers restent trop grands.
+- Références originales des trois cas détaillés vérifiées sans main ni ouvrier. Défauts déjà présents dans les images clés du rendu brut : DLSS n’en est pas l’origine.
+- Nouvelle intention bien reçue par les 13 unités. Leurs Plans contiennent l’exclusion des mains/outils extérieurs, mais cette contrainte n’est pas reprise explicitement dans leurs prompts finaux. Sur les trois cas détaillés, trace Writer vérifiée : le Plan Qwen et sa contrainte sont fournis à Gemma, qui omet cette partie dans ses paragraphes d’action.
+- Faiblesse localisée : dans le checkout actif D:/Code/panelforge-krea2-flux, classic_cinematic.Writer produit uniquement les actions ; cinematic_core_v1.compile_sequence réinsère cadrage/rythme/cues/caméra/fin/raccord mais pas continuity_invariants. Si le Writer ne transpose pas une contrainte, elle disparaît ; la validation finale ne contrôle pas cette exclusivité textuelle. Les prompts effectifs des 13 rendus sont identiques aux prompts usine hors saut de ligne final.
+- Hypothèse distincte : table/maquette + pinces, colle, marteaux et gestes sans manipulateur explicite peuvent favoriser une intervention de maquettiste. Ce n’est pas une causalité démontrée ; des consignes de taille conservées sont aussi mal suivies.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/transition-giant-hand-audit-20261005/ (sample.json, trois planches de keyframes, references-and-defects.jpg, trois traces Writer, text-chain-findings.json, audit-summary.json).
+- Aucun changement de code ou runtime, test, appel LLM, génération, redémarrage, commit ou push.
+
+### Next steps
+- Rapporter les trois exemples et la perte entre Plan et Prompt. Recommander un correctif ciblé qui conserve l’exclusivité des ouvriers et rattache chaque outil à un ouvrier/engin à leur échelle, plutôt qu’un nouvel allongement de l’intention.
+- Attendre une demande de patch ; ses futurs rendus devront vérifier l’effet réel. Ne pas promettre de suppression totale, modifier les unités en file, ou relancer des générations à ce stade.
+
+## Implémentation 2026-10-05 — Bouton Créer la suite à gauche
+
+### Goal
+- Mini patch UX : aligner Créer la suite à gauche du formulaire.
+
+### Current state
+- Dans le checkout actif D:/Code/panelforge-krea2-flux, .ij-form-bottom autorise le retour à la ligne et son panneau Modèles occupe toute la largeur. Le bouton suit en dessous, au bord gauche, dans le même ordre de navigation clavier.
+- Deux règles CSS ajustées, cache CSS 20261005.align2 dans index.html. Diff inspecté ; aucun changement de logique, test exécuté, génération ou redémarrage.
+
+### Next steps
+- Ctrl+F5 pour charger le nouvel alignement ; vérifier le formulaire avec Modèles replié ou ouvert.
+
+## Diagnostic et correctif 2026-10-05 — Faux dépassement de dialogue à huit secondes
+
+### Goal
+- Utilisateur signale WritingScript / seq-2 « trop de paroles pour laisser jouer la scène en 8 s », demande cause et avis sur la densité qu’il juge bonne. Vérifier le vrai run et corriger le défaut de comptage démontré, sans alléger les dialogues ni relever le seuil.
+
+### Current state
+- Projet identifié : storyv2-4b829d5e03e354f4b7357194dd741dd2, Le 69 de Mama Banane, 24 s / 3 × 8 s, V2.1 + Sketch provocateur. Écriture Qwen et première relecture réussies ; échec pendant la retouche Gemma, appel llm-474bfcf9a6ff4b048c93c5cc77209777, environ 119 s. Ce n’est pas un refus d’écriture initiale ni une validation vidéo.
+- Cause précise : domaine Script comptait chaque bloc non blanc (regex S+) comme un mot, y compris la ponctuation française isolée. Scène 2 Gemma : 32 blocs = 28 blocs contenant lettres/chiffres + quatre blocs de ponctuation (!, ?, ?!, ?). Plafond 8 × 3,5 = 28. Le seul retrait de cette ponctuation annule le dépassement. Scènes 1/2/3 Gemma hors ponctuation : 24/28/25 ; Qwen : 22/16/20. Gemma densifie donc réellement la scène 2, sans que l’erreur prouve une impossibilité de la jouer.
+- Avis : 28 mots estimés en 8 s est soutenu, cohérent avec le sketch rapide demandé ; entrée de la mère, rire et trois prises de parole rendent le rendu à vérifier. Le compteur reste une approximation textuelle, pas une mesure audio/syllabique. Pas de recommandation de ralentir toutes les scènes ou de changer les modèles à partir de ce rejet.
+- À l’inspection le projet est déjà prepared (updated_at 2026-10-05T08:48:00Z), error=null ; son script est exactement scenario.pre_polish. La retouche Gemma refusée n’est donc pas appliquée à la version envoyée en Préparation. Aucun changement/rejeu de ce projet ni génération lancé.
+- Correctif ciblé dans D:/Code/panelforge-krea2-flux/src/panelforge/domain/story_v2.py, VERSION 1.6.1 : compter les blocs contenant au moins une lettre ou un chiffre ; ignorer les ponctuations seules, quelle que soit l’espace utilisée. Contractions, composés avec tirets et nombres restent comptés comme auparavant. Seuil de 3,5, durées, champs, modèles, prompts et enchaînement inchangés. Un vrai dépassement donne désormais aussi le nombre compté et la limite dans l’erreur.
+- Deux régressions ajoutées aux tests existants test_story_v2.py et test_story_v21.py : ponctuation avec espaces normales/insécables/fines, mots accentués/contractions/composés/nombres, acceptation du cas à 28 et rejet à 29 ; retouche structurée avec trois répliques, texte/durée conservés. Tests NON exécutés selon AGENTS.md.
+- Vérifications statiques : trois Python compilés sans exécution, comparaison AST confirmant uniquement version/comptage/message dans le domaine, cinq composants protégés inchangés, aucune nouvelle ligne avec espaces finaux. Preuves et snapshot du run : D:/Code/panelforge/.agent/diagnostics/story-dialogue-word-count-20261005/ (before, project-at-inspection.json, findings.json, review.diff, static-checks.json).
+- Aucun runtime modifié, test fonctionnel, appel LLM/rendu, redémarrage, commit ou push. Le correctif doit être chargé au prochain démarrage habituel du backend.
+
+### Next steps
+1. Expliquer à l’utilisateur le faux 32 vs 28, le rôle de Gemma et la présence actuelle de la version Qwen dans Préparation. Le correctif ne réapplique pas automatiquement la retouche échouée.
+2. Tests réservés à l’utilisateur : python -m unittest discover -s tests -p "test_story_v2*.py" depuis le checkout actif avec l’environnement habituel.
+3. Conserver les huit secondes pour qualifier le rythme voulu ; envisager ensuite l’évolution avertissement/blocage seulement sur des vrais dépassements et après alignement, pas dans ce petit correctif.
+
+
+## Implémentation 2026-10-05 — Menus Univers et Style visuel dans Histoire V2
+
+### Goal
+- Demande utilisateur après essai concluant des fruits : remplacer les textes libres Univers et Style visuel par des menus déroulants. Fournir aussi une intention de sketch court sur les compteurs 0 et 69, avec protagonistes adultes.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Deux menus indépendants : Univers = Fruits anthropomorphes / Humains · France contemporaine ; Style visuel = Animation 3D expressive / Cinéma réaliste. Les choix fruits et 3D reprennent exactement les descriptions proposées et validées au tour précédent. Option Personnalisé… affichant un champ uniquement si nécessaire.
+- Anciennes descriptions hors des choix proposés affichées comme personnalisées et conservées telles quelles ; aucun rapprochement approximatif ni écrasement. Le choix de menu est converti vers le texte existant universe/style à la lecture du formulaire, jamais vers le marqueur __custom__. Préférences locales et serveur, réouverture, Nouvelle histoire et historique continuent d’utiliser le contrat actuel, sans champ supplémentaire ni migration.
+- Champs personnalisés masqués/désactivés et non requis lorsque le preset est choisi ; visibles/requis en Personnalisé, verrouillés pendant les opérations comme les menus. Cache JS 20261005.profiles1. Changement entièrement côté interface ; Ctrl+F5 suffit, aucun redémarrage backend requis.
+- Quatre fichiers concernés : index.html, story-v2.js, test_story_v2_browser.py et guide existant. Scénario navigateur adapté/étendu pour descriptions anciennes, verrouillage, transmission exacte, style personnalisé après sauvegarde/actualisation, profils mémorisés et champs cachés non bloquants. NON exécuté selon AGENTS.md.
+- Vérifications statiques réussies : source Python du test compilée sans exécution, cinq sources JavaScript compilées sans invocation (application et deux couples fixture/scénario), 2151 IDs HTML uniques, sept composants backend/prompt/réglages inchangés, pas de nouvelles lignes avec espaces finaux. Aucun test fonctionnel, appel LLM/rendu, modification runtime, redémarrage, commit ou push.
+- D’autres travaux modifiaient index.html simultanément : cache image-journeys.js defaults1, défaut À rebours et ij-count=3. Ces changements sont conservés et exclus du diff de cette tâche. Preuves : D:/Code/panelforge/.agent/diagnostics/story-brief-profiles-20261005/ (before, review.diff ciblé, observed.diff incluant les changements concurrents, static-checks.json).
+
+### Next steps
+1. Actualiser le navigateur avec Ctrl+F5 et choisir Fruits anthropomorphes / Animation 3D expressive. Les derniers choix seront repris pour les prochaines histoires.
+2. Tests réservés à l’utilisateur avec son environnement habituel : python -m unittest discover -s tests -p "test_story_v2_browser.py" depuis le checkout actif.
+3. Proposition à fournir dans la réponse : 24 secondes, trois scènes de huit secondes ; Bananito, 19 ans, compteur 0, moqué par Kiwino lors de l’arrivée de sa mère affichant 69, honte puis réplique finale crue de la mère. Pas de génération lancée par l’assistant.
+
+
+## Implémentation 2026-10-05 — Défauts du formulaire de parcours
+
+### Goal
+- Préselectionner À rebours et 3 nouvelles images dans l’interface.
+
+### Current state
+- Défauts HTML modifiés dans le checkout actif D:/Code/panelforge-krea2-flux. Le JS initialise l’intention adaptée au mode présélectionné et Nouveau rétablit ces mêmes valeurs HTML, indépendamment des anciens défauts API. Cache JS 20261005.defaults1.
+- Ouverture des parcours existants et contrat backend inchangés (anciens journaux sans direction toujours Construction). Assertions navigateur existantes et guide ajustés ; tests non exécutés selon AGENTS.md. Diff limité relu, aucun appel LLM, rendu ou redémarrage.
+
+### Next steps
+- Ctrl+F5 puis Nouveau : À rebours, intention inverse et 3 nouvelles images. Les parcours enregistrés conservent leurs propres paramètres.
+
+## Correctif 2026-10-05 — Chargement et préremplissage de la description d’ouvrier
+
+### Goal
+- L’utilisateur confirme avoir recopié manuellement le descriptif après avoir vu le champ vide. Poursuivre le diagnostic et sécuriser le préremplissage sans remplacer les descriptions personnalisées ou volontairement vides.
+
+### Current state
+- Les données inspectées au tour précédent sont postérieures à cette recopie : elles démontrent la bonne transmission actuelle au LLM, pas le préremplissage initial. Aucune trace de l’état exact du navigateur avant recopiage ; ne pas présenter la cause précise de cet incident comme démontrée.
+- Deux fragilités concrètes du front identifiées : initialize publiait spec avant la fin du GET projet et vérifiait spec avant la promesse loading, permettant à un open concurrent de repartir trop tôt puis d’être ignoré par run(busy) ; accept ne réinitialisait pas explicitement les brouillons au changement d’identité. L’ouverture depuis un parcours restaurait d’abord une ancienne frise de session même lorsqu’un nouvel export précis était demandé.
+- Petit correctif dans D:/Code/panelforge-krea2-flux/src/panelforge/features/lab/static/image-transitions.js : attendre loading en priorité, publier spec/projets seulement après chargement réussi de la frise ; open transmet l’identité cible à la première initialisation. Brouillons de réglages, intentions et nom réinitialisés uniquement lorsque l’identité de la frise change, après la sauvegarde habituelle de l’ancienne.
+- Si settings.worker est absent/null, proposer defaults.worker du serveur comme brouillon visible et le sauvegarder à la prochaine action prévue. Une chaîne vide explicite reste vide ; un texte personnalisé est conservé. L’image d’ouvrier continue de masquer/désactiver la description et de l’exclure du pipeline. Aucune nouvelle consigne ni modification du backend.
+- Cache JavaScript passé à 20261005.prefill1 dans index.html. Documentation Transitions précisée. Quatre fichiers modifiés : JS, index HTML, test navigateur existant et guide. Le nouveau run et le texte recopié restent intacts ; aucun projet runtime modifié.
+- Scénario navigateur simulé étendu : restauration retardée d’une ancienne frise avec worker vide, ouverture concurrente de la nouvelle, défaut visible ; retrait de référence rétablissant le texte sauvegardé, champ volontairement vide conservé après actualisation, champ manquant proposé puis sauvegardé, texte personnalisé conservé et Nouvelle frise revenant au défaut. Scénarios préparés, NON exécutés selon AGENTS.md.
+- Vérifications statiques réussies : Python du test compilé sans exécution, trois sources JavaScript compilées sans invocation via le parseur Chrome local (application, fixture, scénario), 2147 IDs HTML uniques et 43 sélecteurs présents. Diff isolé relu, aucune nouvelle ligne avec espaces finaux. Pas de test fonctionnel, appel LLM, rendu, redémarrage, commit ou push.
+- Sauvegardes exactes et preuves : D:/Code/panelforge/.agent/diagnostics/transition-worker-prefill-20261005/ (before, review.diff, static_checks.py, static-checks.json). L’audit initial reste dans transition-worker-empty-20261005/findings.json.
+
+### Next steps
+1. Ctrl+F5 suffit pour charger ce correctif d’interface ; aucun redémarrage backend requis. Vérifier le défaut dès l’ouverture d’une nouvelle frise depuis un parcours ou Nouvelle frise.
+2. Tests réservés à l’utilisateur : depuis le checkout actif avec PYTHONPATH=src, python -m unittest discover -s tests -p "test_image_transitions_browser.py".
+3. Si le vide réapparaît, capturer le contexte avant recopiage (frise et moment d’ouverture) pour isoler une éventuelle autre cause ; ne pas remigrer aveuglément tous les champs vides.
+
+
+## Audit 2026-10-05 — Description d’ouvrier signalée vide sur un nouveau run
+
+### Goal
+- Vérifier le signalement : Description textuelle de l’ouvrier aurait été vide à l’ouverture d’une nouvelle frise malgré le défaut miniature.
+
+### Current state
+- Dernière frise identifiée : transitions-4b5c7021e4834c77b69dbef898237af3, créée le 5 octobre à 07:30 UTC (09:30 Paris), depuis journey-57d511e4d91b5581bea60f005608d781 ; quatre images, aucun worker_reference. À la lecture versions 7 puis 10 : settings.worker contient exactement le nouveau descriptif complet des ouvriers miniatures.
+- L’analyse analysis-83691065fd674d3ba6b375b8b9c204b1 était en cours. Ses trois snapshots contiennent tous ce texte. La requête réellement enregistrée llm-44111e02c14c4765a1028e773ee9cfd0 (image.transitions.propose@3.1.0, deux images) le contient également dans settings.worker. Le run utilise donc actuellement la consigne, sans modification de notre part.
+- Vérifications GET sur le Lab actif port 7861 : /spec sert le bon defaults.worker et direct_send=true ; GET de la frise sert worker complet et worker_reference=null. Le JavaScript servi correspond au checkout. Le port historique 7860 est inactif ; aucun redémarrage ni modification réseau.
+- Parcours de création relu : ImageJourneyService.prepare_transitions appelle ImageTransitionService.create, qui utilise les defaults du domaine ; aucun écrasement du champ à l’export. Front paintSettings affiche le texte enregistré, sauf image d’ouvrier présente (vide/désactivé intentionnellement). Ce dernier cas ne s’applique pas à la frise actuelle.
+- Quatre anciennes frises ont worker vide (30 septembre / 1er octobre), mais aucune des trois plus récentes. Aucune migration ou préremplissage forcé à l’ouverture effectué : cela écraserait un champ volontairement vidé sans preuve du problème.
+- Question asynchrone envoyée : l’utilisateur a-t-il recopié le descriptif lui-même après avoir constaté le vide ? Réponse non reçue au moment de cette note. Sans cette précision, les données actuelles ne permettent pas de déterminer l’état initial aperçu ni de confirmer un défaut d’affichage.
+- Aucun code applicatif ni runtime modifié ; aucun test, appel LLM, génération, redémarrage, commit ou push. Preuves compactes : D:/Code/panelforge/.agent/diagnostics/transition-worker-empty-20261005/findings.json. Seules les notes de continuité sont mises à jour.
+
+### Next steps
+1. Recueillir la réponse sur un éventuel recopiage manuel et confirmer que le signalement porte sur la frise récente identifiée.
+2. Si le texte a été ajouté manuellement, examiner l’ouverture/les brouillons et la frise initialement affichée ; si nécessaire demander le contexte précis de réapparition. Ne pas présenter une hypothèse de cache comme une cause démontrée.
+3. Préserver l’analyse en cours et les champs sauvegardés. Aucun correctif de remplissage automatique n’est justifié par les seules observations actuelles.
+
+
+## Implémentation 2026-10-05 — Alignement à gauche des actions du parcours
+
+### Goal
+- Patch minimaliste UX : aligner à gauche les groupes Inverser l'ordre et Préparer les transitions, textes associés compris.
+
+### Current state
+- Dans le checkout actif D:/Code/panelforge-krea2-flux, seuls les deux justify-content de .ij-order-controls et .ij-handoff passent de flex-end à flex-start. Espacement et retour à la ligne conservés ; cache CSS actualisé dans index.html (20261005.align1).
+- Diff inspecté : deux règles CSS et une clé de cache. Aucun changement JS/backend, test exécuté, génération ou redémarrage.
+
+### Next steps
+- Actualiser le navigateur (Ctrl+F5) pour vérifier l'alignement des deux groupes sur le bord gauche du parcours.
+
+## Implémentation 2026-10-04 — Envoi direct des transitions sans validation intermédiaire
+
+### Goal
+- Go utilisateur après mini-alignement : Proposer → relecture/correction facultative → Envoyer à l’usine. Supprimer Valider la sélection et Valider cette transition. Griser l’envoi impossible, montrer une coche verte pour la sélection déjà envoyée dans sa version actuelle et n’envoyer que les versions manquantes.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Deux boutons Valider et leurs appels retirés du front ; intention simplement intitulée Intention, propositions disponibles indiquées Prête. Pas de validation cachée ni confirmation supplémentaire. Les brouillons restent enregistrés avant l’envoi.
+- Service.send ne demande plus reviewed == context_key. Nouveau contrôle _require_sendable partagé avec public/review : intention non vide, références valides, contrat visuel courant et liens Picture/ancien ratio contrôlés comme auparavant. Tout le lot est vérifié avant réception. Envoi bloqué pendant une analyse queued/running. L’ancien endpoint review est conservé pour compatibilité, sans rôle obligatoire et sans marquage artificiel de relecture humaine lors de l’envoi.
+- Le projet public expose le motif d’indisponibilité de l’usine et send_error par paire. Le bouton est grisé pour absence de sélection/intention, opération/analyse en cours, références obsolètes, ancien contrat visuel, champs invalides ou erreur de contenu connue. Motif au survol via wrapper et accessible au focus. Une modification de durée seule ne masque pas une erreur de texte connue.
+- Bouton ✓ Envoyé à l’usine grisé avec coche verte lorsque toute la sélection est déjà reçue. Les brouillons pertinents réactivent l’envoi ; leur annulation retrouve la coche. Les brouillons de paires non sélectionnées, le nom de frise, le modèle de proposition seul, la description inactive avec image d’ouvrier et les réglages communs remplacés localement ne créent pas de fausse nouvelle version.
+- Réception limitée aux deliveries sans factory_id ; retour ordonné contenant aussi les IDs déjà reçus. Une sélection entièrement reçue n’appelle plus factory.receive et ne modifie pas la frise. Empreintes et journal préalable des entrées exactes conservés : reprise après interruption dédupliquée ; anciennes unités non réécrites.
+- /spec expose direct_send=true. Le nouveau front garde l’envoi grisé tant que l’ancien backend reste chargé et explique le redémarrage requis. Cache JS/CSS 20261004.send1 ; autres ateliers et scripts de références conservés. Aucun service redémarré.
+- Cinq régressions supplémentaires préparées dans les suites existantes (envoi de proposition sans relecture, lot partiellement vide, analyse en cours, sélection mixte/rejeu/nouvelle version, maintien du contrat visuel). Tests HTTP et de changements de rythme/effectif adaptés. Scénario navigateur simulé étendu : suppression des boutons/appels review, correction sauvegardée, proposition intacte envoyable, grisé/motif, coche verte, brouillon/revert, sélection, paramètres invalides, scale ancien, analyse en cours, réception partielle sans doublon.
+- Tests NON exécutés selon AGENTS.md. Vérifications statiques réussies : six Python compilés sans imports/exécution, trois JavaScript compilés sans invocation (application + fixture/scénario), 2147 IDs HTML uniques et 43 sélecteurs existants. Node absent du PATH ; parseur Chrome local utilisé uniquement pour new Function sans exécuter les sources. Comparaison AST limitée aux méthodes concernées et absence d’espaces finaux ajoutés.
+- Dix fichiers code/tests/guide modifiés avant cette note. Sauvegardes exactes, review.diff, changes.json, static_checks.py et static-checks.json : D:/Code/panelforge/.agent/diagnostics/transition-direct-send-20261004/. Changements préexistants/concurrents conservés ; aucun projet runtime, appel LLM, génération, test fonctionnel, redémarrage, commit ou push.
+
+### Next steps
+1. Après les travaux en cours, charger le patch au prochain redémarrage habituel du Lab choisi par l’utilisateur, puis Ctrl+F5.
+2. Vérifier une frise avec propositions existantes : envoi direct, puis coche verte ; modifier une seule paire et renvoyer la sélection mixte doit ajouter uniquement la nouvelle version.
+3. Tests réservés à l’utilisateur depuis le checkout actif avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_image_transitions*.py". Aucun résultat fonctionnel ou visuel revendiqué avant ces essais.
+
+
+## Implémentation 2026-10-04 — Ton mémorisé Sketch provocateur
+
+### Goal
+- Go explicite utilisateur après alignement : retrouver le peps V1 dans V2/V2.1, avec sketch excessif et provocateur pour TikTok, hook fort, langage franchement cru, liberté d’amplifier les situations et fin forte (chute, vengeance ou cliffhanger). Un seul choix compact mémorisé, pas de nouveau modèle/appel ni refonte du prompteur vidéo.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux : sélecteur Ton dans Idée et réglages, Selon l’idée / Sketch provocateur. Selon l’idée reste la valeur neutre initiale ; sélectionner Sketch provocateur le mémorise avec les autres derniers réglages. Persisté dans chaque projet et historique, capturé dans chaque cycle et trace d’appel. Disponible pour les deux versions, sans nouvelle version d’écriture dans l’interface.
+- Nouveau application/story_v2_tone.py, profil versionné +sketch-1.0.0 : hook dans les premières secondes avec contexte intelligible, détails/situations amplifiés autour de l’idée sans changer les événements/fin explicitement imposés, voix distinctes, mauvaise foi, répartie, langage cru et oralité jeune de quartier en français. Pas de lexique/quota d’insultes. Fin causale forte : chute, décision de vengeance ou cliffhanger préparé, aucune résolution fermée systématique.
+- Ton transmis à auteur/correction, retouche et relectures. Gemma conserve mordant, irrévérence et intention comique en clarifiant, sans inventer un nouveau retournement. Contrôle final optionnel n’exige ni politesse, ni morale, ni fin résolue. Remplacement ciblé de forced slang par repetitive slang tics et suppression du mot complete dans l’ouverture du seul profil sélectionné pour lever l’ambiguïté sur les cliffhangers. Constantes et versions des prompts neutres inchangées.
+- domain/story_v2.py passe à 1.6.0 avec tone_profile=from_idea|provocative_sketch. Anciennes histoires sans champ lues neutres, sans migration à l’ouverture. Omission du champ par une ancienne API cliente conserve le choix sur update et rejeu idempotent ; un choix explicitement différent reste en conflit sur rejeu. Restauration d’une ancienne version sans ton, même sans settings entier, revient au neutre.
+- Le profil est exclu du hash de production : choisir un ton ne recrée pas les références d’un scénario inchangé. Pour appliquer un autre ton à un scénario déjà écrit, enregistrer puis utiliser Retravailler avec le retour voulu. Modèles, durées, densité, destinataires, références matérielles, options de contrôle/retouche et progression automatique jusqu’à Préparation conservés.
+- Compatibilité interface/backend chargé : l’interface n’envoie tone_profile que si les préférences du backend exposent ce champ ; sinon sélecteur grisé avec explication au survol. Empêche l’erreur Extra inputs liée au seul nouveau champ tant que l’ancien backend tourne. Nouvelle clé de cache du script UI. Aucun service redémarré.
+- Sept régressions préparées dans tests/test_story_v2_tone.py : neutre/valeur invalide, cinq appels avec correction+retouche+contrôle dans les deux versions et arrêt en Préparation, trois appels sans contrôle, persistance après réouverture, histoires anciennes indépendantes des préférences, contrat HTTP/rejeu/update, restauration et identités de production. Test navigateur existant étendu ; second scénario simulant une ancienne API ajouté. Tests NON exécutés selon AGENTS.md.
+- Vérifications statiques réussies : huit sources Python compilées sans exécution, cinq sources JS compilées sans invocation, 2147 IDs HTML uniques, huit fichiers protégés inchangés (notamment prompteurs vidéo, V2.1 et réglages images/vidéo), constantes V2 neutres identiques, comparaison AST limitant les méthodes de service modifiées aux sept points nécessaires, aucune nouvelle ligne avec espaces finaux.
+- Guide docs/design/story-v2-guide.md actualisé. Preuves/sauvegardes before, review.diff, changes.json et static-checks.json : D:/Code/panelforge/.agent/diagnostics/story-v2-sketch-20261004/. Onze fichiers code/tests/guide concernés ; autres changements préexistants conservés. Aucun projet runtime/préférence utilisateur modifié, aucun appel LLM/rendu/test fonctionnel, redémarrage, commit ou push.
+
+### Next steps
+1. Après la fin de ses travaux en cours, l’utilisateur peut charger le patch au prochain démarrage habituel du Lab, puis actualiser le navigateur. Dans Histoire V2 > Idée et réglages, choisir Ton > Sketch provocateur ; le dernier choix sera repris.
+2. Tests réservés à l’utilisateur : depuis le checkout actif avec l’environnement habituel, python -m unittest discover -s tests -p "test_story_v2*.py".
+3. Qualifier le ton sur une nouvelle histoire, idéalement même idée et mêmes réglages en Selon l’idée et Sketch provocateur. Vérifier accroche, voix distinctes, naturel cru et force de la fin ; aucun gain qualitatif de génération encore revendiqué.
+
+
+## Correctif 2026-10-04 — Plan inverse immuable, retraits partiels et arrêt au terrain dégagé
+
+### Goal
+- Go utilisateur pour implémenter le correctif issu de l’audit des deux parcours : suppression des refus dus à la recopie de jalons, meilleure répartition des transformations et absence de génération « sans changement » après arrivée au terrain vide.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Périmètre inverse V1/V2 ; contrats historiques de construction conservés. Policies reverse-progression / reverse-manual-plan / reverse-manual-review désormais @1.1.0 ou @2.1.0, prompts des opérations manuelles inchangés. Pas de changement de moteurs, références de rendu, workflow, masque ou profil 3 MP/18 passes.
+- Plan inverse verrouillé : schema ne demande plus destination/milestones ; le contexte fournit toujours le plan canonique. domain.validate_decision réinjecte les valeurs sauvegardées avant validation, y compris si un modèle continue à les répéter/reformuler. La réponse brute reste intacte dans le journal. Les champs de décision requis, les clés inconnues, l’avancement borné et la vraie relecture restent contrôlés. Un nouveau plan reste obligatoire après modification réelle d’intention ; aucune migration des journaux.
+- through_milestone peut rester égal au nombre de jalons accomplis, y compris zéro : une transformation substantielle peut avancer dans un jalon sans le terminer. Tant que plusieurs images restent à produire, le dernier jalon ne peut pas être annoncé comme cible ; schema et domaine limitent le maximum. Consignes explicites pour éviter des jalons qui se chevauchent et pour conserver une structure avant la dernière image (exemple piliers puis base).
+- Décodage inverse : valide d’abord la relecture indépendamment de la prochaine proposition. Si seule cette proposition est invalide (ex. retrait final trop tôt), conserve l’image et sa review, efface la prochaine action et passe au planning. Le motif est enregistré dans analyses[].next_action_error puis fourni à la décision suivante. Pas de nouveau rendu pour remplacer cette image ; pas de nouvelle fonction de critique ni de boucle de rendus. Une mauvaise relecture reste refusée ; unusable suspend toujours.
+- Fin anticipée choisie comme correction du rendu superflu : si une vraie relecture accepte le terrain dégagé et confirme tous les jalons, la suite inverse termine immédiatement, même si le budget n’est pas entièrement consommé. Toute proposition suivante est ignorée. completion_reason=reverse_endpoint, count reste demandé, generated reste réel, avertissement explicite avec suggestion d’un + intermédiaire. L’UI affiche par exemple « 2 nouvelles images sur 3 demandées · Terrain dégagé », sans gonfler la barre ni lancer un doublon. Objectif normal : répartir les retraits sur tout le nombre demandé ; exception honnête si le rendu est allé plus loin.
+- Reprise historique couverte en planning ou ready sur le terrain déjà accepté : exige même source courante, dernier état automatique accepté, plan encore verrouillé et tous les jalons accomplis. En ready, termine avant même le prochain prompter. Une première image non relue, un résultat unusable, une intention révisée ou une fin manuelle différente ne déclenchent pas cette récupération.
+- Le parcours b7579fed… bloqué sur « piliers supérieurs » pourra être repris après chargement du correctif : sa sortie 2 sera relue et conservée. Son ajout manuel suspendu doit toujours être terminé/abandonné par l’utilisateur dans le petit dialogue avant Reprendre principal. Le parcours 7f2d110c… ayant déjà produit une image 3 unusable ne sera pas réécrit : l’ancienne sortie rejetée reste archivée/non sélectionnable ; les trois états valides sont utilisables dans Transitions, et un + peut compléter si souhaité. Aucun rendu correctif automatique ni acceptation artificielle de l’image rejetée.
+- Treize régressions préparées dans tests/test_image_journey_endpoint.py : contrat compact/ancien écho, vrai changement d’intention, jalons partiels dont zéro, retrait final prématuré, vraie review conservée, champs critiques invalides, preuves d’arrivée, rejet/manual tail, reprise des points planning/ready, reprise du blocage exact sans refaire l’image, budget normal cinq images pour trois jalons, arrêt à deux sur trois sans appel superflu, export/recovery idempotent. Scénario navigateur étendu à l’affichage de fin anticipée. Guide existant actualisé. Tests NON exécutés.
+- Contrôles statiques réussis : cinq Python parsés/compilés sans import/exécution, trois sources JS compilées sans invocation (UI + fixture/scénario), 2147 IDs HTML uniques et 55 sélecteurs présents. Diff ciblé sans espaces finaux ; comparaison AST des méthodes historiques hors correction. Huit fichiers code/tests/guide modifiés/créés avant cette note ; modifications parallèles et antérieures conservées.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/journey-endpoint-fix-20261004/ (before, scripts, changes.json, review.diff, static-checks.json). Aucun test fonctionnel, appel LLM/image/vidéo, modification des projets runtime, redémarrage, commit ou push.
+
+### Next steps
+1. Après la fin des générations en cours, l’utilisateur peut redémarrer le Lab puis Ctrl+F5. Sur le parcours bloqué par la reformulation, régler l’ajout manuel suspendu si nécessaire, puis Reprendre sans changer l’intention. Les bonnes sorties ne sont pas régénérées.
+2. Tests réservés à l’utilisateur depuis D:/Code/panelforge-krea2-flux, avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_image_journey*.py". Aucun résultat fonctionnel/visuel encore revendiqué.
+3. Qualifier la répartition réelle des retraits : objectif trois nouvelles images distinctes, terrain seulement à la dernière ; si le moteur le produit plus tôt, vérifier le message explicite et l’absence de troisième rendu inutile. La correction ne garantit pas l’obéissance visuelle parfaite à une référence multiple.
+
+
+## Audit et réglage 2026-10-04 — Main géante et ouvriers miniatures par défaut
+
+### Goal
+- Examiner la deuxième vidéo du dernier chantier de la tour en allumettes, où apparaît une main géante ; préremplir Description textuelle de l’ouvrier pour des ouvriers miniatures sans apparence imposée.
+
+### Current state
+- Run retrouvé : frise transitions-e15f16ab49d24ba296a39625f2854896 ; première unité factory-675b7cffaec742b19afe4d7f80d38f9f, deuxième factory-306bafd30d9441aa8f1b5f255d20b762 (Assemblage de la flèche en bois). Première vidéo : plusieurs ouvriers miniatures dans les images clés consultées. Deuxième : grand outil vers 1,812 s, main humaine tenant une pince vers 3,625 s, grand outil au-dessus de la structure vers 5,438 s, en présence d’ouvriers miniatures.
+- Ces éléments sont déjà dans les images clés du rendu H3 brut asset-1e9e054c7e284b579e563823bc29645d : ce n’est pas une apparition introduite par le DLSS. Les références de départ/arrivée ne contiennent ni main ni ouvrier. Inspection d’images clés enregistrées, sans nouveau rendu ni prétention d’avoir vérifié chaque frame.
+- Intention : une équipe d’ouvriers miniatures assemble le prolongement effilé. Plan Qwen llm-e362353eeb074f9080d342021442c77e : taille fractionnaire d’une allumette explicitement demandée, mais contexte Eiffel-tower model sur table et clause isolant la main (« the binder's hand withdraws from the platform »), avec poses/pièces placées d’un geste. Writer Gemma llm-d4caf8709ada471c85212a21d7ee5134 reprend cette clause ; prompt effectif conforme à celui enregistré. Aucune consigne ne demande explicitement une main géante.
+- Hypothèse : mélange entre chantier de petits humains et maquette manipulée par un modéliste extérieur, favorisé par le contexte visuel et les actions décrites. Contribution possible de la main isolée, pas une cause unique démontrée ; sa position dans la phase finale n’explique pas littéralement le moment d’apparition. Préférer des actions attribuées aux ouvriers entiers, outils/levage à leur échelle, et réserver toutes les manipulations aux seuls ouvriers miniatures.
+- Petit patch appliqué uniquement à defaults.worker dans D:/Code/panelforge-krea2-flux/src/panelforge/domain/image_transitions.py : humains réalistes et minuscules, échelle constante, travail effectué exclusivement par eux, outils adaptés et levage au besoin, absence de main géante/humain normal/aide extérieure. Aucun vêtement, visage, effectif ou ratio imposé. crew_size et DLSS inchangés.
+- Le front utilise déjà cette valeur pour les nouvelles frises. Les descriptions sauvegardées, intentions, unités et prompts existants restent inchangés. Avec image de référence d’ouvrier, la description textuelle reste exclue selon le contrat visuel existant. Documentation image-transitions.md précisée.
+- Vérification statique : compilation Python sans import/exécution et comparaison AST prouvant que seul defaults.worker change dans le code. Aucun nouveau test pour ce changement de texte ; tests non exécutés selon AGENTS.md. Aucun appel LLM, génération, mutation runtime, redémarrage, commit ou push.
+- Preuves, copies des trois traces de proposition/Plan/Writer, sauvegardes exactes, diff isolé et contrôles : D:/Code/panelforge/.agent/diagnostics/transition-miniature-worker-20261004/.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab choisi par l’utilisateur, les nouvelles frises recevront ce descriptif ; pour la frise actuelle, recopier le nouveau texte dans le champ existant si souhaité.
+2. Reproposer/relire la deuxième transition puis envoyer la nouvelle version à l’usine pour refaire Plan et Prompt ; relancer uniquement le rendu avec l’ancien prompt ne change pas ses consignes.
+3. Qualifier sur un prochain rendu utilisateur. La nouvelle consigne ne garantit pas à elle seule la disparition de toute main extérieure ; pas de modification globale du prompteur H3 à ce stade.
+
+## Alignement confirmé 2026-10-04 — Liberté et fin du Sketch provocateur
+
+### Goal
+- Finaliser le cadrage du profil compact mémorisé Sketch provocateur ; implémentation non demandée dans ce tour.
+
+### Current state
+- L’utilisateur autorise l’invention de détails et l’amplification des situations autour de l’idée, en respectant les événements et la fin explicitement imposés.
+- Il accepte une chute mais souhaite permettre aussi une décision de vengeance (« je vais me venger ») ou un cliffhanger fort. Règle retenue : fin forte adaptée au récit, préparée par le conflit ; aucune chute fermée systématique ni cliffhanger obligatoire. Pas de réglage supplémentaire pour la fin.
+- Les autres choix confirmés restent : sketch excessif/provocateur pour TikTok, hook fort, langage franchement cru, choix compact mémorisé. Modèles et pipeline actuels conservés, retouche Gemma fidèle au mordant et aux voix.
+- Notes seules mises à jour ; aucun code/runtime modifié, aucun test, génération ou redémarrage.
+
+### Next steps
+1. Cadrage prêt pour le petit patch de ton ; attendre une demande d’implémentation avant de modifier le code.
+
+
+## Alignement 2026-10-04 — Profil de ton Sketch provocateur (non implémenté)
+
+### Goal
+- Utilisateur confirme après audit : sketches excessifs et provocateurs pour TikTok avec hook fort, langage franchement cru, un choix compact mémorisé. Il demande encore un alignement sur le patch, pas une implémentation.
+
+### Current state
+- Proposition à discuter : un sélecteur Ton dans Idée et réglages, Selon l’idée / Sketch provocateur ; dernier choix mémorisé et ton enregistré dans chaque nouvelle histoire. Ne pas appliquer rétroactivement le profil aux histoires existantes.
+- Profil cohérent dès l’écriture : accroche concrète dans les premières secondes, situation immédiatement intelligible, conflit et réactions amplifiés, mauvaise foi et répartie, voix distinctes, langage cru adapté aux personnages sans lexique/quota imposé. Garder causalité, intentions lisibles et paroles distinctes.
+- Retouche Gemma conserve cette énergie et le mordant en améliorant l’oralité ; contrôle final optionnel respecte le ton et vérifie les incohérences. Aucun modèle/appel supplémentaire, pas de modification du prompteur vidéo ; supprimer/remplacer les consignes contradictoires plutôt que cumuler des instructions.
+- Questions proposées pour finir l’alignement : liberté d’amplifier les situations autour de l’idée vs événements strictement fournis ; chute par défaut vs cliffhanger. Ces choix de comportement ne deviennent pas de nouveaux réglages.
+- Aucun code/runtime modifié ; seule cette note de continuité est ajoutée. Aucun test, appel LLM, rendu, redémarrage, commit ou push.
+
+### Next steps
+1. Attendre les réponses et le go utilisateur avant tout patch.
+2. Implémenter ensuite le petit profil de ton convenu, en conservant les acquis V2.1 et les modèles actuels.
+
+
+## Audit 2026-10-04 — Jalons reformulés, fin inverse anticipée et bâtiment réapparu
+
+### Goal
+- Demande utilisateur : expliquer l’erreur « Le cap et les jalons restent fixes », vérifier le nombre demandé (3), comprendre pourquoi un parcours montre finalement quatre vignettes et rétablit le bâtiment initial. Diagnostic des parcours réels, références et code ; pas de nouvelle génération.
+
+### Current state
+- Parcours de la structure en pistaches journey-b7579fedba1c5c26ad0d44c124b1eca7 : count=3, deux images automatiques produites, paused/reviewing, image 2 sans review acceptée. Les deux réponses de relecture rejettées @2.0.1 retirent seulement « supérieurs » du jalon 2 : « piliers supérieurs » devient « piliers ». Destination, nombre/ordre des jalons et autres libellés identiques. validate_decision compare les libellés exactement, refuse toute la réponse et perd ainsi une observation utile : toiture de pistaches retirée, mais toit plat/piliers restants. Le modèle proposait déjà le retrait final pour l’image 3.
+- Ce même parcours a aussi un ajout manuel journey-edit-270c58f6500c598e8f2b2258fc5f25f3, demande « Retirer toute la structure en alumette, en laissant uniquement le support », paused/reviewing après verdict unusable : la structure demeure. Cet ajout non clôturé explique le bouton Reprendre principal grisé. Le petit Reprendre… ouvre son dialogue ; Abandonner clôt seulement cette opération, conserve les fichiers et les images du parcours, puis libère la reprise principale. Cela ne résout pas à lui seul la validation des jalons. Ne pas relancer/annuler de notre côté.
+- Parcours du temple posé sur bois journey-7f2d110c80ef57f5b93c707c24069575 : count=3, exactement trois nouvelles images plus l’image fournie = quatre vignettes. Pas de quatrième génération automatique, pas de manual_steps. État réel paused/reviewing, pas completed ; image 3 unusable, current_asset_id conservé sur le terrain plat valide de l’image 2. Tous les jalons cochés décrivent l’atteinte précédente du terrain ; ce n’est pas la validation de la troisième sortie.
+- Cause initiale : les jalons 1 (retirer les toits) et 2 (piliers/base seulement) se chevauchent dans la première action, qui demande déjà de ne conserver que piliers et base tout en déclarant through_milestone=1. MiniMax exécute cette demande ; la relecture constate deux jalons atteints. Avec deux rendus restants, elle demande pourtant le retrait intégral. Le validateur n’autorise pas un prochain through_milestone égal au jalon déjà atteint tant que le plan n’est pas entièrement fini : il impose au moins done+1. Cela empêche de répartir un jalon restant en plusieurs images, malgré les consignes textuelles de réserver le terrain à la dernière image.
+- Image 2 : terrain plat obtenu, review usable, completed_milestones=3, next_action=null. La branche existante « budget exact non épuisé » demande un nouveau planning. Celui-ci renvoie l’action Fin du processus, « Aucun changement requis, le terrain plat a été atteint. ». Cette absence de transformation est acceptée puis envoyée au prompter et au rendu pour remplir le dernier créneau.
+- Dernier rendu : source effective enregistrée Picture 1=asset-42cfc6dfe2aa47278dcac1e6c8cc9e22 (terrain vide), Picture 2=asset-4ceafad71ad94e0c9594abfebc194343 (bâtiment original), workflow 1.3.0 natif/18 passes, masque non appliqué, sortie brute asset-13d9562ea3d04f279c42ca0bdd10a6e4. Prompt anglais conserve explicitement la surface vide et interdit les éléments de Picture 2. Le résultat restaure pourtant le bâtiment. Inspection visuelle directe de source/sortie et empreintes RGBA différentes : véritable sortie nouvelle, pas un retour d’affichage/cache à l’asset original. Influence excessive de Picture 2 plausible mais non prouvée par comparaison contrôlée. Ne pas attribuer cette régression au patch d’ordre des images ni affirmer une cause interne certaine du modèle.
+- La dernière relecture détecte correctement la régression et suspend ; Reprendre seul relit cette sortie, ne la régénère pas. La sortie inutilisable reste non sélectionnable pour les transitions ; image fournie, ossature et terrain sont utilisables. Un + entre ossature et terrain peut créer volontairement un état supplémentaire si souhaité, en conservant les voisins ; pas de lancement automatique.
+- Correctif recommandé : garder cap/jalons comme données applicatives stables après planification (ne plus demander au modèle de les recopier à chaque relecture), autoriser des transformations intermédiaires au sein d’un même jalon et réserver le retrait final au dernier rendu. Traiter explicitement le cas où le moteur atteint malgré tout le terrain trop tôt : jamais lancer une génération « sans changement » pour remplir le compteur. Le choix arrêt anticipé vs complément par insertion change le contrat de budget exact et reste à aligner avant implémentation. Renforcer seulement le prompt ne suffit pas à corriger le contrat actuel.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/journey-endpoint-audit-20261004/ (snapshots immuables des quatre parcours inverses et des enfants MiniMax concernés, summary.json, details.json, findings.json, scripts). Aucun code applicatif/workflow, projet runtime, prompt ou intention modifié ; aucun test, appel LLM/rendu, redémarrage, commit/push. Les correctifs précédents sont bien utilisés (@2.0.1 et rôles de références compilés) ; ces deux problèmes sont distincts.
+
+### Next steps
+1. Restituer les causes et le compte 3 nouvelles + 1 fournie ; distinguer la fin atteinte à l’image 2 de la sortie 3 rejetée. Expliquer séparément le verrou de l’ajout manuel du premier parcours.
+2. Préparer le correctif de contrat : plan immuable réinjecté par l’application, jalons pouvant couvrir plusieurs rendus, budget terminal cohérent. Aligner le traitement d’une arrivée réellement anticipée ; garder les résultats enregistrés et les exports existants.
+3. Ne pas conseiller de modifier artificiellement l’intention ni de multiplier les reprises pour résoudre un refus de schéma. Les tests restent à la charge de l’utilisateur. Aucun changement de qualité 3 MP/18 passes ou de masque préconisé par cet audit.
+
+
+## Implémentation 2026-10-04 — Ordre de construction dans la frise et les transitions
+
+### Goal
+- Demande utilisateur : début du chantier à gauche, bâtiment terminé à droite, inversion en un clic, et même ordre pour les images sélectionnées envoyées à l’atelier Transitions.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Un parcours à rebours s’affiche désormais par défaut dans le sens construction, y compris les parcours existants ouverts après chargement du nouveau code : dernière génération → états intermédiaires → image finale fournie. Construction conserve son ordre historique. Les calculs, la chaîne de références et le plan restent dans leur ordre de génération.
+- Bouton discret Inverser l’ordre au-dessus de la frise et indication du sens affiché. Choix mémorisé par parcours dans sessionStorage ; polling, rechargement et réouverture dans cette session le conservent. Les coches restent attachées aux IDs ; la numérotation visible suit les positions. Grille conservée avec retour à la ligne.
+- Export : frame_order explicite generation | reverse_generation dans TransitionSelectionBody, service.prepare_transitions et domain.sequence. Le serveur filtre uniquement les états sélectionnés disponibles puis les ordonne selon ce choix, sans dépendre de l’ordre des clics. Les origin.index restent les identités de génération ; l’image fournie d’un parcours inverse exporté en sens construction porte le label Bâtiment terminé. L’interface envoie son ordre affiché.
+- Compatibilité : ordre generation par défaut pour les appels API historiques ; payload/fingerprint de ces anciens appels conservés. Chaque sélection/ordre possède son export idempotent ; une frise déjà préparée ou relue n’est pas réécrite. Aucune préparation vidéo ni génération déclenchée par le bouton d’inversion.
+- Les + conservent leurs ancres canoniques. En affichage inversé, ils passent à gauche de leur vignette ; le + de prolongement depuis la dernière sortie se trouve avant la première image affichée. Les + internes insèrent entre les bons voisins, et le dialogue présente les images dans leur ordre affiché. Pas d’ajout au-delà de l’image initialement fournie ni de rebase du parcours.
+- Trois nouvelles régressions dans test_image_journey_selection.py (sélection inverse avec insertion/trou, ordre invalide, exports et vraies paires first/last idempotents sans altérer la génération), contrat HTTP existant étendu, scénario navigateur étendu (défaut inverse, coches, export dans chaque sens, polling/réouverture, + et dialogue). Guide image-journeys-guide.md actualisé. Tests NON exécutés selon AGENTS.md.
+- Vérifications statiques : cinq Python compilés sans import/exécution, quatre sources JS compilées sans invocation (application/actions/fixture/scénario), 2146 IDs HTML uniques et 71 sélecteurs présents, diff sans espaces finaux. Comparaison AST : toutes les autres méthodes du domaine et du service inchangées, notamment génération/reprise/références.
+- Preuves et sauvegardes exactes : D:/Code/panelforge/.agent/diagnostics/journey-display-order-20261004/ (before, review.diff, changes.json, static-checks.json, scripts). Dix fichiers de code/tests/guide modifiés avant cette note. Aucun test fonctionnel, appel LLM, rendu, mutation de projet runtime, redémarrage, commit ou push.
+
+### Next steps
+1. Après les rendus en cours, l’utilisateur peut redémarrer le Lab puis recharger avec Ctrl+F5. Le nouveau contrat d’export demande ce redémarrage backend ; l’ordre affiché s’applique aux images existantes sans les régénérer.
+2. Vérifier le parcours inverse : bâtiment terminé à droite, sélection puis Préparer les transitions ; les paires suivent la construction. Inverser l’ordre et renvoyer crée une frise distincte dans l’autre sens.
+3. Tests réservés à l’utilisateur depuis le checkout actif, avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_image_journey*.py". Aucun résultat de test fonctionnel/visuel revendiqué pour cette modification.
+
+
+## Audit 2026-10-04 — Retrouver le peps et les voix jeunes de V1
+
+### Goal
+- Demande utilisateur : analyser ce qui fonctionnait dans Histoire V1 pour retrouver oralité jeune/de quartier et énergie, sans perdre la cohérence V2.1 ni ajouter trop de réglages. Audit/discussion uniquement ; questions dans la réponse, aucun patch autorisé à ce stade.
+
+### Current state
+- Comparaison des prompts V1, de leur transmission aux étapes, de la direction de dialogue/débit et des prompts V2.1. Lecture des scénarios enregistrés Le Colis, Le carton vide, La Coupe Demandée et de la version V2.1 La vengeance de Léa avant/après retouche Gemma. Pas de nouvelle inspection des vidéos.
+- V1 : consignes positives de voix distinctes, oralité vive, argot spontané sans tics, désirs concrets et relecture préservant le registre. Bons ressorts observés : répartie, mauvaise foi, ironie et stratégies différentes selon personnage. Les défauts V1 (notamment français/anglais mélangés dans La Coupe Demandée) restent à éviter.
+- V2.1 respecte déjà le ton demandé dans WRITE, mais décrit moins cette voix ; POLISH protège surtout naturel, clarté et invariants narratifs. « No forced slang » n’interdit pas l’argot. Le dernier brief demandait un drame réaliste sans couleur de quartier explicite.
+- Gemma améliore bien le naturel et conserve certaines piques ; une réplique ambiguë « Tu quittes notre bébé pour un tailleur ? » devient « Tu nous quittes... pour elle ? ». Hypothèse : clarifier en préservant davantage le mordant et la personnalité. Aucun constat de lissage systématique ni preuve qu’un autre modèle soit nécessaire : modèles et briefs diffèrent entre V1 et V2.1.
+- Recommandation à discuter : conserver le pipeline et les modèles, transmettre/protéger le ton dès l’écriture puis dans la retouche/relecture. Préférer la mention de ton dans le champ Idée existant, sans nouveau réglage ; envisager un unique choix mémorisé seulement si souhaité. Ne pas rendre tous les récits comiques ou tous les personnages vulgaires par défaut.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/story-tone-v1-audit-20261004/audit.json. Aucun code, réglage ou projet runtime modifié ; aucun test, appel LLM, rendu, redémarrage, commit ou push.
+
+### Next steps
+1. Attendre les réponses utilisateur : drame qui chambre ou sketch provocateur ; niveau de vocabulaire ; zéro réglage ou un choix compact mémorisé.
+2. Définir ensuite le petit patch de ton, uniquement après alignement/autorisation. Conserver les progrès de cohérence, densité et références de V2.1 ; pas de refonte du prompteur vidéo.
+
+
+## Correctif 2026-10-04 — Reprise du parcours inverse et référence MiniMax oubliée
+
+### Goal
+- Corriger les deux erreurs signalées en capture après Reprendre : label Picture N manquant puis « Le résultat généré doit recevoir une véritable relecture ». Diagnostic des journaux réels et correctif ciblé, sans relancer de modèles/rendus ni redémarrer les services.
+
+### Current state
+- Parcours identifié : journey-d23182e17a465cce8af211e30b5b5294, trois nouvelles images demandées, une image générée et relue usable. À l’inspection : paused/planning, version 35, intent_revision=1, plan_revision=0. Première image retire toiture/flèche, relecture acceptée. Le second rendu n’a jamais été soumis.
+- Premier blocage (18:19 UTC) : enfant minimax-a71beb501b8e5fbaaba6a080494e1d4d, llm-592485b0dc274dde950137297c832379. Deux inputs réels : Picture 1=état courant, Picture 2=bâtiment terminé. Le prompteur cite seulement Picture 1 dans son prompt anglais ; omission de Picture 2, pas une référence inventée. Validateur refuse correctement avant toute génération.
+- Cause de la bifurcation à la reprise : intention initiale contenant des CRLF, valeur renvoyée par textarea contenant des LF. Comparaison brute interprète cette seule différence comme une intention modifiée, abandonne l’étape 2 encore sans image et repart en planning. Équivalence après normalisation des retours à la ligne confirmée sur les deux contextes enregistrés.
+- Deux analyses suivantes (llm-ee99d0d6eea4476a8e41e26b6a1d48bf puis llm-75f4331e99514b79af44167b7fb8fc27) sont bien en planning, reviewing_result=false, mais renvoient assessment=usable. La demande de prochaine transformation est présente. L’erreur de « véritable relecture » est trompeuse dans cette branche : l’image 1 avait déjà été relue, il n’existe pas d’image 2 à relire.
+- Correctif application/image_journeys.py : comparaison des intentions au Resume insensible aux CRLF/LF/CR ; une vraie modification déclenche toujours replanification. Création, fingerprint et journaux historiques non migrés.
+- Correctif image_journey_reverse_prompting.py : politique inverse passe @1.0.1/@2.0.1 ; analysis_task explicite plan_next_edit_without_new_result ou review_new_result, assessment_values et enum du schema adaptés à la phase ; dernière relecture demande next_action=null. En planning uniquement, usable/similar sont ramenés au marqueur neutre initial, sans fabriquer/modifier une relecture et sans changer le raw enregistré. Unusable n’est pas neutralisé. Les véritables reviews restent strictes, notamment initial interdit.
+- domain/image_journeys.py : message d’erreur distinct pour un statut invalide en préparation. Ancien message de relecture conservé uniquement quand un nouveau résultat est réellement en reviewing.
+- Nouveau image_journey_reference_prompting.py : compilation locale du rôle fixe des deux inputs connus source/journey-finished ; le prompt anglais reçoit un paragraphe décrivant Picture 1 à éditer et Picture 2 pour formes/matières des parties restantes ou demandées, sans restaurer le bâtiment fini ni les positions humaines. Accepte l’oubli isolé du second label si la source est explicitement citée. Références inventées, source absente, tags étrangers, réponse invalide ou trop longue toujours refusés ; aucune substitution de numéros.
+- MinimaxEditService fige journey_reference_policy=1.0.0 et policy_version=1.0.0+journey-reference-1.0.0 pour les nouveaux messages de projets managed_by=image-journey avec cette paire explicite. Message et contexte figés, raw brut distinct du prompt réellement appliqué ; reprendre/relire un message réussi ne double pas le paragraphe. Les appels MiniMax classiques, source unique, Qwen et réponses déjà enregistrées restent sur le décodeur antérieur. Aucun appel LLM ou rendu supplémentaire ajouté.
+- Huit régressions préparées dans tests/test_image_journey_recovery_contracts.py : omission Picture 2, reprise/durabilité prompt compilé, CRLF/LF sans nouveau plan, intention réellement modifiée, récupération planning déjà bloquée sans modifier la review existante, review initial interdite, référence inventée refusée/reprise, contrat étranger/source absente et validateur partagé toujours strict. Tests NON exécutés selon AGENTS.md.
+- Contrôles statiques réussis : six Python parsés/compilés sans exécuter app/tests, diff isolé sans espaces finaux, comparaison AST des méthodes existantes hors correctif, quinze fichiers de la livraison inverse précédente encore identiques (UI, workflow, renderer, autres tests...). Guide existant actualisé.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/journey-reverse-recovery-20261004/ (snapshots de ce parcours et deux enfants MiniMax, findings.json, sauvegardes before, review.diff, changes.json, static-checks.json). Aucun runtime modifié, aucun modèle/rendu/test/service relancé, aucun commit/push. Un autre parcours inverse était running/rendering à l’inspection : journey-0422d40e32a759f4b6d38eee37656806 ; ne pas l’interrompre.
+
+### Next steps
+1. Après la fin des générations en cours, l’utilisateur peut redémarrer le Lab avec sa commande habituelle, puis cliquer Reprendre sur le parcours bloqué, sans modifier l’intention ni créer un nouveau parcours. L’image 1 enregistrée sera conservée ; la suite sera préparée depuis cet état.
+2. Tests réservés à l’utilisateur : avec PYTHONPATH=src dans D:/Code/panelforge-krea2-flux, python -m unittest discover -s tests -p "test_image_journey*.py". Aucun résultat fonctionnel/visuel encore revendiqué pour ce correctif.
+3. Vérifier lors de sa reprise que le planning avance, que le prompt retenu comporte les deux rôles et que le rendu inverse continue à préserver les détails. Ne pas requalifier le refus technique comme dégradation visuelle.
+
+
+## Implémentation 2026-10-04 — Parcours à rebours avec bâtiment terminé en référence
+
+### Goal
+- Go explicite utilisateur après choix de la piste 1 : fournir le bâtiment terminé, générer en chaîne des états antérieurs jusqu’au terrain plat sans bâtiment, conserver le bâtiment terminé comme référence permanente. Mode générique, pas limité au miniature. Sélecteur compact Construction / À rebours indépendant de V1/V2.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux : sélecteur de sens dans l’en-tête, libellé Image finale fournie en inverse, intention inverse préremplie. Le changement de sens avant création conserve un brouillon distinct par sens, même vide ; Nouveau restitue Construction et ses défauts, V2 et masque décoché. Sens figé après création, y compris en pause ; ouverture/polling restaurent le sens et l’intention enregistrés.
+- Contrat journey_direction=forward|reverse, forward par défaut/historique. Lecture sans migration ; idempotence de création conservée pour les clients sans direction et les anciens journaux sans ce champ. Snapshots du sens et de finished_reference_asset_id dans les étapes automatiques et opérations + ; direction tracée dans les analyses. Aucun état runtime existant modifié.
+- Politique inverse isolée dans image_journey_reverse_prompting.py, versions propres image.journey.reverse-progression / reverse-manual-plan / reverse-manual-review @1.0.0 (V1) et @2.0.0 (V2). Destination = terrain plat sans bâtiment ; jalons en ordre de génération, retraits substantiels, un changement principal par image, aucun terrassement/fondation/fosse/ruines/gravats. Dernière génération réservée au terrain plat ; état précédent encore substantiel si budget >=2. Avec 1 nouvelle image, demande directe de terrain plat. Budget exact et relecture finale conservés. Même cadrage, voisins et éléments fixes, style/matières de l’image. Vie V2 dans les mêmes états ; anciens prompts V1/V2 de construction intacts.
+- MiniMax : source = image précédente ; référence constante = image fournie préparée une seule fois aux dimensions du parcours. Premier rendu : une référence car source et bâtiment terminé sont la même image ; ensuite Picture 1=état à éditer, Picture 2=bâtiment terminé, roles explicites dans le prompter et inputs réels du rendu. Ne pas rétablir les éléments retirés hors transformation explicitement demandée, ni recopier les positions humaines originales. Identité de la référence vérifiée sur reprise du projet enfant.
+- Point découvert pendant implémentation : le workflow 1.2.0 supportait plusieurs références en mode redimensionné, mais l’adaptateur limitait le mode natif à une seule. Nouveau manifeste 1.3.0, native_multi_reference=true, template workflow.json strictement identique et empreinte conservée ; branche native contourne désormais chaque scale slot occupé. Le lanceur charge 1.3.0. Références autour de 3 MP tout du long, 18 passes, VAE/components inchangés. Anciennes versions conservent leur contrat ; aucune réduction secondaire à 1 MP dans le nouveau chemin natif.
+- Les + restent disponibles : une insertion édite LATER (le voisin suivant dans la frise de génération), souvent moins construit en inverse, donc peut rétablir un sous-ensemble demandé. Analyse avec les deux voisins et le bâtiment terminé ; rendu avec la source et la référence terminée ; voisins et images suivantes conservés. Ajouts finaux suivent la demande. Archives HQ conservées en backend, aucune réapparition de leur UX.
+- Frise et sélection de transfert restent dans l’ordre de génération bâtiment terminé → terrain plat. Aucun nouveau choix d’ordre ou inversion automatique des transitions ajouté (non convenu). Correctifs de masque/récupération/tag Picture précédemment différés toujours hors périmètre.
+- Guide docs/design/image-journeys-guide.md actualisé. Neuf régressions inverses préparées (defaults/legacy/idempotence, refus sens invalide/ancien workflow, chaîne et pixels natifs deux références, cas 1 image/V1, reprise relecture manuelle, insertion/voisins, référence figée, compatibilité graphes, API/sens immuable). Fixture legacy adaptée ; scénario navigateur étendu aux brouillons et au sens enregistré. Tests NON exécutés selon AGENTS.md.
+- Vérifications statiques réussies : 14 Python parsés/compilés sans exécution, 4 sources JS compilées sans invocation (application/actions/scénario/fixture), 2143 IDs HTML uniques, 68 sélecteurs présents, diffs sans espaces finaux, empreinte/template workflow identiques à 1.2.0, comparaison AST des méthodes historiques hors modifications autorisées. Aucun appel LLM, rendu, test fonctionnel, redémarrage, commit ou push.
+- Sauvegardes exactes, scripts, changes.json, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-reverse-20261004/. 20 fichiers de code/tests/guide/workflow modifiés ou créés, avant notes de continuité. Le worktree contient d’autres modifications antérieures, conservées.
+- Limites : la référence guide sans verrouiller les pixels ; résultat visuel et atteinte effective du terrain plat non qualifiés tant que l’utilisateur n’a pas lancé de parcours. La référence originale avant préparation reste archivée ; la référence du rendu est la version fixe 3 MP.
+
+### Next steps
+1. Au prochain redémarrage habituel du Lab par l’utilisateur (scripts/run_lab.py), recharger la page avec Ctrl+F5, Nouveau → À rebours, fournir un bâtiment terminé et lancer volontairement le parcours.
+2. Tests à exécuter par l’utilisateur depuis le checkout actif avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_image_journey*.py". Aucun test exécuté par l’agent.
+3. Qualifier visuellement les retraits, la conservation des formes/matières et du décor, l’absence de réapparitions depuis la référence permanente, et l’arrivée au terrain plat. Ne pas annoncer une validation visuelle déjà faite.
+
+
+## Alignement 2026-10-04 — Terrain plat et stratégies de références pour le parcours inverse
+
+### Goal
+- L’utilisateur corrige le point d’arrivée du calcul inverse : remonter jusqu’à un terrain plat sans bâtiment, plutôt qu’une structure partielle. Il demande plusieurs pistes avant de choisir, avec inquiétude sur la dérive si le bâtiment final n’est pas fourni comme référence à chaque génération. Mode ouvert à tout style, pas seulement au miniature.
+
+### Current state
+- Acquis : état ancien = terrain plat sans bâtiment ; aucune étape consacrée aux fondations/terrassement. L’utilisateur envisage bien de générer depuis son image terminée en réduisant progressivement. Son alternative serait de produire d’abord le terrain plat puis de reconstruire avec la cible comme référence permanente. La précédente question sur l’ordre portait sur l’usage vidéo, pas sur l’ordre de calcul ; éviter de mélanger ces deux sujets.
+- Phrase utilisateur incomplète « mais il faut que la première étape donne » : question envoyée pour préciser si la première transition terrain → travaux doit faire apparaître une partie importante du bâtiment ou seulement des premiers assemblages visuellement intéressants. Réponse encore en attente lors de cette note.
+- Lecture seule confirmée : MiniMax Still prend plusieurs images de référence (contrat et manifeste 1.2.0), mais le parcours actuel donne à l’éditeur seulement la source de l’étape. L’original peut être montré à Progression visuelle ; ce n’est pas une référence de rendu supplémentaire aujourd’hui. Ajouter la cible à chaque appel MiniMax demanderait de l’intégrer explicitement au parcours, pas seulement de la citer dans l’intention.
+- Pistes proposées, aucune choisie/implémentée : (1) génération inverse en chaîne, état précédent à éditer + image finale permanente pour géométrie/matériaux ; meilleure continuité locale attendue, mais rééditions successives et risque de restaurer des parties déjà retirées si les rôles sont ambigus ; (2) générer chaque état en éditant directement la même image finale, avec un plan commun et comparaison aux voisins par le LLM ; évite de réutiliser les sorties comme sources et donc cette voie d’accumulation de dégradation, mais risque de différences entre états indépendants ; (3) produire le terrain plat puis construire en chaîne en fournissant aussi l’image cible à chaque étape ; progression naturelle mais reconstruction plus difficile et risque d’apparition trop précoce du bâtiment complet.
+- Recommandation de départ à discuter : inverse en chaîne avec cible permanente, en distinguant strictement image à éditer et référence de forme/matière. Chaque état dérive du bâtiment réel fourni, dernière génération = terrain plat ; planifier à rebours pour que l’état adjacent au terrain ait déjà une transformation substantielle. Si la dérive demeure, comparer à la génération de chaque état directement depuis l’original. Une seconde référence guide sans verrouiller les pixels ni garantir l’identité exacte.
+- Dans les approches, conserver l’image finale fournie comme état terminé au lieu de la régénérer. La remise éventuelle dans l’ordre construction pour la vidéo est une opération d’ordonnancement à distinguer du calcul, non une obligation de reconstruire en sens avant.
+- Aucun code applicatif, workflow, intention ou état runtime modifié. Aucun test, modèle, rendu ou redémarrage. Seules les notes de continuité sont mises à jour ; pas d’atelier de test ou de fonctionnalité supplémentaire créé.
+
+### Next steps
+1. Expliquer les trois pistes et leur compromis, recueillir la préférence avant implémentation. Confirmer l’ampleur de la première transformation visuelle.
+2. Préserver les nouveaux acquis : terrain plat, cible fournie, tous styles ; l’arrêt sur structure partielle proposé précédemment n’est plus retenu.
+
+## Alignement 2026-10-04 — Parcours à rebours depuis l’image terminée
+
+### Goal
+- L’utilisateur demande de discuter d’un mode accessible simplement en haut de l’atelier : fournir l’image de fin, puis reconstruire à rebours les étapes antérieures (finitions, structure). Éviter les fondations, peu intéressantes pour l’accroche vidéo. Alignement et questions explicitement demandés ; aucun go d’implémentation.
+
+### Current state
+- Lecture seule du code actif D:/Code/panelforge-krea2-flux. L’atelier dispose du choix V1/V2 (vie de scène) et d’une intention préremplie miniature orientée construction vers un bâtiment terminé. Les consignes de progression actuelles imposent des jalons dans le sens de construction ; le mode inverse demandera un comportement explicite, pas seulement l’inversion visuelle des vignettes.
+- Proposition, non validée : un choix compact de sens Construction / À rebours en haut, indépendant de V1/V2. En inverse, l’entrée est nommée Image finale et l’intention préremplie doit être adaptée. Partir de la cible connue ; planifier des états antérieurs plausibles en retirant finitions, portions de façades et structure, en conservant cadrage, emplacement, style, matériaux et formes des parties restantes. Pas d’excavation/terrassement/fondations ; proposer un arrêt sur une structure partielle déjà visible.
+- Exemple proposé pour trois nouvelles images : bâtiment terminé fourni → finitions retirées → façades partielles → ossature visible. Pour une vidéo de construction, remettre ensuite l’ordre ancien → terminé afin de finir sur l’image fournie. C’est une proposition d’ordre de transfert, pas une décision acquise ; aucun export existant modifié.
+- Intérêt : la cible esthétique achevée est connue avant les générations. Limite : le LLM devra imaginer des états antérieurs et parties cachées plausibles ; la cohérence des proportions et détails reste à vérifier, la génération inverse ne supprime pas la dérive par elle-même.
+- Trois questions envoyées via request_user_input_async et encore en attente lors de cette note : (1) arrêt sur structure partielle / ossature complète / choix LLM ; (2) transitions dans le sens construction vers l’image fournie ou sens inverse ; (3) suivre tout style d’image ou spécialiser Small World. Ne pas considérer les choix présélectionnés comme réponses acquises.
+- Aucun code applicatif, intention enregistrée ou projet runtime modifié ; aucun test, appel LLM, rendu ni redémarrage. Seules ces notes de continuité sont actualisées. Préférences antérieures de personnages et décochage du masque conservées ; ne pas ajouter implicitement les corrections de récupération ou de masquage encore différées.
+
+### Next steps
+1. Restituer le principe et ses limites, recueillir les réponses aux trois questions pour préciser l’état initial recherché, l’ordre vidéo et le périmètre du mode.
+2. Compléter l’alignement avant tout développement ; l’utilisateur souhaite actuellement discuter.
+
+## Implémentation 2026-10-01 — Petits hommes : tornades, orages et pluie
+
+### Goal
+- Appliquer l’accord utilisateur : aucun parapluie pour une tornade ; aspirateur, éventail ou saisie directe comme pistes. Pour l’orage, dissiper le nuage, faire cesser les éclairs et éclaircir le ciel. Parapluie autorisé pour abriter de la pluie.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux, preset Petits hommes expérimental existant. Trois courtes directions conditionnelles, une seule transmise selon le besoin détecté. Tornade : « Aucun parapluie » et alternatives convenues ; orage : éventail comme exemple pour repousser le nuage ; pluie : abri, par exemple parapluie laissé en place après retrait de la main. Pas de quota ni de succession imposée des exemples.
+- Détection FR/EN d’orage/tonnerre/thunder/lightning/foudre et pluie/rain/downpour. Graphies tonnerre/tonère prises en charge. Storm seul n’est pas assimilé à un orage, notamment dans storm drain. Les besoins déjà explicites (tornade, sécheresse, inondation, vague, incendie, réparation) priment sur la pluie/le tonnerre d’accompagnement dans le même contexte ; orage prime sur pluie. Priorité intention vidéo/contexte manuel puis métadonnées de l’image exacte conservée.
+- weather_direction=v1 figé avec les nouvelles sélections. Anciennes sélections : anciennes catégories de détection, aucune nouvelle direction météo et texte Plan/Prompt conservé. Aucun état runtime ni Plan/Prompt enregistré réécrit. Les anciens marqueurs ventouse/végétation restent indépendants.
+- Tests existants étendus aux catégories FR/EN, négations, absence de faux orage storm drain, priorité tornade + pluie/orage, interdiction parapluie limitée aux tornades, anciennes entrées verrouillées, et transmission stable au Plan/Writer. Tests NON exécutés selon AGENTS.md.
+- Contrôles statiques réussis : quatre Python parsés/compilés sans exécution, regex compilées, anciennes directions et constantes inchangées, comparaison AST confirmant la branche de détection historique équivalente, git diff --check et diff isolé relu. Guide docs/video-factory.md actualisé.
+- Sauvegardes exactes, review.diff, directions.json et static-checks.json : D:/Code/panelforge/.agent/diagnostics/little-men-weather-20261001/. Aucun appel LLM, génération, test, redémarrage, commit ou push ; langues/remerciements, intention générale, durée, défauts IG et preset classique conservés.
+
+### Next steps
+- Au prochain redémarrage habituel du Lab choisi par l’utilisateur, utiliser de nouvelles préparations expérimentales. Dupliquer une fiche déjà préparée pour adopter les nouvelles consignes ; aucun run relancé par l’agent.
+- Tests utilisateur depuis le checkout actif avec PYTHONPATH=src : python -m unittest discover -s tests -p "test_video_factory_needs.py".
+- Qualifier les résultats vidéo lors d’un run volontaire : tornade neutralisée sans parapluie, orage dissipé avec éclaircie, abri persistant sous la pluie.
+
+
+## Implémentation 2026-10-01 — Intention miniature surréaliste préremplie
+
+### Goal
+- Demande explicite : préremplir par défaut l’intention des nouveaux parcours avec le dernier texte proposé et accepté (monde miniature surréaliste, objets quotidiens détournés, bâtiment terminé, population changeante).
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Le textarea ij-intention de static/index.html contient le texte intégral validé, sans les marques de gras Markdown. Préremplissage natif dès l’ouverture ; le form.reset() existant de Nouveau restitue ce défaut. Texte librement modifiable/effaçable, intention facultative conservée.
+- Les parcours existants conservent exactement leur intention via accept(project), y compris une intention vide. Aucun changement JS, API, consignes LLM, génération ou données runtime ; aucune dépendance ajoutée. Aucun intention builder ni nouveau preset implémenté.
+- Guide docs/design/image-journeys-guide.md actualisé. Vérifications statiques : textarea unique, contenu identique au texte approuvé, longueur sous maxlength=6000, reset et chargement existants examinés, diff sans espaces finaux. Aucun test lancé conformément à AGENTS.md ; aucune génération, aucun appel LLM ou redémarrage.
+- Sauvegardes et preuves : D:/Code/panelforge/.agent/diagnostics/journey-default-intention-20261001/ (review.diff, static-checks.json). Page servie par FileResponse avec Cache-Control: no-store ; une actualisation Ctrl+F5 suffit, sans redémarrage du backend.
+
+### Next steps
+1. Actualiser le Lab puis cliquer Nouveau pour retrouver l’intention préremplie. Si un ancien parcours est rouvert automatiquement, son intention reste celle enregistrée.
+2. Le futur intention builder du preset « small world » reste une piste, non implémentée dans ce patch.
+
+## Diagnostic 2026-10-01 — Référence MiniMax inexistante dans le prompt V2
+
+### Goal
+- Comprendre l’erreur « Le prompt doit préciser l’usage de chaque référence Minimax avec son label <Picture N> » signalée après les essais de vie humaine. Diagnostic et aide à la reprise, sans changement applicatif.
+
+### Current state
+- Parcours journey-1c06f668afe7522ab3a26f84b38dfcb6, étape 3/3 « Toiture et finitions », paused/prompting ; deux images produites, aucun rendu soumis pour la troisième. Enfant minimax-80572284e25d58fe892aad3971aa7e46, appel llm-30d0d4eb7ca54499aa5d4a74f3078b22.
+- Une seule image transmise : <Picture 1>. Le prompt Gemma utilise correctement ce tag puis cite à tort <Picture 4> pour le bâtiment graffiti et le décor. Il décrit aussi <Subject 4> comme l’environnement : confusion Subject/Picture probable. Le validateur compare exactement les index {1,4} aux index attendus {1}, puis refuse le prompt. Le message est générique et ne distingue pas référence manquante/référence inventée.
+- Reprendre dans ce cas génère un nouvel ID de prompt via retry_failed et réappelle le prompteur ; le rendu 3 est soumis ensuite si le prompt est valide. Les deux images réussies sont conservées. Contrairement au précédent blocage en reviewing, on n’est pas enfermé dans la relecture d’une image rejetée. Aucun besoin de modifier l’intention pour corriger les balises techniques.
+- Point secondaire pour la prochaine analyse de vie : l’action demande que les passants progressent, mais le prompt refusé dit que Subject 3 (passants) reste inchangé. La consigne de mouvement peut donc être perdue dans le prompteur ; sujet séparé du refus des références.
+- Préférence utilisateur affinée depuis l’audit précédent : vie plus chaotique, personnages renouvelés, emplacements et concentrations variables, pas de quota de deux/trois déplacements ; échelle constante et décor fixe. Les conseils donnés concernent l’intention uniquement, aucun changement des consignes système V2 appliqué.
+- Preuve conservée dans D:/Code/panelforge/.agent/diagnostics/journey-picture-reference-20261001/findings.json. Aucun code applicatif/projet runtime modifié, aucun test, appel LLM, rendu ou redémarrage lancé. Un autre parcours est en génération en parallèle : ne pas y toucher.
+
+### Next steps
+1. Indiquer à l’utilisateur de cliquer Reprendre sans changer son intention ; le prompteur doit produire une réponse valide, ce n’est pas une garantie de succès au prochain appel.
+2. Si un correctif est demandé, examiner la distinction des tags Subject/Picture et un message d’erreur précis ; éviter de masquer une référence inventée par une substitution aveugle, notamment quand plusieurs références existent.
+
+## Implémentation 2026-10-01 — Échelles thermiques ciblées et alignement du panneau compact
+
+### Goal
+- Demande utilisateur : changement purement visuel du monitoring, avec une échelle 50–90 °C dans Détails, 30–90 °C dans le popup compact et alignement strict des lignes Local/Serveur.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Les deux graphes détaillés partagent désormais une échelle 50–90 °C graduée tous les 10 °C. Les valeurs hors plage restent mesurées et affichées dans les lectures/pics ; leur tracé est borné au bord du graphe.
+- Les deux mini-graphes du panneau flottant utilisent une échelle 30–90 °C avec repères 30/50/70/90. Le calcul des couleurs continue d’utiliser la température réelle.
+- Sur écran large, les cartes et graphes sont placés sur deux lignes CSS communes : Local face à Local, Serveur face à Serveur. Les libellés ont le même décalage interne et les hauteurs de lignes s’adaptent au contenu. Sous 900 px, la disposition empilée existante est conservée.
+- Versions de cache de lab.css et work-queue.js actualisées. Le scénario navigateur contient des assertions sur les deux échelles, leurs libellés accessibles et l’alignement géométrique des lignes.
+- Tests NON exécutés conformément à AGENTS.md. Contrôle git diff --check effectué sans erreur de contenu ; aucun service redémarré, aucun appel LLM ni génération lancé.
+
+### Next steps
+1. Au prochain chargement habituel, actualiser le Lab ; le cache-buster charge directement les nouveaux assets.
+2. Si souhaité, exécuter côté utilisateur : python -m unittest tests.test_work_queue_browser.
+
+## Audit 2026-10-01 — Résultats V2 scène vivante et parcours suspendu
+
+### Goal
+- Demande utilisateur : examiner les générations V2, distinguer disparition/immobilité/vie réussie, expliquer le blocage de la capture et comment repartir. Discussion uniquement ; aucun correctif autorisé à ce stade.
+
+### Current state
+- Audit des 8 parcours V2 créés entre 10:30 et 10:32 UTC : 24 images automatiques et 3 ajouts manuels, vues comparatives examinées. Masque OFF dans les huit. Même Gemma local pour progression et prompt. Journaux copiés pour audit, aucun projet runtime modifié.
+- Cause principale établie : les huit intentions contiennent encore « ne fais pas apparaitre les petits homme, c’est pour que tu comprennes ». Cinq parcours (b792, c310, 4a62, 3280, dc5d) demandent explicitement de supprimer les figurines ; suppressions visibles. Ce n’est pas une preuve d’incapacité intrinsèque de MiniMax à déplacer les personnages.
+- Meilleur cas : 7b23 (ville boutons/toit denim), ouvriers sur structure puis toit, ajout manuel final remplace ouvriers par passants et gare véhicule vert. L’arrière-plan reste largement fixe, identité individuelle non démontrée. 3280 : vie localisée au début puis suppression à l’image 3. Jungle 1d58 et ville classique b7e9 : quasi-immobilité, consignes « préserver les figurines » et déplacements absents/vagues. V2 trop facultative face aux préservations et à l’intention contradictoire ; destinations de déplacement rarement explicites.
+- Capture = journey-b7e9361b552f525fbbff57eeb4209963. Image 2 générée : mur de maçonnerie grise posé derrière/à côté de la fosse, au lieu de boutons/billes empilés sur les fondations. Relecture initiale 10:37 UTC : unusable, next_action=null, suspension valide. Trois reprises 10:57/10:58/11:00 UTC : unusable + next_action corrective, contradiction refusée par validate_decision, d’où « La relecture finale ou bloquante ne doit pas demander une image supplémentaire ». Il reste 1 image ; ce n’est ni un dépassement du budget, ni un rendu GPU bloqué.
+- Reprendre relit la même sortie. Le + final peut produire une correction indépendante mais ne répare pas la boucle automatique, qui relira encore la vieille étape inutilisable. Sortie immédiate simple : télécharger l’image 1 (fondations), Nouveau à partir de cette image, deux étapes murs/toit, intention clarifiée. Ne pas promettre que Reprendre seul réessaie MiniMax.
+- Propositions à discuter : enlever d’abord la phrase contradictoire ; décrire quelques déplacements concrets de sujets identifiables et leur destination, préserver séparément fixes/identité mobile, relecture factuelle de la vie sans nouveau garde-fou bloquant. Pour récupération : action explicite refaire l’étape depuis la source précédente valide en conservant l’échec dans l’historique ; distinguer erreur de construction corrigeable et image inexploitable. Aucun de ces correctifs implémenté.
+- Diagnostic : D:/Code/panelforge/.agent/diagnostics/journey-v2-audit-20261001/ (index.json, snapshots, overview.jpg de consultation, findings.json). Images originales intactes ; aperçus uniquement pour inspection. Aucun appel LLM, rendu, test, modification de code applicatif ou redémarrage. view_image indisponible à cause du helper sandbox ; vues de lecture affichées via accès PowerShell autorisé.
+
+### Next steps
+1. Restituer l’analyse et la procédure immédiate ; attendre le retour utilisateur avant un correctif V2 ou une action sur les parcours.
+2. Pour évaluer proprement la vie, essai utilisateur avec intention cohérente, puis comparaison de l’action décidée, du prompt réel et des positions observées.
+
+## Implémentation 2026-10-01 — Parcours V2 : scène vivante
+
+### Goal
+- Go utilisateur reçu : implémenter la V2 sélectionnable, mouvements/entrées/sorties cohérents et discrets dans les mêmes images, travaux centraux et éléments fixes préservés.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Petit sélecteur en en-tête V1 — Actuelle / V2 — Scène vivante. V2 par défaut pour Nouveau ; choix persisté et verrouillé après création, y compris à la pause. Les anciens parcours sans journey_version restent V1 sans migration. Le compteur de révision version reste distinct. Les anciennes commandes de création conservent leur empreinte et leur idempotence.
+- Nouveau routage application/image_journey_policies.py et consignes image_journey_v2_prompting.py : progression, demande MiniMax, planification/relecture des + en @2.0.0. Remplacement de l’interdiction V1 des ouvriers par une vie secondaire explicite et plausible, sans augmentation du budget d’images ou du nombre d’appels. Position/cadrage/architecture/acquis/couleurs/lumière fixes, sauf travaux demandés ; déplacements seuls ne valident pas un jalon. L’original reste une ancre pour les éléments fixes, pas les anciennes positions des personnes/véhicules.
+- Les + suivent la version du parcours. Une insertion demande une position intermédiaire cohérente entre EARLIER/LATER ; les voisins restent conservés. Version capturée dans les étapes, opérations manuelles et analyses, réutilisée aux reprises. Les deux modules de consignes V1 sont inchangés (hashes comparés au patch précédent).
+- Si le masque est activé, il reçoit déjà toute l’action décrite, déplacements compris. Aucun correctif de géométrie/segmentation appliqué : code et consignes du masque inchangés. Masque décoché par défaut, 3 MP / 18 passes / référence native, modèles et coches de transfert conservés. Aucun changement Histoire V2.1 ; les évolutions antérieures du masque et de la transformation principale restent différées.
+- Dix tests V2 préparés dans tests/test_image_journey_versions.py, fixtures V1 explicitement fixées, scénario navigateur étendu. Tests NON exécutés selon AGENTS.md. Vérifications statiques réussies : 11 Python compilés sans exécution, 4 JavaScript parsés via Function sans invocation, raccordement HTML, diff sans espaces finaux, corps des fonctions du moteur de rendu inchangés. Aucun appel LLM, rendu, écriture de projet runtime, test de navigateur applicatif ou redémarrage.
+- Guide docs/design/image-journeys-guide.md actualisé. Sauvegardes, review.diff, changes.json et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-v2-20261001/. 15 fichiers applicatifs/tests/guide concernés. Changements non commités ni poussés ; travail préexistant conservé.
+
+### Next steps
+1. Charger le backend au prochain redémarrage normal du Lab, puis Ctrl+F5 ; aucun service n’a été redémarré par l’agent.
+2. L’utilisateur peut lancer python -m unittest discover -s tests -p "test_image_journey*.py" depuis le checkout actif. Puis juger visuellement un nouveau parcours V2 (et V1 en comparaison) ; fidélité et subtilité de la scène restent à qualifier sur les vrais modèles.
+
+## Alignement 2026-10-01 — Parcours V2 : scène vivante entre les transformations
+
+### Goal
+- L’utilisateur apprécie le parcours actuel et souhaite tester une V2 sélectionnable, activée par défaut, où voitures/personnes changent de position entre les images tandis que les éléments immobiliers restent en place. Demande explicite d’alignement et de questions ; pas d’implémentation commencée.
+
+### Current state
+- Proposition : petit sélecteur en en-tête V1 — Actuelle / V2 — Scène vivante ; V2 par défaut pour les nouveaux parcours, version conservée par parcours, anciens parcours en V1. Préserver le cadrage, le point de vue, l’architecture et les travaux acquis, sauf modification de chantier explicitement prévue. Les éléments mobiles peuvent occuper des positions différentes et plausibles entre états fixes.
+- Lecture du code actif : image_journey_prompting.SYSTEM et edit_request renvoient actuellement ouvriers/gestes/outils en mouvement à l’atelier vidéo. Une V2 cohérente devra adapter planification, demande au prompter et relecture ; ne pas juxtaposer une demande de mouvement à l’interdiction actuelle. Il s’agit d’images fixes successives, pas d’une génération vidéo dans cet atelier. V1 doit conserver ses consignes historiques.
+- Réponses utilisateur acquises aux trois questions : (1) variations dans les mêmes images, nombre d’étapes inchangé ; (2) déplacements et entrées/sorties cohérents autorisés ; (3) variations visibles mais discrètes, les travaux restent centraux. La relecture devra distinguer cette vie secondaire voulue d’une dérive des éléments fixes.
+- Conserver le masque décoché par défaut, les modèles configurables, le 3 MP, les + et les coches de transfert. Si le masque est réactivé dans une future V2, les déplacements autorisés devront faire partie de l’action transmise à sa localisation pour ne pas être annulés par la composition ; ce point ne vaut pas accord pour le correctif géométrique différé.
+- Les pistes antérieures (contours plus complets du masque, une transformation principale majeure par étape avec meilleur respect de l’action par le prompter) restent différées ; ne pas les inclure implicitement dans cette nouvelle V2. Cette version du parcours est indépendante du versionnement Histoire V2/V2.1 récemment livré dans une autre tâche.
+- Lecture seule du code ; seules les notes de continuité sont actualisées. Aucun changement applicatif/runtime, test, appel LLM, rendu ou redémarrage.
+
+### Next steps
+1. Restituer le périmètre aligné : mêmes images, déplacements/entrées/sorties cohérents et discrets, décors fixes. Pour les ajouts/insertions, prévoir la cohérence entre leurs images voisines sans réécrire les images existantes.
+2. Au go d’implémentation, versionner les consignes de façon cohérente et conserver V1 sélectionnable ; aucun moteur ni appel supplémentaire n’est proposé à ce stade.
+
+## Implémentation 2026-10-01 — Histoire V2.1, dialogues denses et références réduites
+
+### Goal
+- Go utilisateur reçu après la proposition : implémenter une version sélectionnable par défaut avec dialogues plus denses, retouche Gemma assouplie et références limitées aux changements matériels.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Sélecteur discret Version d’écriture au-dessus des réglages : V2.1 — Dialogues denses par défaut pour Nouvelle histoire, V2 — Actuelle disponible. Version persistée dans settings, cycle et appels ; verrouillée après création pour éviter une migration implicite. Les autres derniers réglages, dont la durée choisie de 8 s, restent mémorisés. Les anciens fichiers sans version sont lus en 2.0, sans écriture au chargement.
+- Consignes V2 historiques inchangées (constantes comparées exactement). Nouveau module application/story_v21_prompting.py : conversations continues, réactions utiles, cible souple 16–22 mots/8 s pour les scènes dialoguées, transitions et conséquences contrôlées par la relecture existante. Aucun appel supplémentaire. Writer 579 mots contre 546 auparavant ; relecture 193 contre 197 ; retouche 247 contre 197. Pas d’empilement de la vieille interdiction sur les nouvelles consignes.
+- Contrats domain/story_v21.py : Gemma peut varier nombre/ordre des répliques dans la scène, avec locuteur/mode/destinataires structurés. Scènes, durée, rôles parlants et modes vocaux conservés ; personnage silencieux non ajouté au dialogue. Six tours et 3,5 mots/s maximum toujours vérifiés. Objectifs de sens et densité restent éditoriaux, non une garantie audiovisuelle. Retouche et contrôle final toujours optionnels, historique A/B, compteur/timer et reprise conservés.
+- Références V2.1 : visual_states déclaré une fois, kinds clothing/hair/physical ; scènes liées par state_id. Indications de jeu dans action/intention/cue et base par défaut. Pas de variante déduite d’un texte libre par scène ; état répété partagé, doublons exacts normalisés et répétitions de base supprimés, retour explicite à la base avec liste vide. Objets non liés à une scène et états inutilisés exclus des références. Le texte de variante est résolu depuis le catalogue ; identifiant stable réutilisé entre clips.
+- Routage versionné pour écriture/relecture/retouche ; old operation IDs conservés, nouvelles opérations @2.1.0. API accepte les requêtes historiques sans version pour modifier/reprendre leur ancien projet ; nouvelles créations par défaut en 2.1. Identité/hash d’export historique préservé en excluant le champ version ajouté des anciens calculs. Les validations de structure sont séparées des changements de durée en attente de réécriture.
+- Prompteurs vidéo, classe d’orchestration MiniMax/Qwen, résolution image et réglages image/vidéo inchangés, vérifiés statiquement. Automatique reste scénario → références/miniature → bac Préparation. Aucun runtime, projet, rendu ou travail en cours modifié par l’agent.
+- 12 régressions V2.1 préparées : contrats versionnés, densité/locuteurs/durée, références de jeu absentes, réemploi d’état et retour à base, doublons, export à 8 s, automatique à trois appels, contrôle final, reprise de retouche, historique, lecture legacy/hash et routes anciennes/nouvelles. Test navigateur existant étendu au défaut, choix et verrouillage de version ; fixture V2 explicitement fixée à 2.0. Tests NON exécutés selon AGENTS.md.
+- Vérifications statiques réussies : 11 Python compilés sans exécution ; JavaScript UI et scénario de test parsés dans V8 via Function sans invocation ; IDs/formulaire vérifiés ; diff --check sur copies LF normalisées pour éviter les faux positifs CRLF. Aucun appel LLM, génération, navigateur de test ou redémarrage lancé. Guide docs/design/story-v2-guide.md mis à jour. Sauvegardes, review.diff, changes.json et static-checks.json : D:/Code/panelforge/.agent/diagnostics/story-v21-20261001/ (15 fichiers code/tests/guide).
+- Patch non poussé sur GitHub. La sauvegarde préalable reste origin/master 30453c4f346667b6c560c00293ba8715c16519c7, tag snapshot-pre-story-v21-2026-10-01. Le checkout et l’index de travail restent en place.
+
+### Next steps
+1. Charger le patch lors du prochain redémarrage habituel du backend choisi par l’utilisateur, puis actualiser le navigateur. Aucun redémarrage autorisé ou effectué durant cette tâche.
+2. Tests à exécuter par l’utilisateur depuis le checkout actif et son environnement habituel : python -m unittest discover -s tests -p "test_story_v2*.py".
+3. Essai utilisateur : Nouvelle histoire, V2.1, 8 s, durée totale inchangée, retouche Gemma activée. Comparer avec une nouvelle histoire V2 de mêmes paramètres ; mesurer naturel audible, compréhension, références nécessaires et temps de préparation. Les anciens scénarios restent sur leur version.
+
+
+## Proposition 2026-10-01 — Version sélectionnable pour dialogues denses et références réduites
+
+### Goal
+- Demande utilisateur : créer une version GitHub de l’état actuel, puis décrire un patch détaillé avec une nouvelle version d’écriture sélectionnable en haut du bloc Histoire V2 et choisie par défaut. Ne pas implémenter le patch pour le moment.
+
+### Current state
+- Sauvegarde publiée et vérifiée sur origin/master : 30453c4f346667b6c560c00293ba8715c16519c7, parent d3f0ca0. Repères snapshots/pre-story-v21-2026-10-01 et snapshot-pre-story-v21-2026-10-01. URL : https://github.com/EasyFrag/panelforge/commit/30453c4f346667b6c560c00293ba8715c16519c7.
+- Contenu : version applicative existante avant ce futur patch, dont destinataires Histoire et changements déjà présents Journeys/Transitions/Usine. 45 fichiers différents du dernier master, aucune suppression ; 29 Python vérifiés syntaxiquement sans exécution et diff --check réussi. Node absent, aucun contrôle JS supplémentaire. Aucun test applicatif, appel LLM, rendu ou redémarrage.
+- Création via index temporaire et commit-tree ; branche/HEAD/index réels du checkout actif et checkout master local conservés. Aucun reset/checkout nécessaire. Reçu exact : D:/Code/panelforge/.agent/diagnostics/github-pre-story-v21-20261001/snapshot.json et checks.json. Le master local reste ancien ; origin/master porte bien le commit publié.
+- Diagnostic déterminant pour le plan : Gemma est limité par POLISH et par validate_polish/list[str], qui imposent nombre et ordre des tours. Retirer seulement une phrase de prompt ne suffirait pas. attach_variants crée une image pour chaque texte d’apparence distinct ; la réduction doit porter sur la déclaration et l’identité des vrais états visuels, pas un filtre de mots comme sourire/silence.
+- Plan proposé, non implémenté : sélecteur Version d’écriture dans le bloc supérieur, V2 — Actuelle et V2.1 — Dialogues denses. Nouvelle version par défaut pour les nouvelles histoires ; anciens projets sans version explicitement rattachés à l’ancien comportement. Version persistée par histoire et cycle, anciennes sorties conservées ; comparaison A/B avec les mêmes paramètres.
+- Écriture V2.1 : conversations continues sur plusieurs clips, réactions/réponses qui font avancer le conflit ; cible indicative de 16–22 mots sur 8 s pour une scène de conversation, adaptée à l’action, aucune obligation de remplir une scène silencieuse. Durée totale et durée choisie conservées, répliques distinctes. Causalité concrète des révélations et réactions renforcée dans l’écriture/relecture existantes, pas d’appel supplémentaire.
+- Gemma V2.1 : enlever l’interdiction de densifier ; autoriser scission/regroupement/relances courtes et variation du nombre de répliques dans la scène. Réponse structurée avec locuteur/destinataire/mode vocal, validation des identités et du temps. Préserver les événements, informations, secrets, protagonistes et fin ; aucune expansion libre de l’intrigue. Conserver la retouche optionnelle et le contrôle final optionnel décoché.
+- Références V2.1 : base stable par personnage ; seules modifications visuelles matérielles utiles deviennent des états explicites réutilisables. Émotions, regards, poses, voix et accessoires ordinaires restent indications de jeu/action. Pas de variante pour répéter la base ; même état partagé entre clips via un ID stable. Objets de référence seulement s’ils sont distinctifs, nécessaires et effectivement liés à des scènes. Réduction du coût et du risque de dérive d’identité ; aucune suppression/réécriture rétroactive des références existantes.
+- Préparer un remplacement cohérent des consignes de la nouvelle version, pas un empilement d’exceptions contradictoires. Version englobe écriture, retouche et règles de références pour garder un vrai ancien comportement sélectionnable. Pas de refonte du prompteur vidéo ; automatique reste scénario → références/miniature → bac Préparation, prompts/rendus déclenchés par Usine. MP Krea/MiniMax inchangés.
+
+### Next steps
+1. Restituer le lien GitHub et la proposition détaillée par bullets ; attendre le go utilisateur avant toute implémentation.
+2. Après accord seulement : changements ciblés contrats/domain, prompts et orchestration Histoire V2, références, UI et tests de régression. Couvrir ancienne version, durée exacte, retouche à nombre variable, destinataires, absence de variantes d’émotion et réemploi de vrais états.
+3. Tests exécutés par l’utilisateur selon AGENTS.md ; aucune génération A/B lancée sans demande. Comparer densité écrite, naturel audible, compréhension, références utiles et temps de préparation lors des essais utilisateur.
+
+
 ## Audit 2026-10-01 — Essais Histoire V2 à 8 secondes
 
 ### Goal

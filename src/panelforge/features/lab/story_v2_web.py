@@ -1,7 +1,7 @@
 """HTTP boundary for the short story V2 workshop."""
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
-from panelforge.domain.story_v2 import Contract, Settings, Script, DEFAULT_MODEL, DEFAULT_PROMPT_MODEL
+from panelforge.domain.story_v2 import Contract, Settings, Script, DEFAULT_MODEL, DEFAULT_PROMPT_MODEL, DEFAULT_WRITING_VERSION
 from panelforge.application.story_v2 import StoryV2Conflict
 
 class Create(Contract):
@@ -33,22 +33,29 @@ def story_v2_router(service):
         except FileNotFoundError as e: raise HTTPException(404, "Histoire introuvable.") from e
         except (ValueError, TypeError, KeyError) as e: raise HTTPException(422, str(e)) from e
         except (OSError, RuntimeError) as e: raise HTTPException(503, str(e)) from e
+    def submitted_settings(body):
+        value = body.settings.model_dump()
+        for key in ("writing_version", "tone_profile"):
+            if key not in body.settings.model_fields_set:
+                value.pop(key, None)
+        return value
     @router.get("/spec")
     def spec():
         return dict(writer_model=DEFAULT_MODEL, reader_model=DEFAULT_MODEL, prompt_model=DEFAULT_PROMPT_MODEL,
-                    polish_model=DEFAULT_PROMPT_MODEL, scene_duration=10, max_duration=180, modes=["manual", "automatic"])
+                    polish_model=DEFAULT_PROMPT_MODEL, writing_version=DEFAULT_WRITING_VERSION,
+                    writing_versions=[dict(id="2.0", label="V2 — Actuelle"), dict(id="2.1", label="V2.1 — Dialogues denses")], scene_duration=10, max_duration=180, modes=["manual", "automatic"])
     @router.get("/preferences")
     def preferences(): return invoke(lambda:dict(settings=service.preferences()))
     @router.get("/projects")
     def projects(): return invoke(lambda:dict(projects=service.list()))
     @router.post("/projects", status_code=202)
-    def create(body:Create): return invoke(lambda:service.create(body.command, body.settings.model_dump()), True)
+    def create(body:Create): return invoke(lambda:service.create(body.command, submitted_settings(body)), True)
     @router.get("/projects/{identity}")
     def get(identity:str): return invoke(lambda:dict(project=service.get(identity)))
     @router.put("/projects/{identity}")
     def update(identity:str, body:Update):
         return invoke(lambda:service.update(identity, body.version, body.script.model_dump() if body.script else None,
-                                             body.settings.model_dump()), True)
+                                             submitted_settings(body)), True)
     @router.post("/projects/{identity}/restore")
     def restore(identity:str, body:Restore):
         return invoke(lambda:service.restore(identity, body.version, body.index), True)

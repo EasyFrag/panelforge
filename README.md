@@ -1,5 +1,7 @@
 # PanelForge
 
+Version majeure actuelle : **[PanelForge 2.0.0](docs/releases/2.0.0.md)** — 7 octobre 2026.
+
 PanelForge est un atelier local pour construire un canon visuel cohérent, qualifier des recettes ComfyUI puis produire des panels narratifs à partir d’assets approuvés.
 
 Le projet reste un monolithe modulaire : ComfyUI sert à découvrir manuellement les workflows, tandis que PanelForge les exécute comme des recettes explicites, versionnées et traçables.

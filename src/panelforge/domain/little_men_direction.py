@@ -28,6 +28,9 @@ NEED_DIRECTIONS = {
     'wave': 'Intercepter ou détourner la vague avant les habitants, avec une protection qui reste efficace.',
     'flood': 'Premier geste d’aide : utiliser une ventouse de débouchage pour évacuer l’eau et abaisser durablement son niveau ; gestes suivants libres si nécessaires.',
     'fire': 'Les flammes vacillent et la fumée monte, puis le feu s’éteint sous l’effet de l’aide.',
+    'tornado': 'Aucun parapluie. La main neutralise la tornade, par exemple en l’aspirant avec un aspirateur, en la repoussant avec un éventail ou en la saisissant pour l’envoyer au loin.',
+    'storm': 'Dissiper l’orage, par exemple en repoussant le nuage avec un éventail ; montrer les éclairs cesser et le ciel s’éclaircir.',
+    'rain': 'Abriter les petits hommes de la pluie, par exemple sous un parapluie laissé en place après le retrait de la main.',
 }
 # Only scene descriptions are evidence; labels, filenames and style boilerplate are not.
 _NEED_PATTERNS = {
@@ -38,14 +41,20 @@ _NEED_PATTERNS = {
     "tornado": r"tornades?|tornado(?:es)?|twister|cyclone|ouragan|hurricane",
     "repair": r"reparations?|reparer|repairs?|broken|brise(?:e|s|es)?|casse(?:e|s|es)?",
 }
+# Only new weather selections enable these extra scene categories.
+_WEATHER_NEED_PATTERNS = {
+    "storm": r"orage(?:s|ux)?|ton+er+es?|thunder(?:storms?)?|lightning|foudre",
+    "rain": r"pluies?|averses?|rain(?:fall|ing)?|downpours?",
+}
 _NEGATED_NEED = re.compile(r"\b(?:sans|aucune?|pas|no|not|without)\s*(?:d[' ]|de\s+|any\s+|a\s+|an\s+)?$")
 
 
-def _need_in_text(text):
+def _need_in_text(text, *, weather=False):
     text = "".join(c for c in unicodedata.normalize("NFKD", text.casefold())
                    if not unicodedata.combining(c)).replace("’", "'").replace("-", " ")
     found, denied = set(), False
-    for kind, pattern in _NEED_PATTERNS.items():
+    patterns = {**_NEED_PATTERNS, **(_WEATHER_NEED_PATTERNS if weather else {})}
+    for kind, pattern in patterns.items():
         for match in re.finditer(r"\b(?:" + pattern + r")\b", text):
             if _NEGATED_NEED.search(text[max(0, match.start() - 40):match.start()]):
                 denied = True
@@ -54,12 +63,18 @@ def _need_in_text(text):
     # A flood caused by a wave is governed by the incoming threat.
     if "wave" in found:
         found.discard("flood")
+    if weather:
+        # Rain/thunder do not replace an explicit disaster or repair need.
+        if found.intersection(_NEED_PATTERNS):
+            found.difference_update(_WEATHER_NEED_PATTERNS)
+        elif "storm" in found:
+            found.discard("rain")
     if len(found) == 1:
         return next(iter(found))
     return "ambiguous" if found or denied else None
 
 
-def scene_need(config):
+def scene_need(config, *, weather=True):
     """Use author intent first, then the exact image's intent and full description."""
     contexts = [config.get("intention", ""), config.get("little_men_context", "")]
     refs = [ref.get("scene_context") or {} for ref in config.get("references", ())
@@ -67,15 +82,18 @@ def scene_need(config):
     for key in ("intention", "prompt"):
         contexts.extend(context.get(key, "") for context in refs)
     for text in contexts:
-        if isinstance(text, str) and (kind := _need_in_text(text)) is not None:
+        if isinstance(text, str) and (kind := _need_in_text(text, weather=weather)) is not None:
             return kind
     return "unknown"
 
 
 def preparation_text_v4(config, source, selection):
     # This goal is deterministic and stays identical from Plan to Writer.
-    need = scene_need(config)
+    weather = selection.get("weather_direction") == "v1"
+    need = scene_need(config, weather=weather)
     goal = NEED_DIRECTIONS.get(need)
+    if not weather and need in ("tornado", "storm", "rain"):
+        goal = None
     # Older selections must reproduce their locked Plan/Writer input exactly.
     if need == "flood" and selection.get("flood_first_action") != "plunger":
         goal = "Évacuer l’eau hors de la zone protégée et montrer une baisse durable du niveau."

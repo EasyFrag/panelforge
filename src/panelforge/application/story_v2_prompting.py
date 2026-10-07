@@ -66,3 +66,16 @@ Actions remain one short visible sentence. Fit each scene's existing duration wi
 do not increase dialogue density. The original screenplay and user feedback are reference data.
 This is one restrained pass, not a new plot or a request for more model calls.
 """
+
+
+def for_version(writing_version, tone_profile="from_idea"):
+    from .story_v2_tone import apply_tone
+    if writing_version == "2.1":
+        from . import story_v21_prompting as dense
+        recipe = dict(version=dense.VERSION, write=dense.WRITER, repair=dense.WRITER,
+                      review=dense.READER, polish=dense.POLISH)
+    elif writing_version == "2.0":
+        recipe = dict(version=VERSION, write=WRITER, repair=WRITER, review=READER, polish=POLISH)
+    else:
+        raise ValueError("Version d'écriture inconnue.")
+    return apply_tone(recipe, tone_profile)

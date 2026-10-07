@@ -121,11 +121,68 @@ class TransitionServiceTest(TransitionFixture):
         p = self.service.order(p["id"], p["version"], ids)
         self.assertEqual([status(p,t) for t in active(p)], ["ready"]*3)
 
-    def test_unreviewed_send_is_rejected_before_creating_factory_units(self):
+    def test_empty_intention_send_is_rejected_before_creating_factory_units(self):
         p = self.latest()
-        with self.assertRaises(TransitionConflict):
+        self.assertIn("intention", self.service.public(p)["transitions"][0]["send_error"])
+        with self.assertRaisesRegex(ValueError, "intention"):
             self.service.send(p["id"], p["version"], [active(p)[0]["id"]])
         self.assertEqual(self.factory.snapshot()["items"], [])
+
+    def test_proposal_can_be_sent_without_marking_it_human_reviewed(self):
+        identity = active(self.latest())[0]["id"]
+        p = self.propose(identity)
+        self.assertIsNone(active(p)[0]["reviewed"])
+        self.assertIsNone(self.service.public(p)["transitions"][0]["send_error"])
+        p, ids, added = self.service.send(p["id"], p["version"], [identity])
+        self.assertEqual(added, 1)
+        self.assertEqual(status(p, active(p)[0]), "sent")
+        self.assertIsNone(active(p)[0]["reviewed"])
+        self.assertIn(active(p)[0]["intention"], self.factory.snapshot()["items"][0]["config"]["intention"])
+        self.assertEqual(self.adapter.calls, [])
+
+    def test_one_empty_transition_blocks_entire_selection_without_partial_receipt(self):
+        first, second = active(self.latest())[:2]
+        p = self.edit(first["id"], intention="Assembler les pièces puis sortir.")
+        with self.assertRaisesRegex(ValueError, "intention"):
+            self.service.send(p["id"], p["version"], [first["id"], second["id"]])
+        self.assertEqual(self.latest()["deliveries"], [])
+        self.assertEqual(self.factory.snapshot()["items"], [])
+
+    def test_running_proposal_blocks_send_even_with_existing_intention(self):
+        p = self.prepare()
+        identity = active(p)[0]["id"]
+        p, _ = self.service.begin_proposals(p["id"], p["version"], [identity], "pending-send")
+        with self.assertRaisesRegex(TransitionConflict, "fin de l’analyse"):
+            self.service.send(p["id"], p["version"], [identity])
+        self.assertEqual(self.latest()["deliveries"], [])
+        self.assertEqual(self.factory.snapshot()["items"], [])
+
+    def test_mixed_selection_only_receives_new_versions_and_all_sent_is_noop(self):
+        first, second = active(self.latest())[:2]
+        self.edit(first["id"], intention="Poser les poutres.")
+        p = self.edit(second["id"], intention="Poser le plancher.")
+        p, first_ids, _ = self.service.send(p["id"], p["version"], [first["id"]])
+        with patch.object(self.factory, "receive", wraps=self.factory.receive) as receive:
+            p, mixed_ids, added = self.service.send(p["id"], p["version"], [second["id"], first["id"]])
+            self.assertEqual(added, 1)
+            self.assertEqual(mixed_ids[0], first_ids[0])
+            entries = receive.call_args.args[0]
+            self.assertEqual([e["source"]["transition_id"] for e in entries], [second["id"]])
+        saved = deepcopy(p)
+        with patch.object(self.factory, "receive", wraps=self.factory.receive) as receive:
+            p, repeated, added = self.service.send(p["id"], p["version"], [first["id"], second["id"]])
+            receive.assert_not_called()
+        self.assertEqual(p, saved)
+        self.assertEqual(repeated, mixed_ids)
+        self.assertEqual(added, 0)
+        p = self.edit(first["id"], intention="Poser les poutres avec un petit treuil.")
+        with patch.object(self.factory, "receive", wraps=self.factory.receive) as receive:
+            p, revised_ids, added = self.service.send(p["id"], p["version"], [first["id"], second["id"]])
+            self.assertEqual(len(receive.call_args.args[0]), 1)
+        self.assertEqual(added, 1)
+        self.assertNotEqual(revised_ids[0], mixed_ids[0])
+        self.assertEqual(revised_ids[1], mixed_ids[1])
+        self.assertEqual(len(self.factory.snapshot()["items"]), 3)
 
     def test_send_is_ordered_deduplicated_and_preserves_exact_boundaries(self):
         p = self.prepare()
@@ -153,7 +210,6 @@ class TransitionServiceTest(TransitionFixture):
         original = deepcopy(self.factory.snapshot()["items"][0])
         p = self.edit(identity, intention="Poser une porte et sortir.")
         self.assertEqual(self.factory.snapshot()["items"][0], original)
-        p = self.service.review(p["id"],p["version"],[identity])
         p, new_ids, added = self.service.send(p["id"],p["version"],[identity])
         self.assertEqual(added, 1)
         self.assertNotEqual(ids, new_ids)
@@ -248,20 +304,21 @@ class TransitionServiceTest(TransitionFixture):
         with self.assertRaises(ValueError):
             self.store.get("../escape")
 
-    def test_http_review_required_and_background_proposals(self):
+    def test_http_direct_send_after_background_proposals(self):
         app=FastAPI()
         app.include_router(image_transitions_router(self.service))
         p=self.latest()
         base="/api/image-transitions/projects/"+p["id"]
         identity=active(p)[0]["id"]
         with TestClient(app) as client:
-            self.assertEqual(client.post(base+"/send",json=dict(version=p["version"],ids=[identity])).status_code,409)
+            self.assertTrue(client.get("/api/image-transitions/spec").json()["direct_send"])
+            self.assertEqual(client.post(base+"/send",json=dict(version=p["version"],ids=[identity])).status_code,422)
             response=client.post(base+"/proposals",json=dict(version=p["version"],ids=[identity],request_id="http"))
             self.assertEqual(response.status_code,202)
             p=client.get(base).json()["project"]
             self.assertEqual(p["jobs"][-1]["status"],"succeeded")
-            response=client.post(base+"/review",json=dict(version=p["version"],ids=[identity]))
-            p=response.json()["project"]
+            self.assertIsNone(p["transitions"][0]["reviewed"])
+            self.assertIsNone(p["transitions"][0]["send_error"])
             response=client.post(base+"/send",json=dict(version=p["version"],ids=[identity]))
             self.assertEqual(response.status_code,200)
             self.assertEqual(response.json()["added"],1)
@@ -361,16 +418,13 @@ class TransitionPaceTest(TransitionFixture):
         self.assertEqual(config["render"]["settings"]["duration_seconds"], 9.5)
         self.assertIn("dernière image à 9.5 s", config["intention"])
 
-    def test_switch_invalidates_review_but_preserves_sent_version(self):
+    def test_switch_can_send_new_version_directly_and_preserves_previous_unit(self):
         p = self.prepare()
         identity = active(p)[0]["id"]
         p, ids, _ = self.service.send(p["id"], p["version"], [identity])
         original = deepcopy(self.factory.snapshot()["items"][0])
         p = self.set_preset("slow")
         self.assertEqual(status(p, active(p)[0]), "review")
-        with self.assertRaises(TransitionConflict):
-            self.service.send(p["id"], p["version"], [identity])
-        p = self.service.review(p["id"], p["version"], [identity])
         p, new_ids, added = self.service.send(p["id"], p["version"], [identity])
         self.assertEqual(added, 1)
         self.assertNotEqual(new_ids, ids)

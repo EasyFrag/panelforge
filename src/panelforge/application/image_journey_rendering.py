@@ -2,17 +2,20 @@
 from copy import deepcopy
 from panelforge.domain.image_journey_masks import dimensions_3mp
 from panelforge.domain.minimax_edit import MinimaxEditSettings, journey_child_id
-from .image_journey_prompting import edit_request
+from .image_journey_policies import edit_request
 
 
 class MinimaxJourneyRenderer:
     def __init__(self, minimax):
         self.minimax = minimax
 
-    def prepare_source(self, content):
+    def prepare_source(self, content, *, journey_direction="forward"):
         """Capture the fixed 3 MP / 18-step native-reference profile once per journey."""
         if not self.minimax.workflow.manifest['capabilities'].get('native_reference'):
             raise ValueError('Les nouveaux parcours nécessitent le workflow MiniMax 1.2.0.')
+        if (journey_direction == "reverse"
+                and not self.minimax.workflow.manifest['capabilities'].get('native_multi_reference')):
+            raise ValueError('Le parcours à rebours nécessite le workflow MiniMax 1.3.0.')
         dimensions = dimensions_3mp(self.minimax.images.dimensions(content))
         prepared = self.minimax.images.prepare_fixed_source(content, dimensions)
         return prepared, dict(id='fixed-3mp-v1', dimensions=list(dimensions),

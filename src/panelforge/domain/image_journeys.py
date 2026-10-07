@@ -8,9 +8,37 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 MAX_IMAGES = 30
 DEFAULT_IMAGES = 5
+DEFAULT_JOURNEY_VERSION = "2"
+DEFAULT_JOURNEY_DIRECTION = "forward"
+JOURNEY_DIRECTIONS = {"forward": "Construction", "reverse": "À rebours"}
+JOURNEY_VERSIONS = {"1": "V1 — Actuelle", "2": "V2 — Scène vivante"}
 DEFAULT_MASK_MODEL_ID = "local::unsloth/Qwen3.8-27B-GGUF"
 PRESET = "construction"
 ACTIVE = {"running", "pausing"}
+
+
+def journey_version(record):
+    """Old journals retain V1 without a write or an implicit migration."""
+    value = record.get("journey_version", "1")
+    if not isinstance(value, str) or value not in JOURNEY_VERSIONS:
+        raise ValueError("Version du parcours invalide : choisis V1 ou V2.")
+    return value
+
+
+def journey_direction(record):
+    """Missing direction is the historical forward construction behavior."""
+    value = record.get("journey_direction", DEFAULT_JOURNEY_DIRECTION)
+    if not isinstance(value, str) or value not in JOURNEY_DIRECTIONS:
+        raise ValueError("Sens du parcours invalide : choisis Construction ou À rebours.")
+    return value
+
+
+def direction_snapshot(project):
+    values = dict(journey_direction=journey_direction(project))
+    if values["journey_direction"] == "reverse":
+        # The prepared original stays fixed, never the latest generated state.
+        values["finished_reference_asset_id"] = project["source_asset_id"]
+    return values
 
 
 def timestamp():
@@ -84,8 +112,10 @@ def transferable_frame_ids(project):
                        (step.get('review') or {}).get('assessment') in {'usable', 'similar'}]]
 
 
-def sequence(project, frame_ids=None):
-    """Selected reviewed states in journey order; omission keeps the legacy prefix."""
+def sequence(project, frame_ids=None, *, frame_order="generation"):
+    """Reviewed states in an explicit order; defaults preserve historical exports."""
+    if frame_order not in ("generation", "reverse_generation"):
+        raise ValueError("L’ordre des images pour les transitions est invalide.")
     available = set(transferable_frame_ids(project))
     selected = None
     if frame_ids is not None:
@@ -109,14 +139,49 @@ def sequence(project, frame_ids=None):
                         action=step["action"]["change"], observation=step["review"]["observation"])))
     if selected is not None:
         frames = [frame for frame in frames if frame['origin'].get('step_id', 'source') in selected]
+    if frame_order == "reverse_generation":
+        frames.reverse()
+        # Origin indexes remain generation identities, independent of export positions.
+        if journey_direction(project) == "reverse":
+            for frame in frames:
+                if frame["origin"]["index"] == 0:
+                    frame["label"] = "Bâtiment terminé"
     return dict(schema_version=1, project_id=project["id"], destination=project["destination"], frames=frames)
+
+
+def plan_locked(project):
+    return bool(project["milestones"] and project["plan_revision"] == project["intent_revision"])
+
+
+def reverse_endpoint_reached(project, decision):
+    """A real, accepted endpoint can finish reverse generation before its image budget."""
+    if (journey_direction(project) != "reverse" or not generated(project)
+            or not decision["milestones"]
+            or decision["completed_milestones"] != len(decision["milestones"])):
+        return False
+    tail = ordered_steps(project)[-1]
+    # A manual tail may represent a different state than the automatic image being reviewed.
+    if tail.get("manual") or tail["id"] != project["steps"][-1]["id"] or not tail.get("output_asset_id"):
+        return False
+    if project["phase"] == "reviewing":
+        return decision["assessment"] in {"usable", "similar"}
+    # Recover old planning checkpoints only when this same source was already accepted.
+    return (project["phase"] in {"planning", "ready"} and decision["assessment"] == "initial"
+            and plan_locked(project) and project["completed_milestones"] == len(project["milestones"])
+            and project["current_asset_id"] == tail["output_asset_id"]
+            and (tail.get("review") or {}).get("assessment") in {"usable", "similar"})
 
 
 def validate_decision(value, project, *, allow_missing_next=False):
     fields = {"destination", "milestones", "completed_milestones", "summary", "observation", "assessment", "next_action"}
-    if not isinstance(value, dict) or set(value) != fields:
-        raise ValueError("La progression doit contenir un cap, des jalons et une décision structurée.")
+    reverse = journey_direction(project) == "reverse"
     result = deepcopy(value)
+    if reverse and plan_locked(project) and isinstance(result, dict):
+        # The saved plan is authoritative. Old models may still echo these fields;
+        # their prose is not a command to replace the plan or renumber its milestones.
+        result.update(destination=project["destination"], milestones=deepcopy(project["milestones"]))
+    if not isinstance(result, dict) or set(result) != fields:
+        raise ValueError("La progression doit contenir un cap, des jalons et une décision structurée.")
     for key, limit in (("destination", 1000), ("summary", 4000), ("observation", 4000)):
         result[key] = text(result[key], key, limit, True)
     milestones = result["milestones"]
@@ -128,18 +193,23 @@ def validate_decision(value, project, *, allow_missing_next=False):
     done = result["completed_milestones"]
     if type(done) is not int or not 0 <= done <= len(milestones):
         raise ValueError("Avancement des jalons invalide.")
-    if project["milestones"] and project["plan_revision"] == project["intent_revision"]:
+    if plan_locked(project):
         if result["milestones"] != project["milestones"] or result["destination"] != project["destination"]:
             raise ValueError("Le cap et les jalons restent fixes jusqu’à une modification de l’intention.")
     assessment = result["assessment"]
     if assessment not in {"initial", "usable", "similar", "unusable"}:
         raise ValueError("Constat visuel invalide.")
     reviewing = project["phase"] == "reviewing"
-    if (reviewing and assessment == "initial") or (not reviewing and assessment != "initial"):
+    if reviewing and assessment == "initial":
         raise ValueError("Le résultat généré doit recevoir une véritable relecture.")
+    if not reviewing and assessment != "initial":
+        raise ValueError("La préparation de la prochaine étape doit utiliser le statut initial, sans relire un nouveau résultat.")
     remaining = project["count"] - generated(project)
     action = result["next_action"]
-    if remaining == 0 or assessment == "unusable":
+    if reverse_endpoint_reached(project, result):
+        # Do not render a no-op or any other proposal after the observed endpoint.
+        result["next_action"] = None
+    elif remaining == 0 or assessment == "unusable":
         if action is not None:
             raise ValueError("La relecture finale ou bloquante ne doit pas demander une image supplémentaire.")
     elif action is None and reviewing and allow_missing_next:
@@ -152,6 +222,10 @@ def validate_decision(value, project, *, allow_missing_next=False):
         for key, limit in (("title", 160), ("change", 4000), ("preserve", 2000)):
             action[key] = text(action[key], key, limit, True)
         through = action["through_milestone"]
-        if type(through) is not int or not min(len(milestones), done + 1) <= through <= len(milestones):
+        minimum = done if reverse else min(len(milestones), done + 1)
+        maximum = len(milestones) - (1 if reverse and remaining > 1 else 0)
+        if type(through) is not int or not minimum <= through <= maximum:
+            if reverse and type(through) is int and through == len(milestones) and remaining > 1:
+                raise ValueError("Réserve le terrain dégagé à la dernière image : propose un retrait partiel en conservant une structure visible.")
             raise ValueError("La prochaine transformation doit respecter l’ordre des jalons.")
     return result
