@@ -54,9 +54,9 @@
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
   <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260928.minimax1">
   <script src="/static/qwen-edit-v2.js?v=20260928.minimax2" defer></script>
-  <link rel="stylesheet" href="/static/image-journeys.css?v=20261005.align2">
+  <link rel="stylesheet" href="/static/image-journeys.css?v=20261007.realistic1">
   <script src="/static/image-journey-actions.js?v=20261004.order1" defer></script>
-  <script src="/static/image-journeys.js?v=20261005.defaults1" defer></script>
+  <script src="/static/image-journeys.js?v=20261007.realistic1" defer></script>
   <link rel="stylesheet" href="/static/video-factory.css?v=20260928.compact1">
   <link rel="stylesheet" href="/static/video-factory-monitor.css?v=20260928.ready1">
   <script src="/static/video-factory-monitor.js?v=20260928.preview4" defer></script>
@@ -1524,6 +1524,10 @@
     <section class="ij-content">
       <header class="ij-heading">
         <h1>Parcours d’images autonome</h1>
+        <select id="ij-journey-preset" aria-label="Type de parcours" title="Type de parcours — conservé après création">
+          <option value="miniature" selected>Miniature</option>
+          <option value="realistic" disabled>Aménagement réaliste</option>
+        </select>
         <select id="ij-journey-direction" aria-label="Sens du parcours" title="Sens du parcours — conservé après création">
           <option value="forward">Construction</option>
           <option value="reverse" selected>À rebours</option>
@@ -1542,7 +1546,7 @@
           <div class="ij-source"><label id="ij-source-label" for="ij-source">Image de départ</label>
             <span><button id="ij-source-open" class="ij-source-open" type="button" data-ij-thumbnail aria-label="Agrandir l’image de départ" title="Agrandir l’image de départ" hidden><img id="ij-source-preview" alt="Image de départ" hidden></button><input id="ij-source" type="file" accept="image/png,image/jpeg,image/webp" required></span>
           </div>
-          <label class="ij-intention">Intention <small>facultative</small>
+          <label class="ij-intention"><span id="ij-intention-label">Intention</span> <small id="ij-intention-optional">facultative</small>
             <textarea id="ij-intention" rows="2" maxlength="6000" placeholder="Transformer cette cave en un salon chaleureux…">Créer une progression dans un monde miniature surréaliste, où de minuscules habitants bâtissent un édifice avec des objets du quotidien détournés. L’objectif final est un bâtiment achevé, habité et immédiatement reconnaissable, intégré au décor de départ.
 
 Les objets doivent rester clairement identifiables : un bouton conserve ses trous, une pièce ses gravures, une allumette sa tête colorée. Ces objets ordinaires sont gigantesques à l’échelle des petits personnages. Rechercher le charme d’une maquette artisanale photographiée en macro, avec des matières tangibles et des assemblages inventifs.

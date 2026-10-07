@@ -18,7 +18,11 @@
   };
   const defaultDirection = $("journey-direction").value;
   let draftDirection = defaultDirection, intentionDrafts = {...defaultIntentions};
+  let draftPreset = "miniature", initialStateDraft = "";
   $("intention").value = intentionDrafts[draftDirection];
+  function realisticJourney() { return $("journey-preset").value === "realistic"; }
+  function supportsRealistic() { return !!state.spec?.journey_presets?.realistic; }
+  function finishedLabel() { return realisticJourney() ? "Aménagement terminé" : "Bâtiment terminé"; }
   function reverseJourney() { return $("journey-direction").value === "reverse"; }
   function sourceLabel() { return reverseJourney() ? "Image finale fournie" : "Image de départ"; }
   function directionLabels() {
@@ -28,7 +32,11 @@
     $("source-preview").alt = label;
     $("source-open").title = "Agrandir : " + label;
     $("source-open").setAttribute("aria-label", "Agrandir : " + label);
-    $("intention").placeholder = reverseJourney() ? "Revenir au terrain plat en conservant le décor…" : "Transformer cette cave en un salon chaleureux…";
+    $("intention-label").textContent = realisticJourney() ? "État de départ souhaité" : "Intention";
+    $("intention-optional").textContent = realisticJourney() ? "facultatif" : "facultative";
+    $("intention").placeholder = realisticJourney()
+      ? "Grotte vide, humide et austère… Laisse vide pour laisser le modèle choisir."
+      : reverseJourney() ? "Revenir au terrain plat en conservant le décor…" : "Transformer cette cave en un salon chaleureux…";
   }
   const api = (path, method="GET", body) => core.request(apiRoot + path,
     {method, ...(body === undefined ? {} : {headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})});
@@ -77,14 +85,19 @@
     $("source").hidden = !!p;
     $("count").disabled = state.busy || !!p;
     $("auto-mask").disabled = state.busy || !!p;
-    $("journey-version").disabled = state.busy || !!p;
-    $("journey-direction").disabled = state.busy || !!p;
+    $("journey-preset").disabled = state.busy || !!p;
+    $("journey-preset").querySelector('[value="realistic"]').disabled = !supportsRealistic();
+    $("journey-preset").title = supportsRealistic() ? "Type de parcours — conservé après création"
+      : "Aménagement réaliste sera disponible au prochain redémarrage du Lab.";
+    $("journey-version").hidden = realisticJourney();
+    $("journey-version").disabled = state.busy || !!p || realisticJourney();
+    $("journey-direction").disabled = state.busy || !!p || realisticJourney();
     directionLabels();
     $("intention").readOnly = !editable;
     $("intention").disabled = state.busy;
     for (const id of ["progression-model", "prompt-model", "mask-model"]) $(id).disabled = state.busy || !editable;
     $("start").hidden = !!p;
-    $("start").disabled = state.busy || !state.spec;
+    $("start").disabled = state.busy || !state.spec || (realisticJourney() && !supportsRealistic());
     $("resume").hidden = !p || p.status !== "paused";
     $("resume").disabled = state.busy || actions.pendingSequence();
     $("pause").hidden = !p || !["running", "pausing"].includes(p.status);
@@ -95,14 +108,15 @@
     $("order-controls").hidden = !p || frames().length < 2;
     $("reverse-order").disabled = state.busy;
     $("reverse-order").setAttribute("aria-pressed", String(reversedOrder()));
-    $("order-label").textContent = reverseJourney() === reversedOrder()
-      ? "Construction → bâtiment terminé" : "Bâtiment terminé → début du chantier";
+    $("order-label").textContent = realisticJourney()
+      ? (reversedOrder() ? "État initial → aménagement terminé" : "Aménagement terminé → état initial")
+      : reverseJourney() === reversedOrder() ? "Construction → bâtiment terminé" : "Bâtiment terminé → début du chantier";
     paintSelection();
     actions.paint();
   }
   function generationFrames() {
     if (!state.p) return [];
-    return [{key:"source",asset_id:state.p.source_asset_id,title:reverseJourney() ? "Bâtiment terminé" : "Départ",index:0},
+    return [{key:"source",asset_id:state.p.source_asset_id,title:reverseJourney() ? finishedLabel() : "Départ",index:0},
       ...(state.p.ordered_steps || state.p.steps).filter(step => step.output_asset_id).map((step, index) => ({key:step.id,
         asset_id:step.output_asset_id,title:step.action.title,index:index + 1,step}))];
   }
@@ -215,9 +229,9 @@
     if (!p) return;
     const index = p.phase === "reviewing" || p.phase === "completed" ? p.generated : Math.min(p.generated + 1, p.count);
     const earlyEnd = p.completion_reason === "reverse_endpoint" && p.generated < p.count;
-    $("status").textContent = p.status === "completed" ? `${p.generated} nouvelle${p.generated === 1 ? "" : "s"} image${p.generated === 1 ? "" : "s"}${earlyEnd ? ` sur ${p.count} demandées` : ""}${p.manual_generated ? ` + ${p.manual_generated} ajoutées` : ""} · ${earlyEnd ? "Terrain dégagé" : "Terminé"}`
+    $("status").textContent = p.status === "completed" ? `${p.generated} nouvelle${p.generated === 1 ? "" : "s"} image${p.generated === 1 ? "" : "s"}${earlyEnd ? ` sur ${p.count} demandées` : ""}${p.manual_generated ? ` + ${p.manual_generated} ajoutées` : ""} · ${earlyEnd ? (realisticJourney() ? "État de départ atteint" : "Terrain dégagé") : "Terminé"}`
       : p.status === "pausing" ? `Étape ${index}/${p.count} · L’opération en cours se termine…`
-      : p.status === "paused" ? `Étape ${index}/${p.count} · Suspendu — tu peux modifier l’intention avant de reprendre.`
+      : p.status === "paused" ? `Étape ${index}/${p.count} · Suspendu — tu peux modifier ${realisticJourney() ? "l’état de départ" : "l’intention"} avant de reprendre.`
       : `Étape ${index}/${p.count} · ${phases[p.phase] || p.phase}`;
     if (p.manual_generated && p.status !== "completed") {
       $("status").textContent += ` · +${p.manual_generated} étape${p.manual_generated > 1 ? "s" : ""} ajoutée${p.manual_generated > 1 ? "s" : ""}`;
@@ -272,6 +286,7 @@
       restoreOrder(project);
     }
     state.p = project;
+    $("journey-preset").value = project.journey_preset || "miniature";
     $("journey-version").value = project.journey_version || "1";
     $("journey-direction").value = project.journey_direction || "forward";
     if (syncForm || !state.formDirty) {
@@ -311,6 +326,8 @@
     revokePreview();
     $("form").reset();
     draftDirection = defaultDirection;
+    draftPreset = "miniature"; initialStateDraft = "";
+    $("journey-preset").value = draftPreset;
     intentionDrafts = {...defaultIntentions};
     $("journey-direction").value = draftDirection;
     $("intention").value = intentionDrafts[draftDirection];
@@ -434,8 +451,23 @@
   window.addEventListener("blur", hidePreview);
   $("setup").addEventListener("toggle", hidePreview);
   $("journey-version").addEventListener("change", () => { state.createCommand = null; });
-  $("journey-direction").addEventListener("change", () => {
+  $("journey-preset").addEventListener("change", () => {
     if (state.p) return;
+    if (realisticJourney() && !supportsRealistic()) {
+      $("journey-preset").value = draftPreset;
+      message("Aménagement réaliste sera disponible au prochain redémarrage du Lab.");
+      return;
+    }
+    if (draftPreset === "realistic") initialStateDraft = $("intention").value;
+    else intentionDrafts[draftDirection] = $("intention").value;
+    draftPreset = $("journey-preset").value;
+    $("journey-direction").value = realisticJourney() ? "reverse" : draftDirection;
+    $("intention").value = realisticJourney() ? initialStateDraft : intentionDrafts[draftDirection];
+    state.createCommand = null;
+    paint();
+  });
+  $("journey-direction").addEventListener("change", () => {
+    if (state.p || realisticJourney()) return;
     intentionDrafts[draftDirection] = $("intention").value;
     draftDirection = $("journey-direction").value;
     $("intention").value = intentionDrafts[draftDirection];
@@ -464,8 +496,9 @@
           prompt_model_id:$("prompt-model").value, mask_model_id:$("mask-model").value});
         state.resumeCommand = null; accept(response.project, true);
       } else {
+        if (realisticJourney() && !supportsRealistic()) throw new Error("Aménagement réaliste sera disponible au prochain redémarrage du Lab.");
         const file = $("source").files[0];
-        if (!file) throw new Error(reverseJourney() ? "Choisis l’image du bâtiment terminé." : "Choisis l’image de départ.");
+        if (!file) throw new Error(realisticJourney() ? "Choisis l’image du lieu aménagé." : reverseJourney() ? "Choisis l’image du bâtiment terminé." : "Choisis l’image de départ.");
         if (file.size > 25 * 1024 ** 2) throw new Error("Une image est limitée à 25 Mio.");
         state.createCommand ||= commandId();
         const body = new FormData();
@@ -477,6 +510,7 @@
         body.append("auto_mask", String($("auto-mask").checked));
         body.append("journey_version", $("journey-version").value);
         body.append("journey_direction", $("journey-direction").value);
+        if (supportsRealistic()) body.append("journey_preset", $("journey-preset").value);
         const response = await core.request(apiRoot + "/projects", {method:"POST",body});
         accept(response.project, true); state.createCommand = null;
       }

@@ -35,6 +35,7 @@ class ImageJourneyBrowserTest(unittest.TestCase):
         sessionStorage.removeItem('panelforge.image-journey.project.excluded.journey-fixture');
         sessionStorage.removeItem('panelforge.image-journey.project.order.journey-fixture');
         window.setInterval=callback=>{window.pollJourney=callback;return 1;};
+        const journeySpec={journey_presets:{miniature:'Miniature',realistic:'Aménagement réaliste'}};
         const calls=[];let project=null,resumeConflict=true,opened=null,holdGet=false,releaseGet=null,transferred=null;
         window.PanelForgeImageTransitions={open:async identity=>{opened=identity;}};
         const clone=value=>structuredClone(value);
@@ -42,7 +43,7 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           ...(project.ordered_steps||project.steps).filter(s=>s.output_asset_id&&['usable','similar'].includes(s.review?.assessment)).map(s=>s.id)]});
         window.PanelForgeLabCore={request:async(url,options={})=>{
           const method=options.method||'GET';calls.push([url,method,options.body]);
-          if(url.endsWith('/spec'))return {default_journey_version:'2',default_images:5,max_images:30,default_model_id:'vision',default_mask_model_id:'qwen-mask',transitions_available:true,hq_prompt:'Create a higher-resolution version of <Picture 1>. Preserve geometry and colors.'};
+          if(url.endsWith('/spec'))return Object.assign(journeySpec,{default_journey_version:'2',default_images:5,max_images:30,default_model_id:'vision',default_mask_model_id:'qwen-mask',transitions_available:true,hq_prompt:'Create a higher-resolution version of <Picture 1>. Preserve geometry and colors.'});
           if(url.endsWith('/models'))return {models:[{id:'vision',label:'Vision local',source:'local'},
             {id:'writer',label:'MiniMax writer',source:'server'}, {id:'qwen-mask',label:'Qwen vision',source:'local'}]};
           if(url.endsWith('/projects')&&method==='GET')return {projects:project?[clone(project)]:[]};
@@ -52,7 +53,7 @@ class ImageJourneyBrowserTest(unittest.TestCase):
             check(['1','2'].includes(options.body.get('journey_version')),'journey version missing from creation');
             check(options.body.get('auto_mask')==='false','disabled mask default must reach the API');
             check(options.body.get('mask_model_id')==='qwen-mask','independent mask selection must reach the API');
-            project={id:'journey-fixture',journey_direction:options.body.get('journey_direction'),journey_version:options.body.get('journey_version'),version:1,name:'Cave aménagée',source_asset_id:'source',status:'running',
+            project={id:'journey-fixture',journey_preset:options.body.get('journey_preset')||'miniature',journey_direction:options.body.get('journey_direction'),journey_version:options.body.get('journey_version'),version:1,name:'Cave aménagée',source_asset_id:'source',status:'running',
               phase:'planning',intention:options.body.get('intention'),count:Number(options.body.get('count')),
               progression_model_id:options.body.get('progression_model_id'),prompt_model_id:options.body.get('prompt_model_id'),
               auto_mask:options.body.get('auto_mask')==='true',mask_model_id:options.body.get('mask_model_id'),source_dimensions:[1344,2368],
@@ -65,6 +66,7 @@ class ImageJourneyBrowserTest(unittest.TestCase):
             const body=JSON.parse(options.body);
             check(!('journey_version' in body),'resume must keep the saved journey version');
             check(!('journey_direction' in body),'resume must keep the saved direction');
+            check(!('journey_preset' in body),'resume must keep the saved preset');
             if(resumeConflict){resumeConflict=false;project.version++;throw Error('Version modifiée');}
             check(body.version===project.version,'resume must use the refreshed revision');
             project.intention=body.intention;project.mask_model_id=body.mask_model_id;project.status='running';project.version++;
@@ -324,6 +326,49 @@ class ImageJourneyBrowserTest(unittest.TestCase):
           check(el('status').textContent.includes('2 nouvelles images sur 3 demandées')&&el('status').textContent.includes('Terrain dégagé'),'early completion hides the actual image count');
           check(el('progress').value===2&&el('progress').max===3,'early completion must not inflate the render counter');
           check(el('warning').textContent.includes('2 images sur 3')&&el('resume').hidden,'early completion should explain the stop without suggesting a no-op resume');
+          // Independent preset drafts, locked direction, absent population controls, saved/reopened choice.
+          el('new').click();
+          const selectPreset=value=>{el('journey-preset').value=value;el('journey-preset').dispatchEvent(new Event('change'));};
+          el('intention').value='Miniature personnalisée';
+          el('journey-version').value='1';
+          selectPreset('realistic');
+          check(el('intention').value===''&&el('intention-label').textContent==='État de départ souhaité','realistic initial state should start blank and optional');
+          check(el('journey-direction').value==='reverse'&&el('journey-direction').disabled,'realism must stay reverse');
+          check(el('journey-version').hidden&&getComputedStyle(el('journey-version')).display==='none','life selector should not appear for realism');
+          check(el('count').value==='3','realism changed the requested default budget');
+          el('intention').value='Arbre intact, feuilles au sol.';
+          selectPreset('miniature');
+          check(el('intention').value==='Miniature personnalisée'&&!el('journey-version').hidden&&el('journey-version').value==='1','switching preset lost miniature draft or life version');
+          selectPreset('realistic');
+          check(el('intention').value==='Arbre intact, feuilles au sol.','switching erased desired initial state');
+          el('intention').value='';selectPreset('miniature');selectPreset('realistic');
+          check(el('intention').value==='','blank automatic initial state was overwritten');
+          el('source').files=dt.files;el('source').dispatchEvent(new Event('change',{bubbles:true}));
+          el('count').value='5';el('start').click();
+          await wait(()=>project.journey_preset==='realistic'&&!el('pause').disabled);
+          check(project.intention===''&&project.count===5&&project.journey_direction==='reverse','realistic creation did not send exact preset, empty intention and budget');
+          check(el('journey-preset').disabled,'saved preset should be locked');
+          el('pause').click();await wait(()=>project.status==='paused'&&!el('resume').disabled);
+          el('intention').value='Grotte vide, humide et austère.';el('intention').dispatchEvent(new Event('input',{bubbles:true}));
+          el('resume').click();await wait(()=>project.status==='running'&&!el('pause').disabled);
+          check(project.intention==='Grotte vide, humide et austère.'&&project.journey_preset==='realistic','resume lost preset or new initial state');
+          el('new').click();el('projects').value='journey-fixture';el('projects').dispatchEvent(new Event('change'));
+          await wait(()=>!el('result').hidden&&!el('new').disabled);
+          check(el('journey-preset').value==='realistic'&&el('journey-version').hidden&&el('intention').value===project.intention,'reopening lost real preset');
+          check(el('frieze').textContent.includes('Aménagement terminé'),'finished scene still labelled building');
+          project.steps=[{id:'raw',index:1,source_asset_id:'source',output_asset_id:'raw-asset',action:{title:'Grotte brute',change:'Déposer les parois'},review:{assessment:'usable',observation:'Grotte intacte'}}];
+          Object.assign(project,{generated:1,status:'completed',phase:'completed',completion_reason:'reverse_endpoint'});
+          project.version++;await window.pollJourney();
+          check(el('status').textContent.includes('État de départ atteint')&&!el('status').textContent.includes('Terrain dégagé'),'realistic endpoint uses wrong target');
+          check(el('order-label').textContent==='État initial → aménagement terminé','realistic construction order label missing');
+          exported=exportCount();el('transitions').click();await wait(()=>exportCount()>exported&&!el('new').disabled);
+          check(same(transferred,['raw','source']),'realistic transfer reversed the selected chronology');
+          delete project.journey_preset;project.version++;await window.pollJourney();
+          check(el('journey-preset').value==='miniature'&&!el('journey-version').hidden,'legacy project must retain the historical preset');
+          delete journeySpec.journey_presets;el('new').click();
+          check(el('journey-preset').querySelector('[value="realistic"]').disabled,'old backend must not silently generate miniature for realism');
+          selectPreset('realistic');
+          check(el('journey-preset').value==='miniature'&&el('message').textContent.includes('redémarrage'),'old backend needs a clear availability message');
           document.body.innerHTML='<pre id="result">IMAGE_JOURNEY_BROWSER_OK</pre>';
         }catch(error){document.body.innerHTML='<pre id="result"></pre>';document.getElementById('result').textContent=error.stack;}})();
         """

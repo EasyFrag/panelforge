@@ -2,6 +2,8 @@
 from panelforge.domain import minimax_edit as policy
 from . import minimax_edit_assistance as assistance
 from . import image_journey_reference_prompting as journey_references
+from . import image_journey_realistic_prompting as realistic
+from panelforge.domain.image_journeys import journey_preset, finished_label
 from .qwen_edit import QwenEditService
 
 
@@ -15,7 +17,13 @@ class MinimaxEditService(QwenEditService):
                 request_id=request_id, render_after_prompt=render_after_prompt)
             stage = next(s for s in project["stages"] if s["id"] == stage_id)
             message = next(m for m in stage["messages"] if m["id"] == message_id)
-            if (project.get("managed_by") == "image-journey" and message["status"] == "queued"
+            if (project.get("managed_by") == "image-journey" and journey_preset(project) == "realistic"
+                    and message["status"] == "queued" and not message.get("journey_realistic_policy")):
+                message.update(journey_realistic_policy=realistic.VERSION,
+                    policy_version=assistance.VERSION + "+journey-realistic-" + realistic.VERSION,
+                    system_prompt=message["system_prompt"] + "\n" + realistic.PROMPTER_SYSTEM)
+                self._save(project)
+            elif (project.get("managed_by") == "image-journey" and journey_preset(project) != "realistic" and message["status"] == "queued"
                     and not message.get("journey_reference_policy") and journey_references.supports(message["context"])):
                 message.update(journey_reference_policy=journey_references.VERSION,
                     policy_version=assistance.VERSION + "+journey-reference-" + journey_references.VERSION,
@@ -24,6 +32,9 @@ class MinimaxEditService(QwenEditService):
             return project, message_id
 
     def _decode_message(self, message, raw):
+        if message.get("journey_realistic_policy") == realistic.VERSION:
+            reply, prompt = realistic.decode_prompt(raw, message["context"])
+            return reply, prompt, None
         if message.get("journey_reference_policy") == journey_references.VERSION:
             reply, prompt = journey_references.decode(raw, message["context"])
             return reply, prompt, None
@@ -36,17 +47,21 @@ class MinimaxEditService(QwenEditService):
         finished = step.get("finished_reference_asset_id")
         references = []
         if finished and finished != step["source_asset_id"]:
-            references = [dict(id="journey-finished", asset_id=finished, name="Bâtiment terminé",
+            references = [dict(id="journey-finished", asset_id=finished, name=finished_label(step),
                 role="Référence permanente de forme, proportions et matériaux des parties restantes. "
                      "Ne pas rétablir les éléments retirés hors demande explicite ni copier les positions des personnages.",
                 usage="render", active=True)]
+            if journey_preset(step) == "realistic":
+                references[0]["role"] = ("Lieu aménagé terminé : référence des volumes et matières des parties conservées. "
+                    "Ne pas restaurer les aménagements retirés, ni copier de personnages. Préserver le lieu qui les accueille.")
         with self._lock:
             try:
                 project = self.projects.get(identity)
             except FileNotFoundError:
                 project = None
             if project:
-                if project.get("journey_step_id") != step["id"] or project["stages"][0]["source_asset_id"] != step["source_asset_id"]:
+                if (project.get("journey_step_id") != step["id"] or project["stages"][0]["source_asset_id"] != step["source_asset_id"]
+                        or journey_preset(project) != journey_preset(step)):
                     raise ValueError("Le projet MiniMax ne correspond pas à cette étape du parcours.")
                 if finished and project["stages"][0]["references"] != references:
                     raise ValueError("La référence du bâtiment terminé ne correspond plus à cette étape.")
@@ -75,6 +90,8 @@ class MinimaxEditService(QwenEditService):
                 created_at=_now(), updated_at=_now(), active_stage_id=stage["id"], stages=[stage],
                 managed_by="image-journey", journey_id=step["journey_id"], journey_step_id=step["id"],
                 export_path=None, export_error=None)
+            if "journey_preset" in step:
+                project["journey_preset"] = journey_preset(step)
             return self._save(project)
 
     def queue_attempt(self, project_id, stage_id, *, revision, request_id):

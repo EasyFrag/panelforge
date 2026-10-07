@@ -214,15 +214,15 @@ class ImageJourneyEdits:
         reference = op.get('finished_reference_asset_id')
         if reference:
             if reference not in {asset_id for asset_id, _ in items}:
-                items.append((reference, 'FINISHED_REFERENCE — bâtiment terminé fourni'))
+                items.append((reference, 'FINISHED_REFERENCE — ' + journey.finished_label(op).lower() + ' fourni'))
             else:
-                items = [(asset_id, label + (' — FINISHED_REFERENCE, bâtiment terminé fourni'
+                items = [(asset_id, label + (' — FINISHED_REFERENCE, ' + journey.finished_label(op).lower() + ' fourni'
                           if asset_id == reference else '')) for asset_id, label in items]
         context = prompting.context(op)
         call = dict(id=journey.identity('analysis'), status='running', phase=op['phase'], context=context,
             input_assets=items, model_id=op['progression_model_id'], created_at=journey.timestamp(),
             policy_version=prompting.VERSION, journey_version=journey.journey_version(op),
-            journey_direction=journey.journey_direction(op), raw='', call_id=None)
+            journey_direction=journey.journey_direction(op), journey_preset=journey.journey_preset(op), raw='', call_id=None)
         with service._lock:
             project = service._load(identity)
             self._operation(project, op['id'])['analyses'].append(call)

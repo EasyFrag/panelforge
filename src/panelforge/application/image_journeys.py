@@ -135,13 +135,16 @@ class ImageJourneyService:
                 step['protection'].pop('raw', None)
         result.update(journey_version=policy.journey_version(project),
                       journey_direction=policy.journey_direction(project),
+                      journey_preset=policy.journey_preset(project),
                       generated=policy.generated(project), transitions_available=self.transitions is not None,
                       transferable_images=len(policy.sequence(project)["frames"]),
                       transferable_frame_ids=policy.transferable_frame_ids(project))
         return result
 
     def create(self, *, command, content, intention, count, progression_model_id, prompt_model_id,
-               auto_mask=False, mask_model_id=None, journey_version=None, journey_direction=None):
+               auto_mask=False, mask_model_id=None, journey_version=None, journey_direction=None, journey_preset=None):
+        if journey_preset is not None:
+            policy.journey_preset(dict(journey_preset=journey_preset))
         if journey_direction is not None:
             policy.journey_direction(dict(journey_direction=journey_direction))
         if journey_version is not None:
@@ -163,8 +166,14 @@ class ImageJourneyService:
             # An old client retrying a legacy creation must keep its original fingerprint.
             if not previous or "journey_version" in previous or selected_version != "1":
                 config["journey_version"] = selected_version
+            selected_preset = journey_preset or (policy.journey_preset(previous) if previous else "miniature")
             selected_direction = journey_direction or (policy.journey_direction(previous) if previous
-                                                       else policy.DEFAULT_JOURNEY_DIRECTION)
+                else "reverse" if selected_preset == "realistic" else policy.DEFAULT_JOURNEY_DIRECTION)
+            if selected_preset == "realistic" and selected_direction != "reverse":
+                raise ValueError("Aménagement réaliste utilise le parcours À rebours, depuis l’image terminée.")
+            # Keep historical fingerprints, including explicit retries with the legacy preset.
+            if selected_preset != "miniature" or previous and "journey_preset" in previous:
+                config["journey_preset"] = selected_preset
             if not previous or "journey_direction" in previous or selected_direction != "forward":
                 config["journey_direction"] = selected_direction
             key = policy.fingerprint(dict(config=config, source=hashlib.sha256(content).hexdigest()))
@@ -437,7 +446,7 @@ class ImageJourneyService:
             if project["source_asset_id"] != project["current_asset_id"]:
                 items.append((project["source_asset_id"], "ORIGINAL — cadrage et identité du lieu"))
         if policy.journey_direction(project) == "reverse":
-            items = [(asset_id, label + (" — FINISHED_REFERENCE, bâtiment terminé fourni"
+            items = [(asset_id, label + (" — FINISHED_REFERENCE, " + policy.finished_label(project).lower() + " fourni"
                       if asset_id == project["source_asset_id"] else "")) for asset_id, label in items]
         images = []
         for asset_id, label in items:
@@ -455,7 +464,7 @@ class ImageJourneyService:
         call = dict(id=policy.identity("analysis"), status="running", created_at=policy.timestamp(),
                     model_id=snapshot["progression_model_id"], phase=snapshot["phase"],
                     policy_version=prompting.VERSION, journey_version=policy.journey_version(snapshot),
-                    journey_direction=policy.journey_direction(snapshot),
+                    journey_direction=policy.journey_direction(snapshot), journey_preset=policy.journey_preset(snapshot),
                     context=context, input_assets=[], raw="", call_id=None)
         with self._lock:
             current = self._load(identity)
@@ -534,7 +543,8 @@ class ImageJourneyService:
         project.update(status="completed", phase="completed", pause_requested=False,
                        next_action=None, completion_reason="reverse_endpoint", error=None)
         if policy.generated(project) < project["count"]:
-            project["warning"] = (f"Terrain dégagé atteint après {policy.generated(project)} images sur {project['count']} demandées. "
+            endpoint = "État de départ" if policy.journey_preset(project) == "realistic" else "Terrain dégagé"
+            project["warning"] = (f"{endpoint} atteint après {policy.generated(project)} images sur {project['count']} demandées. "
                                   "Tu peux ajouter une étape intermédiaire avec +.")
 
     def _call_update(self, identity, analysis_id, **changes):

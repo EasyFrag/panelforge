@@ -13,6 +13,7 @@ DEFAULT_JOURNEY_DIRECTION = "forward"
 JOURNEY_DIRECTIONS = {"forward": "Construction", "reverse": "À rebours"}
 JOURNEY_VERSIONS = {"1": "V1 — Actuelle", "2": "V2 — Scène vivante"}
 DEFAULT_MASK_MODEL_ID = "local::unsloth/Qwen3.8-27B-GGUF"
+JOURNEY_PRESETS = {"miniature": "Miniature", "realistic": "Aménagement réaliste"}
 PRESET = "construction"
 ACTIVE = {"running", "pausing"}
 
@@ -33,8 +34,22 @@ def journey_direction(record):
     return value
 
 
+def journey_preset(record):
+    """Missing preset keeps every historical journey on its original policies."""
+    value = record.get("journey_preset", "miniature")
+    if not isinstance(value, str) or value not in JOURNEY_PRESETS:
+        raise ValueError("Preset invalide : choisis Miniature ou Aménagement réaliste.")
+    return value
+
+
+def finished_label(record):
+    return "Aménagement terminé" if journey_preset(record) == "realistic" else "Bâtiment terminé"
+
+
 def direction_snapshot(project):
     values = dict(journey_direction=journey_direction(project))
+    if "journey_preset" in project:
+        values["journey_preset"] = journey_preset(project)
     if values["journey_direction"] == "reverse":
         # The prepared original stays fixed, never the latest generated state.
         values["finished_reference_asset_id"] = project["source_asset_id"]
@@ -145,7 +160,12 @@ def sequence(project, frame_ids=None, *, frame_order="generation"):
         if journey_direction(project) == "reverse":
             for frame in frames:
                 if frame["origin"]["index"] == 0:
-                    frame["label"] = "Bâtiment terminé"
+                    frame["label"] = finished_label(project)
+    if journey_preset(project) == "realistic":
+        for frame in frames:
+            frame["origin"].update(journey_preset="realistic", journey_direction=journey_direction(project))
+            if frame["origin"]["index"] == 0:
+                frame["label"] = finished_label(project)
     return dict(schema_version=1, project_id=project["id"], destination=project["destination"], frames=frames)
 
 
@@ -226,6 +246,8 @@ def validate_decision(value, project, *, allow_missing_next=False):
         maximum = len(milestones) - (1 if reverse and remaining > 1 else 0)
         if type(through) is not int or not minimum <= through <= maximum:
             if reverse and type(through) is int and through == len(milestones) and remaining > 1:
+                if journey_preset(project) == "realistic":
+                    raise ValueError("Réserve l’état de départ à la dernière image : conserve encore une partie visible de l’aménagement.")
                 raise ValueError("Réserve le terrain dégagé à la dernière image : propose un retrait partiel en conservant une structure visible.")
             raise ValueError("La prochaine transformation doit respecter l’ordre des jalons.")
     return result

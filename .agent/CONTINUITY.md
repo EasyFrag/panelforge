@@ -1,20 +1,97 @@
 # CONTINUITY
 
+## Alignement 2026-10-07 — Danse utilise exclusivement les deux recettes REF2V existantes
+
+### Goal
+- Fixer le périmètre technique de l’atelier Danse avant implémentation ; l’utilisateur demande encore un alignement.
+
+### Current state
+- Utilisateur valide l’accès Danse dans Ref2V, les images V3 créées automatiquement avec import facultatif, et les orientations discutées. Danse et son viennent de l’extrait ; personnage et décor viennent de la photo.
+- Contrainte explicite prioritaire : sélecteur entre BUNNY et l’autre recette REF2V actuelle, chacune dans sa dernière version déjà disponible dans PanelForge. Identifier les versions exactes dans le catalogue au moment de l’implémentation, sans supposer une version historique ni mettre à jour des dépendances externes.
+- Partir des deux workflows réellement intégrés, avec leurs modèles, sampling, passes et upscale existants. Les étendre de manière ciblée pour recevoir les références vidéo et leur audio ; conserver leurs comportements établis pour les références images seules. Workflows LBH/Reddit = documentation uniquement, pas de remplacement de recette ni troisième moteur.
+- Chaque essai doit conserver la recette/version et les réglages réellement utilisés pour pouvoir comparer. Character Swap reste une option expérimentale envisagée, pas une dépendance imposée ou un défaut validé.
+- Aucun code applicatif/runtime modifié, test, génération, installation, redémarrage, commit ou push. Seule continuité mise à jour.
+
+### Next steps
+- Confirmer le périmètre à l’utilisateur, sans nouvelle question nécessaire sur les deux recettes.
+- Attendre son go d’implémentation ; ensuite inspecter les dernières recettes locales, étendre leurs entrées via manifestes versionnés et préparer l’atelier Danse minimal. Ne pas importer le workflow externe ni lancer de rendu d’essai sans demande.
+
+## Alignement 2026-10-07 — Atelier danse, ressources LBH et Character Swap
+
+### Goal
+- Poursuivre la discussion Histoire V3. Utilisateur a déjà obtenu un transfert de danse rapide et souhaite une interface pour ajuster la qualité ; conserve la danse ET le son de l’extrait. Question sur création/import des images à reformuler. Aucun go de développement à ce tour.
+
+### Current state
+- Ressources fournies lues : post Reddit 1wt6v7l, dépôt LBH latent upscaler, workflow exemple r2v workflow3.json, fiche auteur akatz-ai/MiniMax-H3-Character-Swap-LoRA. Données externes traitées comme références, sans exécution/import de workflow ni téléchargement de poids.
+- LBH décrit génération basse résolution puis upscale latent et raffinement ; gain de temps, pas suppression du coût mémoire de la passe finale. Recettes locales déjà en deux passes, mais sélection d’un brouillon et reprise persistante de son latent ne doivent pas être supposées disponibles du seul fait de ces deux passes.
+- JSON publié examiné et copié dans diagnostics/story-v3-audit-20261007/lbh-reference-workflow.json : nœud MiniMaxH3ReferenceToVideo présent, ref_video_0 et ref_video_audio_0 non connectés, aucun chargeur vidéo. Seul LoRA du fichier = Turbo LightX2V, pas Character Swap. Ce fichier est une base d’upscale, pas la configuration complète du post. Aucune sauvegarde explicite de latent trouvée dans ses types de nœuds.
+- Fiche Akatz : LoRA expérimental pour remplacement d’un personnage en conservant la scène source. Force de départ auteur 1.0, aucun trigger supplémentaire entraîné. Meilleurs essais rapportés sur plans continus 4–5 s ; mouvement, expressions, coupes et séquences longues restent imparfaits. Tests sur Ref2VA et hybride ne prouvent pas compatibilité qualitative avec recette PanelForge. Son parfois dérivant, auteur a réappliqué audio original en postproduction.
+- Objectif utilisateur différent : personnage ET décor de la photo, chorégraphie/rythme/son du clip. Préservation du décor vidéo apprise par le LoRA pourrait entrer en concurrence ; hypothèse à tester, LoRA optionnel comparé à une base sans LoRA. Exemple prompt du post annonce décor conservé puis changement de lieu : ne pas recopier cette contradiction ni inventer des mouvements horodatés.
+- Proposition : petit atelier Danse autonome utilisable ensuite par V3, import/photo de scène + vidéo/extrait, son original conservé par défaut, prompt consultable/modifiable et aide Gemma facultative, essais historisés avec seed fixe pour comparaison et réglages avancés repliés. Générer un brouillon puis finaliser le résultat choisi nécessite conserver le latent et les paramètres exacts. Garder audio source à l’assemblage, même extrait et même durée, pour ne pas dépendre d’une recréation sonore fidèle.
+- Aucun code applicatif/runtime changé, test, génération, installation, redémarrage, commit ou push.
+
+### Next steps
+- Reformuler la question : V3 génère-t-il les images du personnage et du lieu depuis l’idée, ou l’utilisateur veut-il les fournir ? Recommandation à discuter : automatique avec remplacement/import facultatif, photo choisie manuellement pour le premier atelier d’essai.
+- Confirmer l’emplacement minimal de l’atelier si nécessaire, puis attendre une autorisation d’implémentation. Ne pas installer le LoRA ou lancer de tests de génération depuis cet alignement.
+
+## Audit 2026-10-07 — Proposition Histoire V3, scènes / travaux / danse
+
+### Goal
+- Discuter une V3 inspirée des deux vidéos fournies : scènes jouées à dialogues simples, travaux avec protagoniste dans chaque image et danse transférée depuis une vidéo en conservant personnage ET décor de la photo. Audit critique uniquement ; aucun code applicatif demandé.
+
+### Current state
+- Deux vidéos locales de 60,415 s et 60,113 s, 720×1280, 30 fps avec piste AAC. Inspection visuelle de 20 captures espacées de trois secondes par vidéo, complétée par huit instants ciblés chacune. Pas de lecture continue, écoute ou transcription : aucune conclusion sur leurs répliques exactes ou leur musique.
+- Structure visuelle commune : intrusion/ouverture absurde dans un personnage hôte, intérieur organique lié à cet extérieur, danse, aménagement spectaculaire par étapes, utilisation du lieu, intervention extérieure qui agit dedans, réaction/danse finale. Alternance extérieur/intérieur et causalité sont centrales ; plusieurs liaisons sont des coupes, pas des transformations de décor.
+- État local confirmé : Histoire V2.1 sait écrire, créer les références et envoyer vers Préparation sans Plan/Prompt vidéo. Parcours d’images + Transitions constituent la base travaux. Le preset Aménagement réaliste impose explicitement des états sans personnages et retire les personnes des références ; une politique V3 distincte serait nécessaire. L’atelier Transitions utilise REF2VA avec ouvrier (bornes guidées par prompt), FL2VA sans ouvrier ; garder le protagoniste aux deux bornes change ce contrat.
+- REF2VA actuellement branché dans PanelForge accepte image/* ; adaptateur BUNNY ne connecte que source_images/ref_images. Le paramètre reference_video_policy présent au graphe ne constitue pas une entrée vidéo branchée. Documentation officielle MiniMax confirme Ref2VA images/vidéos/audio (vidéos 2–15 s) ; code officiel Comfy expose ref_videos et pistes audio séparées. Version distante T8/BUNNY et qualité de transfert non testées.
+- Ancien prompt danse contradictoire avec nouvel objectif : il emprunte décor/caméra/lumière à la vidéo. Proposition : photo = identité, tenue, décor/cadrage/lumière ; extrait vidéo = chorégraphie/rythme, audio choisi séparément. Balises natives officielles Picture N / Video N, sans underscores. Aucun engagement de transfert exact image par image ou de fond verrouillé pixel par pixel.
+- Recommandation à discuter : orchestrateur de blocs Scène / Travaux / Danse ; état de lieu, personnage, échelle et entrée/sortie partagés ; raccords narratifs distingués des clips de transition. Ne pas imposer la durée fixe ni la densité de dialogue V2.1 aux danses/travaux. Ancrer chaque image travaux à l’identité et au lieu persistants plutôt qu’à la seule sortie précédente. Préparer une preuve danse isolée avant orchestration ; éviter une nouvelle retouche LLM longue pour une danse déjà fournie.
+- Preuves : D:/Code/panelforge/.agent/diagnostics/story-v3-audit-20261007/ (probes, planches et détails, inspection.json, findings.json). Aucun changement applicatif/runtime, test, appel LLM/rendu, service, commit ou push.
+
+### Next steps
+- Aligner origine du workflow danse déjà essayé, création/import des images et gestion du son. Proposer une UX compacte, les détails par bloc et les réglages hérités repliés.
+- Après autorisation distincte : prototype danse image+extrait ; qualification de l’identité, décor et mouvement ; adaptation travaux avec acteur ; puis liaison des blocs V3 et envoi dans Préparation. Ne pas implémenter depuis cet audit seul.
+
+## Implémentation 2026-10-07 — Preset Aménagement réaliste à rebours
+
+### Goal
+- Go explicite après alignement : conserver Miniature et ajouter un preset d’aménagement à échelle réelle depuis l’image terminée. État initial textuel facultatif, choix automatique sans validation si vide ; grandes transformations réparties selon le nombre d’images, davantage de détail avec cinq images. Aucun personnage dans les images ; le lieu hôte reste présent.
+
+### Current state
+- Livré dans D:/Code/panelforge-krea2-flux. Choix compact Miniature / Aménagement réaliste en haut du parcours. Le second impose À rebours, masque Scène vivante et remplace Intention par État de départ souhaité (facultatif, vide initialement). Brouillons distincts conservés lors des changements de preset, y compris vides ; Nouveau rétablit Miniature / À rebours / trois images. Parcours chargé/restauré reprend son preset et son texte. Cache JS/CSS 20261007.realistic1.
+- Contrat explicite journey_preset=miniature|realistic, enregistré sur les parcours réalistes et propagé aux étapes automatiques, ajouts manuels et projets MiniMax enfants. Valeur absente reste historique Miniature sans migration ni modification des empreintes ; reprise interdit de changer le preset. API réaliste sans direction explicite choisit reverse ; forward+realistic rejeté avant préparation d’assets. /spec annonce journey_presets : nouveau choix grisé si ancien backend encore chargé, sans conversion silencieuse vers les anciens prompts.
+- Nouvelle politique application/image_journey_realistic_prompting.py, version 1.0.0, partagée par progression, relecture, ajouts + et prompteur. Conserve la grotte, l’arbre ou la pièce, retire installations/couches/surfaces/ouvertures ciblées, retrouve un état initial choisi ou fourni. Pas de retour générique au terrain plat, pas d’étape dédiée fondations/excavation. Les étapes cachées sont plausibles, adaptées au lieu et au budget, sans recette d’isolation imposée. Pas de personnages, ouvriers, mains ou outils en action ; pas de LLM supplémentaire spécifique.
+- Réutilise les contrats éprouvés de plan verrouillé, relecture, budget et arrêt anticipé du parcours inverse. Message d’arrêt réaliste État de départ atteint. Référence finale permanente, 3 MP / 18 passes, workflow et masque décoché inchangés. Les + conservent leurs voisins et le preset, avec possibilité explicite de remettre un sous-ensemble demandé.
+- Les règles de conservation du lieu et d’absence de personnages sont ajoutées au prompt MiniMax final, pour une ou deux références. Compilation des rôles deux images spécialisée en aménagement ; tolérance existante pour l’omission du seul second tag conservée, références inventées toujours rejetées. Politiques Miniature/V1/V2 et anciens prompts de références conservent leurs consignes et versions.
+- Frise réaliste libellée État initial → aménagement terminé et export des seules images cochées dans l’ordre affiché. Métadonnées journey_preset/journey_direction conservées dans les origines pour la future adaptation vidéo. Aucun changement de politique dans l’atelier Transitions à ce stade ; ses réglages vidéo restent à adapter lors d’un travail ultérieur.
+- Dix régressions préparées dans tests/test_image_journey_realistic.py : compatibilité/idempotence, rejets avant préparation, budgets 1/3/5 et références natives, reprise, indépendance de V1/V2, insertion/ajout, export, arrêt précoce, compilation des tags et API. Scénario navigateur existant étendu : brouillons séparés/vides, absence du sélecteur Scène vivante, création avec cinq images, reprise/réouverture, libellés/ordre/export, ancien projet et ancien backend. Tests NON exécutés selon AGENTS.md.
+- Vérifications statiques réussies : dix Python compilés sans import ni exécution, trois JavaScript compilés sans invocation via Chrome local isolé, 2154 IDs HTML uniques et 58 sélecteurs présents ; comparaison AST des méthodes hors périmètre, aucun espace final ajouté, empreintes finales vérifiées. Guide actualisé. Quatorze fichiers applicatifs/tests/guide concernés, sauvegardes avant patch et review.diff / changes.json / static-checks.json dans D:/Code/panelforge/.agent/diagnostics/journey-realistic-20261007/.
+- Aucun projet runtime changé, appel LLM, génération, test fonctionnel, redémarrage, commit ou publication. La qualité visuelle (cohérence du chantier et respect de l’absence de personnages) reste à qualifier par les essais utilisateur, sans garantie d’obéissance parfaite du moteur.
+
+### Next steps
+1. Après ses générations en cours, l’utilisateur charge le backend au prochain redémarrage habituel du Lab puis Ctrl+F5. Choisir Aménagement réaliste, fournir l’image terminée, éventuellement décrire le départ, puis Créer la suite.
+2. Tests réservés à l’utilisateur depuis le checkout actif, environnement habituel/PYTHONPATH=src : python -m unittest discover -s tests -p "test_image_journey_realistic.py" ; puis test_image_journeys_browser.py et les suites de parcours existantes pour la non-régression.
+3. Qualifier une grotte et/ou un arbre, avec et sans indication, idéalement trois puis cinq nouvelles images. Examiner conservation du lieu/cadrage, pertinence des couches et absence de personnages. Aligner séparément les transitions vidéo adaptées à ces travaux avant de les spécialiser.
+
 ## Publication 2026-10-07 — Version majeure 2.0.0
 
 ### Goal
-- Demande explicite : « Fais une version git hub majeure ». Publier l’état applicatif présent comme v2.0.0.
+- Demande explicite : « Fais une version git hub majeure ». Publier l’état applicatif présent comme v2.0.0. Publication terminée.
 
 ### Current state
-- Préparation depuis D:/Code/panelforge-krea2-flux ; parent distant master 30453c4f346667b6c560c00293ba8715c16519c7. Le checkout actif reste sur feature/krea2-v6-style-catalog-2026-09-26 / c8e96dd.
-- Version applicative portée à 2.0.0 dans pyproject.toml et src/panelforge/__init__.py. Notes docs/releases/2.0.0.md et lien README ajoutés.
-- Publication prévue par index temporaire, commit descendant du dernier master et tag annoté v2.0.0, avec branche releases/v2.0.0. Index et branches de travail conservés ; aucun code fonctionnel modifié pour cette tâche.
-- Le correctif de transmission contre les mains géantes reste proposé, non implémenté. Cette limite est explicitée dans les notes de version.
-- Tests réservés à l’utilisateur ; aucun appel LLM, génération ou redémarrage autorisé/nécessaire pour la publication.
+- Version majeure publiée et références distantes vérifiées : commit 051cba1cd4d14529c43d05edd8c4ee7823d9f850, parent 30453c4f346667b6c560c00293ba8715c16519c7. origin/master et releases/v2.0.0 désignent ce commit ; tag annoté v2.0.0 vérifié avec son commit résolu.
+- Version applicative 2.0.0 dans pyproject.toml et src/panelforge/__init__.py ; notes docs/releases/2.0.0.md, lien README. URL : https://github.com/EasyFrag/panelforge/tree/v2.0.0.
+- État applicatif courant du checkout D:/Code/panelforge-krea2-flux sauvegardé : parcours Construction/À rebours V1/V2, édition MiniMax, transitions H3 avec envoi direct, Histoire V2/V2.1 et évolutions de l’usine. 65 fichiers différents du précédent master, 4371 insertions / 273 suppressions de lignes.
+- Contrôles statiques réussis : syntaxe de 567 Python, lecture de 233 JSON/webmanifest et de pyproject.toml, versions concordantes, diff --check, absence de motifs usuels de secrets dans les fichiers modifiés, empreintes de fichiers modifiés identiques à l’arbre publié. Aucun contrôle JavaScript supplémentaire.
+- Index temporaire et commit-tree ; push atomique sans force. Branche/HEAD/index réels des checkouts de travail conservés, source vérifiée inchangée entre capture et publication. Le master local reste ancien ; origin/master porte la version publiée. Aucun déplacement de checkout, reset ou nettoyage des changements locaux.
+- Publication Git par branche et tag annoté avec notes dans le dépôt, conformément à v1.0.0 ; aucun objet GitHub Release distinct créé. Reçu et preuves : D:/Code/panelforge/.agent/diagnostics/github-major-20261007/ (before, prepare.json, snapshot.json, checks.json, release.diff, release.index, commit-message.txt).
+- Aucun test applicatif, appel LLM, génération ou redémarrage. Données runtime, modèles, médias et diagnostics locaux exclus.
+- Le correctif de transmission contre les mains géantes reste proposé, non implémenté. Cette limite est explicitée dans les notes de version ; publication seule demandée à ce tour.
 
 ### Next steps
-- Terminer les contrôles statiques, publier master/branche de release/tag sans force et vérifier les références distantes.
-- Consigner le commit publié et les contrôles dans D:/Code/panelforge/.agent/diagnostics/github-major-20261007/.
+- Utiliser v2.0.0 comme repère GitHub pour cet état. Tests à lancer par l’utilisateur dans son environnement : python -m unittest discover -s tests.
+- Attendre la prochaine demande fonctionnelle ; ne pas appliquer ou rejouer automatiquement le correctif mains géantes.
+- Continuer les développements dans le checkout actif existant ; ne pas forcer une mise à jour du master local comportant ses propres changements.
 
 ## Audit 2026-10-05 — Mains extérieures dans les chantiers miniatures
 

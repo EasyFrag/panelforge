@@ -3,6 +3,43 @@
 L’onglet **Parcours d’images autonome** se trouve dans Image Lab, à côté de **Modifier avec Minimax**.
 Il construit les états successifs d’un même décor : travaux, aménagement et décoration, à cadrage et point de vue fixes.
 
+## Miniature ou Aménagement réaliste
+
+Le sélecteur **Miniature / Aménagement réaliste** distingue les consignes du parcours. Miniature
+conserve le comportement historique, notamment le choix V1/V2. Les anciens parcours sans champ
+`journey_preset` restent sur ces politiques, sans migration. Le preset est fixé à la création.
+
+**Aménagement réaliste** part de l’image du lieu terminé et utilise **À rebours**. Le champ
+**État de départ souhaité** est facultatif et vide par défaut : par exemple « Grotte vide, humide
+et austère » ou « Arbre intact, feuilles au sol ». Sans texte, Progression visuelle choisit un départ
+plausible et avance automatiquement. Le lieu reste présent ; seules ses installations, couches,
+surfaces ou ouvertures concernées sont ramenées à des états antérieurs. Aucun retour systématique
+au terrain plat, ni étape dédiée aux fondations. Pas de personnages dans les images générées ; le
+sélecteur Scène vivante est masqué et les politiques du preset priment sur cette ancienne version.
+
+Le nombre demandé reste un budget de nouvelles images, en plus de l’original : grandes transformations
+avec trois images, états plus détaillés lorsque cinq images ou davantage le permettent. Les couches
+techniques sont plausibles et choisies pour le lieu, pas un relevé réel ni une recette obligatoire.
+Le dernier rendu vise l’état initial retenu. Le contrôle existant peut terminer plus tôt si cet état
+est réellement atteint, avec le nombre produit affiché et sans refaire une image sans changement.
+
+Les consignes propres au preset couvrent planification, relecture, ajouts **+** et prompt MiniMax.
+La référence terminée reste permanente, avec les rôles Picture 1 / Picture 2 ; conservation du lieu
+et absence de personnages sont aussi ajoutées au prompt final. Cela ne garantit pas l’obéissance
+du moteur : la qualité visuelle reste à qualifier sur des rendus. Réglages 3 MP / 18 passes,
+deux rôles LLM et masque décoché par défaut conservés. Pas d’appel LLM supplémentaire spécifique.
+
+Les brouillons restent séparés pendant le changement de preset ; **Nouveau** revient aux défauts
+Miniature / À rebours / trois images. Reprendre permet de modifier l’état de départ, pas le preset.
+L’ordre affiché et exporté reste état initial → aménagement terminé par défaut. Les origines des
+images exportées portent le preset pour un futur traitement vidéo ; aucune politique de transitions
+spécifique n’est introduite ici. Ne pas déduire que les anciens réglages vidéo Miniature sont adaptés.
+
+Le serveur annonce `journey_presets` dans `/spec`. Si l’ancien backend tourne encore, le nouveau
+choix est indisponible avec une indication de redémarrage. Charger le backend au prochain démarrage
+habituel puis Ctrl+F5. Tests préparés, réservés à l’utilisateur : `test_image_journey_realistic.py`
+et le scénario existant `test_image_journeys_browser.py` ; aucun appel réel requis par ces suites.
+
 ## Construction ou À rebours
 
 Le sélecteur **Construction / À rebours** en haut est indépendant de V1/V2 et conservé après création.

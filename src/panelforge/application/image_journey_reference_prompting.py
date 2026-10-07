@@ -34,7 +34,7 @@ def supports(context):
             and inputs[0]["asset_id"] != inputs[1]["asset_id"])
 
 
-def decode(raw, context):
+def decode(raw, context, *, roles=ROLES):
     if not supports(context):
         raise ValueError("Les références du parcours ne correspondent plus au contrat du prompt.")
     value = json.loads(strip_markdown_fence(raw))
@@ -46,5 +46,5 @@ def decode(raw, context):
     # Invented tags, a missing source, Qwen tags, malformed/oversized prompts still fail.
     source_only = isinstance(prompt, str) and set(re.findall(r"<Picture (\d+)>", prompt)) == {"1"}
     validate_prompt(prompt, inputs[:1] if source_only else inputs)
-    value["prompt"] = prompt.strip() + "\n\n" + ROLES
+    value["prompt"] = prompt.strip() + "\n\n" + roles
     return assistance.decode(json.dumps(value, ensure_ascii=False), inputs)
