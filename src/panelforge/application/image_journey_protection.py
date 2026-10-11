@@ -45,8 +45,13 @@ class ImageJourneyProtection:
                 images = []
                 for content, label in ((source, 'BEFORE — source exacte'), (raw_image, 'GENERATED — rendu brut')):
                     images.append(ImageInput('image/png', content, label))
+                context = dict(action=step['action'], dimensions=service.images.dimensions(source))
+                if step.get('regeneration_feedback'):
+                    context['retry_correction'] = dict(reason=step['regeneration_feedback'], instruction=(
+                        'Include the local correction of this rejected defect when visible in GENERATED, '
+                        'including the old footprint of any removed object in BEFORE. Do not paste the defect back.'))
                 request = CompletionRequest(model_id=model_id, system_prompt=prompting.SYSTEM,
-                    user_prompt=json.dumps(dict(action=step['action'], dimensions=service.images.dimensions(source)), ensure_ascii=False),
+                    user_prompt=json.dumps(context, ensure_ascii=False),
                     images=tuple(images), max_tokens=16000, include_reasoning=False,
                     operation_id=prompting.VERSION, output_schema=prompting.SCHEMA,
                     trace_context=dict(project_id=identity, step_id=step_id, analysis_id=analysis_id))

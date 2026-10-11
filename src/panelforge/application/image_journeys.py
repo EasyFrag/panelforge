@@ -7,6 +7,7 @@ import time
 
 from panelforge.domain import image_journeys as policy
 from . import image_journey_policies as policies
+from . import image_journey_retries as retries
 from .prompt_lab import CompletionRequest, ImageInput, StreamEventKind, LlmCallApplicationOutcome
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,8 @@ class ImageJourneyService:
         self.trials = ImageJourneyTrials(self)
         from .image_journey_edits import ImageJourneyEdits
         self.edits = ImageJourneyEdits(self)
+        from .image_journey_resolutions import ImageJourneyResolutions
+        self.resolutions = ImageJourneyResolutions(self)
         from .image_journey_protection import ImageJourneyProtection
         self.protection = ImageJourneyProtection(self, mask_compositor)
 
@@ -119,20 +122,23 @@ class ImageJourneyService:
 
     def public(self, project):
         result = deepcopy(project)
-        for key in ("creation_key", "commands", "abandoned_steps"):
+        for key in ("creation_key", "commands", "abandoned_steps", "image_resolutions"):
             result.pop(key, None)
         result["analyses"] = [{k: v for k, v in c.items() if k not in {"raw", "context", "input_assets"}}
                               for c in result["analyses"][-10:]]
         from panelforge.domain import image_journey_edits as edits_policy
         result['ordered_steps'] = deepcopy(policy.ordered_steps(project))
+        result['ordered_frame_ids'] = policy.ordered_frame_ids(project)
+        result['blocked_images'] = self.resolutions.blocked_images(project)
         result['manual_generated'] = len(project.get('manual_steps', []))
         result['can_edit_sequence'] = edits_policy.can_edit(project) and project['id'] not in self._claims
         for operation in result.get('image_operations', []):
             operation.pop('request_key', None)
             operation.pop('analyses', None)
         for step in [*result['steps'], *result['ordered_steps'], *result.get('manual_steps', []), *result.get('image_operations', [])]:
-            if 'protection' in step:
-                step['protection'].pop('raw', None)
+            for attempt in [step, *step.get('attempt_history', [])]:
+                if 'protection' in attempt:
+                    attempt['protection'].pop('raw', None)
         result.update(journey_version=policy.journey_version(project),
                       journey_direction=policy.journey_direction(project),
                       journey_preset=policy.journey_preset(project),
@@ -357,8 +363,10 @@ class ImageJourneyService:
                             source_asset_id=current["current_asset_id"], destination=current["destination"],
                             render_profile=deepcopy(current.get("render_profile")),
                             auto_mask=current.get("auto_mask", False),
+                            automatic_retry_enabled=policy.journey_preset(current) == "realistic",
                             journey_version=policy.journey_version(current), **policy.direction_snapshot(current),
                             action=deepcopy(current["next_action"]), output_asset_id=None, review=None,
+                            progress_before=dict(summary=current['summary'], completed_milestones=current['completed_milestones']),
                             prompt_model_id=current["prompt_model_id"], prompt="",
                             progression_model_id=current["analyses"][-1]["model_id"],
                             decision_analysis_id=current["analyses"][-1]["id"], intent_revision=current["intent_revision"],
@@ -437,10 +445,14 @@ class ImageJourneyService:
     def _inputs(self, project):
         if project["phase"] == "reviewing":
             step = project["steps"][-1]
-            items = [(step["source_asset_id"], "BEFORE — source de cette transformation"),
+            before = step.get("retry_initial_source_asset_id", step["source_asset_id"])
+            items = [(before, "BEFORE — source de la transformation initiale"),
                      (step["output_asset_id"], "RESULT — résultat réellement généré à relire")]
-            if project["source_asset_id"] != step["source_asset_id"]:
+            if step.get("retry_kind") == "cleanup":
+                items.append((step["source_asset_id"], "CORRECTION_SOURCE — résultat à nettoyer, décor à préserver"))
+            if project["source_asset_id"] != before:
                 items.append((project["source_asset_id"], "ORIGINAL — cadrage et identité du lieu"))
+            items = retries.comparison_inputs(items, step)
         else:
             items = [(project["current_asset_id"], "CURRENT — état actuel du décor")]
             if project["source_asset_id"] != project["current_asset_id"]:
@@ -460,7 +472,7 @@ class ImageJourneyService:
     def _analyze(self, snapshot):
         prompting = policies.progression(snapshot)
         identity = snapshot["id"]
-        context = prompting.user_prompt(snapshot)
+        context = policies.progression_context(snapshot)
         call = dict(id=policy.identity("analysis"), status="running", created_at=policy.timestamp(),
                     model_id=snapshot["progression_model_id"], phase=snapshot["phase"],
                     policy_version=prompting.VERSION, journey_version=policy.journey_version(snapshot),
@@ -500,17 +512,22 @@ class ImageJourneyService:
                 current.update(destination=decision["destination"], milestones=decision["milestones"],
                     completed_milestones=decision["completed_milestones"], summary=decision["summary"],
                     plan_revision=current["intent_revision"], next_action=decision["next_action"], error=None)
+                if decision.get("world_description"):
+                    current["world_description"] = decision["world_description"]
                 if snapshot["phase"] == "reviewing":
                     step = current["steps"][-1]
-                    step["review"] = dict(assessment=decision["assessment"], observation=decision["observation"],
-                        model_id=call["model_id"], analysis_id=call["id"], reviewed_at=policy.timestamp())
+                    retries.apply_review(current, step, decision, dict(model_id=call["model_id"],
+                        analysis_id=call["id"], reviewed_at=policy.timestamp()))
+                    if current.get("world_description"):
+                        step.setdefault("world_description", current["world_description"])
                     if decision["assessment"] != "unusable":
                         # Manual additions may exist after this automatic image (e.g. after a failed review).
                         current['current_asset_id'] = policy.ordered_steps(current)[-1]['output_asset_id']
                 current["warning"] = ("Changement faible : la prochaine transformation sera renforcée."
                                       if decision["assessment"] == "similar" else None)
                 if decision["assessment"] == "unusable":
-                    current.update(status="paused", pause_requested=True, error=decision["observation"])
+                    if not retries.start(current, current["steps"][-1], stopping=self._stop.is_set()):
+                        current.update(status="paused", pause_requested=True, error=decision["observation"])
                 elif policy.reverse_endpoint_reached(snapshot, decision):
                     self._complete_reverse(current)
                 elif policy.generated(current) == current["count"]:

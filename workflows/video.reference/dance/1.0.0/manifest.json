@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "identity": "SHA256 of canonical sorted JSON {contract, entry}; source graph and VAE hash pinned below",
+  "nodes": {
+    "video": "81001",
+    "components": "81002",
+    "split": "81003",
+    "save_video": "81004",
+    "save_audio": "81005",
+    "load_video": "81006",
+    "load_audio": "81007",
+    "concat": "81008"
+  },
+  "recipes": [
+    {
+      "source": {
+        "recipe_id": "minimax-h3-ref2v",
+        "version": "0.2.5+vae-int8-convrot.1",
+        "workflow_sha256": "6b0cd3ba86f90ee3e661b5a0b5bf0ef953483d113ff1b9e57c6770efc7cf4ea0"
+      },
+      "conditionings": [
+        {
+          "id": "11",
+          "class": "MiniMaxH3ReferenceToVideo"
+        }
+      ],
+      "coarse": [
+        "21",
+        1
+      ],
+      "decode": [
+        {
+          "id": "25",
+          "input": "samples"
+        },
+        {
+          "id": "14",
+          "input": "samples"
+        }
+      ],
+      "resume": [
+        {
+          "id": "26",
+          "input": "latent",
+          "stream": "video"
+        },
+        {
+          "id": "10",
+          "input": "audio_latent",
+          "stream": "audio"
+        }
+      ],
+      "progress": {
+        "draft": {
+          "base_sampling": [
+            8,
+            90
+          ],
+          "encoding": [
+            90,
+            99
+          ]
+        },
+        "refine": {
+          "latent_upscale": [
+            8,
+            20
+          ],
+          "refinement": [
+            20,
+            95
+          ],
+          "encoding": [
+            95,
+            99
+          ]
+        }
+      }
+    },
+    {
+      "source": {
+        "recipe_id": "minimax-h3-bunny",
+        "version": "0.1.3+vae-int8-convrot.1",
+        "workflow_sha256": "9e0cb86e5bdc6b4096ac1b82b5eea5d6506c4ce3596024e1c8dcd6d79f02d33f"
+      },
+      "conditionings": [
+        {
+          "id": "7",
+          "class": "MiniMaxH3AudioConditioningT8"
+        },
+        {
+          "id": "14",
+          "class": "MiniMaxH3AudioConditioningT8"
+        }
+      ],
+      "coarse": [
+        "12",
+        1
+      ],
+      "decode": [
+        {
+          "id": "20",
+          "input": "av_latent"
+        }
+      ],
+      "resume": [
+        {
+          "id": "13",
+          "input": "av_latent",
+          "stream": "av"
+        }
+      ],
+      "progress": {
+        "draft": {
+          "coarse": [
+            8,
+            90
+          ],
+          "decode": [
+            90,
+            99
+          ]
+        },
+        "refine": {
+          "upscale": [
+            8,
+            20
+          ],
+          "refine": [
+            20,
+            95
+          ],
+          "decode": [
+            95,
+            99
+          ]
+        }
+      },
+      "delegate_dependency_validation": true
+    }
+  ]
+}

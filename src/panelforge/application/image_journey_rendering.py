@@ -123,7 +123,7 @@ class MinimaxJourneyRenderer:
     def comparison_result(self, comparison):
         # A GET must not create a child or requeue a missing render after a restart.
         try:
-            project = self.minimax.get(journey_child_id(comparison["id"]))
+            project = self.minimax.get(journey_child_id(comparison.get("render_identity", comparison["id"])))
         except FileNotFoundError:
             return None
         stage = project["stages"][0]

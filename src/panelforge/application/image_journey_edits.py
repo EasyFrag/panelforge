@@ -7,6 +7,8 @@ from panelforge.domain import image_journeys as journey
 from panelforge.domain import image_journey_edits as policy
 from panelforge.domain.minimax_edit import MinimaxEditSettings, validate_prompt
 from . import image_journey_policies as policies
+from . import image_journey_retries as retries
+from . import image_journey_world as world
 from .prompt_lab import CompletionRequest, ImageInput, StreamEventKind
 from .revised_documents import strip_markdown_fence
 
@@ -41,7 +43,7 @@ class ImageJourneyEdits:
         from .image_journeys import JourneyConflict
         service = self.service
         journey.request_id(command)
-        if kind not in {'append', 'insert', 'hq'}:
+        if kind not in {'append', 'insert', 'prepend', 'hq'}:
             raise ValueError('Opération sur image inconnue.')
         intention = journey.text(intention, 'Demande', 6000, kind != 'hq')
         prompt = journey.text(prompt, 'Prompt HQ', 24000, kind == 'hq')
@@ -68,8 +70,9 @@ class ImageJourneyEdits:
                 if not policy.can_edit(project) or identity in service._claims:
                     raise JourneyConflict('Suspends le parcours et attends la fin de l’étape avant de modifier la suite.')
                 after, before, index = policy.anchors(project, after_frame_id, before_frame_id)
-                if (kind == 'insert') != bool(before):
-                    raise ValueError('Choisis + entre deux images pour insérer, ou à la fin pour ajouter.')
+                expected = 'prepend' if after is None else 'insert' if before else 'append'
+                if kind != expected:
+                    raise ValueError('Choisis le bouton + correspondant à cet emplacement.')
             source = (before or after)['asset_id']
             dimensions = list(service.images.dimensions(service.assets.read_bytes(source)))
             profile = deepcopy(project.get('render_profile'))
@@ -84,13 +87,14 @@ class ImageJourneyEdits:
                 output_dimensions = profile['dimensions'] if profile else list(MinimaxEditSettings().dimensions(dimensions))
             op_id = 'journey-edit-' + uuid5(NAMESPACE_URL, identity + '/' + command).hex
             op = dict(id=op_id, journey_id=identity, command=command, request_key=key, kind=kind,
-                after_frame_id=after_frame_id, before_frame_id=before_frame_id, after_asset_id=after['asset_id'],
+                after_frame_id=after_frame_id, before_frame_id=before_frame_id, after_asset_id=after['asset_id'] if after else None,
                 before_asset_id=before['asset_id'] if before else None, intention=intention, source_asset_id=source,
                 source_dimensions=dimensions, dimensions=output_dimensions, render_profile=profile,
                 auto_mask=kind != 'hq' and project.get('auto_mask', False),
+                automatic_retry_enabled=kind != 'hq' and journey.journey_preset(project) == 'realistic',
                 journey_version=journey.journey_version(project),
                 mask_model_id=project.get('mask_model_id', project['progression_model_id']),
-                destination=project['destination'], index=index + 1,
+                destination=project['destination'], index=index if kind != 'hq' else 1,
                 action=dict(title='Essai HQ ×2' if kind == 'hq' else 'Étape intermédiaire' if kind == 'insert' else 'Nouvelle étape',
                             change=intention, preserve='Le cadrage, la perspective et les couleurs.'),
                 status='running', phase='queueing' if kind == 'hq' else 'planning', error=None,
@@ -205,12 +209,16 @@ class ImageJourneyEdits:
         prompting = policies.manual(op)
         service = self.service
         reviewing = op['phase'] == 'reviewing'
-        items = [(op['after_asset_id'], 'EARLIER — état précédent conservé' if op['kind'] == 'insert'
-                  else 'CURRENT — dernière image, source à éditer')]
-        if op['before_asset_id']:
+        items = [(op.get('retry_initial_source_asset_id', op['source_asset_id']), 'CURRENT — première image conservée, source à éditer')] if op['kind'] == 'prepend' else [
+            (op['after_asset_id'], 'EARLIER — état précédent conservé' if op['kind'] == 'insert'
+             else 'CURRENT — dernière image, source à éditer')]
+        if op['kind'] == 'insert':
             items.append((op['before_asset_id'], 'LATER — état suivant conservé, source à éditer'))
         if reviewing:
             items.append((op['output_asset_id'], 'RESULT — image réellement obtenue'))
+            if op.get('retry_kind') == 'cleanup':
+                items.append((op['source_asset_id'], 'CORRECTION_SOURCE — résultat à nettoyer, décor à préserver'))
+            items = retries.comparison_inputs(items, op)
         reference = op.get('finished_reference_asset_id')
         if reference:
             if reference not in {asset_id for asset_id, _ in items}:
@@ -218,7 +226,7 @@ class ImageJourneyEdits:
             else:
                 items = [(asset_id, label + (' — FINISHED_REFERENCE, ' + journey.finished_label(op).lower() + ' fourni'
                           if asset_id == reference else '')) for asset_id, label in items]
-        context = prompting.context(op)
+        context = policies.manual_context(op)
         call = dict(id=journey.identity('analysis'), status='running', phase=op['phase'], context=context,
             input_assets=items, model_id=op['progression_model_id'], created_at=journey.timestamp(),
             policy_version=prompting.VERSION, journey_version=journey.journey_version(op),
@@ -230,11 +238,13 @@ class ImageJourneyEdits:
         raw, call_id = '', None
         try:
             request = CompletionRequest(model_id=op['progression_model_id'],
-                system_prompt=prompting.REVIEW_SYSTEM if reviewing else prompting.PLAN_SYSTEM,
+                system_prompt=policies.manual_system(op, reviewing=reviewing),
                 user_prompt=context, images=tuple(ImageInput('image/png', service.assets.read_bytes(asset_id), label)
                     for asset_id, label in items), max_tokens=12000, include_reasoning=False,
                 operation_id=prompting.REVIEW_OPERATION if reviewing else prompting.PLAN_OPERATION,
-                output_schema=prompting.REVIEW_SCHEMA if reviewing else prompting.PLAN_SCHEMA,
+                output_schema=(prompting.review_schema(op) if journey.journey_preset(op) == 'realistic'
+                    else prompting.REVIEW_SCHEMA) if reviewing else (prompting.plan_schema(op)
+                    if journey.journey_preset(op) == 'realistic' else prompting.PLAN_SCHEMA),
                 trace_context=dict(project_id=identity, operation_id=op['id'], analysis_id=call['id']))
             completed = False
             for event in service.gateway.stream(request):
@@ -250,15 +260,25 @@ class ImageJourneyEdits:
             if not completed:
                 raise ValueError('Analyse interrompue avant une réponse complète.')
             value = json.loads(strip_markdown_fence(raw))
-            value = policy.validate_review(value) if reviewing else policy.validate_action(value)
+            world_values = world.take_description(value, op) if journey.journey_preset(op) == 'realistic' else {}
+            if reviewing and journey.journey_preset(op) == 'realistic':
+                value = prompting.decode_review(value, op)
+            else:
+                value = policy.validate_review(value) if reviewing else policy.validate_action(value)
             with service._lock:
                 project = service._load(identity)
                 current = self._operation(project, op['id'])
+                current.update(world_values)
+                if world_values and not project.get('world_description'):
+                    project.update(world_values)
                 if reviewing:
-                    current['review'] = dict(value, model_id=op['progression_model_id'], analysis_id=call['id'],
-                                             reviewed_at=journey.timestamp())
+                    retries.apply_review(project, current, value, dict(model_id=op['progression_model_id'],
+                        analysis_id=call['id'], reviewed_at=journey.timestamp()), manual=True)
+                    for key, description in world_values.items():
+                        current.setdefault(key, description)
                     if value['assessment'] == 'unusable':
-                        current.update(status='paused', error=value['observation'])
+                        if not retries.start(project, current, manual=True, stopping=service._stop.is_set()):
+                            current.update(status='paused', error=value['observation'])
                     else:
                         self._commit(project, current)
                 else:
@@ -280,7 +300,7 @@ class ImageJourneyEdits:
     def _commit(project, operation):
         # Validate the exact gap again before changing the order. Existing step records stay intact.
         _, _, index = policy.anchors(project, operation['after_frame_id'], operation['before_frame_id'])
-        order = [s['id'] for s in journey.ordered_steps(project)]
+        order = journey.ordered_frame_ids(project)
         order.insert(index, operation['id'])
         operation.update(status='completed', phase='completed', error=None, finished_at=journey.timestamp())
         step = {k: deepcopy(v) for k, v in operation.items() if k not in {'analyses', 'request_key'}}

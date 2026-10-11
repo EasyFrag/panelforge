@@ -21,16 +21,10 @@
   const current = () => transitions().find(t => t.id === state.focus);
   const endpoint = suffix => "/projects/" + encodeURIComponent(state.p.id) + suffix;
   const withVersion = body => ({version:state.p.version,...body});
-  function message(text, ids) {
+  function message(text) {
     $("message").textContent = text;
-    if (ids?.length) {
-      const button = document.createElement("button");
-      button.type="button"; button.textContent="Voir dans l’usine";
-      button.onclick=() => window.PanelForgeVideoFactory?.open(ids);
-      $("message").append(" ",button);
-    }
   }
-  function accept(project, selectNew=false) {
+  function accept(project, selectNew=false, resetSelection=false) {
     const previous = new Set(transitions().map(t=>t.id));
     const changedProject=state.p?.id!==project.id;
     state.p = project;
@@ -45,8 +39,12 @@
     if(project.settings.worker==null && state.settings.worker===undefined && state.spec?.defaults?.worker!==undefined)
       state.settings.worker=state.spec.defaults.worker;
     const available = new Set(transitions().map(t=>t.id));
-    state.selected = new Set([...state.selected].filter(id=>available.has(id)));
-    if(selectNew) transitions().filter(t=>!previous.has(t.id)).forEach(t=>state.selected.add(t.id));
+    if(changedProject || resetSelection) {
+      state.selected = new Set(transitions().filter(t=>t.state!=="sent").map(t=>t.id));
+    } else {
+      state.selected = new Set([...state.selected].filter(id=>available.has(id)));
+      if(selectNew) transitions().filter(t=>!previous.has(t.id) && t.state!=="sent").forEach(t=>state.selected.add(t.id));
+    }
     if(!available.has(state.focus)) state.focus=transitions()[0]?.id || null;
     try { sessionStorage.setItem("panelforge.transitions.project",project.id); } catch (_) {}
   }
@@ -56,7 +54,7 @@
     if(Object.entries(draft).some(([key,value])=>normalize(value)!==normalize(t[key])))return true;
     const effective={...t,...draft};
     return Object.entries(state.settings).some(([key,value])=>{
-      if(key==="model_id" || (key==="worker" && state.p.worker_reference))return false;
+      if(["model_id","scale_preset"].includes(key) || (key==="worker" && state.p.worker_reference))return false;
       const override=key==="pace_preset"?"pace":key;
       if(["duration","camera","pace"].includes(override) &&
         effective[override]!==null && effective[override]!==undefined && normalize(effective[override])!=="")return false;
@@ -109,6 +107,11 @@
     });
     for(const id of ["upload","library"]) $(id).disabled=blocked || !has;
     $("pace-preset").disabled=blocked || !has || !state.spec?.pace_presets?.length;
+    $("scale-preset").disabled=blocked || !has || !!state.p?.worker_reference || !state.spec?.scale_presets?.length;
+    root.querySelector('[data-it-setting="crew_description"]').disabled=blocked || !has || !state.spec?.scale_presets?.length;
+    $("scale-hint").textContent=state.p?.worker_reference ?
+      "Avec une référence d’ouvrier, règle l’échelle dans le montage visuel." :
+      "Les presets remplissent les descriptions dans Réglages communs ; tu peux ensuite les ajuster.";
     paintPaceHint();
     for(const id of ["new","projects","refresh"]) $(id).disabled=state.busy;
     $("propose").disabled=blocked || !selected().length;
@@ -185,6 +188,16 @@
       if(key.endsWith("model_id")) options(input,state.models.map(m=>({id:m.id,label:(m.source==="local"?"Local · ":"Serveur · ")+m.label})),value);
       else if(key==="crew_size") options(input,state.spec.crews||[{id:"solo",label:"Ouvrier solo"}],value||"solo");
       else if(key==="pace_preset") options(input,[...(state.spec.pace_presets || []),{id:"custom",label:"Personnalisé"}],value || "custom");
+      else if(key==="scale_preset") {
+        const presets=state.spec.scale_presets || [];
+        const worker=state.settings.worker ?? state.p.settings.worker;
+        const choice=value==="custom" ? "custom" : presets.find(p=>p.worker===worker)?.id || "custom";
+        options(input,state.p.worker_reference ? [{id:"reference",label:"Selon le montage visuel"}] :
+          [...presets,{id:"custom",label:"Personnalisée"}],state.p.worker_reference ? "reference" : choice);
+      } else if(key==="crew_description") {
+        const crew=state.settings.crew_size ?? state.p.settings.crew_size ?? "solo";
+        input.value=value ?? state.spec.crews?.find(p=>p.id===crew)?.description ?? "";
+      }
       else if(key==="aspect_ratio") options(input,[{id:"auto",label:"Selon la première image"},...state.spec.aspect_ratios.map(id=>({id,label:id}))],value);
       else if(input.type==="checkbox") input.checked=value;
       else if(key==="worker" && state.p.worker_reference) {
@@ -261,7 +274,7 @@
     await initialize(identity);
     await run(async()=>{
       const project=(await api("/projects/"+encodeURIComponent(identity))).project;
-      state.selected=new Set(); state.focus=transitionId||null; accept(project,true);
+      state.focus=transitionId||null; accept(project,true,true);
       const target=transitions().find(t=>t.id===transitionId);
       if(transitionId&&!target)state.focus=null;
       window.PanelForgeLabNavigation?.switchView("image-transitions");
@@ -393,6 +406,17 @@
       const preset=(state.spec.pace_presets || []).find(p=>p.id===input.value);
       if(preset)state.settings.pace=preset.pace;
       paintSettings();
+    } else if(key==="scale_preset") {
+      const preset=(state.spec.scale_presets || []).find(p=>p.id===input.value);
+      if(preset)state.settings.worker=preset.worker;
+      paintSettings();
+    } else if(key==="worker" && state.spec?.scale_presets?.length) {
+      state.settings.scale_preset="custom";
+      $("scale-preset").value="custom";
+    } else if(key==="crew_size") {
+      const preset=(state.spec.crews || []).find(p=>p.id===input.value);
+      if(preset && state.spec?.scale_presets?.length)state.settings.crew_description=preset.description;
+      paintSettings();
     } else if(key==="pace" && state.spec?.pace_presets?.length) {
       state.settings.pace_preset="custom";
       $("pace-preset").value="custom";
@@ -434,7 +458,7 @@
   });
   $("send").onclick=()=>run(async()=>{
     const result=await api(endpoint("/send"),"POST",withVersion({ids:selected().map(t=>t.id)}));
-    accept(result.project);message(result.added?result.added+" unité(s) ajoutée(s) à la préparation de l’usine.":"Ces versions sont déjà dans l’usine.",result.ids);
+    accept(result.project);message(result.added?result.added+" unité(s) ajoutée(s) à la préparation de l’usine.":"Ces versions sont déjà dans l’usine.");
   });
   for(const host of [root,$("library-dialog"),...(referenceUI?.dialogs||[])]) host.addEventListener("click",event=>{
     const zoom=event.target.closest("[data-it-zoom]");

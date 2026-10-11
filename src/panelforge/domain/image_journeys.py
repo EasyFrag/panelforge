@@ -50,6 +50,10 @@ def direction_snapshot(project):
     values = dict(journey_direction=journey_direction(project))
     if "journey_preset" in project:
         values["journey_preset"] = journey_preset(project)
+    if journey_preset(project) == "realistic":
+        values["world_intention"] = project.get("intention", "")
+        if project.get("world_description"):
+            values["world_description"] = project["world_description"]
     if values["journey_direction"] == "reverse":
         # The prepared original stays fixed, never the latest generated state.
         values["finished_reference_asset_id"] = project["source_asset_id"]
@@ -112,19 +116,32 @@ def generated(project):
     return sum(bool(s.get("output_asset_id")) for s in project["steps"])
 
 
+def ordered_frame_ids(project):
+    """Explicit source position; journals without it retain the historical source-first order."""
+    known = ['source', *[s['id'] for s in project['steps']],
+             *[s['id'] for s in project.get('manual_steps', [])]]
+    order = project.get('sequence_order', [])
+    candidates = order if 'source' in order else ['source', *order]
+    return list(dict.fromkeys(key for key in [*candidates, *known] if key in known))
+
+
 def ordered_steps(project):
     """Display order is independent of the original automatic generation budget."""
-    steps = [*project['steps'], *project.get('manual_steps', [])]
-    lookup = {step['id']: step for step in steps}
-    order = project.get('sequence_order', [])
-    return [lookup[key] for key in order if key in lookup] + [step for step in steps if step['id'] not in order]
+    lookup = {s['id']: s for s in [*project['steps'], *project.get('manual_steps', [])]}
+    return [lookup[key] for key in ordered_frame_ids(project) if key != 'source']
+
+
+def image_accepted(step):
+    """A human decision accepts these exact pixels, without rewriting the model's verdict."""
+    output = step.get('output_asset_id')
+    return bool(output and ((step.get('review') or {}).get('assessment') in {'usable', 'similar'}
+                or (step.get('user_acceptance') or {}).get('output_asset_id') == output))
 
 
 def transferable_frame_ids(project):
     """Explicit frame identities, including reviewed states after an excluded gap."""
-    return ['source', *[step['id'] for step in ordered_steps(project)
-                       if step.get('output_asset_id') and
-                       (step.get('review') or {}).get('assessment') in {'usable', 'similar'}]]
+    accepted = {'source', *[step['id'] for step in ordered_steps(project) if image_accepted(step)]}
+    return [key for key in ordered_frame_ids(project) if key in accepted]
 
 
 def sequence(project, frame_ids=None, *, frame_order="generation"):
@@ -141,10 +158,16 @@ def sequence(project, frame_ids=None, *, frame_order="generation"):
         selected = set(frame_ids)
         if len(selected) != len(frame_ids):
             raise ValueError('Chaque image ne peut être sélectionnée qu’une fois.')
-    frames = [dict(asset_id=project["source_asset_id"], label="Départ",
-                   origin=dict(engine="image-journey", project_id=project["id"], index=0))]
-    for index, step in enumerate(ordered_steps(project), 1):
-        if step['id'] not in available:
+    source = dict(asset_id=project["source_asset_id"], label="Départ",
+                  origin=dict(engine="image-journey", project_id=project["id"], index=0))
+    indexed = {step['id']: (index, step) for index, step in enumerate(ordered_steps(project), 1)}
+    frames = []
+    for key in ordered_frame_ids(project):
+        if key == 'source':
+            frames.append(source)
+            continue
+        index, step = indexed[key]
+        if key not in available:
             if selected is None:
                 break
             continue
@@ -189,7 +212,7 @@ def reverse_endpoint_reached(project, decision):
     return (project["phase"] in {"planning", "ready"} and decision["assessment"] == "initial"
             and plan_locked(project) and project["completed_milestones"] == len(project["milestones"])
             and project["current_asset_id"] == tail["output_asset_id"]
-            and (tail.get("review") or {}).get("assessment") in {"usable", "similar"})
+            and image_accepted(tail))
 
 
 def validate_decision(value, project, *, allow_missing_next=False):

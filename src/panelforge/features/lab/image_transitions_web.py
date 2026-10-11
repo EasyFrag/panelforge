@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from pydantic import BaseModel, ConfigDict, Field
 
 from panelforge.application.image_transitions import TransitionConflict
-from panelforge.domain.image_transitions import defaults, KINDS, MAX_IMAGES, pace_presets
+from panelforge.domain.image_transitions import defaults, KINDS, MAX_IMAGES, pace_presets, scale_presets
 from panelforge.domain.video_lab import VideoAspectRatio
 from panelforge.domain.image_transition_references import crew_catalog
 
@@ -73,7 +73,7 @@ def image_transitions_router(service):
     @router.get("/spec")
     def spec():
         return invoke(lambda: dict(defaults=defaults(), kinds=KINDS, max_images=MAX_IMAGES,
-                                    pace_presets=pace_presets(), crews=crew_catalog(), direct_send=True,
+                                    pace_presets=pace_presets(), scale_presets=scale_presets(), crews=crew_catalog(), direct_send=True,
                                     visual_references=service.reference_images is not None,
                                     aspect_ratios=[r.value for r in VideoAspectRatio]))
 

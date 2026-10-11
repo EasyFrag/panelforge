@@ -616,7 +616,12 @@ def build_app(args: argparse.Namespace):
         application_outcomes=gateway,
         assets=assets,
     )
+    from panelforge.infrastructure.presets.h3_dance import dance_recipes
+    from panelforge.infrastructure.dance_media import DanceMedia
+    dance_media = DanceMedia(ffmpeg=dlss_root / "tools/ffmpeg.exe", ffprobe=dlss_root / "tools/ffprobe.exe")
     h3_render = H3RenderService(
+        reference_video_upgrade=lambda recipes: dance_recipes(recipes, PROJECT_ROOT / "workflows/video.reference/dance/1.0.0/manifest.json"),
+        dance_media=dance_media,
         recipe_upgrade=video_vae_updates.upgrade,
         prompt_recipes=prompt_recipes,
         llm_traces=llm_traces,

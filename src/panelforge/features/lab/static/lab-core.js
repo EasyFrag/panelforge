@@ -69,7 +69,7 @@
     if (elements.recipeBadge) elements.recipeBadge.hidden = view !== "change-view";
     if (elements.i2vDirectNewRun) elements.i2vDirectNewRun.hidden = view !== "i2v-direct";
     if (elements.ref2vDirectNewRun) elements.ref2vDirectNewRun.hidden = view !== "ref2v-direct";
-    const baseTopLevelView = imageLabActive ? "change-view" : view;
+    const baseTopLevelView = imageLabActive ? "change-view" : view === "stories" ? "story-v2" : view;
     const topLevelView = ["social-lab", "media-analysis"].includes(view) ? "video-lab" : baseTopLevelView;
     document.body.dataset.workshop = topLevelView;
     elements.nav.forEach((button) => {
@@ -109,6 +109,8 @@
   // Assisted does not start loading just because it was the HTML default.
   let savedView = null;
   try { savedView = window.sessionStorage.getItem(navigationKey); } catch (_) { /* private/blocked storage */ }
+  // Retire the V1 entry point while keeping explicit links to existing episodes.
+  if (savedView === "stories") savedView = "story-v2";
   savedView = retiredViewFallbacks[savedView] || savedView;
   const initialView = workspaces.get(savedView) ? savedView : "krea2-assisted-lab";
   if (switchView(initialView)) {

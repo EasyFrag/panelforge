@@ -139,7 +139,7 @@ class TransitionReferencesTest(ReferenceFixture):
         identity = active(p)[0]["id"]
         p = self.propose(identity)
         request = self.gateway.requests[-1]
-        self.assertEqual(request.operation_id, "image.transitions.propose@3.1.0")
+        self.assertEqual(request.operation_id, "image.transitions.propose@3.2.0")
         self.assertEqual(len(request.images), 4)
         setup = reference_state(p, active(p)[0])["scale"]
         expected = [p["frames"][0]["asset_id"], p["frames"][1]["asset_id"],
@@ -166,6 +166,22 @@ class TransitionReferencesTest(ReferenceFixture):
         self.assertEqual(config["final_prompt"], "")  # LLM writes final wording later.
         self.assertEqual(count, 1)
         self.assertEqual(self.adapter.calls, [])
+
+    def test_textual_scale_preset_cannot_override_worker_and_scale_images(self):
+        self.worker()
+        p = self.scale()
+        identity = active(p)[0]["id"]
+        original_key = context_key(p, active(p)[0])
+        p = self.service.update(p["id"], p["version"], {"settings": {"scale_preset": "normal"}})
+        self.assertEqual(context_key(p, active(p)[0]), original_key)
+        p = self.propose(identity)
+        payload = json.loads(self.gateway.requests[-1].user_prompt)
+        self.assertNotIn("worker", payload["settings"])
+        self.assertNotIn("scale_preset", payload["settings"])
+        config = factory_entry(p, active(p)[0], 0)["config"]
+        self.assertNotIn(p["settings"]["worker"], config["intention"])
+        self.assertEqual(len(config["references"]), 4)
+        self.assertIn("<Picture 4>", config["intention"])
 
     def test_worker_only_uses_three_references_and_clear_restores_two_frame_mode(self):
         self.worker()

@@ -3,6 +3,138 @@
 L’onglet **Parcours d’images autonome** se trouve dans Image Lab, à côté de **Modifier avec Minimax**.
 Il construit les états successifs d’un même décor : travaux, aménagement et décoration, à cadrage et point de vue fixes.
 
+## Images en attente dans la frise
+
+Dès qu’une étape est préparée, une vignette noire occupe son emplacement : étape automatique
+ou ajout **+**, au milieu ou aux extrémités. Elle suit **Inverser l’ordre**. Elle indique la
+préparation, puis **En file · n° N** lorsque le rendu possède un rang dans la file globale du
+serveur (les tâches des autres ateliers comptent aussi), puis **Génération en cours**. Le rang
+s’actualise avec le suivi existant du Lab, sans requête supplémentaire ni nouvelle génération.
+Si le suivi ne fournit pas de rang, aucun numéro n’est inventé.
+
+La vignette devient l’image dès que celle-ci est disponible ; un ajout abandonné disparaît.
+Un clic sur un ajout en attente rouvre son dialogue avec ses références. Les emplacements
+en attente ne sont ni sélectionnables pour Transitions, ni des références pour un nouveau **+**.
+Pendant une correction, **2 essais** permet toujours de consulter le premier résultat.
+
+Patch d’interface uniquement : **Ctrl+F5** suffit ; le backend, les critères de relecture
+et le plafond d’une correction restent inchangés. Scénario navigateur complété, à exécuter
+par l’utilisateur.
+
+## Une correction automatique en Aménagement réaliste
+
+Les nouvelles étapes **Aménagement réaliste**, y compris les ajouts **+**, disposent de **deux essais
+au total : le rendu initial et une seule correction automatique**. Aucun changement pour Miniature,
+ni activation rétroactive sur une étape déjà enregistrée avant ce correctif.
+
+Le prompt MiniMax décrit d’abord une image inoccupée dans l’univers fourni et l’état visible attendu,
+sans récit de chantier actif. La relecture réaliste **1.3.0** distingue maintenant :
+
+- **Progrès exploitable, complet ou partiel** : conserver les avancées visibles vers la destination,
+  puis adapter la prochaine transformation au travail restant et au budget. Une demande incomplètement
+  exécutée ou un jalon anticipé compatible ne suffit plus à déclencher une correction.
+- **Absence de progrès** : un résultat pratiquement inchangé peut recevoir l’unique correction.
+- **Défaut bloquant manifeste** : personnes interdites, point de vue nettement différent, disparition ou
+  remplacement du lieu, recul important qui annule les travaux acquis, ou image illisible/inexploitable.
+  Une légère variation de cadrage, de texture, de couleur, de lumière ou de thème ne suffit pas.
+  Toute avancée identifiable vers la cible reste exploitable, même modeste ou partielle.
+
+La relecture fournit des différences visibles localisées, le travail restant, les défauts bloquants et
+l’atteinte réelle de la destination. Les booléens historiques de réalisation complète et de fidélité du
+décor restent informatifs : `scene_preserved=false` seul ne bloque plus une avancée. L’ancienne valeur
+`untargeted_damage` reste lisible dans les réponses historiques, sans être un motif de retry.
+Des personnes seules avec un progrès utile, même partiel, sans autre interdit net conduisent au nettoyage
+du résultat fautif (référence unique de rendu, masque désactivé). Sinon, la correction régénère depuis
+la source initiale validée, avec le diagnostic. Elle ne consomme pas une nouvelle étape du parcours.
+
+Lors de la relecture de la correction, le premier essai est fourni comme **INITIAL_ATTEMPT**, en plus
+du résultat corrigé et des références habituelles. Le modèle réévalue les deux et choisit le meilleur
+résultat exploitable, avec un motif visible dans l’aperçu. Le premier peut être retenu automatiquement :
+ses pixels, prompt, masque éventuel et provenance deviennent ceux de l’étape active. La suite et
+Transitions suivent cette image ; les deux essais et leurs diagnostics restent archivés.
+
+Cette comparaison utilise la relecture existante, sans nouveau rôle ni appel de critique ajouté.
+Une référence visuelle supplémentaire peut augmenter le coût en tokens de cette relecture.
+Si aucun essai n’est exploitable après deux rendus, le parcours reste suspendu avec les choix manuels.
+Une réponse structurée invalide suspend également sans déclencher un rendu supplémentaire.
+Un résultat déjà utilisé par une image manuelle suivante n’est pas remplacé automatiquement.
+À budget épuisé, une destination encore incomplète est signalée ; aucun rendu n’est ajouté pour finir.
+
+Ce contrôle reste une appréciation visuelle du modèle, sans garantie de conservation exacte des pixels.
+Les consignes et la génération Miniature ne changent pas.
+
+Une seule vignette représente l’étape. **2 essais** ouvre l’aperçu avec **Initial / Correction**,
+leurs images, prompts et diagnostics ; l’essai retenu est indiqué. L’image initiale reste consultable
+pendant la correction. Les essais non retenus restent sauvegardés mais ne sont pas exportables vers
+Transitions. La correction n’ajoute pas une étape au budget et ne modifie pas les voisins.
+
+Après le second rejet, ouvrir **2 essais → Initial → Accepter cet essai et continuer** permet de
+retenir le premier jet. Pour la dernière étape, le bouton propose **Accepter cet essai et terminer**.
+Sur un ajout **+**, il propose **Accepter cet essai**. La vignette, l’image envoyée vers Transitions
+et la source de la suite deviennent celles de l’essai choisi, sans le régénérer. Son prompt et son
+diagnostic d’origine sont conservés, avec la mention **Acceptée manuellement**. L’aperçu reste dans
+l’ordre **Initial / Correction** : l’essai choisi indique **Essai retenu**, l’autre reste consultable.
+
+Ce choix s’applique à l’étape suspendue, une fois la correction terminée. Il n’est pas disponible
+pendant un rendu ou si une image suivante déjà sauvegardée dépend de cette étape. Les parcours
+bloqués existants qui ont conservé leurs deux essais bénéficient de ce choix sans migration.
+Le choix manuel reste disponible en complément du choix automatique ; la limite d’une correction est conservée.
+
+Le budget et les identités des requêtes persistent après suspension ou redémarrage. **Reprendre**
+après deux rejets peut relire l’image mais ne lance pas de troisième rendu automatique. **Régénérer**
+reste une décision manuelle explicite : elle repart de la source initiale même après un nettoyage,
+garde l’historique et ne réarme pas la correction automatique. Si une image manuelle existe déjà
+après l’étape rejetée, celle-ci reste soumise à une décision manuelle pour préserver ses dépendances.
+
+Tests préparés, à exécuter par l’utilisateur : `test_image_journey_retries.py`,
+`test_image_journey_retain_attempt.py`, `test_image_journey_progress_review.py`, `test_image_journey_realistic.py`, `test_image_journeys_browser.py`. Aucun service n’est redémarré
+par le patch ; charger le backend au prochain redémarrage habituel puis **Ctrl+F5**.
+
+## Décider sur une image bloquée
+
+Une image effectivement rejetée à la relecture propose deux actions compactes sous sa vignette et
+dans son aperçu. Un résultat rejeté d’un ajout **+** propose les mêmes choix dans son dialogue.
+
+- **Régénérer** écarte l’essai de la frise et refait la même transformation depuis sa source d’édition,
+  avec le motif du rejet transmis au prompter et au masque éventuel. Nouvelle tentative de rendu,
+  mêmes dimensions et même emplacement : elle ne consomme pas une étape automatique supplémentaire.
+  Le journal et les fichiers de l’essai écarté restent conservés ; ses voisins ne sont pas régénérés.
+- **Accepter et continuer** conserve les pixels malgré le diagnostic, rend l’image sélectionnable
+  pour les transitions et prépare la suite depuis l’état réellement obtenu. Pour la dernière image,
+  **Accepter et terminer** clôt le parcours sans appel supplémentaire. Le diagnostic du modèle reste
+  enregistré ; l’interface indique **Acceptée manuellement**. Les consignes du preset restent actives
+  pour les images suivantes. Sur un ajout manuel, **Accepter l’image** valide seulement cet ajout.
+
+Ces actions concernent un rejet visuel valide. Une réponse LLM malformée, une erreur de fichier ou
+un rendu encore en cours garde la reprise technique existante. **Reprendre** seul ne régénère pas
+une image déjà produite. Les commandes vérifient la version, l’ID de l’étape et l’ID exact de l’image ;
+un double clic ou une réponse réseau perdue ne doit pas créer un second remplacement. Terminer ou
+abandonner un ajout en cours avant de décider sur une image automatique.
+
+Le backend annonce `prepend_images` et `image_resolutions` dans `/spec`. Charger les changements
+au prochain redémarrage habituel, après les générations en cours, puis **Ctrl+F5**. Aucun parcours
+enregistré n’est modifié ou relancé automatiquement par l’installation de ce correctif.
+
+## Identité du monde en Aménagement réaliste
+
+La première analyse disponible décrit brièvement en anglais le monde de l’image fournie : matières,
+rendu, échelle et éventuel mélange de matériaux. Cette description est sauvegardée séparément des
+travaux et reste ancrée à la référence originale. Les nouvelles surfaces, états bruts et états usés
+respectent aussi ce monde : laine, LEGO, papier, monde réaliste ou mélange déjà présent.
+Les meubles peuvent être retirés sans traiter la matière constitutive du monde comme un revêtement
+à enlever. Quelques coussins en laine ne transforment pas une pièce ordinaire en univers textile.
+
+Cette mémoire accompagne la suite automatique, les ajouts **+** aux trois emplacements, les reprises
+et les régénérations. MiniMax reçoit la description dans la demande puis dans le prompt compilé.
+Le nettoyage d’ouvriers conserve le monde actuel du résultat et n’essaie pas de corriger son style.
+Une demande explicite de changement d’univers prime pour l’édition concernée. Les écarts de thème
+ne créent aucun nouveau rejet : la relecture conserve les progrès utiles et guide la suite.
+
+Aucun appel LLM supplémentaire ni nouveau contrôle d’interface. Les anciens parcours sans mémoire
+la renseignent lors d’une prochaine analyse habituelle depuis la référence originale. Une réponse
+ancienne qui omet cette métadonnée reste exploitable ; les images et prompts déjà sauvegardés ne
+sont pas réécrits. La reconnaissance du monde dépend du modèle, pas d’une segmentation automatique.
+
 ## Miniature ou Aménagement réaliste
 
 Le sélecteur **Miniature / Aménagement réaliste** distingue les consignes du parcours. Miniature
@@ -27,7 +159,8 @@ Les consignes propres au preset couvrent planification, relecture, ajouts **+** 
 La référence terminée reste permanente, avec les rôles Picture 1 / Picture 2 ; conservation du lieu
 et absence de personnages sont aussi ajoutées au prompt final. Cela ne garantit pas l’obéissance
 du moteur : la qualité visuelle reste à qualifier sur des rendus. Réglages 3 MP / 18 passes,
-deux rôles LLM et masque décoché par défaut conservés. Pas d’appel LLM supplémentaire spécifique.
+deux rôles LLM et masque décoché par défaut conservés. Le diagnostic de qualité est inclus dans
+la relecture existante ; une correction éventuelle ajoute son prompt, son rendu et sa relecture.
 
 Les brouillons restent séparés pendant le changement de preset ; **Nouveau** revient aux défauts
 Miniature / À rebours / trois images. Reprendre permet de modifier l’état de départ, pas le preset.
@@ -72,7 +205,8 @@ garantit pas une fidélité parfaite ni l’atteinte visuelle du terrain plat. L
 
 Les **+** gardent leurs bornes dans l’ordre de génération, indépendamment de l’affichage.
 Quand la frise est inversée, l’ajout depuis la dernière sortie se trouve à gauche de la première
-vignette ; les autres **+** insèrent entre les deux voisins visibles. Le dialogue suit leur ordre affiché.
+vignette ; le **+** opposé permet d’aller au-delà de l’image fournie, à droite. Les **+** intérieurs
+insèrent entre les deux voisins visibles. Le dialogue suit leur ordre affiché.
 Une insertion édite le voisin suivant dans l’ordre de génération ; à rebours, cela peut remettre
 une partie de structure. L’analyse voit les voisins et la référence terminée.
 Le transfert vers Transitions utilise les images cochées, exactement dans l’ordre affiché.
@@ -121,8 +255,9 @@ Ce traitement est local et n’ajoute aucun appel LLM ou rendu.
 Après mise à jour et redémarrage habituel, **Reprendre** relit l’image conservée d’un parcours bloqué
 sur une reformulation de jalon ; aucune modification artificielle de l’intention n’est nécessaire.
 Si un ajout manuel est suspendu, il faut le terminer ou l’abandonner dans son dialogue avant cette reprise.
-Les anciennes sorties déjà rejetées (par exemple un bâtiment réapparu) restent archivées et exclues des
-transitions : le correctif ne les remplace pas et ne lance pas automatiquement de nouveau rendu.
+Les sorties déjà rejetées (par exemple un bâtiment réapparu) restent exclues des transitions jusqu’à
+une décision explicite : **Régénérer** pour les remplacer ou **Accepter** pour les conserver. Aucun
+rendu ne se lance automatiquement lors du chargement du parcours.
 
 ## Version du parcours
 
@@ -330,7 +465,8 @@ l’utilisateur puis actualiser la page. Aucun service n’a été redémarré p
 
 ## Ajout et insertion
 
-Les petits **+** apparaissent après chaque image, même lorsque la grille revient à la ligne.
+Les petits **+** apparaissent entre chaque image et aux deux extrémités, même lorsque la grille
+revient à la ligne. Ils gardent leurs ancrages lorsque l’affichage est inversé.
 Le parcours doit être terminé ou suspendu, avec ses rendus en cours récupérés avant de modifier la
 séquence. Un formulaire ouvert conserve la demande saisie pendant le rafraîchissement de l’atelier.
 
@@ -340,6 +476,9 @@ séquence. Un formulaire ouvert conserve la demande saisie pendant le rafraîchi
   Une nouvelle image relue est insérée. Les images et étapes existantes ne sont pas régénérées.
 - **À la fin** : le dialogue montre la dernière sortie réellement obtenue, même si l’ancienne relecture
   a échoué. La demande libre produit une nouvelle image à partir de cette sortie.
+- **Au-delà de l’image fournie** : un dialogue avec un seul voisin et une demande libre permet
+  d’ajouter un état de l’autre côté. L’original reste la référence permanente et garde ses pixels.
+  On peut répéter cet ajout, puis insérer entre les nouveaux voisins comme ailleurs dans la frise.
 - Le modèle de progression et le prompter MiniMax restent ceux du parcours. Les étapes manuelles
   utilisent son profil de rendu (3 MP / 18 passes pour les nouveaux parcours). Elles sont comptées séparément du
   nombre initial d’images automatiques ; ajouter une étape ne reprend pas toute la génération.
@@ -364,12 +503,21 @@ Les anciennes erreurs enregistrées ne sont pas réécrites ; **Reprendre** appl
 - `application/image_journey_edits.py` : opérations persistées avec phases et reprises indépendantes.
 - `application/image_journey_edit_prompting.py` : prompts des rôles existants pour une demande ponctuelle.
 - `manual_steps` et `sequence_order` : étapes et ordre canonique distincts de `steps` (budget automatique).
+  `sequence_order` accepte désormais `source` à une position explicite pour les ajouts avant
+  l’original ; les anciens journaux sans cet ID gardent leur ordre historique, sans migration.
   L’ordre d’affichage et de transfert peut être inversé sans modifier ces données.
 - `image_operations` : journal d’ajouts, d’insertions et d’essais HQ. Les HQ n’entrent pas dans cet ordre.
 - `POST .../projects/{id}/image-operations` : version, commande idempotente, kind, after_frame_id,
   before_frame_id, intention ou prompt. Les bornes doivent toujours désigner deux images consécutives,
-  ou la dernière pour un ajout. `source` désigne l’image de départ.
+  ou la dernière pour un ajout. `kind=prepend` utilise `after_frame_id=null` et `before_frame_id`
+  égal à la première image canonique. `source` désigne toujours l’image fournie.
 - `POST .../image-operations/{operation_id}/resume|cancel` : reprise/abandon explicites.
+- `application/image_journey_resolutions.py` : acceptation/régénération persistées ; les sorties
+  écartées restent dans `abandoned_steps` ou l’ancien `image_operations` annulé.
+- `POST .../projects/{id}/image-resolutions` : version, commande idempotente, `step_id`,
+  `output_asset_id`, `action=accept|regenerate`. L’acceptation vise ces pixels uniquement.
+  Les étapes acceptées gardent leur `review` et reçoivent `user_acceptance` ; les régénérations
+  prennent de nouveaux IDs d’étape, de prompt et de rendu. Les frises déjà exportées sont inchangées.
 
 La remise des états relus reprend l’ordre actualisé. Les frises déjà préparées restent des versions
 antérieures, sans réécriture. Un changement d’ordre prépare aussi une frise distincte.
@@ -396,6 +544,11 @@ son inversion, sa persistance, le transfert sélectif dans chaque sens et les bo
 `tests/test_image_journey_endpoint.py` couvre le plan immuable et sa reprise, les jalons partiels,
 les propositions prématurées, les relectures conservées, l’arrêt anticipé sans appel superflu, la reprise
 des anciens points de planification, les sorties rejetées, le budget normal et l’export dans l’ordre choisi.
+`tests/test_image_journey_resolutions.py` ajoute 16 cas : décisions sur les pixels exacts, reprise
+des anciens rejets, budget et voisins conservés, absence de double rendu, acceptation finale sans
+appel LLM, exceptions techniques, ajout manuel rejeté, extrémité avant source, insertion voisine,
+export inverse et contraintes du preset après acceptation. Le scénario navigateur couvre les deux
+actions, le double clic, le dialogue manuel et le déplacement du nouveau + lors de l’inversion.
 Ces tests sont préparés mais ne sont pas exécutés par l’agent, conformément à AGENTS.md.
 
 ### Régressions V1/V2 (préparées, non exécutées)

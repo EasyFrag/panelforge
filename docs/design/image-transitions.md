@@ -7,10 +7,12 @@ L’onglet **Transitions**, à côté de l’usine, prépare les vidéos interm�
 1. Créer une frise et lui donner un nom dans les réglages communs.
 2. Ajouter des fichiers, ou ouvrir **Depuis un atelier** pour choisir des versions précises dans KREA, Qwen ou MiniMax. **Sélectionner la chaîne validée** coche le départ et les résultats acceptés ; les autres essais terminés restent sélectionnables.
 3. Réordonner les vignettes par déplacement ou par les flèches. Le bouton de remplacement accepte un fichier ou une version d’atelier. Retirer une vignette ne supprime aucun asset ni projet source.
-4. Sélectionner les transitions à préparer. Une action courte peut être saisie dans la liste ; le panneau de droite contient l’indication personnelle et les réglages particuliers.
-5. Facultatif : ouvrir **Ouvriers et échelle**, choisir/importer un ouvrier, choisir l’organisation du chantier et régler son échelle depuis une paire.
-6. Choisir **Slow** ou **Fast** dans le sélecteur **Rythme**, puis cliquer sur **Proposer les transitions**. Le LLM voit les deux images de chaque paire, l’ouvrier et le montage d’échelle s’ils sont renseignés, les réglages communs et les indications disponibles. Les propositions sont françaises ; la relecture et les corrections sont facultatives.
-7. **Envoyer à l’usine** ajoute directement les versions sélectionnées à sa préparation, après correction facultative et sans étape de validation ni confirmation supplémentaire. **Voir dans l’usine** ouvre les unités reçues ; leur lancement utilise le parcours habituel Plan → Prompt → Vidéo, avec DLSS facultatif.
+4. Les transitions non encore envoyées dans leur version actuelle sont sélectionnées à l’ouverture, y compris depuis un parcours. Décocher celles à écarter si besoin. Une action courte peut être saisie dans la liste ; le panneau de droite contient l’indication personnelle et les réglages particuliers.
+5. Dans **Ouvriers et échelle**, choisir **Organisation du chantier**, **Échelle** (Miniature / Normale) et **Vitesse**. Ces presets remplissent leurs descriptions dans **Réglages communs**, qui restent modifiables. Une image d’ouvrier peut aussi être choisie/importée ; son échelle se règle alors dans le montage depuis une paire.
+6. Cliquer directement sur **Proposer les transitions** ; les vitesses disponibles dans le bandeau ouvriers sont **Slow**, **Fast** et **Ultra-fast**. Le LLM voit les deux images de chaque paire, l’ouvrier et le montage d’échelle s’ils sont renseignés, les réglages communs et les indications disponibles. Les propositions sont françaises ; la relecture et les corrections sont facultatives.
+7. **Envoyer à l’usine** ajoute directement les versions sélectionnées à sa préparation, après correction facultative et sans étape de validation ni confirmation supplémentaire. Le message confirme l’envoi sans bouton **Voir dans l’usine**. L’accès général **Ouvrir l’usine** reste disponible ; les unités suivent le parcours habituel Plan → Prompt → Vidéo, avec DLSS facultatif.
+
+Les décoches manuelles sont conservées pendant les actualisations, propositions et sauvegardes de la frise courante. Une ouverture explicite de frise présélectionne ses versions non envoyées ; après un envoi, la sélection courante reste cochée pour montrer la confirmation verte. Les nouvelles paires sont sélectionnées à leur ajout.
 
 Les champs non enregistrés sont signalés. **Enregistrer** les conserve ; les actions de préparation, import, navigation entre paires et envoi enregistrent également les champs avant de poursuivre. Actualiser permet de recharger une modification venant d’une autre fenêtre, en demandant confirmation avant d’abandonner des champs non enregistrés.
 
@@ -32,18 +34,19 @@ Le front se recharge avec **Ctrl+F5**. Les nouvelles routes de sélection/placem
 
 ## Réglages
 
-Les réglages communs comprennent description de l’ouvrier, rythme, caméra, ambiance sonore, musique, conservation, durée, cadrage et DLSS. **DLSS dans l’usine** est coché par défaut pour les nouvelles frises et reste désactivable ; les frises existantes conservent leur choix enregistré. Le cadrage automatique choisit le format H3 supporté le plus proche de la première image.
+Les réglages communs comprennent descriptions de l’ouvrier et du chantier, rythme, caméra, ambiance sonore, musique, conservation, durée, cadrage et DLSS. **DLSS dans l’usine** est coché par défaut pour les nouvelles frises et reste désactivable ; les frises existantes conservent leur choix enregistré. Le cadrage automatique choisit le format H3 supporté le plus proche de la première image.
 
 Trois modèles sont paramétrables : propositions visuelles, plan H3 et prompt H3. Les identifiants locaux/serveur du catalogue existant sont conservés ; aucun remplacement silencieux d’un modèle absent. L’analyse des paires nécessite un modèle et un accès capables de lire les images. Les valeurs initiales reprennent les modèles de l’usine : Gemma Unsloth pour les propositions et le prompt, Qwen local pour le plan.
 
 Chaque transition peut remplacer la durée, la caméra et le rythme communs. Un déplacement vers l’intérieur d’un arbre peut ainsi avoir un rythme différent des travaux accélérés. Les paramètres détaillés du rendu restent ajustables dans l’usine.
 
-## Slow et Fast
+## Slow, Fast et Ultra-fast
 
-Le sélecteur **Rythme** est visible près de **Proposer les transitions** :
+Le sélecteur **Vitesse** est dans **Ouvriers et échelle**, à côté de l’organisation et de l’échelle ; il ne se trouve plus dans la barre d’actions :
 
 - **Slow — accéléré modéré** : progression posée, gestes fluides et lisibles, quelques opérations essentielles et sons synchronisés. Ce nom désigne la version plus douce, pas du ralenti.
 - **Fast — avance rapide** : toute la captation est fortement comprimée, avec gestes saccadés, sauts de pose et de position, instants sautés, bref flou des membres et des outils, étapes de travaux rapprochées et sons en rafales. Les mouvements déjà visibles dans le décor suivent la même accélération. L’entrée et la sortie sont expéditives, sans longue attente finale.
+- **Ultra-fast — avance rapide extrême** : condensation encore plus forte du temps de travail, opérations en fractions de seconde, poses plus espacées dans le temps et entrées/sorties quasi instantanées. La durée vidéo et les travaux à accomplir restent identiques : pas d’étapes supplémentaires, de dépassement de l’état final ou d’assemblage magique. Les contacts outils/matériaux restent visibles sur les gestes clés.
 - **Personnalisé** : conserve le texte libre du rythme. Modifier la description du rythme sélectionne automatiquement ce mode.
 
 Les nouvelles frises utilisent **Fast**. Les frises antérieures gardent leur texte et apparaissent en **Personnalisé**, sans modification des unités déjà envoyées. Pour comparer sur une frise existante : sélectionner Fast, proposer à nouveau puis envoyer la nouvelle version, avec relecture facultative. Une intention corrigée manuellement reste conservée ; accepter la nouvelle proposition avec le bouton prévu si elle convient.
@@ -56,9 +59,18 @@ Exemple d’intention Fast rédigé pour illustrer le traitement, sans appel LLM
 
 > Toute la captation montre le chantier en avance rapide extrême : l’ouvrier change de pose par bonds, avec des instants sautés et un bref flou des bras et des outils. Après le départ vide, il apporte le bois en une rafale de déplacements, débite puis fixe les éléments au rythme d’impacts très rapprochés ; chaque série de gestes fait progresser visiblement la plateforme. Il ramasse les chutes et emporte ses outils dans les derniers instants. L’image finale retrouve exactement la plateforme terminée, sans ouvrier.
 
-Le changement porte sur les consignes de génération ; son intensité réelle reste à qualifier sur une vidéo H3. Le backend sera chargé au prochain redémarrage habituel du Lab, puis **Ctrl+F5** chargera les assets `20260929.refs1`.
+Le changement porte sur les consignes de génération ; son intensité réelle reste à qualifier sur une vidéo H3. Le backend sera chargé au prochain redémarrage habituel du Lab, puis **Ctrl+F5** chargera les assets `20261009.presets1`.
 
 ## Ouvriers, effectif et échelle visuelle
+
+Le bandeau est ouvert par défaut et présente les trois menus en ligne, avec retour à la ligne sur écran étroit.
+
+Sans image d’ouvrier, **Miniature** préremplit une description d’humains minuscules avec outils et levage adaptés ; **Normale** décrit des humains à l’échelle habituelle du lieu. Aucun costume ou visage n’est imposé. Modifier librement le texte passe le menu en **Personnalisée** ; un texte vide reste vide. Choisir explicitement un autre preset remplace cette description, puis elle peut de nouveau être ajustée.
+
+Le menu d’organisation remplit **Description du chantier**. Un changement de vitesse conserve les descriptions personnalisées du chantier et de l’ouvrier. Les anciennes frises gardent leurs valeurs, sans migration à la lecture.
+
+Avec une image d’ouvrier, le sélecteur d’échelle textuelle est désactivé et indique **Selon le montage visuel**. L’apparence vient de l’image et la taille du montage ; ni l’ancien descriptif ni le preset textuel ne sont envoyés au LLM. Retirer la référence rétablit le texte sauvegardé et le choix d’échelle correspondant.
+
 
 Dans **Ouvriers et échelle**, **Choisir un ouvrier** ouvre deux listes compactes : **Mes ouvriers** (images déjà utilisées, réutilisables entre frises) et **Images récentes des ateliers** (KREA, Qwen et MiniMax). **Importer** accepte PNG, JPEG ou WEBP. Il n’y a aucun atelier de génération de personnage supplémentaire.
 
@@ -165,3 +177,12 @@ Tests de régression ajoutés dans tests/test_worker_visual_policy.py et fixture
 Au prochain démarrage habituel du backend, actualiser la page puis reproposer la paire existante, appliquer la nouvelle proposition si une correction manuelle était conservée, relire et envoyer une nouvelle unité. L’ancien rendu ne change pas. La fidélité d’échelle du générateur reste à vérifier lors d’un rendu volontaire.
 
 Diagnostic et sauvegardes : D:/Code/panelforge/.agent/diagnostics/transition-visual-only-20260929/. Cache du script Transitions : 20260929.visual2.
+
+
+## Mise à jour du 9 octobre 2026 — Presets regroupés
+
+Contrat de proposition image.transitions.propose@3.2.0 ; catalogues de presets servis par l’API, sans appel LLM supplémentaire. Ultra-fast traverse la proposition puis l’intention envoyée au Plan/Prompt H3 ; un rythme spécifique par paire conserve sa priorité.
+
+Régressions préparées dans les trois fichiers test_image_transitions.py, test_image_transitions_references.py et test_image_transitions_browser.py : presets, texte libre/vide, compatibilité des anciennes frises, priorité des références, sélection par défaut et retrait du bouton après envoi. Tests réservés à l’utilisateur, non exécutés.
+
+Charger le nouveau backend au prochain redémarrage habituel choisi par l’utilisateur, puis Ctrl+F5 pour les assets 20261009.presets1. Aucun service redémarré ni rendu de qualification lancé. Le rendu réel d’Ultra-fast reste à apprécier avec H3.

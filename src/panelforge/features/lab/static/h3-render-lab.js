@@ -80,6 +80,7 @@
 
   const recipeKey = (recipe) => recipe ? `${recipe.recipe_id || recipe.id}@${recipe.version}` : state.defaultRecipeKey;
   const bunnyActive = () => Boolean(state.spec?.bunny);
+  const dancePreview = () => options.danceStage?.() === "draft";
   const draftFields = ["ratio", "megapixels", "initialMegapixels", "forceUpscale", "duration", "steps", "seed", "seedLock", "music", "spectrum",
     "videoLoraProfile", "videoLoraModel", "videoLoraStrength", "videoLoraClip", "bunnyTurbo", "bunnyBase", "bunnyCoarse", "bunnyRefine", "bunnyPreview", "bunnySecond"];
   function captureControls(fields = draftFields) {
@@ -134,7 +135,9 @@
     const note = label.querySelector("[data-upscale-note]");
     if (!value.supported) { elements.forceUpscale.checked = false; return; }
     if (!value.same) elements.forceUpscale.checked = false;
-    if (note) note.textContent = value.lower
+    if (note) note.textContent = dancePreview()
+      ? "Première passe seule ; finition facultative depuis l’historique."
+      : value.lower
       ? "Cible plus petite : sortie directe \u00e0 la r\u00e9solution initiale."
       : value.same
         ? (elements.forceUpscale.checked ? "Upscale + finition forc\u00e9s pour ce test." : "Bypass automatique ; cochez pour comparer l\u2019ancienne finition.")
@@ -185,7 +188,9 @@
         || Math.min(sx, sy) < 1 || Math.max(sx, sy) > 4 || Math.max(sx, sy) / Math.min(sx, sy) > 1.05 || Math.max(tw, th) > 4096) {
       state.bunnyError = "Résolution : MP par pas de 0,1 ; sortie de ×1 à ×4, sans réduction, cible ≤ 4096 px.";
     }
-    elements.bunnyGeometry.textContent = state.bunnyError || `${w} × ${h} → ${out.w} × ${out.h} · upscale ×${Math.sqrt(sx * sy).toFixed(3)} · ${coarse} + ${refine} steps exécutés`;
+    elements.bunnyGeometry.textContent = state.bunnyError || (dancePreview()
+      ? `${w} × ${h} · ${coarse} steps · première passe seule`
+      : `${w} × ${h} → ${out.w} × ${out.h} · upscale ×${Math.sqrt(sx * sy).toFixed(3)} · ${coarse} + ${refine} steps exécutés`);
   }
   async function switchRecipe(key, { restoreDraft = true, remember = true } = {}) {
     if (!key) return;
@@ -197,7 +202,7 @@
     try {
       if (!state.specCache.has(key)) {
         const at = key.lastIndexOf("@");
-        const spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}&recipe_id=${encodeURIComponent(key.slice(0, at))}&recipe_version=${encodeURIComponent(key.slice(at + 1))}`);
+        const spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}${options.specPurpose ? `&purpose=${encodeURIComponent(options.specPurpose)}` : ""}&recipe_id=${encodeURIComponent(key.slice(0, at))}&recipe_version=${encodeURIComponent(key.slice(at + 1))}`);
         state.specCache.set(key, spec);
         state.specCache.set(recipeKey(spec.recipe), spec);
       }
@@ -318,7 +323,7 @@
       elements.initialMegapixels.closest("label").hidden = false;
     }
     if (elements.forceUpscale) elements.forceUpscale.checked = false;
-    elements.duration.value = String(inferredDuration(state.project?.current_prompt, defaults.duration_seconds));
+    elements.duration.value = String(state.project?.dance_reference?.duration_seconds ?? inferredDuration(state.project?.current_prompt, defaults.duration_seconds));
     elements.steps.value = String(defaults.steps);
     elements.seed.value = randomSeed();
     elements.seedLock.checked = defaults.seed_locked ?? true;
@@ -368,7 +373,7 @@
       elements.revisionVersion.value = state.selectedRevisionVersion;
     }
     if (!renderOnly && elements.revisionModel) {
-      const selectedModel = state.project?.revision_model_id || state.project?.model_id || "";
+      const selectedModel = options.preferredRevisionModel?.(state.spec.llm_models || [], state.project) || state.project?.revision_model_id || state.project?.model_id || "";
       window.PanelForgeModelPicker.populate(
         elements.revisionModel,
         state.spec.llm_models || [],
@@ -611,7 +616,14 @@
   }
 
   function settingsSummary(attempt) {
+    if (attempt.dance_stage === "draft") {
+      const s = attempt.settings;
+      return `${attempt.initial_megapixels} MP · ${s.resolution.width} × ${s.resolution.height} · ${Number(s.duration_seconds).toFixed(2)} s · première passe seule · seed ${s.seed} · ${attempt.recipe.recipe_id} ${attempt.recipe.version}`;
+    }
     const s = attempt.settings;
+    if (attempt.dance_stage === "refine") {
+      return `${s.megapixels} MP · ${s.resolution.width} × ${s.resolution.height} · ${Number(s.duration_seconds).toFixed(2)} s · finition seule${attempt.bunny ? ` · ${attempt.bunny.refine_steps} steps` : ""} · première passe réutilisée · seed ${s.seed} · ${attempt.recipe.recipe_id} ${attempt.recipe.version}`;
+    }
     const lora = attempt.video_loras ? ` · ${window.PanelForgeH3Loras.summary(attempt.video_loras)}` : attempt.video_lora
       ? ` · LoRA ${attempt.video_lora.name} × ${Number(attempt.video_lora.strength).toFixed(2)}${attempt.video_lora.clip_last_layer === -2 ? " · CLIP -2" : ""}`
       : " · Standard";
@@ -652,9 +664,11 @@
       card.className = `h3-render-attempt ${attempt.attempt_id === state.project.feedback_attempt_id ? "feedback" : ""}`;
       const header = document.createElement("div"); header.className = "h3-render-attempt-head";
       const title = document.createElement("b"); title.textContent = `Essai ${attempt.index}${attempt.dlss ? " · DLSS" : ""}`;
+      if (attempt.dance_stage && attempt.dance_stage !== "full") title.textContent += attempt.dance_stage === "draft" ? " · Aperçu" : " · Finition";
       const status = document.createElement("span"); status.textContent = attempt.status;
       header.append(title, status); card.append(header);
       if (group.variants) card.append(window.PanelForgeDlss.picker(group, renderAttempts));
+      options.attemptActions?.(attempt, card, state.project);
       if (attempt.output_url) {
         const video = document.createElement("video"); video.controls = true; video.playsInline = true; video.src = attempt.output_url; card.append(video);
       }
@@ -683,8 +697,9 @@
         const feedback = document.createElement("button"); feedback.type = "button";
         feedback.textContent = attempt.attempt_id === state.project.feedback_attempt_id ? "Retirer le feedback" : "Utiliser comme feedback";
         feedback.addEventListener("click", () => selectFeedback(attempt));
-        actions.append(resume, feedback);
-        if (window.PanelForgePromptRecipes) {
+        actions.append(resume);
+        if (!state.project.dance_reference) actions.append(feedback);
+        if (window.PanelForgePromptRecipes && !state.project.dance_reference) {
           actions.append(window.PanelForgePromptRecipes.historyButton(projectId(), attempt.attempt_id));
         }
         if (window.PanelForgeDlss) {
@@ -729,7 +744,7 @@
             continuation.disabled = false;
           }
         });
-        card.append(continuation, continuationError);
+        if (!state.project.dance_reference) card.append(continuation, continuationError);
       }
       if (window.PanelForgeDlss && attempt.status === "succeeded") {
         card.append(window.PanelForgeDlss.inlineStatus({ owner: specMode === "ref2va" ? "ref2v" : "h3", ownerId: projectId(), attempt }));
@@ -819,11 +834,13 @@
       selected = keys.find(key => profiles[key] && Number(elements.bunnyBase.value) === profiles[key].base_steps
         && Number(elements.bunnyCoarse.value) === profiles[key].coarse_steps
         && Number(elements.bunnyRefine.value) === profiles[key].refine_steps) || "custom";
-      elements.presetSummary.textContent = `Sampling BUNNY natif · ${elements.bunnyCoarse.value} + ${elements.bunnyRefine.value} steps · `
+      const sampling = dancePreview() ? `${elements.bunnyCoarse.value} steps · première passe seule`
+        : `${elements.bunnyCoarse.value} + ${elements.bunnyRefine.value} steps`;
+      elements.presetSummary.textContent = `Sampling BUNNY natif · ${sampling} · `
         + (elements.bunnyTurbo.checked ? `Turbo ${Number(state.spec.bunny.turbo_strength).toFixed(2)}` : "Turbo supplémentaire désactivé");
     } else {
       if (Number(elements.steps.value) === state.spec.defaults.steps) selected = "default";
-      elements.presetSummary.textContent = `Sampling de la recette · ${elements.steps.value} steps`;
+      elements.presetSummary.textContent = `Sampling de la recette · ${elements.steps.value} steps${dancePreview() ? " configurés · première passe seule" : ""}`;
     }
     elements.preset.value = selected; elements.preset.disabled = disabled;
     const stack = loraEditor?.supported ? loraEditor.value : null;
@@ -845,7 +862,12 @@
     const renderAction = !setupOnly && options.renderActionState ? options.renderActionState(state.context) || {} : {};
     const incomplete = state.project?.adaptation && state.project.adaptation.status !== "ready";
     const disabled = state.busy || state.recipeLoading || Boolean(active) || Boolean(incomplete);
+    if (state.project?.dance_reference) {
+      elements.duration.value = String(state.project.dance_reference.duration_seconds);
+      elements.duration.readOnly = true;
+    }
     renderPreset(disabled);
+    options.onRenderControls?.({disabled});
     const missingLora = loraEditor?.supported ? Boolean(loraEditor.error) : elements.videoLoraProfile?.value === "lora" && (!elements.videoLoraModel?.value || !(state.spec?.video_lora?.models || []).includes(elements.videoLoraModel.value));
     if (loraEditor?.supported) {
       elements.videoLoraWarning.textContent = loraEditor.error;
@@ -925,7 +947,7 @@
       rememberRecipe();
       ++state.recipeToken; state.recipeLoading = false;
       if (!state.defaultRecipeKey) {
-        state.spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}`);
+        state.spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}${options.specPurpose ? `&purpose=${encodeURIComponent(options.specPurpose)}` : ""}`);
         state.defaultRecipeKey = recipeKey(state.spec.recipe); state.specCache.set(state.defaultRecipeKey, state.spec);
       }
       if (contextToken !== state.contextToken) return;
@@ -957,7 +979,7 @@
     state.openingKey = key; elements.lab.classList.add("h3-render-setup-only"); elements.lab.hidden = false;
     try {
       if (!state.defaultRecipeKey) {
-        state.spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}`);
+        state.spec = await request(`/api/h3-render/spec?mode=${encodeURIComponent(specMode)}${options.specPurpose ? `&purpose=${encodeURIComponent(options.specPurpose)}` : ""}`);
         state.defaultRecipeKey = recipeKey(state.spec.recipe); state.specCache.set(state.defaultRecipeKey, state.spec);
       } else state.spec = state.specCache.get(state.defaultRecipeKey);
       if (contextToken !== state.contextToken) return;
@@ -984,7 +1006,7 @@
             lora_second_strength: Number(elements.bunnySecond.value), preview_enabled: elements.bunnyPreview.checked,
           } : null,
           prompt: elements.prompt.value.trim(), aspect_ratio: elements.ratio.value,
-          megapixels: Number(elements.megapixels.value), duration_seconds: Number(elements.duration.value),
+          megapixels: Number(elements.megapixels.value), duration_seconds: state.project?.dance_reference?.duration_seconds ?? Number(elements.duration.value),
           ...(elements.initialMegapixels && state.spec?.limits?.initial_megapixels
             ? { initial_megapixels: Number(elements.initialMegapixels.value) } : {}),
           force_upscale: Boolean(elements.forceUpscale?.checked),

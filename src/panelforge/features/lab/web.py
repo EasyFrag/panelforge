@@ -797,6 +797,7 @@ class H3VideoLoraStackBody(BaseModel):
 
 
 class H3RenderAttemptBody(BaseModel):
+    dance_stage: Literal["full", "draft"] = "full"
     prompt: str
     aspect_ratio: str
     megapixels: float
@@ -1050,6 +1051,8 @@ def create_app(
     from .image_transitions_web import image_transitions_router
     app.include_router(image_transitions_router(image_transitions))
     from .video_factory_web import video_factory_router
+    from .dance_web import dance_router
+    app.include_router(dance_router(h3_render, serialize_h3_render_project))
     app.include_router(video_factory_router(video_factory, validate_image=detect_image_media_type))
     from .qwen_edit_web import qwen_edit_router
     app.include_router(qwen_edit_router(qwen_edit))
@@ -4090,7 +4093,7 @@ def create_app(
 
     @app.get("/api/h3-render/spec")
     def h3_render_spec(mode: str = "h3-base", recipe_id: str | None = None,
-                       recipe_version: str | None = None) -> dict[str, object]:
+                       recipe_version: str | None = None, purpose: str = "") -> dict[str, object]:
         service = _require_h3_render(h3_render)
         input_mode = (
             H3RenderInputMode.REF2VA
@@ -4098,7 +4101,14 @@ def create_app(
             else H3RenderInputMode.T2VA
         )
         try:
+            if purpose == "dance" and recipe_id is None:
+                available = getattr(service, "reference_video_workflows", ())
+                if not available:
+                    raise ValueError("Les recettes Danse sont indisponibles.")
+                recipe_id, recipe_version = available[0].reference.recipe_id, available[0].reference.version
             recipe = service.workflow_for_mode(input_mode, recipe_id, recipe_version)
+            if (purpose == "dance") != bool(getattr(recipe, "supports_reference_video", False)):
+                raise ValueError("Cette recette n’est pas disponible dans cet atelier.")
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         presets = [
@@ -4140,8 +4150,9 @@ def create_app(
                 {"id": value.reference.recipe_id, "version": value.reference.version,
                  "label": ("BUNNY · expérimental" if getattr(value, "supports_video_lora_stack", False) else "BUNNY · historique") if value.reference.recipe_id == BUNNY_RECIPE_ID
                     else "Rendu actuel" if value.reference == service.workflow_for_mode(input_mode).reference
-                    else "Historique"}
+                    else "REF2V" if getattr(value, "supports_reference_video", False) else "Historique"}
                 for value in service.recipes_for_mode(input_mode)
+                if bool(getattr(value, "supports_reference_video", False)) == (purpose == "dance")
             ],
             "video_lora_stack": recipe.video_lora_stack_spec() if getattr(recipe, "supports_video_lora_stack", False) else {"supported": False},
             "checkpoint_selection": recipe.checkpoint_spec(input_mode) if getattr(recipe, "supports_checkpoint_selection", False) else {"supported": False},
@@ -4347,6 +4358,7 @@ def create_app(
                 force_upscale=body.force_upscale,
                 recipe_id=body.recipe_id,
                 recipe_version=body.recipe_version,
+                **({"dance_stage": body.dance_stage} if body.dance_stage != "full" else {}),
                 bunny=H3BunnySettings(**body.bunny.model_dump()) if body.bunny else None,
                 **({"checkpoint": body.checkpoint} if body.checkpoint is not None else {}),
                 **({"video_loras": H3VideoLoraStack.from_dict(body.video_loras.model_dump())} if body.video_loras is not None else {}),
@@ -5231,6 +5243,8 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
             if attempt.upscale_bypassed
             else upscale["target_resolution"]
         )
+        if attempt.dance_stage == "draft":
+            effective_resolution = (geometry["initial_width"], geometry["initial_height"]) if geometry else upscale["initial_resolution"]
         settings = {
             "aspect_ratio": attempt.settings.aspect_ratio.value,
             "megapixels": attempt.settings.megapixels,
@@ -5251,6 +5265,9 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
         }
         attempts.append({
             "id": attempt.attempt_id,
+            "dance_stage": attempt.dance_stage,
+            "source_attempt_id": attempt.source_attempt_id,
+            "can_finalize": attempt.dance_stage == "draft" and attempt.status.value == "succeeded" and len(attempt.latent_asset_ids) == 2,
             "recipe": asdict(attempt.recipe) if attempt.recipe else None,
             "bunny": asdict(attempt.bunny) if attempt.bunny else None,
             "checkpoint": attempt.checkpoint,
@@ -5305,6 +5322,7 @@ def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
         })
     return {
         "id": project.project_id,
+        "dance_reference": asdict(project.dance_reference) if project.dance_reference else None,
         "project_id": project.project_id,
         "source_session_id": project.source_session_id,
         "source_prompt_revision_id": project.source_prompt_revision_id,

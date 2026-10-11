@@ -44,11 +44,20 @@ class ImageOperationBody(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: int = Field(ge=0, strict=True)
     command: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
-    kind: Literal['append', 'insert', 'hq']
-    after_frame_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+    kind: Literal['append', 'insert', 'prepend', 'hq']
+    after_frame_id: str | None = Field(default=None, min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
     before_frame_id: str | None = Field(default=None, min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
     intention: str = Field(default='', max_length=6000)
     prompt: str = Field(default='', max_length=24000)
+
+
+class ImageResolutionBody(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    version: int = Field(ge=0, strict=True)
+    command: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+    step_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+    output_asset_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+    action: Literal['accept', 'regenerate']
 
 
 def image_journeys_router(service):
@@ -77,10 +86,14 @@ def image_journeys_router(service):
     def image_operation_control(identity: str, operation_id: str, action: str):
         return invoke(lambda: service.edits.control(identity, operation_id, action=action), True)
 
+    @router.post('/projects/{identity}/image-resolutions', status_code=202)
+    def image_resolution(identity: str, body: ImageResolutionBody):
+        return invoke(lambda: service.resolutions.resolve(identity, **body.model_dump()), True)
+
     @router.get("/spec")
     def spec():
         from panelforge.domain.image_journey_edits import HQ_PROMPT
-        return invoke(lambda: dict(journey_presets=JOURNEY_PRESETS, default_journey_preset="miniature", default_journey_direction=DEFAULT_JOURNEY_DIRECTION, default_journey_version=DEFAULT_JOURNEY_VERSION, default_images=DEFAULT_IMAGES, max_images=MAX_IMAGES, hq_prompt=HQ_PROMPT,
+        return invoke(lambda: dict(prepend_images=True, image_resolutions=True, journey_presets=JOURNEY_PRESETS, default_journey_preset="miniature", default_journey_direction=DEFAULT_JOURNEY_DIRECTION, default_journey_version=DEFAULT_JOURNEY_VERSION, default_images=DEFAULT_IMAGES, max_images=MAX_IMAGES, hq_prompt=HQ_PROMPT,
                                   default_model_id=DEFAULT_ASSISTANT_MODEL, default_mask_model_id=DEFAULT_MASK_MODEL_ID,
                                   transitions_available=service.transitions is not None))
 
