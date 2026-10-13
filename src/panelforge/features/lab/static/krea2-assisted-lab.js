@@ -1239,6 +1239,13 @@
         save.title = attempt.accepted ? "Image déjà enregistrée" : "Enregistrer cette image";
         save.addEventListener("click", () => saveImage(attempt.attempt_id));
         actions.append(feedback, save);
+        if (window.PanelForgeRecipes && attempt.output_asset_id) {
+          const recipe = document.createElement("button");
+          recipe.type = "button"; recipe.textContent = "Créer une recette";
+          recipe.title = "Utiliser cette image comme plat terminé";
+          recipe.addEventListener("click", () => window.PanelForgeRecipes.fromImage(attempt.output_asset_id, project.name).catch(error => setMessage(error.message)));
+          actions.append(recipe);
+        }
         if (window.PanelForgeDlss) actions.append(window.PanelForgeDlss.button({ owner: "assisted", ownerId: project.project_id, attempt }));
         if (window.PanelForgeDlss?.comparisonButton) actions.append(window.PanelForgeDlss.comparisonButton({ owner: "assisted", ownerId: project.project_id, attempt }));
         if (window.PanelForgeVideoFactory) actions.append(window.PanelForgeVideoFactory.imageButton({

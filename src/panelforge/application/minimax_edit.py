@@ -21,7 +21,9 @@ class MinimaxEditService(QwenEditService):
                     and message["status"] == "queued" and not message.get("journey_realistic_policy")):
                 message.update(journey_realistic_policy=realistic.VERSION,
                     policy_version=assistance.VERSION + "+journey-realistic-" + realistic.VERSION,
-                    system_prompt=message["system_prompt"] + "\n" + realistic.PROMPTER_SYSTEM)
+                    system_prompt=message["system_prompt"] + "\n" + realistic.PROMPTER_SYSTEM,
+                    journey_world_description=project.get("world_description"),
+                    journey_retry_kind=project.get("retry_kind"))
                 self._save(project)
             elif (project.get("managed_by") == "image-journey" and journey_preset(project) != "realistic" and message["status"] == "queued"
                     and not message.get("journey_reference_policy") and journey_references.supports(message["context"])):
@@ -32,8 +34,11 @@ class MinimaxEditService(QwenEditService):
             return project, message_id
 
     def _decode_message(self, message, raw):
-        if message.get("journey_realistic_policy") == realistic.VERSION:
-            reply, prompt = realistic.decode_prompt(raw, message["context"])
+        if message.get("journey_realistic_policy") in {realistic.VERSION, "1.2.0", "1.1.0", "1.0.0"}:
+            context = dict(message["context"], world_description=message.get("journey_world_description"),
+                           retry_kind=message.get("journey_retry_kind"))
+            reply, prompt = realistic.decode_prompt(raw, context,
+                legacy=message["journey_realistic_policy"] == "1.0.0")
             return reply, prompt, None
         if message.get("journey_reference_policy") == journey_references.VERSION:
             reply, prompt = journey_references.decode(raw, message["context"])
@@ -43,8 +48,9 @@ class MinimaxEditService(QwenEditService):
     def ensure_journey_step(self, step):
         """Idempotent child project sharing the existing prompt and GPU queue services."""
         from .qwen_edit import _now
-        identity = policy.journey_child_id(step["id"])
-        finished = step.get("finished_reference_asset_id")
+        identity = policy.journey_child_id(step.get("render_identity", step["id"]))
+        render_step_id = step.get("render_step_id", step["id"])
+        finished = None if step.get("retry_kind") == "cleanup" else step.get("finished_reference_asset_id")
         references = []
         if finished and finished != step["source_asset_id"]:
             references = [dict(id="journey-finished", asset_id=finished, name=finished_label(step),
@@ -60,7 +66,7 @@ class MinimaxEditService(QwenEditService):
             except FileNotFoundError:
                 project = None
             if project:
-                if (project.get("journey_step_id") != step["id"] or project["stages"][0]["source_asset_id"] != step["source_asset_id"]
+                if (project.get("journey_step_id") != render_step_id or project["stages"][0]["source_asset_id"] != step["source_asset_id"]
                         or journey_preset(project) != journey_preset(step)):
                     raise ValueError("Le projet MiniMax ne correspond pas à cette étape du parcours.")
                 if finished and project["stages"][0]["references"] != references:
@@ -88,10 +94,12 @@ class MinimaxEditService(QwenEditService):
             project = dict(schema_version=1, engine=self.engine, id=identity, version=0,
                 name=f"Parcours · {step['index']} · {step['action']['title']}"[:120],
                 created_at=_now(), updated_at=_now(), active_stage_id=stage["id"], stages=[stage],
-                managed_by="image-journey", journey_id=step["journey_id"], journey_step_id=step["id"],
+                managed_by="image-journey", journey_id=step["journey_id"], journey_step_id=render_step_id,
                 export_path=None, export_error=None)
             if "journey_preset" in step:
                 project["journey_preset"] = journey_preset(step)
+            if journey_preset(step) == "realistic":
+                project.update(world_description=step.get("world_description"), retry_kind=step.get("retry_kind"))
             return self._save(project)
 
     def queue_attempt(self, project_id, stage_id, *, revision, request_id):

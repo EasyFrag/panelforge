@@ -616,7 +616,12 @@ def build_app(args: argparse.Namespace):
         application_outcomes=gateway,
         assets=assets,
     )
+    from panelforge.infrastructure.presets.h3_dance import dance_recipes
+    from panelforge.infrastructure.dance_media import DanceMedia
+    dance_media = DanceMedia(ffmpeg=dlss_root / "tools/ffmpeg.exe", ffprobe=dlss_root / "tools/ffprobe.exe")
     h3_render = H3RenderService(
+        reference_video_upgrade=lambda recipes: dance_recipes(recipes, PROJECT_ROOT / "workflows/video.reference/dance/1.0.0/manifest.json"),
+        dance_media=dance_media,
         recipe_upgrade=video_vae_updates.upgrade,
         prompt_recipes=prompt_recipes,
         llm_traces=llm_traces,
@@ -801,6 +806,15 @@ def build_app(args: argparse.Namespace):
     from panelforge.infrastructure.storage.story_v2 import LocalStoryV2Store
     story_v2 = StoryV2Service(LocalStoryV2Store(args.workspace), gateway,
                             StoryV2Production(episodes, video_factory, minimax=minimax_edit, qwen=qwen_edit))
+    from panelforge.application.cooking_recipes import CookingRecipeService
+    from panelforge.application.cooking_recipe_prompting import CookingRecipePlanner
+    from panelforge.application.cooking_recipe_production import CookingRecipeProduction
+    from panelforge.infrastructure.storage.cooking_recipes import LocalCookingRecipeStore
+    from panelforge.infrastructure.cooking_recipe_exports import CookingRecipeExports
+    cooking_recipes = CookingRecipeService(LocalCookingRecipeStore(args.workspace), assets, PillowQwenEditImages(),
+        CookingRecipePlanner(gateway, assets, PillowQwenEditImages()),
+        CookingRecipeProduction(krea2_assisted, minimax_edit, video_factory, image_transitions.sources),
+        exporter=CookingRecipeExports(assets))
     mobile_server = None
     mobile_port = getattr(args, "mobile_port", 0)
     if mobile_port:
@@ -835,6 +849,7 @@ def build_app(args: argparse.Namespace):
         minimax_edit=minimax_edit,
         image_journeys=image_journeys,
         story_v2=story_v2,
+        cooking_recipes=cooking_recipes,
         krea2_assisted=krea2_assisted,
         social_lab=social_lab,
         media_analysis=media_analysis,

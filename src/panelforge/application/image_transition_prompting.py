@@ -5,7 +5,7 @@ from . import worker_visual_policy
 from panelforge.domain.worker_visual_policy import VERSION
 from panelforge.domain.image_transitions import KINDS, clean_text
 
-OPERATION = "image.transitions.propose@3.1.0"
+OPERATION = "image.transitions.propose@3.2.0"
 SYSTEM = """You prepare one H3 first-frame/last-frame video intention for a human to review.
 Return only a JSON object in French with action (short title), kind (work, cleaning, installation,
 camera or other), intention (a concise actionable paragraph including the visible temporal effect),
@@ -36,6 +36,9 @@ Briefly state that boundary in the intention: add only the parts needed for this
 pieces in place, without building further stages then dismantling, shrinking or morphing back.
 This limit concerns additive construction, not requested demolition or camera-only changes.
 The selected temporal_contract governs playback, including when revising a previous intention.
+ULTRA_FAST: begin with one short global ultra-compressed time-lapse clause, visibly faster than Fast.
+Condense long operations into split-second bursts with widely spaced sampled poses and almost instant
+entry/exit. Keep causal tool contact at key beats and the same endpoint-limited construction scope.
 FAST: begin with one short, unmistakable global extreme fast-forward / time-lapse clause,
 optionally with one visible cue such as staccato pose jumps. Compress the recording, not just effort.
 SLOW: moderately accelerated recording with fluid, readable gestures; it is not slow motion.
@@ -87,6 +90,7 @@ def payload(snapshot, overview):
     from copy import deepcopy
     transition, visual = snapshot["transition"], snapshot.get("visual_references", {})
     settings = deepcopy(snapshot["settings"])
+    settings.pop("scale_preset", None)  # The editable worker text, not a UI template ID, is authoritative.
     manual = transition.get("manual", False)
     # Names/provenance can describe the finished project or an earlier image-edit operation.
     # Images themselves carry the two states; only manual directions should steer a new proposal.

@@ -11,19 +11,24 @@ TERMINAL = {'completed', 'cancelled'}
 
 
 def frames(project):
-    return [dict(id='source', asset_id=project['source_asset_id'], title='Départ'), *[
-        dict(id=step['id'], asset_id=step['output_asset_id'], title=step['action']['title'])
-        for step in journey.ordered_steps(project) if step.get('output_asset_id')]]
+    lookup = {'source': dict(id='source', asset_id=project['source_asset_id'], title='Départ')}
+    lookup.update({step['id']: dict(id=step['id'], asset_id=step['output_asset_id'], title=step['action']['title'])
+                   for step in journey.ordered_steps(project) if step.get('output_asset_id')})
+    return [lookup[key] for key in journey.ordered_frame_ids(project) if key in lookup]
 
 
 def anchors(project, after_frame_id, before_frame_id):
     items = frames(project)
+    if after_frame_id is None:
+        if items and before_frame_id == items[0]['id']:
+            return None, items[0], 0
+        raise ValueError('La première image a changé. Rouvre le bouton + souhaité.')
     for index, frame in enumerate(items):
         if frame['id'] == after_frame_id:
             following = items[index + 1] if index + 1 < len(items) else None
             if (following['id'] if following else None) != before_frame_id:
                 raise ValueError('Ces images ne sont plus consécutives. Rouvre le bouton + souhaité.')
-            return frame, following, index
+            return frame, following, index + 1
     raise ValueError('Image de départ de cette opération introuvable.')
 
 

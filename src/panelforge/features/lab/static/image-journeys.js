@@ -11,7 +11,7 @@
     queueing:"Mise en file",rendering:"Génération",protecting:"Masque automatique et préservation du décor",reviewing:"Relecture",completed:"Terminé"};
   const states = {running:"En cours",pausing:"Suspension…",paused:"Suspendu",completed:"Terminé"};
   const state = {p:null, spec:null, projects:[], models:[], busy:false, polling:false, loading:null,
-    epoch:0, createCommand:null, resumeCommand:null, previewUrl:null, formDirty:false, galleryKey:"", excludedFrames:new Set(), frameOrder:"generation"};
+    scheduler:null, epoch:0, createCommand:null, resumeCommand:null, previewUrl:null, formDirty:false, galleryKey:"", excludedFrames:new Set(), frameOrder:"generation", detailFrame:null, detailTrial:null, detailSignature:""};
   const defaultIntentions = {
     forward: $("intention").defaultValue,
     reverse: "Partir du bâtiment terminé fourni et retrouver progressivement ses états antérieurs de construction, jusqu’à un terrain plat sans ce bâtiment.\n\nRetirer progressivement les finitions, les façades et les éléments de structure selon ce que montre l’image. Répartir les transformations sur toutes les nouvelles images demandées, avec un changement principal bien visible par image. La dernière image doit montrer le terrain plat et dégagé ; l’image juste avant doit encore comporter un volume ou un assemblage important au-dessus du sol, pour une transition de construction visuellement marquée. Ne pas consacrer d’étape aux fondations, au terrassement ou aux réseaux enterrés. Pas de fosse, de ruines ni de gravats de démolition.\n\nConserver exactement le cadrage, le point de vue, l’emplacement du bâtiment, les bâtiments voisins et les éléments fixes environnants. Suivre le style, l’échelle et les matériaux de l’image fournie, réalistes ou miniatures. Utiliser le bâtiment terminé comme référence pour la forme et les matières des parties restantes, sans faire réapparaître les parties déjà retirées.\n\nChaque image est un instant net, sans flou de mouvement. Les travaux restent le changement principal."
@@ -47,7 +47,7 @@
     return [...bytes].map(value => value.toString(16).padStart(8,"0")).join("");
   };
   const actions = window.PanelForgeJourneyActions.attach({
-    project:() => state.p, spec:() => state.spec, frames, asset, api, commandId, accept, showImage, hidePreview,
+    project:() => state.p, spec:() => state.spec, frames, asset, api, commandId, accept, showImage, hidePreview, run,
     busy:() => state.busy, reversedOrder
   });
   function message(value) {
@@ -105,7 +105,7 @@
     $("pause").textContent = p?.status === "pausing" ? "Suspension…" : "Suspendre";
     $("new").disabled = state.busy;
     $("projects").disabled = state.busy;
-    $("order-controls").hidden = !p || frames().length < 2;
+    $("order-controls").hidden = !p || galleryFrames().length < 2;
     $("reverse-order").disabled = state.busy;
     $("reverse-order").setAttribute("aria-pressed", String(reversedOrder()));
     $("order-label").textContent = realisticJourney()
@@ -114,11 +114,58 @@
     paintSelection();
     actions.paint();
   }
+  const previewAsset = step => step.output_asset_id || step.attempt_history?.at(-1)?.output_asset_id;
+  const detailSignature = frame => JSON.stringify([frame.key, frame.step?.output_asset_id,
+    frame.step?.review, frame.step?.attempt_comparison, frame.step?.user_acceptance, frame.step?.attempt_history, frame.step?.retained_attempt_index, state.p?.status, frame.step?.status]);
+  const imageAttempts = step => step?.attempt_history?.length
+    ? step.retained_attempt_index != null ? step.attempt_history : [...step.attempt_history, step] : [];
+  function correctionStatus(step) {
+    if (!step?.attempt_history?.length || step.output_asset_id) return "";
+    return (step.status || state.p?.status) === "paused" ? "Correction suspendue" : "Correction en cours";
+  }
   function generationFrames() {
     if (!state.p) return [];
-    return [{key:"source",asset_id:state.p.source_asset_id,title:reverseJourney() ? finishedLabel() : "Départ",index:0},
-      ...(state.p.ordered_steps || state.p.steps).filter(step => step.output_asset_id).map((step, index) => ({key:step.id,
-        asset_id:step.output_asset_id,title:step.action.title,index:index + 1,step}))];
+    const entries = [{key:"source",asset_id:state.p.source_asset_id,title:reverseJourney() ? finishedLabel() : "Départ",index:0},
+      ...(state.p.ordered_steps || state.p.steps).filter(step => previewAsset(step)).map((step, index) => ({key:step.id,
+        asset_id:previewAsset(step),title:step.action.title,index:index + 1,step}))];
+    if (!state.p.ordered_frame_ids) return entries;
+    const lookup = new Map(entries.map(frame => [frame.key, frame]));
+    return state.p.ordered_frame_ids.map(key => lookup.get(key)).filter(Boolean);
+  }
+  // Gallery placeholders never become reference anchors or transferable frames.
+  function galleryFrames() {
+    const p = state.p;
+    if (!p) return [];
+    const entries = [generationFrames().find(frame => frame.key === "source"),
+      ...(p.ordered_steps || p.steps).map(step => ({key:step.id, asset_id:previewAsset(step),
+        title:step.action.title, step, pending:!step.output_asset_id}))];
+    const lookup = new Map(entries.map(frame => [frame.key, frame]));
+    const ordered = p.ordered_frame_ids ? p.ordered_frame_ids.map(key => lookup.get(key)).filter(Boolean) : entries;
+    for (const op of p.image_operations || []) {
+      if (op.kind === "hq" || ["completed", "cancelled"].includes(op.status) || lookup.has(op.id)) continue;
+      const anchor = op.kind === "prepend" ? op.before_frame_id : op.after_frame_id;
+      const index = ordered.findIndex(frame => frame.key === anchor);
+      if (index < 0) continue;
+      ordered.splice(index + (op.kind === "prepend" ? 0 : 1), 0, {
+        key:op.id, asset_id:previewAsset(op), title:op.action?.title || "Nouvelle étape",
+        step:op, operation:true, pending:!op.output_asset_id
+      });
+    }
+    if (reversedOrder()) ordered.reverse();
+    return ordered.map((frame, position) => ({...frame, index:position, position}));
+  }
+  function pendingCaption(frame) {
+    const step = frame.step, phase = frame.operation ? step.phase : state.p.phase;
+    if (["queueing", "rendering"].includes(phase) && step.attempt_id) {
+      const machine = state.scheduler?.machines?.remote_gpu;
+      const queued = machine?.queue?.find(job => job.id === step.attempt_id);
+      if (Number.isInteger(queued?.position) && queued.position > 0) return `En file · n° ${queued.position}`;
+      if (machine?.owner_id === step.attempt_id || machine?.active?.id === step.attempt_id) {
+        return machine.state === "cooling" ? "Refroidissement" : "Génération en cours";
+      }
+    }
+    if ((frame.operation ? step.status : state.p.status) === "paused") return "Suspendu";
+    return phase === "rendering" ? "En attente du rendu" : phases[phase] || "Préparation";
   }
   function reversedOrder() { return state.frameOrder === "reverse_generation"; }
   function frames() {
@@ -179,8 +226,33 @@
     label.append(input);
     return label;
   }
-  function showImage(frame) {
+  function showImage(frame, trialIndex=null) {
     hidePreview();
+    const currentFrame = frame, currentStep = frame.step;
+    const trials = imageAttempts(currentStep), activeTrial = currentStep?.retained_attempt_index ?? trials.length - 1;
+    state.detailFrame = currentFrame; state.detailTrial = trialIndex; state.detailSignature = detailSignature(frame);
+    const selected = trials.length ? (trialIndex ?? (currentStep.output_asset_id ? activeTrial : trials.length - 2)) : -1;
+    const retained = step => !!step?.output_asset_id && (["usable", "similar"].includes(step.review?.assessment)
+      || step.user_acceptance?.output_asset_id === step.output_asset_id);
+    const trialControls = $("detail-attempts");
+    trialControls.hidden = !trials.length; trialControls.replaceChildren();
+    $("detail-attempt-status").hidden = !trials.length;
+    if (trials.length) {
+      trials.forEach((trial, index) => {
+        const button = document.createElement("button");
+        button.type = "button"; button.dataset.ijTrial = String(index);
+        button.textContent = index === 0 ? "Initial" : index === 1 ? "Correction" : `Essai ${index + 1}`;
+        button.setAttribute("aria-pressed", String(index === selected));
+        button.disabled = !trial.output_asset_id;
+        button.onclick = () => showImage(currentFrame, index);
+        trialControls.append(button);
+      });
+      const isCurrent = selected === activeTrial, trial = isCurrent ? currentStep : trials[selected];
+      frame = {...frame, asset_id:trial.output_asset_id, step:trial, url:null, note:trial.review?.observation};
+      $("detail-attempt-status").textContent = isCurrent
+        ? retained(trial) ? "Essai retenu" : trial.review?.assessment === "unusable" ? "Essai rejeté" : "Relecture en cours"
+        : correctionStatus(currentStep) || "Essai non retenu";
+    }
     const url = frame.url || asset(frame.asset_id);
     $("detail-title").textContent = frame.detailTitle || (frame.position !== undefined ? frameLabel(frame) : sourceLabel());
     $("detail").classList.remove("ij-native-zoom");
@@ -189,7 +261,17 @@
     $("detail-image").src = url;
     $("detail-image").alt = frame.title;
     $("detail-action").textContent = frame.step?.action.change || "";
-    $("detail-review").textContent = frame.note ?? (frame.step?.review?.observation || (frame.step ? "Relecture à venir." : ""));
+    $("detail-review").textContent = (frame.step?.user_acceptance ? "Acceptée manuellement · " : "")
+      + (frame.note ?? (frame.step?.review?.observation || (frame.step ? "Relecture à venir." : "")));
+    const observed = frame.step?.review?.progress;
+    if (observed) {
+      $("detail-review").textContent += "\nAvancée observée : " + observed.visible_changes;
+      if (observed.remaining_work) $("detail-review").textContent += "\nReste à faire : " + observed.remaining_work;
+    }
+    if (currentStep?.attempt_comparison) {
+      $("detail-review").textContent += "\nComparaison des essais : " + currentStep.attempt_comparison.reason;
+    }
+    actions.paintResolution($("detail-resolution"), frame.key, frame.asset_id);
     $("detail-prompt").hidden = !frame.step;
     $("detail-prompt").open = false;
     $("detail-models").textContent = frame.step
@@ -222,6 +304,16 @@
     }
     if (!$("detail").open) $("detail").showModal();
   }
+  function refreshDetail() {
+    if (!$("detail").open || !state.detailFrame?.key) return;
+    const key = state.detailFrame.key;
+    let current = frames().find(frame => frame.key === key);
+    if (!current) {
+      const op = state.p?.image_operations?.find(item => item.id === key);
+      if (op && previewAsset(op)) current = {...state.detailFrame, step:op, asset_id:previewAsset(op)};
+    }
+    if (current && detailSignature(current) !== state.detailSignature) showImage(current, state.detailTrial);
+  }
   function paint() {
     controls();
     const p = state.p;
@@ -248,34 +340,70 @@
     }));
     $("warning").textContent = p.warning || "";
     $("warning").hidden = !p.warning;
-    const entries = frames();
-    const generation = reversedOrder() ? [...entries].reverse() : entries;
+    const entries = galleryFrames();
+    const generation = generationFrames();
     const following = new Map(generation.map((frame, index) => [frame.key, generation[index + 1]]));
     $("frieze").classList.toggle("ij-reversed", reversedOrder());
-    const galleryKey = JSON.stringify(entries.map(f => [f.key, f.asset_id, f.title, f.step?.review?.assessment]));
+    const galleryKey = JSON.stringify(entries.map(f => [f.key, f.asset_id, f.title, f.step?.review,
+      f.step?.output_asset_id, f.step?.attempt_history?.length, correctionStatus(f.step), f.step?.user_acceptance?.output_asset_id,
+      f.operation, f.pending, f.pending ? pendingCaption(f) : "", f.step?.attempt_comparison]));
     if (galleryKey !== state.galleryKey) {
       hidePreview();
       state.galleryKey = galleryKey;
       $("frieze").replaceChildren(...entries.map(frame => {
-        const button = document.createElement("button"), img = document.createElement("img");
+        const button = document.createElement(frame.pending && !frame.operation ? "div" : "button");
         const title = document.createElement("span"), note = document.createElement("small");
-        button.type = "button";
-        button.title = "Agrandir l’image · " + frame.title;
-        button.dataset.ijThumbnail = "";
-        button.setAttribute("aria-label", "Ouvrir : " + frameLabel(frame));
-        img.src = asset(frame.asset_id); img.alt = frame.title; img.loading = "lazy";
+        if (button.tagName === "BUTTON") button.type = "button";
         title.textContent = frameLabel(frame);
-        note.textContent = !frame.step ? "Image d’origine" : frame.step.review?.assessment === "similar" ? "Changement faible"
-          : frame.step.review?.assessment === "unusable" ? "Progression bloquée" : frame.step.review ? "Image relue" : "À relire";
-        button.append(img, title, note, zoomBadge());
-        button.onclick = () => showImage(frame);
-        const card = actions.card(frame, following.get(frame.key), button);
-        card.append(frameSelector(frame));
+        if (frame.pending) {
+          button.className = "ij-pending-thumbnail";
+          button.dataset.ijPending = frame.key;
+          const visual = document.createElement("span");
+          visual.className = "ij-pending-visual"; visual.textContent = pendingCaption(frame);
+          visual.setAttribute("role", "status");
+          button.append(visual, title, note);
+          note.textContent = correctionStatus(frame.step) || "Image à venir";
+          if (frame.operation) {
+            button.setAttribute("aria-label", "Voir l’ajout en cours : " + frame.title);
+            button.onclick = () => actions.openOperation(frame.step);
+          }
+        } else {
+          const img = document.createElement("img");
+          button.title = "Agrandir l’image · " + frame.title;
+          button.dataset.ijThumbnail = "";
+          button.setAttribute("aria-label", "Ouvrir : " + frameLabel(frame));
+          img.src = asset(frame.asset_id); img.alt = frame.title; img.loading = "lazy";
+          note.textContent = !frame.step ? "Image d’origine" : (frame.step.user_acceptance ? "Acceptée manuellement" : frame.step.review?.assessment === "similar" ? "Changement faible"
+            : frame.step.review?.assessment === "unusable" ? (frame.step.review.progress?.level === "none"
+              && !frame.step.review.quality?.people_present && frame.step.review.quality?.scene_preserved
+              && !frame.step.review.progress.blocking_defects.length ? "Pas de progrès" : "Progression bloquée")
+            : frame.step.review?.progress?.level === "partial" ? "Progrès partiel conservé" : frame.step.review ? "Image relue" : "À relire");
+          button.append(img, title, note, zoomBadge());
+          button.onclick = () => showImage(frame);
+        }
+        let card;
+        if (frame.pending || frame.operation) {
+          card = document.createElement("div"); card.className = "ij-card"; card.append(button);
+          const resolution = document.createElement("div"); resolution.className = "ij-resolution";
+          actions.paintResolution(resolution, frame.key); card.append(resolution);
+        } else {
+          card = actions.card(frame, following.get(frame.key), button, frame.key === generation[0]?.key);
+          card.append(frameSelector(frame));
+        }
+        card.dataset.ijFrame = frame.key;
+        if (frame.step?.attempt_history?.length) {
+          const link = document.createElement("button");
+          link.type = "button"; link.className = "ij-attempts-link"; link.dataset.ijAttempts = frame.key;
+          link.textContent = `${imageAttempts(frame.step).length} essais`;
+          link.setAttribute("aria-label", "Comparer les essais · " + frame.title);
+          link.onclick = () => showImage(frame); card.append(link);
+        }
         return card;
       }));
     }
     actions.paint();
     paintSelection();
+    refreshDetail();
   }
   function accept(project, syncForm=false) {
     if (state.p?.id === project.id && state.p.version > project.version) return;
@@ -447,6 +575,10 @@
   });
   document.addEventListener("scroll", hidePreview, true);
   document.addEventListener("keydown", event => { if (event.key === "Escape") hidePreview(); });
+  window.addEventListener("panelforge:work-scheduler-status", event => {
+    state.scheduler = event.detail;
+    if (state.p && !root.hidden) paint();
+  });
   window.addEventListener("resize", hidePreview);
   window.addEventListener("blur", hidePreview);
   $("setup").addEventListener("toggle", hidePreview);

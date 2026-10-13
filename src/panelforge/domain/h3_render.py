@@ -1,6 +1,8 @@
 """Pure state for conversational H3 Base video rendering projects."""
 
 from __future__ import annotations
+
+from .dance import DanceReference, validate_dance_attempt
 from .dlss import DlssResult, validate_dlss_attempt, validate_dlss_lineage
 
 from panelforge.domain.h3_checkpoint import H3ModelLoading, validate_h3_model_selection
@@ -299,8 +301,12 @@ class H3RenderAttempt:
     force_upscale: bool = False
     upscale_bypassed: bool = False
     batch_mode: bool = False
+    dance_stage: str = "full"
+    source_attempt_id: str | None = None
+    latent_asset_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        validate_dance_attempt(self.dance_stage, self.source_attempt_id, self.latent_asset_ids)
         if type(self.batch_mode) is not bool:
             raise TypeError("batch_mode must be a boolean")
         validate_h3_model_selection(self.checkpoint, self.model_loading)
@@ -584,8 +590,12 @@ class H3RenderProject:
     cinematic_settings: ClassicCinematicSettings | None = None
     sensual_settings: SensualSettings | None = None
     localization_parent_project_id: str | None = None
+    dance_reference: DanceReference | None = None
 
     def __post_init__(self) -> None:
+        if self.dance_reference is not None:
+            if not isinstance(self.dance_reference, DanceReference) or self.input_mode is not H3RenderInputMode.REF2VA or len(self.reference_asset_ids) != 1:
+                raise ValueError("La danse nécessite une photo de scène et une vidéo de référence.")
         if not isinstance(self.preparation, VideoPreparationRef):
             raise TypeError("preparation must be a VideoPreparationRef")
         validate_combat_settings(self.preparation, self.combat_settings)

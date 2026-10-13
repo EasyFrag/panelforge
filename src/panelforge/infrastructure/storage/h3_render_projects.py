@@ -1,6 +1,8 @@
 """Durable local store for conversational H3 Base render projects."""
 
 from __future__ import annotations
+
+from panelforge.domain.dance import DanceReference
 from panelforge.domain.video_preparation import VideoPreparationRef, CombatSettings, ClassicCinematicSettings, SensualSettings
 from panelforge.domain.dlss import DlssResult
 from panelforge.domain.h3_bunny import H3BunnySettings
@@ -127,7 +129,8 @@ class LocalH3RenderProjectStore:
 
 def _serialize(project: H3RenderProject) -> dict[str, object]:
     return {
-        "schema_version": 17,
+        "schema_version": 18,
+        "dance_reference": asdict(project.dance_reference) if project.dance_reference else None,
         "preparation": project.preparation.as_dict(),
         "cinematic_settings": project.cinematic_settings.as_dict() if project.cinematic_settings else None,
         "sensual_settings": project.sensual_settings.as_dict() if project.sensual_settings else None,
@@ -188,6 +191,9 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
         "recipe": asdict(attempt.recipe) if attempt.recipe else None,
         "bunny": asdict(attempt.bunny) if attempt.bunny else None,
         "batch_mode": attempt.batch_mode,
+        "dance_stage": attempt.dance_stage,
+        "source_attempt_id": attempt.source_attempt_id,
+        "latent_asset_ids": list(attempt.latent_asset_ids),
         "checkpoint": attempt.checkpoint,
         "video_loras": asdict(attempt.video_loras) if attempt.video_loras is not None else None,
         "model_loading": asdict(attempt.model_loading) if attempt.model_loading else None,
@@ -237,7 +243,7 @@ def _serialize_attempt(attempt: H3RenderAttempt) -> dict[str, object]:
 
 
 def _deserialize(value: dict[str, Any]) -> H3RenderProject:
-    if type(value.get("schema_version")) is not int or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}:
+    if type(value.get("schema_version")) is not int or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}:
         raise ValueError("unsupported H3 render project schema")
     return H3RenderProject(
         preparation=VideoPreparationRef.from_dict(value["preparation"]) if value["schema_version"] >= 7 else VideoPreparationRef(),
@@ -245,6 +251,7 @@ def _deserialize(value: dict[str, Any]) -> H3RenderProject:
         sensual_settings=SensualSettings.from_dict(value["sensual_settings"]) if value["schema_version"] >= 14 and value["sensual_settings"] is not None else None,
         combat_settings=CombatSettings.from_dict(value["combat_settings"]) if value["schema_version"] >= 8 and value["combat_settings"] is not None else None,
         project_id=value["project_id"],
+        dance_reference=DanceReference(**value["dance_reference"]) if value.get("dance_reference") else None,
         source_session_id=value["source_session_id"],
         source_prompt_revision_id=value["source_prompt_revision_id"],
         reference_parent_project_id=value.get("reference_parent_project_id"),
@@ -302,6 +309,9 @@ def _deserialize_attempt(value: dict[str, Any]) -> H3RenderAttempt:
     return H3RenderAttempt(
         attempt_id=value["attempt_id"],
         batch_mode=value.get("batch_mode", False),
+        dance_stage=value.get("dance_stage", "full"),
+        source_attempt_id=value.get("source_attempt_id"),
+        latent_asset_ids=tuple(value.get("latent_asset_ids", [])),
         checkpoint=value.get("checkpoint"),
         video_loras=H3VideoLoraStack.from_dict(value.get("video_loras")),
         model_loading=H3ModelLoading(**value["model_loading"]) if value.get("model_loading") else None,

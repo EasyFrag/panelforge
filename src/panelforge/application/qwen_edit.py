@@ -117,15 +117,24 @@ class QwenEditService:
             return self._save(project)
 
     def ensure_story_image(self, *, key, name, source_asset_id, references, draft, model_id, settings, thumbnail=False):
-        """Idempotent Story V2 edit/composition; references remain separate image assets."""
+        """Backward-compatible Story V2 entry point."""
+        return self.ensure_managed_image(owner="story-v2", key=key, name=name, source_asset_id=source_asset_id,
+            references=references, draft=draft, model_id=model_id, settings=settings, thumbnail=thumbnail)
+
+    def ensure_managed_image(self, *, owner, key, name, source_asset_id, references, draft, model_id, settings, thumbnail=False):
+        """Idempotent child image with separate references and an explicit owning workflow."""
+        if owner not in {"story-v2", "cooking-recipes"}:
+            raise ValueError("Parcours propriétaire inconnu.")
         from uuid import NAMESPACE_URL, uuid5
         if thumbnail and source_asset_id:
             raise ValueError("Une miniature est une composition sans source fixe.")
-        identity = self.engine + "-" + uuid5(NAMESPACE_URL, "panelforge/story-image/" + key).hex
+        namespace = "story-image" if owner == "story-v2" else "cooking-recipes-image"
+        owner_key = "story_image_key" if owner == "story-v2" else "managed_image_key"
+        identity = self.engine + "-" + uuid5(NAMESPACE_URL, "panelforge/" + namespace + "/" + key).hex
         with self._lock:
             try:
                 project = self.projects.get(identity)
-                if project.get("story_image_key") != key:
+                if project.get(owner_key) != key or project.get("managed_by") != owner:
                     raise ValueError("La réservation de cette image appartient à un autre projet.")
                 return project
             except FileNotFoundError:
@@ -148,7 +157,7 @@ class QwenEditService:
             self.policy.render_inputs(stage)
             project = dict(schema_version=1, engine=self.engine, id=identity, name=name[:120], version=0,
                 created_at=_now(), updated_at=_now(), active_stage_id=stage["id"], stages=[stage],
-                managed_by="story-v2", story_image_key=key, export_path=None, export_error=None)
+                managed_by=owner, export_path=None, export_error=None, **{owner_key: key})
             return self._save(project)
 
     def _editable(self, project, stage_id, revision=None):

@@ -16,7 +16,10 @@ def crew_catalog():
 
 def crew_contract(settings):
     key = settings.get("crew_size", "solo")
-    return dict(id=key, **CREWS[key])
+    value = dict(id=key, **CREWS[key])
+    if "crew_description" in settings:
+        value["description"] = settings["crew_description"]
+    return value
 
 
 def placement(value, scene_dimensions, worker_dimensions):

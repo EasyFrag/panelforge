@@ -1,5 +1,452 @@
 # CONTINUITY
 
+## Version GitHub 2026-10-13 - Publication sur origin/master
+
+### Goal
+- Demande utilisateur : "Fais une version GITHUB, Origin master". Publier l'etat actuel de PanelForge sur la branche master du remote GitHub habituel.
+
+### Current state
+- Instantane prepare depuis D:/Code/panelforge-krea2-flux ; parent origin/master 5f1591bd66821f8bd0cbbbaf8d9e6e144241e2bf. Inclut Recettes, Danse et les derniers correctifs des parcours d'images et transitions. Aucun changement fonctionnel ajoute pour cette publication ; version applicative 2.0.0 conservee.
+- Destination : https://github.com/EasyFrag/panelforge.git, refs/heads/master. Capture via index temporaire et commit-tree ; branches, HEAD et index ordinaires des deux copies de travail conserves. Le master local reste sur 7036248 ; origin/master est la reference de publication.
+- Sources, workflows, prompts, tests et documentation inclus ; workspace, medias generes, secrets et diagnostics locaux exclus. 75 fichiers modifies par rapport au parent. Controle de syntaxe de 54 fichiers Python et git diff --check reussis ; aucun motif de cle privee ou jeton dans les fichiers modifies. Verification JavaScript non realisee pendant cette publication : node absent du PATH.
+- Aucun test execute selon AGENTS.md ; aucun appel LLM, rendu ou redemarrage de service. Recu et controles : D:/Code/panelforge/.agent/diagnostics/github-master-20261013/.
+
+### Next steps
+- Terminer le push sans force vers origin/master, verifier le SHA distant et inscrire le resultat exact dans le recu local.
+- Tests a lancer par l'utilisateur depuis le checkout actif : python -m unittest discover -s tests.
+
+## Implémentation 2026-10-11 — Recettes et sauvegarde GitHub
+
+### Goal
+- Demande utilisateur : « Fais une version github puis implémente ». Sauvegarder l'état actuel, puis réaliser le parcours culinaire validé dans la discussion.
+
+### Current state
+- Sauvegarde publiée sur https://github.com/EasyFrag/panelforge : branche snapshots/pre-recipes-2026-10-11, tag annoté snapshot-pre-recipes-2026-10-11, commit 96c950b2ec2c853c6dd4512833ea4cc08f80c390 (parent origin/master 5f1591bd66821f8bd0cbbbaf8d9e6e144241e2bf). Index temporaire ; branche de travail et index ordinaire conservés. Snapshot des sources, tests, workflows et documentation, sans médias/runtime/secrets. Le premier refus automatique d'export a été résolu après vérification du remote habituel et des fichiers ; push atomique réussi. Aucune GitHub Release créée. Ce tag représente l'état AVANT Recettes.
+- Implémentation locale dans D:/Code/panelforge-krea2-flux, branche feature/krea2-v6-style-catalog-2026-09-26. Nouveau menu Recettes après Histoire : Univers → Découpage → Images → Clips. Image existante/importée ou création KREA2 intégrée ; bouton « Créer une recette » depuis un essai KREA2 réussi.
+- Paramètres initiaux : plat terminé comme référence, monde entièrement laine/crochet y compris fluides/vapeur/flammes, seules mains/avant-bras réalistes, continuité de palette/style sans décor strict, gros plans variés et caméra stable, ASMR sans voix/musique. Durée indicative 45 s, modifiable 15–180 ; plans H3 de 5–15 s, format vertical modifiable.
+- Découpage LLM dédié et éditable, révision par consigne, ajout/retrait/réordonnancement. Validation avant lot d'images, puis arrêt pour revue humaine avant vidéos. Composition MiniMax depuis le plat ; image d'arrivée facultative depuis le départ avec référence du plat conservée. Pas de politique chantier réutilisée. KREA2 conserve preset/checkpoint/LoRA et workflow KREA2 + Flux Klein existant.
+- Clips via Usine H3 existante, un plan par clip, première frame seule ou deux bornes explicites, pas de DLSS/texte social automatique. Prévisualisation, lien vers l'unité de production, essais sélectionnables, export ZIP de clips numérotés et manifeste d'ordre. Pas de montage ni réencodage.
+- Projets indexés workspace/cooking_recipes ; jobs et paramètres figés, commandes idempotentes, liens enfants persistés avant rendu. Pause/abandon des étapes restantes ; récupération des résultats au redémarrage avec lot suspendu, sans rejouer une préparation interrompue. Essais et historiques conservés ; versions périmées signalées/refusées à l'export, réordonnancement sans invalidation des clips. Modifications externes des sources dans l'Usine détectées. Brouillons UI préservés à l'actualisation et réapplicables.
+- Monolithe modulaire : domain/cooking_recipes.py ; application/cooking_recipes.py, cooking_recipe_prompting.py, cooking_recipe_production.py ; stockage et export dédiés ; routes /api/recipes ; recipes.js/css et branchement du menu. Extensions minimales des services partagés : ensure_managed_image avec namespace propriétaire (identités Story V2 conservées), création KREA2 avec clé déterministe facultative. Aucune dépendance ajoutée ni ID ComfyUI introduit dans la feature.
+- 24 tests de régression préparés dans tests/test_cooking_recipes.py avec ports simulés : validation, frontières image/vidéo, références, reprise/idempotence, contrats partagés KREA2/MiniMax, historique/obsolescence, export/HTTP/stockage. NON exécutés selon AGENTS. Aucun appel LLM, génération, lancement ni redémarrage de service. Qualité visuelle non qualifiée sur les modèles réels.
+- Contrôles statiques réussis : 12 fichiers Python compilés sans import/exécution, quatre scripts JavaScript compilés sans invocation, 2246 IDs HTML uniques et 41 sélecteurs Recettes littéraux résolus, ressources statiques présentes, diff isolé relu et sans espaces finaux ajoutés. 19 fichiers applicatifs/tests/guide dans le diff de cette tâche, hors continuités. Implémentation non commitée/non poussée ; seule la sauvegarde préalable a été publiée. Changements préexistants conservés.
+- Guide : docs/design/cooking-recipes.md. Diagnostic D:/Code/panelforge/.agent/diagnostics/recipes-20261011/ : snapshot.json, snapshot-review.json, before/, staging/, review.diff, static-checks.json, javascript-checks.json. Ne pas réexécuter integrate.py : intégration déjà appliquée, doublons d'une reprise initiale corrigés et contrôlés.
+
+### Next steps
+- Charger le code au prochain redémarrage habituel du backend, puis Ctrl+F5. L'agent a laissé les services en cours intacts.
+- Tests à lancer par l'utilisateur depuis le checkout actif : python -m unittest discover -s tests -p "test_cooking_recipes*.py", puis suite habituelle python -m unittest discover -s tests.
+- Qualifier un projet poisson/spaghetti choisi par l'utilisateur : image KREA2/preset wool, découpage, images avec mains réalistes et matières laine, puis seulement après revue clips/ASMR et ZIP. Aucune génération de qualification déclenchée automatiquement.
+
+## Correctif 2026-10-11 — Monde source conservé et retry exceptionnel
+
+### Goal
+- Implémenter l'accord utilisateur sur le respect du monde visuel et l'assouplissement de la relecture. Conserver la limite premier essai + UNE correction. Le point spécifique des cristaux reste de côté.
+
+### Current state
+- Implémenté dans D:/Code/panelforge-krea2-flux, Aménagement réaliste automatique et ajouts insert/append/prepend. Politique 1.3.0. Pas de changement d'interface, de modèle, de références d'image, de dimensions, de nombre d'étapes ni de retry Miniature.
+- Mémoire world_description : brève description anglaise des matières, du rendu, de l'échelle et des mélanges de l'image originale. Demandée dans la première analyse habituelle disponible, puis persistée dans le parcours et propagée aux étapes/opérations, reprises, régénérations et historiques des essais. Une réponse ultérieure ne réécrit pas la mémoire depuis un résultat dérivé. Les métadonnées manquantes, mal formées ou contenant des tags ne suspendent pas un ancien parcours ; il reste guidé par la référence et les règles de monde.
+- Nouveau helper application/image_journey_world.py : schéma conditionnel, mémoire descriptive, contexte et consignes. Planification et prompter distinguent monde constitutif et mobilier amovible, appliquent le monde aussi aux surfaces nouvellement révélées, gardent les mélanges et l'échelle. Ni conversion forcée en matériaux conventionnels, ni assimilation automatique de quelques coussins à un monde textile. Demande explicite de changement d'univers prioritaire pour l'édition. Consignes de photographie/échelle réelle rendues compatibles avec les univers sources imaginaires.
+- La demande MiniMax et le prompt compilé portent la mémoire de monde. Provenance dans le projet enfant et le message de prompting. Compatibilité de décodage des messages réalistes 1.0.0/1.1.0/1.2.0 conservée. Aucun prompt/rendu historique n'a été réécrit par ce patch.
+- Nettoyage d'ouvriers : source unique = résultat fautif comme avant ; instructions de conservation du monde ACTUEL, sans réappliquer la mémoire originale ni corriger le style ou restaurer des travaux. Aucune référence ou appel LLM ajouté.
+- Relecture : scene_preserved=false devient informatif, sans veto. untargeted_damage reste lisible dans les anciennes réponses mais exclu des motifs bloquants et du nouveau schéma. Progrès partiel utile accepté malgré variations de thème/matière/couleur/lumière. Pas de nouveau rejet lié au monde.
+- Interdits bornés : personnes, point de vue nettement différent, disparition/remplacement du lieu, recul substantiel non demandé, image illisible/inexploitable. Progrès none/regression toujours rejeté, hors endpoint déjà atteint pour none. Consignes explicites de ne pas reclasser une dérive stylistique en host/corruption/contradiction si lieu et travaux restent reconnaissables.
+- Domain usable_review et choix cleanup modifiés réellement : drapeaux esthétiques ne déclenchent plus un retry ni une régénération à la place d'un nettoyage de personnes. Comparaison des deux essais, conservation du meilleur exploitable, budget, pause/reprise et dépendances inchangés. Le classement des interdits/progrès reste une appréciation du modèle.
+- 11 cas préparés dans tests/test_image_journey_world.py : dérive informative/absence/interdits, cleanup partiel, comparaison du premier jet, schéma/mémoire stable/tolérance, prompt compilé, persistance/reprise et nombre d'appels, source suivante, trois ajouts et voisins inchangés, anciens parcours sans mémoire, limite des deux essais. Deux tests/fixtures existants adaptés ; compatibilité 1.2.0 ajoutée au cas de décodage.
+- Contrôles statiques réussis : compilation de 11 fichiers Python sans import ni exécution, diff isolé relu, absence d'espaces finaux ajoutés. Tests NON exécutés selon AGENTS. Aucun appel LLM, génération, changement runtime, redémarrage, commit ou push.
+- Guide docs/design/image-journeys-guide.md mis à jour. Sauvegardes, manifests des changements, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-world-retry-20261011/. Diff isolé applicatif/tests/guide : 12 fichiers, 436 lignes ajoutées, 59 retirées. Modifications préexistantes préservées.
+
+### Next steps
+- Charger le correctif au prochain redémarrage habituel du backend ; services non interrompus par l'agent. L'interface n'a pas changé.
+- Tests à lancer par l'utilisateur : python -m unittest discover -s tests (ou les modules ciblés du parcours).
+- Qualifier sur un prochain parcours laine/LEGO/mixte : conservation du monde dans les états bruts, pas de retry esthétique, maintien des interdits nets. Les résultats visuels n'ont pas été testés sur les modèles réels.
+- Anciens parcours : aucune relance automatique. La prochaine analyse autorisée applique la relecture assouplie ; une mémoire absente peut être renseignée depuis la référence originale. Le budget de correction consommé ne se réarme pas.
+
+## Implementation 2026-10-11 — Histoire devient le parcours principal
+
+### Goal
+- Go utilisateur : retirer l’onglet Histoire V1 et renommer Histoire V2 en Histoire dans la navigation et le titre, en conservant les anciennes histoires.
+
+### Current state
+- Deux fichiers applicatifs modifiés dans D:/Code/panelforge-krea2-flux : static/index.html et static/lab-core.js. Onglet stories/Histoires retiré ; onglet story-v2 et h1 renommés Histoire. IDs, API, préférences, scénarios, données et code V1 conservés.
+- Ancienne vue stories mémorisée en session redirigée vers story-v2 au rechargement. Les liens explicites de l’Usine vers les épisodes V1 existants continuent à ouvrir leur source ; dans ce cas l’onglet Histoire est actif. Aucun accès V1 dans la navigation principale, aucune conversion des histoires.
+- Cache lab-core.js : 20261011.story-primary1. Contrôles statiques réussis : syntaxe JS compilée sans invocation, 2193 IDs HTML uniques, sept onglets dont une seule entrée Histoire, absence de libellé Histoire V2 dans index.html, empreintes et diff relus. Aucun nouveau test écrit pour ce changement UI réversible ; aucun test exécuté, appel LLM, génération, runtime ou service modifié. Aucun commit/push.
+- Sauvegardes et preuves dans D:/Code/panelforge/.agent/diagnostics/story-primary-20261011/ : before, patch.py, changes.json, review.diff, checks.py, static-checks.json. Ne pas réexécuter patch.py : déjà appliqué.
+
+### Next steps
+- Ctrl+F5 pour charger la nouvelle navigation ; aucun redémarrage backend nécessaire.
+- Conserver les IDs story-v2 pour compatibilité. Accès aux sources V1 depuis l’Usine intentionnel, distinct de l’onglet principal supprimé.
+
+## Alignement 2026-10-11 — Retry exceptionnel, thème sans nouveau rejet
+
+### Goal
+- Résumer les déclencheurs actuels du retry et aligner leur assouplissement. L'utilisateur demande explicitement de ne pas durcir la relecture pour préserver le monde : réserver le retry aux changements interdits (ex. ouvriers) et à l'absence d'avancée vers la cible. Discussion uniquement.
+
+### Current state
+- Domaine vérifié : usable_review refuse people_present=true, scene_preserved=false, tout blocking_defects (people/camera/host/untargeted_damage/contradiction/corruption), level=regression et level=none sauf destination_reached. requested_change_complete=false seul ne rejette pas un progrès partiel.
+- Point de sévérité : scene_preserved=false est un veto indépendant, même avec progrès partiel et liste de défauts vide ; son sens inclut textures/couleurs/lumière hors cible. Les observations structurées restent des jugements du LLM, pas un seuil de différence de pixels.
+- Retry automatique seulement pour Aménagement réaliste, automatique et ajouts, actif et autorisé, sortie disponible, relecture unusable, aucune correction déjà consommée. Personnes seules + progrès utile + décor conservé => cleanup depuis le résultat. Sinon regenerate depuis la source de l'étape. Limite : premier essai + UNE correction, comparaison et choix du meilleur exploitable ; suspension avec résolution manuelle si aucun. Pauses explicites et dépendances ultérieures empêchent le lancement.
+- Préservation du monde : nouvelle contrainte utilisateur prioritaire sur la proposition d'audit précédente. Travailler le thème dans planification/prompter ; ne pas introduire un nouveau rejet/retry de style ou de thème dans la relecture.
+- Aucun code, prompt actif, parcours ou service modifié. Aucun test, appel LLM ou rendu exécuté.
+
+### Next steps
+- Alignement proposé : continuer pour toute avancée visible utile même partielle, étape imparfaite, détails restants ou évolution stylistique ; guider la suite vers la cible sans rejouer pour perfectionner.
+- Réserver correction aux interdits identifiés et à une absence manifeste de progrès / recul net. Resserrer le veto global scene_preserved pour qu'une variation esthétique ne recrée pas indirectement un rejet.
+- Préciser le périmètre des interdits majeurs (personnes, rupture nette de cadrage, disparition/remplacement du lieu) avant implémentation ; limites de budget et comparaison des deux essais conservées. Aucun correctif implémenté.
+
+## Audit 2026-10-11 — Préserver le monde de l'image source
+
+### Goal
+- Demande utilisateur : auditer la conservation de l'univers matériel (laine, LEGO, etc.) dans les transformations. Le sujet des cristaux est laissé de côté. Analyse uniquement.
+
+### Current state
+- Lecture des consignes de progression/rendu/relecture, de la transmission des références et des journaux récents. Inspection visuelle originale/intermédiaire/finale du parcours laine af2bb659f07351a4ae59eec8beb10e3f ; original/final du LEGO 4398bff9c63d5af2b04c453e02127e57 ; original/intermédiaire de la grotte en blocs de glace 47b193b0422c515f9afa7329bccb8f45 comme contraste.
+- Cas laine confirmé : intention ET destination « grotte de glace vide, dans un Monde en laine » conservées, mais premier plan prévoit le retrait des revêtements en laine. Étape 3 ordonne de retirer tous les textiles et révéler la glace naturelle ; MiniMax exécute, la relecture valide scene_preserved=true / destination_reached=true. Visuellement la laine dominante des parois/premier plan disparaît entièrement. Référence originale bien présente dans finished_reference_asset_id et dans les entrées de la dernière relecture. Masque désactivé, aucun retry sur ce parcours, politique 1.2.0.
+- Cas LEGO (politique 1.1.0, pas comparaison contrôlée entre versions) : actions/prompts répètent LEGO, briques et assemblage ; original/final gardent clairement le motif de briques malgré vieillissement demandé. Sol, algues et certaines surfaces restent mixtes. Réussite relative, pas garantie générale de conservation d'un monde entièrement LEGO.
+- Conflit potentiel de consignes : suivi des matériaux/design imaginatifs mais REAL-SCALE, photographie architecturale obligatoire, exclusion toy construction/diorama, et retour aux couches naturelles/brutes. Préservation limitée surtout aux matériaux non ciblés / parties conservées ; les nouvelles surfaces peuvent être interprétées en matériaux conventionnels. Aucune description dédiée et persistée de l'identité du monde dans le contrat de parcours actuel.
+- Le preset miniature à rebours comporte une consigne plus explicite de suivre le style/matériaux de l'image sans imposer matériaux conventionnels/ingénierie réelle. Pas de recommandation de changer de preset : fin de parcours et règles de population diffèrent.
+- Aucun code, journal de parcours, image ou service modifié ; aucun appel LLM, rendu ou test exécuté. Seule cette continuité est mise à jour.
+
+### Next steps
+- Proposition à discuter : identifier l'univers visuel depuis l'image fournie et l'intention dans la première analyse existante, le mémoriser séparément des aménagements et le transmettre aux planifications, actions/propmter, ajouts et relectures. Garder l'image originale comme référence de cet univers, sans recopier son niveau d'aménagement.
+- Appliquer sa grammaire matérielle aussi aux surfaces nouvelles/révélées : état brut ou usé dans le même monde, pas conversion implicite en roche/béton/glace conventionnels. Nuancer l'interdit de jouet/miniature pour préserver le style source ; rendre une matière imaginaire de façon photographique ne signifie pas la convertir en matériau réel.
+- Respecter les univers mixtes : quelques coussins en laine ne suffisent pas à déclarer tout le lieu textile ; l'intention explicite « monde en laine » guide l'ambiguïté. Ne pas transformer automatiquement toute matière en laine/LEGO. Préserver thème par défaut sauf changement explicitement demandé.
+- Relecture : comparer aussi à l'identité d'origine, juger les pertes manifestes de thème sans bloquer des écarts mineurs ni annuler un progrès exploitable. Aucun nouveau rôle/appel ni sélecteur nécessaire pour cette proposition. Aucune implémentation autorisée à ce stade.
+
+## Audit 2026-10-11 — Cristaux cachés sous la roche en parcours à rebours
+
+### Goal
+- Analyser la suppression des pierres précieuses alors que l'utilisateur souhaite leur découverte par dégagement de roche en sens construction. Proposition uniquement : aucune modification du code ni lancement de génération demandé.
+
+### Current state
+- Audit en lecture des prompts Aménagement réaliste 1.2.0 et des six parcours du 10 octobre dont l'intention est « Grotte de pierre cristaux non visibles » : a90578e8eb855567976e01f3eb2849c6, 16927f897fb45c1b9db7165bf85d6bb8, 51d540caa24b5c5fa93b70dc6061c8a2, 469a78a897fa5364a8bf007883467e01, 93ad6803c6d259bd9224928cc80add61, 55b784632aaa5bf582fe62400c2ac491.
+- Les six premières planifications reformulent la destination en « sans cristaux » et inscrivent leur retrait aux jalons. Les actions puis les prompts MiniMax demandent explicitement removal/replacement ; le 55b qualifie les cristaux de « revêtement / cladding ». La relecture valide leur suppression. Tous utilisent Gemma-4-31B pour progression et prompter, masque désactivé ; aucun retry sur ces étapes. Le problème identifié précède donc le moteur d'image et son retry.
+- Inspection visuelle de trois images du 55b (original 54fdb..., avant retrait b909..., après retrait 661a...) : volumes/cadrage globalement conservés, passage direct d'une voûte cristalline à une roche opaque ; pas d'état partiellement recouvert permettant de lire la découverte. Une image totalement opaque ne permet pas de prouver visuellement la présence ou l'absence de cristaux derrière.
+- Les consignes actuelles privilégient retrait des aménagements et exposition des couches antérieures, sans distinguer explicitement ajout artificiel et matière naturelle révélée. L'interdiction générale d'étapes d'excavation/démolition doit rester compatible avec un dégagement local de roche, sans démolition du lieu.
+- Aucun fichier applicatif, journal runtime, image, sélection ou service modifié ; aucun appel LLM, test ou rendu déclenché. Seule cette note de continuité est ajoutée.
+
+### Next steps
+- Proposition à discuter : règle conditionnelle pour la découverte de matériaux naturels. Les cristaux appartiennent au lieu ; à rebours restaurer une gangue rocheuse devant/autour d'eux, en gardant leur implantation selon la référence finale. Destination = cristaux enfouis/non exposés, pas absents ; mobilier/équipements restent retirés normalement.
+- Aligner planification, traduction MiniMax et relecture sur cette distinction. Décrire les états visibles et, si le budget permet une étape dédiée, des zones partiellement recouvertes avec bords rocheux irréguliers et fragments cristallins encore visibles aux mêmes emplacements. Pas de couche peinte ni de déplacement des cristaux.
+- Fix proposé limité aux prompts du preset réaliste (automatique et ajouts), sans nouveau mode, masque, rôle LLM ni retry supplémentaire. Ne pas ajouter de rejet fondé sur une matière cachée invérifiable. Relecture tolérante du progrès partiel inchangée.
+- Pour un essai sans patch, expliciter l'enfouissement et la découverte dans l'intention d'un nouveau parcours. Un plan existant reste verrouillé tant que l'intention ne change pas ; modifier seulement le prompter ne suffit pas. Aucun correctif implémenté à ce stade.
+
+## Correctif 2026-10-09 — Progrès exploitable et comparaison des deux essais
+
+### Goal
+- Implémenter l’alignement accepté par l’utilisateur : conserver les progrès exploitables même partiels, distinguer absence de progrès et défaut réellement bloquant, comparer Initial / Correction pour retenir le meilleur essai. Limite inchangée : initial + UNE correction.
+
+### Current state
+- Implémenté dans D:/Code/panelforge-krea2-flux. Relecture Aménagement réaliste 1.2.0, automatique et ajouts insert/append/prepend. Miniature conserve sa politique et son absence de retry automatique.
+- Nouveau contrat progress : level complete/partial/none/regression, visible_changes localisés, remaining_work, blocking_defects bornés (people/camera/host/untargeted_damage/contradiction/corruption), destination_reached. Les trois booléens quality historiques restent ; requested_change_complete=false ne bloque plus un progrès utile. Personnes, perte du décor/cadrage et autres défauts bloquants restent bloquants.
+- Partiel exploitable => review usable et source suivante conservée ; absence de progrès => unique régénération possible. Personnes seules avec progrès utile même partiel => cleanup depuis le résultat fautif, masque désactivé. Autres défauts / aucune avancée => regenerate depuis la source initiale. Compteur, IDs idempotents, logique de pause/reprise et budget restent inchangés.
+- La relecture de la correction reçoit INITIAL_ATTEMPT ; si déjà présent comme CORRECTION_SOURCE, fusion des labels sans doublon. Référence comparative uniquement pour le LLM de relecture, pas ajoutée aux références MiniMax. Même appel de relecture, pas de rôle ni appel critique supplémentaire (contexte visuel parfois plus grand).
+- Comparaison structurée : nouvelle évaluation du premier, évaluation du RESULT corrigé, selected initial/correction/none et motif. Choisir un essai déclaré inexploitable ou aucun alors qu’un essai est exploitable est une erreur de contrat ; pause technique sans nouvelle génération. Résumé, jalons et prochaine action sont demandés pour l’image choisie.
+- Choix Initial => promotion atomique via retain_previous, conservation de l’ID logique et de la provenance MiniMax ; historique complet chronologique des deux résultats, verdict initial d’origine conservé, nouvelle relecture sur l’actif et attempt_comparison sauvegardé. La suite et Transitions prennent ses vrais pixels. Aucun faux user_acceptance. Les dépendances à une image manuelle ultérieure empêchent un remplacement automatique.
+- Endpoint automatique contrôlé par destination_reached de l’image choisie. Budget épuisé avec destination incomplète => statut terminé pour le parcours et avertissement de jalons inachevés ; aucune image ajoutée ni fausse fin de destination. Les restaurations explicitement demandées via + ne sont pas classées comme une régression.
+- UX : Progrès partiel conservé / Pas de progrès, détail avec avancées, reste à faire et motif de comparaison. Historique 2 essais et actions manuelles existantes conservés. Cache JS progress1. Vignettes noires et ordre des images inchangés.
+- Décodage des anciens messages MiniMax réalistes 1.0.0 et 1.1.0 maintenu avec 1.2.0. Aucune migration ni nouvelle génération déclenchée sur les parcours existants par ce patch ; les nouvelles relectures utilisent la politique chargée au redémarrage.
+- Tests préparés : 13 cas dans test_image_journey_progress_review.py (partiel, absence de progrès, défauts, cleanup, comparaison/choix, reprise, provenance/export/source, fin honnête, trois ajouts, références dédoublonnées, dépendances et compatibilité). Fixtures realistic/retries adaptées ; scénario navigateur enrichi pour l’affichage du progrès et du motif.
+- Contrôles statiques réussis : compilation Python sans import/exécution ; compilation du JS et des sources fixture/scénario navigateur sans exécution ; diff isolé relu, lignes ajoutées sans espaces finaux, anciens appels blocks/règles strictes retirés. Tests NON exécutés selon AGENTS. Aucun appel LLM, génération, redémarrage, mutation runtime, commit ni push.
+- Sauvegardes, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-progress-review-20261009/. Les modifications préexistantes sont conservées.
+
+### Next steps
+- Charger le correctif au prochain redémarrage habituel du backend, puis Ctrl+F5. Les services n’ont pas été interrompus.
+- Tests à exécuter par l’utilisateur, puis qualification visuelle sur ses prochains parcours. La détection du progrès et le choix du meilleur essai restent dépendants de la relecture du modèle.
+- Un ancien parcours bloqué n’a pas été relancé automatiquement. Une reprise explicite après chargement peut le faire relire avec les nouveaux critères, en conservant son budget de correction déjà consommé.
+
+## Correctif 2026-10-09 — Vignettes en attente et rang de la file
+
+### Goal
+- Demande utilisateur : afficher une vignette noire à l’emplacement d’une image prévue / en file, avec sa position ; approfondir la distinction progrès exploitable / défaut bloquant et proposer le prochain correctif du retry. La politique de retry reste au stade de discussion.
+
+### Current state
+- Implémenté dans D:/Code/panelforge-krea2-flux, interface uniquement. Les étapes automatiques sans sortie et les opérations + non terminées occupent leur emplacement réel dans la frise ; append, insert, prepend et ordre inversé respectés. Pas de cases fictives pour les jalons futurs non encore préparés.
+- Vignette noire de même hauteur que les images, titre de l’étape, préparation / mise en file / En file · n° N / génération en cours / refroidissement / suspension selon les états disponibles. Le rang est celui de la file globale remote_gpu, corrélé par attempt_id, et inclut les autres ateliers. Lecture de l’événement panelforge:work-scheduler-status déjà diffusé par le Lab : aucun polling supplémentaire ni changement backend. Sans rang disponible, aucun numéro inventé.
+- Dès que le résultat existe, il remplace le noir ; une opération manuelle reste non sélectionnable jusqu’à son admission dans la séquence. Abandon => retrait du placeholder ; commit => une seule image au même emplacement. Les placeholders ne changent ni les références des boutons + ni l’export Transitions.
+- Un clic sur la vignette noire d’un ajout rouvre le dialogue de cette opération. Pendant une correction, le lien 2 essais garde l’Initial consultable. Les choix d’acceptation déjà implémentés et la limite d’un retry restent inchangés.
+- Fichiers : image-journeys.js, export openOperation de image-journey-actions.js, deux règles CSS, cache queue1 dans index.html, guide et scénario navigateur existant. Scénario enrichi : rang partagé 2→1 sans version projet, ordre des ajouts et inverse, préparation/actif/refroidissement/inconnu/suspendu, non-export, absence d’asset vide, remplacement/abandon, maintien des essais.
+- Contrôles statiques réussis : compilation Python sans exécution et compilation JavaScript des deux scripts + fixture/scénario navigateur sans exécution ; diff isolé relu, absence d’espaces finaux ajoutés. Tests NON exécutés selon AGENTS ; aucune validation visuelle navigateur revendiquée.
+- Aucun appel LLM, génération, redémarrage, mutation runtime, commit ou push. Sauvegardes, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-queue-placeholders-20261009/. Modifications préexistantes préservées.
+
+### Next steps
+- Ctrl+F5 suffit pour ce patch UX ; aucun redémarrage backend nécessaire. Tests à exécuter par l’utilisateur.
+- Proposition de retry à discuter : remplacer le blocage sur requested_change_complete=false par une distinction progrès visible exploitable / absence de progrès / contradiction ou défaut réellement bloquant. Évaluer l’avancée vers la destination avec preuves visuelles, garder les contraintes fortes du preset et le décor fixe ; un détail restant ou un jalon anticipé compatible ne suffit pas à rejeter.
+- Progrès partiel exploitable => retenir et adapter la prochaine transformation sans ajouter une étape. Pas de progrès => un retry possible. Défaut bloquant => correction ciblée depuis le résultat si les avancées sont saines, sinon régénération depuis la source validée. Plafond initial + une correction conservé.
+- Après correction, comparer réellement Initial et Correction avec la source et la destination ; conserver le meilleur résultat exploitable, suspendre si aucun ne l’est. Réutiliser la relecture existante, sans nouveau rôle ni appel supplémentaire prévu ; ajout de l’Initial comme référence comparative à la deuxième relecture. Garder l’historique et le choix manuel. À budget épuisé, signaler honnêtement une destination incomplète.
+- Exemple déjà audité : coquillage 8e8c339… initial retire une partie importante des textiles et avance vers l’état sale souhaité ; correction proche de la source annule ce progrès. Le diagnostic actuel sous-estime l’avancée et assimile réalisation partielle à échec. Aucune modification de cette logique dans ce patch.
+
+## Correctif 2026-10-09 — Accepter le premier essai après une correction rejetée
+
+### Goal
+- Autorisation utilisateur : permettre de sélectionner le premier jet sauvegardé pour accepter et continuer ; examiner les derniers runs. Les changements de critères du retry sont reportés à une discussion ultérieure.
+
+### Current state
+- Implémenté dans D:/Code/panelforge-krea2-flux. Depuis « 2 essais → Initial », une étape suspendue après correction propose « Accepter cet essai et continuer » (ou terminer / accepter cet essai pour un ajout). Le backend valide l’ID exact de l’image archivée, l’ID logique de l’étape et la version ; requête accept idempotente existante, aucune nouvelle API nécessaire.
+- L’acceptation promeut les pixels, prompt, diagnostic et provenance du premier essai dans l’étape active. ID logique, emplacement, nombre d’images, budget de correction et voisins conservés. La frise, la suite et Transitions utilisent l’image choisie. L’autre résultat reste archivé ; les onglets restent Initial / Correction, sans inversion des labels ni troisième essai artificiel.
+- Contrat : après sélection historique, attempt_history contient la liste complète chronologique des essais et retained_attempt_index identifie celui retenu. render_identity / render_step_id gardent l’identité du vrai projet MiniMax, même après une régénération manuelle ayant changé l’ID logique. Le diagnostic original reste inchangé, accompagné de user_acceptance.
+- Pour la suite automatique, le résumé de la correction n’est plus utilisé : retour à l’avancement antérieur conservateur puis observation de l’essai choisi ; la planification suivante voit les pixels réellement acceptés. Dernière étape acceptée => clôture sans nouvelle génération.
+- Acceptation historique seulement après suspension effective sur rejet visuel ; indisponible pendant le rendu, une commande active ou un ajout en attente. Une image manuelle ultérieure empêche de remplacer son ancienne source par un autre essai. Les archives des parcours existants sont utilisables sans migration.
+- Code : domain/image_journey_retries.py, application/image_journey_resolutions.py, adaptation de provenance dans minimax_edit.py, aperçu/actions JS et cache accept-initial1. Guide mis à jour. Aucun changement des prompts, critères de rejet ni du plafond d’un retry.
+- Tests préparés : nouveau test_image_journey_retain_attempt.py (suite/source/export, dernier essai, reprise, HTTP/idempotence/conflits, trois emplacements manuels, provenance après régénération, dépendances ultérieures) et scénario navigateur enrichi. Tests NON exécutés selon AGENTS. Compilation Python et JavaScript uniquement, sans import/exécution des scénarios ; diff isolé relu et lignes ajoutées contrôlées.
+- Aucun appel LLM, rendu, redémarrage, modification runtime, commit ou push par l’agent. Sauvegardes, review.diff et static-checks.json dans D:/Code/panelforge/.agent/diagnostics/journey-accept-initial-20261009/. Modifications préexistantes conservées.
+
+### Analyse des derniers runs
+- Lecture de cinq parcours récents. Cible de la capture : journey-8e8c339861165ced8f323c05f6ebe6b7, étape journey-step-22905b1a5dc74fec814edfcb49c6e4b4, état relu inchangé au dernier contrôle : paused/reviewing depuis 15:09:52 UTC, aucune opération manuelle en attente. Aucun choix effectué à la place de l’utilisateur.
+- Comparaison visuelle source asset-518e3abb711a4950bcd0725dbe709084 / Initial asset-1360ec2ca0c0415ca9251db2c8fc8c16 / Correction asset-dfc40de15eb84fa2b639b3dc7a6ffa7b : Initial retire beaucoup de textile sur le fond/gauche, laisse du textile au premier plan et en haut à droite, introduit usure et algues. Progression nette vers le coquillage sale souhaité malgré une étape partiellement réalisée et des algues anticipées. Correction visuellement très proche de la source pré-étape.
+- La relecture initiale dit que les structures tricotées massives n’ont pas été supprimées et pénalise l’arrivée prématurée des algues ; elle sous-estime la transformation visible. Les deux essais ont people_present=false, scene_preserved=true, requested_change_complete=false : le rejet vient de l’exigence de réalisation de l’étape. La régénération repart de la source avant étape, sans conserver les avancées du premier jet.
+- Même motif requested_change_complete=false sur l’étape de ternissement des coquillages journey-31fb01923a665c49957f0e29c6d849b3 et journey-4398bff9c63d5af2b04c453e02127e57, sans personnes ni décor déclaré perdu. Deux essais du 31fb également inspectés : irisations encore visibles, résultats proches, le premier présente davantage de salissure contrastée au fond. Les autres parcours récents (villa en falaise c02 et coquille 1657) avancent avec des transformations concrètes jugées utilisables. Petit relevé local, pas un taux de qualité général.
+
+### Next steps
+- Charger au prochain redémarrage habituel du backend, puis Ctrl+F5. Sur le run ciblé : « 2 essais → Initial → Accepter cet essai et continuer ». Les deux images sont déjà présentes sur disque.
+- Discuter ensuite de la distinction progrès partiel exploitable / absence réelle de progrès / défaut bloquant, et d’un choix comparatif entre essais au lieu de privilégier mécaniquement la dernière sortie. Ne pas changer ces critères sans le prochain alignement demandé.
+
+## Correctif 2026-10-09 — Deux essais au total et comparaison Initial / Correction
+
+### Goal
+- Implémenter les deux points validés par l’utilisateur : prompts d’état inoccupé en Aménagement réaliste et un seul retry automatique, soit rendu initial + correction (2 essais au total). Conserver les deux essais dans l’interface. La suppression libre d’une image reste hors périmètre.
+
+### Current state
+- Implémentation terminée dans D:/Code/panelforge-krea2-flux. Politique realistic 1.1.0 : photographie architecturale inoccupée, état visible déjà obtenu, prose concise prioritaire sur les six sections du prompter partagé. Décodage des messages MiniMax 1.0.0 déjà enregistrés conservé.
+- Relecture existante enrichie de trois booléens stricts : people_present, requested_change_complete, scene_preserved. Personnes seules avec état correct et décor fidèle => cleanup depuis le résultat fautif, unique référence MiniMax et masque désactivé pour cette correction. Autre défaut => regenerate depuis la source d’édition initiale, mêmes travaux et références habituelles. La relecture du nettoyage voit aussi sa source fautive, la source initiale et la référence terminée pertinente.
+- Nouvelle étape automatique réaliste ou ajout + : automatic_retry_enabled, compteur durable plafonné à 1 correction, attempt_history conservé, ID logique inchangé, nouveaux IDs de prompt/rendu/projet MiniMax et tirage. Pas de consommation d’une étape supplémentaire ; voisins conservés. Les anciennes étapes enregistrées ne sont pas migrées ni rejouées.
+- Deuxième rejet => suspension et décisions manuelles existantes. Reprendre ne donne pas droit à un troisième rendu automatique. Régénérer manuellement garde l’historique, repart de la source initiale même après cleanup, sans réarmer le budget automatique. Pause/redémarrage et reprise réutilisent les requêtes persistées. Une image manuelle déjà ajoutée après l’étape empêche son remplacement automatique.
+- UX : une vignette par étape, original visible durant la correction, lien discret « 2 essais », aperçu Initial / Correction avec image, prompt, diagnostic et statut retenu. Choix d’essai conservé lors du polling. Les décisions manuelles ciblent seulement le résultat courant ; essais rejetés exclus des images transférables.
+- Tests préparés : nouveau test_image_journey_retries.py (routage, limite, reprise, legacy, ajout aux trois emplacements, décisions manuelles, historique public), fixture réaliste adaptée, scénario navigateur enrichi. Conformément à AGENTS, AUCUN test exécuté, appel LLM, rendu, redémarrage, mutation runtime, commit ou push.
+- Contrôles statiques réussis : compilation Python sans import/exécution, compilation JavaScript des deux scripts et des deux sources du scénario navigateur sans exécution, IDs HTML uniques, contrôle des lignes ajoutées et diff isolé. Pas de validation visuelle navigateur ni qualification du rendu réel.
+- Sauvegardes ciblées, review.diff et static-checks.json : D:/Code/panelforge/.agent/diagnostics/journey-auto-retry-20261009/. Les autres modifications préexistantes sont conservées.
+- Cette décision utilisateur remplace la proposition de l’audit précédent : UNE correction supplémentaire, pas deux.
+
+### Next steps
+- L’utilisateur peut exécuter les tests de parcours, puis charger le backend au prochain redémarrage habituel et faire Ctrl+F5 (cache retry1). Aucun service n’a été redémarré par l’agent.
+- Qualifier sur les prochains rendus réalistes : le contrôle structuré dépend toujours de l’analyse visuelle du modèle et une édition de nettoyage ne verrouille pas les pixels.
+
+## Audit 2026-10-09 — Prompts sans ouvriers et choix du retry automatique
+
+### Goal
+- Petit audit demandé : identifier les formulations pouvant favoriser des ouvriers et comparer nettoyage de l’image fautive / régénération de l’étape entière. Discussion seulement, aucune implémentation ni génération autorisée par cet audit.
+
+### Current state
+- Échantillon figé au relevé : 7 rendus relus sur journey-d1ed00fe4a5852a497be315d536305bc et journey-8a032218e8e455958138a4b044b78af3, soit 5 premières tentatives d’étapes (4 unusable avec ouvriers, 1 usable) et 2 régénérations relues (2 usable sans ouvriers). Une nouvelle régénération de l’étape 3 d1ed était en cours, exclue du décompte. Petit échantillon local, pas un taux général du moteur.
+- Nouvelle sortie d1ed étape 3 asset-637ffa9cd075441fa81817315b3481ff : sol devenu terreux et parois plus brutes, mais cinq ouvriers avec pelles ; inspection visuelle et relecture concordantes. Candidate à un nettoyage ciblé si la conservation du décor est validée.
+- Nouvelle sortie 8a étape 2 asset-3753003c738e4118a706bef80a8c6e41 : escalier retiré mais mezzanine blanche toujours présente, avec cinq ouvriers et outillage. Nettoyer uniquement les personnes ne satisferait pas la transformation ; régénération complète depuis la dernière image validée préférable.
+- Prompts réellement soumis : interdiction toujours présente dans le bloc IMAGE_RULES ajouté automatiquement par application/image_journey_realistic_prompting.py. Ce bloc commence par « Real-scale renovation still, with no people, workers, hands or tools in action » et cite encore demolition site / people ailleurs. Les quatre prompts initiaux rejetés décrivent principalement retirer/remplacer des éléments et ne renforcent pas la vacuité dans leur corps principal. Les deux reprises réussies l’explicitent (« scene is entirely vacant » / « completely empty »), avec un nouveau tirage également ; causalité non démontrée.
+- Piste de prompt : ancrer d’abord une photographie architecturale inoccupée et décrire le résultat déjà obtenu (état visible), condenser les contraintes et éviter le cadre narratif de chantier actif. Les mots renovation/workers/demolition peuvent être une incitation involontaire, mais leur effet exact reste une hypothèse puisque le même bloc figure dans des succès. Le format à six sections/audio N/A vient du prompter MiniMax partagé ; un retry utilisant ce format a réussi, donc pas une cause démontrée.
+- Routage confirmé : realistic prend la priorité sur le champ version 2 ; aucune instruction V2 de scène vivante active. Masque désactivé. Régénérer actuel repart de source_asset_id avec même action, nouveau step/projet/tirage et regeneration_feedback textuel ; ne nettoie pas la sortie rejetée.
+- Proposition à discuter : la relecture existante distingue transformation correcte / personnages parasites / autres défauts. Personnes seules => édition de nettoyage depuis la sortie fautive, sans rejouer les travaux ; état incorrect ou décor dégradé => régénération depuis l’image précédemment validée. Critères structurés, pas une recherche du mot ouvriers dans le diagnostic. Comparer après réparation au résultat fautif ET à l’état attendu pour détecter dérive.
+- Recommandation de budget : au maximum deux tentatives supplémentaires par étape, avec un seul nettoyage avant retour éventuel à la source validée ; essais dans le même emplacement, sans consommer une étape de la frise, anciens résultats gardés, suspension et décisions manuelles à l’épuisement. Une réparation ajoute une édition et peut modifier textures/couleurs : ce n’est pas une garantie de conservation des pixels.
+
+### Next steps
+- Restituer les observations, l’hypothèse de formulation et la stratégie conditionnelle. Aucun prompt applicatif, code, donnée runtime ou réglage modifié ; aucun test, appel LLM, rendu ni redémarrage lancé.
+- Toute amélioration de qualité proposée reste à qualifier sur de futurs essais contrôlés ; ne pas annoncer le problème résolu par cet audit.
+
+## Audit 2026-10-09 — Deux parcours arrêtés sur des ouvriers ajoutés
+
+### Goal
+- Vérifier les deux nouveaux runs arrêtés, sans relance, génération ni modification applicative.
+
+### Current state
+- Deux parcours réalistes à rebours, quatre nouvelles images chacun, masque désactivé, progression/prompter Gemma local : journey-d1ed00fe4a5852a497be315d536305bc (arbre à escalier suspendu, créé 09:48 UTC) et journey-8a032218e8e455958138a4b044b78af3 (arbre à mezzanine blanche, créé 09:49 UTC).
+- Suspensions initiales dues à une vraie relecture unusable après rendus réussis : d1ed à l’étape 2, 09:52:10 UTC, cinq ouvriers ajoutés et escalier seulement partiellement retiré ; 8a à l’étape 1, 09:50:48 UTC, ouvriers ajoutés et luminaires encore présents. Inspection visuelle des deux sorties (asset-96a50db9f40b426484f47a5720a597b1 et asset-0a3999c12b764372a4bff200df9febc7) confirme personnes et altérations du sol. Consigne sans personnes déjà présente dans les prompts soumis.
+- Les analyses contiennent aussi next_action_error pour une tentative de proposer un retry en même temps que le rejet ; c’est un diagnostic secondaire conservé. Le code application/image_journeys.py suspend sur assessment=unusable et affiche l’observation, sans échec de décodage dans ces deux cas.
+- Deux décisions utilisateur regenerate enregistrées à 12:00:32 et 12:00:37 UTC (14 h à Paris). Les anciens essais sont conservés dans abandoned_steps ; prompts de reprise intègrent le diagnostic. Aucune action déclenchée par l’agent.
+- Dernier état consulté vers 12:02:36 UTC : d1ed a réussi sa régénération de l’étape 2 (asset-a08e3b78cf0c416fa7bd5917582020cd, sans ouvriers, escalier supprimé ; inspection visuelle et review usable 12:02:23), puis passe à l’étape 3 en file d’attente. 8a est en rendu de sa régénération d’étape 1, started_at=12:02:10. Aucune erreur technique actuelle enregistrée.
+- Aucun code, donnée runtime, service ou configuration modifié ; aucun test, appel LLM ou rendu lancé par l’agent. Seul ce suivi est mis à jour.
+
+### Next steps
+- Expliquer les deux rejets et l’état des reprises au moment de la consultation. Régénérer est adapté au rejet visuel ; Accepter et continuer conserve volontairement l’image rejetée. Les sorties des générations encore en cours restent à qualifier, sans promettre leur réussite.
+
+## Correctif UX 2026-10-09 — Même taille pour la vignette d’origine
+
+### Goal
+- Corriger uniquement l’affichage de l’image de base, plus petite que les autres dans la frise.
+
+### Current state
+- Cause : la carte .ij-head réserve deux espaces de 30 px pour ses boutons +, contre un seul pour les autres cartes ; à colonne égale, sa vignette perd 30 px de largeur.
+- Correctif CSS dans D:/Code/panelforge-krea2-flux : réserver une marge intérieure de 30 px sur le côté concerné de la galerie, puis étendre la carte d’extrémité dans cet espace avec une marge négative. Largeur de vignette identique aux autres cartes dans les deux sens, boutons + conservés, retour à la ligne inchangé, object-fit: contain conservé (sans recadrage ni déformation).
+- Deux fichiers applicatifs seulement : static/image-journeys.css et paramètre de cache CSS dans static/index.html (20261009.thumbnails1). Modifications préexistantes préservées. Sauvegardes et diff isolé : D:/Code/panelforge/.agent/diagnostics/journey-thumbnail-width-20261009/.
+- Diff statique relu et écritures vérifiées. Aucun test ajouté ou exécuté selon AGENTS, aucune génération, donnée runtime modifiée, action LLM, modification backend ou redémarrage. Pas de validation visuelle navigateur effectuée par l’agent.
+
+### Next steps
+- Utilisateur : Ctrl+F5 pour charger le CSS, vérifier la frise et son inversion. Pas de redémarrage requis.
+
+## Implémentation 2026-10-09 — Presets ouvriers, échelle et vitesse des transitions
+
+### Goal
+- Go utilisateur : regrouper Organisation du chantier, Échelle et Vitesse dans Ouvriers et échelle ; ces presets remplissent les réglages communs modifiables. Ajouter une vitesse plus rapide, présélectionner les transitions à préparer et retirer Voir dans l’usine après envoi.
+
+### Current state
+- Patch dans le checkout actif D:/Code/panelforge-krea2-flux, en préservant les autres modifications. Organisation : quatre choix existants ; nouvelle Description du chantier éditable. Échelle Miniature / Normale remplit la description textuelle de l’ouvrier ; une édition libre passe en Personnalisée. Aucune apparence imposée.
+- L’image de référence garde la priorité exclusive pour l’apparence et le montage pour l’échelle : sélecteur textuel désactivé et affiché Selon le montage visuel dans ce cas. Le texte conservé et scale_preset sont exclus des requêtes visuelles ; le preset seul ne change pas la version envoyée. Pas de migration des descriptions personnalisées ou volontairement vides ni des anciennes unités.
+- Vitesse déplacée du bandeau d’actions vers Ouvriers et échelle, avec Slow, Fast et Ultra-fast — avance rapide extrême. Ce dernier condense plus fortement le temps de travail, conserve la durée et les bornes de construction, avec gestes causaux et sons serrés. Un rythme libre par paire garde sa priorité. Contrat image.transitions.propose@3.2.0 ; pas d’appel LLM supplémentaire.
+- Sélection automatique des versions non envoyées à l’ouverture, y compris lors d’un transfert depuis Parcours. Correction du double chargement de la même frise qui vidait les coches. Actualisation/proposition/sauvegarde conservent les décoches manuelles ; nouvelles paires sélectionnées à leur ajout ; sélection conservée après envoi pour la coche verte. Message d’envoi sans bouton Voir dans l’usine ; accès général Ouvrir l’usine et liens d’unités conservés.
+- Douze fichiers ciblés (domaine, proposeur, API, HTML/JS/CSS, guide et trois fichiers de tests). Assets transitions 20261009.presets1. Régressions préparées : propagation des presets, textes libres/vides, anciennes frises et versions envoyées, références prioritaires, sélection par défaut et bouton retiré.
+- Vérifications statiques réussies : 7 fichiers Python compilés sans import/exécution, 2 JS applicatifs et 2 fragments navigateur compilés sans invocation, 2 191 IDs HTML uniques et 45 sélecteurs résolus. Diff isolé relu, aucune nouvelle ligne avec espace final. Tests NON exécutés selon AGENTS ; aucun appel LLM, rendu, changement runtime, redémarrage, commit ou push. Qualité réelle d’Ultra-fast non vérifiée.
+- Sauvegardes exactes avant tâche, review.diff, static_checks.py et static-checks.json sous D:/Code/panelforge/.agent/diagnostics/transition-presets-20261009/. La documentation est actualisée ; les fichiers du travail concurrent restent préservés.
+
+### Next steps
+- Utilisateur : charger le backend au prochain redémarrage habituel après ses rendus, puis Ctrl+F5. Aucun redémarrage effectué par l’agent.
+- Tests à sa main depuis le checkout actif : python -m unittest discover -s tests -p "test_image_transitions*.py". Vérifier les trois menus, leur remplissage des descriptions, l’ouverture depuis Parcours et le maintien des décoches à l’actualisation ; qualifier Ultra-fast sur une vidéo seulement lorsque souhaité.
+- Pas de publication demandée à ce tour. Les limites connues sur les mains géantes dans les sorties H3 ne sont pas un correctif de ce patch.
+
+## Audit 2026-10-09 ? R?f?rences des ajouts et r?apparition des ouvriers
+
+### Goal
+- Analyse uniquement demand?e : v?rifier les images fournies lors du dernier ajout au d?but du parcours r?aliste ? rebours, o? des ouvriers ressemblent ? ceux d?une ancienne ?tape. Aucun correctif demand?.
+
+### Current state
+- Parcours retrouv? : journey-d523ac8f617a57d69c00cd41d8350340 (grotte), preset realistic, direction reverse, masque d?sactiv?. Inspection des journaux, des deux workflows de rendu sauvegard?s et des cinq images concern?es ; aucun appel LLM, g?n?ration, test, red?marrage ou changement des donn?es runtime/code applicatif.
+- Ajout manuel rejet? journey-edit-e0a4d8aca07859e5a058c98bbab351ba, intention ? Il n?y a pas de trou en haut (puit de lumi?re) ?, cr?? 07:34:35 UTC. MiniMax minimax-f1fe36e300f15b99b11e69e8050f998d / attempt-caa85a26a64449b0964c5cf8fdba1e8e : exactement deux r?f?rences reli?es au conditionnement, Picture 1 = asset-9543af6204fd4c848c868f18f80cc796 (?tat naturel de la grotte, sans ouvriers visibles), Picture 2 = asset-4d4edf7ce75e4f29bb47adc86b611946 (am?nagement fourni d?origine, sans personnes visibles). Aucun guide, feedback image, troisi?me r?f?rence ni finition composite ; fichiers upload nomm?s par tentative.
+- L?ancienne image asset-f5dbf734f338421d843c9305601d3fd0 (Retrait du rev?tement de sol en marbre) n?est pas une r?f?rence de cet ajout. Accept?e manuellement ? 07:30:55 UTC, elle avait servi ? g?n?rer asset-9543 en supprimant explicitement ouvriers/outils. La filiation du d?cor existe donc, sans transmission directe de l?ancienne image ? cet ajout.
+- Sortie rejet?e asset-9117f6a860b84e2b9855909626f3e650 : ouvriers r?apparus, tenues similaires ? l?ancien essai mais effectif/positions/postures diff?rents, ouverture et tache lumineuse partiellement conserv?es. Le prompt soumis imposait d?j? explicitement une sc?ne r?aliste sans personnes/ouvriers ; pas d?activation de la politique V2 sc?ne vivante dans le preset realistic.
+- Ajout suivant journey-edit-4c1ea8b5a8695d8bb9dee9a615db9a4c (? ferme le trou en haut, pas d?ouvrier pr?sent ?), termin? 07:39:29 UTC, utilise les m?mes deux assets dans minimax-f3cc766617b2570ab2d6d6c007e8c8a2 / attempt-43a59a2d05894d83aade36b4419bcaaa ; sortie asset-3d1e234f11c54e07a95f190f92b9d78e sans ouvriers et jug?e utilisable. Prompt et seed diff?rent ; impossible d?attribuer l?am?lioration ? un seul facteur. Cause pr?cise de l?invention des personnages non d?montr?e.
+- Fonctionnement g?n?ral v?rifi? : ajout en extr?mit? = image voisine comme source ; insertion = deux voisins pour l?analyse LLM, source d??dition choisie parmi eux pour MiniMax. En reverse, l?image fournie d?origine est ajout?e comme r?f?rence permanente distincte si elle diff?re de la source. Pas de transmission de toute la frise. Les coches s?lectionnent seulement les images pour Transitions, pas les r?f?rences de g?n?ration.
+
+### Next steps
+- Restituer le bilan et la limite de certitude sur la cause. Aucun correctif ni essai comparatif lanc? ; attendre le choix utilisateur pour une ?ventuelle ?volution. L?interface pourrait mieux expliciter la r?f?rence d?origine suppl?mentaire.
+
+## Correctif UX 2026-10-09 — Bandeau compact du parcours d’images
+
+### Goal
+- Demande UX uniquement : le bandeau Image Lab apparaît trop large avec de gros caractères dans Parcours d’images autonome ; retrouver le style compact des autres onglets.
+
+### Current state
+- Cause confirmée par lecture CSS : image-journeys.css appliquait font: inherit à tous les boutons de .ij-workspace, y compris .image-lab-modebar. À spécificité égale et chargé après lab.css, ce raccourci écrasait la taille .68rem et la graisse 750 du bandeau partagé.
+- Correctif minimal dans le checkout actif D:/Code/panelforge-krea2-flux : limiter cet héritage aux boutons .ij-content et .ij-detail. Les six boutons de navigation reprennent directement le style commun de lab.css. La largeur complète de l’atelier et les fonctions du parcours sont conservées.
+- Deux fichiers applicatifs modifiés : une règle dans static/image-journeys.css et son paramètre de cache dans static/index.html, 20261009.modebar1. Vérification statique du diff et des ancêtres HTML : les boutons de navigation sont exclus de la surcharge, les autres boutons statiques gardent leur portée. Aucune suite de tests ajoutée/exécutée, aucun appel LLM/rendu, modification runtime, commit/push ou redémarrage.
+- Sauvegardes et diff sous D:/Code/panelforge/.agent/diagnostics/journey-modebar-20261009/. Seules les continuités sont aussi mises à jour, en préservant les autres tâches.
+
+### Next steps
+- Utilisateur : Ctrl+F5 pour charger le CSS actualisé ; pas de redémarrage backend nécessaire pour ce correctif UX. Vérification visuelle dans les deux onglets à sa main.
+- Les validations fonctionnelles des évolutions de parcours précédentes restent celles indiquées ci-dessous ; ce correctif n’en exécute aucune.
+
+## Implémentation 2026-10-08 — Décider sur les images bloquées et ajouter aux deux extrémités
+
+### Goal
+- Go utilisateur « okay, ça me vas, tu peux implémenter » après alignement : régénérer ou accepter une image rejetée, et un + à chaque intervalle et aux deux extrémités, y compris au-delà de l’image fournie. Régénération directe avec prise en compte du diagnostic retenue.
+
+### Current state
+- Patch appliqué au checkout actif D:/Code/panelforge-krea2-flux ; changements préexistants et travail Danse concurrent préservés. Aucune modification des projets runtime existants, aucun appel LLM, rendu, test fonctionnel, commit/push ou redémarrage de service.
+- Nouveau service application/image_journey_resolutions.py et POST .../projects/{id}/image-resolutions : commandes idempotentes avec version, step_id et output_asset_id explicites. Cible seulement une image effectivement relue unusable et suspendue, automatique ou issue d’un ajout manuel. Erreurs techniques gardent Reprendre. Claims et ajout en cours empêchent une décision concurrente ; ancien résultat, nouvelle version ou commande réutilisée autrement refusés.
+- Régénérer remplace l’étape automatique dans son emplacement, depuis sa source d’édition et sa même action ; nouveau step/op ID, nouveaux IDs prompt/rendu, nouveau sous-projet MiniMax. Anciennes sorties, seed/settings exécutés et contours de masque non réutilisés. Budget automatique inchangé ; ancien essai conservé dans abandoned_steps, ou opération manuelle cancelled avec replacement_id. Voisins, référence d’origine et anciens exports Transitions conservés. Rejet transmis au prompter, à la relecture et au masque éventuel. Résumé/avancement avant essai restaurés (snapshot nouveau ou contexte d’analyse des anciens journaux). Pas de nouveau moteur ni de correctif général du masque.
+- Accepter conserve les pixels et le diagnostic du modèle, ajoute user_acceptance liée à cet asset, rend l’image exportable et reprend la planification depuis l’état réel. Dernière image : termine sans appel supplémentaire ; endpoint inverse déjà atteint peut aussi terminer. L’exception est propre à cette image : preset réaliste sans personnages maintenu pour la suite. Sur ajout manuel, Accepter l’image valide cet ajout sans reprendre arbitrairement le parcours parent.
+- Ordre canonique explicite pouvant contenir source au milieu ; anciens sequence_order sans source restent source-first à la lecture, sans migration. kind=prepend, after_frame_id=null, before_frame_id=première image ; référence source_asset_id jamais remplacée. Source unique à éditer pour le + extérieur ; deux voisins pour une insertion. Ajouts successifs et insertion entre ajout et source pris en charge, hors budget automatique. Le transfert conserve ordre visible/coches.
+- UX : Régénérer / Accepter et continuer (ou terminer) sous la vignette rejetée et dans l’aperçu, mêmes décisions dans le dialogue d’ajout. Diagnostic conservé et libellé Acceptée manuellement. Boutons verrouillés pendant la décision ; commande conservée pour un rejeu réseau. + opposé à l’extrémité génération, position inversée avec la frise, même popup une image + état souhaité. Masqué avec ancien backend sans capability prepend_images. Cache JS/CSS 20261008.resolutions1.
+- Documentation actualisée dans docs/design/image-journeys-guide.md. 16 régressions backend préparées dans tests/test_image_journey_resolutions.py, avec passerelles factices ; scénario tests/test_image_journeys_browser.py étendu (double clic, décisions, popup, extrémités et inversion). NON exécutés selon AGENTS. Syntaxe seule validée : 11 fichiers Python, 2 JS applicatifs + fixture/scénario navigateur compilés sans invocation ; 2189 IDs HTML uniques et 76 sélecteurs présents. Méthodes hors périmètre comparées par AST. Sauvegardes, review.diff, empreintes et static-checks.json sous D:/Code/panelforge/.agent/diagnostics/journey-resolution-20261008/.
+
+### Next steps
+- Utilisateur : charger le nouveau backend au prochain redémarrage habituel après les rendus en cours, puis Ctrl+F5. Aucun redémarrage n’a été effectué par l’agent. L’API et les décisions ne sont disponibles qu’après ce chargement.
+- Tests à sa main depuis le checkout actif : python -m unittest discover -s tests -p "test_image_journey*.py". La qualité réelle d’une régénération reste à qualifier sur ses images ; ne pas annoncer de validation visuelle ou de tests fonctionnels passés.
+- Vérification utilisateur proposée : rouvrir la grotte rejetée, choisir accepter ou régénérer ; essayer le + à droite de l’image fournie en affichage construction, puis inverser la frise et contrôler le prochain transfert.
+
+## Implémentation 2026-10-08 — Danse directe et aperçu facultatif
+
+### Goal
+- Go utilisateur « okay ça me va » : rendre le rendu complet habituel principal, accepter les MP égaux selon chaque recette, garder aperçu puis finition facultatifs et corriger les indications de passes.
+
+### Current state
+- Patch appliqué dans D:/Code/panelforge-krea2-flux, en conservant les autres changements du checkout. Bouton principal Générer la danse, dance_stage=full par défaut. Case Aperçu rapide uniquement décochée et placée dans Réglages du rendu replié ; active seulement draft, bouton Générer un aperçu. Mode verrouillé pendant le rendu et réinitialisé pour Nouvelle danse. Anciens essais draft inchangés en persistance, affichés comme Aperçu et action Finaliser cet aperçu conservée.
+- Suppression de la restriction MP finaux strictement supérieurs aux MP initiaux. Le rendu normal reprend les règles existantes : BUNNY 0,9→0,9 conserve deux passes à ×1 ; REF2V standard applique son bypass automatique et son option existante de forçage. Suppression des remplacements de valeurs par défaut Danse 0,2→1 (API catalogue et UI) ; la recette fournit désormais ses valeurs normales et les réglages des anciens essais sont conservés à la réouverture.
+- Aperçus à MP égaux autorisés. Finition BUNNY à ×1 autorisée depuis les latents, sans recalcul de la première passe. REF2V standard sans finition forcée : une reprise de finition dont la géométrie demande un bypass est refusée avant création/soumission avec message explicite invitant à utiliser l’aperçu directement ou augmenter les MP finaux ; évite de relancer la première passe en prétendant finaliser. Les anciens aperçus restent finalisables à une cible compatible.
+- Résumé BUNNY en mode aperçu montre uniquement résolution initiale et steps de première passe ; récapitulatif de finition indique première passe réutilisée. Progression de Danse full avec bypass REF2V exclut upscale/refinement. Aucun graphe, ID de nœud, modèle, prompt, schéma de persistance ou recette source modifié.
+- Neuf fichiers ciblés : dance.js, index.html, h3-render-lab.js, application/h3_render.py, features/lab/web.py, infrastructure/presets/h3_dance.py, README.md, tests/test_dance.py, tests/test_dance_browser.py. Trois nouvelles régressions Python (graphes natifs à MP égaux, rendu complet sans finalisation, aperçus égaux et reprise) ; scénario navigateur existant étendu (défaut full, conservation MP, choix aperçu, verrouillage, ancien aperçu finalisable).
+- Contrôles statiques réussis : 5 fichiers Python compilés sans import/exécution, 2 JS et 2 fragments navigateur compilés par new Function sans invocation, 2187 IDs HTML uniques, 45 sélecteurs résolus, diff relu et empreintes vérifiées. Aucun test fonctionnel, rendu, appel LLM, modification runtime ou redémarrage ; aucun commit/push.
+- Sauvegardes avant tâche, patch.py, changes.json, review.diff, checks.py et static-checks.json dans D:/Code/panelforge/.agent/diagnostics/dance-full-20261008/. Ne pas réappliquer patch.py : les sauvegardes existent et les changements sont déjà présents.
+
+### Next steps
+- Au prochain redémarrage de PanelForge choisi par l’utilisateur, puis Ctrl+F5, charger tous les changements backend/frontend. Essai utilisateur : Danse BUNNY, MP initiaux=0,9 / MP finaux=0,9, Aperçu rapide uniquement décoché, Générer la danse.
+- Tests à la main de l’utilisateur selon AGENTS : depuis checkout actif, PYTHONPATH=src, python -m unittest discover -s tests -p "test_dance*.py", puis suites H3/REF2V selon besoin. Qualification réelle danse/qualité non faite par cet agent.
+- Publication GitHub du patch courant toujours distincte : seule la sauvegarde pré-Danse du 2026-10-07 est publiée.
+
+## Audit 2026-10-08 — MP égaux et libellé brouillon dans Danse
+
+### Goal
+- Vérifier le rejet de 0,9 MP initiaux / 0,9 MP finaux et expliquer le choix du terme brouillon. Discussion uniquement, sans changement applicatif.
+
+### Current state
+- Cause confirmée en lecture de code : application/h3_render.py:873–874 impose settings.megapixels > initial_megapixels aux étapes Danse draft/refine, avec « La finition doit avoir plus de MP que le brouillon ». Cette restriction est propre au parcours Danse ajouté ; ce n’est pas une limite générale des recettes REF2V.
+- BUNNY commun accepte une échelle ×1 ; 0,9→0,9 conserve ses deux passes (4+5 steps avec le preset courant), sans agrandissement. domain/h3_bunny.py:bunny_geometry et tests/test_h3_bunny.py:test_geometry_x1_and_larger_preserve_both_passes le documentent. Tests lus, non exécutés. REF2V standard utilise h3_upscale_plan : résolutions égales = bypass automatique upscale/finition par défaut, avec option de forçage existante selon recette.
+- Danse impose actuellement dance_stage=draft depuis dance.js : le bouton exact est « Générer un brouillon », puis « Finaliser ce brouillon » dans l’historique. Le premier rendu ne calcule que la première passe et conserve ses latents ; la finition reprend ces latents au second clic. Objectif initial : essais peu coûteux à basse résolution puis finalisation du meilleur. Ce n’est pas une simple sauvegarde ni un simple intitulé.
+- Le bandeau partagé BUNNY annonce toujours coarse+refine steps et la résolution cible complète, même pour la première passe Danse seule : affichage ambigu à prendre en compte dans un futur correctif. Pas de reproduction dynamique/génération pour cet audit.
+- Recommandation à discuter, NON approuvée : rendu complet normal par défaut, bouton « Générer la danse », même politique MP que chaque recette existante (dont 0,9→0,9), aperçu rapide puis finition optionnels et discrets. Renommer seulement le bouton ne suffirait pas à rendre le comportement identique.
+- Aucun code applicatif, test, runtime, service, commit/push modifié. Seules les continuités consignent cette lecture.
+
+### Next steps
+- Recueillir le choix utilisateur sur rendu direct par défaut et place du parcours aperçu/finition ; attendre un go avant implementation.
+- Pour un futur patch : conserver exactement les comportements BUNNY/REF2V, rendre l’affichage des passes/résolutions conforme au stade exécuté et préserver les brouillons/latents déjà enregistrés.
+
+## Alignement 2026-10-08 — Sortir d’une image bloquée et ajouter aux deux extrémités
+
+### Goal
+- Demande de discussion, sans go d’implémentation : deux issues à une image rejetée (écarter/régénérer ou accepter/continuer), et des + partout dans la frise, y compris au-delà de l’image fournie, quel que soit le sens d’affichage.
+
+### Current state
+- Lecture seule du code applicatif : une image automatique déjà produite en phase reviewing reste la même lors de Reprendre ; elle est relue, pas régénérée. Les opérations manuelles offrent resume/cancel, sans acceptation explicite ni remplacement d’un rendu rejeté. Aucune inspection du journal réel de la grotte à ce tour : le motif exact du rejet n’a pas été réaudité à partir de la seule capture.
+- Les + actuels couvrent les voisins et la fin de génération. La borne opposée, au-delà de source, manque ; dans la capture à rebours, il s’agit du bord droit après Aménagement terminé. source est actuellement toujours placée en tête canonique par le contrat frames/sequence : le futur ajout exigera un ancrage explicite avant source, tout en gardant la référence fournie intacte.
+- Proposition d’alignement : Régénérer écarte le résultat rejeté de la frise (trace conservée) et refait le même emplacement depuis sa source de génération précédente, pas depuis l’image défectueuse ; budget inchangé, motif du rejet pris en compte, puis reprise automatique après résultat acceptable. Accepter et continuer marque une décision humaine, conserve le diagnostic, utilise les pixels réels pour la suite et rend l’image sélectionnable pour Transitions. Dernière image demandée : Accepter et terminer. Exception sur cette image, sans supprimer les consignes du preset pour les suivantes.
+- Proposition UX : deux actions compactes sur l’image bloquée ou dans son aperçu, aussi pour les ajouts +. + discret à chaque intervalle et aux deux extrémités affichées. À une extrémité, même fenêtre avec une image et l’état souhaité ; demande libre permettant un état supplémentaire au-delà de l’image initialement fournie. Images existantes/référence finale inchangées, ajout manuel hors budget automatique, ordre affiché suivi pour Transitions.
+- Question envoyée via request_user_input_async : relance directe avec motif du rejet (recommandée), ou fenêtre permettant une correction facultative. Réponse attendue ; ne pas traiter la recommandation comme validée. Aucun code applicatif, runtime, test, appel LLM, rendu ou service modifié.
+
+### Next steps
+- Recueillir l’alignement sur ces comportements et le mode de régénération ; attendre un go avant implementation.
+- Lors de l’implémentation, traiter les décisions sur une image/étape explicite et la reprise sans double rendu ; préserver les voisins et les anciens transferts. Pour un rejet automatique suivi d’ajouts manuels dépendants, aligner une gestion de remplacement sans effacer silencieusement ces images.
+
+## Correctif 2026-10-08 — Validation de l’extrait Danse avant envoi
+
+### Goal
+- Résoudre le blocage du premier essai à partir de la capture utilisateur : début 9 s, durée 5 s, message « Choisissez au moins 5,2 secondes pour la grille du moteur H3 » et POST /api/dance/projects en 422.
+
+### Current state
+- Cause établie : rejet normal du domaine excerpt_frames avant découpage/persistance. À 24 FPS, 5 s donnent 120 frames ; alignement vers le bas 17n+5 = 107 frames, sous le minimum actuel de 124 frames du contrat Danse compatible avec VideoLabSettings (durée >=5 s). L’atelier demande donc 5,2 s à saisir, donnant 124 frames / 24 ≈5,1667 s. Ne pas présenter cette contrainte de l’atelier comme le minimum universel de MiniMax.
+- Défaut UX corrigé dans D:/Code/panelforge-krea2-flux : les attributs min/max du champ n’étaient pas contrôlés par le bouton indépendant d’un formulaire. Validation désormais avant requête, retour explicite sous les réglages début/durée, aria-invalid et bouton Préparer l’essai désactivé si durée <5,2 ou >15, début invalide, fin hors vidéo ou sources absentes. Le bouton Depuis cette position recalcule aussi la validité. Vérification supplémentaire au clic pour interdire l’envoi programmatique d’un extrait invalide.
+- Aucun changement au backend, au contrat temporel, aux modèles ou aux workflows. On ne rallonge pas silencieusement l’extrait. Réglage de reprise communiqué : Début=9 s, Durée=5,2 s ; cette correction lève le rejet observé, sans garantir les étapes de génération encore non qualifiées.
+- Trois fichiers modifiés : static/dance.js, static/index.html (message lié au champ + cache 20261008.duration1), tests/test_dance_browser.py. Régression préparée pour la sélection 9/5 sans POST, correction 9/5,2 envoyée intacte, durée vide, début trop tardif et dépassement de fin. Aucun test exécuté selon AGENTS.
+- Contrôles statiques réussis : syntaxe JS + fixture/scénario navigateur compilés sans invocation, Python compilé sans exécution, 2185 IDs HTML uniques et 44 sélecteurs présents, empreintes et diff sans espaces finaux ajoutés. Sauvegardes/review.diff/static-checks.json dans D:/Code/panelforge/.agent/diagnostics/dance-duration-20261008/.
+- Aucun rendu, appel LLM, encodage, projet runtime, commit/push ou service modifié. Page servie via FileResponse avec Cache-Control no-store : Ctrl+F5 suffit pour prendre ce correctif d’interface, aucun redémarrage backend nécessaire.
+
+### Next steps
+- Utilisateur : poursuivre directement avec début 9 s / durée 5,2 s ; Ctrl+F5 pour charger la validation améliorée (resélection des fichiers si la page est rechargée avant création du projet).
+- Tests à sa main : python -m unittest discover -s tests -p "test_dance_browser.py", puis première génération Danse pour qualifier les étapes suivantes. Si l’utilisateur souhaite des extraits strictement de 5 s ou moins, aligner séparément la politique temporelle plutôt que modifier les moteurs existants implicitement.
+
+## Diagnostic 2026-10-08 — Premier essai Danse non abouti
+
+### Goal
+- Utilisateur signale avoir tenté une danse sans succès. Identifier le blocage puis corriger la cause établie, sans rendu de vérification ni redémarrage.
+
+### Current state
+- Continuités et AGENTS relus. Checkout actif D:/Code/panelforge-krea2-flux ; processus run_lab en cours utilisent D:/Code/panelforge/workspace. Nombreux changements préexistants conservés.
+- Aucun projet dance-*/project.json dans h3_render_projects ; aucun essai Danse enregistré à inspecter. Un import MP4 récent sans source_run_id, asset-aabfa836bc9d4e5682f7c6f9ff68f704 (12 358 034 octets), est présent parmi les assets récents ; aucune sortie de préparation liée à un projet dance-* trouvée. Cela suggère un blocage avant la persistance du projet, sans prouver le point exact du clic utilisateur.
+- Métadonnées lues avec FFprobe uniquement : vidéo H264 720×1280, 30 FPS, durée vidéo 60,3 s, audio AAC, conteneur 60,415329 s. FFmpeg/FFprobe présents sous D:/AI/ComfyUI_windows_portable/tools ; inventaire -encoders confirme libx264 et AAC. Aucun encodage, découpage, rendu ou appel LLM exécuté.
+- Relu création du projet, formulaire Danse, validation de durée et préparation média. Aucun défaut causal démontré à ce stade. Le wrapper média présente une erreur générique et ne conserve pas stderr ; pas de journal applicatif durable trouvé dans le workspace pour retrouver cet échec.
+- Question envoyée via request_user_input_async : stade du blocage (Préparer l’essai / Générer un brouillon / mauvaise vidéo) et texte exact de l’erreur. Pas de réponse encore reçue. Les messages intermédiaires situent la préparation comme piste, pas comme cause confirmée.
+- Aucun code applicatif, test, projet runtime, service, commit ou push modifié. Seules les deux continuités actualisées. Ne pas déclarer ce problème corrigé.
+
+### Next steps
+- Recevoir le texte exact de l’erreur ou une capture et le clic qui la déclenche ; compléter avec les valeurs début/durée si le message concerne les bornes de l’extrait.
+- Appliquer le correctif ciblé sur la cause établie et prévoir une régression utile. Tests à exécuter par l’utilisateur selon AGENTS ; aucune relance de génération/redémarrage automatique.
+
+## Implémentation 2026-10-07 — Atelier Danse dans Ref2V
+
+### Goal
+- Demande explicite : « Okay, fait une version github et implémente ce patch ». Sauvegarder avant changement, puis livrer l’atelier Danse autonome sur les deux recettes REF2V existantes. Implémentation terminée dans le checkout actif ; qualification par générations utilisateur à venir.
+
+### Current state
+- Point AVANT patch publié et revérifié : commit `5f1591bd66821f8bd0cbbbaf8d9e6e144241e2bf`, parent v2.0.0 `051cba1cd4d14529c43d05edd8c4ee7823d9f850`. `origin/master`, branche `snapshots/pre-dance-2026-10-07`, tag annoté `snapshot-pre-dance-2026-10-07` (objet `0506fec41aea1ed0839a7f86a733b41da3ca5e68`). URL https://github.com/EasyFrag/panelforge/tree/snapshot-pre-dance-2026-10-07. Index temporaire/commit-tree/push atomique sans force ; HEAD, index et branche de travail préservés. Le patch Danse qui suit n’est pas encore publié.
+- Code actif : `D:/Code/panelforge-krea2-flux`. Nouveau choix compact Images / Danse dans Ref2V ; pas de nouvel onglet principal. Import photo personnage+décor, vidéo, début/durée, écoute de l’extrait et son original par défaut. Historique serveur des projets et dernier projet/mode mémorisés. Les réglages de rendu sont repliés ; le panneau H3 existant fournit modèles, checkpoints, LoRA, sampling, preview, historique et téléchargement.
+- Exactement deux sources : REF2V `0.2.5+vae-int8-convrot.1` et BUNNY `0.1.3+vae-int8-convrot.1`. Extension `.dance.1.0.0` avec empreintes sources fixées et liaisons dans `workflows/video.reference/dance/1.0.0/manifest.json`. Ajout de LoadVideo/GetVideoComponents et des références vidéo/audio aux conditionnements existants. Aucune recette externe importée ; aucun modèle/LoRA téléchargé ; Character Swap non imposé. Catalogue Images inchangé et compilation sans référence vidéo déléguée à la recette d’origine.
+- Contrat clair du prompt : photo = identité, tenue, proportions, décor, cadrage/lumière ; vidéo = danse/rythme ; audio = bande-son source. Prompt court prêt sans LLM, éditable et enregistrable. Ajustement facultatif en un appel avec Gemma local si disponible, modèle mémorisé ; proposition avant application, validation des six rubriques/balises. Le modèle n’observe pas les médias dans cette retouche et ne doit pas inventer de chorégraphie horodatée.
+- Préparation CPU bornée via FFmpeg/FFprobe déjà fournis sous dlss_root/tools : extrait 24 FPS, au plus 1280 px de côté, aligné vers le bas sur 17n+5 sans dépasser le segment choisi (minimum utilisable 124 frames, maximum 345). Photo EXIF normalisée PNG. Son repris depuis l’extrait préparé au mux final, piste générée remplacée ; pas de dépendance à la fidélité audio du modèle.
+- Brouillon = première passe seule, défaut 0,2 MP, sauvegarde distincte des latents vidéo/audio. Finition depuis un essai choisi = LoadLatent + upscale/raffinement, sans recalcul du sampler initial. Cible par défaut 1 MP ; seuls les MP finaux peuvent varier, paramètres/prompt/seed/ratio/recette du brouillon conservés. Progression adaptée aux seules passes exécutées. LoRA et réglages des deux recettes restent disponibles ; pas d’envoi automatique vers l’usine.
+- Persistance H3 schema 18 compatible avec 1–17 : référence de danse, étape draft/full/refine, source_attempt_id et deux assets latents. Récupération après interruption réutilise l’historique Comfy, réimporte latents/vidéo et remet le son source. Danse n’invente pas de composition/scénario : la capture de trace contourne explicitement la session de composition absente. Les projets médias sont durables via les IDs d’assets.
+- 15 régressions préparées dans `tests/test_dance.py` et `tests/test_dance_browser.py` : durée/balises, graphes image seuls inchangés, références sur deux recettes, première passe/latents/reprise sans coarse, paramètres figés, audio et récupération après interruption, persistance ancienne, trace sans composition, API, flux navigateur simulé. Trois attentes de schema H3 existantes passent de 17 à 18. Tests NON exécutés selon AGENTS.md.
+- Contrôles statiques réussis : 16 Python compilés sans import/exécution applicative ; deux JS et deux fragments navigateur compilés via new Function sans invocation dans un Chrome isolé ; 2184 IDs HTML uniques, 43 sélecteurs résolus ; sources/empreintes VAE et liaisons des deux recettes vérifiées ; absence d’espaces finaux ajoutés. README actualisé. 22 fichiers applicatifs/tests/docs concernés, hors continuités. Preuves/sauvegardes/diff/checksums dans `D:/Code/panelforge/.agent/diagnostics/dance-20261007/`.
+- Aucun appel LLM, rendu image/vidéo, installation de dépendance, modification de projet runtime ni redémarrage de service. FFmpeg n’a pas été exécuté pour vérification. La qualité de transfert personnage/décor/mouvement, les nœuds Comfy distants et le cycle réel brouillon/finition restent à qualifier par l’utilisateur ; les contrôles de syntaxe ne valent pas test fonctionnel.
+
+### Next steps
+1. Au prochain redémarrage habituel choisi par l’utilisateur, charger le backend du checkout actif puis Ctrl+F5 ; Ref2V → Danse. Aucun redémarrage automatique effectué pendant ses générations.
+2. Depuis le checkout actif avec PYTHONPATH=src : `python -m unittest discover -s tests -p "test_dance*.py"`, puis suites H3/REF2V existantes. Les tests préparés utilisent des faux médias, API et transports sans génération.
+3. Premier essai utilisateur : photo en pied, plan continu avec un seul danseur, extrait de 8 s, brouillon 0,2 MP puis finition 1 MP ; comparer REF2V/BUNNY à seed fixe, identité/décor/mouvements/occlusions/audio. Vérifier une réouverture et le rechargement des latents. Tester Character Swap séparément uniquement si souhaité.
+4. Histoire V3 (orchestration des blocs et adaptation travaux avec personnage) reste une étape distincte, pas implémentée dans ce patch Danse. Publication du patch courant à faire à la prochaine demande GitHub ; la sauvegarde avant patch est déjà en ligne.
+
 ## Alignement 2026-10-07 — Danse utilise exclusivement les deux recettes REF2V existantes
 
 ### Goal

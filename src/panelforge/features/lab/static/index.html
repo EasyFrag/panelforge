@@ -8,7 +8,7 @@
   <script src="/static/lab.js?v=20260929.storyv2" defer></script>
   <script src="/static/network-mode.js?v=20260928.1" defer></script>
   <script src="/static/work-queue.js?v=20261001.thermal-scale1" defer></script>
-  <script src="/static/lab-core.js?v=20260929.mask1" defer></script>
+  <script src="/static/lab-core.js?v=20261011.recipes1" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
   <script src="/static/story-continuity.js?v=20260927.sparse-states" defer></script>
@@ -34,7 +34,9 @@
   <script src="/static/h3-checkpoints.js?v=20260914.1" defer></script>
   <script src="/static/h3-lora-info.js?v=20260911.3" defer></script>
   <script src="/static/h3-loras.js?v=20260911.3" defer></script>
-  <script src="/static/h3-render-lab.js?v=20260925.factory1" defer></script>
+  <script src="/static/h3-render-lab.js?v=20261008.dance-full1" defer></script>
+  <link rel="stylesheet" href="/static/dance.css?v=20261007.dance1">
+  <script src="/static/dance.js?v=20261008.full1" defer></script>
   <script src="/static/h3-conversion.js?v=20260909.5" defer></script>
   <script src="/static/social-lab.js?v=20260925.factory1" defer></script>
   <script src="/static/ref2v-direct.js?v=20260925.factory1" defer></script>
@@ -49,24 +51,26 @@
   <script src="/static/episodes.js?v=20260928.reference-preparation" defer></script>
   <script src="/static/krea2-retouch.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
-  <script src="/static/krea2-assisted-lab.js?v=20260928.navigation1" defer></script>
+  <script src="/static/krea2-assisted-lab.js?v=20261011.recipes1" defer></script>
   <script src="/static/image-crop.js?v=20260914.1" defer></script>
   <script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script>
   <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260928.minimax1">
   <script src="/static/qwen-edit-v2.js?v=20260928.minimax2" defer></script>
-  <link rel="stylesheet" href="/static/image-journeys.css?v=20261007.realistic1">
-  <script src="/static/image-journey-actions.js?v=20261004.order1" defer></script>
-  <script src="/static/image-journeys.js?v=20261007.realistic1" defer></script>
+  <link rel="stylesheet" href="/static/image-journeys.css?v=20261009.queue1">
+  <script src="/static/image-journey-actions.js?v=20261009.queue1" defer></script>
+  <script src="/static/image-journeys.js?v=20261009.progress1" defer></script>
   <link rel="stylesheet" href="/static/video-factory.css?v=20260928.compact1">
   <link rel="stylesheet" href="/static/video-factory-monitor.css?v=20260928.ready1">
   <script src="/static/video-factory-monitor.js?v=20260928.preview4" defer></script>
-  <script src="/static/video-factory.js?v=20260929.storyv2" defer></script>
-  <link rel="stylesheet" href="/static/image-transitions.css?v=20261004.send1">
-  <script src="/static/image-transition-references.js?v=20260929.refs1" defer></script>
-  <script src="/static/image-transitions.js?v=20261005.prefill1" defer></script>
+  <script src="/static/video-factory.js?v=20261011.recipes1" defer></script>
+  <link rel="stylesheet" href="/static/image-transitions.css?v=20261009.presets1">
+  <script src="/static/image-transition-references.js?v=20261009.presets1" defer></script>
+  <script src="/static/image-transitions.js?v=20261009.presets1" defer></script>
   <link rel="stylesheet" href="/static/story-v2.css?v=20261001.edition21">
   <script src="/static/story-v2-settings.js?v=20260929.defaults1" defer></script>
   <script src="/static/story-v2.js?v=20261005.profiles1" defer></script>
+  <link rel="stylesheet" href="/static/recipes.css?v=20261011.1">
+  <script src="/static/recipes.js?v=20261011.1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -79,8 +83,8 @@
       <button type="button" data-lab-view="i2v-direct">H3 Base</button>
       <button type="button" data-lab-view="ref2v-direct">Ref2V</button>
       <button type="button" data-lab-view="video-lab">Video Lab</button>
-      <button type="button" data-lab-view="stories">Histoires</button>
-      <button type="button" data-lab-view="story-v2">Histoire V2</button>
+      <button type="button" data-lab-view="story-v2">Histoire</button>
+      <button type="button" data-lab-view="recipes">Recettes</button>
       <button type="button" data-lab-view="image-transitions">Transitions</button>
       <button type="button" data-lab-view="video-factory">Usine <span id="vf-nav-errors" hidden></span></button>
     </nav>
@@ -109,8 +113,80 @@
 
 
 
+  <main id="recipes-workspace" hidden>
+    <header class="rc-heading">
+      <h1>Recettes</h1><select id="rc-projects" aria-label="Ouvrir une recette"></select>
+      <button id="rc-new" type="button">Nouvelle recette</button><button id="rc-refresh" type="button">Actualiser</button>
+      <button id="rc-restore-draft" type="button" hidden>R?appliquer mon brouillon</button>
+      <span id="rc-status" role="status"></span>
+      <button id="rc-pause" type="button" hidden>Pause après l’étape</button>
+      <button id="rc-resume" type="button" hidden>Reprendre</button>
+      <button id="rc-abandon" type="button" hidden>Abandonner les étapes restantes</button>
+    </header>
+    <p id="rc-message" role="status" aria-live="polite"></p>
+    <nav class="rc-tabs" aria-label="Étapes de la recette">
+      <button type="button" data-rc-tab="universe" class="active">1 · Univers</button>
+      <button type="button" data-rc-tab="breakdown">2 · Découpage</button>
+      <button type="button" data-rc-tab="images">3 · Images</button>
+      <button type="button" data-rc-tab="clips">4 · Clips</button>
+    </nav>
+    <section data-rc-panel="universe">
+      <div class="rc-universe">
+        <div>
+          <h2>Le plat terminé</h2>
+          <button type="button" id="rc-master-preview" class="rc-master"><span>Choisir ou créer l’image du plat</span></button>
+          <div class="rc-actions"><button id="rc-sources" type="button">Depuis mes images</button><label class="rc-upload">Importer une image<input id="rc-upload" type="file" accept="image/*"></label></div>
+          <div id="rc-master-trials" class="rc-thumbs" aria-label="Essais du plat terminé"></div>
+        </div>
+        <form id="rc-form">
+          <label>Nom de la recette<input id="rc-name" maxlength="120" required placeholder="Poisson et spaghetti en laine"></label>
+          <label>Ton intention<textarea id="rc-intention" rows="3" maxlength="6000" placeholder="Le plat à préparer, les gestes à privilégier, l’ambiance…"></textarea></label>
+          <div class="rc-row"><label>Durée totale indicative (s)<input id="rc-target_duration" type="number" min="15" max="180" step="1" required></label>
+            <label>Format<select id="rc-aspect_ratio"><option value="9:16 (Portrait Widescreen)">Vertical · 9:16</option><option value="16:9 (Widescreen)">Horizontal · 16:9</option><option value="1:1 (Square)">Carré · 1:1</option></select></label></div>
+          <label>Preset KREA2 pour créer le plat<select id="rc-style_preset_id"><option value="">Choisir un preset</option></select></label>
+          <p class="muted">Le preset est utilisé pour créer le plat. Les images des plans reprennent ensuite le plat comme référence visuelle.</p>
+          <div class="rc-actions"><button id="rc-create-master" type="button">Créer le plat avec KREA2</button><button id="rc-save" type="submit">Enregistrer</button></div>
+          <details><summary>Univers, personne et réalisation</summary>
+            <label>Monde matériel<textarea id="rc-world" rows="3" maxlength="3000" required></textarea></label>
+            <label>Personne qui cuisine<textarea id="rc-cook" rows="2" maxlength="1500" required></textarea></label>
+            <label>Caméra<textarea id="rc-camera" rows="2" maxlength="1500" required></textarea></label>
+            <label>Ambiance sonore<textarea id="rc-audio" rows="2" maxlength="1500" required></textarea></label>
+            <p class="muted">Clips de cuisine sans voix ni musique. Le montage final se fait dans ton outil habituel.</p>
+          </details>
+          <details><summary>Modèles de préparation</summary>
+            <datalist id="rc-models"></datalist>
+            <label>Découpage et création KREA2<input id="rc-model_id" list="rc-models" maxlength="300" required></label>
+            <label>Images des plans · prompt MiniMax<input id="rc-edit_model_id" list="rc-models" maxlength="300" required></label>
+            <label>Plan vidéo H3<input id="rc-plan_model_id" list="rc-models" maxlength="300" required></label>
+            <label>Prompt vidéo H3<input id="rc-writer_model_id" list="rc-models" maxlength="300" required></label>
+          </details>
+          <button id="rc-propose" class="primary" type="button">Proposer le découpage</button>
+        </form>
+      </div>
+    </section>
+    <section data-rc-panel="breakdown" hidden>
+      <div class="rc-actions"><span id="rc-timing"></span><button id="rc-add" type="button">Ajouter un plan</button><button id="rc-save-shots" type="button">Enregistrer le découpage</button></div>
+      <div id="rc-shots" class="rc-grid"></div>
+      <label>Retravailler le découpage<textarea id="rc-feedback" rows="2" maxlength="4000" placeholder="Davantage de préparation, moins de cuisson…"></textarea></label>
+      <div class="rc-actions"><button id="rc-revise" type="button">Retravailler</button><button id="rc-approve-images" class="primary" type="button">Valider le découpage et générer les images</button></div>
+    </section>
+    <section data-rc-panel="images" hidden>
+      <div class="rc-actions"><button data-rc-select="all" type="button">Tout sélectionner</button><button data-rc-select="none" type="button">Tout décocher</button><button id="rc-generate-images" type="button">Générer les images sélectionnées</button><button id="rc-to-clips" type="button">Revoir les clips à préparer →</button></div>
+      <p class="muted">Les images arrivent ici au fil du lot. Revois les essais avant de lancer les vidéos.</p>
+      <div id="rc-images" class="rc-grid"></div>
+    </section>
+    <section data-rc-panel="clips" hidden>
+      <div class="rc-actions"><button data-rc-select="all" type="button">Tout sélectionner</button><button data-rc-select="none" type="button">Tout décocher</button><button id="rc-generate-clips" class="primary" type="button">Animer les plans sélectionnés</button><button id="rc-export" type="button">Exporter les clips retenus</button></div>
+      <p class="muted">Chaque plan produit son clip. L’export ZIP conserve l’ordre du découpage ; les coupes seront faites dans ton logiciel de montage.</p>
+      <div id="rc-clips" class="rc-grid"></div>
+    </section>
+    <details id="rc-jobs-panel"><summary>Suivi des préparations</summary><div id="rc-jobs"></div></details>
+    <dialog id="rc-source-dialog"><header class="rc-heading"><h2>Choisir le plat terminé</h2><button id="rc-source-close" type="button">Fermer</button></header><div id="rc-source-list" class="rc-grid"></div></dialog>
+    <dialog id="rc-lightbox"><button id="rc-lightbox-close" type="button">Fermer</button><img id="rc-lightbox-image" alt="Aperçu de l’image choisie"></dialog>
+  </main>
+
   <main id="story-v2-workspace" class="sv2-workspace" hidden>
-    <header class="sv2-heading"><h1>Histoire V2</h1><select id="sv2-projects" aria-label="Ouvrir une histoire"></select><button id="sv2-new" type="button">Nouvelle histoire</button><button id="sv2-refresh" type="button">Actualiser</button><span id="sv2-status" role="status"></span><button id="sv2-pause" type="button" title="Suspend l’enchaînement ; les tâches déjà envoyées continuent dans leur atelier." hidden>Pause après l’étape</button><button id="sv2-resume" type="button" hidden>Reprendre</button></header>
+    <header class="sv2-heading"><h1>Histoire</h1><select id="sv2-projects" aria-label="Ouvrir une histoire"></select><button id="sv2-new" type="button">Nouvelle histoire</button><button id="sv2-refresh" type="button">Actualiser</button><span id="sv2-status" role="status"></span><button id="sv2-pause" type="button" title="Suspend l’enchaînement ; les tâches déjà envoyées continuent dans leur atelier." hidden>Pause après l’étape</button><button id="sv2-resume" type="button" hidden>Reprendre</button></header>
     <p id="sv2-progress" class="muted" hidden><span id="sv2-progress-label" role="status"></span><span id="sv2-progress-time" aria-label="Temps écoulé de cet appel"></span></p>
     <p id="sv2-message" role="status" aria-live="polite"></p>
     <nav class="sv2-tabs" aria-label="Étapes de l’histoire"><button type="button" data-sv2-tab="scenario" class="active">Scénario</button><button type="button" data-sv2-tab="references">Références</button><button type="button" data-sv2-tab="videos">Vidéos</button></nav>
@@ -173,18 +249,23 @@
       <button id="it-upload" type="button">Ajouter des images</button>
       <button id="it-library" type="button">Depuis un atelier</button>
       <label><input id="it-all" type="checkbox"> <span id="it-count">Sélection</span></label>
-      <label>Rythme<select id="it-pace-preset" data-it-setting="pace_preset" aria-label="Preset de rythme des transitions"></select></label>
       <button id="it-propose" type="button">Proposer les transitions</button>
       <span id="it-send-status"><button id="it-send" type="button" class="factory-button" disabled>Envoyer à l’usine</button></span>
       <button id="it-save" type="button">Enregistrer</button>
       <span id="it-progress" aria-live="polite"></span>
     </div>
-    <p id="it-pace-hint" class="it-pace-hint" hidden></p>
     </div>
     <input id="it-files" type="file" accept="image/*" multiple hidden>
     <fieldset id="it-editor">
-      <details id="it-people" class="it-people">
+      <details id="it-people" class="it-people" open>
         <summary>Ouvriers et échelle <span id="it-people-summary"></span></summary>
+        <div class="it-preset-grid">
+          <label>Organisation du chantier<select id="it-crew" data-it-setting="crew_size"></select></label>
+          <label>Échelle<select id="it-scale-preset" data-it-setting="scale_preset"></select></label>
+          <label>Vitesse<select id="it-pace-preset" data-it-setting="pace_preset" aria-label="Vitesse des transitions"></select></label>
+        </div>
+        <p id="it-scale-hint" class="it-help"></p>
+        <p id="it-pace-hint" class="it-pace-hint" hidden></p>
         <div class="it-people-controls">
           <div id="it-worker-preview"></div>
           <div><div class="it-worker-actions">
@@ -192,7 +273,7 @@
             <button id="it-worker-upload" type="button">Importer</button>
             <button id="it-worker-clear" type="button" hidden>Retirer la référence</button>
           </div><p id="it-worker-label" class="it-help"></p>
-          <label>Organisation du chantier<select id="it-crew" data-it-setting="crew_size"></select></label></div>
+          </div>
         </div>
         <p class="it-help">Choisis une image en pied, puis règle sa taille depuis la paire à droite. Les ouvriers choisis restent disponibles pour les prochaines frises.</p>
       </details>
@@ -202,6 +283,7 @@
           <label>Durée par transition (s)<input data-it-setting="duration" type="number" min="5" max="15" step="0.5"></label>
           <label>Cadrage<select data-it-setting="aspect_ratio"></select></label>
           <label>Description textuelle de l’ouvrier<textarea data-it-setting="worker" rows="3" maxlength="2000"></textarea><small id="it-worker-text-hint">Utilisée uniquement en l’absence d’image de référence d’ouvrier.</small></label>
+          <label>Description du chantier<textarea data-it-setting="crew_description" rows="3" maxlength="2000"></textarea></label>
           <label>Description du rythme<textarea data-it-setting="pace" rows="2" maxlength="2000"></textarea></label>
           <label>Caméra<textarea data-it-setting="camera" rows="2" maxlength="2000"></textarea></label>
           <label>Ambiance sonore<textarea data-it-setting="audio" rows="2" maxlength="2000"></textarea></label>
@@ -1626,11 +1708,15 @@ Conserver exactement le cadrage, le point de vue et les éléments fixes environ
       <p id="ij-operation-error" role="alert" hidden></p>
       <div id="ij-operation-result" class="ij-operation-result"></div>
       <p id="ij-operation-review"></p>
+      <div id="ij-operation-resolution" class="ij-resolution" hidden></div>
     </dialog>
     <dialog id="ij-detail" class="ij-detail" aria-labelledby="ij-detail-title">
       <header><h2 id="ij-detail-title"></h2><button id="ij-detail-zoom" type="button" aria-pressed="false">Taille réelle</button><button id="ij-close" type="button">Fermer</button></header>
+      <div id="ij-detail-attempts" class="ij-attempt-tabs" role="group" aria-label="Comparer les essais" hidden></div>
+      <p id="ij-detail-attempt-status" class="ij-attempt-status" aria-live="polite" hidden></p>
       <img id="ij-detail-image" alt="">
       <p id="ij-detail-action"></p><p id="ij-detail-review"></p>
+      <div id="ij-detail-resolution" class="ij-resolution" hidden></div>
       <details id="ij-detail-protection" hidden><summary>Masque automatique</summary>
         <p id="ij-mask-note"></p>
         <div id="ij-mask-views" class="ij-mask-views" role="group" aria-label="Comparer la protection"></div>
@@ -2446,6 +2532,58 @@ Conserver exactement le cadrage, le point de vue et les éléments fixes environ
   </main>
 
   <main id="ref2vd-workspace" class="prompt-workspace i2v-workspace" hidden>
+    <nav class="dance-modebar" aria-label="Ateliers Ref2V">
+      <button type="button" data-ref-mode-button="images" class="active" aria-pressed="true">Images</button>
+      <button type="button" data-ref-mode-button="dance" aria-pressed="false">Danse</button>
+    </nav>
+    <section id="dance-workshop" hidden>
+      <header class="dance-heading"><h2>Danse</h2><div>
+        <select id="dance-history" aria-label="Ouvrir une danse"><option value="">Ouvrir une danse…</option></select>
+        <button id="dance-new" type="button">Nouvelle danse</button>
+      </div></header>
+      <p id="dance-status" class="muted" role="status">La photo donne le personnage et le décor. L’extrait donne la danse et son rythme.</p>
+      <section id="dance-inputs">
+        <div class="dance-input-grid">
+          <label>Photo du personnage dans son décor<input id="dance-image" type="file" accept="image/png,image/jpeg,image/webp">
+            <small>Personnage en pied, avec de la place pour bouger.</small>
+            <img id="dance-image-preview" alt="Photo choisie" hidden>
+          </label>
+          <label>Vidéo de danse<input id="dance-video" type="file" accept="video/*">
+            <small>Un danseur, un plan continu et une danse bien visible facilitent le transfert.</small>
+            <video id="dance-import-preview" controls playsinline preload="metadata" hidden></video>
+          </label>
+        </div>
+        <div class="dance-excerpt">
+          <label>Début (s)<input id="dance-start" aria-describedby="dance-excerpt-note" type="number" min="0" step="0.01" value="0"></label>
+          <button id="dance-use-position" type="button">Depuis cette position</button>
+          <label>Durée (s)<input id="dance-duration" aria-describedby="dance-excerpt-note" type="number" min="5.2" max="15" step="0.1" value="8"></label>
+          <button id="dance-preview-excerpt" type="button">Lire l’extrait</button>
+          <label><span><input id="dance-audio" type="checkbox" checked> Garder le son de l’extrait</span></label>
+        </div>
+        <small id="dance-excerpt-note" class="muted" role="status">De 5,2 à 15 s. La durée est ajustée légèrement à la grille du modèle, sans dépasser l’extrait choisi.</small>
+        <div class="dance-excerpt"><label>Nom<input id="dance-title" type="text" maxlength="120" placeholder="Nouvelle danse"></label>
+          <button id="dance-create" type="button" class="primary">Préparer l’essai</button>
+        </div>
+      </section>
+      <details id="dance-sources" open hidden><summary id="dance-source-note">Photo et extrait</summary>
+        <div class="dance-sources"><figure><figcaption>Personnage et décor</figcaption><img id="dance-photo-preview" alt="Photo de la scène"></figure>
+          <figure><figcaption>Danse et rythme</figcaption><video id="dance-clip-preview" controls playsinline preload="metadata"></video></figure></div>
+      </details>
+      <div id="dance-render-host"></div>
+      <label id="dance-preview-option"><span><input id="dance-quick-preview" type="checkbox"> Aperçu rapide uniquement</span>
+        <small class="muted">Première passe aux MP initiaux. Finition à lancer depuis l’historique si l’aperçu convient.</small>
+      </label>
+      <div id="dance-prompt-tools">
+        <div><button id="dance-save-prompt" type="button">Enregistrer le prompt</button></div>
+        <details><summary>Ajuster avec un modèle · facultatif</summary>
+          <label id="dance-model-host">Modèle</label>
+          <div class="dance-prompt-row"><input id="dance-instruction" type="text" maxlength="4000" placeholder="Ex. Insiste sur la conservation de la tenue."><button id="dance-polish" type="button">Proposer un ajustement</button></div>
+          <div id="dance-proposal" hidden><textarea id="dance-proposed-prompt" rows="10" aria-label="Proposition de prompt"></textarea>
+            <button id="dance-apply" type="button">Appliquer</button><button id="dance-discard" type="button">Conserver le prompt actuel</button>
+          </div>
+        </details>
+      </div>
+    </section>
     <aside class="controls prompt-setup">
       <div class="title-row">
         <div><small>COOKBOOK · REF2V</small><h1>Composer depuis les images</h1></div>

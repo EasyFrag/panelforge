@@ -315,7 +315,17 @@ class Krea2AssistedService:
         art_style_id: str | None = None,
         prompt_language: Krea2PromptLanguage | None = None,
         local_inspiration_enabled: bool = True,
+        managed_key: str | None = None,
     ) -> Krea2AssistedProject:
+        managed_id = None
+        if managed_key is not None:
+            from uuid import NAMESPACE_URL, uuid5
+            managed_key = _bounded_text(managed_key, "managed_key", 200)
+            managed_id = "assisted-" + uuid5(NAMESPACE_URL, "panelforge/managed-creation/" + managed_key).hex
+            try:
+                return self.projects.get(managed_id)
+            except FileNotFoundError:
+                pass
         assistance_recipe(assistance_recipe_version)
         if not isinstance(local_inspiration_enabled, bool):
             raise TypeError("local_inspiration_enabled must be a boolean")
@@ -355,7 +365,7 @@ class Krea2AssistedService:
             if not asset.media_type.startswith("image/"):
                 raise ValueError("the assisted reference must be an image")
         return self.projects.create(Krea2AssistedProject(
-            project_id=self._project_id_factory(),
+            project_id=managed_id or self._project_id_factory(),
             name=name,
             assistance_recipe_version=assistance_recipe_version,
             intention=intention,

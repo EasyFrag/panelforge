@@ -32,7 +32,7 @@
       $("worker-preview").innerHTML=worker?imageButton(worker,""):"";
       $("worker-clear").hidden=!worker;
       $("worker-label").textContent=worker?worker.label:"Aucune référence choisie · description textuelle utilisée.";
-      $("people-summary").textContent=worker?" · "+worker.label+" · REF2VA":" · facultatif";
+      $("people-summary").textContent=worker?" · "+worker.label+" · REF2VA":" · sans image de référence";
     }
     function inspector(transition) {
       const visual=transition.visual_references||{}, scale=visual.scale;

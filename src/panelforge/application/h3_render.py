@@ -295,6 +295,8 @@ class H3RenderService:
         sleep: Callable[[float], None] = time.sleep,
         work_coordinator=None,
         recipe_upgrade: Callable[[Any], Any] | None = None,
+        reference_video_upgrade=None,
+        dance_media=None,
     ) -> None:
         if run_timeout <= 0 or poll_interval <= 0:
             raise ValueError("timeouts must be positive")
@@ -314,6 +316,8 @@ class H3RenderService:
         self.additional_workflows = tuple(map(upgrade, additional_workflows))
         self.historical_ref2v_workflows = tuple(map(upgrade, historical_ref2v_workflows))
         self.historical_h3_workflows = tuple(map(upgrade, historical_h3_workflows))
+        self.reference_video_workflows = reference_video_upgrade((self.ref2v_workflow, *self.additional_workflows)) if reference_video_upgrade else ()
+        self.dance_media = dance_media
         self.checkpoints = checkpoints
         self.comfy = comfy
         self.assets = assets
@@ -568,7 +572,8 @@ class H3RenderService:
 
     def recipes_for_mode(self, input_mode):
         historical = self.historical_ref2v_workflows if input_mode is H3RenderInputMode.REF2VA else self.historical_h3_workflows
-        return (self.workflow_for_mode(input_mode), *self.additional_workflows, *historical)
+        extensions = self.reference_video_workflows if input_mode is H3RenderInputMode.REF2VA else ()
+        return (self.workflow_for_mode(input_mode), *self.additional_workflows, *historical, *extensions)
 
     def recipe_for_attempt(self, project, attempt):
         if attempt.recipe is None:
@@ -587,6 +592,8 @@ class H3RenderService:
 
     def progress_for_attempt(self, project, attempt):
         recipe = self.recipe_for_attempt(project, attempt)
+        if project.dance_reference:
+            return recipe.progress_for_dance(attempt.dance_stage, attempt.bunny, upscale_bypassed=attempt.upscale_bypassed)
         return recipe.progress_for(attempt.bunny) if attempt.bunny else recipe.progress_profile
 
     def _recipe_for(
@@ -663,6 +670,8 @@ class H3RenderService:
                 if dialogue_level and version not in {H3RenderRevisionVersion.VOCAL, H3RenderRevisionVersion.COMBAT, H3RenderRevisionVersion.COMBAT_1_1, H3RenderRevisionVersion.COMBAT_1_1_1, H3RenderRevisionVersion.COMBAT_1_2, H3RenderRevisionVersion.COMBAT_1_3, H3RenderRevisionVersion.CLASSIC_CINEMATIC, H3RenderRevisionVersion.SENSUAL}:
                     raise ValueError("Choisissez la révision 0.3.0 pour la liberté de dialogue.")
                 project = replace(project, dialogue_level=dialogue_level)
+            if project.dance_reference:
+                raise ValueError("Utilisez l’ajustement de prompt de l’atelier Danse.")
             project = project.select_revision_model(
                 model_id or project.revision_model_id or project.model_id
             )
@@ -825,6 +834,8 @@ class H3RenderService:
         bunny: H3BunnySettings | None = None,
         checkpoint: str | None = None,
         video_loras: H3VideoLoraStack | None = None,
+        dance_stage: str = "full",
+        source_attempt_id: str | None = None,
     ) -> H3RenderProject:
         if type(batch_mode) is not bool:
             raise TypeError("batch_mode must be a boolean")
@@ -851,6 +862,25 @@ class H3RenderService:
             if project.localization_parent_project_id and prompt != project.current_prompt:
                 raise ValueError("Le prompt de cette copie est conservé. Modifiez ses répliques dans 3 · Multilangue.")
             recipe = self.workflow_for_mode(project.input_mode, recipe_id, recipe_version)
+            if bool(project.dance_reference) != bool(getattr(recipe, "supports_reference_video", False)):
+                raise ValueError("Choisissez une recette Danse pour ce projet, ou REF2V pour les images seules.")
+            if project.dance_reference:
+                from .dance_prompting import validate_prompt
+                ref = project.dance_reference
+                prompt = validate_prompt(prompt, has_audio=ref.has_audio and ref.keep_audio)
+                settings = replace(settings, duration_seconds=ref.duration_seconds)
+                music_enabled = ref.has_audio and ref.keep_audio
+                if dance_stage == "refine":
+                    source = project.attempt(source_attempt_id)
+                    if source.dance_stage != "draft" or source.dlss is not None or source.status is not H3RenderAttemptStatus.SUCCEEDED or len(source.latent_asset_ids) != 2:
+                        raise ValueError("Ce brouillon ne dispose pas de latents réutilisables.")
+                    if (source.recipe != recipe.reference or source.prompt != prompt or
+                        replace(source.settings, megapixels=settings.megapixels) != settings or
+                        (source.initial_megapixels, source.bunny, source.checkpoint, source.video_loras, source.video_lora, source.spectrum_enabled, source.force_upscale) !=
+                        (initial_megapixels, bunny, checkpoint, video_loras, video_lora, spectrum_enabled, force_upscale)):
+                        raise ValueError("La finition conserve le prompt, la seed et les réglages du brouillon choisi.")
+            elif dance_stage != "full" or source_attempt_id is not None:
+                raise ValueError("Les brouillons de danse nécessitent un projet Danse.")
             model_loading = recipe.model_loading(project.input_mode, checkpoint) if getattr(recipe, "supports_checkpoint_selection", False) else None
             if project.adaptation is not None and project.adaptation.status != "ready":
                 raise ValueError("Terminez l’adaptation REF2V avant de lancer un rendu.")
@@ -882,13 +912,15 @@ class H3RenderService:
                         force_upscale=force_upscale,
                     )["bypassed"]
                 )
+            if project.dance_reference and dance_stage == "refine" and upscale_bypassed:
+                raise ValueError("À cette résolution, REF2V n’ajoute pas de finition. Utilisez l’aperçu directement ou augmentez les MP finaux.")
             # The optional Chinese prompt is an experimental A/B artifact.  The
             # canonical H3 validators intentionally recognise the English
             # compiler-owned camera clauses, so applying them to translated
             # prose rejects otherwise renderable variants before ComfyUI.  Keep
             # only the generic request-size guard above for zh projects until a
             # dedicated Chinese contract is proven useful.
-            if not project.source_prompt_revision_id.startswith("zh:"):
+            if not project.dance_reference and not project.source_prompt_revision_id.startswith("zh:"):
                 prompt = canonicalize_h3_revision(
                     project.current_prompt,
                     prompt,
@@ -919,6 +951,8 @@ class H3RenderService:
                 settings=settings,
                 music_enabled=music_enabled,
                 batch_mode=batch_mode,
+                dance_stage=dance_stage,
+                source_attempt_id=source_attempt_id,
                 keyframe_timestamps_ms=timestamps,
                 spectrum_enabled=spectrum_enabled,
                 video_lora=video_lora,
@@ -935,7 +969,7 @@ class H3RenderService:
             if self.llm_traces is not None:
                 from .prompt_recipes import preparation_call_ids
                 try:
-                    composition = self.compositions.get(project.source_session_id)
+                    composition = None if project.dance_reference else self.compositions.get(project.source_session_id)
                 except KeyError:
                     composition = None
                 calls = preparation_call_ids(composition, project.source_prompt_revision_id) if composition else []
@@ -1091,6 +1125,13 @@ class H3RenderService:
             if attempt.video_loras is not None:
                 self.validate_video_loras(recipe, attempt.video_lora, attempt.video_loras)
                 extra["video_loras"] = attempt.video_loras
+            if project.dance_reference:
+                ref = project.dance_reference
+                extra.update(reference_video=self._upload_dance_asset(ref.clip_asset_id, ".mp4"),
+                             reference_audio=ref.has_audio and ref.keep_audio, dance_stage=attempt.dance_stage)
+                if attempt.dance_stage == "refine":
+                    source = project.attempt(attempt.source_attempt_id)
+                    extra["source_latents"] = tuple(self._upload_dance_asset(asset_id, ".latent") for asset_id in source.latent_asset_ids)
             keyframe_indices = tuple(
                 min(attempt.settings.frame_count - 1, round(value * VIDEO_FPS / 1000))
                 for value in attempt.keyframe_timestamps_ms
@@ -1125,7 +1166,7 @@ class H3RenderService:
                     video_lora=attempt.video_lora,
                     **extra,
                 )
-            if attempt.bunny:
+            if attempt.bunny or project.dance_reference:
                 recipe.validate_dependencies(self.comfy, workflow)
             workflow_digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
             if self.work_coordinator is not None:
@@ -1157,6 +1198,7 @@ class H3RenderService:
                 folder_type=output_ref["type"],
             )
             _validate_mp4(output_content, output_ref["filename"])
+            output_content, latent_ids = self._finish_dance(project, attempt, recipe, history, output_content)
             video_asset = self.assets.create(output_content, media_type="video/mp4", source_run_id=project_id)
             if self.work_coordinator is not None:
                 self.work_coordinator.report_progress(activity_id, 0.96, "Import de la vidéo")
@@ -1173,6 +1215,7 @@ class H3RenderService:
                         keyframes,
                         warnings,
                     )
+                    succeeded = replace(succeeded, latent_asset_ids=latent_ids)
                     current = self.projects.save(
                         current.replace_attempt(succeeded).use_feedback(attempt_id)
                     )
@@ -1478,6 +1521,26 @@ class H3RenderService:
                 version=version,
             ))
 
+    def _upload_dance_asset(self, asset_id, extension):
+        # Comfy's /upload/image endpoint stores arbitrary input files as well.
+        return self.comfy.upload_image(self.assets.read_bytes(asset_id),
+                                      filename=asset_id + extension, subfolder="panelforge/dance").workflow_value
+
+    def _finish_dance(self, project, attempt, recipe, history, content):
+        if project.dance_reference is None:
+            return content, ()
+        if self.dance_media is None:
+            raise ValueError("La préparation audio Danse est indisponible.")
+        ref = project.dance_reference
+        content = self.dance_media.finish(content, self.assets.read_bytes(ref.clip_asset_id),
+                                         duration=ref.duration_seconds, keep_audio=ref.has_audio and ref.keep_audio)
+        latents = []
+        if attempt.dance_stage == "draft":
+            for output in recipe.latent_outputs(history):
+                data = self.comfy.download_output(filename=output["filename"], subfolder=output.get("subfolder", ""), folder_type=output["type"])
+                latents.append(self.assets.create(data, media_type="application/octet-stream", source_run_id=project.project_id).asset_id)
+        return content, tuple(latents)
+
     def _upload_frame(self, asset_id: str | None, role: str) -> str | None:
         if asset_id is None:
             return None
@@ -1634,9 +1697,10 @@ class H3RenderService:
                     folder_type=output_ref["type"],
                 )
                 _validate_mp4(content, output_ref["filename"])
+                content, latent_ids = self._finish_dance(project, attempt, recipe, record, content)
                 asset = self.assets.create(content, media_type="video/mp4", source_run_id=project.project_id)
                 frames, warnings = self._import_keyframes(record, project.project_id, attempt)
-                updated = attempt.succeed(asset.asset_id, frames, warnings)
+                updated = replace(attempt.succeed(asset.asset_id, frames, warnings), latent_asset_ids=latent_ids)
             elif name == "interrupted":
                 updated = attempt.cancel()
             else:

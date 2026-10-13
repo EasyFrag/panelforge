@@ -49,6 +49,16 @@ class RealisticGateway(manual_tests.EditGateway):
                     change='Retirer une couche de l’aménagement en conservant la grotte, sans personnages.',
                     preserve='Roche, proportions et cadrage de la grotte.',
                     through_milestone=(total - remaining + 1) * len(milestones) // total))
+        if request.operation_id == realistic.REVIEW_OPERATION or context.get('reviewing_result'):
+            value['quality'] = dict(people_present=False, requested_change_complete=True, scene_preserved=True)
+            value['progress'] = dict(level='complete', visible_changes='Une couche a été retirée au fond.',
+                remaining_work='', blocking_defects=[],
+                destination_reached=(request.operation_id == realistic.REVIEW_OPERATION or
+                    value.get('completed_milestones') == len(value.get('milestones', []))))
+            if context.get('compare_attempts'):
+                value['comparison'] = dict(selected='correction', reason='La correction conserve les travaux sans personnes.',
+                    initial_review=dict(observation='Premier essai avec des personnes.',
+                        quality=dict(value['quality'], people_present=True), progress=deepcopy(value['progress'])))
         yield CompletionStreamEvent(StreamEventKind.COMPLETED, StreamPhase.COMPLETED,
             result=CompletionResult(request.model_id, json.dumps(value), call_id='realistic-call'))
 

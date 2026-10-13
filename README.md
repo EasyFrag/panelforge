@@ -373,3 +373,20 @@ Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; l
 ```
 
 La suite couvre le domaine, les manifests, les transports, le stockage, l’orchestration et les API du Lab. Les smokes réels nécessitent llama.swap et/ou ComfyUI joignables avec les modèles attendus.
+
+
+### Atelier Danse dans Ref2V
+
+`Ref2V → Danse` prépare un transfert de chorégraphie depuis une vidéo, avec le personnage **et le décor de la photo**. Importer une photo en pied, importer la vidéo, choisir son début et un extrait de 5,2 à 15 secondes, puis **Préparer l’essai**. L’extrait est normalisé à 24 FPS et raccourci à la grille H3 `17n+5` sans dépasser la durée choisie. Le son de cet extrait est conservé par défaut et remis dans la vidéo finale, sans utiliser la piste sonore réinventée par le rendu.
+
+Le sélecteur Danse contient seulement les deux recettes présentes : REF2V `0.2.5` et BUNNY `0.1.3`, avec leur VAE INT8/ConvRot actuel. L’extension versionnée `workflows/video.reference/dance/1.0.0/manifest.json` ajoute les entrées vidéo/audio et les liaisons de sauvegarde/reprise des latents. Aucun workflow Reddit/LBH n’est importé et aucun Character Swap LoRA n’est installé ni imposé. Le catalogue de l’atelier Images reste inchangé.
+
+**Générer la danse** lance le rendu habituel de la recette choisie, avec ses valeurs par défaut. Les résolutions égales sont acceptées : BUNNY conserve ses deux passes à ×1 ; REF2V standard saute l’upscale et la finition par défaut. Dans les réglages repliés, **Aperçu rapide uniquement**, décoché par défaut, permet de calculer seulement la première passe aux MP initiaux et de conserver les latents vidéo/audio. **Finaliser cet aperçu**, dans l’historique, recharge ces latents pour la finition sans recalculer la première passe. Seuls les MP finaux peuvent changer ; le prompt, la seed, le ratio, les modèles, les LoRA et le sampling restent ceux de l’aperçu choisi. À résolution égale avec REF2V sans finition forcée, l’aperçu est utilisable directement : aucune finition supplémentaire n’est lancée. Les anciens brouillons restent accessibles et finalisables à une résolution compatible.
+
+Le prompt est prêt sans appel LLM. Il reste modifiable et enregistrable. L’ajustement facultatif propose une nouvelle version en un seul appel, avec Gemma local sélectionné si disponible ; le choix est mémorisé. Le modèle n’observe pas la vidéo et ne doit pas inventer sa chorégraphie. La proposition peut être appliquée ou abandonnée. Les sources, les prompts réellement exécutés et les résultats sont conservés dans les projets H3 ; leur récupération après interruption inclut le son et les latents nécessaires à la finition.
+
+La fidélité du transfert reste à qualifier par des essais utilisateur : ce sont des références guidant le moteur, pas un verrouillage pixel par pixel. Commencer par un seul danseur, un plan fixe continu et une photo au cadrage compatible. Cette livraison concerne l’atelier Danse autonome ; le séquenceur Histoire V3 et l’intégration des travaux avec protagoniste restent des étapes distinctes.
+
+Prérequis : FFmpeg/FFprobe déjà fournis sous `dlss_root/tools`, les deux recettes existantes et les nœuds ComfyUI `LoadVideo`, `GetVideoComponents`, `SaveLatent`, `LoadLatent`, `LTXVSeparateAVLatent`, `LTXVConcatAVLatent`. La vérification des nœuds précède la soumission d’un rendu. Aucun redémarrage, appel LLM ou rendu n’est lancé pendant l’installation.
+
+Régressions préparées, à exécuter par l’utilisateur depuis le checkout actif avec `PYTHONPATH=src` : `python -m unittest discover -s tests -p "test_dance*.py"`, puis les suites H3/REF2V existantes. Elles utilisent des médias, API et transports simulés, sans génération réelle.

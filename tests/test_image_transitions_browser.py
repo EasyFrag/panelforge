@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from panelforge.domain.image_transitions import defaults, KINDS, pace_presets
+from panelforge.domain.image_transitions import defaults, KINDS, pace_presets, scale_presets
 from panelforge.domain.image_transition_references import crew_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +34,7 @@ class ImageTransitionBrowserTest(unittest.TestCase):
         fixture = r"""
         const check=(value,text)=>{if(!value)throw Error(text);};
         window.fixtureImage="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
-        const settings=__SETTINGS__, kinds=__KINDS__, pacePresets=__PACE_PRESETS__, crews=__CREWS__;
+        const settings=__SETTINGS__, kinds=__KINDS__, pacePresets=__PACE_PRESETS__, crews=__CREWS__, scalePresets=__SCALE_PRESETS__;
         const pristineDefaults=structuredClone(settings);
         const worker={asset_id:"worker1",label:"Ouvrier sauvegardé",dimensions:[100,400]};
         const calls=[],opened=[];
@@ -53,7 +53,7 @@ class ImageTransitionBrowserTest(unittest.TestCase):
           const method=options.method||"GET",body=options.body?JSON.parse(options.body):null;
           calls.push({url,method,body});
           const result=value=>structuredClone(value);
-          if(url.endsWith("/spec"))return result({defaults:pristineDefaults,kinds,pace_presets:pacePresets,crews,visual_references:true,direct_send:true,aspect_ratios:["16:9 (Widescreen)"]});
+          if(url.endsWith("/spec"))return result({defaults:pristineDefaults,kinds,pace_presets:pacePresets,scale_presets:scalePresets,crews,visual_references:true,direct_send:true,aspect_ratios:["16:9 (Widescreen)"]});
           if(url.endsWith("/models"))return result({models:[{id:settings.model_id,source:"local",label:"Fake vision"}]});
           if(url.endsWith("/projects")&&method==="GET")return result({projects:[
             {id:p.id,name:p.name,image_count:p.frames.length},{id:oldProject.id,name:oldProject.name,image_count:oldProject.frames.length}]});
@@ -110,7 +110,7 @@ class ImageTransitionBrowserTest(unittest.TestCase):
         }};
         """
         fixture = fixture.replace("__SETTINGS__", json.dumps(defaults(), ensure_ascii=True)).replace(
-            "__KINDS__", json.dumps(KINDS, ensure_ascii=True)).replace("__PACE_PRESETS__", json.dumps(pace_presets(), ensure_ascii=True)).replace("__CREWS__", json.dumps(crew_catalog(), ensure_ascii=True))
+            "__KINDS__", json.dumps(KINDS, ensure_ascii=True)).replace("__PACE_PRESETS__", json.dumps(pace_presets(), ensure_ascii=True)).replace("__CREWS__", json.dumps(crew_catalog(), ensure_ascii=True)).replace("__SCALE_PRESETS__", json.dumps(scale_presets(), ensure_ascii=True))
         scenario = r"""
         (async()=>{
           const el=id=>document.getElementById("it-"+id);
@@ -123,6 +123,20 @@ class ImageTransitionBrowserTest(unittest.TestCase):
             check(el("projects").value===p.id,"opening requested frieze waits for pending restoration");
             const workerField=()=>document.querySelector('[data-it-setting="worker"]');
             check(workerField().value===pristineDefaults.worker,"new frieze worker default replaces old empty display");
+            await window.PanelForgeImageTransitions.open(p.id);
+            check(el("rows").querySelectorAll("[data-it-select]:checked").length===2,"same frieze reopened with all pending transitions selected");
+            check(!el("propose").disabled,"proposal immediately available after reopening");
+            const secondCheck=el("rows").querySelector('[data-it-row="t2"] [data-it-select]');
+            secondCheck.checked=false;secondCheck.dispatchEvent(new Event("change",{bubbles:true}));
+            el("refresh").click();await wait(()=>!el("refresh").disabled);
+            check(el("rows").querySelectorAll("[data-it-select]:checked").length===1,"refresh preserves manual deselection");
+            p.transitions[0].state="sent";
+            await window.PanelForgeImageTransitions.open(p.id);
+            check(el("rows").querySelectorAll("[data-it-select]:checked").length===1 &&
+              el("rows").querySelector('[data-it-row="t2"] [data-it-select]').checked,"opening selects only pending versions");
+            p.transitions[0].state="empty";
+            await window.PanelForgeImageTransitions.open(p.id);
+            check(el("all").checked,"all pending versions preselected without clicking select-all");
             check(calls.every(c=>c.method==="GET"),"opening must not generate");
             check(!el("review")&&!el("inspector").querySelector("[data-it-review-one]"),"no validation buttons");
             check(el("send").disabled&&el("send-status").title.includes("intention"),"empty selection content blocks send with reason");
@@ -133,12 +147,26 @@ class ImageTransitionBrowserTest(unittest.TestCase):
             check(parseFloat(getComputedStyle(pairImage).height)>=76,"pair image at least twice previous height");
             check(parseFloat(getComputedStyle(pairImage).width)>=68,"pair image at least twice previous width");
             el("people").open=true;
+            check(["crew","scale-preset","pace-preset"].every(id=>el(id).closest("#it-people")),"all presets are in worker panel");
+            check(!el("pace-preset").closest("#it-sticky-controls"),"speed removed from top toolbar");
+            const scaleSelect=el("scale-preset");
+            scaleSelect.value="normal";scaleSelect.dispatchEvent(new Event("input",{bubbles:true}));
+            check(workerField().value===scalePresets.find(p=>p.id==="normal").worker,"normal scale fills worker text");
+            workerField().value="Ma description";workerField().dispatchEvent(new Event("input",{bubbles:true}));
+            check(scaleSelect.value==="custom","edited worker text switches to Custom");
+            scaleSelect.value="miniature";scaleSelect.dispatchEvent(new Event("input",{bubbles:true}));
+            check(workerField().value===pristineDefaults.worker,"miniature scale restores template");
             el("crew").value="industrial";el("crew").dispatchEvent(new Event("input",{bubbles:true}));
+            const crewText=document.querySelector('[data-it-setting="crew_description"]');
+            check(crewText.value===crews.find(c=>c.id==="industrial").description,"organization fills common description");
+            crewText.value="Une équipe utilise un treuil.";crewText.dispatchEvent(new Event("input",{bubbles:true}));
             el("worker-choose").click();
             await wait(()=>el("worker-saved").querySelector("[data-it-worker-asset]")&&!el("worker-choose").disabled);
             el("worker-saved").querySelector("[data-it-worker-asset]").click();
             await wait(()=>p.worker_reference&&!el("worker-dialog").open&&!el("worker-choose").disabled);
             check(p.settings.crew_size==="industrial","crew saved before choosing reference");
+            check(p.settings.crew_description==="Une équipe utilise un treuil.","custom crew description saved");
+            check(scaleSelect.disabled&&scaleSelect.value==="reference","visual reference takes priority over textual scale");
             el("inspector").querySelector("[data-it-scale]").click();
             await wait(()=>el("scale-dialog").open&&!el("scale-save").disabled);
             el("scale-height").value="5";el("scale-height").dispatchEvent(new Event("input",{bubbles:true}));
@@ -154,6 +182,9 @@ class ImageTransitionBrowserTest(unittest.TestCase):
             check(!calls.some(c=>c.url.endsWith("/proposals")||c.url.endsWith("/send")),"reference setup never generates");
             const paceSelect=el("pace-preset"), paceText=document.querySelector('[data-it-setting="pace"]');
             check(paceSelect.value==="fast","new frieze defaults to Fast");
+            paceSelect.value="ultra_fast";paceSelect.dispatchEvent(new Event("input",{bubbles:true}));
+            check(paceText.value===pacePresets.find(p=>p.id==="ultra_fast").pace,"Ultra-fast fills stronger pace");
+            check(crewText.value==="Une équipe utilise un treuil.","speed change keeps custom workforce text");
             paceSelect.value="slow";paceSelect.dispatchEvent(new Event("input",{bubbles:true}));
             check(paceText.value===pacePresets.find(p=>p.id==="slow").pace,"Slow fills canonical pace");
             paceText.value="Un rythme personnel";paceText.dispatchEvent(new Event("input",{bubbles:true}));
@@ -184,9 +215,8 @@ class ImageTransitionBrowserTest(unittest.TestCase):
             check(!calls.some(c=>c.url.endsWith("/review")),"no hidden review request");
             const send=calls.find(c=>c.url.endsWith("/send"));
             check(send.body.ids.join(",")==="t1,t2","ordered selection handed off");
-            el("message").querySelector("button").click();
-            await wait(()=>opened.length>0);
-            check(opened[0][0]==="factory-t1","opens exact factory units");
+            check(!el("message").querySelector("button"),"send confirmation has no View in factory button");
+            check(opened.length===0,"send does not navigate away");
             const original=p.transitions[0].intention;
             let edit=el("inspector").querySelector('[data-it-field="intention"]');
             edit.value=" ";edit.dispatchEvent(new Event("input",{bubbles:true}));
@@ -242,6 +272,7 @@ class ImageTransitionBrowserTest(unittest.TestCase):
             el("worker-clear").click();
             await wait(()=>!p.worker_reference&&!workerField().disabled&&!el("worker-choose").disabled);
             check(workerField().value===pristineDefaults.worker,"removing image restores saved text default");
+            check(!scaleSelect.disabled&&scaleSelect.value==="miniature","removing reference restores scale selector");
             workerField().value="";workerField().dispatchEvent(new Event("input",{bubbles:true}));
             el("save").click();await wait(()=>p.settings.worker===""&&el("save").disabled&&!el("refresh").disabled);
             el("refresh").click();await wait(()=>!el("refresh").disabled);

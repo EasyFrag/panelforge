@@ -42,8 +42,49 @@ PACE_PRESETS = {
                     "just the worker's effort. Preserve the requested camera path in one continuous shot; "
                     "temporal skips are not camera cuts or magical self-assembly. Accelerate existing "
                     "environmental motion when visible, without inventing clouds or moving scenery. "
-                    "Reach the exact last image only at the closing instant, without a long idle finish.")
+                    "Reach the exact last image only at the closing instant, without a long idle finish."),
+    "ultra_fast": dict(
+        label="Ultra-fast — avance rapide extrême",
+        description="Compression maximale du temps : rafales très brèves et nombreux gestes entre les instants visibles.",
+        pace="La captation entière est passée en avance rapide encore plus extrême que Fast : "
+             "de longues opérations de chantier sont condensées en fractions de seconde. "
+             "Les ouvriers enchaînent déplacements et manipulations en rafales très brèves, avec "
+             "des écarts marqués entre leurs poses et de courtes traînées de mouvement. "
+             "Les interventions visibles causent chaque avancée des travaux ; conserver leur ordre "
+             "et limiter la construction à l’état d’arrivée. Entrées et sorties quasi instantanées, "
+             "sons d’outils en impulsions très serrées, sans pause intermédiaire. "
+             "Un seul plan continu ; départ et arrivée restent reconnaissables dans la durée choisie.",
+        h3_guidance="Establish an ultra-compressed construction time-lapse, visibly faster than Fast: "
+                    "long work operations collapse into split-second bursts, with wider temporal gaps "
+                    "between sampled poses, rapid worker repositioning and brief limb/tool streaks. "
+                    "Condense elapsed work time within the supplied duration; do not add work stages "
+                    "or exceed the last frame to manufacture speed. Keep material handling and tool "
+                    "contact visible at key beats so progress remains caused by workers. Use almost "
+                    "instant entry and exit, tightly packed tool-sound pulses and no idle pauses. "
+                    "Preserve the requested camera path in one continuous shot, exact endpoint images "
+                    "and coherent construction order; no cuts, teleportation or magical self-assembly. "
+                    "Compress existing environmental motion only when present.")
 }
+
+SCALE_PRESETS = {
+    "miniature": dict(label="Miniature",
+        worker="Des ouvriers humains réalistes et minuscules par rapport au décor. "
+               "Ils conservent la même échelle pendant tout le plan. "
+               "Eux seuls réalisent les travaux, avec des outils à leur taille et des moyens de levage "
+               "si les matériaux sont trop grands pour être portés. "
+               "Aucun humain de taille normale, aucune main géante ni outil manipulé depuis l’extérieur "
+               "de la scène n’intervient."),
+    "normal": dict(label="Normale",
+        worker="Des ouvriers humains réalistes de taille humaine normale, proportionnés au lieu "
+               "et aux éléments du décor. Ils conservent cette échelle pendant tout le plan. "
+               "Eux seuls réalisent les travaux, avec des outils, des engins et des moyens de levage "
+               "adaptés au chantier et aux matériaux. Chaque outil est manipulé par les ouvriers "
+               "présents dans la scène.")
+}
+
+
+def scale_presets():
+    return [dict(id=key, **value) for key, value in SCALE_PRESETS.items()]
 
 
 def pace_presets():
@@ -65,13 +106,8 @@ def identity(prefix):
 
 def defaults():
     return dict(duration=7.0,
-                worker=("Des ouvriers humains réalistes et minuscules par rapport au décor. "
-                        "Ils conservent la même échelle pendant tout le plan. "
-                        "Eux seuls réalisent les travaux, avec des outils à leur taille et des moyens de levage "
-                        "si les matériaux sont trop grands pour être portés. "
-                        "Aucun humain de taille normale, aucune main géante ni outil manipulé depuis l’extérieur "
-                        "de la scène n’intervient."),
-                crew_size="solo",
+                worker=SCALE_PRESETS["miniature"]["worker"], scale_preset="miniature",
+                crew_size="solo", crew_description=CREWS["solo"]["description"],
                 pace_preset="fast", pace=PACE_PRESETS["fast"]["pace"],
                 camera="Caméra fixe pour les travaux ; déplacement cohérent pour changer de lieu.",
                 audio="Sons des outils et du lieu synchronisés aux actions, sans parole.",
@@ -105,6 +141,9 @@ def settings(changes, base=None):
         elif key == "crew_size":
             if not isinstance(value, str) or value not in CREWS:
                 raise ValueError("Organisation du chantier inconnue.")
+        elif key == "scale_preset":
+            if not isinstance(value, str) or value not in {*SCALE_PRESETS, "custom"}:
+                raise ValueError("Preset d’échelle inconnu.")
         elif key == "pace_preset":
             if not isinstance(value, str) or value not in {*PACE_PRESETS, "custom"}:
                 raise ValueError("Preset de rythme inconnu.")
@@ -115,6 +154,18 @@ def settings(changes, base=None):
             value = clean_text(value, key, 300 if key.endswith("model_id") else 2000,
                                required=key.endswith("model_id"))
         result[key] = value
+    if "crew_size" in changes and "crew_description" not in changes:
+        result["crew_description"] = CREWS[result["crew_size"]]["description"]
+    scale = changes.get("scale_preset")
+    if scale in SCALE_PRESETS:
+        canonical = SCALE_PRESETS[scale]["worker"]
+        if "worker" in changes and result["worker"] != canonical:
+            raise ValueError("Pour une description libre, choisis l’échelle Personnalisée.")
+        result["worker"] = canonical
+    elif "worker" in changes and "scale_preset" not in changes:
+        current = result.get("scale_preset")
+        if current not in SCALE_PRESETS or result["worker"] != SCALE_PRESETS[current]["worker"]:
+            result["scale_preset"] = "custom"
     selected = changes.get("pace_preset")
     if selected in PACE_PRESETS:
         canonical = PACE_PRESETS[selected]["pace"]
@@ -125,7 +176,7 @@ def settings(changes, base=None):
         current = result.get("pace_preset")
         if current not in PACE_PRESETS or result["pace"] != PACE_PRESETS[current]["pace"]:
             result["pace_preset"] = "custom"
-    # Legacy settings retain their exact shape until the user changes their rhythm.
+    # Legacy settings are not migrated merely by reading or changing unrelated fields.
     return result
 
 
@@ -177,6 +228,7 @@ def context_key(project, transition):
     first, last = pair_frames(project, transition)
     common = effective(project, transition)
     common.pop("model_id", None)  # Changing the proposer alone does not undo human review.
+    common.pop("scale_preset", None)  # UI template; its worker text carries the actual constraint.
     if project.get("worker_reference"):
         common.pop("worker", None)  # An inactive text field must not affect visual preparations.
         common["worker_policy"] = VISUAL_WORKER_VERSION

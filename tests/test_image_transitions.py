@@ -14,7 +14,7 @@ from panelforge.application.image_transitions import ImageTransitionService, Tra
 from panelforge.application.image_transition_sources import ImageTransitionSources
 from panelforge.application.prompt_lab import StreamEventKind, CompletionResult, ModelDescriptor
 from panelforge.application.video_factory import VideoFactoryService
-from panelforge.domain.image_transitions import active, context_key, status, effective, factory_entry, temporal_contract
+from panelforge.domain.image_transitions import active, context_key, status, effective, factory_entry, temporal_contract, SCALE_PRESETS
 from panelforge.features.lab.image_transitions_web import image_transitions_router
 from panelforge.infrastructure.storage.image_transitions import LocalImageTransitionStore
 from test_video_factory import MemoryStore, FakeWorkflows
@@ -392,7 +392,7 @@ class TransitionPaceTest(TransitionFixture):
         p = self.propose(identity)
         request = self.gateway.requests[-1]
         intent = json.loads(request.user_prompt)
-        self.assertEqual(request.operation_id, "image.transitions.propose@3.1.0")
+        self.assertEqual(request.operation_id, "image.transitions.propose@3.2.0")
         self.assertEqual(intent["temporal_contract"]["preset"], "fast")
         self.assertIn("aggressively fast-forwarded time-lapse", intent["temporal_contract"]["h3_guidance"])
         p = self.service.review(p["id"], p["version"], [identity])
@@ -404,6 +404,23 @@ class TransitionPaceTest(TransitionFixture):
         self.assertEqual([ref["asset_id"] for ref in config["references"]],
                          [p["frames"][0]["asset_id"], p["frames"][1]["asset_id"]])
         self.assertEqual(config["render"]["settings"]["duration_seconds"], 7)
+        self.assertEqual(self.adapter.calls, [])
+
+    def test_ultra_fast_reaches_both_stages_and_pair_override_wins(self):
+        p = self.set_preset("ultra_fast")
+        identity = active(p)[0]["id"]
+        p = self.propose(identity)
+        payload = json.loads(self.gateway.requests[-1].user_prompt)
+        self.assertEqual(payload["temporal_contract"]["preset"], "ultra_fast")
+        self.assertIn("split-second bursts", payload["temporal_contract"]["h3_guidance"])
+        config = factory_entry(p, active(p)[0], 0)["config"]
+        self.assertIn("ultra-compressed", config["intention"])
+        self.assertEqual(config["render"]["settings"]["duration_seconds"], 7)
+        self.assertEqual(len(config["references"]), 2)
+        self.edit(identity, pace="Travail continu à vitesse normale.")
+        p = self.propose(identity, "override")
+        self.assertIsNone(json.loads(self.gateway.requests[-1].user_prompt)["temporal_contract"])
+        self.assertNotIn("ultra-compressed", factory_entry(p, active(p)[0], 0)["config"]["intention"])
         self.assertEqual(self.adapter.calls, [])
 
     def test_slow_replaces_fast_for_both_stages_without_changing_duration(self):
@@ -490,7 +507,7 @@ class TransitionPaceTest(TransitionFixture):
         with TestClient(app) as client:
             spec = client.get("/api/image-transitions/spec").json()
             presets = {value["id"]: value for value in spec["pace_presets"]}
-            self.assertEqual(set(presets), {"slow", "fast"})
+            self.assertEqual(set(presets), {"slow", "fast", "ultra_fast"})
             self.assertEqual(spec["defaults"]["pace_preset"], "fast")
             response = client.patch(base, json=dict(version=p["version"],
                 changes=dict(settings=dict(pace_preset="slow", pace=presets["slow"]["pace"]))))
@@ -502,6 +519,83 @@ class TransitionPaceTest(TransitionFixture):
                     response = client.patch(base, json=dict(version=p["version"], changes=dict(settings=changes)))
                     self.assertEqual(response.status_code, 422)
                     self.assertEqual(client.get(base).json()["project"]["version"], p["version"])
+
+
+class TransitionScalePresetTest(TransitionFixture):
+    def update_settings(self, **changes):
+        p = self.latest()
+        return self.service.update(p["id"], p["version"], dict(settings=changes))
+
+    def test_normal_and_miniature_templates_reach_proposals_and_factory(self):
+        p = self.latest()
+        self.assertEqual(p["settings"]["scale_preset"], "miniature")
+        for scale in ("normal", "miniature"):
+            p = self.update_settings(scale_preset=scale)
+            text = SCALE_PRESETS[scale]["worker"]
+            self.assertEqual(p["settings"]["worker"], text)
+            p = self.propose(active(p)[0]["id"], "scale-" + scale)
+            payload = json.loads(self.gateway.requests[-1].user_prompt)
+            self.assertEqual(payload["settings"]["worker"], text)
+            self.assertNotIn("scale_preset", payload["settings"])
+            config = factory_entry(p, active(p)[0], 0)["config"]
+            self.assertIn(text, config["intention"])
+        self.assertEqual(self.adapter.calls, [])
+
+    def test_free_text_and_empty_description_survive_unrelated_changes(self):
+        self.update_settings(scale_preset="normal")
+        for text in ("Des charpentiers selon ma description.", ""):
+            p = self.update_settings(worker=text)
+            self.assertEqual(p["settings"]["scale_preset"], "custom")
+            p = self.update_settings(pace_preset="ultra_fast", crew_size="team")
+            self.assertEqual(p["settings"]["worker"], text)
+            self.assertEqual(p["settings"]["scale_preset"], "custom")
+            self.assertEqual(self.make_service().get(p["id"])["settings"]["worker"], text)
+
+    def test_crew_template_and_edited_description_reach_both_stages(self):
+        p = self.update_settings(crew_size="industrial")
+        self.assertIn("levage", p["settings"]["crew_description"])
+        description = "Deux équipes utilisent un treuil, puis emportent le matériel."
+        p = self.update_settings(crew_description=description)
+        p = self.propose(active(p)[0]["id"])
+        self.assertEqual(json.loads(self.gateway.requests[-1].user_prompt)["workforce"]["description"], description)
+        self.assertIn(description, factory_entry(p, active(p)[0], 0)["config"]["intention"])
+        p = self.update_settings(crew_size="solo")
+        self.assertIn("Un seul ouvrier", p["settings"]["crew_description"])
+
+    def test_legacy_settings_and_sent_version_are_unchanged_on_read(self):
+        p = self.latest()
+        p["settings"].pop("scale_preset")
+        p["settings"].pop("crew_description")
+        p["settings"]["worker"] = "Une description personnelle existante."
+        self.store.save(p)
+        p = self.prepare()
+        identity = active(p)[0]["id"]
+        p, ids, _ = self.service.send(p["id"], p["version"], [identity])
+        before = deepcopy(p["settings"])
+        key = context_key(p, active(p)[0])
+        reopened = self.make_service().public(self.latest())
+        self.assertEqual(reopened["settings"], before)
+        self.assertEqual(reopened["transitions"][0]["state"], "sent")
+        self.assertEqual(reopened["transitions"][0]["context_key"], key)
+        p = self.update_settings(model_id="another-proposer")
+        self.assertNotIn("scale_preset", p["settings"])
+        self.assertNotIn("crew_description", p["settings"])
+        self.assertEqual(context_key(p, active(p)[0]), key)
+
+    def test_catalog_and_invalid_scale_are_checked_by_http(self):
+        app = FastAPI()
+        app.include_router(image_transitions_router(self.service))
+        p = self.latest()
+        base = "/api/image-transitions/projects/" + p["id"]
+        with TestClient(app) as client:
+            spec = client.get("/api/image-transitions/spec").json()
+            self.assertEqual([x["id"] for x in spec["scale_presets"]], ["miniature", "normal"])
+            for changes in (dict(scale_preset="giant"), dict(scale_preset=[]),
+                            dict(scale_preset="normal", worker="Miniature"),
+                            dict(crew_description="x" * 2001)):
+                response = client.patch(base, json=dict(version=p["version"], changes=dict(settings=changes)))
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(client.get(base).json()["project"]["version"], p["version"])
 
 
 class TransitionSourcesTest(unittest.TestCase):

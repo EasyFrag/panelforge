@@ -423,6 +423,7 @@
   }
   async function source(item) {
     const detail=clone(item.source);
+    if (detail.kind === "cooking_recipe") return window.PanelForgeRecipes?.open(detail.id);
     if (detail.kind === "image_transition") return window.PanelForgeImageTransitions?.open(detail.id, detail.transition_id, detail.version);
     if (detail.kind === "image") return window.PanelForgeKrea2AssistedLab?.open(detail.id);
     if (detail.story_v2_id) return window.PanelForgeStoryV2?.open(detail.story_v2_id);
