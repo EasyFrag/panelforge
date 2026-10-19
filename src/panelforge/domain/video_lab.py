@@ -1,8 +1,8 @@
-"""Pure contracts for local video generation experiments."""
+"""Shared video settings and validation of historical video records."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import StrEnum
 import math
 import re
@@ -98,7 +98,7 @@ class VideoLabSettings:
 
 @dataclass(frozen=True, slots=True)
 class VideoLabRun:
-    """Persistent state of one independently managed Video Lab render."""
+    """Read-only record of an archived Video Lab render."""
 
     run_id: str
     recipe: RecipeRef
@@ -113,92 +113,6 @@ class VideoLabRun:
     output_asset_id: str | None = None
     error: str | None = None
 
-    @classmethod
-    def create(
-        cls,
-        *,
-        run_id: str,
-        recipe: RecipeRef,
-        preset_id: str,
-        source_asset_ids: tuple[str, ...],
-        source_labels: tuple[str, ...],
-        prompt: str,
-        settings: VideoLabSettings,
-    ) -> VideoLabRun:
-        return cls(
-            run_id=run_id,
-            recipe=recipe,
-            preset_id=preset_id,
-            source_asset_ids=source_asset_ids,
-            source_labels=source_labels,
-            prompt=prompt,
-            settings=settings,
-            status=VideoLabRunStatus.CREATED,
-        )
-
-    def queue(self) -> VideoLabRun:
-        self._require_status(VideoLabRunStatus.CREATED, "queue")
-        return replace(self, status=VideoLabRunStatus.QUEUED)
-
-    def start(
-        self,
-        execution_id: str,
-        compiled_workflow_sha256: str,
-    ) -> VideoLabRun:
-        self._require_status(VideoLabRunStatus.QUEUED, "start")
-        return replace(
-            self,
-            status=VideoLabRunStatus.RUNNING,
-            execution_id=_require_text(execution_id, "execution_id"),
-            compiled_workflow_sha256=_require_sha256(
-                compiled_workflow_sha256,
-                "compiled_workflow_sha256",
-            ),
-        )
-
-    def succeed(self, output_asset_id: str) -> VideoLabRun:
-        self._require_status(VideoLabRunStatus.RUNNING, "succeed")
-        return replace(
-            self,
-            status=VideoLabRunStatus.SUCCEEDED,
-            output_asset_id=_require_text(output_asset_id, "output_asset_id"),
-        )
-
-    def fail(self, error: str) -> VideoLabRun:
-        if self.status not in {
-            VideoLabRunStatus.CREATED,
-            VideoLabRunStatus.QUEUED,
-            VideoLabRunStatus.RUNNING,
-        }:
-            raise ValueError(f"cannot fail a {self.status.value} run")
-        return replace(
-            self,
-            status=VideoLabRunStatus.FAILED,
-            error=_require_text(error, "error"),
-        )
-
-    def cancel(self) -> VideoLabRun:
-        if self.status not in {
-            VideoLabRunStatus.CREATED,
-            VideoLabRunStatus.QUEUED,
-            VideoLabRunStatus.RUNNING,
-            VideoLabRunStatus.CANCEL_PENDING,
-        }:
-            raise ValueError(f"cannot cancel a {self.status.value} run")
-        return replace(
-            self,
-            status=VideoLabRunStatus.CANCELLED,
-            error=None,
-        )
-
-    def mark_cancel_pending(self, error: str) -> VideoLabRun:
-        """Keep the slot active when a remote job could not be stopped safely."""
-        self._require_status(VideoLabRunStatus.RUNNING, "mark cancellation pending")
-        return replace(
-            self,
-            status=VideoLabRunStatus.CANCEL_PENDING,
-            error=_require_text(error, "error"),
-        )
 
     def __post_init__(self) -> None:
         _require_text(self.run_id, "run_id")
@@ -280,10 +194,6 @@ class VideoLabRun:
             return
         if self.output_asset_id is not None or self.error is not None:
             raise ValueError("cancelled run cannot contain output or error")
-
-    def _require_status(self, expected: VideoLabRunStatus, action: str) -> None:
-        if self.status is not expected:
-            raise ValueError(f"cannot {action} a {self.status.value} run")
 
 
 def _require_text(value: object, name: str) -> str:

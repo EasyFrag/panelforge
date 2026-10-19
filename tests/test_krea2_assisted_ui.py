@@ -152,7 +152,7 @@ class Krea2AssistedUiTest(unittest.TestCase):
         topbar = self.page[:change_view_start]
         change_view = self.page[
             change_view_start :
-            self.page.index('<main id="krea2-image-lab-workspace"')
+            self.page.index('</main>', self.page.index('<main id="change-view-workspace"'))
         ]
         self.assertNotIn('id="recipe-badge"', topbar)
         self.assertIn(

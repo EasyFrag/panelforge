@@ -8,6 +8,8 @@ Le projet reste un monolithe modulaire : ComfyUI sert à découvrir manuellement
 
 ## Tranches utilisables
 
+Les ateliers retirés des menus sont conservés dans [historique](historique/README.md), avec leurs sources d’origine et leur inventaire. Ce dossier ne participe ni au démarrage ni au packaging de l’application.
+
 ### Image Lab
 
 Le Lab propose actuellement `character.change_view` :
@@ -33,27 +35,6 @@ image source
   → asset réutilisable
 ```
 
-### Video Lab — MiniMax H3 Ref2V
-
-Le Video Lab exécute la recette expérimentale et immuable
-`video.generate.ref2v/minimax-h3-ref2v@0.2.0` :
-
-- une à trois images ordonnées, reliées à `<Picture 1>` jusqu’à `<Picture 3>` ;
-- prompt H3 libre, ratio, mégapixels finaux, durée et steps principaux modifiables ;
-- preset initial `h3-balanced` (`9:16`, `1,2 MP`, `10 s`, `25 steps`) ;
-- première passe fixe à `0,2 MP`, upscale du latent vidéo, recombinaison de
-  l’audio puis seconde passe fixe de trois steps ;
-- seed aléatoire par défaut, verrouillable et réutilisable depuis l’historique ;
-- preview live depuis le WebSocket natif de ComfyUI, puis lecture et téléchargement de la vidéo MP4 finale avec audio ;
-- historique local, annulation ciblée et un seul rendu Video Lab actif à la fois ;
-- bouton « Envoyer au Video Lab » dans Ref2V, qui préremplit images, prompt visible et durée du Plan sans lancer automatiquement le rendu.
-
-Les slots d’images inutilisés sont retirés du workflow avant soumission. La durée est exposée entre 5 et 15 secondes à 24 fps, puis quantifiée par le workflow H3 ; par exemple, 10 secondes donnent 243 frames, soit 10,125 secondes effectives. Modifier la durée ne réécrit pas les timestamps du prompt.
-
-La preview passe par un relais WebSocket same-origin de PanelForge, connecté à ComfyUI avec l’identifiant client propre au Video Lab. La sortie finale utilise simplement le lecteur vidéo HTML natif du navigateur, sans surcouche ni diagnostic audio. La surveillance de température de la RTX 6000 et l’arbitrage automatique de VRAM entre llama.swap et ComfyUI restent volontairement hors de cette V1.
-
-Si PanelForge redémarre pendant un rendu, l'identifiant ComfyUI persistant permet de réconcilier le run lors de sa prochaine consultation : une sortie déjà terminée est alors importée, tandis qu'un job encore actif reste suivi.
-
 ### Video Lab — textes Instagram assistés
 
 Le sous-mode `Texte Instagram` transforme une vidéo MP4 ou WebM en projet éditorial conversationnel :
@@ -64,26 +45,6 @@ Le sous-mode `Texte Instagram` transforme une vidéo MP4 ou WebM en projet édit
 - chaque projet conserve la vidéo, les images clés, toutes les propositions et la conversation complète afin de reprendre les ajustements après un redémarrage ;
 - lorsque la vidéo correspond exactement à une sortie H3 ou Video Lab connue, son prompt est ajouté au contexte ; sinon l'analyse reste strictement visuelle et ne prétend pas entendre l'audio ;
 - chaque variante dispose d'une action `Tout copier` prête à publier.
-
-### Image Lab — génération KREA2
-
-Le second mode de l’Image Lab exécute la recette immuable expérimentale
-`image.generate.t2i/krea2@0.1.0` à partir d’un prompt texte :
-
-- modèle UNET KREA2 choisi parmi la liste qualifiée et réellement installée ;
-- découverte dynamique des checkpoints via ComfyUI, avec actualisation manuelle ;
-- ratio, résolution de `0,5` à `4,0` mégapixels et seed aléatoire par défaut ;
-- seed verrouillable ou réutilisable depuis un ancien run ;
-- sortie PNG finale, historique local, relance et annulation ciblée ;
-- un seul rendu KREA2 actif à la fois et reprise d’un résultat ComfyUI terminé
-  après redémarrage de PanelForge.
-
-Le preset `krea2-base` utilise par défaut
-`Krea2/krea2GPTGrandPUSSYTruth_gptINT4INT8Convrot.safetensors`, un ratio `2:3`
-et `3 MP`. Le sampling reste volontairement fixe à huit steps, CFG `1`, Euler,
-scheduler `simple`, denoise `1`, avec le CLIP et le VAE du workflow qualifié.
-La recette publiée ne contient ni branche LoRA, ni refine prompt, ni preview :
-ces capacités nécessiteront de nouvelles versions explicites.
 
 ### Image Lab — création assistée KREA2
 
@@ -103,8 +64,8 @@ conversationnel distinct de KREA2 Edit :
   `D:\AI\PanelForge\KREA2 Creations` par défaut ;
 - une discussion dédiée peut produire un brouillon de recette (identité,
   invariants, variables, risques et prompt canonique). Seul le bouton de
-  publication crée la version immuable `0.1.0`, immédiatement compatible avec
-  le catalogue Batch.
+  publication crée la version immuable `0.1.0`, réutilisable dans
+  le catalogue de recettes partagé.
 
 La mémoire du projet contient les échanges, décisions, prompts et essais. La
 mémoire globale proposée au LLM reste limitée aux recettes déjà publiées et aux
@@ -112,50 +73,13 @@ ressources réellement exposées ; un essai ou une discussion ne l’altère jam
 La racine d’export peut être remplacée par
 `PANELFORGE_KREA2_CREATIONS_ROOT` ou `--krea2-creations-root`.
 
-### Image Lab — batches de recettes KREA2
-
-Le mode Batch de l’Image Lab exécute le workflow communautaire versionné
-`image.generate.batch/krea2-community@0.2.0`. Il part d’une famille visuelle
-publiée et produit jusqu’à dix variations en un seul appel LLM, puis les rend
-séquentiellement dans ComfyUI :
-
-- six recettes initiales, dont `high_jewelry_animal_bust_v1` avec Kroma ;
-- direction facultative par batch et mémoire des signatures récentes pour éviter
-  les répétitions ;
-- checkpoint, ratio, mégapixels et pile ordonnée de zéro à quatre LoRA intégrés
-  à la version de recette ;
-- inventaires locaux limités aux dossiers KREA2 configurés, checkpoints classés
-  par favoris et précision, LoRA classées par favoris/SFW/NSFW ;
-- un gestionnaire repliable partagé avec KREA2 Edit permet de forcer BF16 ou
-  INT8 sur les checkpoints ambigus et de déplacer les LoRA par glisser-déposer
-  entre Favoris, SFW, NSFW et Non classés. Ces préférences sont persistées dans
-  le workspace et ne modifient pas silencieusement une recette publiée ;
-- liens CivitAI/CivitAI Red et vérification manuelle, purement informative, des
-  versions disponibles ; une ressource absente reste un warning non destructif ;
-- galerie unique, votes, commentaires, historique et révision facultative de la
-  recette, publiée seulement après validation humaine.
-- pour chaque PNG, un sidecar `.txt` de même nom est sauvegardé dans le même
-  dossier ComfyUI ; son JSON contient notamment le prompt exact, la recette, le
-  modèle, le ratio, les mégapixels, la seed et la pile LoRA réellement utilisée.
-
-Le sampling reste fixé par le workflow : ER SDE, scheduler `simple`, première
-passe de huit steps à CFG `1,1`, upscale latent Bislerp `×1,5`, puis seconde
-passe de deux steps à CFG `1` et denoise `0,3`. Aucun de ces réglages n’est
-exposé dans l’interface V1 et aucune preview intermédiaire n’est demandée.
-
-Lorsque le lecteur local des modèles est inaccessible, l’inventaire ComfyUI ne
-fournit que les noms : PanelForge utilise alors un marqueur explicite `BF16`,
-`INT8`, `INT4` ou `FP8` présent dans le nom, sinon conserve « précision
-inconnue » jusqu’au classement manuel. Une racine locale ou UNC accessible reste
-la seule manière de classer automatiquement les noms ambigus par taille.
-
 ### Image Lab — modification KREA2
 
 Le mode de modification de l’Image Lab exécute la recette immuable
 `image.edit/krea2.identity_edit@0.1.0`. Il réunit dans un seul écran le backlog,
 la reconstruction du prompt et les essais de rendu :
 
-- les sorties réussies du Batch Lab rejoignent automatiquement le backlog ;
+- les anciennes sorties réussies du Batch Lab restent récupérables dans le backlog ;
   une image PNG, JPEG ou WebP externe peut aussi être ajoutée manuellement ;
 - un sidecar Batch ou les métadonnées PNG ComfyUI restaurent au mieux prompt,
   checkpoint, ratio, mégapixels, seed et jusqu’à quatre LoRA générales ; les
@@ -345,26 +269,19 @@ Les transitions stylisées et le dialogue continu à travers les coupes restent 
 - évaluer la matrice visuelle sur plusieurs personnages ;
 - ajuster les bornes LoRA uniquement à partir des résultats observés.
 
-### 4. Qualifier la génération KREA2
-
-- faire un smoke réel des ratios et résolutions de `image.generate.t2i/krea2@0.1.0` ;
-- comparer les checkpoints qualifiés sur les mêmes prompts et seeds ;
-- ajouter les LoRAs dans une nouvelle version seulement après qualification de
-  leur chargement, de leur ordre et de leurs poids.
-
-### 5. Étendre l’édition d’image
+### 4. Étendre l’édition d’image
 
 - recettes à un, deux ou trois slots sémantiques (`source`, `identity_reference`, `scene_reference`, `previous_panel`) ;
 - opérations dédiées telles que changement d’âge ou édition libre ;
 - continuité optionnelle depuis le panel précédent lorsque la scène ne casse pas.
 
-### 6. Construire la Forge narrative
+### 5. Construire la Forge narrative
 
 - importer une histoire et proposer personnages, lieux et props ;
 - constituer des reference packs approuvés ;
 - planifier les panels par `asset_id`, puis les rendre avec les recettes qualifiées.
 
-Le Video Lab couvre maintenant un premier rendu Ref2V strictement versionné ; les autres workflows vidéo restent à qualifier avant intégration. Limitation V1 : une session de génération ne porte encore qu’une seule composition/cookbook. PanelForge ne cherche pas à devenir un éditeur universel de graphes ComfyUI ni à découvrir automatiquement leurs paramètres.
+Les ateliers H3 Base et Ref2V utilisent des workflows strictement versionnés ; les autres workflows vidéo restent à qualifier avant intégration. Limitation V1 : une session de génération ne porte encore qu’une seule composition/cookbook. PanelForge ne cherche pas à devenir un éditeur universel de graphes ComfyUI ni à découvrir automatiquement leurs paramètres.
 
 ## Vérification
 

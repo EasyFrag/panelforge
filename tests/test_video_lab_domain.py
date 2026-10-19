@@ -3,8 +3,6 @@ import unittest
 from panelforge.domain import (
     RecipeRef,
     VideoAspectRatio,
-    VideoLabRun,
-    VideoLabRunStatus,
     VideoLabSettings,
 )
 
@@ -38,55 +36,6 @@ class VideoLabDomainTest(unittest.TestCase):
                 duration_seconds=16.0,
                 steps=32,
                 seed=1,
-            )
-
-    def test_run_lifecycle_keeps_source_labels(self) -> None:
-        run = VideoLabRun.create(
-            run_id="video-1",
-            recipe=self.recipe,
-            preset_id="h3-balanced",
-            source_asset_ids=("asset-1", "asset-2"),
-            source_labels=("first.png", "second.png"),
-            prompt="A simple movement.",
-            settings=self.settings,
-        )
-        queued = run.queue()
-        running = queued.start("prompt-1", "b" * 64)
-        succeeded = running.succeed("asset-video")
-
-        self.assertEqual(queued.status, VideoLabRunStatus.QUEUED)
-        self.assertEqual(succeeded.status, VideoLabRunStatus.SUCCEEDED)
-        self.assertEqual(succeeded.source_labels, ("first.png", "second.png"))
-
-    def test_failed_remote_cancellation_stays_active_and_retryable(self) -> None:
-        run = VideoLabRun.create(
-            run_id="video-1",
-            recipe=self.recipe,
-            preset_id="h3-balanced",
-            source_asset_ids=("asset-1",),
-            source_labels=("first.png",),
-            prompt="A simple movement.",
-            settings=self.settings,
-        ).queue().start("prompt-1", "b" * 64)
-
-        pending = run.mark_cancel_pending("ComfyUI is unreachable")
-        cancelled = pending.cancel()
-
-        self.assertEqual(pending.status, VideoLabRunStatus.CANCEL_PENDING)
-        self.assertEqual(pending.execution_id, "prompt-1")
-        self.assertEqual(cancelled.status, VideoLabRunStatus.CANCELLED)
-        self.assertIsNone(cancelled.error)
-
-    def test_run_requires_one_to_three_sources(self) -> None:
-        with self.assertRaisesRegex(ValueError, "between 1 and 3"):
-            VideoLabRun.create(
-                run_id="video-1",
-                recipe=self.recipe,
-                preset_id="h3-balanced",
-                source_asset_ids=(),
-                source_labels=(),
-                prompt="A simple movement.",
-                settings=self.settings,
             )
 
 

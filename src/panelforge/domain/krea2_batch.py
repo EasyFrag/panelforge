@@ -1,8 +1,8 @@
-"""Pure contracts for recipe-driven KREA2 batches and human feedback."""
+"""Shared KREA2 render settings and validation of historical batch records."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import StrEnum
 import math
 import re
@@ -140,65 +140,6 @@ class Krea2BatchItem:
             raise TypeError("comment must be a string")
         self._validate_state()
 
-    def start(self, execution_id: str, workflow_sha256: str) -> Krea2BatchItem:
-        if self.status is not Krea2BatchItemStatus.PENDING:
-            raise ValueError("only a pending item can start")
-        return replace(
-            self,
-            status=Krea2BatchItemStatus.RUNNING,
-            execution_id=_text(execution_id, "execution_id"),
-            compiled_workflow_sha256=_digest(workflow_sha256, "workflow_sha256"),
-        )
-
-    def succeed(self, asset_id: str) -> Krea2BatchItem:
-        if self.status is not Krea2BatchItemStatus.RUNNING:
-            raise ValueError("only a running item can succeed")
-        return replace(
-            self,
-            status=Krea2BatchItemStatus.SUCCEEDED,
-            output_asset_id=_text(asset_id, "asset_id"),
-            error=None,
-        )
-
-    def fail(self, error: str) -> Krea2BatchItem:
-        if self.status not in {Krea2BatchItemStatus.PENDING, Krea2BatchItemStatus.RUNNING}:
-            raise ValueError("only a pending or running item can fail")
-        return replace(
-            self,
-            status=Krea2BatchItemStatus.FAILED,
-            error=_text(error, "error"),
-        )
-
-    def recover_output(self, asset_id: str) -> Krea2BatchItem:
-        """Attach an output that Comfy completed before its import failed."""
-        if self.status is not Krea2BatchItemStatus.FAILED:
-            raise ValueError("only a failed item can recover an output")
-        if self.execution_id is None or self.compiled_workflow_sha256 is None:
-            raise ValueError("a recoverable item requires execution and workflow IDs")
-        return replace(
-            self,
-            status=Krea2BatchItemStatus.SUCCEEDED,
-            output_asset_id=_text(asset_id, "asset_id"),
-            error=None,
-        )
-
-    def cancel(self) -> Krea2BatchItem:
-        if self.status not in {Krea2BatchItemStatus.PENDING, Krea2BatchItemStatus.RUNNING}:
-            return self
-        return replace(self, status=Krea2BatchItemStatus.CANCELLED, error=None)
-
-    def review_as(
-        self,
-        decision: Krea2ReviewDecision,
-        comment: str = "",
-    ) -> Krea2BatchItem:
-        if self.status is not Krea2BatchItemStatus.SUCCEEDED:
-            raise ValueError("only a succeeded image can be reviewed")
-        if not isinstance(decision, Krea2ReviewDecision):
-            raise TypeError("decision must be a Krea2ReviewDecision")
-        if not isinstance(comment, str):
-            raise TypeError("comment must be a string")
-        return replace(self, review=decision, comment=comment.strip())
 
     def _validate_state(self) -> None:
         if self.status is Krea2BatchItemStatus.PENDING:
@@ -239,126 +180,6 @@ class Krea2Batch:
     workshop_source_batch_id: str | None = None
     recipe_snapshot: str | None = None
 
-    @classmethod
-    def create(
-        cls,
-        *,
-        batch_id: str,
-        recipe_id: str,
-        recipe_version: str,
-        recipe_sha256: str,
-        model_id: str,
-        image_count: int,
-        direction: str,
-        settings: Krea2BatchSettings,
-        warnings: tuple[str, ...] = (),
-    ) -> Krea2Batch:
-        return cls(
-            batch_id=batch_id,
-            recipe_id=recipe_id,
-            recipe_version=recipe_version,
-            recipe_sha256=recipe_sha256,
-            model_id=model_id,
-            image_count=image_count,
-            direction=direction.strip(),
-            settings=settings,
-            status=Krea2BatchStatus.CREATED,
-            warnings=warnings,
-        )
-
-    def start_prompt_generation(self) -> Krea2Batch:
-        self._require(Krea2BatchStatus.CREATED)
-        return replace(self, status=Krea2BatchStatus.GENERATING_PROMPTS)
-
-    def prompts_ready(
-        self,
-        *,
-        raw_response: str,
-        items: tuple[Krea2BatchItem, ...],
-        warnings: tuple[str, ...] = (),
-    ) -> Krea2Batch:
-        self._require(Krea2BatchStatus.GENERATING_PROMPTS)
-        if len(items) != self.image_count:
-            raise ValueError("generated item count does not match image_count")
-        if tuple(item.index for item in items) != tuple(range(1, self.image_count + 1)):
-            raise ValueError("generated item indexes must be contiguous")
-        return replace(
-            self,
-            status=Krea2BatchStatus.READY,
-            raw_prompt_response=_text(raw_response, "raw_response"),
-            items=items,
-            warnings=tuple((*self.warnings, *warnings)),
-            error=None,
-        )
-
-    def start_rendering(self) -> Krea2Batch:
-        self._require(Krea2BatchStatus.READY)
-        return replace(self, status=Krea2BatchStatus.RENDERING)
-
-    def replace_item(self, item: Krea2BatchItem) -> Krea2Batch:
-        if not isinstance(item, Krea2BatchItem):
-            raise TypeError("item must be a Krea2BatchItem")
-        matches = [candidate for candidate in self.items if candidate.item_id == item.item_id]
-        if len(matches) != 1:
-            raise KeyError(item.item_id)
-        return replace(
-            self,
-            items=tuple(item if candidate.item_id == item.item_id else candidate for candidate in self.items),
-        )
-
-    def complete(self) -> Krea2Batch:
-        self._require(Krea2BatchStatus.RENDERING)
-        if any(item.status in {Krea2BatchItemStatus.PENDING, Krea2BatchItemStatus.RUNNING} for item in self.items):
-            raise ValueError("cannot complete while items are active")
-        succeeded = sum(item.status is Krea2BatchItemStatus.SUCCEEDED for item in self.items)
-        failed = sum(item.status is Krea2BatchItemStatus.FAILED for item in self.items)
-        if succeeded == 0:
-            return replace(
-                self,
-                status=Krea2BatchStatus.FAILED,
-                error=f"Tous les rendus du batch ont échoué ({failed}/{len(self.items)}).",
-            )
-        if failed:
-            return replace(
-                self,
-                status=Krea2BatchStatus.COMPLETED,
-                warnings=tuple((*self.warnings, f"Batch terminé avec {failed} rendu(s) en échec sur {len(self.items)}.")),
-            )
-        return replace(self, status=Krea2BatchStatus.COMPLETED, error=None)
-
-    def fail(self, error: str, *, raw_response: str | None = None) -> Krea2Batch:
-        if self.status not in {
-            Krea2BatchStatus.CREATED,
-            Krea2BatchStatus.GENERATING_PROMPTS,
-            Krea2BatchStatus.READY,
-            Krea2BatchStatus.RENDERING,
-            Krea2BatchStatus.CANCEL_PENDING,
-        }:
-            raise ValueError(f"cannot fail a {self.status.value} batch")
-        return replace(
-            self,
-            status=Krea2BatchStatus.FAILED,
-            raw_prompt_response=raw_response if raw_response is not None else self.raw_prompt_response,
-            error=_text(error, "error"),
-        )
-
-    def cancel(self) -> Krea2Batch:
-        items = tuple(item.cancel() for item in self.items)
-        return replace(self, status=Krea2BatchStatus.CANCELLED, items=items, error=None)
-
-    def with_revision_draft(self, draft: str) -> Krea2Batch:
-        self._require(Krea2BatchStatus.COMPLETED)
-        return replace(self, recipe_revision_draft=_text(draft, "revision draft"))
-
-    def with_recipe_workshop(self, workshop: str, draft: str | None = None) -> Krea2Batch:
-        self._require(Krea2BatchStatus.COMPLETED)
-        return replace(
-            self,
-            recipe_workshop=_text(workshop, "recipe workshop"),
-            recipe_revision_draft=(
-                _text(draft, "revision draft") if draft is not None else self.recipe_revision_draft
-            ),
-        )
 
     def __post_init__(self) -> None:
         for value, label in (
@@ -399,10 +220,6 @@ class Krea2Batch:
             _text(self.recipe_snapshot, "recipe_snapshot")
         if (self.workshop_source_batch_id is None) != (self.recipe_snapshot is None):
             raise ValueError("workshop source and recipe snapshot must be set together")
-
-    def _require(self, status: Krea2BatchStatus) -> None:
-        if self.status is not status:
-            raise ValueError(f"batch must be {status.value}, got {self.status.value}")
 
 
 def _text(value: object, label: str) -> str:

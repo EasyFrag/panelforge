@@ -1,0 +1,515 @@
+{
+  "date": "2026-10-19",
+  "snapshot_commit": "35d84ca7984ecadd438a9ca0fb0ffa020e89ed42",
+  "snapshot_branch": "snapshots/pre-menu-cleanup-2026-10-19",
+  "description": "Original bytes of every removed file and every source file partially pruned.",
+  "stats": {
+    "application": {
+      "before_lines": 141011,
+      "after_lines": 121992,
+      "net_lines": -19019,
+      "reduction_percent": 13.49
+    },
+    "tests": {
+      "before_lines": 68793,
+      "after_lines": 62983,
+      "net_lines": -5810,
+      "reduction_percent": 8.45
+    }
+  },
+  "preserved_menu_targets": {
+    "data-lab-view": [
+      "change-view",
+      "i2v-direct",
+      "image-transitions",
+      "recipes",
+      "ref2v-direct",
+      "story-v2",
+      "video-factory",
+      "video-lab"
+    ],
+    "data-image-lab-mode": [
+      "change-view",
+      "image-journey",
+      "krea2-assisted-lab",
+      "krea2-edit-lab",
+      "minimax-edit-lab",
+      "qwen-edit-lab"
+    ],
+    "data-video-lab-mode": [
+      "media-analysis",
+      "social-lab"
+    ]
+  },
+  "removed_routes": [
+    "/api/image-lab/krea2-batch/batches",
+    "/api/image-lab/krea2-batch/batches/{batch_id}",
+    "/api/image-lab/krea2-batch/batches/{batch_id}/cancel",
+    "/api/image-lab/krea2-batch/batches/{batch_id}/items/{item_id}/review",
+    "/api/image-lab/krea2-batch/batches/{batch_id}/prompts/stream",
+    "/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision",
+    "/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/accept",
+    "/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/draft",
+    "/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/test",
+    "/api/image-lab/krea2-batch/batches/{batch_id}/start",
+    "/api/image-lab/krea2-batch/spec",
+    "/api/image-lab/krea2/models/refresh",
+    "/api/image-lab/krea2/runs",
+    "/api/image-lab/krea2/runs/{run_id}",
+    "/api/image-lab/krea2/runs/{run_id}/cancel",
+    "/api/image-lab/krea2/runs/{run_id}/start",
+    "/api/image-lab/krea2/spec",
+    "/api/production-v2/memory-profiles",
+    "/api/production-v2/projects",
+    "/api/production-v2/projects/{project_id}",
+    "/api/production-v2/projects/{project_id}/anchors",
+    "/api/production-v2/projects/{project_id}/anchors/{anchor_id}",
+    "/api/production-v2/projects/{project_id}/cancel",
+    "/api/production-v2/projects/{project_id}/candidates",
+    "/api/production-v2/projects/{project_id}/candidates/{candidate_id}/direct-ref2v",
+    "/api/production-v2/projects/{project_id}/candidates/{candidate_id}/resolution-clone",
+    "/api/production-v2/projects/{project_id}/candidates/{candidate_id}/review",
+    "/api/production-v2/projects/{project_id}/memory-profile",
+    "/api/production-v2/projects/{project_id}/video/compile",
+    "/api/production-v2/projects/{project_id}/video/configuration",
+    "/api/production-v2/projects/{project_id}/video/final",
+    "/api/production-v2/projects/{project_id}/video/previews",
+    "/api/production-v2/projects/{project_id}/video/previews/{attempt_id}/select",
+    "/api/production-v2/projects/{project_id}/video/revise",
+    "/api/production-v2/projects/{project_id}/video/seed",
+    "/api/production-v2/projects/{project_id}/visual-recipe/current/unlock",
+    "/api/production-v2/projects/{project_id}/visual-recipe/{candidate_id}",
+    "/api/production-v2/spec",
+    "/api/production/jobs",
+    "/api/production/jobs/{job_id}",
+    "/api/production/jobs/{job_id}/cancel",
+    "/api/production/jobs/{job_id}/h3-audit",
+    "/api/production/jobs/{job_id}/image-review",
+    "/api/production/jobs/{job_id}/retry",
+    "/api/production/jobs/{job_id}/start",
+    "/api/production/jobs/{job_id}/video-review",
+    "/api/production/resources",
+    "/api/production/spec",
+    "/api/video-lab/runs",
+    "/api/video-lab/runs/{run_id}",
+    "/api/video-lab/runs/{run_id}/cancel",
+    "/api/video-lab/runs/{run_id}/events",
+    "/api/video-lab/runs/{run_id}/start",
+    "/api/video-lab/spec"
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "status": "modified",
+      "sha256": "987a617c2391a42d46f5395c6ee09a72ad29955c20a45b19bf099d98c7d91695",
+      "bytes": 35116,
+      "lines": 392
+    },
+    {
+      "path": "scripts/run_lab.py",
+      "status": "modified",
+      "sha256": "5ef69ed905434903b530e11100ffeccf86622b372aeba0da805e2f6197404918",
+      "bytes": 42463,
+      "lines": 888
+    },
+    {
+      "path": "src/panelforge/application/__init__.py",
+      "status": "modified",
+      "sha256": "484d3a8a1c3122964aced252017ee0e4de9af58979ecf978a89c94ecf7dbfe88",
+      "bytes": 5354,
+      "lines": 198
+    },
+    {
+      "path": "src/panelforge/application/h3_render.py",
+      "status": "modified",
+      "sha256": "39e06b9c29f2e05697e2c1b7eadd1e74bd2741a2585bed49351c7294e6bfb7f5",
+      "bytes": 127186,
+      "lines": 2411
+    },
+    {
+      "path": "src/panelforge/application/krea2_batch.py",
+      "status": "removed",
+      "sha256": "21efa53daa7e004a3135a25dc08e811789b1e55051619cd6f940e6d7e209edf2",
+      "bytes": 47686,
+      "lines": 1100
+    },
+    {
+      "path": "src/panelforge/application/krea2_lab.py",
+      "status": "removed",
+      "sha256": "d741184066dcd9c2226904ea9cbdf1f251012dfae49b969aa09553928b1e0d90",
+      "bytes": 26631,
+      "lines": 709
+    },
+    {
+      "path": "src/panelforge/application/production.py",
+      "status": "removed",
+      "sha256": "3a467bc8947208e4996188adad2bfae5d6485cb71ac394f8eba457e3748b5990",
+      "bytes": 82936,
+      "lines": 1816
+    },
+    {
+      "path": "src/panelforge/application/production_v2.py",
+      "status": "removed",
+      "sha256": "fd8e64230a2925285df583de64ae68e44766330596c739ac2f3051e94b672cf2",
+      "bytes": 116622,
+      "lines": 2503
+    },
+    {
+      "path": "src/panelforge/application/video_lab.py",
+      "status": "removed",
+      "sha256": "530328b615d5d4a06e252c3a6cefeb3ca31b6f107cfc6459b6c0e8610b357333",
+      "bytes": 24055,
+      "lines": 647
+    },
+    {
+      "path": "src/panelforge/domain/__init__.py",
+      "status": "modified",
+      "sha256": "41a29bbb61c49b41bf9f00cb05831eea982b27bbd307a080305b7586ccc0eccb",
+      "bytes": 7088,
+      "lines": 287
+    },
+    {
+      "path": "src/panelforge/domain/krea2_batch.py",
+      "status": "modified",
+      "sha256": "7c652d70c65b5bd32bc8161235bd56db7e16c746b4a2183e09e5f48ede1cf4e0",
+      "bytes": 17533,
+      "lines": 417
+    },
+    {
+      "path": "src/panelforge/domain/krea2_lab.py",
+      "status": "modified",
+      "sha256": "ece6282da9a4dbb56514eea67765d927c3818446f8890ab07defe803ed9b4530",
+      "bytes": 11794,
+      "lines": 317
+    },
+    {
+      "path": "src/panelforge/domain/production.py",
+      "status": "modified",
+      "sha256": "f72e57573bbfb593329fd67fc27ba4fcf226ad25be771b752138d96d05d9d2b1",
+      "bytes": 24373,
+      "lines": 575
+    },
+    {
+      "path": "src/panelforge/domain/production_v2.py",
+      "status": "removed",
+      "sha256": "4f2e3db3fb7e59ee55da8051c23107dd6aa8267c394961c641fe6f19e6cc4f2b",
+      "bytes": 10375,
+      "lines": 326
+    },
+    {
+      "path": "src/panelforge/domain/video_lab.py",
+      "status": "modified",
+      "sha256": "d04d648b777372fb07ff774ae202b9d58511496d26d34f7c1ac66ebd38b5eda1",
+      "bytes": 12173,
+      "lines": 318
+    },
+    {
+      "path": "src/panelforge/features/lab/static/index.html",
+      "status": "modified",
+      "sha256": "ca53e3d2780c9c1936a7471750d4e0461e60b094b2940dc472e30064c61c1c78",
+      "bytes": 331748,
+      "lines": 3742
+    },
+    {
+      "path": "src/panelforge/features/lab/static/krea2-batch-lab.js",
+      "status": "removed",
+      "sha256": "b1066bfb5ad831034b80577dffa1b93669d9b4cca1fe1c62233eaed4775962a6",
+      "bytes": 40107,
+      "lines": 920
+    },
+    {
+      "path": "src/panelforge/features/lab/static/krea2-image-lab.js",
+      "status": "removed",
+      "sha256": "5db0d77197f7b3e6372c410e0a5a18dc76b1fca4c504febe8b1ad68ede980f84",
+      "bytes": 31299,
+      "lines": 756
+    },
+    {
+      "path": "src/panelforge/features/lab/static/lab-core.js",
+      "status": "modified",
+      "sha256": "b78ec7dfce96ab4f5970364ced3f5baefbeb7c1ee1e8a1e932fc4b55f5ee6728",
+      "bytes": 24526,
+      "lines": 616
+    },
+    {
+      "path": "src/panelforge/features/lab/static/lab.css",
+      "status": "modified",
+      "sha256": "ffe6ba05df69b86d09d04701b5d2d2134cc7ad411b381153f6a9a2ca3740f414",
+      "bytes": 192263,
+      "lines": 2103
+    },
+    {
+      "path": "src/panelforge/features/lab/static/production-lab.js",
+      "status": "removed",
+      "sha256": "9f9def12a2070674ce7f3c905a4d68ae7f53c33b9dd5ca80bb24313bb400f2df",
+      "bytes": 41237,
+      "lines": 670
+    },
+    {
+      "path": "src/panelforge/features/lab/static/production-v2-lab.js",
+      "status": "removed",
+      "sha256": "2c30b3aba587c669d4770726e9126396411b49404c0772a0b149c18e035c8fa1",
+      "bytes": 100717,
+      "lines": 1837
+    },
+    {
+      "path": "src/panelforge/features/lab/static/video-lab.js",
+      "status": "removed",
+      "sha256": "6af216e963f91c117da899544192a5d807c319ba5896dd98bbbc5e633788f81b",
+      "bytes": 46312,
+      "lines": 1099
+    },
+    {
+      "path": "src/panelforge/features/lab/web.py",
+      "status": "modified",
+      "sha256": "160d4e233280ce7e9a043a47757e9dfd0939b5cb2671a4048047ac632c108ab7",
+      "bytes": 335361,
+      "lines": 7733
+    },
+    {
+      "path": "src/panelforge/infrastructure/presets/__init__.py",
+      "status": "modified",
+      "sha256": "3c0966720a1e4d1f8d04466b6c0499bea728b3b7a2d8efec902830bce52d5091",
+      "bytes": 3516,
+      "lines": 127
+    },
+    {
+      "path": "src/panelforge/infrastructure/presets/krea2_t2i.py",
+      "status": "removed",
+      "sha256": "3aa43bf3c07b734e6b82e27e0e05b45623972b8de0fe9d388fcda7d5d9960336",
+      "bytes": 16751,
+      "lines": 470
+    },
+    {
+      "path": "src/panelforge/infrastructure/storage/__init__.py",
+      "status": "modified",
+      "sha256": "644686756d797d5cd07e823a8a3896def01fcb66f2043833ee2a1bc8a49145a5",
+      "bytes": 1430,
+      "lines": 38
+    },
+    {
+      "path": "src/panelforge/infrastructure/storage/krea2_batches.py",
+      "status": "modified",
+      "sha256": "5f44dd6aeef6c97f00c3ef34db7958dc0d118b00cef847b0bfde7857ac98f5cf",
+      "bytes": 8608,
+      "lines": 214
+    },
+    {
+      "path": "src/panelforge/infrastructure/storage/krea2_runs.py",
+      "status": "removed",
+      "sha256": "be87255036b4355f970f59e36a05635acac88e1facb19f983a45bcc0017fb88a",
+      "bytes": 11833,
+      "lines": 332
+    },
+    {
+      "path": "src/panelforge/infrastructure/storage/production_jobs.py",
+      "status": "removed",
+      "sha256": "0fd3540752125f10018d171acef7f271ba07d2ea1b83712eef3ed688e414aecd",
+      "bytes": 17358,
+      "lines": 429
+    },
+    {
+      "path": "src/panelforge/infrastructure/storage/production_lora_memory.py",
+      "status": "removed",
+      "sha256": "0807372f8afc06946a42438590993dac0f1e3966152996dcb243aa19aa4cb346",
+      "bytes": 10970,
+      "lines": 257
+    },
+    {
+      "path": "src/panelforge/infrastructure/storage/production_v2.py",
+      "status": "removed",
+      "sha256": "de8836e5810d5257320d9c2e18d51d56960086978841d4f9fc04aa7650f28ce6",
+      "bytes": 22273,
+      "lines": 454
+    },
+    {
+      "path": "src/panelforge/infrastructure/storage/video_runs.py",
+      "status": "modified",
+      "sha256": "f7fb9c55d74cd240176811de1f6ecfe974a7c5d5da0e7afc5787a2adbfb3257a",
+      "bytes": 12022,
+      "lines": 341
+    },
+    {
+      "path": "tests/test_h3_video_vae.py",
+      "status": "modified",
+      "sha256": "c6b93e575dae46780ff4b4c51fd6ce85d7ee57543f5161759481b7727b5d90b1",
+      "bytes": 12066,
+      "lines": 207
+    },
+    {
+      "path": "tests/test_krea2_assisted_ui.py",
+      "status": "modified",
+      "sha256": "41d3b614e53f16c7088a2a21c303e8793f16d555241c19a031baa9e0d8a2e9aa",
+      "bytes": 18900,
+      "lines": 328
+    },
+    {
+      "path": "tests/test_krea2_batch_service.py",
+      "status": "removed",
+      "sha256": "51f01afa073c0bf2760071bbadbfc85d9bf889883e79d42e748e551242734e03",
+      "bytes": 22143,
+      "lines": 493
+    },
+    {
+      "path": "tests/test_krea2_batch_ui.py",
+      "status": "removed",
+      "sha256": "7434fcc7aa9fae0e9faa9d9a23b57cd409c81bc7965dead1cce762fb56e7b9c9",
+      "bytes": 5112,
+      "lines": 86
+    },
+    {
+      "path": "tests/test_krea2_batch_web.py",
+      "status": "removed",
+      "sha256": "d7b27e7b861721056c28a75a9150453a84d423b82c84db9c5ff226d7060452df",
+      "bytes": 10897,
+      "lines": 231
+    },
+    {
+      "path": "tests/test_krea2_image_lab_ui.py",
+      "status": "removed",
+      "sha256": "5fa99f50c6cd58da9dd93329039c22b03097a8b8aed84f3f76733c8c8a0c0067",
+      "bytes": 5264,
+      "lines": 115
+    },
+    {
+      "path": "tests/test_krea2_lab_domain.py",
+      "status": "modified",
+      "sha256": "47dd39677406a107fc67c697c94924af3959a5b69a802654215dfe0a73b5ce54",
+      "bytes": 7043,
+      "lines": 181
+    },
+    {
+      "path": "tests/test_krea2_lab_runner.py",
+      "status": "removed",
+      "sha256": "6446b127003c798301b1554db4be5afaf3e639b029e5b8aebbd46da81ddad0fc",
+      "bytes": 22182,
+      "lines": 554
+    },
+    {
+      "path": "tests/test_krea2_lab_web.py",
+      "status": "removed",
+      "sha256": "2e07708c9cbd876a5675b3bcb72ec4140cbb4485007d269a26877971e280393b",
+      "bytes": 10677,
+      "lines": 270
+    },
+    {
+      "path": "tests/test_krea2_run_storage.py",
+      "status": "removed",
+      "sha256": "9be393b1183da6fda05d21da5536398cdff91ae5fc7b526cdc1afb0421359384",
+      "bytes": 4820,
+      "lines": 146
+    },
+    {
+      "path": "tests/test_krea2_t2i_preset.py",
+      "status": "removed",
+      "sha256": "65f00ed5df622a0a919f68f7c1c3a7210c9fa6cc6ae138ca81454a34ad005df7",
+      "bytes": 6700,
+      "lines": 177
+    },
+    {
+      "path": "tests/test_lab_web.py",
+      "status": "modified",
+      "sha256": "c532bf9c7514cc0e8e92c87dae088e0038ad1ca383b6ad982cf19bb15fb42a4f",
+      "bytes": 56788,
+      "lines": 1153
+    },
+    {
+      "path": "tests/test_production.py",
+      "status": "removed",
+      "sha256": "42f7eed322fc3d0ebfca013453cba449cbe8e5cb60ea181a8242473bd69b19ef",
+      "bytes": 37144,
+      "lines": 944
+    },
+    {
+      "path": "tests/test_production_composition_integration.py",
+      "status": "removed",
+      "sha256": "43c87f1b17643e0352e544fa8bd66ef84024630e002d627fbb412c7e6cf8d13e",
+      "bytes": 4217,
+      "lines": 103
+    },
+    {
+      "path": "tests/test_production_lora_memory.py",
+      "status": "removed",
+      "sha256": "219c60bd78705ff15bdeafad220849dcd03af7774f305093a55af1f5b4de49fd",
+      "bytes": 4310,
+      "lines": 95
+    },
+    {
+      "path": "tests/test_production_resources.py",
+      "status": "modified",
+      "sha256": "12a25cee47e7d419f5c867d7bc282b2e4dcf080439d4f1e33a7825c4ec940b7c",
+      "bytes": 12869,
+      "lines": 318
+    },
+    {
+      "path": "tests/test_production_ui.py",
+      "status": "removed",
+      "sha256": "11370f9f2246e7fcaca4548b375a721531bf29d5493a0d4b791c7b82747a8bb4",
+      "bytes": 5700,
+      "lines": 99
+    },
+    {
+      "path": "tests/test_production_v2.py",
+      "status": "removed",
+      "sha256": "203f22411c1227117a621c3eb19ed0950eaa45a856148ef087c08c8e10cbb946",
+      "bytes": 51336,
+      "lines": 1128
+    },
+    {
+      "path": "tests/test_production_v2_ui.py",
+      "status": "removed",
+      "sha256": "240f0cff3546f29f029e4470ad4c9b6c184cb9950a4ba4c35aa6129d14185f32",
+      "bytes": 13270,
+      "lines": 212
+    },
+    {
+      "path": "tests/test_run_lab_build.py",
+      "status": "modified",
+      "sha256": "0138dd99722fb908f0e4ae4882230564497ac6997a9f8cb85c90264a414fb87c",
+      "bytes": 14973,
+      "lines": 321
+    },
+    {
+      "path": "tests/test_video_lab_domain.py",
+      "status": "modified",
+      "sha256": "060c4f14b14a7f32fa8db8ce205cd5d178efb4dfaae9cbc0204a435064de06e6",
+      "bytes": 3380,
+      "lines": 94
+    },
+    {
+      "path": "tests/test_video_lab_runner.py",
+      "status": "removed",
+      "sha256": "1986d480efb10f664769fc90983924b57f7f2006e354921017974997a02f8127",
+      "bytes": 13208,
+      "lines": 356
+    },
+    {
+      "path": "tests/test_video_lab_storage.py",
+      "status": "removed",
+      "sha256": "18ae05b0f3c95eddcb672df8b34f3ecf5f9cecf0fcf87081c46874514dbd37ff",
+      "bytes": 2871,
+      "lines": 77
+    },
+    {
+      "path": "tests/test_video_lab_web.py",
+      "status": "removed",
+      "sha256": "3a0bd850bd7c2bfdda4d8608558bc1174ffcada4eac6f53bc49d78b19521c502",
+      "bytes": 16573,
+      "lines": 456
+    },
+    {
+      "path": "workflows/image.generate.t2i/krea2/0.1.0/manifest.json",
+      "status": "removed",
+      "sha256": "1dc1c76582790164cdf6fab0e410e0e69537f90406e248d699c023ba48bb4bba",
+      "bytes": 4196,
+      "lines": 165
+    },
+    {
+      "path": "workflows/image.generate.t2i/krea2/0.1.0/workflow_api.json",
+      "status": "removed",
+      "sha256": "53245f60e6876dbfee27842adbad4e661b0f0b461d3a16dd448eda09529a697b",
+      "bytes": 2682,
+      "lines": 156
+    }
+  ]
+}

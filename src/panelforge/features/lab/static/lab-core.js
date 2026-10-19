@@ -4,16 +4,13 @@
   const $ = (selector) => document.querySelector(selector);
   const elements = {
     changeView: $("#change-view-workspace"),
-    krea2ImageLab: $("#krea2-image-lab-workspace"),
     krea2AssistedLab: $("#krea2-assisted-lab-workspace"),
-    krea2BatchLab: $("#krea2-batch-lab-workspace"),
     krea2EditLab: $("#krea2-edit-lab-workspace"),
     qwenEditLab: $("#qwen-edit-lab-workspace"),
     minimaxEditLab: $("#minimax-edit-lab-workspace"),
     imageJourney: $("#image-journey-workspace"),
     i2vDirect: $("#i2vd-workspace"),
     ref2vDirect: $("#ref2vd-workspace"),
-    videoLab: $("#video-lab-workspace"),
     socialLab: $("#social-lab-workspace"),
     mediaAnalysis: $("#media-analysis-workspace"),
     stories: $("#stories-workspace"),
@@ -31,13 +28,13 @@
 
   const navigationKey = "panelforge.lab.last-view.v1";
   const workspaces = new Map([
-    ["change-view", elements.changeView], ["krea2-image-lab", elements.krea2ImageLab],
-    ["krea2-assisted-lab", elements.krea2AssistedLab], ["krea2-batch-lab", elements.krea2BatchLab],
+    ["change-view", elements.changeView],
+    ["krea2-assisted-lab", elements.krea2AssistedLab],
     ["krea2-edit-lab", elements.krea2EditLab], ["i2v-direct", elements.i2vDirect],
     ["qwen-edit-lab", elements.qwenEditLab],
     ["minimax-edit-lab", elements.minimaxEditLab],
     ["image-journey", elements.imageJourney],
-    ["ref2v-direct", elements.ref2vDirect], ["video-lab", elements.videoLab],
+    ["ref2v-direct", elements.ref2vDirect],
     ["social-lab", elements.socialLab], ["media-analysis", elements.mediaAnalysis],
     ["story-v2", elements.storyV2], ["stories", elements.stories], ["video-factory", elements.videoFactory],
     ["image-transitions", elements.imageTransitions],
@@ -57,9 +54,7 @@
     activeView = view;
     const imageLabActive = [
       "change-view",
-      "krea2-image-lab",
       "krea2-assisted-lab",
-      "krea2-batch-lab",
       "krea2-edit-lab",
       "qwen-edit-lab",
       "minimax-edit-lab",

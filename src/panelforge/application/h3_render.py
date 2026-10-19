@@ -68,7 +68,7 @@ from .prompt_lab import (
     StreamPhase,
     truncated_response_message,
 )
-from .video_lab import extract_bound_video
+from .video_outputs import extract_bound_video
 
 
 _H3_REVISION_SYSTEM_LEGACY = """You are a collaborative MiniMax H3 video prompt editor.

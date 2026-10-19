@@ -113,9 +113,6 @@ class RunLabBuildTest(unittest.TestCase):
                 http_timeout=12.0,
                 runtime_timeout=2.5,
                 run_timeout=600.0,
-                video_run_timeout=3600.0,
-                krea2_run_timeout=2400.0,
-                krea2_batch_run_timeout=2500.0,
                 krea2_models_root=Path(workspace) / "models",
                 krea2_loras_root=Path(workspace) / "loras",
                 krea2_projects_root=Path(workspace) / "KREA2 Projects",
@@ -165,18 +162,16 @@ class RunLabBuildTest(unittest.TestCase):
             self.assertEqual(playback.content, b"sample")
             self.assertEqual(playback.headers["content-type"], "video/mp4")
             self.assertFalse((Path(workspace) / "assets" / referenced.asset_id / "content.bin").exists())
-            self.assertEqual(spec.status_code, 200)
+            self.assertEqual(spec.status_code, 404)
             self.assertEqual(edit_spec.status_code, 200)
             self.assertEqual(edit_spec.json()["recipe"]["version"], "0.2.0")
             self.assertEqual([(w["engine"], w["version"]) for w in edit_spec.json()["workflows"]],
                              [("krea2", "0.2.0"), ("krea2", "0.1.0"), ("krea2", "0.3.0"), ("firered", "0.1.0")])
-            self.assertEqual(spec.json()["defaults"]["model_id"], DEFAULT_MODEL)
             self.assertEqual(h3_render_spec.status_code, 200)
             self.assertEqual(ref2v_render_spec.status_code, 200)
             self.assertEqual(old_recipe_spec.status_code, 200)
             self.assertEqual(old_recipe_spec.json()["recipe"]["version"], "0.2.1+vae-int8-convrot.1")
-            self.assertEqual(video_spec.status_code, 200)
-            self.assertEqual(video_spec.json()["recipe"]["version"], "0.2.1+vae-int8-convrot.1")
+            self.assertEqual(video_spec.status_code, 404)
             self.assertEqual(
                 h3_render_spec.json()["revision_versions"],
                 [
@@ -244,21 +239,19 @@ class RunLabBuildTest(unittest.TestCase):
                 h3_render_spec.json()["recipe"]["workflow_sha256"],
                 "ebbcc11094decbd691aa23f49dfc42db4137e29b70bf94555b234b32ea692515",
             )
-            self.assertNotIn("preview_ws_url", spec.json())
             self.assertEqual(len(BuildProjectExporter.instances), 1)
             self.assertEqual(
                 BuildProjectExporter.instances[0].root,
                 (Path(workspace) / "KREA2 Projects").resolve(),
             )
-            self.assertEqual(history.status_code, 200)
-            self.assertEqual(history.json(), {"runs": []})
-            self.assertTrue((Path(workspace) / "krea2_runs").is_dir())
+            self.assertEqual(history.status_code, 404)
+            self.assertFalse((Path(workspace) / "krea2_runs").exists())
             self.assertEqual(len(BuildCreationExporter.instances), 1)
             self.assertEqual(
                 BuildCreationExporter.instances[0].root,
                 Path(r"D:\AI\PanelForge\KREA2 Creations").resolve(),
             )
-            self.assertEqual(len(BuildComfyClient.instances), 10)
+            self.assertEqual(len(BuildComfyClient.instances), 8)
             clients = {client.client_id: client for client in BuildComfyClient.instances}
             self.assertEqual(clients["panelforge-dlss"].base_url, "http://127.0.0.1:8188")
             self.assertFalse((Path(workspace) / "unmounted-server").exists(), "startup must not access or create the export share")
@@ -270,13 +263,6 @@ class RunLabBuildTest(unittest.TestCase):
             self.assertEqual(len(h3_render_ids), 1)
             self.assertEqual(clients[h3_render_ids[0]].timeout, 12.0)
             self.assertTrue((Path(workspace) / "h3_render_projects").is_dir())
-            krea2_ids = [
-                client_id
-                for client_id in clients
-                if client_id.startswith("panelforge-krea2-lab-")
-            ]
-            self.assertEqual(len(krea2_ids), 1)
-            self.assertEqual(clients[krea2_ids[0]].timeout, 12.0)
             batch_ids = [
                 client_id
                 for client_id in clients
@@ -314,7 +300,7 @@ class RunLabBuildTest(unittest.TestCase):
             ]
             self.assertEqual(len(production_monitor_ids), 1)
             self.assertEqual(clients[production_monitor_ids[0]].timeout, 2.5)
-            self.assertTrue((Path(workspace) / "production_jobs").is_dir())
+            self.assertFalse((Path(workspace) / "production_jobs").exists())
 
 
 if __name__ == "__main__":

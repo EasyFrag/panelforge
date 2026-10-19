@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import StrEnum
-import hashlib
 import math
-import re
-
-from .recipes import RecipeRef
 
 
 KREA2_RESOLUTION_MULTIPLE = 8
-_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 class Krea2AspectRatio(StrEnum):
@@ -31,16 +26,6 @@ class Krea2AspectRatio(StrEnum):
     def dimensions(self) -> tuple[int, int]:
         width, height = self.value.split(" ", 1)[0].split(":", 1)
         return int(width), int(height)
-
-
-class Krea2LabRunStatus(StrEnum):
-    CREATED = "created"
-    QUEUED = "queued"
-    RUNNING = "running"
-    CANCEL_PENDING = "cancel_pending"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 def normalize_krea2_model_name(value: str) -> str:
@@ -86,218 +71,11 @@ class Krea2LabSettings:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class Krea2LabRun:
-    """Persistent state of one independently managed KREA2 render."""
-
-    run_id: str
-    recipe: RecipeRef
-    preset_id: str
-    prompt: str
-    settings: Krea2LabSettings
-    status: Krea2LabRunStatus
-    source_storyboard_run_id: str | None = None
-    source_prompt_sha256: str | None = None
-    execution_id: str | None = None
-    compiled_workflow_sha256: str | None = None
-    output_asset_id: str | None = None
-    error: str | None = None
-
-    @classmethod
-    def create(
-        cls,
-        *,
-        run_id: str,
-        recipe: RecipeRef,
-        preset_id: str,
-        prompt: str,
-        settings: Krea2LabSettings,
-        source_storyboard_run_id: str | None = None,
-        source_prompt_sha256: str | None = None,
-    ) -> Krea2LabRun:
-        return cls(
-            run_id=run_id,
-            recipe=recipe,
-            preset_id=preset_id,
-            prompt=prompt,
-            settings=settings,
-            status=Krea2LabRunStatus.CREATED,
-            source_storyboard_run_id=source_storyboard_run_id,
-            source_prompt_sha256=source_prompt_sha256,
-        )
-
-    def queue(self) -> Krea2LabRun:
-        self._require_status(Krea2LabRunStatus.CREATED, "queue")
-        return replace(self, status=Krea2LabRunStatus.QUEUED)
-
-    def start(
-        self,
-        execution_id: str,
-        compiled_workflow_sha256: str,
-    ) -> Krea2LabRun:
-        self._require_status(Krea2LabRunStatus.QUEUED, "start")
-        return replace(
-            self,
-            status=Krea2LabRunStatus.RUNNING,
-            execution_id=_require_text(execution_id, "execution_id"),
-            compiled_workflow_sha256=_require_sha256(
-                compiled_workflow_sha256,
-                "compiled_workflow_sha256",
-            ),
-        )
-
-    def succeed(self, output_asset_id: str) -> Krea2LabRun:
-        if self.status not in {
-            Krea2LabRunStatus.RUNNING,
-            Krea2LabRunStatus.CANCEL_PENDING,
-        }:
-            raise ValueError(f"cannot succeed a {self.status.value} run")
-        return replace(
-            self,
-            status=Krea2LabRunStatus.SUCCEEDED,
-            output_asset_id=_require_text(output_asset_id, "output_asset_id"),
-            error=None,
-        )
-
-    def fail(self, error: str) -> Krea2LabRun:
-        if self.status not in {
-            Krea2LabRunStatus.CREATED,
-            Krea2LabRunStatus.QUEUED,
-            Krea2LabRunStatus.RUNNING,
-            Krea2LabRunStatus.CANCEL_PENDING,
-        }:
-            raise ValueError(f"cannot fail a {self.status.value} run")
-        return replace(
-            self,
-            status=Krea2LabRunStatus.FAILED,
-            error=_require_text(error, "error"),
-        )
-
-    def cancel(self) -> Krea2LabRun:
-        if self.status not in {
-            Krea2LabRunStatus.CREATED,
-            Krea2LabRunStatus.QUEUED,
-            Krea2LabRunStatus.RUNNING,
-            Krea2LabRunStatus.CANCEL_PENDING,
-        }:
-            raise ValueError(f"cannot cancel a {self.status.value} run")
-        return replace(
-            self,
-            status=Krea2LabRunStatus.CANCELLED,
-            error=None,
-        )
-
-    def mark_cancel_pending(self, error: str) -> Krea2LabRun:
-        self._require_status(
-            Krea2LabRunStatus.RUNNING,
-            "mark cancellation pending",
-        )
-        return replace(
-            self,
-            status=Krea2LabRunStatus.CANCEL_PENDING,
-            error=_require_text(error, "error"),
-        )
-
-    def __post_init__(self) -> None:
-        _require_text(self.run_id, "run_id")
-        if not isinstance(self.recipe, RecipeRef):
-            raise TypeError("recipe must be a RecipeRef")
-        _require_text(self.preset_id, "preset_id")
-        _require_text(self.prompt, "prompt")
-        if not isinstance(self.settings, Krea2LabSettings):
-            raise TypeError("settings must be Krea2LabSettings")
-        if not isinstance(self.status, Krea2LabRunStatus):
-            raise TypeError("status must be a Krea2LabRunStatus")
-        if self.source_storyboard_run_id is not None:
-            _require_text(
-                self.source_storyboard_run_id,
-                "source_storyboard_run_id",
-            )
-        if self.source_prompt_sha256 is not None:
-            _require_sha256(self.source_prompt_sha256, "source_prompt_sha256")
-            actual_prompt_hash = hashlib.sha256(self.prompt.encode("utf-8")).hexdigest()
-            if self.source_prompt_sha256 != actual_prompt_hash:
-                raise ValueError("source_prompt_sha256 does not match prompt")
-        if self.execution_id is not None:
-            _require_text(self.execution_id, "execution_id")
-        if self.compiled_workflow_sha256 is not None:
-            _require_sha256(
-                self.compiled_workflow_sha256,
-                "compiled_workflow_sha256",
-            )
-        if self.output_asset_id is not None:
-            _require_text(self.output_asset_id, "output_asset_id")
-        if self.error is not None:
-            _require_text(self.error, "error")
-        self._validate_state()
-
-    def _validate_state(self) -> None:
-        if self.status in {
-            Krea2LabRunStatus.CREATED,
-            Krea2LabRunStatus.QUEUED,
-        }:
-            if any(
-                value is not None
-                for value in (
-                    self.execution_id,
-                    self.compiled_workflow_sha256,
-                    self.output_asset_id,
-                    self.error,
-                )
-            ):
-                raise ValueError(f"{self.status.value} run contains later-state fields")
-            return
-        if self.status is Krea2LabRunStatus.RUNNING:
-            if self.execution_id is None or self.compiled_workflow_sha256 is None:
-                raise ValueError("running run requires execution and workflow IDs")
-            if self.output_asset_id is not None or self.error is not None:
-                raise ValueError("running run contains terminal fields")
-            return
-        if self.status is Krea2LabRunStatus.SUCCEEDED:
-            if (
-                self.execution_id is None
-                or self.compiled_workflow_sha256 is None
-                or self.output_asset_id is None
-            ):
-                raise ValueError(
-                    "succeeded run requires execution, workflow and output IDs"
-                )
-            if self.error is not None:
-                raise ValueError("succeeded run cannot contain an error")
-            return
-        if self.status is Krea2LabRunStatus.FAILED:
-            if self.output_asset_id is not None or self.error is None:
-                raise ValueError("failed run requires only an error")
-            return
-        if self.status is Krea2LabRunStatus.CANCEL_PENDING:
-            if self.execution_id is None or self.compiled_workflow_sha256 is None:
-                raise ValueError(
-                    "cancel-pending run requires execution and workflow IDs"
-                )
-            if self.output_asset_id is not None or self.error is None:
-                raise ValueError("cancel-pending run requires only an error")
-            return
-        if self.output_asset_id is not None or self.error is not None:
-            raise ValueError("cancelled run cannot contain output or error")
-
-    def _require_status(self, expected: Krea2LabRunStatus, action: str) -> None:
-        if self.status is not expected:
-            raise ValueError(f"cannot {action} a {self.status.value} run")
-
-
 def _require_text(value: object, name: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{name} must be a string")
     if not value.strip():
         raise ValueError(f"{name} must not be empty")
-    return value
-
-
-def _require_sha256(value: object, name: str) -> str:
-    if not isinstance(value, str):
-        raise TypeError(f"{name} must be a string")
-    if _SHA256_PATTERN.fullmatch(value) is None:
-        raise ValueError(f"{name} must be a lowercase SHA-256 hex digest")
     return value
 
 

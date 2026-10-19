@@ -26,7 +26,6 @@ import hashlib
 import json
 from urllib.parse import quote
 from pathlib import Path
-from threading import Lock
 from time import perf_counter
 from typing import Annotated, Any, Callable, Literal
 from panelforge.domain.prompt_composition import PreparationIntent
@@ -62,11 +61,6 @@ from panelforge.application import (
     H3RenderStreamEvent,
     Krea2AssistedService,
     Krea2AssistedStreamEvent,
-    Krea2LabRunRequest,
-    Krea2LabRunner,
-    Krea2BatchRequest,
-    Krea2BatchService,
-    Krea2BatchStreamEvent,
     Krea2EditAttemptRequest,
     Krea2EditService,
     Krea2EditStreamEvent,
@@ -75,14 +69,10 @@ from panelforge.application import (
     PromptCompositionService,
     PromptLabService,
     PromptLabStreamEvent,
-    ProductionService,
-    ProductionV2Service,
     SocialLabService,
     SocialLabStreamEvent,
     SUPER_FAST_REF2V_COOKBOOK_ID,
     SUPER_FAST_REF2V_COOKBOOK_VERSION,
-    VideoLabRunRequest,
-    VideoLabRunner,
     composition_picture_mapping,
     creative_axes_from_legacy,
     parse_krea2_assisted_recipe_draft,
@@ -99,25 +89,14 @@ from panelforge.domain import (
     Krea2AssistedProject,
     Krea2AssistedTurnMode,
     Krea2AspectRatio,
-    Krea2Batch,
     Krea2BatchSettings,
     Krea2EditSettings,
     Krea2EditSource,
     Krea2EditSourceState,
     Krea2LoraSelection,
     Krea2PromptLanguage,
-    Krea2ReviewDecision,
-    Krea2LabRun,
     PromptComposition,
     PromptLabSession,
-    ProductionConfig,
-    ProductionJob,
-    ProductionMode,
-    ProductionV2AnchorRole,
-    ProductionV2Preference,
-    ProductionV2PromptStrategy,
-    ProductionV2Project,
-    ProductionV2ReferenceMode,
     ThermalPolicy,
     WorkSchedulerSettings,
     ReferenceEvidencePolicy,
@@ -128,9 +107,7 @@ from panelforge.domain import (
     SocialLanguage,
     SocialProject,
     VideoAspectRatio,
-    VideoLabRun,
     VideoLabSettings,
-    normalize_krea2_model_name,
 )
 from panelforge.domain.character import (
     CameraAzimuth,
@@ -496,31 +473,9 @@ class SuperFastRef2VBody(BaseModel):
     creative_audacity: int = Field(default=0, ge=0, le=3)
 
 
-class Krea2CreateBody(BaseModel):
-    prompt: str
-    preset_id: str = "krea2-base"
-    model_id: str | None = None
-    aspect_ratio: str | None = None
-    megapixels: float | None = None
-    seed: str | int | None = None
-    seed_locked: bool = False
-
-
-class Krea2BatchLoraBody(BaseModel):
+class Krea2LoraBody(BaseModel):
     name: str
     strength: float
-
-
-class Krea2BatchCreateBody(BaseModel):
-    recipe_id: str
-    recipe_version: str
-    image_count: int
-    model_id: str
-    direction: str = ""
-    render_model_id: str | None = None
-    aspect_ratio: str | None = None
-    megapixels: float | None = None
-    loras: list[Krea2BatchLoraBody] | None = None
 
 
 class Krea2ResourcePreferenceBody(BaseModel):
@@ -532,46 +487,6 @@ class Krea2ResourcePreferenceBody(BaseModel):
     strength_min: float | None = Field(default=None, ge=-1, le=1)
     strength_max: float | None = Field(default=None, ge=-1, le=1)
     notes: str | None = Field(default=None, max_length=4_000)
-
-
-class Krea2BatchReviewBody(BaseModel):
-    decision: str
-    comment: str = ""
-
-
-class Krea2BatchRecipeRevisionBody(BaseModel):
-    instruction: str
-    draft: str | None = None
-    model_id: str | None = None
-    render_model_id: str | None = None
-    aspect_ratio: str | None = None
-    megapixels: float | None = None
-    loras: list[Krea2BatchLoraBody] | None = None
-    prompt_language: str | None = None
-
-
-class Krea2BatchRecipeDraftBody(BaseModel):
-    draft: str
-    render_model_id: str | None = None
-    aspect_ratio: str | None = None
-    megapixels: float | None = None
-    loras: list[Krea2BatchLoraBody] | None = None
-    prompt_language: str | None = None
-
-
-class Krea2BatchRecipeTestBody(Krea2BatchRecipeDraftBody):
-    image_count: int = 3
-    model_id: str
-    direction: str = ""
-
-
-class Krea2BatchRecipePublishBody(BaseModel):
-    draft: str | None = None
-    render_model_id: str | None = None
-    aspect_ratio: str | None = None
-    megapixels: float | None = None
-    loras: list[Krea2BatchLoraBody] | None = None
-    prompt_language: str | None = None
 
 
 class Krea2EditPromptBody(BaseModel):
@@ -592,7 +507,7 @@ class Krea2EditAttemptBody(BaseModel):
     seed: str | int
     ref_boost: float | None = None
     steps: int | None = None
-    loras: list[Krea2BatchLoraBody] | None = None
+    loras: list[Krea2LoraBody] | None = None
     workflow_version: str | None = None
     workflow_id: str | None = None
     engine: Literal["krea2", "firered"] = "krea2"
@@ -660,7 +575,7 @@ class Krea2AssistedAttemptBody(BaseModel):
     aspect_ratio: str
     megapixels: float
     seed: str | int | None = None
-    loras: list[Krea2BatchLoraBody] | None = None
+    loras: list[Krea2LoraBody] | None = None
     expected_branch_id: str | None = None
     sampling: dict[str, Any] | None = None
     workflow: str | None = None
@@ -850,16 +765,6 @@ class SocialChatBody(BaseModel):
     update_profile: bool = False
 
 
-class ProductionImageReviewBody(BaseModel):
-    attempt_id: str | None = None
-
-
-class ProductionVideoReviewBody(BaseModel):
-    accept: bool
-    attempt_id: str | None = None
-    instruction: str | None = None
-
-
 class WorkSchedulerThermalBody(BaseModel):
     stop_temperature_c: float = Field(default=85.0, ge=30, le=110, allow_inf_nan=False)
     resume_temperature_c: float = Field(default=40.0, ge=15, le=109, allow_inf_nan=False)
@@ -880,87 +785,6 @@ class WorkSchedulerSettingsBody(BaseModel):
     history_limit: int = Field(default=30, ge=5, le=200, strict=True)
 
 
-class ProductionV2MemoryProfileBody(BaseModel):
-    name: str
-
-
-class ProductionV2ProfileSelectionBody(BaseModel):
-    profile_id: str
-
-
-class ProductionV2ImageSettingsBody(BaseModel):
-    model_name: str
-    aspect_ratio: str = Krea2AspectRatio.PORTRAIT_WIDESCREEN.value
-    megapixels: float = Field(default=0.8, ge=0.5, le=4.0)
-    loras: list[dict[str, object]] = Field(default_factory=list)
-
-
-class ProductionV2CandidateBatchBody(BaseModel):
-    role: str = ProductionV2AnchorRole.CALIBRATION.value
-    instruction: str = ""
-    model_id: str | None = None
-    feedback_parent_id: str | None = None
-    technical_comparison: bool = False
-    freeze_prompt_seed: bool | None = None
-    prompt_strategy: str | None = None
-    preserve_seed: bool | None = None
-    preserve_model: bool = False
-    explore_models: bool = False
-    preserve_loras: bool = False
-    reference_mode: str = ProductionV2ReferenceMode.RECIPE.value
-    guidance_candidate_id: str | None = None
-    assisted_lora_selection: bool = False
-    lora_instruction: str = ""
-    settings: list[ProductionV2ImageSettingsBody]
-
-
-class ProductionV2ResolutionCloneBody(BaseModel):
-    megapixels: float = Field(default=2.1, ge=0.5, le=4.0)
-
-
-class ProductionV2CandidateReviewBody(BaseModel):
-    preference: str
-    comment: str = ""
-
-
-class ProductionV2AnchorBody(BaseModel):
-    role: str
-    candidate_id: str | None = None
-    use_source: bool = False
-
-
-class ProductionV2PreviewBody(BaseModel):
-    instruction: str = ""
-    model_id: str | None = None
-    feedback_attempt_id: str | None = None
-    revision_audacity: int | None = Field(default=None, ge=0, le=3)
-    repair_rejected: bool = False
-
-
-class ProductionV2VideoConfigurationBody(BaseModel):
-    video_intention: str
-    compile_model_id: str | None = None
-    aspect_ratio: str = VideoAspectRatio.PORTRAIT_WIDESCREEN.value
-    duration_seconds: float = Field(default=6.0, ge=5.0, le=15.0)
-    preview_megapixels: float = Field(default=0.2, ge=0.1, le=16.0)
-    final_megapixels: float = Field(default=1.2, ge=0.1, le=16.0)
-    steps: int = Field(default=25, ge=1, le=100)
-    seed_locked: bool = True
-    spectrum_enabled: bool = True
-    music_enabled: bool = False
-    video_lora_enabled: bool = False
-    video_lora_name: str = ""
-    video_lora_strength: float = Field(default=0.5, ge=0.0, le=1.0)
-    video_lora_clip_last_layer: bool = True
-    creative_audacity: int = Field(default=3, ge=0, le=3)
-    revision_audacity: int = Field(default=3, ge=0, le=3)
-    invalidate_compilation: bool = False
-
-
-class ProductionV2FinalBody(BaseModel):
-    attempt_id: str | None = None
-
-
 def create_app(
     runner: ChangeViewRunner,
     *,
@@ -968,11 +792,9 @@ def create_app(
     prompt_composition: PromptCompositionService | None = None,
     prompt_recipes=None,
     llm_traces=None,
-    video_lab: VideoLabRunner | None = None,
     h3_render: H3RenderService | None = None,
     h3_lora_resources=None,
-    krea2_lab: Krea2LabRunner | None = None,
-    krea2_batch: Krea2BatchService | None = None,
+    krea2_resources=None,
     krea2_edit: Krea2EditService | None = None,
     qwen_edit=None,
     minimax_edit=None,
@@ -985,8 +807,6 @@ def create_app(
     media_analysis=None,
     stories=None,
     episodes=None,
-    production: ProductionService | None = None,
-    production_v2: ProductionV2Service | None = None,
     machine_work=None,
     video_factory=None,
     image_transitions=None,
@@ -1083,11 +903,6 @@ def create_app(
     image_catalogs = ImageLabCatalogs()
     app.include_router(media_analysis_router(media_analysis))
     h3_conversion = H3Ref2VConversionService(h3_render) if h3_render is not None else None
-    krea2_models = (
-        _Krea2ModelDiscovery(krea2_lab)
-        if krea2_lab is not None
-        else None
-    )
 
     @app.middleware("http")
     async def disable_lab_asset_cache(request, call_next):
@@ -1157,14 +972,6 @@ def create_app(
             except Exception:
                 payload["work_scheduler"] = None
                 payload["production_resources"] = []
-        elif production is not None:
-            try:
-                payload["production_resources"] = [
-                    serialize_compute_resource_status(value)
-                    for value in production.resource_statuses()
-                ]
-            except Exception:
-                payload["production_resources"] = []
         else:
             payload["production_resources"] = []
         return payload
@@ -1227,657 +1034,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="Machine inconnue.") from error
         return machine_work.public_status()
 
-    @app.get("/api/production/spec")
-    def production_spec() -> dict[str, object]:
-        service = _require_production(production)
-        assisted = _require_krea2_assisted(krea2_assisted)
-        h3_service = h3_render or getattr(service, "h3_render", None)
-        if h3_service is None:
-            h3_video_loras, h3_video_lora_warning = (), "Service H3 indisponible."
-        else:
-            try:
-                h3_video_loras, h3_video_lora_warning = h3_service.video_lora_inventory()
-            except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
-                h3_video_loras = ()
-                h3_video_lora_warning = f"Inventaire LoRA vidéo indisponible : {error}"
-        return {
-            "llm_models": [
-                _serialize_llm_model(model) for model in assisted.list_models()
-            ],
-            "render_models": [
-                serialize_krea2_resource(resource)
-                for resource in assisted.resources.list_models()
-            ],
-            "loras": [
-                serialize_krea2_resource(resource)
-                for resource in assisted.resources.list_loras()
-            ],
-            "h3_video_loras": list(h3_video_loras),
-            "h3_video_lora_warning": h3_video_lora_warning,
-            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
-            "defaults": {
-                "mode": ProductionMode.FULL_AUTO.value,
-                "creative_freedom": 100,
-                "creative_axes": {
-                    "scene_life": 3,
-                    "camera": 3,
-                    "extra_motion": 3,
-                },
-                "image_attempt_count": 3,
-                "image_megapixels": 2.1,
-                "aspect_ratio": Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
-                "video_preview_limit": 3,
-                "duration_seconds": 10.0,
-                "preview_megapixels": 0.2,
-                "final_megapixels": 1.2,
-                "music_enabled": False,
-                "assisted_lora_selection": False,
-                "creative_direction_enabled": False,
-                "creative_audacity": 2,
-                "h3_video_lora": {
-                    "enabled": False,
-                    "strength": 0.5,
-                    "clip_last_layer": -2,
-                    "overlay_version": "0.1.0",
-                },
-                "thermal": {
-                    "stop_temperature_c": 85.0,
-                    "resume_temperature_c": 40.0,
-                    "cooldown_seconds": 120,
-                    "monitor_local": True,
-                    "monitor_remote": True,
-                    "pause_when_unavailable": True,
-                },
-            },
-            "thermal": serialize_thermal_snapshot(service.thermal_snapshot()),
-            "resources": [
-                serialize_compute_resource_status(value)
-                for value in service.resource_statuses()
-            ],
-            "max_active_jobs": service.max_active_jobs,
-        }
-
-    @app.get("/api/production/resources")
-    def production_resources() -> dict[str, object]:
-        service = _require_production(production)
-        return {
-            "resources": [
-                serialize_compute_resource_status(value)
-                for value in service.resource_statuses()
-            ],
-            "max_active_jobs": service.max_active_jobs,
-        }
-
-    @app.post("/api/production/jobs", status_code=status.HTTP_201_CREATED)
-    async def create_production_job(
-        source: Annotated[UploadFile, File()],
-        name: Annotated[str, Form()],
-        intention: Annotated[str, Form()],
-        model_id: Annotated[str, Form()],
-        render_model_id: Annotated[str, Form()],
-        aspect_ratio: Annotated[str, Form()] = Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
-        image_megapixels: Annotated[float, Form()] = 2.1,
-        loras_json: Annotated[str, Form()] = "[]",
-        mode: Annotated[str, Form()] = ProductionMode.FULL_AUTO.value,
-        creative_freedom: Annotated[int, Form()] = 100,
-        scene_life: Annotated[int, Form()] = 3,
-        camera: Annotated[int, Form()] = 3,
-        extra_motion: Annotated[int, Form()] = 3,
-        video_preview_limit: Annotated[int, Form()] = 3,
-        video_acceptance_score: Annotated[int, Form()] = 80,
-        duration_seconds: Annotated[float, Form()] = 10.0,
-        video_steps: Annotated[int, Form()] = 25,
-        music_enabled: Annotated[bool, Form()] = False,
-        assisted_lora_selection: Annotated[bool, Form()] = False,
-        creative_direction_enabled: Annotated[bool, Form()] = False,
-        creative_audacity: Annotated[int, Form()] = 2,
-        h3_video_lora_enabled: Annotated[bool, Form()] = False,
-        h3_video_lora_name: Annotated[str, Form()] = "",
-        h3_video_lora_strength: Annotated[float, Form()] = 0.5,
-        h3_video_lora_clip_last_layer: Annotated[bool, Form()] = True,
-        stop_temperature_c: Annotated[float, Form()] = 85.0,
-        resume_temperature_c: Annotated[float, Form()] = 40.0,
-        cooldown_seconds: Annotated[int, Form()] = 120,
-        monitor_local: Annotated[bool, Form()] = True,
-        monitor_remote: Annotated[bool, Form()] = True,
-        pause_when_unavailable: Annotated[bool, Form()] = True,
-    ) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            content = await source.read(MAX_IMAGE_BYTES + 1)
-            if len(content) > MAX_IMAGE_BYTES:
-                raise ValueError("source image exceeds the 25 MiB limit")
-            media_type = detect_image_media_type(content)
-            asset = runner.assets.create(content, media_type=media_type)
-            raw_loras = json.loads(loras_json)
-            if not isinstance(raw_loras, list):
-                raise ValueError("loras_json must be an array")
-            config = ProductionConfig(
-                model_id=model_id,
-                image_settings=Krea2BatchSettings(
-                    model_name=render_model_id,
-                    aspect_ratio=Krea2AspectRatio(aspect_ratio),
-                    megapixels=image_megapixels,
-                    loras=tuple(
-                        Krea2LoraSelection(
-                            name=value["name"],
-                            strength=value["strength"],
-                        )
-                        for value in raw_loras
-                    ),
-                ),
-                mode=ProductionMode(mode),
-                creative_freedom=creative_freedom,
-                creative_axes=CreativeFreedomAxes(
-                    scene_life=scene_life,
-                    camera=camera,
-                    extra_motion=extra_motion,
-                ),
-                video_preview_limit=video_preview_limit,
-                video_acceptance_score=video_acceptance_score,
-                duration_seconds=duration_seconds,
-                video_steps=video_steps,
-                music_enabled=music_enabled,
-                assisted_lora_selection=assisted_lora_selection,
-                creative_direction_enabled=creative_direction_enabled,
-                creative_audacity=creative_audacity,
-                h3_video_lora=(
-                    H3VideoLoraSelection(
-                        name=h3_video_lora_name,
-                        strength=h3_video_lora_strength,
-                        clip_last_layer=(
-                            -2 if h3_video_lora_clip_last_layer else None
-                        ),
-                    )
-                    if h3_video_lora_enabled
-                    else None
-                ),
-                thermal=ThermalPolicy(
-                    stop_temperature_c=stop_temperature_c,
-                    resume_temperature_c=resume_temperature_c,
-                    cooldown_seconds=cooldown_seconds,
-                    monitor_local=monitor_local,
-                    monitor_remote=monitor_remote,
-                    pause_when_unavailable=pause_when_unavailable,
-                ),
-            )
-            job = service.create_job(
-                name=name,
-                intention=intention,
-                source_asset_id=asset.asset_id,
-                source_filename=source.filename or "source-image",
-                config=config,
-            )
-            return {"job": serialize_production_job(job, krea2_assisted, h3_render)}
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        finally:
-            await source.close()
-
-    @app.get("/api/production/jobs")
-    def list_production_jobs(limit: int = 30) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            return {
-                "jobs": [
-                    serialize_production_job(job, krea2_assisted, h3_render)
-                    for job in service.list(limit)
-                ]
-            }
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.get("/api/production/jobs/{job_id}")
-    def get_production_job(job_id: str) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            return {
-                "job": serialize_production_job(
-                    service.get(job_id),
-                    krea2_assisted,
-                    h3_render,
-                )
-            }
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="production job not found") from error
-
-    @app.get("/api/production/jobs/{job_id}/h3-audit")
-    def get_production_h3_audit(job_id: str) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            return {"audit": service.h3_audit(job_id)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="production job not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production/jobs/{job_id}/start", status_code=status.HTTP_202_ACCEPTED)
-    def start_production_job(job_id: str) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            return {"job": serialize_production_job(service.queue(job_id), krea2_assisted, h3_render)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="production job not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production/jobs/{job_id}/cancel")
-    def cancel_production_job(job_id: str) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            return {"job": serialize_production_job(service.cancel(job_id), krea2_assisted, h3_render)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="production job not found") from error
-
-    @app.post("/api/production/jobs/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
-    def retry_production_job(job_id: str) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            return {
-                "job": serialize_production_job(
-                    service.retry_failed(job_id),
-                    krea2_assisted,
-                    h3_render,
-                )
-            }
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="production job not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production/jobs/{job_id}/image-review", status_code=status.HTTP_202_ACCEPTED)
-    def review_production_image(job_id: str, body: ProductionImageReviewBody) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            job = service.approve_image(job_id, body.attempt_id)
-            return {"job": serialize_production_job(job, krea2_assisted, h3_render)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="production job or image not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production/jobs/{job_id}/video-review", status_code=status.HTTP_202_ACCEPTED)
-    def review_production_video(job_id: str, body: ProductionVideoReviewBody) -> dict[str, object]:
-        service = _require_production(production)
-        try:
-            job = service.review_video(
-                job_id,
-                accept=body.accept,
-                attempt_id=body.attempt_id,
-                instruction=body.instruction,
-            )
-            return {"job": serialize_production_job(job, krea2_assisted, h3_render)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="production job or preview not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.get("/api/production-v2/spec")
-    def production_v2_spec() -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            h3_video_loras, h3_video_lora_warning = service.h3_render.video_lora_inventory()
-        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
-            h3_video_loras, h3_video_lora_warning = (), str(error)
-        return {
-            "preset": {"id": "human_exploration", "label": "Exploration humaine"},
-            "llm_models": [_serialize_llm_model(model) for model in service.krea2.list_models()],
-            "render_models": [
-                serialize_krea2_resource(resource)
-                for resource in service.krea2.resources.list_models()
-            ],
-            "loras": [
-                serialize_krea2_resource(resource)
-                for resource in service.krea2.resources.list_loras()
-            ],
-            "memory_profiles": [serialize_production_v2_profile(value) for value in service.list_profiles()],
-            "h3_video_loras": list(h3_video_loras),
-            "h3_video_lora_warning": h3_video_lora_warning,
-            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
-            "defaults": {
-                "candidate_count": 3,
-                "aspect_ratio": Krea2AspectRatio.PORTRAIT_WIDESCREEN.value,
-                "image_megapixels": 0.8,
-                "duration_seconds": 6.0,
-                "preview_megapixels": 0.2,
-                "final_megapixels": 1.2,
-                "steps": 25,
-                "refinement_steps": 3,
-                "spectrum_enabled": True,
-                "music_enabled": False,
-                "thermal": {
-                    "stop_temperature_c": 85.0,
-                    "resume_temperature_c": 40.0,
-                    "cooldown_seconds": 120,
-                },
-            },
-        }
-
-    @app.post("/api/production-v2/memory-profiles", status_code=status.HTTP_201_CREATED)
-    def create_production_v2_memory_profile(body: ProductionV2MemoryProfileBody) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"profile": serialize_production_v2_profile(service.create_profile(body.name))}
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects", status_code=status.HTTP_201_CREATED)
-    async def create_production_v2_project(
-        source: Annotated[UploadFile, File()],
-        name: Annotated[str, Form()],
-        intention: Annotated[str, Form()],
-        initial_model_id: Annotated[str, Form()],
-        memory_profile_id: Annotated[str, Form()] = "sfw",
-        music_enabled: Annotated[bool, Form()] = False,
-        h3_video_lora_enabled: Annotated[bool, Form()] = False,
-        h3_video_lora_name: Annotated[str, Form()] = "",
-        h3_video_lora_strength: Annotated[float, Form()] = 0.5,
-        h3_video_lora_clip_last_layer: Annotated[bool, Form()] = True,
-        stop_temperature_c: Annotated[float, Form()] = 85.0,
-        resume_temperature_c: Annotated[float, Form()] = 40.0,
-        cooldown_seconds: Annotated[int, Form()] = 120,
-    ) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            content = await source.read(MAX_IMAGE_BYTES + 1)
-            if len(content) > MAX_IMAGE_BYTES:
-                raise ValueError("source image exceeds the 25 MiB limit")
-            asset = runner.assets.create(content, media_type=detect_image_media_type(content))
-            project = service.create_project(
-                name=name, intention=intention, source_asset_id=asset.asset_id,
-                source_filename=source.filename or "source-image",
-                initial_model_id=initial_model_id, memory_profile_id=memory_profile_id,
-                music_enabled=music_enabled,
-                video_lora=(H3VideoLoraSelection(
-                    name=h3_video_lora_name, strength=h3_video_lora_strength,
-                    clip_last_layer=-2 if h3_video_lora_clip_last_layer else None,
-                ) if h3_video_lora_enabled else None),
-                stop_temperature_c=stop_temperature_c,
-                resume_temperature_c=resume_temperature_c,
-                cooldown_seconds=cooldown_seconds,
-            )
-            return {"project": serialize_production_v2_project(project, service)}
-        except (KeyError, FileNotFoundError, TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        finally:
-            await source.close()
-
-    @app.get("/api/production-v2/projects")
-    def list_production_v2_projects(limit: int = 30) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"projects": [serialize_production_v2_project(value, service) for value in service.list(limit)]}
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.get("/api/production-v2/projects/{project_id}")
-    def get_production_v2_project(project_id: str) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.get(project_id), service)}
-        except (KeyError, FileNotFoundError, StopIteration) as error:
-            raise HTTPException(status_code=404, detail="Production V2 project not found") from error
-
-    @app.post("/api/production-v2/projects/{project_id}/memory-profile")
-    def select_production_v2_profile(project_id: str, body: ProductionV2ProfileSelectionBody) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.select_memory_profile(project_id, body.profile_id), service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or memory profile not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/candidates", status_code=status.HTTP_202_ACCEPTED)
-    def queue_production_v2_candidates(project_id: str, body: ProductionV2CandidateBatchBody) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            settings = tuple(Krea2BatchSettings(
-                model_name=value.model_name,
-                aspect_ratio=Krea2AspectRatio(value.aspect_ratio),
-                megapixels=value.megapixels,
-                loras=tuple(Krea2LoraSelection(
-                    name=str(item["name"]), strength=float(item["strength"])
-                ) for item in value.loras),
-            ) for value in body.settings)
-            project = service.queue_candidates(
-                project_id, role=ProductionV2AnchorRole(body.role),
-                instruction=body.instruction, model_id=body.model_id,
-                settings=settings, feedback_parent_id=body.feedback_parent_id,
-                technical_comparison=body.technical_comparison,
-                freeze_prompt_seed=body.freeze_prompt_seed,
-                prompt_strategy=(
-                    ProductionV2PromptStrategy(body.prompt_strategy)
-                    if body.prompt_strategy is not None else None
-                ),
-                preserve_seed=body.preserve_seed,
-                preserve_model=body.preserve_model,
-                explore_models=body.explore_models,
-                preserve_loras=body.preserve_loras,
-                reference_mode=ProductionV2ReferenceMode(body.reference_mode),
-                guidance_candidate_id=body.guidance_candidate_id,
-                assisted_lora_selection=body.assisted_lora_selection,
-                lora_instruction=body.lora_instruction,
-            )
-            return {"project": serialize_production_v2_project(project, service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or candidate not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/candidates/{candidate_id}/review")
-    def review_production_v2_candidate(project_id: str, candidate_id: str, body: ProductionV2CandidateReviewBody) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            project = service.review_candidate(
-                project_id, candidate_id,
-                preference=ProductionV2Preference(body.preference), comment=body.comment,
-            )
-            return {"project": serialize_production_v2_project(project, service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or candidate not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post(
-        "/api/production-v2/projects/{project_id}/candidates/{candidate_id}/resolution-clone",
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def clone_production_v2_candidate_resolution(
-        project_id: str,
-        candidate_id: str,
-        body: ProductionV2ResolutionCloneBody,
-    ) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            project = service.queue_resolution_clone(
-                project_id, candidate_id, megapixels=body.megapixels,
-            )
-            return {"project": serialize_production_v2_project(project, service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or candidate not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post(
-        "/api/production-v2/projects/{project_id}/candidates/{candidate_id}/direct-ref2v"
-    )
-    def direct_ref2v_from_production_v2_candidate(
-        project_id: str,
-        candidate_id: str,
-    ) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            project = service.use_candidate_as_direct_reference(project_id, candidate_id)
-            return {"project": serialize_production_v2_project(project, service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or candidate not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/visual-recipe/{candidate_id}")
-    def validate_production_v2_recipe(project_id: str, candidate_id: str) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.validate_visual_recipe(project_id, candidate_id), service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or candidate not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/visual-recipe/current/unlock")
-    def unlock_production_v2_recipe(project_id: str) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.unlock_visual_recipe(project_id), service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/anchors")
-    def promote_production_v2_anchor(project_id: str, body: ProductionV2AnchorBody) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            project = service.promote_anchor(
-                project_id, role=ProductionV2AnchorRole(body.role),
-                candidate_id=body.candidate_id, use_source=body.use_source,
-            )
-            return {"project": serialize_production_v2_project(project, service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or candidate not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.delete("/api/production-v2/projects/{project_id}/anchors/{anchor_id}")
-    def remove_production_v2_anchor(project_id: str, anchor_id: str) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.remove_anchor(project_id, anchor_id), service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or anchor not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/video/compile", status_code=status.HTTP_202_ACCEPTED)
-    def compile_production_v2_video(project_id: str) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(
-                service.queue_video_compile(project_id, render_preview=True), service,
-            )}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/video/configuration")
-    def configure_production_v2_video(
-        project_id: str,
-        body: ProductionV2VideoConfigurationBody,
-    ) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            video_lora = (
-                H3VideoLoraSelection(
-                    name=body.video_lora_name,
-                    strength=body.video_lora_strength,
-                    clip_last_layer=-2 if body.video_lora_clip_last_layer else None,
-                )
-                if body.video_lora_enabled else None
-            )
-            project = service.configure_video(
-                project_id,
-                video_intention=body.video_intention,
-                aspect_ratio=VideoAspectRatio(body.aspect_ratio),
-                duration_seconds=body.duration_seconds,
-                preview_megapixels=body.preview_megapixels,
-                final_megapixels=body.final_megapixels,
-                steps=body.steps,
-                seed_locked=body.seed_locked,
-                spectrum_enabled=body.spectrum_enabled,
-                music_enabled=body.music_enabled,
-                video_lora=video_lora,
-                compile_model_id=body.compile_model_id,
-                creative_audacity=body.creative_audacity,
-                revision_audacity=body.revision_audacity,
-                invalidate_compilation=body.invalidate_compilation,
-            )
-            return {"project": serialize_production_v2_project(project, service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/video/seed")
-    def regenerate_production_v2_video_seed(project_id: str) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(
-                service.regenerate_video_seed(project_id), service,
-            )}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/video/revise", status_code=status.HTTP_202_ACCEPTED)
-    def revise_production_v2_video(project_id: str, body: ProductionV2PreviewBody) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            project = service.queue_video_revision(
-                project_id, instruction=body.instruction, model_id=body.model_id,
-                feedback_attempt_id=body.feedback_attempt_id,
-                revision_audacity=body.revision_audacity,
-                repair_rejected=body.repair_rejected,
-            )
-            return {"project": serialize_production_v2_project(project, service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or preview not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/video/previews", status_code=status.HTTP_202_ACCEPTED)
-    def render_production_v2_preview(project_id: str, body: ProductionV2PreviewBody) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.queue_preview(
-                project_id, instruction=body.instruction, model_id=body.model_id,
-                feedback_attempt_id=body.feedback_attempt_id,
-                revision_audacity=body.revision_audacity,
-            ), service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or preview not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/video/previews/{attempt_id}/select")
-    def select_production_v2_preview(project_id: str, attempt_id: str) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.select_preview(project_id, attempt_id), service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or preview not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/video/final", status_code=status.HTTP_202_ACCEPTED)
-    def render_production_v2_final(project_id: str, body: ProductionV2FinalBody) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.queue_final(project_id, body.attempt_id), service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project or preview not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/production-v2/projects/{project_id}/cancel")
-    def cancel_production_v2(project_id: str) -> dict[str, object]:
-        service = _require_production_v2(production_v2)
-        try:
-            return {"project": serialize_production_v2_project(service.cancel(project_id), service)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="project not found") from error
 
     @app.post("/api/comfy-runtime/free")
     def free_comfy_runtime() -> dict[str, str]:
@@ -2399,183 +1555,12 @@ def create_app(
             include_reasoning=include_reasoning,
         ))
 
-    @app.get("/api/image-lab/krea2/spec")
-    def krea2_lab_spec() -> dict[str, object]:
-        service = _require_krea2_lab(krea2_lab)
-        discovery = _require_krea2_discovery(krea2_models)
-        presets = [
-            {
-                "id": preset.preset_id,
-                "preset_id": preset.preset_id,
-                "label": preset.label,
-                "model_id": preset.model_name,
-                "aspect_ratio": preset.aspect_ratio.value,
-                "megapixels": preset.megapixels,
-            }
-            for preset in service.recipe.presets.values()
-        ]
-        default_preset = service.recipe.presets.get("krea2-base")
-        if default_preset is None:
-            raise HTTPException(
-                status_code=503,
-                detail="The current KREA2 base preset is not installed",
-            )
-        model_snapshot = discovery.snapshot()
-        render_models = (
-            [
-                serialize_krea2_resource(resource)
-                for resource in krea2_batch.resources.list_models()
-            ]
-            if krea2_batch is not None
-            else []
-        )
-        default_model = next(
-            (
-                str(model["id"])
-                for model in model_snapshot["models"]
-                if isinstance(model, dict) and model.get("default") is True
-            ),
-            service.recipe.default_model,
-        )
-        return {
-            "operation_id": service.recipe.reference.operation_id,
-            "recipe": {
-                "id": service.recipe.reference.recipe_id,
-                "version": service.recipe.reference.version,
-                "workflow_sha256": service.recipe.reference.workflow_sha256,
-                "status": service.recipe.status,
-            },
-            "presets": presets,
-            "defaults": {
-                "preset_id": default_preset.preset_id,
-                "model_id": default_model,
-                "aspect_ratio": default_preset.aspect_ratio.value,
-                "megapixels": default_preset.megapixels,
-            },
-            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
-            "megapixels": [0.5, 1.0, 2.0, 3.0, 4.0],
-            "render_models": render_models,
-            "limits": {
-                "megapixels": {"minimum": 0.5, "maximum": 4.0, "step": 0.1},
-            },
-            **model_snapshot,
-        }
-
-    @app.post("/api/image-lab/krea2/models/refresh")
-    def refresh_krea2_models() -> dict[str, object]:
-        _require_krea2_lab(krea2_lab)
-        discovery = _require_krea2_discovery(krea2_models)
-        return discovery.snapshot(refresh=True)
-
-    @app.post(
-        "/api/image-lab/krea2/runs",
-        status_code=status.HTTP_201_CREATED,
-    )
-    def prepare_krea2_run(body: Krea2CreateBody) -> dict[str, object]:
-        service = _require_krea2_lab(krea2_lab)
-        discovery = _require_krea2_discovery(krea2_models)
-        try:
-            model_name = discovery.resolve(body.model_id)
-            aspect_ratio = (
-                Krea2AspectRatio(body.aspect_ratio)
-                if body.aspect_ratio is not None
-                else None
-            )
-            seed = _parse_json_seed(body.seed)
-            run = service.prepare(
-                Krea2LabRunRequest(
-                    prompt=body.prompt,
-                    preset_id=body.preset_id,
-                    model_name=model_name,
-                    aspect_ratio=aspect_ratio,
-                    megapixels=body.megapixels,
-                    seed=seed,
-                    seed_locked=body.seed_locked,
-                )
-            )
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 resource not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        return serialize_krea2_run(run)
-
-    @app.post(
-        "/api/image-lab/krea2/runs/{run_id}/start",
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def start_krea2_run(
-        run_id: str,
-        background_tasks: BackgroundTasks,
-    ) -> dict[str, object]:
-        service = _require_krea2_lab(krea2_lab)
-        try:
-            run = service.queue(run_id)
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        background_tasks.add_task(service.execute, run.run_id)
-        return serialize_krea2_run(run)
-
-    @app.get("/api/image-lab/krea2/runs")
-    def list_krea2_runs(limit: int = 30) -> dict[str, object]:
-        service = _require_krea2_lab(krea2_lab)
-        try:
-            runs = service.list(limit)
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        return {"runs": [serialize_krea2_run(run) for run in runs]}
-
-    @app.get("/api/image-lab/krea2/runs/{run_id}")
-    def get_krea2_run(run_id: str) -> dict[str, object]:
-        service = _require_krea2_lab(krea2_lab)
-        try:
-            return serialize_krea2_run(service.get(run_id))
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/image-lab/krea2/runs/{run_id}/cancel")
-    def cancel_krea2_run(run_id: str) -> dict[str, object]:
-        service = _require_krea2_lab(krea2_lab)
-        try:
-            return serialize_krea2_run(service.cancel(run_id))
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 run not found") from error
-        except (OSError, RuntimeError, TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.get("/api/image-lab/krea2-batch/spec")
-    def krea2_batch_spec() -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        models = service.resources.list_models()
-        loras = service.resources.list_loras()
-        return {
-            "recipes": [serialize_krea2_visual_recipe(recipe) for recipe in service.recipes.current()],
-            "llm_models": [_serialize_llm_model(model) for model in service.list_models()],
-            "render_models": [serialize_krea2_resource(resource) for resource in models],
-            "loras": [serialize_krea2_resource(resource) for resource in loras],
-            "resource_warnings": list(
-                getattr(service.resources, "inventory_warnings", lambda: ())()
-            ),
-            "limits": {"image_count": {"minimum": 1, "maximum": 10}, "lora_count": 10},
-            "aspect_ratios": [ratio.value for ratio in Krea2AspectRatio],
-            "megapixels": {"minimum": 0.5, "maximum": 4.0, "step": 0.1},
-            "workflow": {
-                "sampler": "er_sde",
-                "scheduler": "simple",
-                "first_pass": {"steps": 8, "cfg": 1.1, "denoise": 1.0},
-                "latent_upscale": {"method": "bislerp", "scale_by": 1.5},
-                "second_pass": {"steps": 2, "cfg": 1.0, "denoise": 0.3},
-            },
-        }
 
     @app.get("/api/image-lab/krea2-batch/resources/{resource_id}")
     def krea2_resource_detail(resource_id: str) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
+        resources = _require_krea2_resources(krea2_resources)
         try:
-            read = getattr(service.resources, "get_ui_detail", service.resources.get)
+            read = getattr(resources, "get_ui_detail", resources.get)
             return serialize_krea2_resource(read(resource_id))
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Ressource introuvable dans le catalogue.") from error
@@ -2585,7 +1570,7 @@ def create_app(
         resource_id: str,
         body: Krea2ResourcePreferenceBody,
     ) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
+        resources = _require_krea2_resources(krea2_resources)
         try:
             safety = Krea2ResourceSafety(body.safety) if body.safety is not None else None
             lora_category = (
@@ -2599,7 +1584,7 @@ def create_app(
                 if body.precision is None or reset_precision
                 else Krea2ResourcePrecision(body.precision)
             )
-            resource = service.resources.set_preference(
+            resource = resources.set_preference(
                 resource_id,
                 favorite=body.favorite,
                 safety=safety,
@@ -2616,11 +1601,11 @@ def create_app(
                 if field in body.model_fields_set
             }
             if annotations:
-                resource = service.resources.set_annotations(
+                resource = resources.set_annotations(
                     resource_id,
                     annotations,
                 )
-            publish = getattr(service.resources, "publish_ui_resource", None)
+            publish = getattr(resources, "publish_ui_resource", None)
             if callable(publish):
                 publish(resource)
             return serialize_krea2_resource(resource)
@@ -2631,184 +1616,16 @@ def create_app(
 
     @app.post("/api/image-lab/krea2-batch/resources/{resource_id}/refresh")
     def refresh_krea2_resource(resource_id: str) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
+        resources = _require_krea2_resources(krea2_resources)
         try:
-            resource = service.resources.refresh_remote(resource_id)
-            publish = getattr(service.resources, "publish_ui_resource", None)
+            resource = resources.refresh_remote(resource_id)
+            publish = getattr(resources, "publish_ui_resource", None)
             if callable(publish):
                 publish(resource)
             return serialize_krea2_resource(resource)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="KREA2 resource not found") from error
 
-    @app.post("/api/image-lab/krea2-batch/batches", status_code=status.HTTP_201_CREATED)
-    def create_krea2_batch(body: Krea2BatchCreateBody) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            recipe = service.recipes.get(body.recipe_id, body.recipe_version)
-            settings = None
-            if any(value is not None for value in (body.render_model_id, body.aspect_ratio, body.megapixels, body.loras)):
-                settings = Krea2BatchSettings(
-                    model_name=body.render_model_id or recipe.settings.model_name,
-                    aspect_ratio=(Krea2AspectRatio(body.aspect_ratio) if body.aspect_ratio is not None else recipe.settings.aspect_ratio),
-                    megapixels=body.megapixels if body.megapixels is not None else recipe.settings.megapixels,
-                    loras=(
-                        tuple(Krea2LoraSelection(name=item.name, strength=item.strength) for item in body.loras)
-                        if body.loras is not None
-                        else recipe.settings.loras
-                    ),
-                )
-            batch = service.prepare(Krea2BatchRequest(
-                recipe_id=body.recipe_id,
-                recipe_version=body.recipe_version,
-                image_count=body.image_count,
-                model_id=body.model_id,
-                direction=body.direction,
-                settings=settings,
-            ))
-            return {"batch": serialize_krea2_batch(batch)}
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch recipe not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/prompts/stream")
-    def stream_krea2_batch_prompts(
-        batch_id: str,
-        include_reasoning: bool = False,
-    ) -> StreamingResponse:
-        service = _require_krea2_batch(krea2_batch)
-        return _krea2_batch_stream_response(service.stream_generate_prompts(batch_id, include_reasoning=include_reasoning))
-
-    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/start", status_code=status.HTTP_202_ACCEPTED)
-    def start_krea2_batch(batch_id: str, background_tasks: BackgroundTasks) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            batch = service.start_rendering(batch_id)
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        background_tasks.add_task(service.render, batch_id)
-        return {"batch": serialize_krea2_batch(batch)}
-
-    @app.get("/api/image-lab/krea2-batch/batches")
-    def list_krea2_batches(limit: int = 20) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            return {"batches": [serialize_krea2_batch(batch) for batch in service.list(limit)]}
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.get("/api/image-lab/krea2-batch/batches/{batch_id}")
-    def get_krea2_batch(batch_id: str) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            return {"batch": serialize_krea2_batch(service.get(batch_id))}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
-
-    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/cancel")
-    def cancel_krea2_batch(batch_id: str) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            return {"batch": serialize_krea2_batch(service.cancel(batch_id))}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/items/{item_id}/review")
-    def review_krea2_batch_item(batch_id: str, item_id: str, body: Krea2BatchReviewBody) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            batch = service.review_item(batch_id, item_id, Krea2ReviewDecision(body.decision), body.comment)
-            return {"batch": serialize_krea2_batch(batch)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch or image not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision")
-    def propose_krea2_recipe_revision(batch_id: str, body: Krea2BatchRecipeRevisionBody) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            settings = _krea2_revision_settings(body)
-            return {"batch": serialize_krea2_batch(service.propose_recipe_revision(
-                batch_id,
-                body.instruction,
-                draft=body.draft,
-                settings=settings,
-                model_id=body.model_id,
-                prompt_language=_krea2_prompt_language(body.prompt_language),
-            ))}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/draft")
-    def save_krea2_recipe_revision_draft(batch_id: str, body: Krea2BatchRecipeDraftBody) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            batch = service.save_recipe_revision_draft(
-                batch_id,
-                body.draft,
-                settings=_krea2_revision_settings(body),
-                prompt_language=_krea2_prompt_language(body.prompt_language),
-            )
-            return {"batch": serialize_krea2_batch(batch)}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
-        except (TypeError, ValueError, json.JSONDecodeError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post(
-        "/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/test",
-        status_code=status.HTTP_201_CREATED,
-    )
-    def test_krea2_recipe_revision(batch_id: str, body: Krea2BatchRecipeTestBody) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            batch, workshop = service.prepare_recipe_revision_test(
-                batch_id,
-                image_count=body.image_count,
-                direction=body.direction,
-                model_id=body.model_id,
-                draft=body.draft,
-                settings=_krea2_revision_settings(body),
-                prompt_language=_krea2_prompt_language(body.prompt_language),
-            )
-            return {
-                "batch": serialize_krea2_batch(batch),
-                "workshop_batch": serialize_krea2_batch(workshop),
-            }
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
-        except (TypeError, ValueError, json.JSONDecodeError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/image-lab/krea2-batch/batches/{batch_id}/recipe-revision/accept")
-    def accept_krea2_recipe_revision(
-        batch_id: str,
-        body: Krea2BatchRecipePublishBody | None = None,
-    ) -> dict[str, object]:
-        service = _require_krea2_batch(krea2_batch)
-        try:
-            return {"recipe": serialize_krea2_visual_recipe(service.accept_recipe_revision(
-                batch_id,
-                draft=body.draft if body is not None else None,
-                settings=_krea2_revision_settings(body) if body is not None else None,
-                prompt_language=(
-                    _krea2_prompt_language(body.prompt_language)
-                    if body is not None
-                    else None
-                ),
-            ))}
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="KREA2 batch not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/image-lab/krea2-assisted/spec")
     def krea2_assisted_spec(refresh: bool = False) -> dict[str, object]:
@@ -3349,7 +2166,7 @@ def create_app(
                 "workflow_sha256": service.workflow.reference.workflow_sha256,
                 "status": service.workflow.status,
             },
-            **image_catalogs.read(krea2_batch.resources if krea2_batch else None, service,
+            **image_catalogs.read(krea2_resources, service,
                                   _serialize_llm_model, refresh=refresh),
             "engines": [{"id": name, "name": "FireRed 1.1" if name == "firered" else "KREA2"}
                         for name in dict.fromkeys(item.engine for item in service.workflows)],
@@ -3775,272 +2592,6 @@ def create_app(
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.get("/api/video-lab/spec")
-    def video_lab_spec() -> dict[str, object]:
-        service = _require_video_lab(video_lab)
-        presets: list[dict[str, object]] = []
-        for preset in service.recipe.presets.values():
-            settings = VideoLabSettings(
-                aspect_ratio=preset.aspect_ratio,
-                megapixels=preset.megapixels,
-                duration_seconds=preset.duration_seconds,
-                steps=preset.steps,
-                seed=0,
-            )
-            presets.append(
-                {
-                    "id": preset.preset_id,
-                    "preset_id": preset.preset_id,
-                    "label": preset.label,
-                    "aspect_ratio": preset.aspect_ratio.value,
-                    "megapixels": preset.megapixels,
-                    "duration_seconds": preset.duration_seconds,
-                    "steps": preset.steps,
-                    "frames": settings.frame_count,
-                    "effective_duration_seconds": (
-                        settings.effective_duration_seconds
-                    ),
-                    "preview": {
-                        "frames": preset.preview_frames,
-                        "fps": preset.preview_fps,
-                        "jpeg_quality": preset.preview_jpeg_quality,
-                        "max_resolution": preset.preview_max_resolution,
-                    },
-                }
-            )
-        return {
-            "operation_id": service.recipe.reference.operation_id,
-            "recipe": {
-                "id": service.recipe.reference.recipe_id,
-                "version": service.recipe.reference.version,
-                "workflow_sha256": service.recipe.reference.workflow_sha256,
-                "status": service.recipe.status,
-            },
-            "presets": presets,
-            "defaults": {"preset_id": presets[0]["id"]},
-            "aspect_ratios": [ratio.value for ratio in VideoAspectRatio],
-            "megapixels": ([0.3, 0.6, 1.0, 1.2] if input_mode is H3RenderInputMode.REF2VA else [0.2, 0.3, 0.6, 1.0, 1.2]),
-            "fps": 24,
-            "limits": {
-                "reference_images": {"minimum": 1, "maximum": 3},
-                "megapixels": {"minimum": 0.1, "maximum": 16.0, "step": 0.1},
-                "duration_seconds": {"minimum": 5.0, "maximum": 15.0},
-                "steps": {"minimum": 1, "maximum": 100},
-            },
-            "preview_ws_url": "/api/video-lab/runs/{run_id}/events",
-            "preview_transport": "same-origin-relay",
-        }
-
-    @app.websocket("/api/video-lab/runs/{run_id}/events")
-    async def video_lab_events(websocket: WebSocket, run_id: str) -> None:
-        if video_lab is None:
-            await websocket.close(code=4403, reason="Video Lab is not configured")
-            return
-        try:
-            video_lab.get(run_id)
-        except (KeyError, FileNotFoundError, ValueError):
-            await websocket.close(code=4404, reason="Video Lab run not found")
-            return
-
-        upstream_url = getattr(video_lab.comfy, "websocket_url", None)
-        if not isinstance(upstream_url, str) or not upstream_url.strip():
-            await websocket.close(code=1011, reason="Preview relay is not configured")
-            return
-
-        await websocket.accept()
-        connector = video_preview_connector or _connect_video_preview
-        try:
-            async with connector(upstream_url) as upstream:
-                await websocket.send_json(
-                    {
-                        "type": "panelforge_preview_status",
-                        "data": {"status": "connected", "run_id": run_id},
-                    }
-                )
-                await _relay_video_preview(
-                    websocket,
-                    upstream,
-                    progress_profile=getattr(
-                        video_lab.recipe,
-                        "progress_profile",
-                        None,
-                    ),
-                    execution_id=lambda: video_lab.get(run_id).execution_id,
-                )
-        except WebSocketDisconnect:
-            return
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            try:
-                await websocket.send_json(
-                    {
-                        "type": "panelforge_preview_status",
-                        "data": {
-                            "status": "error",
-                            "run_id": run_id,
-                            "message": (
-                                "Preview live indisponible : PanelForge ne peut "
-                                "pas joindre le WebSocket ComfyUI."
-                            ),
-                        },
-                    }
-                )
-                await websocket.close(code=1011, reason="Preview relay unavailable")
-            except (RuntimeError, WebSocketDisconnect):
-                pass
-
-    @app.post("/api/video-lab/runs", status_code=status.HTTP_201_CREATED)
-    async def prepare_video_lab_run(
-        images: Annotated[list[UploadFile] | None, File()] = None,
-        source_asset_ids: Annotated[list[str] | None, Form()] = None,
-        source_labels: Annotated[list[str] | None, Form()] = None,
-        prompt: Annotated[str, Form()] = "",
-        preset_id: Annotated[str, Form()] = "h3-balanced",
-        aspect_ratio: Annotated[str | None, Form()] = None,
-        megapixels: Annotated[float | None, Form()] = None,
-        duration_seconds: Annotated[float | None, Form()] = None,
-        steps: Annotated[int | None, Form()] = None,
-        seed: Annotated[str | None, Form()] = None,
-        seed_locked: Annotated[bool, Form()] = False,
-    ) -> dict[str, object]:
-        service = _require_video_lab(video_lab)
-        uploads = images or []
-        asset_ids = source_asset_ids or []
-        if bool(uploads) == bool(asset_ids):
-            await _close_uploads(uploads)
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "provide either 1-3 images or 1-3 source_asset_ids, "
-                    "but not both"
-                ),
-            )
-        if not 1 <= len(uploads or asset_ids) <= 3:
-            await _close_uploads(uploads)
-            raise HTTPException(
-                status_code=422,
-                detail="Video Lab requires between 1 and 3 source images",
-            )
-
-        try:
-            if not isinstance(prompt, str) or not prompt.strip():
-                raise ValueError("prompt must not be empty")
-            parsed_ratio = (
-                VideoAspectRatio(aspect_ratio)
-                if aspect_ratio is not None
-                else None
-            )
-            parsed_seed = _parse_seed(seed) if seed is not None else None
-            preset = service.recipe.presets.get(preset_id)
-            if preset is None:
-                raise ValueError(f"unknown Video Lab preset {preset_id!r}")
-            # Validate all controls before persisting uploaded assets. The runner
-            # repeats this at the application boundary.
-            VideoLabSettings(
-                aspect_ratio=parsed_ratio or preset.aspect_ratio,
-                megapixels=(preset.megapixels if megapixels is None else megapixels),
-                duration_seconds=(
-                    preset.duration_seconds
-                    if duration_seconds is None
-                    else duration_seconds
-                ),
-                steps=preset.steps if steps is None else steps,
-                seed=0 if parsed_seed is None else parsed_seed,
-                seed_locked=seed_locked,
-            )
-            if uploads:
-                buffered: list[tuple[bytes, str, str]] = []
-                for index, upload in enumerate(uploads):
-                    content = await upload.read(MAX_IMAGE_BYTES + 1)
-                    if len(content) > MAX_IMAGE_BYTES:
-                        raise ValueError("source image exceeds the 25 MiB limit")
-                    media_type = detect_image_media_type(content)
-                    label = (
-                        source_labels[index]
-                        if source_labels and index < len(source_labels)
-                        else upload.filename or f"Picture {index + 1}"
-                    )
-                    buffered.append((content, media_type, label))
-                if source_labels and len(source_labels) != len(buffered):
-                    raise ValueError("source_labels must align with uploaded images")
-                created = [
-                    service.assets.create(content, media_type=media_type)
-                    for content, media_type, _ in buffered
-                ]
-                resolved_asset_ids = tuple(asset.asset_id for asset in created)
-                resolved_labels = tuple(label for _, _, label in buffered)
-            else:
-                resolved_asset_ids = tuple(asset_ids)
-                resolved_labels = tuple(source_labels or ())
-
-            request = VideoLabRunRequest(
-                source_asset_ids=resolved_asset_ids,
-                source_labels=resolved_labels,
-                prompt=prompt,
-                preset_id=preset_id,
-                aspect_ratio=parsed_ratio,
-                megapixels=megapixels,
-                duration_seconds=duration_seconds,
-                steps=steps,
-                seed=parsed_seed,
-                seed_locked=seed_locked,
-            )
-            run = service.prepare(request)
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="source asset not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        finally:
-            await _close_uploads(uploads)
-        return serialize_video_lab_run(run)
-
-    @app.post(
-        "/api/video-lab/runs/{run_id}/start",
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def start_video_lab_run(
-        run_id: str,
-        background_tasks: BackgroundTasks,
-    ) -> dict[str, object]:
-        service = _require_video_lab(video_lab)
-        try:
-            run = service.queue(run_id)
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="video run not found") from error
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        background_tasks.add_task(service.execute, run.run_id)
-        return serialize_video_lab_run(run)
-
-    @app.get("/api/video-lab/runs")
-    def list_video_lab_runs(limit: int = 30) -> dict[str, object]:
-        service = _require_video_lab(video_lab)
-        try:
-            runs = service.list(limit)
-        except (TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        return {"runs": [serialize_video_lab_run(run) for run in runs]}
-
-    @app.get("/api/video-lab/runs/{run_id}")
-    def get_video_lab_run(run_id: str) -> dict[str, object]:
-        service = _require_video_lab(video_lab)
-        try:
-            return serialize_video_lab_run(service.get(run_id))
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="video run not found") from error
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/video-lab/runs/{run_id}/cancel")
-    def cancel_video_lab_run(run_id: str) -> dict[str, object]:
-        service = _require_video_lab(video_lab)
-        try:
-            return serialize_video_lab_run(service.cancel(run_id))
-        except (KeyError, FileNotFoundError) as error:
-            raise HTTPException(status_code=404, detail="video run not found") from error
-        except (OSError, RuntimeError, TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/h3-render/video-loras")
     def h3_render_video_loras(refresh: bool = False) -> dict:
@@ -5115,112 +3666,6 @@ def serialize_run(run: RunRecord) -> dict[str, object]:
     }
 
 
-def serialize_krea2_run(run: Krea2LabRun) -> dict[str, object]:
-    """Expose a KREA2 render without local paths or workflow internals."""
-    settings = {
-        "model_id": run.settings.model_name,
-        "model_name": run.settings.model_name,
-        "aspect_ratio": run.settings.aspect_ratio.value,
-        "megapixels": run.settings.megapixels,
-        "seed": str(run.settings.seed),
-        "seed_locked": run.settings.seed_locked,
-    }
-    output_url = (
-        f"/api/assets/{run.output_asset_id}/content"
-        if run.output_asset_id is not None
-        else None
-    )
-    return {
-        "id": run.run_id,
-        "run_id": run.run_id,
-        "status": run.status.value,
-        "recipe": {
-            "id": run.recipe.recipe_id,
-            "version": run.recipe.version,
-            "workflow_sha256": run.recipe.workflow_sha256,
-        },
-        "preset_id": run.preset_id,
-        "prompt": run.prompt,
-        "model_id": run.settings.model_name,
-        "model_name": run.settings.model_name,
-        "aspect_ratio": run.settings.aspect_ratio.value,
-        "megapixels": run.settings.megapixels,
-        "seed": str(run.settings.seed),
-        "seed_locked": run.settings.seed_locked,
-        "settings": settings,
-        "parameters": settings,
-        "resolution": {
-            "width": run.settings.resolution[0],
-            "height": run.settings.resolution[1],
-        },
-        "source_storyboard_run_id": run.source_storyboard_run_id,
-        "source_prompt_sha256": run.source_prompt_sha256,
-        "execution_id": run.execution_id,
-        "compiled_workflow_sha256": run.compiled_workflow_sha256,
-        "output_asset_id": run.output_asset_id,
-        "output_url": output_url,
-        "output_content_url": output_url,
-        "result_url": output_url,
-        "error": run.error,
-    }
-
-
-def serialize_video_lab_run(run: VideoLabRun) -> dict[str, object]:
-    """Expose one Video Lab record without leaking local filesystem paths."""
-    references = [
-        {
-            "asset_id": asset_id,
-            "label": label,
-            "name": label,
-            "content_url": f"/api/assets/{asset_id}/content",
-        }
-        for asset_id, label in zip(run.source_asset_ids, run.source_labels)
-    ]
-    settings = {
-        "aspect_ratio": run.settings.aspect_ratio.value,
-        "megapixels": run.settings.megapixels,
-        "duration_seconds": run.settings.duration_seconds,
-        "steps": run.settings.steps,
-        "seed": str(run.settings.seed),
-        "seed_locked": run.settings.seed_locked,
-    }
-    return {
-        "id": run.run_id,
-        "run_id": run.run_id,
-        "status": run.status.value,
-        "recipe": {
-            "id": run.recipe.recipe_id,
-            "version": run.recipe.version,
-            "workflow_sha256": run.recipe.workflow_sha256,
-        },
-        "preset_id": run.preset_id,
-        "references": references,
-        "source_asset_ids": list(run.source_asset_ids),
-        "source_labels": list(run.source_labels),
-        "prompt": run.prompt,
-        "settings": settings,
-        "parameters": settings,
-        "seed": str(run.settings.seed),
-        "frames": run.settings.frame_count,
-        "frame_count": run.settings.frame_count,
-        "effective_duration_seconds": run.settings.effective_duration_seconds,
-        "resolution": {
-            "width": run.settings.resolution[0],
-            "height": run.settings.resolution[1],
-        },
-        "execution_id": run.execution_id,
-        "events_url": f"/api/video-lab/runs/{run.run_id}/events",
-        "compiled_workflow_sha256": run.compiled_workflow_sha256,
-        "output_asset_id": run.output_asset_id,
-        "output_url": (
-            f"/api/assets/{run.output_asset_id}/content"
-            if run.output_asset_id is not None
-            else None
-        ),
-        "error": run.error,
-    }
-
-
 def serialize_h3_render_project(project: H3RenderProject) -> dict[str, object]:
     adaptation = asdict(project.adaptation) if project.adaptation is not None else None
     if adaptation is not None:
@@ -5611,84 +4056,6 @@ def serialize_krea2_visual_recipe(recipe) -> dict[str, object]:
 
 def _krea2_prompt_language(value: str | None) -> Krea2PromptLanguage | None:
     return Krea2PromptLanguage(value) if value is not None else None
-
-
-def _krea2_revision_settings(body: object) -> Krea2BatchSettings | None:
-    model_name = getattr(body, "render_model_id", None)
-    aspect_ratio = getattr(body, "aspect_ratio", None)
-    megapixels = getattr(body, "megapixels", None)
-    loras = getattr(body, "loras", None)
-    if all(value is None for value in (model_name, aspect_ratio, megapixels, loras)):
-        return None
-    if model_name is None or aspect_ratio is None or megapixels is None:
-        raise ValueError("checkpoint, ratio and megapixels must be provided together")
-    return Krea2BatchSettings(
-        model_name=model_name,
-        aspect_ratio=Krea2AspectRatio(aspect_ratio),
-        megapixels=megapixels,
-        loras=tuple(
-            Krea2LoraSelection(name=item.name, strength=item.strength)
-            for item in (loras or [])
-        ),
-    )
-
-
-def serialize_krea2_batch(batch: Krea2Batch) -> dict[str, object]:
-    return {
-        "id": batch.batch_id,
-        "batch_id": batch.batch_id,
-        "recipe_id": batch.recipe_id,
-        "recipe_version": batch.recipe_version,
-        "recipe_sha256": batch.recipe_sha256,
-        "model_id": batch.model_id,
-        "image_count": batch.image_count,
-        "direction": batch.direction,
-        "status": batch.status.value,
-        "settings": {
-            "model_id": batch.settings.model_name,
-            "aspect_ratio": batch.settings.aspect_ratio.value,
-            "megapixels": batch.settings.megapixels,
-            "resolution": {
-                "width": batch.settings.resolution[0],
-                "height": batch.settings.resolution[1],
-            },
-            "loras": [
-                {"name": lora.name, "strength": lora.strength}
-                for lora in batch.settings.loras
-            ],
-        },
-        "items": [
-            {
-                "id": item.item_id,
-                "item_id": item.item_id,
-                "index": item.index,
-                "prompt": item.prompt,
-                "variation_signature": item.variation_signature,
-                "seed": str(item.seed),
-                "status": item.status.value,
-                "execution_id": item.execution_id,
-                "output_asset_id": item.output_asset_id,
-                "output_url": (
-                    f"/api/assets/{item.output_asset_id}/content"
-                    if item.output_asset_id is not None
-                    else None
-                ),
-                "error": item.error,
-                "review": item.review.value,
-                "comment": item.comment,
-            }
-            for item in batch.items
-        ],
-        "warnings": list(batch.warnings),
-        "error": batch.error,
-        "recipe_revision_draft": batch.recipe_revision_draft,
-        "recipe_workshop": (
-            json.loads(batch.recipe_workshop)
-            if batch.recipe_workshop is not None
-            else None
-        ),
-        "workshop_source_batch_id": batch.workshop_source_batch_id,
-    }
 
 
 def serialize_social_profile(profile: SocialChannelProfile) -> dict[str, object]:
@@ -6354,514 +4721,6 @@ def detect_video_media_type(content: bytes) -> str:
     raise ValueError("source must be an MP4 or WebM video")
 
 
-def serialize_thermal_snapshot(snapshot) -> dict[str, object]:
-    return {
-        "local_temperature_c": snapshot.local_temperature_c,
-        "remote_temperature_c": snapshot.remote_temperature_c,
-        "local_error": snapshot.local_error,
-        "remote_error": snapshot.remote_error,
-    }
-
-
-def serialize_compute_resource_status(value) -> dict[str, object]:
-    return {
-        "resource": value.resource.value,
-        "state": value.state.value,
-        "temperature_c": value.temperature_c,
-        "owner_job_id": value.owner_job_id,
-        "operation": value.operation,
-        "error": value.error,
-    }
-
-
-def serialize_production_job(
-    job: ProductionJob,
-    krea2_assisted: Krea2AssistedService | None,
-    h3_render: H3RenderService | None,
-) -> dict[str, object]:
-    image_attempts: list[dict[str, object]] = []
-    if krea2_assisted is not None and job.krea_project_id is not None:
-        try:
-            project = krea2_assisted.get(job.krea_project_id)
-            for attempt_id in job.krea_attempt_ids:
-                attempt = project.attempt(attempt_id)
-                image_attempts.append({
-                    "attempt_id": attempt.attempt_id,
-                    "index": attempt.index,
-                    "status": attempt.status.value,
-                    "prompt": attempt.prompt,
-                    "seed": str(attempt.seed),
-                    "output_asset_id": attempt.output_asset_id,
-                    "output_url": (
-                        f"/api/assets/{attempt.output_asset_id}/content"
-                        if attempt.output_asset_id is not None else None
-                    ),
-                    "error": attempt.error,
-                    "selected": attempt.attempt_id == job.selected_image_attempt_id,
-                })
-        except (KeyError, FileNotFoundError, ValueError):
-            pass
-    previews: list[dict[str, object]] = []
-    final_attempt = None
-    if h3_render is not None and job.h3_project_id is not None:
-        try:
-            project = h3_render.get(job.h3_project_id)
-            for attempt_id in job.preview_attempt_ids:
-                attempt = project.attempt(attempt_id)
-                previews.append(_serialize_production_video_attempt(
-                    attempt,
-                    project_id=project.project_id,
-                    selected=attempt.attempt_id == job.selected_preview_attempt_id,
-                ))
-            if job.final_attempt_id is not None:
-                final_attempt = _serialize_production_video_attempt(
-                    project.attempt(job.final_attempt_id),
-                    project_id=project.project_id,
-                    selected=True,
-                )
-        except (KeyError, FileNotFoundError, ValueError):
-            pass
-    return {
-        "job_id": job.job_id,
-        "name": job.name,
-        "intention": job.intention,
-        "status": job.status.value,
-        "stage": job.stage.value,
-        "source_asset_id": job.source_asset_id,
-        "source_filename": job.source_filename,
-        "source_url": f"/api/assets/{job.source_asset_id}/content",
-        "config": {
-            "model_id": job.config.model_id,
-            "mode": job.config.mode.value,
-            "creative_freedom": job.config.creative_freedom,
-            "creative_axes": {
-                "scene_life": job.config.creative_axes.scene_life,
-                "camera": job.config.creative_axes.camera,
-                "extra_motion": job.config.creative_axes.extra_motion,
-            },
-            "image_attempt_count": job.config.image_attempt_count,
-            "video_preview_limit": job.config.video_preview_limit,
-            "video_acceptance_score": job.config.video_acceptance_score,
-            "duration_seconds": job.config.duration_seconds,
-            "video_steps": job.config.video_steps,
-            "preview_megapixels": job.config.preview_megapixels,
-            "final_megapixels": job.config.final_megapixels,
-            "music_enabled": job.config.music_enabled,
-            "assisted_lora_selection": job.config.assisted_lora_selection,
-            "creative_direction_enabled": job.config.creative_direction_enabled,
-            "creative_audacity": job.config.creative_audacity,
-            "h3_video_lora": (
-                {
-                    "name": job.config.h3_video_lora.name,
-                    "strength": job.config.h3_video_lora.strength,
-                    "clip_last_layer": job.config.h3_video_lora.clip_last_layer,
-                    "overlay_version": job.config.h3_video_lora.overlay_version,
-                }
-                if job.config.h3_video_lora is not None
-                else None
-            ),
-            "image_settings": {
-                "model_id": job.config.image_settings.model_name,
-                "aspect_ratio": job.config.image_settings.aspect_ratio.value,
-                "megapixels": job.config.image_settings.megapixels,
-                "loras": [
-                    {"name": value.name, "strength": value.strength}
-                    for value in job.config.image_settings.loras
-                ],
-            },
-            "thermal": {
-                "stop_temperature_c": job.config.thermal.stop_temperature_c,
-                "resume_temperature_c": job.config.thermal.resume_temperature_c,
-                "cooldown_seconds": job.config.thermal.cooldown_seconds,
-                "monitor_local": job.config.thermal.monitor_local,
-                "monitor_remote": job.config.thermal.monitor_remote,
-                "pause_when_unavailable": job.config.thermal.pause_when_unavailable,
-            },
-        },
-        "krea_project_id": job.krea_project_id,
-        "lora_plan": (
-            {
-                "choices": [
-                    {
-                        "name": choice.name,
-                        "strength": choice.strength,
-                        "source": choice.source.value,
-                        "expected_effect": choice.expected_effect,
-                    }
-                    for choice in job.lora_plan.choices
-                ],
-                "rationale": job.lora_plan.rationale,
-            }
-            if job.lora_plan is not None else None
-        ),
-        "image_attempts": image_attempts,
-        "selected_image_attempt_id": job.selected_image_attempt_id,
-        "selected_image_asset_id": job.selected_image_asset_id,
-        "prompt_session_id": job.prompt_session_id,
-        "h3_project_id": job.h3_project_id,
-        "video_seed": str(job.video_seed) if job.video_seed is not None else None,
-        "previews": previews,
-        "selected_preview_attempt_id": job.selected_preview_attempt_id,
-        "final_attempt": final_attempt,
-        "decisions": [
-            {
-                "decision_id": value.decision_id,
-                "timestamp": value.timestamp,
-                "kind": value.kind.value,
-                "outcome": value.outcome.value,
-                "attempt_id": value.attempt_id,
-                "score": value.score,
-                "rationale": value.rationale,
-                "revision_instruction": value.revision_instruction,
-                "assessments": [
-                    {
-                        "attempt_id": assessment.attempt_id,
-                        "score": assessment.score,
-                        "summary": assessment.summary,
-                    }
-                    for assessment in value.assessments
-                ],
-            }
-            for value in job.decisions
-        ],
-        "events": [
-            {
-                "event_id": value.event_id,
-                "timestamp": value.timestamp,
-                "stage": value.stage.value,
-                "level": value.level.value,
-                "message": value.message,
-            }
-            for value in job.events
-        ],
-        "pause_reason": job.pause_reason,
-        "error": job.error,
-        "cancel_requested": job.cancel_requested,
-    }
-
-
-def serialize_production_v2_profile(value) -> dict[str, object]:
-    likes = sum(item.preference.value == "like" for item in value.observations)
-    dislikes = sum(item.preference.value == "dislike" for item in value.observations)
-    return {
-        "profile_id": value.profile_id,
-        "name": value.name,
-        "created_at": value.created_at,
-        "observation_count": len(value.observations),
-        "likes": likes,
-        "dislikes": dislikes,
-    }
-
-
-def serialize_production_v2_project(
-    project: ProductionV2Project,
-    service: ProductionV2Service,
-) -> dict[str, object]:
-    def settings_payload(settings) -> dict[str, object]:
-        return {
-            "model_name": settings.model_name,
-            "aspect_ratio": settings.aspect_ratio.value,
-            "megapixels": settings.megapixels,
-            "loras": [
-                {"name": item.name, "strength": item.strength}
-                for item in settings.loras
-            ],
-        }
-
-    def candidate_conversation(candidate) -> list[dict[str, object]]:
-        if candidate.child_project_id is None:
-            return []
-        try:
-            child = service.krea2.get(candidate.child_project_id)
-        except (AttributeError, KeyError, FileNotFoundError, StopIteration, ValueError):
-            return []
-        return [{
-            "role": turn.role.value,
-            "content": turn.content,
-            "questions": list(turn.questions),
-            "recommendations": list(turn.recommendations),
-            "prompt": turn.prompt,
-            "model_id": turn.model_id,
-        } for turn in child.turns if turn.role.value == "assistant"]
-
-    h3_payload = None
-    previews: list[dict[str, object]] = []
-    final = None
-    archived_h3_projects: list[dict[str, object]] = []
-    for archived_id in project.archived_h3_project_ids:
-        try:
-            archived = service.h3_render.get(archived_id)
-            archived_h3_projects.append({
-                "project_id": archived.project_id,
-                "input_mode": archived.input_mode.value,
-                "current_prompt": archived.current_prompt,
-                "attempts": [
-                    _serialize_production_video_attempt(
-                        attempt, project_id=archived.project_id, selected=False,
-                    )
-                    for attempt in archived.attempts
-                ],
-            })
-        except (KeyError, FileNotFoundError, StopIteration, ValueError):
-            continue
-    if project.h3_project_id is not None:
-        try:
-            h3_project = service.h3_render.get(project.h3_project_id)
-            h3_payload = {
-                "project_id": h3_project.project_id,
-                "input_mode": h3_project.input_mode.value,
-                "current_prompt": h3_project.current_prompt,
-                "revision_model_id": h3_project.revision_model_id,
-                "duration_warning": service.video_duration_warning(project),
-                "revision_draft": h3_project.revision_draft,
-                "revision_error": h3_project.revision_error,
-                "revision_draft_version": (
-                    h3_project.revision_draft_version.value
-                    if h3_project.revision_draft_version else None
-                ),
-                "turns": [{
-                    "role": item.role.value,
-                    "content": item.content,
-                    "prompt": item.prompt,
-                    "model_id": item.model_id,
-                    "questions": list(item.questions),
-                    "recommendations": list(item.recommendations),
-                    "revision_version": (
-                        item.revision_version.value if item.revision_version else None
-                    ),
-                } for item in h3_project.turns],
-            }
-            for attempt_id in project.preview_attempt_ids:
-                previews.append(_serialize_production_video_attempt(
-                    h3_project.attempt(attempt_id), project_id=h3_project.project_id,
-                    selected=attempt_id == project.selected_preview_attempt_id,
-                ))
-            if project.final_attempt_id is not None:
-                final = _serialize_production_video_attempt(
-                    h3_project.attempt(project.final_attempt_id),
-                    project_id=h3_project.project_id, selected=True,
-                )
-        except (KeyError, FileNotFoundError, StopIteration, ValueError):
-            pass
-    active_recipe = project.active_recipe
-    return {
-        "project_id": project.project_id,
-        "name": project.name,
-        "intention": project.intention,
-        "source_asset_id": project.source_asset_id,
-        "source_filename": project.source_filename,
-        "source_url": f"/api/assets/{project.source_asset_id}/content",
-        "initial_model_id": project.initial_model_id,
-        "memory_profile_id": project.memory_profile_id,
-        "preset_id": project.preset_id,
-        "stage": project.stage.value,
-        "status": project.status.value,
-        "route": project.route.value,
-        "duration_seconds": project.duration_seconds,
-        "music_enabled": project.music_enabled,
-        "video_configuration": {
-            "intention": project.effective_video_intention,
-            "compile_model_id": project.effective_video_compile_model_id,
-            "aspect_ratio": project.effective_video_aspect_ratio.value,
-            "duration_seconds": project.duration_seconds,
-            "preview_megapixels": project.preview_megapixels,
-            "final_megapixels": project.final_megapixels,
-            "steps": project.video_steps,
-            "seed": str(project.video_seed) if project.video_seed is not None else None,
-            "seed_locked": project.video_seed_locked,
-            "spectrum_enabled": project.spectrum_enabled,
-            "music_enabled": project.music_enabled,
-            "creative_audacity": project.creative_audacity,
-            "revision_audacity": project.revision_audacity,
-        },
-        "video_seed": str(project.video_seed) if project.video_seed is not None else None,
-        "video_lora": ({
-            "name": project.video_lora.name,
-            "strength": project.video_lora.strength,
-            "clip_last_layer": project.video_lora.clip_last_layer,
-        } if project.video_lora is not None else None),
-        "thermal": {
-            "stop_temperature_c": project.stop_temperature_c,
-            "resume_temperature_c": project.resume_temperature_c,
-            "cooldown_seconds": project.cooldown_seconds,
-            "remote_thermal_latched": project.remote_thermal_latched,
-            "remote_thermal_latched_at": project.remote_thermal_latched_at,
-        },
-        "candidates": [{
-            "candidate_id": item.candidate_id,
-            "index": item.index,
-            "round_index": item.round_index,
-            "role": item.role.value,
-            "memory_profile_id": item.memory_profile_id,
-            "requested_model_id": item.requested_model_id,
-            "actual_model_id": item.actual_model_id,
-            "settings": settings_payload(item.settings),
-            "status": item.status.value,
-            "generation_kind": item.generation_kind.value,
-            "feedback_parent_id": item.feedback_parent_id,
-            "child_project_id": item.child_project_id,
-            "child_attempt_id": item.child_attempt_id,
-            "prompt": item.prompt,
-            "seed": str(item.seed) if item.seed is not None else None,
-            "output_asset_id": item.output_asset_id,
-            "output_url": (
-                f"/api/assets/{item.output_asset_id}/content"
-                if item.output_asset_id is not None else None
-            ),
-            "preference": item.preference.value,
-            "comment": item.comment,
-            "instruction": item.instruction,
-            "assisted_lora_names": list(item.assisted_lora_names),
-            "assisted_lora_rationale": item.assisted_lora_rationale,
-            "batch_id": item.batch_id,
-            "prompt_strategy": item.prompt_strategy.value,
-            "reference_mode": item.reference_mode.value,
-            "guidance_candidate_id": item.guidance_candidate_id,
-            "preserve_seed": item.preserve_seed,
-            "preserve_model": item.preserve_model,
-            "preserve_loras": item.preserve_loras,
-            "prompt_trace_id": item.prompt_trace_id,
-            "conversation": candidate_conversation(item),
-            "error": item.error,
-        } for item in project.candidates],
-        "active_llm_trace_id": project.active_llm_trace_id,
-        "llm_traces": [{
-            "trace_id": item.trace_id,
-            "batch_id": item.batch_id,
-            "sequence": item.sequence,
-            "total": item.total,
-            "purpose": item.purpose,
-            "label": item.label,
-            "model_id": item.model_id,
-            "status": item.status.value,
-            "created_at": item.created_at,
-            "candidate_id": item.candidate_id,
-            "reference_asset_ids": list(item.reference_asset_ids),
-            "reference_urls": [
-                f"/api/assets/{asset_id}/content" for asset_id in item.reference_asset_ids
-            ],
-            "input_text": item.input_text,
-            "thinking": item.thinking,
-            "output": item.output,
-            "error": item.error,
-            "started_at": item.started_at,
-            "completed_at": item.completed_at,
-        } for item in project.llm_traces],
-        "recipe_revisions": [{
-            "revision_id": item.revision_id,
-            "index": item.index,
-            "created_at": item.created_at,
-            "source_candidate_id": item.source_candidate_id,
-            "settings": settings_payload(item.settings),
-            "prompt": item.prompt,
-            "seed": str(item.seed) if item.seed is not None else None,
-            "asset_id": item.asset_id,
-            "asset_url": (
-                f"/api/assets/{item.asset_id}/content" if item.asset_id is not None else None
-            ),
-            "active": item.revision_id == project.active_recipe_revision_id,
-        } for item in project.recipe_revisions],
-        "active_recipe": ({
-            "revision_id": active_recipe.revision_id,
-            "index": active_recipe.index,
-            "source_candidate_id": active_recipe.source_candidate_id,
-            "settings": settings_payload(active_recipe.settings),
-            "prompt": active_recipe.prompt,
-            "seed": str(active_recipe.seed) if active_recipe.seed is not None else None,
-            "asset_id": active_recipe.asset_id,
-            "asset_url": (
-                f"/api/assets/{active_recipe.asset_id}/content"
-                if active_recipe.asset_id is not None else None
-            ),
-        } if active_recipe is not None else None),
-        "anchors": [{
-            "anchor_id": item.anchor_id,
-            "role": item.role.value,
-            "asset_id": item.asset_id,
-            "url": f"/api/assets/{item.asset_id}/content",
-            "label": item.label,
-            "source_kind": item.source_kind,
-            "candidate_id": item.candidate_id,
-            "recipe_revision_id": item.recipe_revision_id,
-            "created_at": item.created_at,
-        } for item in project.anchors],
-        "prompt_session_id": project.prompt_session_id,
-        "h3": h3_payload,
-        "archived_prompt_session_ids": list(project.archived_prompt_session_ids),
-        "archived_h3_projects": archived_h3_projects,
-        "previews": previews,
-        "selected_preview_attempt_id": project.selected_preview_attempt_id,
-        "final_attempt": final,
-        "active_operation": project.active_operation,
-        "events": [{
-            "event_id": item.event_id,
-            "timestamp": item.timestamp,
-            "stage": item.stage.value,
-            "level": item.level,
-            "message": item.message,
-        } for item in project.events],
-        "error": project.error,
-    }
-
-
-def _serialize_production_video_attempt(
-    attempt,
-    *,
-    project_id: str,
-    selected: bool,
-) -> dict[str, object]:
-    return {
-        "attempt_id": attempt.attempt_id,
-        "index": attempt.index,
-        "status": attempt.status.value,
-        "prompt": attempt.prompt,
-        "effective_prompt": attempt.effective_prompt,
-        "execution_id": attempt.execution_id,
-        "events_url": (
-            f"/api/h3-render/projects/{project_id}/attempts/"
-            f"{attempt.attempt_id}/events"
-        ),
-        "output_asset_id": attempt.output_asset_id,
-        "output_url": (
-            f"/api/assets/{attempt.output_asset_id}/content"
-            if attempt.output_asset_id is not None else None
-        ),
-        "keyframes": [
-            {
-                "asset_id": frame.asset_id,
-                "url": f"/api/assets/{frame.asset_id}/content",
-                "timestamp_ms": frame.timestamp_ms,
-                "label": frame.label,
-            }
-            for frame in attempt.keyframes
-        ],
-        "settings": {
-            "aspect_ratio": attempt.settings.aspect_ratio.value,
-            "megapixels": attempt.settings.megapixels,
-            "duration_seconds": attempt.settings.duration_seconds,
-            "steps": attempt.settings.steps,
-            "seed": str(attempt.settings.seed),
-            "resolution": {
-                "width": attempt.settings.resolution[0],
-                "height": attempt.settings.resolution[1],
-            },
-        },
-        "error": attempt.error,
-        "warnings": list(attempt.warnings),
-        "selected": selected,
-        "music_enabled": attempt.music_enabled,
-        "initial_megapixels": attempt.initial_megapixels,
-        "force_upscale": attempt.force_upscale,
-        "upscale_bypassed": attempt.upscale_bypassed,
-        "spectrum_enabled": attempt.spectrum_enabled,
-        "video_lora": ({
-            "name": attempt.video_lora.name,
-            "strength": attempt.video_lora.strength,
-            "clip_last_layer": attempt.video_lora.clip_last_layer,
-        } if attempt.video_lora is not None else None),
-    }
-
-
 def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
     def creative_axes_payload(revision) -> dict[str, int]:
         axes = revision.creative_axes or creative_axes_from_legacy(
@@ -7010,135 +4869,6 @@ def serialize_prompt_session(session: PromptLabSession) -> dict[str, object]:
     }
 
 
-class _Krea2ModelDiscovery:
-    """Small lazy cache around ComfyUI's read-only model inventory."""
-
-    def __init__(self, service: Krea2LabRunner) -> None:
-        self._service = service
-        self._lock = Lock()
-        self._initialized = False
-        self._installed: tuple[str, ...] | None = None
-        self._status = "unavailable"
-        self._refreshed_at: str | None = None
-        self._error: str | None = None
-
-    def snapshot(self, *, refresh: bool = False) -> dict[str, object]:
-        with self._lock:
-            if refresh or not self._initialized:
-                self._refresh_locked()
-            installed = self._installed
-            status_value = self._status
-            refreshed_at = self._refreshed_at
-            error = self._error
-        return {
-            "models": self._model_entries(installed),
-            "model_discovery": {
-                "status": status_value,
-                "refreshed_at": refreshed_at,
-                "error": error,
-            },
-        }
-
-    def resolve(self, requested_model: str | None) -> str:
-        requested = requested_model or self._service.recipe.default_model
-        if not isinstance(requested, str) or not requested.strip():
-            raise ValueError("model_id must not be empty")
-        requested_key = normalize_krea2_model_name(requested)
-        canonical = next(
-            (
-                model
-                for model in self._service.recipe.qualified_models
-                if normalize_krea2_model_name(model) == requested_key
-            ),
-            None,
-        )
-        if canonical is None:
-            raise ValueError(f"unqualified KREA2 model {requested!r}")
-
-        snapshot = self.snapshot()
-        entry = next(
-            item
-            for item in snapshot["models"]
-            if isinstance(item, dict)
-            and normalize_krea2_model_name(str(item.get("id", "")))
-            == normalize_krea2_model_name(canonical)
-        )
-        if entry["installed"] is False:
-            raise ValueError(f"KREA2 model {canonical!r} is not installed")
-        return str(entry["id"])
-
-    def _refresh_locked(self) -> None:
-        self._initialized = True
-        try:
-            installed = tuple(self._service.comfy.list_unet_models())
-        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
-            self._status = "stale" if self._installed is not None else "unavailable"
-            self._error = str(error) or error.__class__.__name__
-            return
-        self._installed = installed
-        self._status = "available"
-        self._refreshed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-        self._error = None
-
-    def _model_entries(
-        self,
-        installed: tuple[str, ...] | None,
-    ) -> list[dict[str, object]]:
-        installed_by_key: dict[str, str] | None = None
-        if installed is not None:
-            installed_by_key = {}
-            for model in installed:
-                installed_by_key.setdefault(
-                    normalize_krea2_model_name(model),
-                    model,
-                )
-        entries: list[dict[str, object]] = []
-        qualified_keys: set[str] = set()
-        for model in self._service.recipe.qualified_models:
-            key = normalize_krea2_model_name(model)
-            qualified_keys.add(key)
-            exact_model = (
-                model
-                if installed_by_key is None
-                else installed_by_key.get(key, model)
-            )
-            is_installed = (
-                None if installed_by_key is None else key in installed_by_key
-            )
-            entries.append(
-                {
-                    "id": exact_model,
-                    "label": exact_model,
-                    "installed": is_installed,
-                    "qualified": True,
-                    "selectable": is_installed is not False,
-                    "default": (
-                        key
-                        == normalize_krea2_model_name(
-                            self._service.recipe.default_model
-                        )
-                    ),
-                }
-            )
-
-        if installed is not None:
-            discovered = sorted(installed, key=str.casefold)
-            for model in discovered:
-                key = normalize_krea2_model_name(model)
-                if key in qualified_keys or "krea2" not in key:
-                    continue
-                entries.append(
-                    {
-                        "id": model,
-                        "label": model,
-                        "installed": True,
-                        "qualified": False,
-                        "selectable": False,
-                        "default": False,
-                    }
-                )
-        return entries
-
 def serialize_prompt_composition(
     composition: PromptComposition,
     service: PromptCompositionService,
@@ -7244,32 +4974,17 @@ def _require_prompt_composition(
     return value
 
 
-def _require_video_lab(value: VideoLabRunner | None) -> VideoLabRunner:
-    if value is None:
-        raise HTTPException(status_code=503, detail="Video Lab is not configured")
-    return value
-
-
-def _require_krea2_lab(value: Krea2LabRunner | None) -> Krea2LabRunner:
-    if value is None:
-        raise HTTPException(
-            status_code=503,
-            detail="KREA2 Image Lab is not configured",
-        )
-    return value
-
-
 def _require_h3_render(value: H3RenderService | None) -> H3RenderService:
     if value is None:
         raise HTTPException(status_code=503, detail="H3 Base renderer is not configured")
     return value
 
 
-def _require_krea2_batch(value: Krea2BatchService | None) -> Krea2BatchService:
+def _require_krea2_resources(value):
     if value is None:
         raise HTTPException(
             status_code=503,
-            detail="KREA2 Batch Lab is not configured",
+            detail="KREA2 resource catalog is not configured",
         )
     return value
 
@@ -7294,26 +5009,6 @@ def _require_social_lab(value: SocialLabService | None) -> SocialLabService:
     return value
 
 
-def _require_production(value: ProductionService | None) -> ProductionService:
-    if value is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Production orchestrator is not configured",
-        )
-    return value
-
-
-def _require_production_v2(
-    value: ProductionV2Service | None,
-) -> ProductionV2Service:
-    if value is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Production V2 n’est pas configurée.",
-        )
-    return value
-
-
 def _require_krea2_edit(value: Krea2EditService | None) -> Krea2EditService:
     if value is None:
         raise HTTPException(
@@ -7321,48 +5016,6 @@ def _require_krea2_edit(value: Krea2EditService | None) -> Krea2EditService:
             detail="KREA2 Edit Lab is not configured",
         )
     return value
-
-
-def _require_krea2_discovery(
-    value: _Krea2ModelDiscovery | None,
-) -> _Krea2ModelDiscovery:
-    if value is None:
-        raise HTTPException(
-            status_code=503,
-            detail="KREA2 model discovery is not configured",
-        )
-    return value
-
-
-def _krea2_batch_stream_response(
-    events: Iterator[Krea2BatchStreamEvent],
-) -> StreamingResponse:
-    def encoded_events() -> Iterator[str]:
-        try:
-            for event in events:
-                payload: dict[str, object] = {
-                    "kind": event.kind.value,
-                    "phase": event.phase.value,
-                    "text": event.text,
-                    "progress": event.progress,
-                }
-                if event.batch is not None:
-                    payload["batch"] = serialize_krea2_batch(event.batch)
-                yield _encode_sse(event.kind.value, payload)
-        except Exception as error:
-            yield _encode_sse(
-                "error",
-                {"kind": "error", "phase": "failed", "message": str(error)},
-            )
-
-    return StreamingResponse(
-        encoded_events(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-        },
-    )
 
 
 def _krea2_assisted_stream_response(

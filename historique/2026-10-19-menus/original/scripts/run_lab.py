@@ -1,0 +1,888 @@
+"""Launch the local PanelForge Lab against one ComfyUI server."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+from uuid import uuid4
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+sys.path.insert(0, str(SRC_ROOT))
+from panelforge.infrastructure.network_profiles import resolve_network_configuration, describe_network
+from panelforge.infrastructure.network_transports import (
+    direct_http_opener, direct_preview_connection, direct_thermal_connection, direct_dlss_connection,
+)
+from panelforge.infrastructure.combat_preparation import load_combat_revision_policy
+from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
+from panelforge.infrastructure.presets.h3_video_vae import H3VideoVaeUpdates
+from panelforge.application.media_analysis import MediaAnalysisService
+from panelforge.application.stories import StoryService
+from panelforge.infrastructure.storage.stories import LocalStoryStore, LocalStoryRecipeStore
+from panelforge.infrastructure.long_story_recipes import LongStoryRecipes
+from panelforge.infrastructure.storage.media_analysis import LocalMediaAnalysisStore
+from panelforge.infrastructure.media_analysis_images import MediaAnalysisImages
+from panelforge.application.media_transcription import MediaTranscriptionService
+from panelforge.infrastructure.media_transcription import PurfviewTranscriber
+from panelforge.infrastructure.presets.h3_checkpoint import CheckpointH3RenderRecipe
+from panelforge.infrastructure.presets.h3_loras import MultiLoraH3RenderRecipe
+from panelforge.application.h3_checkpoints import CachedH3Checkpoints
+
+from panelforge.application import (
+    ChangeViewRunner,
+    H3RenderService,
+    Krea2AssistedService,
+    Krea2BatchService,
+    Krea2EditService,
+    Krea2LabRunner,
+    PromptCompositionService,
+    PromptLabService,
+    ProductionService,
+    ProductionV2Service,
+    MachineWorkCoordinator,
+    SocialLabService,
+    VideoLabRunner,
+)
+from panelforge.features.lab.web import create_app
+from panelforge.infrastructure.comfy import ComfyHttpClient
+from panelforge.infrastructure.llm import (
+    LlamaSwapAdminClient,
+    LoggedMultimodalGateway,
+    OpenAICompatibleGateway,
+    RoutedMultimodalGateway,
+    CoordinatedMultimodalGateway,
+)
+from panelforge.infrastructure.presets import (
+    ChangeViewPresetRecipe,
+    Krea2T2IRecipe,
+    VideoLabPresetRecipe,
+    Ref2VH3RenderPresetRecipe,
+    H3RenderPresetRecipe,
+    load_change_view_preset,
+    load_krea2_batch_workflow,
+    load_krea2_edit_workflow,
+    load_krea2_t2i_workflow,
+    load_video_lab_workflow,
+    load_h3_render_workflow,
+)
+from panelforge.infrastructure.prompt_profiles import LocalPromptProfileCatalog
+from panelforge.infrastructure.prompt_cookbooks import LocalPromptCookbookCatalog
+from panelforge.infrastructure.storage.prompt_recipes import LocalPromptRecipeStore
+from panelforge.infrastructure.storage.llm_traces import LocalLlmTraceStore
+from panelforge.infrastructure.krea2_batch_recipes import LocalKrea2VisualRecipeCatalog
+from panelforge.infrastructure.presets.krea2_assisted import load_krea2_assisted_workflow
+from panelforge.infrastructure.presets.krea2_flux_klein import load_krea2_flux_klein_workflow
+from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter
+from panelforge.infrastructure.krea2_retouch import PillowRetouchCompositor
+from panelforge.infrastructure.krea2_upscale import PillowUpscaleImages
+from panelforge.application.dlss import DlssService
+from panelforge.application.dlss_candidates import DlssCandidates
+from panelforge.infrastructure.dlss_runtime import LocalDlssRuntime
+from panelforge.infrastructure.dlss_media import DlssMedia
+from panelforge.infrastructure.dlss_outputs import DlssOutputs
+from panelforge.infrastructure.dlss_progress import ComfyDlssProgress
+from panelforge.infrastructure.dlss_video_exports import DlssVideoExporter
+from panelforge.infrastructure.storage.dlss_jobs import LocalDlssJobs
+from panelforge.infrastructure.presets.dlss import DlssWorkflow
+from panelforge.infrastructure.presets.image_upscale import load_image_upscale_workflow
+from panelforge.infrastructure.presets.firered_edit import load_firered_edit_workflow
+from panelforge.infrastructure.edit_images import PillowEditImages
+from panelforge.application.qwen_edit import QwenEditService
+from panelforge.application.minimax_edit import MinimaxEditService
+from panelforge.infrastructure.presets.minimax_edit import load_minimax_edit_workflow
+from panelforge.infrastructure.minimax_edit_images import PillowMinimaxEditImages
+from panelforge.infrastructure.storage.minimax_edits import LocalMinimaxEditStore
+from panelforge.infrastructure.presets.qwen_edit import load_qwen_edit_workflow
+from panelforge.infrastructure.qwen_edit_images import PillowQwenEditImages
+from panelforge.infrastructure.qwen_project_exports import LocalQwenProjectExporter
+from panelforge.infrastructure.storage.qwen_edits import LocalQwenEditStore
+from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter
+from panelforge.infrastructure.prompt_examples import LocalPromptExampleLibrary
+from panelforge.infrastructure.krea2_wildcards import LocalKrea2WildcardLibrary
+from panelforge.infrastructure.krea2_style_catalog import LocalKrea2StyleCatalog
+from panelforge.infrastructure.krea2_resources import LocalKrea2ResourceCatalog
+from panelforge.infrastructure.h3_lora_resources import H3LoraResourceCatalog
+from panelforge.infrastructure.local_gpu import NvidiaSmiMonitor
+from panelforge.infrastructure.production_thermal import (
+    CombinedProductionThermalMonitor,
+    CrystoolsRemoteGpuMonitor,
+)
+from panelforge.infrastructure.storage.krea2_style_presets import LocalKrea2StylePresetStore
+from panelforge.infrastructure.storage import (
+    LocalAssetStore,
+    LocalH3RenderProjectStore,
+    LocalKrea2AssistedProjectStore,
+    LocalLlmCallStore,
+    LocalKrea2BatchStore,
+    LocalKrea2EditStore,
+    LocalKrea2RunStore,
+    LocalPromptSessionStore,
+    LocalPromptCompositionStore,
+    LocalProductionLoraMemory,
+    LocalProductionJobStore,
+    LocalProductionV2Store,
+    LocalRunStore,
+    LocalSocialLabStore,
+    LocalVideoRunStore,
+    LocalWorkSchedulerSettings,
+    LocalThermalHistoryStore,
+)
+
+
+PRESET_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "character.change_view"
+    / "qwen-edit-2511-multiple-angles"
+    / "0.3.0"
+)
+BUNNY_RENDER_WORKFLOW_DIRECTORY = PROJECT_ROOT / "workflows" / "video.generate.h3-base" / "minimax-h3-bunny" / "0.1.3"
+VIDEO_PRESET_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "video.generate.ref2v"
+    / "minimax-h3-ref2v"
+    / "0.2.1"
+)
+REF2V_RENDER_WORKFLOW_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.5"
+HISTORICAL_REF2V_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.0"
+KREA2_PRESET_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "image.generate.t2i"
+    / "krea2"
+    / "0.1.0"
+)
+H3_RENDER_WORKFLOW_DIRECTORY = (
+    PROJECT_ROOT
+    / "workflows"
+    / "video.generate.h3-base"
+    / "minimax-h3-latent-speed"
+    / "0.1.7"
+)
+KREA2_BATCH_WORKFLOW_DIRECTORY = (
+    PROJECT_ROOT / "workflows" / "image.generate.batch" / "krea2-community" / "0.2.0"
+)
+KREA2_BATCH_RECIPE_DIRECTORY = PROJECT_ROOT / "krea2_batch_recipes"
+KREA2_EDIT_WORKFLOW_DIRECTORY = (
+    PROJECT_ROOT / "workflows" / "image.edit" / "krea2-identity" / "0.2.0"
+)
+KREA2_EDIT_HISTORICAL_WORKFLOW_DIRECTORY = KREA2_EDIT_WORKFLOW_DIRECTORY.parent / "0.1.0"
+DEFAULT_KREA2_MODELS_ROOT = Path(
+    r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\diffusion_models\Krea2"
+)
+DEFAULT_KREA2_LORAS_ROOT = Path(
+    r"\\sshfs.r\malmo@bucket\data\models\ComfyUi\loras\krea2"
+)
+DEFAULT_KREA2_WILDCARDS_ROOT = (
+    Path.home()
+    / "Downloads"
+    / "SFW15000QwenZImage15000_porV20500010000"
+)
+
+
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Launch PanelForge Lab.")
+    parser.add_argument(
+        "--network-mode", choices=("lan", "tailscale"),
+        help="Profil complet serveur/fichiers ; absent = paramètres historiques conservés.",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help="ComfyUI URL ; profil réseau, ou PANELFORGE_COMFY_URL / valeur historique.",
+    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--mobile-port", type=int, default=8766,
+                        help="Loopback port for the mobile interface; 0 disables it.")
+    parser.add_argument("--http-timeout", type=float, default=30.0)
+    parser.add_argument("--runtime-timeout", type=float, default=2.0)
+    parser.add_argument("--run-timeout", type=float, default=600.0)
+    parser.add_argument("--video-run-timeout", type=float, default=3600.0)
+    parser.add_argument("--h3-render-run-timeout", type=float, default=3600.0)
+    parser.add_argument("--krea2-run-timeout", type=float, default=3600.0)
+    parser.add_argument("--krea2-batch-run-timeout", type=float, default=3600.0)
+    parser.add_argument("--krea2-edit-run-timeout", type=float, default=3600.0)
+    parser.add_argument("--krea2-assisted-run-timeout", type=float, default=3600.0)
+    parser.add_argument(
+        "--krea2-models-root",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
+        "--krea2-loras-root",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
+        "--krea2-wildcards-root",
+        type=Path,
+        default=Path(os.environ.get(
+            "PANELFORGE_KREA2_WILDCARDS_ROOT",
+            str(DEFAULT_KREA2_WILDCARDS_ROOT),
+        )),
+        help="Read-only KREA2 wildcard template pack (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--krea2-projects-root",
+        type=Path,
+        default=Path(os.environ.get(
+            "PANELFORGE_KREA2_PROJECTS_ROOT",
+            r"D:\AI\PanelForge\KREA2 Projects",
+        )),
+        help="Human-readable KREA2 validated-project exports (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--krea2-creations-root",
+        type=Path,
+        default=Path(os.environ.get(
+            "PANELFORGE_KREA2_CREATIONS_ROOT",
+            r"D:\AI\PanelForge\KREA2 Creations",
+        )),
+        help="Human-readable assisted KREA2 image exports (default: %(default)s)",
+    )
+    parser.add_argument("--poll-interval", type=float, default=1.0)
+    parser.add_argument(
+        "--llm-base-url",
+        default=None,
+        help="LLM serveur ; profil réseau, ou PANELFORGE_LLM_URL / valeur historique.",
+    )
+    parser.add_argument(
+        "--llm-api-key",
+        default=os.environ.get("PANELFORGE_LLM_API_KEY", "panelforge-local"),
+        help="API key sent to the local OpenAI-compatible server",
+    )
+    parser.add_argument("--llm-timeout", type=float, default=300.0)
+    parser.add_argument("--llm-structured-output", choices=("off", "json_schema"),
+        default=os.environ.get("PANELFORGE_LLM_STRUCTURED_OUTPUT", "json_schema"),
+        help="Story JSON constraint capability of the llama.cpp server; no silent fallback")
+    parser.add_argument("--local-llm-structured-output", choices=("off", "json_schema"),
+        default=os.environ.get("PANELFORGE_LOCAL_LLM_STRUCTURED_OUTPUT", "json_schema"),
+        help="Story JSON constraint capability of the local server; off keeps explicit local validation")
+    parser.add_argument(
+        "--local-llm-base-url",
+        default=os.environ.get(
+            "PANELFORGE_LOCAL_LLM_URL",
+            "http://127.0.0.1:8888/v1",
+        ),
+        help="Local Unsloth Studio OpenAI-compatible URL (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--local-llm-api-key",
+        default=os.environ.get("PANELFORGE_LOCAL_LLM_API_KEY", ""),
+        help="Unsloth Studio API key; prefer PANELFORGE_LOCAL_LLM_API_KEY",
+    )
+    parser.add_argument(
+        "--workspace",
+        type=Path,
+        default=PROJECT_ROOT / "workspace",
+    )
+    parser.add_argument("--dlss-root", type=Path, default=Path(r"D:\AI\ComfyUI_windows_portable"))
+    parser.add_argument("--dlss-base-url", default="http://127.0.0.1:8188")
+    parser.add_argument("--dlss-output-root", type=Path, default=Path(r"D:\AI\PanelForge\LocalOutput"))
+    parser.add_argument("--dlss-video-export-root", type=Path, default=None)
+    args = parser.parse_args(argv)
+    try:
+        network = resolve_network_configuration(
+            args.network_mode, base_url=args.base_url, llm_base_url=args.llm_base_url,
+            models_root=args.krea2_models_root, loras_root=args.krea2_loras_root,
+            export_root=args.dlss_video_export_root, environ=os.environ,
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    args.base_url = network.base_url
+    args.llm_base_url = network.llm_base_url
+    args.krea2_models_root = network.models_root
+    args.krea2_loras_root = network.loras_root
+    args.dlss_video_export_root = network.export_root
+    args.dlss_video_export_access_root = network.export_access_root
+    return args
+
+
+def build_app(args: argparse.Namespace):
+    explicit_network = getattr(args, "network_mode", None) is not None
+    http_options = {"opener": direct_http_opener()} if explicit_network else {}
+    llm_options = {"trust_env": False} if explicit_network else {}
+    thermal_options = {"connector": direct_thermal_connection} if explicit_network else {}
+    preview_options = {
+        "video_preview_connector": direct_preview_connection,
+        "runtime_monitor_connector": direct_preview_connection,
+    } if explicit_network else {}
+    video_vae_updates = H3VideoVaeUpdates(
+        PROJECT_ROOT / "workflows",
+        PROJECT_ROOT / "workflows/video.vae/minimax-h3-int8-convrot/1.0.0/manifest.json",
+    )
+    recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
+    video_recipe = VideoLabPresetRecipe(
+        load_video_lab_workflow(VIDEO_PRESET_DIRECTORY)
+    )
+    ref2v_render_recipe = MultiLoraH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(
+        load_video_lab_workflow(REF2V_RENDER_WORKFLOW_DIRECTORY))), REF2V_RENDER_WORKFLOW_DIRECTORY)
+    h3_render_recipe = MultiLoraH3RenderRecipe(H3RenderPresetRecipe(
+        load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY)
+    ), H3_RENDER_WORKFLOW_DIRECTORY)
+    krea2_recipe = Krea2T2IRecipe(
+        load_krea2_t2i_workflow(KREA2_PRESET_DIRECTORY)
+    )
+    krea2_batch_workflow = load_krea2_batch_workflow(KREA2_BATCH_WORKFLOW_DIRECTORY)
+    krea2_edit_workflow = load_krea2_edit_workflow(KREA2_EDIT_WORKFLOW_DIRECTORY)
+    dlss_root = Path(getattr(args, "dlss_root", r"D:\AI\ComfyUI_windows_portable"))
+    dlss_output_root = Path(getattr(args, "dlss_output_root", r"D:\AI\PanelForge\LocalOutput"))
+    dlss_fallback_roots = (dlss_root / "ComfyUI/output",)
+    assets = LocalAssetStore(args.workspace, external_roots=(dlss_output_root, *dlss_fallback_roots))
+    runs = LocalRunStore(args.workspace)
+    video_runs = LocalVideoRunStore(args.workspace)
+    h3_render_projects = LocalH3RenderProjectStore(args.workspace)
+    social_projects = LocalSocialLabStore(args.workspace)
+    krea2_runs = LocalKrea2RunStore(args.workspace)
+    krea2_batches = LocalKrea2BatchStore(args.workspace)
+    krea2_assisted_projects = LocalKrea2AssistedProjectStore(args.workspace)
+    krea2_edits = LocalKrea2EditStore(args.workspace)
+    prompt_sessions = LocalPromptSessionStore(args.workspace)
+    prompt_compositions = LocalPromptCompositionStore(args.workspace)
+    llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
+    llm_traces = LocalLlmTraceStore(args.workspace)
+    production_jobs = LocalProductionJobStore(args.workspace)
+    production_v2_store = LocalProductionV2Store(args.workspace)
+    comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-lab-{uuid4().hex}",
+        timeout=args.http_timeout,
+        **http_options,
+    )
+    video_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-video-lab-{uuid4().hex}",
+        timeout=args.http_timeout,
+        **http_options,
+    )
+    krea2_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-krea2-lab-{uuid4().hex}",
+        timeout=args.http_timeout,
+        **http_options,
+    )
+    h3_render_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-h3-render-{uuid4().hex}",
+        timeout=args.http_timeout,
+        **http_options,
+    )
+    krea2_batch_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-krea2-batch-{uuid4().hex}",
+        timeout=args.http_timeout,
+        **http_options,
+    )
+    krea2_edit_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-krea2-edit-{uuid4().hex}",
+        timeout=args.http_timeout,
+        **http_options,
+    )
+    krea2_assisted_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-krea2-assisted-{uuid4().hex}",
+        timeout=args.http_timeout,
+        **http_options,
+    )
+    runtime_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-runtime-{uuid4().hex}",
+        timeout=args.runtime_timeout,
+        **http_options,
+    )
+    production_monitor_comfy = ComfyHttpClient(
+        args.base_url,
+        client_id=f"panelforge-production-monitor-{uuid4().hex}",
+        timeout=args.runtime_timeout,
+        **http_options,
+    )
+    local_gpu_monitor = NvidiaSmiMonitor()
+    production_thermal_monitor = CombinedProductionThermalMonitor(
+        local=local_gpu_monitor,
+        remote=CrystoolsRemoteGpuMonitor(production_monitor_comfy.websocket_url, **thermal_options),
+    )
+    machine_work = MachineWorkCoordinator(
+        thermal_monitor=production_thermal_monitor,
+        settings_store=LocalWorkSchedulerSettings(args.workspace),
+        thermal_history_store=LocalThermalHistoryStore(args.workspace),
+        monitor_interval=max(0.2, args.poll_interval),
+    )
+    prompt_examples = LocalPromptExampleLibrary(
+        args.workspace,
+        work_coordinator=machine_work,
+        **({"local_files_only": True} if getattr(args, "network_mode", None) == "lan" else {}),
+    )
+    prompt_examples.start_indexing()
+    prompt_wildcards = LocalKrea2WildcardLibrary(
+        getattr(args, "krea2_wildcards_root", DEFAULT_KREA2_WILDCARDS_ROOT),
+    )
+    runner = ChangeViewRunner(
+        recipe=recipe,
+        comfy=comfy,
+        assets=assets,
+        runs=runs,
+        run_timeout=args.run_timeout,
+        poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
+    )
+    video_lab = VideoLabRunner(
+        recipe=video_vae_updates.upgrade(video_recipe),
+        historical_recipes=(video_recipe, VideoLabPresetRecipe(load_video_lab_workflow(HISTORICAL_REF2V_DIRECTORY))),
+        comfy=video_comfy,
+        assets=assets,
+        runs=video_runs,
+        run_timeout=args.video_run_timeout,
+        poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
+    )
+    krea2_lab = Krea2LabRunner(
+        recipe=krea2_recipe,
+        comfy=krea2_comfy,
+        assets=assets,
+        runs=krea2_runs,
+        run_timeout=args.krea2_run_timeout,
+        poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
+    )
+    routed_gateway = RoutedMultimodalGateway(
+        {
+            "server": OpenAICompatibleGateway(
+                args.llm_base_url,
+                api_key=args.llm_api_key,
+                timeout=args.llm_timeout,
+                structured_output=getattr(args, "llm_structured_output", "json_schema"),
+                **llm_options,
+            ),
+            "local": OpenAICompatibleGateway(
+                getattr(
+                    args,
+                    "local_llm_base_url",
+                    "http://127.0.0.1:8888/v1",
+                ),
+                api_key=(
+                    getattr(args, "local_llm_api_key", "")
+                    or "panelforge-local-unconfigured"
+                ),
+                timeout=args.llm_timeout,
+                structured_output=getattr(args, "local_llm_structured_output", "json_schema"),
+                **llm_options,
+            ),
+        }
+    )
+    gateway = LoggedMultimodalGateway(
+        CoordinatedMultimodalGateway(routed_gateway, machine_work),
+        llm_calls,
+        trace_store=llm_traces,
+    )
+    krea2_resources = LocalKrea2ResourceCatalog(
+        models_root=getattr(
+            args,
+            "krea2_models_root",
+            DEFAULT_KREA2_MODELS_ROOT,
+        ),
+        loras_root=getattr(
+            args,
+            "krea2_loras_root",
+            DEFAULT_KREA2_LORAS_ROOT,
+        ),
+        workspace_root=args.workspace,
+        comfy=krea2_batch_comfy,
+    )
+    krea2_visual_recipes = LocalKrea2VisualRecipeCatalog(
+        KREA2_BATCH_RECIPE_DIRECTORY,
+        workspace_root=args.workspace,
+    )
+    krea2_batch = Krea2BatchService(
+        gateway=gateway,
+        recipes=krea2_visual_recipes,
+        workflow=krea2_batch_workflow,
+        comfy=krea2_batch_comfy,
+        assets=assets,
+        batches=krea2_batches,
+        resources=krea2_resources,
+        application_outcomes=gateway,
+        run_timeout=getattr(args, "krea2_batch_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
+    )
+    krea2_assisted_default_workflow = load_krea2_assisted_workflow(
+        PROJECT_ROOT / "workflows" / "image.generate.assisted" / "krea2-sampling" / "1.0.0",
+        krea2_batch_workflow,
+    )
+    krea2_assisted_flux_workflow = load_krea2_flux_klein_workflow(
+        PROJECT_ROOT / "workflows" / "image.generate.assisted" / "krea2-flux-klein" / "1.0.0",
+    )
+    krea2_assisted = Krea2AssistedService(
+        gateway=gateway,
+        prompt_examples=prompt_examples,
+        prompt_wildcards=prompt_wildcards,
+        style_catalog=LocalKrea2StyleCatalog(args.workspace),
+        presets=LocalKrea2StylePresetStore(args.workspace),
+        recipes=krea2_visual_recipes,
+        workflow=krea2_assisted_default_workflow,
+        workflows=(krea2_assisted_default_workflow, krea2_assisted_flux_workflow),
+        comfy=krea2_assisted_comfy,
+        assets=assets,
+        projects=krea2_assisted_projects,
+        resources=krea2_resources,
+        exporter=LocalKrea2CreationExporter(
+            getattr(
+                args,
+                "krea2_creations_root",
+                Path(r"D:\AI\PanelForge\KREA2 Creations"),
+            )
+        ),
+        application_outcomes=gateway,
+        run_timeout=getattr(args, "krea2_assisted_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
+    )
+    krea2_edit = Krea2EditService(
+        retouch_compositor=PillowRetouchCompositor(),
+        upscale_images=PillowUpscaleImages(),
+        edit_images=PillowEditImages(),
+        upscale_workflow=load_image_upscale_workflow(PROJECT_ROOT / "workflows/image.upscale/esrgan/0.1.0"),
+        gateway=gateway,
+        workflow=krea2_edit_workflow,
+        historical_workflows=(load_krea2_edit_workflow(KREA2_EDIT_HISTORICAL_WORKFLOW_DIRECTORY),
+                              load_krea2_edit_workflow(KREA2_EDIT_WORKFLOW_DIRECTORY.parent / "0.3.0"),
+                              load_firered_edit_workflow(PROJECT_ROOT / "workflows/image.edit/firered/0.1.0")),
+        comfy=krea2_edit_comfy,
+        assets=assets,
+        sources=krea2_edits,
+        batches=krea2_batch,
+        project_exporter=LocalKrea2ProjectExporter(
+            getattr(
+                args,
+                "krea2_projects_root",
+                Path(r"D:\AI\PanelForge\KREA2 Projects"),
+            )
+        ),
+        application_outcomes=gateway,
+        run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
+    )
+    qwen_edit = QwenEditService(
+        gateway=gateway,
+        workflow=load_qwen_edit_workflow(PROJECT_ROOT / "workflows/image.edit/qwen-image-2.1/2.0.0"),
+        comfy=krea2_edit_comfy, assets=assets, projects=LocalQwenEditStore(args.workspace),
+        images=PillowQwenEditImages(),
+        edit_images=PillowEditImages(), retouch_compositor=PillowRetouchCompositor(),
+        exporter=LocalQwenProjectExporter(Path(getattr(args, "krea2_projects_root",
+            Path(r"D:\AI\PanelForge\KREA2 Projects"))).parent / "Qwen Projects"),
+        work_coordinator=machine_work, run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+    )
+    minimax_edit = MinimaxEditService(
+        gateway=gateway,
+        workflow=load_minimax_edit_workflow(PROJECT_ROOT / "workflows/image.edit/minimax-h3-still/1.3.0"),
+        comfy=krea2_edit_comfy, assets=assets, projects=LocalMinimaxEditStore(args.workspace),
+        images=PillowMinimaxEditImages(),
+        edit_images=PillowEditImages(), retouch_compositor=PillowRetouchCompositor(),
+        exporter=LocalQwenProjectExporter(Path(getattr(args, "krea2_projects_root",
+            Path(r"D:\AI\PanelForge\KREA2 Projects"))).parent / "Minimax Projects"),
+        work_coordinator=machine_work, run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+    )
+    prompt_lab = PromptLabService(
+        gateway=gateway,
+        profiles=LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles"),
+        assets=assets,
+        sessions=prompt_sessions,
+    )
+    from panelforge.application.prompt_recipes import EDITABLE_RECIPES
+    from panelforge.application.classic_cinematic import REVISION_SYSTEM as classic_render_system
+    from panelforge.application.sensual_cinematic import REVISION_SYSTEM as sensual_render_system
+    combat_render_system = load_combat_revision_policy(PROJECT_ROOT / "prompt_cookbooks" / "_blocks", "1.3.0").system_prompt
+    cookbooks = LocalPromptCookbookCatalog(PROJECT_ROOT / "prompt_cookbooks")
+    prompt_recipes = LocalPromptRecipeStore(args.workspace, cookbooks, PROJECT_ROOT / "prompt_sources" / "_defaults",
+        render_systems={(key, version): classic_render_system if ".classic." in key else
+            combat_render_system if ".combat." in key else sensual_render_system
+            for key, version, _ in EDITABLE_RECIPES})
+    prompt_composition = PromptCompositionService(
+        gateway=gateway,
+        cookbooks=cookbooks,
+        prompt_recipes=prompt_recipes,
+        sessions=prompt_sessions,
+        compositions=prompt_compositions,
+        application_outcomes=gateway,
+        assets=assets,
+    )
+    from panelforge.infrastructure.presets.h3_dance import dance_recipes
+    from panelforge.infrastructure.dance_media import DanceMedia
+    dance_media = DanceMedia(ffmpeg=dlss_root / "tools/ffmpeg.exe", ffprobe=dlss_root / "tools/ffprobe.exe")
+    h3_render = H3RenderService(
+        reference_video_upgrade=lambda recipes: dance_recipes(recipes, PROJECT_ROOT / "workflows/video.reference/dance/1.0.0/manifest.json"),
+        dance_media=dance_media,
+        recipe_upgrade=video_vae_updates.upgrade,
+        prompt_recipes=prompt_recipes,
+        llm_traces=llm_traces,
+        combat_revision_policies=tuple(load_combat_revision_policy(PROJECT_ROOT / "prompt_cookbooks" / "_blocks", version)
+                                      for version in ("1.0.0", "1.1.0", "1.1.1", "1.2.0", "1.3.0")),
+        gateway=gateway,
+        workflow=h3_render_recipe,
+        ref2v_workflow=ref2v_render_recipe,
+        additional_workflows=(
+            MultiLoraH3RenderRecipe(BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY), BUNNY_RENDER_WORKFLOW_DIRECTORY),
+            MultiLoraH3RenderRecipe(BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.2"), BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.2"),
+            CheckpointH3RenderRecipe(BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.1"), BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.1"),
+            BunnyH3RenderRecipe(BUNNY_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.0"),
+        ),
+        historical_h3_workflows=(
+            MultiLoraH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.6")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.6"),
+            MultiLoraH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.5")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.5"),
+            CheckpointH3RenderRecipe(H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.4")), H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.4"),
+            H3RenderPresetRecipe(load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY.parent / "0.1.3")),
+        ),
+        historical_ref2v_workflows=(
+            MultiLoraH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.4"))), REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.4"),
+            MultiLoraH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.3"))), REF2V_RENDER_WORKFLOW_DIRECTORY.parent / "0.2.3"),
+            CheckpointH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(VIDEO_PRESET_DIRECTORY.parent / "0.2.2"))), VIDEO_PRESET_DIRECTORY.parent / "0.2.2"),
+            *(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(load_video_lab_workflow(VIDEO_PRESET_DIRECTORY.parent / version)))
+              for version in ("0.2.1", "0.2.0")),
+        ),
+        list_video_loras=runtime_comfy.list_lora_models,
+        checkpoints=CachedH3Checkpoints(runtime_comfy.list_unet_models, tuple(json.loads(
+            (SRC_ROOT / "panelforge/infrastructure/presets/h3_checkpoints.json").read_text(encoding="utf-8")))),
+        comfy=h3_render_comfy,
+        assets=assets,
+        projects=h3_render_projects,
+        sessions=prompt_sessions,
+        compositions=prompt_compositions,
+        application_outcomes=gateway,
+        run_timeout=getattr(args, "h3_render_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+        work_coordinator=machine_work,
+    )
+    def resolve_social_source_prompt(video_asset):
+        for project in h3_render_projects.list(10_000):
+            for attempt in reversed(project.attempts):
+                if attempt.output_asset_id is None:
+                    continue
+                try:
+                    candidate = assets.get(attempt.output_asset_id)
+                except (KeyError, FileNotFoundError, ValueError):
+                    continue
+                if candidate.content_sha256 == video_asset.content_sha256:
+                    return attempt.effective_prompt
+        for run in video_runs.list(10_000):
+            if run.output_asset_id is None:
+                continue
+            try:
+                candidate = assets.get(run.output_asset_id)
+            except (KeyError, FileNotFoundError, ValueError):
+                continue
+            if candidate.content_sha256 == video_asset.content_sha256:
+                return run.prompt
+        return None
+
+    social_lab = SocialLabService(
+        gateway=gateway,
+        assets=assets,
+        projects=social_projects,
+        application_outcomes=gateway,
+        source_prompt_resolver=resolve_social_source_prompt,
+    )
+    whisper_root = Path(os.environ.get("PANELFORGE_WHISPER_ROOT") or
+        str(Path(os.environ.get("APPDATA") or Path.home() / "AppData/Roaming") / "Subtitle Edit/SpeechToText/Purfview-Faster-Whisper-XXL"))
+    media_analysis = MediaAnalysisService(
+        gateway=gateway, assets=assets, store=LocalMediaAnalysisStore(args.workspace),
+        images=MediaAnalysisImages(), application_outcomes=gateway,
+        prompt_directory=PROJECT_ROOT / "prompt_profiles/media.analyze/visual-intention/1.0.1",
+        speech_prompt_directory=PROJECT_ROOT / "prompt_profiles/media.analyze/visual-intention/1.1.1",
+        transcription=MediaTranscriptionService(PurfviewTranscriber(
+            executable=whisper_root / "faster-whisper-xxl.exe",
+            ffmpeg=whisper_root / "ffmpeg.exe", model_directory=whisper_root / "_models")),
+    )
+    stories = StoryService(gateway=gateway, store=LocalStoryStore(args.workspace),
+        long_recipes=LongStoryRecipes(PROJECT_ROOT / "prompt_sources/story.long/2.0.0"),
+        recipes=LocalStoryRecipeStore(args.workspace, {
+            ("story.brainrot", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.brainrot/1.0.0",
+            ("story.sensual-light", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.sensual-light/1.0.0",
+            ("story.explicit-hard", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.explicit-hard/1.0.0",
+            ("story.silent-cats", "1.0.0"): PROJECT_ROOT / "prompt_sources/story.silent-cats/1.0.0",
+        }),
+        traces=llm_traces, application_outcomes=gateway)
+    from panelforge.application.episodes import EpisodeService
+    from panelforge.infrastructure.storage.episodes import LocalEpisodeStore
+    production_lora_memory = LocalProductionLoraMemory(args.workspace)
+    production = ProductionService(
+        gateway=gateway,
+        assets=assets,
+        jobs=production_jobs,
+        krea2=krea2_assisted,
+        prompt_lab=prompt_lab,
+        composition=prompt_composition,
+        h3_render=h3_render,
+        thermal_monitor=production_thermal_monitor,
+        lora_resources=krea2_resources,
+        lora_memory=production_lora_memory,
+    )
+    production_v2 = ProductionV2Service(
+        assets=assets,
+        store=production_v2_store,
+        krea2=krea2_assisted,
+        prompt_lab=prompt_lab,
+        composition=prompt_composition,
+        h3_render=h3_render,
+        thermal_monitor=production_thermal_monitor,
+        gateway=gateway,
+        lora_resources=krea2_resources,
+        lora_memory=production_lora_memory,
+    )
+    dlss_url = getattr(args, "dlss_base_url", "http://127.0.0.1:8188")
+    dlss_jobs = LocalDlssJobs(args.workspace)
+    dlss_comfy = ComfyHttpClient(dlss_url, client_id="panelforge-dlss", timeout=30, **http_options)
+    dlss = DlssService(
+        jobs=dlss_jobs, comfy=dlss_comfy, assets=assets,
+        progress=ComfyDlssProgress(dlss_comfy.websocket_url,
+            connector=direct_dlss_connection if explicit_network else None),
+        video_exporter=DlssVideoExporter(
+            getattr(args, "dlss_video_export_root", r"X:\data\ComfyUI\output\video\Upscale"),
+            access_root=getattr(args, "dlss_video_export_access_root", None),
+        ),
+        outputs=DlssOutputs(dlss_output_root, assets, fallback_roots=dlss_fallback_roots),
+        runtime=LocalDlssRuntime(root=dlss_root, base_url=dlss_url, journal=dlss_jobs, comfy=dlss_comfy, output_root=dlss_output_root, **http_options),
+        media=DlssMedia(ffmpeg=dlss_root / "tools/ffmpeg.exe", ffprobe=dlss_root / "tools/ffprobe.exe"),
+        candidates=DlssCandidates(edit=krea2_edit, assisted=krea2_assisted, h3=h3_render, qwen=qwen_edit, minimax=minimax_edit),
+        workflows={
+            "image": DlssWorkflow(PROJECT_ROOT / "workflows/image.upscale/dlss/0.1.0"),
+            "video": DlssWorkflow(PROJECT_ROOT / "workflows/video.upscale/dlss/0.1.0"),
+            "video-smooth": DlssWorkflow(PROJECT_ROOT / "workflows/video.upscale/dlss-smooth/0.1.0"),
+        },
+        work_coordinator=machine_work,
+    )
+    from panelforge.application.episode_thumbnails import EpisodeThumbnailService
+    from panelforge.infrastructure.episode_thumbnail_images import EpisodeThumbnailImages
+    from panelforge.infrastructure.storage.episode_thumbnails import LocalEpisodeThumbnailStore
+    episode_store = LocalEpisodeStore(args.workspace)
+    thumbnails = EpisodeThumbnailService(store=LocalEpisodeThumbnailStore(args.workspace),
+        stories=stories.store, episodes=episode_store, assets=assets,
+        images=EpisodeThumbnailImages(), qwen=qwen_edit)
+    episodes = EpisodeService(stories=stories, store=episode_store,
+        krea=krea2_assisted, prompt_lab=prompt_lab, composition=prompt_composition,
+        render=h3_render, assets=assets, dlss=dlss, work_coordinator=machine_work, qwen_edit=qwen_edit, thumbnails=thumbnails)
+    from panelforge.application.video_factory import VideoFactoryService
+    from panelforge.application.video_factory_workflows import FactoryWorkflows
+    from panelforge.infrastructure.storage.video_factory import LocalVideoFactoryStore
+    from panelforge.infrastructure.video_factory_outputs import VideoFactoryOutputs
+    from panelforge.infrastructure.factory_image_context import FactoryImageContext
+    from panelforge.application.factory_monitoring import FactoryMonitoring
+    from panelforge.infrastructure.storage.factory_timings import LocalFactoryTimingsStore
+    video_factory = VideoFactoryService(store=LocalVideoFactoryStore(args.workspace),
+        monitoring=FactoryMonitoring(LocalFactoryTimingsStore(args.workspace)),
+        outputs=VideoFactoryOutputs(dlss_output_root / "dlss", assets),
+        adapter=FactoryWorkflows(prompt_lab=prompt_lab, composition=prompt_composition,
+            render=h3_render, dlss=dlss, social=social_lab, episodes=episodes,
+            assets=assets, coordinator=machine_work,
+            image_context=FactoryImageContext(assets=assets, projects=krea2_assisted_projects)),
+        coordinator=machine_work)
+    from panelforge.application.image_transitions import ImageTransitionService
+    from panelforge.application.image_transition_sources import ImageTransitionSources
+    from panelforge.infrastructure.storage.image_transitions import LocalImageTransitionStore
+    from panelforge.infrastructure.image_transition_references import PillowTransitionReferences
+    image_transitions = ImageTransitionService(
+        store=LocalImageTransitionStore(args.workspace), assets=assets,
+        images=PillowQwenEditImages(), reference_images=PillowTransitionReferences(), gateway=gateway, factory=video_factory,
+        sources=ImageTransitionSources(krea=krea2_edit, qwen=qwen_edit, minimax=minimax_edit))
+    from panelforge.application.image_journeys import ImageJourneyService
+    from panelforge.application.image_journey_rendering import MinimaxJourneyRenderer
+    from panelforge.infrastructure.storage.image_journeys import LocalImageJourneyStore
+    from panelforge.infrastructure.image_journey_masks import PillowJourneyMasks
+    image_journeys = ImageJourneyService(
+        store=LocalImageJourneyStore(args.workspace), assets=assets, images=PillowMinimaxEditImages(),
+        gateway=gateway, renderer=MinimaxJourneyRenderer(minimax_edit), transitions=image_transitions,
+        mask_compositor=PillowJourneyMasks())
+    from panelforge.application.story_v2 import StoryV2Service
+    from panelforge.application.story_v2_production import StoryV2Production
+    from panelforge.infrastructure.storage.story_v2 import LocalStoryV2Store
+    story_v2 = StoryV2Service(LocalStoryV2Store(args.workspace), gateway,
+                            StoryV2Production(episodes, video_factory, minimax=minimax_edit, qwen=qwen_edit))
+    from panelforge.application.cooking_recipes import CookingRecipeService
+    from panelforge.application.cooking_recipe_prompting import CookingRecipePlanner
+    from panelforge.application.cooking_recipe_production import CookingRecipeProduction
+    from panelforge.infrastructure.storage.cooking_recipes import LocalCookingRecipeStore
+    from panelforge.infrastructure.cooking_recipe_exports import CookingRecipeExports
+    cooking_recipes = CookingRecipeService(LocalCookingRecipeStore(args.workspace), assets, PillowQwenEditImages(),
+        CookingRecipePlanner(gateway, assets, PillowQwenEditImages()),
+        CookingRecipeProduction(krea2_assisted, minimax_edit, video_factory, image_transitions.sources),
+        exporter=CookingRecipeExports(assets))
+    mobile_server = None
+    mobile_port = getattr(args, "mobile_port", 0)
+    if mobile_port:
+        if mobile_port == args.port:
+            raise ValueError("Le port mobile doit être distinct du port du Lab.")
+        from panelforge.application.factory_mobile import FactoryMobile
+        from panelforge.infrastructure.factory_mobile import LocalMobileStore, WebPushSender, LoopbackMobileServer
+        from panelforge.features.lab.factory_mobile_web import create_mobile_app
+        mobile = FactoryMobile(video_factory, LocalMobileStore(args.workspace), WebPushSender(args.workspace),
+                               thermal_history=machine_work.thermal_history)
+        mobile_server = LoopbackMobileServer(create_mobile_app(mobile), mobile_port)
+    return create_app(
+        runner,
+        video_factory=video_factory,
+        image_transitions=image_transitions,
+        mobile_server=mobile_server,
+        network_mode=getattr(args, "network_mode", None),
+        **preview_options,
+        prompt_recipes=prompt_recipes,
+        llm_traces=llm_traces,
+        dlss=dlss,
+        prompt_lab=prompt_lab,
+        prompt_composition=prompt_composition,
+        video_lab=video_lab,
+        h3_render=h3_render,
+        h3_lora_resources=H3LoraResourceCatalog(workspace_root=args.workspace,
+            inventory=h3_render.video_lora_inventory, comfy=krea2_batch_comfy),
+        krea2_lab=krea2_lab,
+        krea2_batch=krea2_batch,
+        krea2_edit=krea2_edit,
+        qwen_edit=qwen_edit,
+        minimax_edit=minimax_edit,
+        image_journeys=image_journeys,
+        story_v2=story_v2,
+        cooking_recipes=cooking_recipes,
+        krea2_assisted=krea2_assisted,
+        social_lab=social_lab,
+        media_analysis=media_analysis,
+        stories=stories,
+        episodes=episodes,
+        production=production,
+        production_v2=production_v2,
+        machine_work=machine_work,
+        llm_activity_monitor=gateway,
+        model_runtime=LlamaSwapAdminClient(
+            args.llm_base_url,
+            api_key=args.llm_api_key,
+            timeout=args.runtime_timeout,
+            **http_options,
+        ),
+        comfy_runtime=runtime_comfy,
+        local_gpu_monitor=local_gpu_monitor,
+    )
+
+
+def main() -> int:
+    args = parse_args()
+    print(describe_network(args), flush=True)
+    import uvicorn
+
+    uvicorn.run(
+        build_app(args),
+        host=args.host,
+        port=args.port,
+        log_level="info",
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

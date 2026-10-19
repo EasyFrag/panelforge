@@ -9,12 +9,13 @@ from types import SimpleNamespace
 import unittest
 
 from panelforge.application.h3_render import H3RenderService
-from panelforge.application.video_lab import VideoLabRunner, VideoLabRunRequest
 from panelforge.application.episode_localization import EpisodeLocalizationActions
 from panelforge.domain.episode_localization import attempt_setup
 from panelforge.domain import (
-    H3RenderInputMode, H3RenderProject,
-    VideoAspectRatio, VideoLabSettings, VideoLabRunStatus,
+    H3RenderInputMode,
+    H3RenderProject,
+    VideoAspectRatio,
+    VideoLabSettings,
 )
 from panelforge.domain.h3_bunny import H3BunnySettings
 from panelforge.domain.h3_render import H3VideoLoraSlot, H3VideoLoraStack
@@ -26,8 +27,7 @@ from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
 from panelforge.infrastructure.presets.h3_checkpoint import CheckpointH3RenderRecipe
 from panelforge.infrastructure.presets.h3_loras import MultiLoraH3RenderRecipe
 from panelforge.infrastructure.presets.h3_video_vae import H3VideoVaeUpdates
-from panelforge.infrastructure.storage import LocalAssetStore, LocalH3RenderProjectStore, LocalVideoRunStore
-from test_video_lab_runner import FakeComfy
+from panelforge.infrastructure.storage import LocalAssetStore, LocalH3RenderProjectStore
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / "workflows"
@@ -181,27 +181,3 @@ class H3VideoVaeTest(unittest.TestCase):
             changed = deepcopy(setup)
             changed["settings"]["seed"] = str(new.settings.seed + 1)
             self.assertFalse(localized._localized_setup_matches(project, changed, new))
-
-    def test_video_lab_keeps_queued_source_run_and_uses_new_vae_for_next_run(self):
-        directory = WORKFLOWS / "video.generate.ref2v/minimax-h3-ref2v/0.2.1"
-        source = VideoLabPresetRecipe(load_video_lab_workflow(directory))
-        with tempfile.TemporaryDirectory() as temporary:
-            assets, runs, comfy = LocalAssetStore(temporary), LocalVideoRunStore(temporary), FakeComfy()
-            image = assets.create(b"image", media_type="image/png")
-            common = dict(comfy=comfy, assets=assets, runs=runs, sleep=lambda _: None)
-            request = VideoLabRunRequest(source_asset_ids=(image.asset_id,), prompt="A shot.",
-                                        preset_id=next(iter(source.presets)), seed=2**63 + 5)
-            previous = VideoLabRunner(recipe=source, **common)
-            old = previous.prepare(request)
-            previous.queue(old.run_id)
-            current = VideoLabRunner(recipe=self.updates.upgrade(source),
-                                     historical_recipes=(source,), **common)
-            self.assertEqual(current.execute(old.run_id).status, VideoLabRunStatus.SUCCEEDED)
-            self.assertEqual(comfy.submitted[-1]["3"]["inputs"]["vae_name"], OLD)
-            new = current.prepare(request)
-            current.queue(new.run_id)
-            self.assertEqual(current.execute(new.run_id).status, VideoLabRunStatus.SUCCEEDED)
-            self.assertEqual(comfy.submitted[-1]["3"]["inputs"]["vae_name"], NEW)
-            self.assertEqual(runs.get(old.run_id).recipe, source.reference)
-            self.assertEqual(new.recipe, current.recipe.reference)
-            self.assertEqual(new.settings, old.settings)

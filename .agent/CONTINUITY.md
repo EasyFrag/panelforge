@@ -1,5 +1,25 @@
 # CONTINUITY
 
+## Nettoyage 2026-10-19 — périmètre accessible depuis les menus
+
+### Goal
+- L’utilisateur demande une version GitHub avant nettoyage, un net négatif du code actif, la conservation de tous les parcours accessibles par menu et l’archivage de tout code retiré dans un dossier séparé.
+
+### Current state
+- Nettoyage appliqué au checkout actif D:/Code/panelforge-krea2-flux. Production V1/V2, KREA2 direct, Batch autonome et ancien générateur Video Lab archivés : 35 fichiers retirés, 24 fichiers allégés, 54 routes supprimées. Les huit cibles de navigation principale, six modes Image Lab et deux modes Video Lab restent identiques. Les histoires V1 restent accessibles par l’Usine et sont conservées.
+- Code applicatif src/ + scripts/ : 141 011 -> 121 992 lignes (-19 019, -13,49 %). Tests actifs : 68 793 -> 62 983 lignes (-5 810). Mesure des fichiers .py/.js/.css/.html, hors historique. Le total du dépôt n’est pas réduit par le déplacement d’archives.
+- historique/2026-10-19-menus/original contient les 59 fichiers complets avant retrait ou modification, vérifiés par SHA-256. manifeste JSON avec chemins, mesures, menus et routes ; historique/README.md explique les anciennes features et les dépendances maintenues. Archive hors packaging src/, hors tests/ et hors service statique ; .ignore exclut l’historique des recherches ordinaires.
+- Dépendances préservées : catalogues KREA2/LoRA injectés directement dans les routes utilisées, réglages KREA2/H3 et manifests historiques, ordonnanceur GPU et protections thermiques. Batch conservé en lecture seule pour KREA2 Edit ; historique vidéo conservé en lecture seule pour retrouver le prompt des clips importés dans Texte Instagram. extract_bound_video extrait dans application/video_outputs.py. Aucune dépendance externe ajoutée ou retirée : celles du projet ont encore des usages actifs.
+- Sauvegarde locale avant nettoyage : 35d84ca7984ecadd438a9ca0fb0ffa020e89ed42, branche snapshots/pre-menu-cleanup-2026-10-19, parent origin/master 457a08f. Index temporaire, branche active et modifications préexistantes préservés. Une clé locale présente dans les notes a été masquée dans le blob destiné à GitHub ; aucun média, fichier .env ni donnée runtime ajouté.
+- Publication GitHub NON effectuée : le contrôle automatique a refusé deux fois le push vers EasyFrag/panelforge. Malgré vérification du remote existant et des seuls 15 fichiers modifiés depuis master, il exige une approbation explicite de cette destination et de ce contenu. Question asynchrone posée à l’utilisateur ; ne pas retenter sans nouvelle autorisation. Nettoyage enregistré sur la branche locale refactor/menu-cleanup-2026-10-19.
+- Vérification statique : compilation Python sans import/exécution, résolution des imports et globals modifiés, syntaxe JS sans invocation, cibles des menus identiques, assets HTML présents et aucun sélecteur JS restant vers les 312 IDs retirés. Les tests existants concernés sont adaptés et six régressions de compatibilité sont préparées ; aucun test exécuté. Aucun appel LLM, génération, modification des journaux/médias ou redémarrage de service.
+- Preuves et diff de revue : D:/Code/panelforge/.agent/diagnostics/menu-cleanup-20261019/ ; applied.json confirme les copies et suppressions, static-checks.json et cleanup-report.json détaillent les contrôles. Le checkout D:/Code/panelforge/src n’a pas été substitué au checkout actif ; seule sa continuité est mise à jour.
+
+### Next steps
+- Dès confirmation explicite de l’utilisateur, publier la sauvegarde snapshots/pre-menu-cleanup-2026-10-19 sur EasyFrag/panelforge et vérifier son hash distant. Aucun force-push ni modification de master requis.
+- L’utilisateur peut lancer python -m unittest discover -s tests depuis D:/Code/panelforge-krea2-flux, puis vérifier les parcours des menus, les ressources KREA2, l’import des anciennes images Batch et les prompts des anciennes vidéos. Les contrôles statiques ne remplacent pas cette vérification fonctionnelle.
+- Les suppressions backend seront chargées au prochain redémarrage habituel décidé par l’utilisateur ; aucun redémarrage n’a été provoqué pendant ses générations. Les assets statiques conservent la politique no-store.
+
 ## Implémentation 2026-10-15 — Recettes : choix H3 ou KREA2 + Flux Klein
 
 ### Goal

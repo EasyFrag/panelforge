@@ -36,16 +36,11 @@ from panelforge.application import (
     ChangeViewRunner,
     H3RenderService,
     Krea2AssistedService,
-    Krea2BatchService,
     Krea2EditService,
-    Krea2LabRunner,
     PromptCompositionService,
     PromptLabService,
-    ProductionService,
-    ProductionV2Service,
     MachineWorkCoordinator,
     SocialLabService,
-    VideoLabRunner,
 )
 from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.comfy import ComfyHttpClient
@@ -58,14 +53,12 @@ from panelforge.infrastructure.llm import (
 )
 from panelforge.infrastructure.presets import (
     ChangeViewPresetRecipe,
-    Krea2T2IRecipe,
     VideoLabPresetRecipe,
     Ref2VH3RenderPresetRecipe,
     H3RenderPresetRecipe,
     load_change_view_preset,
     load_krea2_batch_workflow,
     load_krea2_edit_workflow,
-    load_krea2_t2i_workflow,
     load_video_lab_workflow,
     load_h3_render_workflow,
 )
@@ -114,20 +107,16 @@ from panelforge.infrastructure.production_thermal import (
 from panelforge.infrastructure.storage.krea2_style_presets import LocalKrea2StylePresetStore
 from panelforge.infrastructure.storage import (
     LocalAssetStore,
+    LocalVideoRunHistory,
     LocalH3RenderProjectStore,
     LocalKrea2AssistedProjectStore,
     LocalLlmCallStore,
-    LocalKrea2BatchStore,
+    LocalKrea2BatchHistory,
     LocalKrea2EditStore,
-    LocalKrea2RunStore,
     LocalPromptSessionStore,
     LocalPromptCompositionStore,
-    LocalProductionLoraMemory,
-    LocalProductionJobStore,
-    LocalProductionV2Store,
     LocalRunStore,
     LocalSocialLabStore,
-    LocalVideoRunStore,
     LocalWorkSchedulerSettings,
     LocalThermalHistoryStore,
 )
@@ -149,14 +138,6 @@ VIDEO_PRESET_DIRECTORY = (
     / "0.2.1"
 )
 REF2V_RENDER_WORKFLOW_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.5"
-HISTORICAL_REF2V_DIRECTORY = VIDEO_PRESET_DIRECTORY.parent / "0.2.0"
-KREA2_PRESET_DIRECTORY = (
-    PROJECT_ROOT
-    / "workflows"
-    / "image.generate.t2i"
-    / "krea2"
-    / "0.1.0"
-)
 H3_RENDER_WORKFLOW_DIRECTORY = (
     PROJECT_ROOT
     / "workflows"
@@ -203,10 +184,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--http-timeout", type=float, default=30.0)
     parser.add_argument("--runtime-timeout", type=float, default=2.0)
     parser.add_argument("--run-timeout", type=float, default=600.0)
-    parser.add_argument("--video-run-timeout", type=float, default=3600.0)
     parser.add_argument("--h3-render-run-timeout", type=float, default=3600.0)
-    parser.add_argument("--krea2-run-timeout", type=float, default=3600.0)
-    parser.add_argument("--krea2-batch-run-timeout", type=float, default=3600.0)
     parser.add_argument("--krea2-edit-run-timeout", type=float, default=3600.0)
     parser.add_argument("--krea2-assisted-run-timeout", type=float, default=3600.0)
     parser.add_argument(
@@ -318,17 +296,11 @@ def build_app(args: argparse.Namespace):
         PROJECT_ROOT / "workflows/video.vae/minimax-h3-int8-convrot/1.0.0/manifest.json",
     )
     recipe = ChangeViewPresetRecipe(load_change_view_preset(PRESET_DIRECTORY))
-    video_recipe = VideoLabPresetRecipe(
-        load_video_lab_workflow(VIDEO_PRESET_DIRECTORY)
-    )
     ref2v_render_recipe = MultiLoraH3RenderRecipe(Ref2VH3RenderPresetRecipe(VideoLabPresetRecipe(
         load_video_lab_workflow(REF2V_RENDER_WORKFLOW_DIRECTORY))), REF2V_RENDER_WORKFLOW_DIRECTORY)
     h3_render_recipe = MultiLoraH3RenderRecipe(H3RenderPresetRecipe(
         load_h3_render_workflow(H3_RENDER_WORKFLOW_DIRECTORY)
     ), H3_RENDER_WORKFLOW_DIRECTORY)
-    krea2_recipe = Krea2T2IRecipe(
-        load_krea2_t2i_workflow(KREA2_PRESET_DIRECTORY)
-    )
     krea2_batch_workflow = load_krea2_batch_workflow(KREA2_BATCH_WORKFLOW_DIRECTORY)
     krea2_edit_workflow = load_krea2_edit_workflow(KREA2_EDIT_WORKFLOW_DIRECTORY)
     dlss_root = Path(getattr(args, "dlss_root", r"D:\AI\ComfyUI_windows_portable"))
@@ -336,34 +308,19 @@ def build_app(args: argparse.Namespace):
     dlss_fallback_roots = (dlss_root / "ComfyUI/output",)
     assets = LocalAssetStore(args.workspace, external_roots=(dlss_output_root, *dlss_fallback_roots))
     runs = LocalRunStore(args.workspace)
-    video_runs = LocalVideoRunStore(args.workspace)
     h3_render_projects = LocalH3RenderProjectStore(args.workspace)
     social_projects = LocalSocialLabStore(args.workspace)
-    krea2_runs = LocalKrea2RunStore(args.workspace)
-    krea2_batches = LocalKrea2BatchStore(args.workspace)
+    video_runs = LocalVideoRunHistory(args.workspace)
+    krea2_batches = LocalKrea2BatchHistory(args.workspace)
     krea2_assisted_projects = LocalKrea2AssistedProjectStore(args.workspace)
     krea2_edits = LocalKrea2EditStore(args.workspace)
     prompt_sessions = LocalPromptSessionStore(args.workspace)
     prompt_compositions = LocalPromptCompositionStore(args.workspace)
     llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
     llm_traces = LocalLlmTraceStore(args.workspace)
-    production_jobs = LocalProductionJobStore(args.workspace)
-    production_v2_store = LocalProductionV2Store(args.workspace)
     comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-lab-{uuid4().hex}",
-        timeout=args.http_timeout,
-        **http_options,
-    )
-    video_comfy = ComfyHttpClient(
-        args.base_url,
-        client_id=f"panelforge-video-lab-{uuid4().hex}",
-        timeout=args.http_timeout,
-        **http_options,
-    )
-    krea2_comfy = ComfyHttpClient(
-        args.base_url,
-        client_id=f"panelforge-krea2-lab-{uuid4().hex}",
         timeout=args.http_timeout,
         **http_options,
     )
@@ -432,25 +389,6 @@ def build_app(args: argparse.Namespace):
         poll_interval=args.poll_interval,
         work_coordinator=machine_work,
     )
-    video_lab = VideoLabRunner(
-        recipe=video_vae_updates.upgrade(video_recipe),
-        historical_recipes=(video_recipe, VideoLabPresetRecipe(load_video_lab_workflow(HISTORICAL_REF2V_DIRECTORY))),
-        comfy=video_comfy,
-        assets=assets,
-        runs=video_runs,
-        run_timeout=args.video_run_timeout,
-        poll_interval=args.poll_interval,
-        work_coordinator=machine_work,
-    )
-    krea2_lab = Krea2LabRunner(
-        recipe=krea2_recipe,
-        comfy=krea2_comfy,
-        assets=assets,
-        runs=krea2_runs,
-        run_timeout=args.krea2_run_timeout,
-        poll_interval=args.poll_interval,
-        work_coordinator=machine_work,
-    )
     routed_gateway = RoutedMultimodalGateway(
         {
             "server": OpenAICompatibleGateway(
@@ -499,19 +437,6 @@ def build_app(args: argparse.Namespace):
         KREA2_BATCH_RECIPE_DIRECTORY,
         workspace_root=args.workspace,
     )
-    krea2_batch = Krea2BatchService(
-        gateway=gateway,
-        recipes=krea2_visual_recipes,
-        workflow=krea2_batch_workflow,
-        comfy=krea2_batch_comfy,
-        assets=assets,
-        batches=krea2_batches,
-        resources=krea2_resources,
-        application_outcomes=gateway,
-        run_timeout=getattr(args, "krea2_batch_run_timeout", 3600.0),
-        poll_interval=args.poll_interval,
-        work_coordinator=machine_work,
-    )
     krea2_assisted_default_workflow = load_krea2_assisted_workflow(
         PROJECT_ROOT / "workflows" / "image.generate.assisted" / "krea2-sampling" / "1.0.0",
         krea2_batch_workflow,
@@ -557,7 +482,7 @@ def build_app(args: argparse.Namespace):
         comfy=krea2_edit_comfy,
         assets=assets,
         sources=krea2_edits,
-        batches=krea2_batch,
+        batches=krea2_batches,
         project_exporter=LocalKrea2ProjectExporter(
             getattr(
                 args,
@@ -713,31 +638,6 @@ def build_app(args: argparse.Namespace):
         traces=llm_traces, application_outcomes=gateway)
     from panelforge.application.episodes import EpisodeService
     from panelforge.infrastructure.storage.episodes import LocalEpisodeStore
-    production_lora_memory = LocalProductionLoraMemory(args.workspace)
-    production = ProductionService(
-        gateway=gateway,
-        assets=assets,
-        jobs=production_jobs,
-        krea2=krea2_assisted,
-        prompt_lab=prompt_lab,
-        composition=prompt_composition,
-        h3_render=h3_render,
-        thermal_monitor=production_thermal_monitor,
-        lora_resources=krea2_resources,
-        lora_memory=production_lora_memory,
-    )
-    production_v2 = ProductionV2Service(
-        assets=assets,
-        store=production_v2_store,
-        krea2=krea2_assisted,
-        prompt_lab=prompt_lab,
-        composition=prompt_composition,
-        h3_render=h3_render,
-        thermal_monitor=production_thermal_monitor,
-        gateway=gateway,
-        lora_resources=krea2_resources,
-        lora_memory=production_lora_memory,
-    )
     dlss_url = getattr(args, "dlss_base_url", "http://127.0.0.1:8188")
     dlss_jobs = LocalDlssJobs(args.workspace)
     dlss_comfy = ComfyHttpClient(dlss_url, client_id="panelforge-dlss", timeout=30, **http_options)
@@ -838,12 +738,10 @@ def build_app(args: argparse.Namespace):
         dlss=dlss,
         prompt_lab=prompt_lab,
         prompt_composition=prompt_composition,
-        video_lab=video_lab,
         h3_render=h3_render,
         h3_lora_resources=H3LoraResourceCatalog(workspace_root=args.workspace,
             inventory=h3_render.video_lora_inventory, comfy=krea2_batch_comfy),
-        krea2_lab=krea2_lab,
-        krea2_batch=krea2_batch,
+        krea2_resources=krea2_resources,
         krea2_edit=krea2_edit,
         qwen_edit=qwen_edit,
         minimax_edit=minimax_edit,
@@ -855,8 +753,6 @@ def build_app(args: argparse.Namespace):
         media_analysis=media_analysis,
         stories=stories,
         episodes=episodes,
-        production=production,
-        production_v2=production_v2,
         machine_work=machine_work,
         llm_activity_monitor=gateway,
         model_runtime=LlamaSwapAdminClient(
